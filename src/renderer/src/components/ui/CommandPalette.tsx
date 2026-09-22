@@ -68,7 +68,11 @@ import { TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
 import { KbdChord } from './KbdChord'
 import { Tabs, type TabItem } from './Tabs'
-import { InstalledSkillsPanel } from '../palette/InstalledSkillsPanel'
+import {
+  INSTALLED_SKILLS_RESULTS_ID,
+  InstalledSkillsPanel,
+  type InstalledSkillsPanelHandle,
+} from '../palette/InstalledSkillsPanel'
 import { OVERLAY_SHELL_CHROME_CLASS, overlayWidthStyle } from './tokens'
 
 // The four canonical source groups the global-search palette organizes results
@@ -242,8 +246,12 @@ export default function CommandPalette({
     inputRef.current?.focus()
   }
   useEffect(() => {
-    if (scope !== 'skills') inputRef.current?.focus()
+    inputRef.current?.focus()
   }, [scope])
+  // The Skills tab lists the installed inventory under the same field: the
+  // panel takes the field's arrows and Enter first and names its active row.
+  const skillsPanelRef = useRef<InstalledSkillsPanelHandle>(null)
+  const [skillsActiveOptionId, setSkillsActiveOptionId] = useState<string | undefined>(undefined)
   const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
@@ -1174,6 +1182,12 @@ export default function CommandPalette({
   }, [selected])
 
   const handleKey = (event: React.KeyboardEvent) => {
+    // The inventory's rows are the panel's; only the step back to All below is
+    // the palette's own in that tab.
+    if (scope === 'skills' && event.key !== 'Backspace') {
+      skillsPanelRef.current?.handleKey(event)
+      return
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       setSelected((current) => Math.min(current + 1, visible.length - 1))
@@ -1237,7 +1251,8 @@ export default function CommandPalette({
     }
   }
 
-  const activeOptionId = visible[selected] ? `palette-option-${visible[selected].id}` : undefined
+  const activeOptionId =
+    scope === 'skills' ? skillsActiveOptionId : visible[selected] ? `palette-option-${visible[selected].id}` : undefined
   // One id per scope, so the strip's `aria-controls` and the combobox's both
   // resolve to the list that is showing — the results ARE the tab's panel.
   const resultsId = `command-palette-panel-${scope}`
@@ -1286,44 +1301,46 @@ export default function CommandPalette({
               borderless
               className="px-2 pt-1"
             />
-            {scope !== 'skills' && (
-              <div className="flex items-center gap-2 px-4 py-3">
-                {/* The leading mark is the search glyph, not a ⌘: the field is a
-                  search, and the chord that opened it is not what it is for. */}
-                <PaletteSearchGlyph className="icon-sm shrink-0 text-[color:var(--text-disabled)]" />
-                <input
-                  ref={inputRef}
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value)
-                    setSelected(0)
-                  }}
-                  onKeyDown={handleKey}
-                  placeholder={PALETTE_PLACEHOLDER[scope]}
-                  aria-label={PALETTE_INPUT_LABEL[scope]}
-                  role="combobox"
-                  aria-expanded={visible.length > 0}
-                  aria-controls={resultsId}
-                  aria-activedescendant={activeOptionId}
-                  // No ring on the field (owner ruling 2026-09-10). The shell IS
-                  // the field: it opens with the caret in it, the caret is the
-                  // focus signal, and a 2px ring drawn inside a bordered band the
-                  // whole width of the shell read as a second box around the one
-                  // thing on screen. The tab strip keeps its ring, so a keyboard
-                  // walk still shows where focus went; coming back to the field
-                  // shows the caret.
-                  className="flex-1 bg-transparent text-heading text-[color:var(--text-strong)] outline-none placeholder-[color:var(--text-disabled)]"
-                />
-              </div>
-            )}
+            {/* Every tab, Skills included, filters through this one field. */}
+            <div className="flex items-center gap-2 px-4 py-3">
+              {/* The leading mark is the search glyph, not a ⌘: the field is a
+                search, and the chord that opened it is not what it is for. */}
+              <PaletteSearchGlyph className="icon-sm shrink-0 text-[color:var(--text-disabled)]" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setSelected(0)
+                }}
+                onKeyDown={handleKey}
+                placeholder={PALETTE_PLACEHOLDER[scope]}
+                aria-label={PALETTE_INPUT_LABEL[scope]}
+                role="combobox"
+                aria-expanded={scope === 'skills' ? skillsActiveOptionId !== undefined : visible.length > 0}
+                aria-controls={scope === 'skills' ? INSTALLED_SKILLS_RESULTS_ID : resultsId}
+                aria-activedescendant={activeOptionId}
+                // No ring on the field (owner ruling 2026-09-10). The shell IS
+                // the field: it opens with the caret in it, the caret is the
+                // focus signal, and a 2px ring drawn inside a bordered band the
+                // whole width of the shell read as a second box around the one
+                // thing on screen. The tab strip keeps its ring, so a keyboard
+                // walk still shows where focus went; coming back to the field
+                // shows the caret.
+                className="flex-1 bg-transparent text-heading text-[color:var(--text-strong)] outline-none placeholder-[color:var(--text-disabled)]"
+              />
+            </div>
           </div>
 
           {scope === 'skills' ? (
             <InstalledSkillsPanel
+              ref={skillsPanelRef}
+              query={query}
+              fieldRef={inputRef}
+              onActiveOptionChange={setSkillsActiveOptionId}
               workspaceRoot={activeFolderPath}
               workspaceId={activeWorkspaceId}
               preferredTarget={preferredTarget}
-              onBack={() => selectScope('all')}
               onBrowse={() => {
                 openExtensionsSurface({ view: 'skills' })
                 onClose()

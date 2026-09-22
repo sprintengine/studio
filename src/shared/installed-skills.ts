@@ -11,7 +11,16 @@ export type InstalledSkill = {
   removalNote?: string
 }
 
-export type InstalledSkillsInput = { workspaceRoot: string | null; pluginId: string }
+export type InstalledSkillsInput = {
+  workspaceRoot: string | null
+  pluginId: string
+  /**
+   * `wsl` when the CLI runs inside WSL on Windows, so its user folders are read
+   * from the Linux home rather than the Windows profile. Absent means the CLI
+   * runs on this machine's own filesystem.
+   */
+  pathStyle?: 'wsl'
+}
 export type InstalledSkillsResult =
   { ok: true; skills: InstalledSkill[]; diagnostics: string[] } | { ok: false; message: string }
 export type InstalledSkillRemoveInput = InstalledSkillsInput & { installationId: string }

@@ -1,17 +1,31 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { afterEach, test } from 'vitest'
 import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
-import { createInstalledSkillsService } from './installed-skills-service'
+import {
+  claudeReceiptRoots,
+  createInstalledSkillsService,
+  parseWslProbe,
+  samePath,
+  wslToHost,
+  type WslHome,
+} from './installed-skills-service'
 
 const temporary: string[] = []
 afterEach(async () => {
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
-async function fixture() {
+// The shipped manifest, so a change to its install target cannot quietly stop
+// Claude Code's skills being found.
+const claudeCodeManifest = JSON.parse(
+  readFileSync(join(__dirname, '../../resources/plugins/claude-code/plugin.json'), 'utf8'),
+) as PluginRegistryListEntry
+
+async function fixture(options: { env?: NodeJS.ProcessEnv; probeWsl?: () => Promise<WslHome | null> } = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'installed-skills-')))
   temporary.push(base)
   const home = join(base, 'home')
@@ -34,10 +48,12 @@ async function fixture() {
       ],
     },
   })) as PluginRegistryListEntry[]
+  plugins.push({ ...claudeCodeManifest, id: 'claude-code' })
   const trashed: string[] = []
   const service = createInstalledSkillsService({
     homeDir: home,
-    env: {},
+    env: options.env ?? {},
+    ...(options.probeWsl ? { probeWsl: options.probeWsl } : {}),
     listPlugins: () => plugins,
     trashItem: async (path) => {
       trashed.push(path)
@@ -192,4 +208,157 @@ test('Grok lists native, compatible, configured and plugin skills without making
   assert.ok(result.ok)
   assert.deepEqual(result.skills.map((skill) => skill.name).sort(), ['compatible', 'configured', 'native', 'plugin'])
   assert.equal(result.skills.find((skill) => skill.name === 'plugin')!.removable, false)
+})
+
+test('Claude Code, through its shipped manifest, lists its project and user skills', async () => {
+  const f = await fixture()
+  await f.skill(join(f.project, '.claude/skills/local'), 'local')
+  await f.skill(join(f.home, '.claude/skills/personal'), 'personal')
+  const result = await f.service.list({ ...f.input, pluginId: 'claude-code' })
+  assert.ok(result.ok)
+  assert.deepEqual(
+    result.skills.map((skill) => [skill.name, skill.scope]),
+    [
+      ['personal', 'global'],
+      ['local', 'project'],
+    ],
+  )
+})
+
+test('CLAUDE_CONFIG_DIR is read as Claude reads it: the first comma entry, trimmed', async () => {
+  const configDir = await realpath(await mkdtemp(join(tmpdir(), 'installed-skills-config-')))
+  temporary.push(configDir)
+  const f = await fixture({ env: { CLAUDE_CONFIG_DIR: ` ${configDir} , /Users/dev/.claude-other` } })
+  await f.skill(join(configDir, 'skills/configured'), 'configured')
+  await f.skill(join(f.home, '.claude/skills/default'), 'default')
+  const result = await f.service.list({ ...f.input, pluginId: 'claude-code' })
+  assert.ok(result.ok)
+  assert.deepEqual(
+    result.skills.map((skill) => skill.name),
+    ['configured'],
+  )
+})
+
+test('an older single-object Claude plugin receipt still lists its skills', async () => {
+  const f = await fixture()
+  const pluginPath = await f.skill(join(f.base, 'plugin/skills/example'))
+  await mkdir(join(f.home, '.claude/plugins'), { recursive: true })
+  await writeFile(
+    join(f.home, '.claude/plugins/installed_plugins.json'),
+    JSON.stringify({
+      version: 1,
+      plugins: { 'tools@acme': { version: '1.0.0', installPath: join(f.base, 'plugin') } },
+    }),
+  )
+  const result = await f.service.list({ ...f.input, pluginId: 'claude-code' })
+  assert.ok(result.ok)
+  assert.deepEqual(
+    result.skills.map((skill) => [skill.path, skill.scope, skill.removable]),
+    [[pluginPath, 'global', false]],
+  )
+})
+
+test('Windows paths name the same folder whatever their case or separator', () => {
+  assert.equal(samePath('C:\\Users\\dev\\project', 'c:/users/DEV/project/', win32), true)
+  assert.equal(samePath('C:\\Users\\dev', 'C:\\Users\\dev\\project', win32), false)
+  assert.equal(samePath('\\\\wsl.localhost\\Ubuntu\\home\\dev', '\\\\WSL.LOCALHOST\\Ubuntu\\home\\dev\\', win32), true)
+  // POSIX stays case-sensitive: two folders really can differ only in case.
+  assert.equal(samePath('/Users/dev/project', '/Users/dev/Project', posix), false)
+  assert.equal(samePath('/Users/dev/project/', '/Users/dev/project', posix), true)
+})
+
+test('a Claude project plugin receipt matches the Windows project however the path is spelled', () => {
+  const receipt = {
+    version: 2,
+    plugins: {
+      'tools@acme': [
+        {
+          scope: 'project',
+          projectPath: 'C:\\Users\\dev\\project',
+          installPath: 'C:\\Users\\dev\\.claude\\plugins\\cache\\acme\\tools\\1.0.0',
+        },
+      ],
+      'other@acme': [{ scope: 'project', projectPath: 'C:\\Users\\dev\\elsewhere', installPath: 'C:\\plugins\\other' }],
+      'shared@acme': [{ scope: 'user', installPath: 'C:\\Users\\dev\\.claude\\plugins\\cache\\acme\\shared\\2.0.0' }],
+    },
+  }
+  assert.deepEqual(claudeReceiptRoots(receipt, ['c:/Users/dev/project'], { api: win32 }), [
+    {
+      path: 'C:\\Users\\dev\\.claude\\plugins\\cache\\acme\\tools\\1.0.0\\skills',
+      scope: 'project',
+      origin: 'Plugin: tools@acme',
+    },
+    {
+      path: 'C:\\Users\\dev\\.claude\\plugins\\cache\\acme\\shared\\2.0.0\\skills',
+      scope: 'global',
+      origin: 'Plugin: shared@acme',
+    },
+  ])
+  // A package inside the checkout inherits the checkout's project plugins.
+  assert.equal(
+    claudeReceiptRoots(receipt, ['C:\\Users\\dev\\project\\packages\\app', 'C:\\Users\\dev\\project'], { api: win32 })
+      .length,
+    2,
+  )
+})
+
+test('paths a CLI wrote inside WSL open through the drive or the distribution root', () => {
+  const root = '\\\\wsl.localhost\\Ubuntu\\'
+  assert.equal(wslToHost('/mnt/c/Users/dev/project', root, win32), 'C:\\Users\\dev\\project')
+  assert.equal(
+    wslToHost('/home/dev/.claude/plugins/x', root, win32),
+    '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude\\plugins\\x',
+  )
+  assert.equal(wslToHost('C:\\Users\\dev\\project', root, win32), 'C:\\Users\\dev\\project')
+})
+
+test('the WSL probe ignores login-shell noise and Windows line endings', () => {
+  assert.deepEqual(
+    parseWslProbe(
+      'Welcome to Ubuntu\r\nSPRINTENGINE_WSL_HOME=\\\\wsl.localhost\\Ubuntu\\home\\dev\r\nSPRINTENGINE_WSL_ROOT=\\\\wsl.localhost\\Ubuntu\\\r\nSPRINTENGINE_WSL_CLAUDE_CONFIG_DIR=\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude-work\r\n',
+    ),
+    {
+      home: '\\\\wsl.localhost\\Ubuntu\\home\\dev',
+      root: '\\\\wsl.localhost\\Ubuntu\\',
+      env: { CLAUDE_CONFIG_DIR: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude-work' },
+    },
+  )
+  assert.equal(parseWslProbe('wsl: no distribution installed\r\n'), null)
+})
+
+test('a Claude Code session inside WSL lists the WSL home, not the Windows profile', async () => {
+  const wslRoot = await realpath(await mkdtemp(join(tmpdir(), 'installed-skills-wsl-')))
+  temporary.push(wslRoot)
+  const wslHome = join(wslRoot, 'home/dev')
+  const f = await fixture({ probeWsl: async () => ({ home: wslHome, root: wslRoot, env: {} }) })
+  await f.skill(join(f.home, '.claude/skills/windows-only'), 'windows-only')
+  await f.skill(join(wslHome, '.claude/skills/in-wsl'), 'in-wsl')
+  await f.skill(join(f.project, '.claude/skills/local'), 'local')
+  // The receipt inside WSL names Linux paths; they resolve under the distribution root.
+  const pluginPath = await f.skill(join(wslRoot, 'opt/plugins/tools/skills/tool'), 'tool')
+  await mkdir(join(wslHome, '.claude/plugins'), { recursive: true })
+  await writeFile(
+    join(wslHome, '.claude/plugins/installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'tools@acme': [{ scope: 'user', installPath: '/opt/plugins/tools' }] } }),
+  )
+  const input = { ...f.input, pluginId: 'claude-code', pathStyle: 'wsl' as const }
+  const result = await f.service.list(input)
+  assert.ok(result.ok)
+  assert.deepEqual(result.skills.map((skill) => skill.name).sort(), ['in-wsl', 'local', 'tool'])
+  assert.equal(result.skills.find((skill) => skill.name === 'tool')!.path, pluginPath)
+  // The same session read without WSL is a different context: its ids cannot remove these rows.
+  const id = result.skills.find((skill) => skill.name === 'in-wsl')!.id
+  assert.equal((await f.service.remove({ ...input, pathStyle: undefined, installationId: id })).ok, false)
+})
+
+test('an unreadable WSL home is reported instead of reading as no skills', async () => {
+  const f = await fixture({ probeWsl: async () => null })
+  await f.skill(join(f.project, '.claude/skills/local'), 'local')
+  const result = await f.service.list({ ...f.input, pluginId: 'claude-code', pathStyle: 'wsl' })
+  assert.ok(result.ok)
+  assert.deepEqual(
+    result.skills.map((skill) => skill.name),
+    ['local'],
+  )
+  assert.match(result.diagnostics.join('\n'), /WSL home/)
 })
