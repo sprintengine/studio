@@ -3,7 +3,20 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The probe's own environment, as it would inherit it from a shell that exports
+// an API key and a base URL. Only the probe's default env reads this; the
+// tests below that inject `env` never do.
+vi.mock('../cli-runtime-install', () => ({
+  defaultProbeEnv: () => ({
+    PATH: '/usr/bin',
+    HOME: '/Users/dev',
+    ANTHROPIC_API_KEY: 'sk-test-not-a-key',
+    ANTHROPIC_AUTH_TOKEN: 'token-test',
+    ANTHROPIC_BASE_URL: 'https://proxy.example.com',
+  }),
+}))
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk'
 
 import { mapAgentSdkModels, probeAgentSdkModels, type AgentSdkProbeDeps } from './agent-sdk-probe'
@@ -105,4 +118,10 @@ test('an SDK failure, a WSL runtime and an unresolved path are sentences', async
   assert.equal(session.closed, 1)
   await assert.rejects(probeAgentSdkModels({ ...CONTEXT, useWsl: true }, deps), CliModelProbeError)
   await assert.rejects(probeAgentSdkModels({ ...CONTEXT, binary: 'claude' }, deps), CliModelProbeError)
+})
+
+test('the probe runs on the CLI login: no API key, token or base URL reaches the child', async () => {
+  const { deps, session } = fakeSdk(async () => ROWS)
+  await probeAgentSdkModels(CONTEXT, { loadQuery: deps.loadQuery })
+  assert.deepEqual((session.options as { env: Record<string, string> }).env, { PATH: '/usr/bin', HOME: '/Users/dev' })
 })
