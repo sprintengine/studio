@@ -88,6 +88,8 @@ export type AgentLaunchSettingsPatch = {
 export type AgentLaunchSettingsSnapshot = {
   record: AgentLaunchSettingsRecord | null
   settings: AgentLaunchSettings
+  /** Whether `record` is on disk. False for no record, or one a failed write left only in memory. */
+  persisted: boolean
 }
 
 /**
@@ -101,6 +103,12 @@ export type AgentLaunchSettingsWriteAck = {
   ok: true
   record: AgentLaunchSettingsRecord
   changed: boolean
+  /**
+   * Whether `record` is on disk. False when the write failed and main holds it
+   * only in memory until it restarts; a window then keeps its own localStorage
+   * copy of these settings, so the next boot can offer them again.
+   */
+  persisted: boolean
 }
 
 /**

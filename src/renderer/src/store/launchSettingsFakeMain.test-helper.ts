@@ -27,11 +27,15 @@ export type FakeLaunchSettingsMain = {
   broadcast: (record: AgentLaunchSettingsRecord) => void
   /** Make the next `update` call reject, as a lost IPC would. */
   failNextUpdate: () => void
+  /** Whether main's writes reach disk from now on (a full or read-only disk when false). */
+  setDiskWritable: (writable: boolean) => void
 }
 
 export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null = null): FakeLaunchSettingsMain {
   let record: AgentLaunchSettingsRecord | null = null
   let failNext = false
+  let writable = true
+  let durableRevision = 0
   const listeners = new Set<(record: AgentLaunchSettingsRecord) => void>()
   const calls: FakeLaunchSettingsMain['calls'] = { get: 0, update: [], migrate: [] }
 
@@ -43,17 +47,23 @@ export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null
       changedAt: 0,
       lastWrite: { actor: 'ui', at: '' },
     }
+    if (writable) durableRevision = record.revision
     for (const listener of listeners) listener(structuredClone(record))
     return record
   }
+
+  const persisted = (held: AgentLaunchSettingsRecord | null) => held !== null && durableRevision >= held.revision
 
   function update(patch: unknown): AgentLaunchSettingsWriteAck {
     const next = applyAgentLaunchSettingsPatch(
       record?.settings ?? emptyAgentLaunchSettings(),
       normalizeAgentLaunchSettingsPatch(patch),
     )
-    if (record && agentLaunchSettingsEqual(record.settings, next)) return { ok: true, record, changed: false }
-    return { ok: true, record: commit(next), changed: true }
+    if (record && agentLaunchSettingsEqual(record.settings, next)) {
+      return { ok: true, record, changed: false, persisted: persisted(record) }
+    }
+    const committed = commit(next)
+    return { ok: true, record: committed, changed: true, persisted: persisted(committed) }
   }
 
   if (initial) commit(normalizeAgentLaunchSettings(initial))
@@ -61,7 +71,11 @@ export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null
   const api: LaunchSettingsApi = {
     launchSettingsGet: async () => {
       calls.get += 1
-      return structuredClone({ record, settings: record?.settings ?? emptyAgentLaunchSettings() })
+      return structuredClone({
+        record,
+        settings: record?.settings ?? emptyAgentLaunchSettings(),
+        persisted: persisted(record),
+      })
     },
     launchSettingsUpdate: async (patch) => {
       calls.update.push(structuredClone(patch))
@@ -73,12 +87,9 @@ export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null
     },
     launchSettingsMigrate: async (settings) => {
       calls.migrate.push(structuredClone(settings))
-      if (record) return structuredClone({ ok: true as const, record, changed: false })
-      return structuredClone({
-        ok: true as const,
-        record: commit(normalizeAgentLaunchSettings(settings)),
-        changed: true,
-      })
+      if (record) return structuredClone({ ok: true as const, record, changed: false, persisted: persisted(record) })
+      const committed = commit(normalizeAgentLaunchSettings(settings))
+      return structuredClone({ ok: true as const, record: committed, changed: true, persisted: persisted(committed) })
     },
     onLaunchSettingsChanged: (cb) => {
       listeners.add(cb)
@@ -96,6 +107,9 @@ export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null
     },
     failNextUpdate: () => {
       failNext = true
+    },
+    setDiskWritable: (next) => {
+      writable = next
     },
   }
 }

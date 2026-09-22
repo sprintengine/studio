@@ -63,7 +63,7 @@ async function withIpc(
 
 test('the window side registers exactly the get, update and migrate invokes', async () => {
   await withIpc(async ({ invoke }) => {
-    const snapshot = invoke(LAUNCH_SETTINGS_CHANNELS.get) as AgentLaunchSettingsSnapshot
+    const snapshot = (await invoke(LAUNCH_SETTINGS_CHANNELS.get)) as AgentLaunchSettingsSnapshot
     assert.equal(snapshot.record, null)
     assert.equal(snapshot.settings.lastSelectedCli, null)
     assert.throws(() => invoke('launch-settings:sync', {}), /no handler/, 'the full-record push is gone')
@@ -73,7 +73,9 @@ test('the window side registers exactly the get, update and migrate invokes', as
 
 test('an update is answered with main record and broadcast to every live window', async () => {
   await withIpc(async ({ invoke, windows }) => {
-    const ack = invoke(LAUNCH_SETTINGS_CHANNELS.update, { lastSelectedCli: 'codex' }) as AgentLaunchSettingsWriteAck
+    const ack = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
     assert.equal(ack.ok, true)
     assert.equal(ack.changed, true)
     assert.equal(ack.record.settings.lastSelectedCli, 'codex')
@@ -85,7 +87,9 @@ test('an update is answered with main record and broadcast to every live window'
     assert.deepEqual(b?.sent, expected)
     assert.deepEqual(gone?.sent, [], 'a destroyed window is skipped')
 
-    const repeat = invoke(LAUNCH_SETTINGS_CHANNELS.update, { lastSelectedCli: 'codex' }) as AgentLaunchSettingsWriteAck
+    const repeat = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
     assert.equal(repeat.changed, false)
     assert.equal(a?.sent.length, 1, 'an update that changes nothing is not broadcast')
   })
@@ -131,6 +135,13 @@ test('an accepted migration is answered only once it is on disk', async () => {
     )
     assert.equal(onDisk?.revision, accepted.record.revision)
     assert.equal(onDisk?.settings.lastSelectedCli, 'gemini')
+    assert.equal(accepted.persisted, true)
+    const updated = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
+    assert.equal(updated.persisted, true)
+    const snapshot = (await invoke(LAUNCH_SETTINGS_CHANNELS.get)) as AgentLaunchSettingsSnapshot
+    assert.equal(snapshot.persisted, true)
   })
 })
 

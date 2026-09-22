@@ -10,8 +10,8 @@ type LaunchSettingsIpcDependencies = {
   getWindows?: () => WindowLike[]
 }
 
-function ack(result: AgentLaunchSettingsWriteResult): AgentLaunchSettingsWriteAck {
-  return { ok: true, record: result.record, changed: result.changed }
+async function ack(result: AgentLaunchSettingsWriteResult): Promise<AgentLaunchSettingsWriteAck> {
+  return { ok: true, record: result.record, changed: result.changed, persisted: await result.persisted }
 }
 
 /**
@@ -28,18 +28,16 @@ function ack(result: AgentLaunchSettingsWriteResult): AgentLaunchSettingsWriteAc
 export function registerLaunchSettingsIpc(ipcMain: IpcMain, deps: LaunchSettingsIpcDependencies): () => void {
   ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.get, () => deps.launchSettings.getSnapshot())
 
+  // Every answer waits for its write to settle and says whether the record is
+  // on disk: the window deletes its localStorage copy of these settings only
+  // on an answer that says so, so a quit or a failed write never loses both.
   ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.update, (_event, patch: unknown) =>
     ack(deps.launchSettings.update(patch, 'ui')),
   )
 
-  // Answered only once an accepted migration's write has settled: the answer
-  // is what tells the window to delete its localStorage copy, so it must not
-  // arrive while main's copy exists only in memory.
-  ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.migrate, async (_event, payload: unknown) => {
-    const result = deps.launchSettings.migrate(payload)
-    await result.persisted
-    return ack(result)
-  })
+  ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.migrate, (_event, payload: unknown) =>
+    ack(deps.launchSettings.migrate(payload)),
+  )
 
   const getWindows = deps.getWindows ?? (() => BrowserWindow.getAllWindows())
   return deps.launchSettings.subscribe((record) => {

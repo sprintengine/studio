@@ -82,7 +82,11 @@ test('a migrated record is what main reads after a restart, with no window', asy
     assert.equal(read.mcp.syncEnabled, true)
     assert.equal(read.cliRuntimes.claude?.command, 'claude')
     assert.equal(afterRestart.getRecord()?.revision, 1)
-    assert.deepEqual(afterRestart.getSnapshot(), { record: afterRestart.getRecord(), settings: read })
+    assert.deepEqual(await afterRestart.getSnapshot(), {
+      record: afterRestart.getRecord(),
+      settings: read,
+      persisted: true,
+    })
   })
 })
 
@@ -272,7 +276,7 @@ test('a fresh install reads empty defaults and has no record', async () => {
     const store = harness.create()
     const read = store.get()
     assert.equal(store.getRecord(), null)
-    assert.deepEqual(store.getSnapshot(), { record: null, settings: read })
+    assert.deepEqual(await store.getSnapshot(), { record: null, settings: read, persisted: false })
     assert.equal(read.lastSelectedCli, null)
     assert.equal(read.lastAgentSpawnPermissionPreset, null)
     assert.deepEqual(read.cliRuntimes, {})
@@ -294,7 +298,7 @@ test('a legacy bare settings file reads, accepts a migration, and carries into a
     const store = harness.create()
     assert.equal(store.getRecord(), null, 'a bare settings file is readable but not authoritative')
     assert.equal(store.get().cliRuntimes.legacy?.command, 'legacy-cli')
-    assert.equal(store.getSnapshot().settings.cliRuntimes.legacy?.command, 'legacy-cli')
+    assert.equal((await store.getSnapshot()).settings.cliRuntimes.legacy?.command, 'legacy-cli')
 
     const upgraded = store.migrate(settings())
     assert.equal(upgraded.changed, true)
@@ -321,9 +325,28 @@ test('an unwritable store keeps its in-memory values and reports the failure', a
     })
     await writeFile(harness.filePath, 'not a directory', 'utf8')
     const result = store.update({ lastSelectedCli: 'claude-code' }, 'ui')
-    await result.persisted
+    assert.equal(await result.persisted, false, 'the write says it did not reach disk')
     assert.equal(store.get().lastSelectedCli, 'claude-code', 'in-memory values still apply')
+    assert.equal(
+      await store.update({ lastSelectedCli: 'claude-code' }, 'ui').persisted,
+      false,
+      'nor does a no-op on it',
+    )
+    assert.equal(await store.migrate({}).persisted, false, 'nor a refused migration answered with it')
+    assert.equal((await store.getSnapshot()).persisted, false, 'nor the boot read')
     assert.equal(harness.diagnostics.length, 1)
     assert.equal(harness.diagnostics[0]?.title, 'Agent launch settings not persisted')
+  })
+})
+
+test('every answer says whether its record is on disk', async () => {
+  await withHarness(async (harness) => {
+    const store = harness.create()
+    assert.equal((await store.getSnapshot()).persisted, false, 'no record is nothing on disk')
+    assert.equal(await store.migrate(settings()).persisted, true)
+    assert.equal(await store.update({ lastSelectedCli: 'codex' }, 'ui').persisted, true)
+    assert.equal(await store.update({ lastSelectedCli: 'codex' }, 'ui').persisted, true, 'a no-op on a saved record')
+    assert.equal(await store.migrate(settings()).persisted, true, 'a refusal answered with a saved record')
+    assert.equal((await harness.create().getSnapshot()).persisted, true, 'a record read back after a restart')
   })
 })
