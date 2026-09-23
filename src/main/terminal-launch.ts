@@ -28,9 +28,10 @@ import { resolveAgentStateSocketPath } from './agent-state-service'
 import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
-import { studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
+import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
+import { toWslPath, withWslSharedEnv } from './wsl-interop'
 
 export type ShellLaunchConfig = {
   command: string
@@ -237,18 +238,6 @@ export function launchPluginsSupportedOnThisPlatform(): boolean {
   return process.platform !== 'win32'
 }
 
-// The identity vars `agentIdentityEnv` owns. Cleared from a base env before the
-// session's own identity is applied, so a stale `SPRINTENGINE_AGENT_ID` inherited
-// by the app's own process (e.g. the app launched from inside an agent shell)
-// never leaks into a plain terminal or the wrong agent.
-const AGENT_IDENTITY_ENV_KEYS = [
-  'SPRINTENGINE_WORKSPACE_ID',
-  'SPRINTENGINE_AGENT_ID',
-  'SPRINTENGINE_AGENT_NAME',
-  'SPRINTENGINE_AGENT_STATE_SOCKET',
-  'SPRINTENGINE_AGENT_CLI',
-] as const
-
 // Apply this session's agent identity onto a base env: strip any inherited
 // identity first (no leak), then set this session's values. A non-agent launch
 // passes no ids, so the result simply carries no identity.
@@ -436,18 +425,6 @@ function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolea
     ...(merged.session.managed ? { managed: true } : {}),
     ...(merged.session.reapExempt ? { reapExempt: true } : {}),
   }
-}
-
-function toWslPath(dirPath: string): string {
-  const normalized = dirPath.replace(/\\/g, '/')
-  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/)
-
-  if (!driveMatch) {
-    return normalized
-  }
-
-  const [, drive, rest] = driveMatch
-  return `/mnt/${drive.toLowerCase()}/${rest}`
 }
 
 function toWindowsPath(dirPath: string): string {
@@ -1414,6 +1391,13 @@ export function getShellLaunchConfig(
     return {
       command: 'wsl.exe',
       args: ['-e', 'bash', '-li', toWslPath(startupScriptPath)],
+      // The session's identity is applied to this env at spawn, on the Windows
+      // side of `wsl.exe`, and Windows variables reach the Linux shell only when
+      // `WSLENV` names them. Without this the agent's hooks run with no agent id
+      // or socket and report nothing. A hook calling back out to the
+      // Windows-hosted runtime names them again for that crossing (see the
+      // agent-state service's WSL command runtime).
+      env: withWslSharedEnv(getTerminalEnv(), AGENT_IDENTITY_ENV_KEYS),
       pathStyle: 'wsl',
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
