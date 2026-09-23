@@ -175,7 +175,7 @@ test('agent-state-service', async () => {
     wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(wslConfig.includes("ELECTRON_RUN_AS_NODE='1'"), 'WSL command starts the host runtime as Node')
     assert.ok(
-      wslConfig.includes("WSLENV='ELECTRON_RUN_AS_NODE'"),
+      (/WSLENV='([^']*)'/u.exec(wslConfig)?.[1] ?? '').split(':').includes('ELECTRON_RUN_AS_NODE'),
       'WSL command forwards ELECTRON_RUN_AS_NODE through interop, or the binary opens the app and takes focus',
     )
     assert.ok(

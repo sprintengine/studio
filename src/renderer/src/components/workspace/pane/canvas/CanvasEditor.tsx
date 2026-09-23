@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaptureUpdateAction, Excalidraw, MainMenu, reconcileElements } from '@excalidraw/excalidraw'
+import {
+  CaptureUpdateAction,
+  Excalidraw,
+  MainMenu,
+  exportToBlob,
+  exportToSvg,
+  reconcileElements,
+} from '@excalidraw/excalidraw'
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -16,6 +23,7 @@ import './canvasTheme.css'
 import type {
   CanvasBoardState,
   CanvasElement,
+  CanvasExportImages,
   CanvasPresence,
   CanvasScenePush,
 } from '../../../../../../shared/canvas/types'
@@ -37,6 +45,7 @@ import {
   CANVAS_COMMIT_DEBOUNCE_MS,
   CANVAS_PUSH_RETRY_MS,
 } from './canvasSync'
+import type { CanvasBoardExporter } from './canvasExport'
 
 // The live editor, and the ONE file in the tree that imports
 // `@excalidraw/excalidraw`. It is reached only through the `React.lazy` in
@@ -132,6 +141,27 @@ type CanvasEditorProps = {
   onSwitchBoard: () => void
   onRevealFile: (() => void) | null
   onCopyPath: () => void
+  /**
+   * Export to a folder. Handed this editor's half of the job — flush what is on
+   * screen to main, then render the pictures asked for — so the tab can run the
+   * dialog and the folder picker without importing the library.
+   */
+  onExport: (exporter: CanvasBoardExporter) => void
+}
+
+/**
+ * A rendered picture as base64 for the trip to main. Chunked rather than one
+ * spread: a megabyte of pixels is more arguments than `String.fromCharCode`
+ * takes in one call.
+ */
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  const chunk = 0x8000
+  for (let at = 0; at < bytes.length; at += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(at, at + chunk))
+  }
+  return btoa(binary)
 }
 
 // The one collaborator slot an agent occupies. A stable id, so a second push
@@ -167,6 +197,7 @@ export default function CanvasEditor({
   onSwitchBoard,
   onRevealFile,
   onCopyPath,
+  onExport,
 }: CanvasEditorProps) {
   // The API handle as STATE, not a module-level or file-level variable: two
   // tabs on two boards are two editors, and React's development double-mount
@@ -491,6 +522,46 @@ export default function CanvasEditor({
     }
   }, [board.path, board.workspaceId])
 
+  /**
+   * This editor's half of an export.
+   *
+   * The commit comes first and is awaited: main writes the board file from
+   * what IT holds, so the last few hundred milliseconds of drawing have to
+   * reach it before the file is copied, or the export is a revision behind the
+   * screen. The pictures are rendered from the same scene, in the light theme
+   * and on the board's own background — a picture committed to a repository is
+   * read by people whose theme is not the one this app happened to be in.
+   */
+  const exportBoard = useCallback<CanvasBoardExporter>(
+    async (formats) => {
+      cancelCommitTimer()
+      await commitNow()
+      const editor = apiRef.current
+      if (!editor) return {}
+      const images: CanvasExportImages = {}
+      if (!formats.png && !formats.svg) return images
+      const elements = editor.getSceneElements()
+      if (elements.length === 0) return images
+      const files = editor.getFiles()
+      const appState = {
+        exportBackground: true,
+        exportWithDarkMode: false,
+        exportEmbedScene: false,
+        viewBackgroundColor: editor.getAppState().viewBackgroundColor || CANVAS_DEFAULT_BACKGROUND,
+      }
+      if (formats.png) {
+        const blob = await exportToBlob({ elements, appState, files, mimeType: 'image/png', exportPadding: 16 })
+        images.png = await blobToBase64(blob)
+      }
+      if (formats.svg) {
+        const svg = await exportToSvg({ elements, appState, files, exportPadding: 16 })
+        images.svg = svg.outerHTML
+      }
+      return images
+    },
+    [cancelCommitTimer, commitNow],
+  )
+
   const initialData = useMemo(() => {
     const persisted = reduceAppState(initialRef.current.appState)
     return {
@@ -520,6 +591,7 @@ export default function CanvasEditor({
           <MainMenu.Item onSelect={onSwitchBoard}>Switch board…</MainMenu.Item>
           {onRevealFile ? <MainMenu.Item onSelect={onRevealFile}>Reveal file</MainMenu.Item> : null}
           <MainMenu.Item onSelect={onCopyPath}>Copy path</MainMenu.Item>
+          <MainMenu.Item onSelect={() => onExport(exportBoard)}>Export to folder…</MainMenu.Item>
         </MainMenu.Group>
         <MainMenu.Separator />
         <MainMenu.DefaultItems.SearchMenu />
@@ -529,7 +601,7 @@ export default function CanvasEditor({
         <MainMenu.DefaultItems.ClearCanvas />
       </MainMenu>
     ),
-    [name, onCopyPath, onRevealFile, onSwitchBoard],
+    [exportBoard, name, onCopyPath, onExport, onRevealFile, onSwitchBoard],
   )
 
   /**

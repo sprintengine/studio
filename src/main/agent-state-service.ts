@@ -7,6 +7,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
 import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
+import { AGENT_IDENTITY_ENV_KEYS } from '../shared/studio-env'
 import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
 
 // =============================================================================
@@ -266,7 +267,11 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
           ? {
               commandRuntime: {
                 executable: toWslInteropExecutable(options.resolveHostNodeCommand()),
-                env: wslInteropEnv({ ELECTRON_RUN_AS_NODE: '1' }),
+                // The reporter reads the agent's id and socket from its env,
+                // and the WSL launch shared them into the Linux session, so
+                // they are named for the crossing back out as well.
+                env: wslInteropEnv({ ELECTRON_RUN_AS_NODE: '1' }, AGENT_IDENTITY_ENV_KEYS),
+                wslInterop: true,
               },
             }
           : {}),

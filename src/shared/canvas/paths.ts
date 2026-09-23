@@ -1,17 +1,33 @@
-// Where a board may live inside a project, and how a caller's spelling of a
-// board path is turned into the one form the service stores and compares by.
+// Where a board may live, and how a caller's spelling of a board path is turned
+// into the one form the service stores and compares by.
+//
+// Two places, told apart by the path's shape alone:
+//
+//   `arch.excalidraw`           no folder: a board in the app's own store, which
+//                               lives in the app's data folder, keyed by
+//                               project, and never inside the project's
+//                               working tree. Main resolves it; nothing else
+//                               ever sees where that is.
+//   `diagrams/arch.excalidraw`  a folder: that file in the project. Boards made
+//                               before the store existed live here, and a
+//                               person may name any project folder.
 //
 // Everything downstream — the board registry, the fs watcher, the tab's "one
 // tab per path" rule — keys off the normalized string, so normalization has to
 // be total and idempotent: the same board named three ways has to collapse to
-// one key, and anything that could escape the workspace root has to be refused
-// here rather than at the fs call.
+// one key, and anything that could escape its root has to be refused here
+// rather than at the fs call.
 
 import type { CanvasResult } from './types'
 import { canvasFail, canvasOk } from './types'
 
-/** Where a bare board name lands, at the workspace root. */
-export const CANVAS_DEFAULT_FOLDER = 'diagrams'
+/**
+ * Where a bare name used to land, before boards moved into the app's store.
+ * Boards already there are the person's files: they keep opening, listing and
+ * saving in place, and a bare name still finds one when the store has no board
+ * of that name. Nothing is moved out of it.
+ */
+export const CANVAS_LEGACY_FOLDER = 'diagrams'
 
 export const CANVAS_FILE_EXTENSION = '.excalidraw'
 
@@ -24,8 +40,8 @@ export const CANVAS_FILE_EXTENSION = '.excalidraw'
  */
 export const CANVAS_LIST_MAX_BOARDS = 200
 
-/** The board a tool targets when the workspace has no recently opened one. */
-export const DEFAULT_CANVAS_BOARD_PATH = 'diagrams/canvas.excalidraw'
+/** The board a tool targets when the workspace has no recently opened one: `canvas` in the store. */
+export const DEFAULT_CANVAS_BOARD_PATH = `canvas${CANVAS_FILE_EXTENSION}`
 
 // Refused wholesale: git's own store, and a dependency tree that is not the
 // person's work. A board written into either is either invisible to the project
@@ -59,8 +75,8 @@ export function canvasBoardKeyPath(path: string, platform: string): string {
 const NUL = String.fromCharCode(0)
 
 /**
- * Normalize a caller's board path to a posix, project-relative `.excalidraw`
- * path. Accepts a bare name (`arch`), a name with the extension, and any depth
+ * Normalize a caller's board path to a posix `.excalidraw` path: a bare file
+ * name for a store board, project-relative otherwise. Accepts a bare name (`arch`), a name with the extension, and any depth
  * of folder. Refuses anything absolute, anything with a drive letter, any `..`
  * segment, any other extension, and the two folders above.
  */
@@ -113,11 +129,36 @@ export function normalizeCanvasPath(input: string): CanvasResult<string> {
     return canvasFail('invalid_path', `A board must be a ${CANVAS_FILE_EXTENSION} file: ${input}`)
   }
 
-  const folders = segments.slice(0, -1)
-  // A bare name is the common case in a tool call, and the default folder is
-  // where the picker looks; a caller who named a folder keeps it.
-  const parts = folders.length > 0 ? [...folders, fileName] : [CANVAS_DEFAULT_FOLDER, fileName]
-  return canvasOk(parts.join('/'))
+  // A bare name is the common case, and it names a board in the app's store; a
+  // caller who named a folder means that folder in the project.
+  return canvasOk([...segments.slice(0, -1), fileName].join('/'))
+}
+
+/**
+ * Whether a normalized board path names a board in the app's store rather than
+ * a file in the project: the store is flat, so a path with no folder is one of
+ * its boards and a path with a folder never is.
+ */
+export function canvasBoardIsInStore(path: string): boolean {
+  return !String(path).replace(/\\/g, '/').includes('/')
+}
+
+/**
+ * The legacy spelling of a bare board name, or null when the caller named a
+ * folder. `arch` is `diagrams/arch.excalidraw` here; `docs/arch` has none,
+ * because a caller who named a folder meant that folder.
+ */
+export function canvasLegacyPathFor(input: string): string | null {
+  if (typeof input !== 'string') return null
+  const segments = input
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment !== '' && segment !== '.')
+  if (segments.length !== 1) return null
+  const normalized = normalizeCanvasPath(segments[0])
+  if (!normalized.ok) return null
+  return `${CANVAS_LEGACY_FOLDER}/${normalized.value.slice(normalized.value.lastIndexOf('/') + 1)}`
 }
 
 /** The board's display name: its basename without the extension. */

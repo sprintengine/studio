@@ -84,7 +84,7 @@ test('feedNotifications', async () => {
   )
   assert.deepEqual(updateReadyNotice('Sprint Engine Studio', '0.4.0'), {
     title: 'Sprint Engine Studio 0.4.0 is ready',
-    description: 'Installs the next time you quit.',
+    description: 'Restart now to update, or it installs the next time you quit.',
   })
 
   console.log('feedNotifications: ok')

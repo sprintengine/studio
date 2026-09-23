@@ -6,7 +6,7 @@ import {
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { studioEnvEntry } from '../shared/studio-env'
+import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry } from '../shared/studio-env'
 import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
@@ -57,6 +57,7 @@ export async function syncStudioMcpConfig(
   if (studioGateway) {
     const clients = syncInput.clients ?? []
     const cliId = clients.length === 1 ? clients[0] : undefined
+    const throughWsl = syncInput.executionPathStyle === 'wsl'
     const bridgeEnv = {
       ELECTRON_RUN_AS_NODE: '1',
       ...studioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
@@ -67,12 +68,17 @@ export async function syncStudioMcpConfig(
       name: STUDIO_MCP_SERVER_NAME,
       description: 'Always-on local control surface for SprintEngine Studio.',
       transport: 'stdio',
-      command:
-        syncInput.executionPathStyle === 'wsl' ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
+      // Through WSL the CLI is a Linux process starting a Windows program: the
+      // executable crosses as `/mnt/<drive>/…`, while the bridge script and the
+      // user-data directory stay Windows paths, because the Windows-hosted
+      // runtime is what opens them.
+      command: throughWsl ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
       // A WSL CLI starts the Windows binary through interop, which forwards
-      // only what `WSLENV` names; without it the bridge would open the app.
-      env: syncInput.executionPathStyle === 'wsl' ? wslInteropEnv(bridgeEnv) : bridgeEnv,
+      // only what `WSLENV` names; without it the bridge would open the app. The
+      // agent identity the launch shared into WSL is named too, so the bridge
+      // can still attribute the connection to its agent.
+      env: throughWsl ? wslInteropEnv(bridgeEnv, AGENT_IDENTITY_ENV_KEYS) : bridgeEnv,
       enabled: true,
       required: false,
       clients,

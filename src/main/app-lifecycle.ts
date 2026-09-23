@@ -12,6 +12,7 @@ import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
+import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
 import type { SprintEngineUpdateService } from './update-service'
 import type { AgentPhaseListener } from '../shared/agent-runtime'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
@@ -179,9 +180,32 @@ export function registerAppLifecycle({
   let hostedFeedPoller: HostedFeedPoller | null = null
   let bootModelDiscoveryTimer: ReturnType<typeof setTimeout> | null = null
 
+  // Always on, and cheap: a report of "the main thread stopped answering for N
+  // ms" is the one piece of evidence a frozen terminal leaves behind on a
+  // packaged build, where nobody has a console open.
+  const stallMonitor = createMainThreadStallMonitor({
+    report: (report) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'terminal',
+        title: 'Main process stalled',
+        message:
+          `The main process did not answer for up to ${report.maxStallMs} ms ` +
+          `(${report.stalls} stall(s), ${report.totalStallMs} ms in total over ${Math.round(report.windowMs / 1000)} s). ` +
+          'Terminal input and clicks wait behind it.',
+        details: JSON.stringify({
+          ...report,
+          platform: process.platform,
+          rssBytes: process.memoryUsage().rss,
+        }),
+      }).catch(() => undefined)
+    },
+  })
+
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
+    stallMonitor.start()
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio')
@@ -359,6 +383,9 @@ export function registerAppLifecycle({
     // discovery file removed), and the icon must not outlive the decision.
     backgroundPresence.onBeforeQuit()
     markAppQuitInProgressForWindowClose()
+    // Quit legitimately blocks (snapshot writes, waiting on ptys); that is not
+    // a stall anyone is reporting.
+    stallMonitor.stop()
     const shutdown = async () => {
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
