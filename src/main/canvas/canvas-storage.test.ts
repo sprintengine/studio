@@ -1,8 +1,9 @@
 /**
  * Where boards live, and how one leaves.
  *
- * New boards go into the app's store under the workspace sidecar, which ignores
- * itself, so drawing never dirties the repository. Boards an earlier build made
+ * New boards go into the app's store in the app's data folder, keyed by
+ * project, so drawing never writes anything into the project's working tree.
+ * Boards an earlier build made
  * in the project's `diagrams/` folder are the person's files: they keep
  * listing, opening and saving where they are. A board reaches the repository
  * through an export into a folder the person picked.
@@ -15,12 +16,14 @@ import { test } from 'vitest'
 
 import { createCanvasService, type CanvasDirEntry, type CanvasFileStat, type CanvasFs } from './canvas-service'
 import type { CanvasWorkerHost } from './canvas-worker-host'
+import { canvasBoardStoreDir } from './canvas-board-store'
 import { parseSceneFile, serializeSceneFile, emptyScene } from '../../shared/canvas/scene-file'
 import type { CanvasElement } from '../../shared/canvas/types'
 
 const ROOT = '/Users/dev/project'
 const WORKSPACE = 'workspace-1'
-const STORE = `${ROOT}/.sprintengine/canvas`
+const USER_DATA = '/Users/dev/Library/Application Support/SprintEngine Studio'
+const STORE = canvasBoardStoreDir(USER_DATA, ROOT)
 const EXPORT_DIR = '/Users/dev/project/docs/diagrams'
 
 type MemoryFs = CanvasFs & { files: Map<string, string | Uint8Array>; writes: string[] }
@@ -99,13 +102,19 @@ const idleWorker: CanvasWorkerHost = {
   dispose: async () => {},
 }
 
-function harness(): { service: ReturnType<typeof createCanvasService>; fs: MemoryFs } {
+function harness(options: { store?: boolean } = {}): {
+  service: ReturnType<typeof createCanvasService>
+  fs: MemoryFs
+} {
   const fs = createMemoryFs()
   const service = createCanvasService({
     fs,
     platform: 'linux',
     now: () => 1_000,
     resolveWorkspaceRoot: (workspaceId) => (workspaceId === WORKSPACE ? ROOT : null),
+    ...(options.store === false
+      ? {}
+      : { resolveBoardStore: (_id: string, root: string) => canvasBoardStoreDir(USER_DATA, root) }),
     broadcast: () => {},
     sendTo: () => {},
     worker: idleWorker,
@@ -128,55 +137,73 @@ async function seedLegacyBoard(fs: MemoryFs, name: string, elements: CanvasEleme
   return file
 }
 
-test('a new board by bare name is written into the app store, not the project tree', async () => {
+function projectFiles(fs: MemoryFs): string[] {
+  return [...fs.files.keys()].filter((path) => path.startsWith(`${ROOT}/`))
+}
+
+test('the store is keyed by project, in the app data folder, outside the project', () => {
+  assert.equal(STORE.startsWith(`${USER_DATA}/canvas/ws_`), true)
+  assert.equal(STORE.startsWith(ROOT), false)
+  assert.equal(canvasBoardStoreDir(USER_DATA, ROOT), STORE, 'the same project always finds the same store')
+  assert.equal(canvasBoardStoreDir(USER_DATA, `${ROOT}/`), STORE, 'however its folder is spelled')
+  assert.notEqual(canvasBoardStoreDir(USER_DATA, '/Users/dev/other'), STORE, 'and another project has its own')
+})
+
+test('a new board by bare name is written into the store, and nothing into the project', async () => {
   const { service, fs } = harness()
   const created = await service.readBoard({ workspaceId: WORKSPACE, path: 'architecture' }, { create: true })
   assert.equal(created.ok, true)
-  assert.equal(created.ok && created.value.path, '.sprintengine/canvas/architecture.excalidraw')
+  assert.equal(created.ok && created.value.path, 'architecture.excalidraw')
+  await service.commitScene(
+    {
+      workspaceId: WORKSPACE,
+      path: 'architecture.excalidraw',
+      baseRevision: 0,
+      elements: [element('a')],
+      appState: {},
+      files: {},
+    },
+    1,
+  )
   assert.ok(fs.files.has(`${STORE}/architecture.excalidraw`))
+  assert.deepEqual(projectFiles(fs), [], 'no board, no temp and no ignore file in the working tree')
   assert.equal(
-    [...fs.files.keys()].some((path) => path.startsWith(`${ROOT}/diagrams`)),
+    [...fs.files.keys()].some((path) => path.endsWith('.gitignore')),
     false,
-    'nothing lands in the old folder',
+    'the store needs no ignore file: it is not in a repository',
   )
   await service.dispose()
 })
 
-test('the store ignores itself, and an ignore file already there is left alone', async () => {
-  const { service, fs } = harness()
-  await service.readBoard({ workspaceId: WORKSPACE, path: 'one' }, { create: true })
-  assert.equal(fs.files.get(`${STORE}/.gitignore`), '*\n')
-
-  const edited = harness()
-  await edited.fs.mkdir(STORE)
-  await edited.fs.writeFile(`${STORE}/.gitignore`, '# mine\n*.excalidraw\n')
-  await edited.service.readBoard({ workspaceId: WORKSPACE, path: 'two' }, { create: true })
-  assert.equal(edited.fs.files.get(`${STORE}/.gitignore`), '# mine\n*.excalidraw\n', 'a person’s file is theirs')
-
-  await service.dispose()
-  await edited.service.dispose()
-})
-
-test('a board in the project tree gets no ignore file beside it', async () => {
+test('a board in a named project folder is still that file', async () => {
   const { service, fs } = harness()
   await service.readBoard({ workspaceId: WORKSPACE, path: 'docs/flow' }, { create: true })
-  assert.ok(fs.files.has(`${ROOT}/docs/flow.excalidraw`), 'a named folder is still honoured')
-  assert.equal(fs.files.has(`${ROOT}/docs/.gitignore`), false)
-  assert.equal(fs.files.has(`${STORE}/.gitignore`), false)
+  assert.deepEqual(projectFiles(fs), [`${ROOT}/docs/flow.excalidraw`])
   await service.dispose()
 })
 
-test('the listing finds boards in the store and in the legacy folder, and no other dot-folder', async () => {
+test('without a store, a bare name is refused rather than written into the project', async () => {
+  const { service, fs } = harness({ store: false })
+  const refused = await service.readBoard({ workspaceId: WORKSPACE, path: 'architecture' }, { create: true })
+  assert.equal(!refused.ok && refused.error.code, 'unknown_workspace')
+  assert.deepEqual(projectFiles(fs), [])
+  await service.dispose()
+})
+
+test('the listing finds boards in the store and in project folders, and nothing it could not open', async () => {
   const { service, fs } = harness()
   await seedLegacyBoard(fs, 'legacy', [element('a')])
   await service.readBoard({ workspaceId: WORKSPACE, path: 'fresh' }, { create: true })
   await fs.mkdir(`${ROOT}/.other`)
   await fs.writeFile(`${ROOT}/.other/hidden.excalidraw`, serializeSceneFile(emptyScene()))
+  // A board at the project root would list under a folderless path, which
+  // names a store board: its row would open a different board.
+  await fs.writeFile(`${ROOT}/loose.excalidraw`, serializeSceneFile(emptyScene()))
 
   const listed = await service.listBoards(WORKSPACE)
   assert.equal(listed.ok, true)
   const paths = listed.ok ? listed.value.map((board) => board.path).sort() : []
-  assert.deepEqual(paths, ['.sprintengine/canvas/fresh.excalidraw', 'diagrams/legacy.excalidraw'])
+  assert.deepEqual(paths, ['diagrams/legacy.excalidraw', 'fresh.excalidraw'])
   await service.dispose()
 })
 
@@ -215,6 +242,19 @@ test('a board exists where its file is, and nowhere else', async () => {
   await service.dispose()
 })
 
+test('a board is located in the store or the project, for the reveal action alone', async () => {
+  const { service } = harness()
+  assert.deepEqual(service.boardLocation({ workspaceId: WORKSPACE, path: 'arch' }), {
+    ok: true,
+    value: `${STORE}/arch.excalidraw`,
+  })
+  assert.deepEqual(service.boardLocation({ workspaceId: WORKSPACE, path: 'diagrams/arch' }), {
+    ok: true,
+    value: `${ROOT}/diagrams/arch.excalidraw`,
+  })
+  await service.dispose()
+})
+
 test('an export writes the board file and the pictures into the chosen folder, and leaves the board', async () => {
   const { service, fs } = harness()
   const ref = { workspaceId: WORKSPACE, path: 'architecture' }
@@ -222,7 +262,7 @@ test('an export writes the board file and the pictures into the chosen folder, a
   await service.commitScene(
     {
       workspaceId: WORKSPACE,
-      path: '.sprintengine/canvas/architecture.excalidraw',
+      path: 'architecture.excalidraw',
       baseRevision: 0,
       elements: [element('api')],
       appState: {},
@@ -246,7 +286,6 @@ test('an export writes the board file and the pictures into the chosen folder, a
   assert.deepEqual([...(fs.files.get(`${EXPORT_DIR}/architecture.png`) as Uint8Array)], [0x89, 0x50, 0x4e, 0x47])
   assert.equal(fs.files.get(`${EXPORT_DIR}/architecture.svg`), svg)
   assert.ok(fs.files.has(`${STORE}/architecture.excalidraw`), 'an export is a copy, not a move')
-  assert.equal(fs.files.has(`${EXPORT_DIR}/.gitignore`), false, 'the chosen folder is the repository’s, untouched')
   assert.equal(
     [...fs.files.keys()].some((path) => path.endsWith('.tmp')),
     false,

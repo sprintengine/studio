@@ -37,21 +37,6 @@ type CanvasTabProps = {
 
 type BoardState = { kind: 'loading' } | { kind: 'ready'; board: CanvasBoardState } | { kind: 'error'; message: string }
 
-/**
- * The board's absolute path, for the one thing that needs one: revealing it in
- * the system file manager. Everything else — the tools, main, the tab record —
- * speaks the project-relative path.
- *
- * Joined by hand because the renderer has no `path` module. Windows' shell API
- * is the reason for the second line: it selects nothing when handed a path with
- * forward slashes in it.
- */
-function absoluteBoardPath(root: string, boardPath: string): string {
-  const base = root.replace(/[\\/]+$/, '')
-  const joined = `${base}/${boardPath}`
-  return window.api.platform === 'win32' ? joined.replace(/\//g, '\\') : joined
-}
-
 export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   const path = tab.canvas?.path ?? null
   const updatePaneTab = useWorkspaceStore((s) => s.updatePaneTab)
@@ -189,15 +174,20 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   // package. `revealFile` is null rather than disabled when the workspace has
   // no folder: an item that cannot do anything is better left out than shown
   // greyed with no explanation.
+  //
+  // Main finds the file: a board in the app's store lives in the app's data
+  // folder, outside the project, where no join against the workspace root
+  // would find it.
   const revealFile = useCallback(() => {
     if (!workspaceRoot || !path) return
-    void window.api.showItemInFolder(absoluteBoardPath(workspaceRoot, path))
-  }, [path, workspaceRoot])
+    void window.api.canvasRevealBoard({ workspaceId, path }).catch(() => {})
+  }, [path, workspaceId, workspaceRoot])
 
   const copyPath = useCallback(() => {
     if (!path) return
-    // The project-relative path: the spelling the canvas tools take, and the
-    // one that means the same thing on another machine.
+    // The board's own path — a bare file name for a store board, a
+    // project-relative one otherwise: the spelling the canvas tools take, and
+    // the one that means the same thing on another machine.
     void window.api.clipboardWriteText(path)
     showToast({ tone: 'good', title: 'Board path copied', description: path })
   }, [path])

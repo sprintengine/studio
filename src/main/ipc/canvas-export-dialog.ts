@@ -1,4 +1,4 @@
-import { BrowserWindow, app, dialog, type OpenDialogOptions, type WebContents } from 'electron'
+import { BrowserWindow, app, dialog, shell, type OpenDialogOptions, type WebContents } from 'electron'
 
 import { resolveTestOpenDirOverride } from './menu-dialog-ipc'
 
@@ -24,4 +24,13 @@ export async function pickCanvasExportDirectory(sender: WebContents, defaultPath
   const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
   if (result.canceled) return null
   return result.filePaths[0] ?? null
+}
+
+/**
+ * Show a board file in the system file manager. The path comes from main, never
+ * from the renderer: a store board lives in the app's data folder, which the
+ * renderer has no way to spell.
+ */
+export function revealCanvasBoardFile(absolutePath: string): void {
+  shell.showItemInFolder(absolutePath)
 }

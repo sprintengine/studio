@@ -21,6 +21,7 @@ const ref = { workspaceId: 'workspace-1', path: 'architecture' }
 
 function setup(options: CanvasIpcOptions = {}): {
   exportBoard: Handler
+  revealBoard: Handler
   exports: unknown[][]
   pickerCalls: unknown[][]
 } {
@@ -36,6 +37,8 @@ function setup(options: CanvasIpcOptions = {}): {
       return canvasOk({ directory: args[1], files: [`${String(args[1])}/architecture.excalidraw`] })
     },
     dropSubscriber: () => {},
+    boardLocation: (boardRef: { path: string }) =>
+      canvasOk(`/Users/dev/Library/Application Support/SprintEngine Studio/canvas/ws_abc/${boardRef.path}`),
   } as unknown as CanvasServiceInternal
   const subscribers = { add: () => 42, onGone: () => () => {} } as unknown as CanvasSubscriberRegistry
   const pickerCalls: unknown[][] = []
@@ -47,8 +50,14 @@ function setup(options: CanvasIpcOptions = {}): {
         },
       }
     : {}
+  if (options.revealFile) wrapped.revealFile = options.revealFile
   registerCanvasIpc(ipcMain as unknown as Parameters<typeof registerCanvasIpc>[0], service, subscribers, wrapped)
-  return { exportBoard: handlers.get('canvas:export-board')!, exports, pickerCalls }
+  return {
+    exportBoard: handlers.get('canvas:export-board')!,
+    revealBoard: handlers.get('canvas:reveal-board')!,
+    exports,
+    pickerCalls,
+  }
 }
 
 test('the export writes into the folder the picker answered, whatever the payload names', async () => {
@@ -63,7 +72,7 @@ test('the export writes into the folder the picker answered, whatever the payloa
   assert.deepEqual(pickerCalls, [[sender, '/Users/dev/project']], 'the picker opens at the suggested folder')
   assert.equal(exports.length, 1)
   const [boardRef, directory, images] = exports[0]
-  assert.deepEqual(boardRef, { workspaceId: 'workspace-1', path: '.sprintengine/canvas/architecture.excalidraw' })
+  assert.deepEqual(boardRef, { workspaceId: 'workspace-1', path: 'architecture.excalidraw' })
   assert.equal(directory, '/Users/dev/project/docs', 'a `directory` in the payload is ignored')
   assert.deepEqual(images, { png: 'iVBORw0KGgo=', svg: '<svg></svg>' }, 'only the two picture kinds pass')
   assert.deepEqual(result, {
@@ -95,6 +104,25 @@ test('without a picker there is no export at all', async () => {
   const refused = (await exportBoard(event, ref)) as CanvasResult<never>
   assert.equal(!refused.ok && refused.error.code, 'forbidden')
   assert.equal(exports.length, 0)
+})
+
+test('reveal shows the file main located, never a path the renderer built', async () => {
+  const revealed: string[] = []
+  const { revealBoard } = setup({ revealFile: (path) => revealed.push(path) })
+  assert.deepEqual(await revealBoard(event, { ...ref, path: 'architecture' }), { ok: true, value: undefined })
+  assert.deepEqual(revealed, [
+    '/Users/dev/Library/Application Support/SprintEngine Studio/canvas/ws_abc/architecture.excalidraw',
+  ])
+
+  const refused = (await revealBoard(event, { ...ref, path: '../escape' })) as CanvasResult<never>
+  assert.equal(!refused.ok && refused.error.code, 'invalid_path')
+  assert.equal(revealed.length, 1)
+})
+
+test('without a reveal handler there is no reveal', async () => {
+  const { revealBoard } = setup()
+  const refused = (await revealBoard(event, ref)) as CanvasResult<never>
+  assert.equal(!refused.ok && refused.error.code, 'forbidden')
 })
 
 test('a picker that throws is reported, not raised', async () => {

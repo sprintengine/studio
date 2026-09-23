@@ -13,7 +13,7 @@ import { isRecord } from '../../shared/records'
 import type { CanvasServiceInternal } from '../canvas/canvas-service'
 import type { CanvasSubscriberRegistry } from '../canvas/canvas-subscribers'
 
-// The Canvas pane's IPC. Six channels, and every one of them treats its
+// The Canvas pane's IPC. Seven channels, and every one of them treats its
 // payload as input rather than as the shape the preload promises — the preload
 // is ours, but the renderer it runs in hosts a lazy-loaded editor and
 // third-party module code, and the service behind this writes files into the
@@ -151,6 +151,8 @@ export type CanvasIpcOptions = {
    * native dialog; absent, an export is refused rather than written anywhere.
    */
   pickExportDirectory?: (sender: WebContents, defaultPath?: string) => Promise<string | null>
+  /** Show a board file in the system file manager; absent, reveal answers `forbidden`. */
+  revealFile?: (absolutePath: string) => void
 }
 
 export function registerCanvasIpc(
@@ -246,6 +248,18 @@ export function registerCanvasIpc(
       return canvasOk({ cancelled: false, directory: exported.value.directory, files: exported.value.files })
     },
   )
+
+  // Main finds the file and shows it: a store board is in the app's data
+  // folder, which the renderer cannot name, and only needs to name its board.
+  ipcMain.handle('canvas:reveal-board', (_event: IpcMainInvokeEvent, input: unknown): CanvasResult<void> => {
+    const ref = refOf(input)
+    if (!ref.ok) return ref
+    if (!options.revealFile) return canvasFail('forbidden', 'Revealing a board is not available in this window.')
+    const location = service.boardLocation(ref.value)
+    if (!location.ok) return location
+    options.revealFile(location.value)
+    return canvasOk(undefined)
+  })
 
   // Fire-and-forget by contract: the person has started a gesture, and an
   // answer would only be read after the gesture was over.

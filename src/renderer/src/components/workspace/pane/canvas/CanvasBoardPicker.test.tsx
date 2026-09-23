@@ -366,7 +366,7 @@ test('CanvasBoardPicker', async () => {
           field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
           field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
         })
-        assert.deepEqual(picked, ['.sprintengine/canvas/system map.excalidraw'], 'a new board goes to the app store')
+        assert.deepEqual(picked, ['system map.excalidraw'], 'a new board goes to the app store')
         assert.equal(view.field(), null, 'and the field closes behind it')
       })
 
@@ -385,7 +385,7 @@ test('CanvasBoardPicker', async () => {
         assert.match(view.container.querySelector('nav')!.textContent ?? '', /Showing 21–23 of 23/)
         await click(view.newBoard())
         await press(view.field()!, 'Enter')
-        assert.deepEqual(picked, ['.sprintengine/canvas/canvas.excalidraw'])
+        assert.deepEqual(picked, ['canvas.excalidraw'])
         assert.match(view.container.querySelector('nav')!.textContent ?? '', /Showing 1–10 of 23/)
       })
       await view.unmount()

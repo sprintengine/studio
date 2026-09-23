@@ -36,7 +36,6 @@ import type {
 } from '../../shared/canvas/types'
 import { canvasFail, canvasOk } from '../../shared/canvas/types'
 import {
-  CANVAS_DEFAULT_FOLDER,
   CANVAS_LIST_MAX_BOARDS,
   canvasBoardIsInStore,
   canvasBoardKeyPath,
@@ -80,12 +79,6 @@ const ACTION_LOG_LIMIT = 50
 const READ_SNAPSHOT_LIMIT = 16
 /** A temp file older than this was left by a crash, not by a write in flight. */
 const STALE_TEMP_MS = 5 * 60 * 1000
-
-/**
- * The store's own ignore file: everything in the folder, itself included. The
- * same one-line file the browser captures and the backlog cache write.
- */
-const STORE_IGNORE_BODY = '*\n'
 
 /** An exported picture past these is not something the tab rendered from a board. */
 const EXPORT_MAX_PNG_BASE64 = 64 * 1024 * 1024
@@ -161,6 +154,13 @@ export type CanvasServiceDeps = {
   now: () => number
   /** A workspace's project folder from main's registry; null when it has none. */
   resolveWorkspaceRoot: (workspaceId: string) => string | null
+  /**
+   * The folder holding a project's store boards — the ones named without a
+   * folder — outside the project's working tree. Main keys it by project, in
+   * the app's data folder; absent, a store board cannot be located and every
+   * call about one says so.
+   */
+  resolveBoardStore?: (workspaceId: string, workspaceRoot: string) => string | null
   /** Push to every window that could host the workspace (`canvas:open-request`). */
   broadcast: (channel: string, payload: unknown) => void
   /** Push to one subscriber, by the id the IPC layer minted for it. */
@@ -208,6 +208,8 @@ export type CanvasServiceInternal = CanvasService & {
     directory: string,
     images?: CanvasExportImages,
   ): Promise<CanvasResult<{ directory: string; files: string[] }>>
+  /** The board file's absolute path. Main-side only: it never reaches an agent. */
+  boardLocation(ref: CanvasBoardRef): CanvasResult<string>
   /** A window went away: it stops counting as a subscriber of every board it held. */
   dropSubscriber(subscriberId: number): void
 }
@@ -219,8 +221,6 @@ type BoardEntry = {
   path: string
   absolutePath: string
   directory: string
-  /** The app's board store this board sits in, absolute; null for a board in the project's own tree. */
-  storeRoot: string | null
   loaded: boolean
   elements: CanvasElement[]
   appState: Record<string, unknown>
@@ -334,8 +334,6 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   /** Resolved when a subscriber joins a board; how `requestOpen` learns it was answered. */
   const openWaiters = new Map<string, Set<() => void>>()
   let disposed = false
-  /** Store folders already known to carry their ignore file. */
-  const ignoredStores = new Set<string>()
   /** The font warning is said on every write but written to the log once. */
   let fontWarningLogged = false
 
@@ -346,7 +344,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   const boardKey = (workspaceId: string, path: string): string =>
     `${workspaceId}\u0000${canvasBoardKeyPath(path, platform)}`
 
-  type Located = { workspaceId: string; path: string; absolutePath: string; key: string; storeRoot: string | null }
+  type Located = { workspaceId: string; path: string; absolutePath: string; key: string }
 
   /**
    * A caller's board reference as a place on disk.
@@ -370,16 +368,27 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
         `Workspace ${workspaceId} is not open, or has no project folder to keep boards in.`,
       )
     }
-    const absolutePath = resolvePath(root, normalized.value)
-    if (!isPathStrictlyInside(root, absolutePath)) {
-      return canvasFail('forbidden', `A board must live inside the project: ${ref.path}`)
+    // A board with no folder is one of the store's, which lives outside the
+    // project; one with a folder is that file in the project.
+    const inStore = canvasBoardIsInStore(normalized.value)
+    const base = inStore ? deps.resolveBoardStore?.(workspaceId, root) : root
+    if (!base) {
+      return canvasFail('unknown_workspace', `Workspace ${workspaceId} has no board store to keep ${ref.path} in.`)
+    }
+    const absolutePath = resolvePath(base, normalized.value)
+    if (!isPathStrictlyInside(base, absolutePath)) {
+      return canvasFail(
+        'forbidden',
+        inStore
+          ? `A board must live inside the board store: ${ref.path}`
+          : `A board must live inside the project: ${ref.path}`,
+      )
     }
     return canvasOk({
       workspaceId,
       path: normalized.value,
       absolutePath,
       key: boardKey(workspaceId, normalized.value),
-      storeRoot: canvasBoardIsInStore(normalized.value) ? resolvePath(root, CANVAS_DEFAULT_FOLDER) : null,
     })
   }
 
@@ -392,7 +401,6 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       path: located.path,
       absolutePath: located.absolutePath,
       directory: dirname(located.absolutePath),
-      storeRoot: located.storeRoot,
       loaded: false,
       elements: [],
       appState: { ...emptyScene().appState },
@@ -605,7 +613,6 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     } catch (error) {
       return fsFailure(`The folder for ${board.path} could not be created`, error)
     }
-    if (board.storeRoot) await ensureStoreIgnored(board.storeRoot)
     // The temp file shares the board's directory so the rename is on one
     // filesystem — across devices it is a copy, and a copy is not atomic.
     const temp = `${board.absolutePath}.${randomUUID()}.tmp`
@@ -619,34 +626,6 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     board.lastSeenHash = contentHash(text)
     await noteFileStamp(board)
     return canvasOk(undefined)
-  }
-
-  /**
-   * The store ignores itself, so a project that does not list it in its own
-   * .gitignore still never sees a board in its status. Editing somebody's root
-   * .gitignore to hide the app's files is not ours to do.
-   *
-   * Never over an existing file — one a person edited is theirs — and a
-   * failure is swallowed: an un-ignored board is untidy, a board that would not
-   * save is broken. Once per store per run; the stat is cheap but a save is
-   * frequent.
-   */
-  async function ensureStoreIgnored(storeRoot: string): Promise<void> {
-    if (ignoredStores.has(storeRoot)) return
-    const ignore = join(storeRoot, '.gitignore')
-    try {
-      await deps.fs.stat(ignore)
-      ignoredStores.add(storeRoot)
-      return
-    } catch (error) {
-      if (!isMissing(error)) return
-    }
-    try {
-      await deps.fs.writeFile(ignore, STORE_IGNORE_BODY)
-      ignoredStores.add(storeRoot)
-    } catch (error) {
-      log('The canvas store could not be marked ignored', { path: ignore, error: errorMessage(error) })
-    }
   }
 
   /** Remember the file as it stands, so the next write can tell it apart. */
@@ -1173,9 +1152,11 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       return canvasFail('unknown_workspace', `Workspace ${id} is not open, or has no project folder to keep boards in.`)
     }
     const found: FoundBoard[] = []
-    // The store first: it is a dot-folder, which the project walk skips
-    // wholesale, and it is where every board made since the move lives.
-    await walk(root, resolvePath(root, CANVAS_DEFAULT_FOLDER), 1, found)
+    // The store first: it is where every board made since the move lives. It
+    // is flat, so its boards are listed by file name alone — the same spelling
+    // that names them everywhere else.
+    const store = deps.resolveBoardStore?.(id, root)
+    if (store) await listStore(store, found)
     await walk(root, root, 0, found)
     // Newest first, and only THEN capped: the walk's own order is the
     // filesystem's, and capping on that would hide the board somebody edited a
@@ -1197,6 +1178,27 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   /** A candidate from the walk: everything but the element count, which costs a parse. */
   type FoundBoard = { path: string; absolutePath: string; modifiedAt: number; size: number }
 
+  async function listStore(store: string, found: FoundBoard[]): Promise<void> {
+    let entries: CanvasDirEntry[]
+    try {
+      entries = await deps.fs.readdir(store)
+    } catch {
+      // No store yet: nobody has drawn in this project since boards moved.
+      return
+    }
+    for (const entry of entries) {
+      if (found.length >= LIST_MAX_SCANNED) return
+      if (!entry.isFile || !entry.name.endsWith(CANVAS_FILE_EXTENSION)) continue
+      const absolute = join(store, entry.name)
+      try {
+        const stat = await deps.fs.stat(absolute)
+        found.push({ path: entry.name, absolutePath: absolute, modifiedAt: stat.mtimeMs, size: stat.size })
+      } catch {
+        continue
+      }
+    }
+  }
+
   async function walk(root: string, directory: string, depth: number, found: FoundBoard[]): Promise<void> {
     if (depth > LIST_MAX_DEPTH || found.length >= LIST_MAX_SCANNED) return
     let entries: CanvasDirEntry[]
@@ -1212,14 +1214,18 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       if (found.length >= LIST_MAX_SCANNED) return
       if (entry.isDirectory) {
         // Dot-folders wholesale: `.git`, `.sprintengine` and every other
-        // tool's store are not where a person keeps a drawing. The app's own
-        // board store is the one exception, and `listBoards` walks it by name.
+        // tool's store are not where a person keeps a drawing.
         if (entry.name.startsWith('.')) continue
         if (LIST_SKIP_FOLDERS.has(entry.name)) continue
         folders.push(entry.name)
         continue
       }
       if (!entry.isFile || !entry.name.endsWith(CANVAS_FILE_EXTENSION)) continue
+      // A board at the project root has no folder in its path, and a path with
+      // no folder names a store board — so listing it would offer a row that
+      // opens a different board. It was never reachable by its listed path
+      // (a folderless path used to mean the default folder), and is left out.
+      if (depth === 0) continue
       const absolute = join(directory, entry.name)
       const projectPath = relative(root, absolute).split('\\').join('/')
       let stat: CanvasFileStat
@@ -1256,6 +1262,14 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     const board = await ensureBoard(ref, opts)
     if (!board.ok) return board
     return canvasOk(stateOf(board.value))
+  }
+
+  /** Where a board's file is, for the one caller that needs it: revealing it in the file manager. */
+  function boardLocation(ref: CanvasBoardRef): CanvasResult<string> {
+    const located = locate(ref)
+    if (!located.ok) return located
+    const held = boards.get(located.value.key)
+    return canvasOk(held?.loaded ? held.absolutePath : located.value.absolutePath)
   }
 
   async function boardExists(ref: CanvasBoardRef): Promise<CanvasResult<boolean>> {
@@ -1749,6 +1763,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     noteHumanInput,
     dropSubscriber,
     exportBoard,
+    boardLocation,
   }
 }
 

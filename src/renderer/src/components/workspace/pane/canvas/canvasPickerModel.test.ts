@@ -118,9 +118,8 @@ test('canvasPickerModel', async () => {
     assert.equal(canvasBoardFolder('arch.excalidraw'), CANVAS_STORE_LOCATION_LABEL)
   })
 
-  run('a board in the app store is said to be in app storage, not in a dot-folder', () => {
-    assert.equal(canvasBoardFolder('.sprintengine/canvas/arch.excalidraw'), CANVAS_STORE_LOCATION_LABEL)
-    assert.equal(canvasBoardFolder('.sprintengine/canvas/sub/arch.excalidraw'), CANVAS_STORE_LOCATION_LABEL)
+  run('a board in the app store is said to be in app storage, and a project board names its folder', () => {
+    assert.equal(canvasBoardFolder('Arch.EXCALIDRAW'), CANVAS_STORE_LOCATION_LABEL)
     assert.equal(canvasBoardFolder('.sprintengine/other/arch.excalidraw'), '.sprintengine/other')
   })
 
@@ -153,12 +152,12 @@ test('canvasPickerModel', async () => {
   run('a new board in the store collides with a legacy board of the same name', () => {
     const taken = ['diagrams/arch.excalidraw', 'docs/flow.excalidraw']
     assert.equal(
-      collidingCanvasBoardPath('.sprintengine/canvas/arch.excalidraw', taken, false),
+      collidingCanvasBoardPath('arch.excalidraw', taken, false),
       'diagrams/arch.excalidraw',
       'a bare name would find the legacy board, so a second one would take its name',
     )
     assert.equal(
-      collidingCanvasBoardPath('.sprintengine/canvas/flow.excalidraw', taken, false),
+      collidingCanvasBoardPath('flow.excalidraw', taken, false),
       null,
       'only the legacy folder is one a bare name reaches',
     )

@@ -52,7 +52,7 @@ import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
-import { pickCanvasExportDirectory } from './ipc/canvas-export-dialog'
+import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import {
   confirmWorkspaceWindowClose,
@@ -90,6 +90,7 @@ export function registerCoreIpc(
   registerBrowserIpc(ipcMain, services.browserManager)
   registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers, {
     pickExportDirectory: pickCanvasExportDirectory,
+    revealFile: revealCanvasBoardFile,
   })
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,

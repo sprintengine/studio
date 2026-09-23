@@ -5,26 +5,32 @@ description: Draw, read and revise diagrams on a SprintEngine Studio Canvas boar
 
 # Drawing on a Canvas board
 
-A board is a `.excalidraw` file the app keeps for the workspace, under
-`.sprintengine/canvas/`. That folder ignores itself, so boards are not part of
-the repository: drawing on one never shows up in `git status`, and never ends
-up in a commit by accident. Name boards by bare name (`architecture`) and they
-land there. The person may have the same board open in front of them while you
-work.
+A board is a `.excalidraw` file in the app's own board store, which the app
+keeps for each project in its data folder, outside the project folder. Boards
+are not part of the repository: drawing on one never shows up in `git status`,
+and never ends up in a commit by accident. Name a board by its bare name
+(`architecture`, or `architecture.excalidraw` as `canvas_list` spells it) and
+the tools find it in the store. The person may have the same board open in
+front of them while you work.
+
+You reach a board only through the `canvas_*` tools, by name — never by a
+filesystem path. The tools run inside the app, which resolves the name, so this
+works the same from a WSL shell on Windows as anywhere else. Do not go looking
+for the board file on disk.
 
 Boards made before they moved into the app's store live in the project's
 `diagrams/` folder. They still work exactly as before and stay where they are: a
 bare name finds one when the store has no board of that name, and
-`canvas_list` shows both kinds. Do not move or copy one into the store.
+`canvas_list` shows both kinds (a store board by its file name, a project board
+by its project path). Do not move or copy one into the store.
 
-**Getting a board into the repository is the person's call.** The Canvas tab's
-menu has **Export to folder…**, which writes the board file (and a PNG or SVG
-of it, if they tick those) into a folder they pick. When the person asks you to
-put a diagram in the repository, tell them to export it, or — if they want you
-to do it — copy the board file from `.sprintengine/canvas/<name>.excalidraw` to
-the path they name. Do not pass a project path such as `docs/arch` as `board`
-to get the same effect: that creates a live board in the repository, which is
-exactly what the store exists to avoid.
+**Getting a board into the repository is the person's call, and the Export
+action is the only way.** The Canvas tab's menu has **Export to folder…**,
+which writes the board file (and a PNG or SVG of it, if they tick those) into a
+folder they pick. When the person asks for a diagram in the repository, draw it
+on a store board and ask them to export it. Do not pass a project path such as
+`docs/arch` as `board` to get the same effect: that creates a live board in the
+repository, which is exactly what the store exists to avoid.
 
 ## When to draw
 

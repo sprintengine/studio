@@ -521,6 +521,11 @@ export type ElectronApi = {
     input: CanvasBoardRef & { defaultDirectory?: string; images?: CanvasExportImages },
   ) => Promise<CanvasResult<CanvasExportResult>>
   /**
+   * Show the board's file in the system file manager. Main resolves where it
+   * is: a store board lives in the app's data folder, outside the project.
+   */
+  canvasRevealBoard: (input: CanvasBoardRef) => Promise<CanvasResult<void>>
+  /**
    * The person has started a gesture on this board. Presence ONLY: it moves the
    * badge every other window shows, so an agent stops looking like it holds the
    * pen. It cancels nothing — an agent action in flight keeps running, and what

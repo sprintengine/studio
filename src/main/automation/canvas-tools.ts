@@ -24,9 +24,15 @@ import type { CanvasActor, CanvasService } from '../canvas/canvas-service-types'
 
 // The `canvas.*` gateway tools (canvas-pane epic, package F): an agent's hands
 // on the SAME board the person draws on — a `.excalidraw` file in the app's
-// board store under the workspace sidecar (or, for a board made before boards
-// moved there, in the project's own tree), merged per element, with the person
-// always winning a contested shape.
+// board store, kept per project in the app's data folder (or, for a board made
+// before boards moved there, in the project's own tree), merged per element,
+// with the person always winning a contested shape.
+//
+// Boards are named, never located: an agent passes a bare name or a
+// project-relative path, and main resolves it. So an agent whose shell sees a
+// different filesystem from main's (a WSL session on a Windows host) needs no
+// path translation, and no tool ever answers with a store path it would have
+// to translate.
 //
 // Every tool takes an optional `board`; omitted, it targets the workspace's most
 // recently changed board and falls back to the default path. The workspace is
@@ -170,7 +176,7 @@ const SHARED_PROPERTIES = {
   board: {
     type: 'string',
     description:
-      'The board to act on. Normally a bare name such as "architecture": it names a board in the app\'s own board store (.sprintengine/canvas/, which is kept out of the repository), or, when the store has none of that name, an older board already in the project\'s diagrams/ folder. A project-relative path such as "docs/architecture.excalidraw" names that file exactly. Omitted, the workspace\'s most recently changed board, or .sprintengine/canvas/canvas.excalidraw when it has none.',
+      'The board to act on. Normally a bare name such as "architecture" (or "architecture.excalidraw"): it names a board in the app\'s own board store, which the app keeps for this project outside the project folder, or, when the store has none of that name, an older board already in the project\'s diagrams/ folder. A path with a folder, such as "docs/architecture.excalidraw", names that file in the project exactly. Omitted, the workspace\'s most recently changed board, or the store board "canvas" when it has none. Always name a board this way, never by a filesystem path.',
   },
   workspaceId: { type: 'string', description: 'Only for connections not bound to a workspace.' },
 } as const
@@ -434,7 +440,7 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
     {
       name: 'canvas.list',
       description:
-        "List the Canvas boards in this workspace with their element count and when each last changed, most recently changed first. A board is an .excalidraw file. New boards live in the app's own board store (.sprintengine/canvas/), which is kept out of the repository; the person puts one into the repository with the Canvas tab's Export action. Boards an earlier version made in the project's diagrams/ folder are listed too, and stay where they are. Capped at 200, with a note when the cap was reached. Read-only.",
+        "List the Canvas boards in this workspace with their element count and when each last changed, most recently changed first. A board is an .excalidraw file. New boards live in the app's own board store, kept for this project outside the project folder, and are listed by bare file name (e.g. architecture.excalidraw); the person puts one into the repository with the Canvas tab's Export action. Boards an earlier version made in the project's diagrams/ folder are listed by their project path, and stay where they are. Capped at 200, with a note when the cap was reached. Read-only.",
       inputSchema: {
         type: 'object',
         properties: { workspaceId: SHARED_PROPERTIES.workspaceId },

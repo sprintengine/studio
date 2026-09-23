@@ -280,10 +280,7 @@ test('canvas-tools', async () => {
       // A named board is normalized: a bare name lands in the default folder.
       const explicit = harness()
       await explicit.tools.get('canvas.open')!.handler({ board: 'architecture' }, bound)
-      assert.ok(
-        explicit.calls.includes('readBoard:.sprintengine/canvas/architecture.excalidraw:create'),
-        explicit.calls.join(' '),
-      )
+      assert.ok(explicit.calls.includes('readBoard:architecture.excalidraw:create'), explicit.calls.join(' '))
       assert.equal(
         explicit.calls.some((call) => call.startsWith('listBoards')),
         false,
@@ -295,7 +292,7 @@ test('canvas-tools', async () => {
 
     await run('a bare name finds a board already in the legacy folder when the store has none', async () => {
       const legacy = 'diagrams/architecture.excalidraw'
-      const stored = '.sprintengine/canvas/architecture.excalidraw'
+      const stored = 'architecture.excalidraw'
 
       const h = harness([[legacy, boardState(legacy)]])
       await h.tools.get('canvas.describe')!.handler({ board: 'architecture' }, bound)
