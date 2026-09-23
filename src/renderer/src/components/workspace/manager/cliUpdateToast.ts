@@ -11,7 +11,8 @@ import { cliRuntimeForPlugin } from '../newWorkspace/cliRuntimeOptions'
 // The CLI-update toast (owner ruling 2026-09-04): the CLI's glyph,
 // "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
 // which runs the same command the Settings row runs and reports in place.
-// The ONE toast with actions; main sends each (cli, version) pair once.
+// One of the two toasts with actions (the other is the app-update toast);
+// main sends each (cli, version) pair once.
 // It leaves after a minute (owner ruling 2026-09-18): a notice nobody asked
 // for should not sit in the corner until clicked, and the bell entry below
 // and the Settings row still say the same thing once it has gone.

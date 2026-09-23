@@ -107,7 +107,13 @@ export class SprintEngineUpdateService {
    * nothing it reports (progress, completion) may reach the state, and it is
    * cancelled so the new channel can start its own.
    */
-  private download: { token: CancellationToken; stale: boolean } | null = null
+  private download: {
+    token: CancellationToken
+    stale: boolean
+    /** Resolves once electron-updater has let go of this download, however it ended. */
+    settled: Promise<void>
+    settle: () => void
+  } | null = null
 
   constructor({ writeDiagnosticLog, channelStore }: UpdateServiceOptions) {
     this.writeDiagnosticLog = writeDiagnosticLog
@@ -130,6 +136,10 @@ export class SprintEngineUpdateService {
       lastCheckedAt: null,
     }
 
+    // Updates do download on their own, but checkForUpdates starts them rather
+    // than electron-updater: a download it started itself would carry a
+    // cancellation token this service never sees, and a channel switch could
+    // not stop it.
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     applyUpdaterChannel(this.track, appVersion)
@@ -194,6 +204,15 @@ export class SprintEngineUpdateService {
       return { ok: false, state: this.getState(), message: this.state.errorMessage ?? getStatusMessage('error') }
     }
 
+    // A download under way, or one waiting for a restart, already answers the
+    // question. Asking the feed again would announce the same version as
+    // merely available -- electron-updater emits update-available on every
+    // check -- so the state would drop back from ready-to-install, and the
+    // four-minute poller would do that to a waiting update all day.
+    if (this.state.downloaded || (this.download && !this.download.stale)) {
+      return { ok: true, state: this.getState(), message: getStatusMessage(this.state.status) }
+    }
+
     this.updateState({
       status: 'checking',
       errorMessage: null,
@@ -203,6 +222,11 @@ export class SprintEngineUpdateService {
 
     try {
       const result = await autoUpdater.checkForUpdates()
+      // Found one: fetch it in the background straight away, so the next thing
+      // the person hears is that it is ready, not that it is waiting on them.
+      // Not awaited -- a check answers in a second and a download takes
+      // minutes; its progress and its outcome arrive as state.
+      if (this.state.status === 'available') void this.downloadUpdate()
       if (!result?.updateInfo) {
         return { ok: true, state: this.getState(), message: getStatusMessage(this.state.status) }
       }
@@ -235,10 +259,14 @@ export class SprintEngineUpdateService {
       return { ok: false, state: this.getState(), message }
     }
 
+    // A download the old channel started, and setChannel cancelled, holds
+    // electron-updater's one download slot until it settles; a call made
+    // before then would be handed that dying promise instead of a download
+    // of its own.
+    while (this.download?.stale) await this.download.settled
     // electron-updater hands a second call the download already running, so
     // only the call that starts one owns its token.
-    const download = this.download ?? { token: new CancellationToken(), stale: false }
-    this.download = download
+    const download = this.download ?? this.beginDownload()
     try {
       this.updateState({ status: 'downloading', errorMessage: null })
       await autoUpdater.downloadUpdate(download.token)
@@ -256,14 +284,31 @@ export class SprintEngineUpdateService {
       return { ok: false, state: this.getState(), message }
     } finally {
       if (this.download === download) this.download = null
+      download.settle()
     }
+  }
+
+  private beginDownload(): NonNullable<SprintEngineUpdateService['download']> {
+    let settle: () => void = () => undefined
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    const download = { token: new CancellationToken(), stale: false, settled, settle }
+    this.download = download
+    return download
   }
 
   quitAndInstall(): AppUpdateCheckResult {
     if (!this.state.downloaded) {
       return { ok: false, state: this.getState(), message: 'No downloaded update is ready to install.' }
     }
-    autoUpdater.quitAndInstall(false, true)
+    // Silent, then relaunch. On Windows the first argument runs the NSIS
+    // installer with /S, so no installer window appears; the installer is
+    // one-click and per-user (package.json `build.nsis`), so it writes under
+    // the person's own profile and needs no UAC prompt either. The second
+    // relaunches the app once the installer finishes. macOS ignores both:
+    // Squirrel swaps the bundle and relaunches on its own.
+    autoUpdater.quitAndInstall(true, true)
     return { ok: true, state: this.getState(), message: 'Restarting to install update.' }
   }
 
