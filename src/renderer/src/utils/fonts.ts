@@ -41,3 +41,12 @@ export const remeasureWhenMonoFontLoads = (remeasure: () => void): (() => void) 
     document.fonts.removeEventListener('loadingdone', run)
   }
 }
+
+// The same, shaped as a Monaco `onMount` handler (it also fits a diff editor's
+// mount), so every editor in the app wires it the one way.
+export const remeasureMonacoFontsOnLoad = (
+  editor: { onDidDispose: (listener: () => void) => unknown },
+  monaco: { editor: { remeasureFonts: () => void } },
+): void => {
+  editor.onDidDispose(remeasureWhenMonoFontLoads(() => monaco.editor.remeasureFonts()))
+}

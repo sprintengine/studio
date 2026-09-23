@@ -15,7 +15,7 @@ import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
 import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } from './branchSteps'
 import { useBranchSteps } from './useBranchSteps'
-import { MONO_FONT_STACK, remeasureWhenMonoFontLoads } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { buildDiffFileList, findDiffFocusIndex, type DiffFileItem } from './diffFileList'
 import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
@@ -48,6 +48,7 @@ import {
 import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
+import { WindowCloseButton } from '../workspace/WindowControls'
 import { openDiffWindow } from './openDiffWindow'
 import { openExternalFileWindow } from './openFileWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
@@ -830,9 +831,9 @@ export function DiffViewer({
           model?.modified.dispose()
         }, 0)
       })
-      // A window opened moments ago may have measured a fallback face; see
-      // `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
-      editor.onDidDispose(remeasureWhenMonoFontLoads(() => monaco.editor.remeasureFonts()))
+      // An editor mounted before the mono face arrived measured a fallback;
+      // see `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
+      remeasureMonacoFontsOnLoad(editor, monaco)
       // The steppers, registered ON THE EDITOR as well as on the window.
       //
       // Monaco has the keyboard whenever the diff is focused, and the window
@@ -1358,6 +1359,14 @@ export function DiffViewer({
       {variant === 'window' ? (
         <div className={titleBarClass}>
           <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">{windowTitle}</span>
+          {/* Frameless on win/linux, so the window draws its own way out, pinned
+              to the corner so the name stays centred; macOS keeps its native
+              traffic lights. A read-only diff has nothing unsaved to ask about. */}
+          {isMac ? null : (
+            <div className="app-no-drag absolute inset-y-0 right-0 flex items-stretch">
+              <WindowCloseButton onClick={() => void window.api.windowClose()} />
+            </div>
+          )}
         </div>
       ) : null}
 

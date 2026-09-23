@@ -101,8 +101,9 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
 /**
  * The close caption on its own, for a frameless window that has something to
  * close but no window state of its own to track — the pop-out editor, which on
- * win/linux otherwise closes only when its last tab does. Mount it inside an
- * `items-stretch` row so the caption fills its corner as the trio's does.
+ * win/linux otherwise closes only when its last tab does, and the diff window.
+ * Mount it inside an `items-stretch` row so the caption fills its corner as the
+ * trio's does.
  */
 export function WindowCloseButton({ onClick }: { onClick: () => void }) {
   return (

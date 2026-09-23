@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import { detectLanguage } from '../../utils/files'
-import { MONO_FONT_STACK, remeasureWhenMonoFontLoads } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
@@ -395,9 +395,7 @@ function renderBody(
       value={buffer.value}
       // A window opened moments ago may have measured a fallback face; see
       // `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
-      onMount={(editor, monaco) => {
-        editor.onDidDispose(remeasureWhenMonoFontLoads(() => monaco.editor.remeasureFonts()))
-      }}
+      onMount={remeasureMonacoFontsOnLoad}
       options={{
         fontSize: 13,
         fontFamily: MONO_FONT_STACK,
