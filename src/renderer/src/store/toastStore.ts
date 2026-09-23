@@ -15,10 +15,11 @@ import type { Tone } from '../components/ui/tokens'
 // Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error never)
 // — the store only holds what is showing and removes what was dismissed.
 
-// A button on a toast. ONE toast carries these: the CLI-update toast (owner
+// A button on a toast. TWO toasts carry these: the CLI-update toast (owner
 // ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
-// Update). Every other toast stays button-free; the design-system toast
-// spec names this variant and the lint pins it.
+// Update), and the app-update toast (Later and Restart to update, recorded
+// 2026-09-23). Every other toast stays button-free; the design-system toast
+// spec names both consumers.
 type ToastAction = {
   id: string
   label: string

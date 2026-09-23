@@ -79,7 +79,7 @@ success is furniture. The policy is the point — consumers may override the
 duration, not the split. (The shipped kit names the danger tone `error`; the
 class here follows the token grammar, `status.danger`.)
 
-**The action row, one consumer.** Owner ruling 2026-09-04: the CLI-update
+**The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
 carries `.ds-toast-actions` with **Settings** (ghost) and **Update** (primary),
 and `.ds-toast-glyph` — the agent CLI's icon — in place of the tone dot. It
@@ -88,10 +88,22 @@ stays for one minute, not five seconds and not forever (owner ruling
 notice does not sit in the corner until clicked. Missing it loses nothing — the
 bell and the Settings row carry the same news. Once Update is pressed the
 toast becomes that update's report, and its buttons go with the question
-they answered. This is the only toast in the system with buttons. "Undo" in a toast is
-still an action on a timer racing its own dismissal and still belongs where the
-change is visible; a second consumer of the action row is a design decision to
-record here, not a styling choice.
+they answered. "Undo" in a toast is still an action on a timer racing its own
+dismissal and still belongs where the change is visible; a further consumer of
+the action row is a design decision to record here, not a styling choice.
+
+**Amended 2026-09-23: the action row's second consumer.** The app-update toast
+("SprintEngine Studio 0.6.0 is ready") carries **Later** (ghost) and **Restart
+to update** (primary), with the good tone's dot. The update has already
+downloaded in the background, so the one question left is when to restart, and
+it is asked where the person is working rather than behind a trip to Settings.
+Unlike the CLI-update toast it stays until answered: it appears once per
+downloaded version, and a restart prompt that times out while the person looks
+away is how an update ends up found by accident. Later is the dismissal, and
+loses nothing — the update installs at the next quit, and the bell row and the
+Settings version row still say it is ready. Once Restart is pressed the toast
+becomes the restart's report, as the CLI-update toast becomes its update's.
+These two are the only toasts in the system with buttons.
 
 **The answer-in-place row, one consumer.** Owner ruling 2026-09-05: the
 incoming pair-request toast carries `.ds-toast-answer` — a six-digit
