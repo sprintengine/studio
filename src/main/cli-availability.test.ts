@@ -9,6 +9,7 @@ import {
   detectAgentCliAvailability,
   invalidateCliAvailability,
   preflightAgentCliLaunch,
+  setMaxConcurrentCliProbes,
 } from './cli-availability'
 
 function entry(id: string, displayName = id): PluginRegistryListEntry {
@@ -123,6 +124,106 @@ test('omits an errored probe from the map and does not cache it', async () => {
   // codex (clean) is cached; claude-code (errored) is not, so it re-probes.
   await detectAgentCliAvailability(undefined, deps)
   assert.equal(probes, 3, 'codex cached (1 probe), claude-code re-probed (2 probes)')
+})
+
+test('concurrent callers share one probe per CLI instead of each starting one', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      await gate
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  // Focus and visibility arrive together, in more than one window.
+  const pending = [
+    detectAgentCliAvailability(undefined, deps),
+    detectAgentCliAvailability(undefined, deps),
+    detectAgentCliAvailability(undefined, deps),
+  ]
+  release()
+  const results = await Promise.all(pending)
+  assert.equal(probes, 1, 'one probe answered all three callers')
+  for (const result of results) assert.equal(result.codex.installed, true)
+})
+
+test('a forced refresh does not join a probe that started before it', async () => {
+  clearCliAvailabilityCache()
+  const answers: boolean[] = []
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      // The first probe began before the install and answers "absent".
+      const installed = probes > 1
+      if (!installed) await gate
+      answers.push(installed)
+      return detected(cli, installed)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  const stale = detectAgentCliAvailability(undefined, deps)
+  const forced = await detectAgentCliAvailability({ force: true }, deps)
+  release()
+  await stale
+  assert.equal(probes, 2)
+  assert.equal(forced.codex.installed, true, 'the forced caller saw its own fresh probe')
+})
+
+test('an errored probe is shared while it runs but still not cached', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, false, 'shell spawn failed')
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  await Promise.all([detectAgentCliAvailability(undefined, deps), detectAgentCliAvailability(undefined, deps)])
+  assert.equal(probes, 1)
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 2, 'the next refresh after it settled re-probes')
+})
+
+test('probes run a bounded number at a time and every CLI still gets an answer', async () => {
+  clearCliAvailabilityCache()
+  setMaxConcurrentCliProbes(2)
+  let running = 0
+  let peak = 0
+  const clis = ['codex', 'claude-code', 'gemini', 'opencode', 'cursor']
+  const deps = {
+    listEntries: () => clis.map((id) => entry(id)),
+    detect: async (cli: AgentCli) => {
+      running += 1
+      peak = Math.max(peak, running)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      running -= 1
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  const result = await detectAgentCliAvailability(undefined, deps)
+  clearCliAvailabilityCache()
+  assert.equal(peak, 2)
+  assert.deepEqual(Object.keys(result).sort(), [...clis].sort())
 })
 
 test('invalidateCliAvailability forces a re-probe for one CLI only', async () => {

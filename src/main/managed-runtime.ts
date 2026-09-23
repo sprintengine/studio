@@ -147,9 +147,22 @@ function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform):
 }
 
 /**
+ * Shim sets already on disk in this run, keyed by everything their content is
+ * made from. The writes below are synchronous and on the main thread, and they
+ * used to run on every terminal launch and on every CLI probe, of which a
+ * single availability refresh starts about ten. On Windows each rewrite of a
+ * `.cmd` is also a fresh file for the virus scanner to open, so the same two
+ * files were written and scanned again and again with identical bytes, while
+ * the keyboard waited behind them.
+ */
+const writtenShims = new Map<string, { shimDir: string; prefixBinDir: string }>()
+
+/**
  * Writes `node`/`npm` shims that run the Electron binary as Node, plus a `bin`
  * directory under the writable npm prefix. Returns the shim dir, or null when
  * npm is not vendored (e.g. dev builds before `runtimes:fetch`).
+ *
+ * Writes once per run for a given set of inputs; later calls answer from memory.
  */
 export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv()): {
   shimDir: string
@@ -157,6 +170,16 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
 } | null {
   const npmCli = bundledNpmCliPath(env)
   if (!npmCli) return null
+
+  const writtenKey = [
+    env.platform,
+    managedNodeBinary(env),
+    npmCli,
+    getManagedRuntimeShimDir(env.platform),
+    getManagedNpmPrefixDir(env.platform),
+  ].join('\n')
+  const written = writtenShims.get(writtenKey)
+  if (written) return { ...written }
 
   // Never let shim-writing failures (read-only home, AV lock, quota) bubble:
   // this runs on the terminal-launch hot path, mirroring the try/catch in the
@@ -206,6 +229,9 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
       chmodSync(npmShim, 0o755)
     }
 
+    // Only a complete write is remembered: a failure (AV lock, quota) is tried
+    // again by the next caller, as it always was.
+    writtenShims.set(writtenKey, { shimDir, prefixBinDir })
     return { shimDir, prefixBinDir }
   } catch {
     return null
