@@ -12,6 +12,7 @@ import type { PluginInstallMethod, PluginInstallPlatform, PluginManifest } from 
 import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
+import { killProcessTree } from './process-tree-kill'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -185,6 +186,14 @@ export function parseProbeOutput(
   return { installed: true, version, resolvedPath }
 }
 
+// How long after the wrapper process exits its pipes may stay open before the
+// outcome is settled without them. Normally `close` follows `exit` at once; it
+// does not when something the wrapper started (a CLI's `--version` launched
+// through a `.cmd` shim, a daemon an installer leaves behind) inherited stdout
+// and outlives it. Waiting on `close` alone could then never return: the
+// probe's cache entry was never written, and the next refresh started another.
+const PIPE_DRAIN_GRACE_MS = 2_000
+
 function runDescriptor(
   desc: SpawnDescriptor,
   onData?: (chunk: string) => void,
@@ -203,16 +212,30 @@ function runDescriptor(
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let settled = false
+    let drainTimer: ReturnType<typeof setTimeout> | null = null
     const timer = timeoutMs
       ? setTimeout(() => {
           timedOut = true
-          child.kill('SIGKILL')
+          // The whole tree: on Windows the wrapper is `powershell.exe` or
+          // `wsl.exe`, and what hangs is the CLI it launched.
+          killProcessTree(child)
         }, timeoutMs)
       : null
     const settle = (outcome: RunOutcome) => {
+      if (settled) return
+      settled = true
       if (timer) clearTimeout(timer)
+      if (drainTimer) clearTimeout(drainTimer)
       resolve(outcome)
     }
+    const settleTimedOut = () =>
+      settle({
+        code: NOT_FOUND_EXIT,
+        stdout: '',
+        stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms`,
+        timedOut: true,
+      })
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString()
       stdout += text
@@ -226,14 +249,16 @@ function runDescriptor(
     child.on('error', (error) => {
       settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)), timedOut: false })
     })
+    child.on('exit', (code) => {
+      if (timedOut) {
+        settleTimedOut()
+        return
+      }
+      drainTimer = setTimeout(() => settle({ code: code ?? 1, stdout, stderr, timedOut: false }), PIPE_DRAIN_GRACE_MS)
+    })
     child.on('close', (code) => {
       if (timedOut) {
-        settle({
-          code: NOT_FOUND_EXIT,
-          stdout: '',
-          stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms`,
-          timedOut: true,
-        })
+        settleTimedOut()
         return
       }
       settle({ code: code ?? 1, stdout, stderr, timedOut: false })
