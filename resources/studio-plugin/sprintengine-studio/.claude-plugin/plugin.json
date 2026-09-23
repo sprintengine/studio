@@ -1,7 +1,7 @@
 {
   "name": "sprintengine-studio",
   "description": "Drive SprintEngine Studio from an agent: backlog, automations, workspaces and terminals, canvas boards, review. Ships the stdio bridge to the running app and one skill per area.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": {
     "name": "SprintEngine Studio"
   },

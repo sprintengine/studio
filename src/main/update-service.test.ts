@@ -35,21 +35,31 @@ const hoisted = vi.hoisted(() => {
       this.listeners.set(event, listener)
       return this
     },
-    // A download the test finishes by hand, as the network would.
-    downloads: [] as Array<{ token: CancellationToken; finish: () => void }>,
+    // A download the test finishes (or fails) by hand, as the network would.
+    downloads: [] as Array<{ token: CancellationToken; finish: () => void; fail: (error: Error) => void }>,
     downloadUpdate(token: CancellationToken) {
-      return new Promise<string[]>((resolve) => {
-        this.downloads.push({ token, finish: () => resolve([]) })
+      return new Promise<string[]>((resolve, reject) => {
+        this.downloads.push({ token, finish: () => resolve([]), fail: reject })
       })
     },
+    // The version the feed offers; null means the build is already current.
+    offered: null as string | null,
     async checkForUpdates() {
       this.checks.push({
         channel: this._channel,
         allowPrerelease: this.allowPrerelease,
         allowDowngrade: this.allowDowngrade,
       })
+      if (this.offered) {
+        this.listeners.get('update-available')?.({ version: this.offered })
+        return { updateInfo: { version: this.offered } }
+      }
       this.listeners.get('update-not-available')?.({})
       return { updateInfo: { version: app.version } }
+    },
+    installs: [] as Array<{ isSilent: boolean; isForceRunAfter: boolean }>,
+    quitAndInstall(isSilent: boolean, isForceRunAfter: boolean) {
+      this.installs.push({ isSilent, isForceRunAfter })
     },
   }
   return { app, updater, CancellationToken }
@@ -95,6 +105,8 @@ beforeEach(() => {
     allowDowngrade: false,
     checks: [],
     downloads: [],
+    offered: null,
+    installs: [],
   })
   hoisted.updater.listeners.clear()
 })
@@ -234,4 +246,129 @@ test('an unpackaged build reports dev and does not check when the channel change
   assert.equal(result.state.channel, 'dev')
   assert.deepEqual(s.getChannel(), { channel: 'nightly', chosen: true })
   assert.deepEqual(store.writes, ['nightly'])
+})
+
+// What electron-updater emits as a download runs and lands.
+function progress(percent: number) {
+  hoisted.updater.listeners.get('download-progress')?.({ percent, transferred: percent, total: 100, bytesPerSecond: 1 })
+}
+function downloaded(version: string) {
+  hoisted.updater.listeners.get('update-downloaded')?.({ version })
+}
+
+test('a check that finds an update downloads it in the background, reporting progress', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  const result = await s.checkForUpdates(false)
+  assert.equal(result.ok, true)
+  assert.equal(hoisted.updater.downloads.length, 1, 'the download started without being asked')
+  assert.equal(s.getState().status, 'downloading')
+  assert.equal(s.getState().updateVersion, '0.5.3')
+
+  progress(40)
+  assert.equal(s.getState().status, 'downloading')
+  assert.equal(s.getState().progress?.percent, 40)
+
+  downloaded('0.5.3')
+  hoisted.updater.downloads[0]?.finish()
+  await Promise.resolve()
+  assert.equal(s.getState().status, 'downloaded')
+  assert.equal(s.getState().downloaded, true)
+  assert.equal(s.getState().progress, null)
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, true, 'Later still installs it at the next quit')
+})
+
+test('a check that finds nothing downloads nothing', async () => {
+  const s = service()
+  await s.checkForUpdates(false)
+  assert.equal(s.getState().status, 'not_available')
+  assert.equal(hoisted.updater.downloads.length, 0)
+})
+
+test('checks while an update downloads or waits for a restart leave it alone', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  await s.checkForUpdates(false)
+  assert.equal(hoisted.updater.checks.length, 1)
+
+  // The poller comes round mid-download: no second check, no second download.
+  await s.checkForUpdates(false)
+  assert.equal(hoisted.updater.checks.length, 1)
+  assert.equal(hoisted.updater.downloads.length, 1)
+  assert.equal(s.getState().status, 'downloading')
+
+  downloaded('0.5.3')
+  hoisted.updater.downloads[0]?.finish()
+  await Promise.resolve()
+
+  // And again once it is ready: the feed would call it merely available.
+  const result = await s.checkForUpdates(true)
+  assert.equal(result.ok, true)
+  assert.equal(hoisted.updater.checks.length, 1)
+  assert.equal(s.getState().status, 'downloaded')
+  assert.equal(s.getState().downloaded, true)
+})
+
+test('a background download that fails reports the error and the next check tries again', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  await s.checkForUpdates(false)
+  hoisted.updater.downloads[0]?.fail(new Error('socket hang up'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(s.getState().status, 'error')
+  assert.equal(s.getState().errorMessage, 'socket hang up')
+  assert.equal(s.getState().downloaded, false)
+
+  await s.checkForUpdates(false)
+  assert.equal(hoisted.updater.checks.length, 2)
+  assert.equal(hoisted.updater.downloads.length, 2)
+  assert.equal(s.getState().status, 'downloading')
+})
+
+test('restart to update installs silently and relaunches, and only once an update is ready', async () => {
+  const s = service()
+  const early = s.quitAndInstall()
+  assert.equal(early.ok, false)
+  assert.deepEqual(hoisted.updater.installs, [])
+
+  hoisted.updater.offered = '0.5.3'
+  await s.checkForUpdates(false)
+  downloaded('0.5.3')
+  hoisted.updater.downloads[0]?.finish()
+  await Promise.resolve()
+
+  const result = s.quitAndInstall()
+  assert.equal(result.ok, true)
+  // Silent: the Windows installer runs with /S and shows no wizard.
+  assert.deepEqual(hoisted.updater.installs, [{ isSilent: true, isForceRunAfter: true }])
+})
+
+test('a channel switch mid-download fetches the new channel only after the old download lets go', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  await s.checkForUpdates(false)
+  const old = hoisted.updater.downloads[0]
+  assert.ok(old)
+
+  hoisted.updater.offered = '0.6.0-nightly.20260923.41'
+  const switched = await s.setChannel('nightly')
+  assert.equal(switched.ok, true)
+  assert.equal(old.token.cancelled, true)
+  assert.equal(hoisted.updater.checks.length, 2, 'the new channel was checked')
+  assert.equal(hoisted.updater.downloads.length, 1, 'its download waits for the old one to settle')
+
+  old.fail(new Error('cancelled'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(hoisted.updater.downloads.length, 2, 'then starts with a token of its own')
+  const next = hoisted.updater.downloads[1]
+  assert.ok(next)
+  assert.notEqual(next.token, old.token)
+  assert.equal(s.getState().status, 'downloading')
+  assert.equal(s.getState().updateVersion, '0.6.0-nightly.20260923.41')
+
+  downloaded('0.6.0-nightly.20260923.41')
+  next.finish()
+  await Promise.resolve()
+  assert.equal(s.getState().downloaded, true)
+  assert.equal(s.getState().updateVersion, '0.6.0-nightly.20260923.41')
 })

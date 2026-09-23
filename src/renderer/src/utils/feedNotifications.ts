@@ -79,7 +79,7 @@ export function cliUpdateNotice(
 export function updateReadyNotice(appName: string, version: string | null): Notice {
   return {
     title: version ? `${appName} ${version} is ready` : `${appName} update is ready`,
-    description: 'Installs the next time you quit.',
+    description: 'Restart now to update, or it installs the next time you quit.',
   }
 }
 

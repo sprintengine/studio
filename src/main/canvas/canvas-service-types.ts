@@ -50,6 +50,12 @@ export function canvasReaderKey(workspaceId: string, agentId?: string | null): s
 export interface CanvasService {
   listBoards(workspaceId: string): Promise<CanvasResult<CanvasBoardSummary[]>>
   readBoard(ref: CanvasBoardRef, opts?: { create?: boolean }): Promise<CanvasResult<CanvasBoardState>>
+  /**
+   * Whether a board file is on disk at this path, without loading it. What lets
+   * a bare name find a board in the legacy folder before one is created in the
+   * store under the same name.
+   */
+  boardExists(ref: CanvasBoardRef): Promise<CanvasResult<boolean>>
   edit(
     ref: CanvasBoardRef,
     edit: CanvasEditRequest,

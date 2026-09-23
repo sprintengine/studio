@@ -277,7 +277,9 @@ GitHub settings.
 
 ## Smoke Test
 
-- Install on a clean Windows machine or VM.
+- Install on a clean Windows machine or VM. The installer is one-click and
+  per-user: it shows no wizard and no UAC prompt, installs under
+  `%LOCALAPPDATA%\Programs`, and launches the app when it finishes.
 - Install on macOS Intel and Apple Silicon where available.
 - Install on Linux using the AppImage.
 - Launch the installed app.
@@ -296,8 +298,12 @@ GitHub settings.
 - Publish or draft the next release.
 - Start the previous release and run Help -> Check For Updates.
 - Confirm the new version is detected.
-- Confirm download progress is visible.
-- Confirm Restart installs the update.
+- Confirm the update downloads without being asked, with its progress visible
+  in Settings -> General.
+- Confirm the "is ready" toast appears with Later and Restart to update.
+- Confirm Restart to update installs the update and relaunches the app. On
+  Windows, confirm no installer window and no UAC prompt appears.
+- Confirm Later leaves the app running, and the update installs at the next quit.
 - Relaunch and verify the new version is shown in Settings.
 - On a nightly install, switch Update channel to Stable and confirm the check
   that follows offers the latest stable even when its version is lower than the
