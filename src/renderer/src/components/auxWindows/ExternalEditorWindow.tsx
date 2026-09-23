@@ -1,12 +1,23 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import { detectLanguage } from '../../utils/files'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureWhenMonoFontLoads } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
-import { CloseIconButton, EmptyState, GhostButton, IconButton, InlineNotice, RowButton, Spinner, Tooltip } from '../ui'
+import { WindowCloseButton } from '../workspace/WindowControls'
+import {
+  CloseIconButton,
+  EmptyState,
+  GhostButton,
+  IconButton,
+  InlineNotice,
+  RowButton,
+  Spinner,
+  Tooltip,
+  useConfirmDialog,
+} from '../ui'
 import {
   createExternalFileLoadingBuffer,
   createExternalFileTab,
@@ -46,6 +57,7 @@ function isDirty(buffer: FileBuffer | undefined): boolean {
 export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   const isMac = window.api.platform === 'darwin'
   const monacoTheme = useMonacoBaseTheme()
+  const { confirm: confirmDialog } = useConfirmDialog()
   const [tabs, setTabs] = useState<FileTab[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [buffers, setBuffers] = useState<Record<string, FileBuffer>>({})
@@ -150,6 +162,26 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
     closeTab(activeTab.path)
   }, [activeTab, closeTab, saveBuffer])
 
+  // The whole window, however many tabs it holds. Where Escape refuses outright
+  // while anything is unsaved, a click on Close is a deliberate choice, so it
+  // asks once — naming what would be lost — instead of doing nothing.
+  const closeWindow = useCallback(async () => {
+    const unsaved = tabsRef.current.filter((tab) => isDirty(buffersRef.current[tab.path]))
+    if (unsaved.length > 0) {
+      const confirmed = await confirmDialog({
+        title: 'Close the editor window?',
+        body:
+          unsaved.length === 1
+            ? `${unsaved[0].name} has unsaved changes. Closing the window discards them.`
+            : `${unsaved.length} files have unsaved changes. Closing the window discards them.`,
+        confirmLabel: 'Discard and close',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+    }
+    void window.api.windowClose()
+  }, [confirmDialog])
+
   // Cmd/Ctrl+S saves the active file; Escape dismisses the window. Escape is
   // guarded by the same no-silent-discard rule the tab close affordance uses:
   // with unsaved edits in any tab it does nothing, so the file is saved or
@@ -174,8 +206,10 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   return (
     <div className="flex h-screen w-screen flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
       <div
-        className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
-          isMac ? TRAFFIC_LIGHT_INSET : 'pl-2'
+        className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] ${
+          // The close caption fills the right-hand corner on win/linux, so the
+          // strip's own end padding would only push it off the edge.
+          isMac ? `pr-2 ${TRAFFIC_LIGHT_INSET}` : 'pl-2'
         }`}
       >
         <div className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto">
@@ -233,6 +267,13 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
           </svg>
           Dock into workspace
         </GhostButton>
+        {/* The window is frameless on win/linux, so it draws its own way out;
+            macOS keeps its native traffic lights on the left. */}
+        {isMac ? null : (
+          <div className="app-no-drag flex shrink-0 items-stretch self-stretch">
+            <WindowCloseButton onClick={() => void closeWindow()} />
+          </div>
+        )}
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -352,6 +393,11 @@ function renderBody(
       theme={monacoTheme}
       language={detectLanguage(activeTab.name)}
       value={buffer.value}
+      // A window opened moments ago may have measured a fallback face; see
+      // `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
+      onMount={(editor, monaco) => {
+        editor.onDidDispose(remeasureWhenMonoFontLoads(() => monaco.editor.remeasureFonts()))
+      }}
       options={{
         fontSize: 13,
         fontFamily: MONO_FONT_STACK,

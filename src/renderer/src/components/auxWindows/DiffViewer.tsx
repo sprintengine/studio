@@ -15,7 +15,7 @@ import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
 import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } from './branchSteps'
 import { useBranchSteps } from './useBranchSteps'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureWhenMonoFontLoads } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { buildDiffFileList, findDiffFocusIndex, type DiffFileItem } from './diffFileList'
 import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
@@ -830,6 +830,9 @@ export function DiffViewer({
           model?.modified.dispose()
         }, 0)
       })
+      // A window opened moments ago may have measured a fallback face; see
+      // `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
+      editor.onDidDispose(remeasureWhenMonoFontLoads(() => monaco.editor.remeasureFonts()))
       // The steppers, registered ON THE EDITOR as well as on the window.
       //
       // Monaco has the keyboard whenever the diff is focused, and the window

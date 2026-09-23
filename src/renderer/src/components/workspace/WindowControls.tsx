@@ -93,20 +93,32 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
         </CaptionButton>
       </Tooltip>
 
-      {/* `tone="close"` carries the Windows-native hover red, which now lives in
-          the kit with its own design-tokens-allow. */}
-      <Tooltip content="Close" placement="bottom">
-        <CaptionButton tone="close" onClick={closeWindow} aria-label="Close window">
-          <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
-          </svg>
-        </CaptionButton>
-      </Tooltip>
+      <WindowCloseButton onClick={closeWindow} />
     </div>
+  )
+}
+
+/**
+ * The close caption on its own, for a frameless window that has something to
+ * close but no window state of its own to track — the pop-out editor, which on
+ * win/linux otherwise closes only when its last tab does. Mount it inside an
+ * `items-stretch` row so the caption fills its corner as the trio's does.
+ */
+export function WindowCloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    // `tone="close"` carries the Windows-native hover red, which now lives in
+    // the kit with its own design-tokens-allow.
+    <Tooltip content="Close" placement="bottom">
+      <CaptionButton tone="close" onClick={onClick} aria-label="Close window">
+        <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </CaptionButton>
+    </Tooltip>
   )
 }
