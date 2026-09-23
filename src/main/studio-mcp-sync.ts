@@ -7,7 +7,7 @@ import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { studioEnvEntry } from '../shared/studio-env'
-import { toWslInteropExecutable } from './wsl-interop'
+import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
 
@@ -57,6 +57,11 @@ export async function syncStudioMcpConfig(
   if (studioGateway) {
     const clients = syncInput.clients ?? []
     const cliId = clients.length === 1 ? clients[0] : undefined
+    const bridgeEnv = {
+      ELECTRON_RUN_AS_NODE: '1',
+      ...studioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
+      ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
+    }
     const studioServer: McpServerConfig = {
       id: STUDIO_MCP_SERVER_ID,
       name: STUDIO_MCP_SERVER_NAME,
@@ -65,11 +70,9 @@ export async function syncStudioMcpConfig(
       command:
         syncInput.executionPathStyle === 'wsl' ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
-      env: {
-        ELECTRON_RUN_AS_NODE: '1',
-        ...studioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
-        ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
-      },
+      // A WSL CLI starts the Windows binary through interop, which forwards
+      // only what `WSLENV` names; without it the bridge would open the app.
+      env: syncInput.executionPathStyle === 'wsl' ? wslInteropEnv(bridgeEnv) : bridgeEnv,
       enabled: true,
       required: false,
       clients,

@@ -7,7 +7,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
 import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
-import { toWslInteropExecutable } from './wsl-interop'
+import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -266,7 +266,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
           ? {
               commandRuntime: {
                 executable: toWslInteropExecutable(options.resolveHostNodeCommand()),
-                env: { ELECTRON_RUN_AS_NODE: '1' },
+                env: wslInteropEnv({ ELECTRON_RUN_AS_NODE: '1' }),
               },
             }
           : {}),

@@ -1009,6 +1009,11 @@ test('mcp-config-service', async () => {
       config.includes('command = "/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe"'),
       'the WSL shell can execute the Windows-hosted bridge runtime',
     )
+    assert.match(
+      config,
+      /"WSLENV" = "ELECTRON_RUN_AS_NODE:SPRINTENGINE_USER_DATA_DIR:SPRINTENGINE_AGENT_CLI"/u,
+      'interop forwards the bridge env, so the binary runs as Node instead of opening the app',
+    )
     assert.doesNotMatch(config, /required = true/u, 'the Studio gateway is optional')
   }
 

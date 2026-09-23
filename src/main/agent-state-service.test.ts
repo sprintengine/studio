@@ -175,6 +175,10 @@ test('agent-state-service', async () => {
     wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(wslConfig.includes("ELECTRON_RUN_AS_NODE='1'"), 'WSL command starts the host runtime as Node')
     assert.ok(
+      wslConfig.includes("WSLENV='ELECTRON_RUN_AS_NODE'"),
+      'WSL command forwards ELECTRON_RUN_AS_NODE through interop, or the binary opens the app and takes focus',
+    )
+    assert.ok(
       wslConfig.includes('/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe'),
       'WSL command names the host executable through its Linux-visible path',
     )

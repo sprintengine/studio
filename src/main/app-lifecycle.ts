@@ -13,6 +13,8 @@ import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './bac
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
 import type { SprintEngineUpdateService } from './update-service'
+import type { AgentPhaseListener } from '../shared/agent-runtime'
+import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
@@ -24,6 +26,9 @@ type RegisterAppLifecycleOptions = {
   allowMultipleInstances?: boolean
   terminalRuntime: {
     shutdown(): Promise<void>
+    // Agent turn ends and questions, which ask for the person through the
+    // taskbar or dock (agent-attention.ts) and never by raising a window.
+    registerAgentPhaseListener?(listener: AgentPhaseListener): () => void
   }
   // Conversation-agent runtime: quit must dispose its headless child
   // processes too — they live outside the PTY reaper's sight.
@@ -153,6 +158,11 @@ export function registerAppLifecycle({
     }
 
     app.on('second-instance', (_, argv) => {
+      // A hook or bridge script that reached the binary without
+      // ELECTRON_RUN_AS_NODE is not a person asking for the app. Raising the
+      // window for it took focus from whatever they were doing, once per tool
+      // call.
+      if (isScriptSecondLaunch(argv)) return
       // Relaunching the app while it is backgrounded must produce a window:
       // without this the second launch silently did nothing, which on Windows
       // and Linux left the tray as the only way back in.
@@ -308,6 +318,20 @@ export function registerAppLifecycle({
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.
     void agentStateService?.initialize()
+
+    // An agent that finished or is waiting flashes the taskbar button or
+    // bounces the dock; the window itself stays where the person left it.
+    const agentAttention = createAgentAttention({
+      platform: process.platform,
+      listWindows: () => BrowserWindow.getAllWindows().filter((win) => !isCanvasWorkerWindow(win)),
+      bounceDock: () => app.dock?.bounce('informational'),
+      setBadgeCount: (count) => app.setBadgeCount(count),
+    })
+    terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
+    app.on('browser-window-focus', (_event, win) => {
+      if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()
+    })
+
     void moduleKernel?.runStartup()
     handleAuthCallback(process.argv)
 
