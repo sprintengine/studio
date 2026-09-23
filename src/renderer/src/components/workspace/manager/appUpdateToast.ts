@@ -5,10 +5,10 @@ import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { updateReadyNotice } from '../../../utils/feedNotifications'
 import { showToast, useToastStore } from '../../../store/toastStore'
 
-// The second toast with an action row (design-system/components/toast): the
-// update is already on disk, so the only question left is when to restart,
-// and asking it where the person is working means they never have to go
-// looking for the installer. It stays until answered. Later loses nothing:
+// The second toast with an action row (owner ruling 2026-09-23, recorded in
+// design-system/components/toast): the update is already on disk, so the only
+// question left is when to restart, and asking it where the person is working
+// means they never have to go looking for the installer. It stays until answered. Later loses nothing:
 // the update installs at the next quit, and the bell row and the Settings
 // version row both keep saying it is ready.
 export const APP_UPDATE_TOAST_ID = 'app-update:ready'

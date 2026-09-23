@@ -303,12 +303,11 @@ export class SprintEngineUpdateService {
       return { ok: false, state: this.getState(), message: 'No downloaded update is ready to install.' }
     }
     // Silent, then relaunch. On Windows the first argument runs the NSIS
-    // installer with /S: no wizard, the install directory and per-user or
-    // per-machine mode the app was installed with, and a UAC prompt only when
-    // that install is per-machine. Without it the person was walked through
-    // the installer's pages again for every update. The second relaunches the
-    // app once the installer finishes. macOS ignores both: Squirrel swaps the
-    // bundle and relaunches on its own.
+    // installer with /S, so no installer window appears; the installer is
+    // one-click and per-user (package.json `build.nsis`), so it writes under
+    // the person's own profile and needs no UAC prompt either. The second
+    // relaunches the app once the installer finishes. macOS ignores both:
+    // Squirrel swaps the bundle and relaunches on its own.
     autoUpdater.quitAndInstall(true, true)
     return { ok: true, state: this.getState(), message: 'Restarting to install update.' }
   }

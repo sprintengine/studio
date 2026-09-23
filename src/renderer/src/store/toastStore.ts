@@ -17,8 +17,8 @@ import type { Tone } from '../components/ui/tokens'
 
 // A button on a toast. TWO toasts carry these: the CLI-update toast (owner
 // ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
-// Update), and the app-update toast (Later and Restart to update, recorded
-// 2026-09-23). Every other toast stays button-free; the design-system toast
+// Update), and the app-update toast (owner ruling 2026-09-23 — Later and
+// Restart to update). Every other toast stays button-free; the design-system toast
 // spec names both consumers.
 type ToastAction = {
   id: string

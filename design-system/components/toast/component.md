@@ -92,7 +92,7 @@ they answered. "Undo" in a toast is still an action on a timer racing its own
 dismissal and still belongs where the change is visible; a further consumer of
 the action row is a design decision to record here, not a styling choice.
 
-**Amended 2026-09-23: the action row's second consumer.** The app-update toast
+**The action row's second consumer (owner ruling 2026-09-23).** The app-update toast
 ("SprintEngine Studio 0.6.0 is ready") carries **Later** (ghost) and **Restart
 to update** (primary), with the good tone's dot. The update has already
 downloaded in the background, so the one question left is when to restart, and
