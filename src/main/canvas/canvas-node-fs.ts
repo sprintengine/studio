@@ -15,6 +15,7 @@ export function createNodeCanvasFs(): CanvasFs {
   return {
     readFile: (path) => readFile(path, 'utf-8'),
     writeFile: (path, contents) => writeFile(path, contents, 'utf-8'),
+    writeBytes: (path, contents) => writeFile(path, contents),
     rename: (from, to) => rename(from, to),
     mkdir: async (path) => {
       await mkdir(path, { recursive: true })
