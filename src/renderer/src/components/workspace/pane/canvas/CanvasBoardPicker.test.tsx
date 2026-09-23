@@ -179,7 +179,8 @@ test('CanvasBoardPicker', async () => {
       const view = await mount()
       run('a project with no boards is told what a board is and where it goes', () => {
         assert.match(view.text(), /No boards yet/)
-        assert.match(view.text(), /diagrams folder/)
+        assert.match(view.text(), /outside your repository/)
+        assert.match(view.text(), /Export one to a folder/)
         assert.match(view.text(), /you and your agents can both draw on them/)
         assert.ok(view.newBoard(), 'and is still offered one')
         assert.equal(view.container.querySelector('ul'), null, 'with no empty card standing in for a list')
@@ -365,7 +366,7 @@ test('CanvasBoardPicker', async () => {
           field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
           field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
         })
-        assert.deepEqual(picked, ['diagrams/system map.excalidraw'])
+        assert.deepEqual(picked, ['.sprintengine/canvas/system map.excalidraw'], 'a new board goes to the app store')
         assert.equal(view.field(), null, 'and the field closes behind it')
       })
 
@@ -384,7 +385,7 @@ test('CanvasBoardPicker', async () => {
         assert.match(view.container.querySelector('nav')!.textContent ?? '', /Showing 21–23 of 23/)
         await click(view.newBoard())
         await press(view.field()!, 'Enter')
-        assert.deepEqual(picked, ['diagrams/canvas.excalidraw'])
+        assert.deepEqual(picked, ['.sprintengine/canvas/canvas.excalidraw'])
         assert.match(view.container.querySelector('nav')!.textContent ?? '', /Showing 1–10 of 23/)
       })
       await view.unmount()

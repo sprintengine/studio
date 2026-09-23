@@ -362,7 +362,7 @@ test('workspacePaneSlice', async () => {
         { id: 'c2', kind: 'canvas', canvas: { path: '../outside.excalidraw' } },
       ],
     })
-    assert.equal(normalized?.tabs[0].canvas?.path, 'diagrams/arch.excalidraw')
+    assert.equal(normalized?.tabs[0].canvas?.path, '.sprintengine/canvas/arch.excalidraw')
     // The tab survives, the field does not: the tab then shows the board picker,
     // which is a surface the person can act in.
     assert.equal(normalized?.tabs.length, 2, 'a refused path never costs the tab')
@@ -470,7 +470,9 @@ test('workspacePaneSlice', async () => {
     // A board nobody holds is written onto the tab as before.
     const second = slice.openPaneTab(WS, { kind: 'canvas' })!
     slice.setPaneTabBoard(WS, second, 'flow')
-    assert.deepEqual(pane().tabs.find((tab) => tab.id === second)?.canvas, { path: 'diagrams/flow.excalidraw' })
+    assert.deepEqual(pane().tabs.find((tab) => tab.id === second)?.canvas, {
+      path: '.sprintengine/canvas/flow.excalidraw',
+    })
     assert.equal(pane().tabs.find((tab) => tab.id === second)?.title, 'flow')
   })
 

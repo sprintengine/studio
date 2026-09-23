@@ -5,10 +5,26 @@ description: Draw, read and revise diagrams on a SprintEngine Studio Canvas boar
 
 # Drawing on a Canvas board
 
-A board is a `.excalidraw` file inside the project, normally under `diagrams/`,
-and it is versioned with the repository like any other file. Drawing on one is
-editing the person's project, and the person may have the same board open in
-front of them while you work.
+A board is a `.excalidraw` file the app keeps for the workspace, under
+`.sprintengine/canvas/`. That folder ignores itself, so boards are not part of
+the repository: drawing on one never shows up in `git status`, and never ends
+up in a commit by accident. Name boards by bare name (`architecture`) and they
+land there. The person may have the same board open in front of them while you
+work.
+
+Boards made before they moved into the app's store live in the project's
+`diagrams/` folder. They still work exactly as before and stay where they are: a
+bare name finds one when the store has no board of that name, and
+`canvas_list` shows both kinds. Do not move or copy one into the store.
+
+**Getting a board into the repository is the person's call.** The Canvas tab's
+menu has **Export to folder…**, which writes the board file (and a PNG or SVG
+of it, if they tick those) into a folder they pick. When the person asks you to
+put a diagram in the repository, tell them to export it, or — if they want you
+to do it — copy the board file from `.sprintengine/canvas/<name>.excalidraw` to
+the path they name. Do not pass a project path such as `docs/arch` as `board`
+to get the same effect: that creates a live board in the repository, which is
+exactly what the store exists to avoid.
 
 ## When to draw
 
@@ -110,13 +126,13 @@ has to click around.
 Restraint reads as design. Use one stroke/fill pair per meaning and leave
 everything else neutral:
 
-| Meaning | Stroke | Background |
-|---|---|---|
-| Neutral, the default | `#1e1e1e` | `transparent` or `#f8f9fa` |
-| Primary — the thing being explained | `#1971c2` | `#d0ebff` |
-| Healthy, done, success path | `#2f9e44` | `#b2f2bb` |
-| Warning, degraded, needs attention | `#e8590c` | `#ffec99` |
-| Failure, deleted, danger | `#e03131` | `#ffc9c9` |
+| Meaning                             | Stroke    | Background                 |
+| ----------------------------------- | --------- | -------------------------- |
+| Neutral, the default                | `#1e1e1e` | `transparent` or `#f8f9fa` |
+| Primary — the thing being explained | `#1971c2` | `#d0ebff`                  |
+| Healthy, done, success path         | `#2f9e44` | `#b2f2bb`                  |
+| Warning, degraded, needs attention  | `#e8590c` | `#ffec99`                  |
+| Failure, deleted, danger            | `#e03131` | `#ffc9c9`                  |
 
 Most of a good board is neutral. Colour marks the two or three shapes the person
 should look at first. Dashed strokes mean optional, planned or asynchronous;

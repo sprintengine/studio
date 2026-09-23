@@ -7,11 +7,26 @@
 // one key, and anything that could escape the workspace root has to be refused
 // here rather than at the fs call.
 
+import { sidecarRelativePath } from '../workspace-sidecar'
 import type { CanvasResult } from './types'
 import { canvasFail, canvasOk } from './types'
 
-/** Where a bare board name lands, at the workspace root. */
-export const CANVAS_DEFAULT_FOLDER = 'diagrams'
+/**
+ * Where a bare board name lands: the app's own store inside the workspace
+ * sidecar. The folder ignores itself, so a board the person or an agent draws
+ * never turns up in the repository's status or in a commit nobody meant to
+ * make. A board reaches the repository when the person exports it to a folder
+ * they choose.
+ */
+export const CANVAS_DEFAULT_FOLDER = sidecarRelativePath('canvas')
+
+/**
+ * Where a bare name used to land, before boards moved into the app's store.
+ * Boards already there are the person's files: they keep opening, listing and
+ * saving in place, and a bare name still finds one when the store has no board
+ * of that name. Nothing is moved out of it.
+ */
+export const CANVAS_LEGACY_FOLDER = 'diagrams'
 
 export const CANVAS_FILE_EXTENSION = '.excalidraw'
 
@@ -25,7 +40,7 @@ export const CANVAS_FILE_EXTENSION = '.excalidraw'
 export const CANVAS_LIST_MAX_BOARDS = 200
 
 /** The board a tool targets when the workspace has no recently opened one. */
-export const DEFAULT_CANVAS_BOARD_PATH = 'diagrams/canvas.excalidraw'
+export const DEFAULT_CANVAS_BOARD_PATH = `${CANVAS_DEFAULT_FOLDER}/canvas${CANVAS_FILE_EXTENSION}`
 
 // Refused wholesale: git's own store, and a dependency tree that is not the
 // person's work. A board written into either is either invisible to the project
@@ -118,6 +133,34 @@ export function normalizeCanvasPath(input: string): CanvasResult<string> {
   // where the picker looks; a caller who named a folder keeps it.
   const parts = folders.length > 0 ? [...folders, fileName] : [CANVAS_DEFAULT_FOLDER, fileName]
   return canvasOk(parts.join('/'))
+}
+
+/**
+ * Whether a board path lives in the app's store rather than in the project's
+ * own tree. Compared case-folded: the sidecar is one folder however a caller on
+ * a case-insensitive disk spelled it.
+ */
+export function canvasBoardIsInStore(path: string): boolean {
+  const slashed = String(path).replace(/\\/g, '/').toLowerCase()
+  return slashed.startsWith(`${CANVAS_DEFAULT_FOLDER.toLowerCase()}/`)
+}
+
+/**
+ * The legacy spelling of a bare board name, or null when the caller named a
+ * folder. `arch` is `diagrams/arch.excalidraw` here; `docs/arch` has none,
+ * because a caller who named a folder meant that folder.
+ */
+export function canvasLegacyPathFor(input: string): string | null {
+  if (typeof input !== 'string') return null
+  const segments = input
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment !== '' && segment !== '.')
+  if (segments.length !== 1) return null
+  const normalized = normalizeCanvasPath(segments[0])
+  if (!normalized.ok) return null
+  return `${CANVAS_LEGACY_FOLDER}/${normalized.value.slice(normalized.value.lastIndexOf('/') + 1)}`
 }
 
 /** The board's display name: its basename without the extension. */

@@ -5,6 +5,8 @@ import type {
   CanvasBoardState,
   CanvasBoardSummary,
   CanvasElement,
+  CanvasExportImages,
+  CanvasExportResult,
   CanvasPresence,
   CanvasResult,
   CanvasScenePush,
@@ -13,7 +15,7 @@ import type { CanvasWorkerReport, CanvasWorkerRequest, CanvasWorkerResponse } fr
 import type { ElectronApi } from '../../shared/electron-api'
 
 // The Canvas pane's passthrough. Two audiences share it: the workspace window's
-// Canvas tab (the first eight members) and the hidden worker window (the last
+// Canvas tab (the first nine members) and the hidden worker window (the last
 // three). Main decides which is which by who sent the message — the worker's
 // channels are ignored from anyone but the worker's own WebContents — so the
 // surface being one object costs nothing.
@@ -42,6 +44,9 @@ export const canvasApi = {
     },
   ): Promise<CanvasResult<{ revision: number; elements: CanvasElement[] | null }>> =>
     ipcRenderer.invoke('canvas:commit-scene', input),
+  canvasExportBoard: (
+    input: CanvasBoardRef & { defaultDirectory?: string; images?: CanvasExportImages },
+  ): Promise<CanvasResult<CanvasExportResult>> => ipcRenderer.invoke('canvas:export-board', input),
   // `send`, not `invoke`: the person has started drawing, and waiting for main
   // to answer that would put a round trip inside a pointer-down handler.
   canvasNoteHumanInput: (input: CanvasBoardRef): void => {
@@ -65,6 +70,7 @@ export const canvasApi = {
   | 'canvasOpenBoard'
   | 'canvasCloseBoard'
   | 'canvasCommitScene'
+  | 'canvasExportBoard'
   | 'canvasNoteHumanInput'
   | 'onCanvasScene'
   | 'onCanvasPresence'

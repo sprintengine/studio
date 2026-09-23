@@ -52,6 +52,8 @@ import type {
   CanvasBoardState,
   CanvasBoardSummary,
   CanvasElement,
+  CanvasExportImages,
+  CanvasExportResult,
   CanvasPresence,
   CanvasResult,
   CanvasScenePush,
@@ -508,6 +510,16 @@ export type ElectronApi = {
       files: Record<string, unknown>
     },
   ) => Promise<CanvasResult<{ revision: number; elements: CanvasElement[] | null }>>
+  /**
+   * Export the board into a folder the person picks: main shows the picker
+   * (opening at `defaultDirectory` when given) and writes `<name>.excalidraw`
+   * there, plus `<name>.png` / `<name>.svg` for each image the tab rendered.
+   * The board itself stays where it is. `cancelled` when the picker was
+   * dismissed.
+   */
+  canvasExportBoard: (
+    input: CanvasBoardRef & { defaultDirectory?: string; images?: CanvasExportImages },
+  ) => Promise<CanvasResult<CanvasExportResult>>
   /**
    * The person has started a gesture on this board. Presence ONLY: it moves the
    * badge every other window shows, so an agent stops looking like it holds the

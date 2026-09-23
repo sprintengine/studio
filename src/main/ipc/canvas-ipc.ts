@@ -1,13 +1,19 @@
-import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
+import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron'
 
-import type { CanvasBoardRef, CanvasElement, CanvasResult } from '../../shared/canvas/types'
+import type {
+  CanvasBoardRef,
+  CanvasElement,
+  CanvasExportImages,
+  CanvasExportResult,
+  CanvasResult,
+} from '../../shared/canvas/types'
 import { canvasFail, canvasOk } from '../../shared/canvas/types'
 import { normalizeCanvasPath } from '../../shared/canvas/paths'
 import { isRecord } from '../../shared/records'
 import type { CanvasServiceInternal } from '../canvas/canvas-service'
 import type { CanvasSubscriberRegistry } from '../canvas/canvas-subscribers'
 
-// The Canvas pane's IPC. Five channels, and every one of them treats its
+// The Canvas pane's IPC. Six channels, and every one of them treats its
 // payload as input rather than as the shape the preload promises — the preload
 // is ours, but the renderer it runs in hosts a lazy-loaded editor and
 // third-party module code, and the service behind this writes files into the
@@ -125,10 +131,33 @@ function recordOf(input: unknown): Record<string, unknown> {
   return isRecord(input) ? input : {}
 }
 
+/**
+ * The images an export carries, checked for type only: their size and shape are
+ * the service's to judge, and an absent or malformed field is simply not an
+ * image the person asked for.
+ */
+function exportImagesOf(input: unknown): CanvasExportImages {
+  if (!isRecord(input)) return {}
+  return {
+    ...(typeof input.png === 'string' && input.png.length > 0 ? { png: input.png } : {}),
+    ...(typeof input.svg === 'string' && input.svg.length > 0 ? { svg: input.svg } : {}),
+  }
+}
+
+export type CanvasIpcOptions = {
+  /**
+   * Show the folder picker for an export and answer the folder, or null when
+   * the person dismissed it. Injected so the boundary can be tested without a
+   * native dialog; absent, an export is refused rather than written anywhere.
+   */
+  pickExportDirectory?: (sender: WebContents, defaultPath?: string) => Promise<string | null>
+}
+
 export function registerCanvasIpc(
   ipcMain: IpcMain,
   service: CanvasServiceInternal,
   subscribers: CanvasSubscriberRegistry,
+  options: CanvasIpcOptions = {},
 ): void {
   // A window that closed, reloaded or crashed stops being a subscriber of every
   // board it held, without each board having to notice separately.
@@ -188,6 +217,35 @@ export function registerCanvasIpc(
       subscriberId,
     )
   })
+
+  // The folder comes from the picker main shows, never from the payload: the
+  // renderer may suggest where the picker opens, and that is all it may say
+  // about where the files land.
+  ipcMain.handle(
+    'canvas:export-board',
+    async (event: IpcMainInvokeEvent, input: unknown): Promise<CanvasResult<CanvasExportResult>> => {
+      const ref = refOf(input)
+      if (!ref.ok) return ref
+      if (!options.pickExportDirectory) {
+        return canvasFail('forbidden', 'Exporting a board is not available in this window.')
+      }
+      const record = input as Record<string, unknown>
+      const defaultPath = typeof record.defaultDirectory === 'string' ? record.defaultDirectory : undefined
+      let directory: string | null
+      try {
+        directory = await options.pickExportDirectory(event.sender, defaultPath)
+      } catch (error) {
+        return canvasFail(
+          'forbidden',
+          `The folder picker could not be shown: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+      if (!directory) return canvasOk({ cancelled: true })
+      const exported = await service.exportBoard(ref.value, directory, exportImagesOf(record.images))
+      if (!exported.ok) return exported
+      return canvasOk({ cancelled: false, directory: exported.value.directory, files: exported.value.files })
+    },
+  )
 
   // Fire-and-forget by contract: the person has started a gesture, and an
   // answer would only be read after the gesture was over.

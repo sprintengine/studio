@@ -9,6 +9,8 @@ import type { WorkspacePaneTab } from '../../../../types/workspace'
 import { EmptyState, PrimaryButton } from '../../../ui'
 import { SuspenseFallback } from '../../../ui/SuspenseFallback'
 import { CanvasBoardPicker } from './CanvasBoardPicker'
+import { CanvasExportDialog } from './CanvasExportDialog'
+import { canvasExportedToast, type CanvasBoardExporter, type CanvasExportFormats } from './canvasExport'
 import { canvasPushMatchesBoard, shouldApplyCanvasPush } from './canvasSync'
 
 // The Canvas tab: the board's lifecycle, the board actions, and the picker a
@@ -181,7 +183,7 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
     updatePaneTab(workspaceId, tab.id, { canvas: undefined })
   }, [tab.id, updatePaneTab, workspaceId])
 
-  // The three board actions, handed to the editor to put in its own menu. They
+  // The board actions, handed to the editor to put in its own menu. They
   // are defined here, where the tab record and the workspace root live, and the
   // editor only calls them — which is what keeps `CanvasTab` free of the
   // package. `revealFile` is null rather than disabled when the workspace has
@@ -200,6 +202,58 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
     showToast({ tone: 'good', title: 'Board path copied', description: path })
   }, [path])
 
+  // Export: the editor hands up its half (flush, then render the pictures), the
+  // dialog asks which files, and main shows the folder picker and writes them.
+  // The editor's half is kept in a ref rather than state: it is a function the
+  // dialog calls once, not something this tab renders from.
+  const exporterRef = useRef<CanvasBoardExporter | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportPending, setExportPending] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const openExport = useCallback((exporter: CanvasBoardExporter) => {
+    exporterRef.current = exporter
+    setExportError(null)
+    setExportOpen(true)
+  }, [])
+
+  const cancelExport = useCallback(() => {
+    setExportOpen(false)
+    setExportError(null)
+  }, [])
+
+  const runExport = useCallback(
+    async (formats: CanvasExportFormats) => {
+      const exporter = exporterRef.current
+      if (!path || !exporter) return
+      setExportPending(true)
+      setExportError(null)
+      try {
+        const images = await exporter(formats)
+        const result = await window.api.canvasExportBoard({
+          workspaceId,
+          path,
+          ...(workspaceRoot ? { defaultDirectory: workspaceRoot } : {}),
+          images,
+        })
+        if (!result.ok) {
+          setExportError(result.error.message)
+          return
+        }
+        // Dismissing the folder picker is a change of mind, not a failure: the
+        // dialog stays open on the same choice so a second press tries again.
+        if (result.value.cancelled) return
+        setExportOpen(false)
+        showToast({ tone: 'good', ...canvasExportedToast(result.value) })
+      } catch (error) {
+        setExportError(error instanceof Error ? error.message : 'The board could not be exported.')
+      } finally {
+        setExportPending(false)
+      }
+    },
+    [path, workspaceId, workspaceRoot],
+  )
+
   if (!path) {
     return <CanvasBoardPicker workspaceId={workspaceId} onPick={pickBoard} openPaths={openPaths} />
   }
@@ -210,7 +264,7 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   // the board's name, and a second copy of it under a hairline was a strip of
   // the drawing surface spent saying nothing new — so the editor starts
   // directly under the strip and fills the tab. What the band held moved into
-  // the space the editor already spends: the three board actions are items at
+  // the space the editor already spends: the board actions are items at
   // the top of its own menu, and an agent's presence is a badge in its
   // top-right corner.
   return (
@@ -242,10 +296,19 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
               onSwitchBoard={switchBoard}
               onRevealFile={workspaceRoot ? revealFile : null}
               onCopyPath={copyPath}
+              onExport={openExport}
             />
           </React.Suspense>
         </div>
       )}
+      <CanvasExportDialog
+        open={exportOpen}
+        boardName={name}
+        pending={exportPending}
+        error={exportError}
+        onCancel={cancelExport}
+        onExport={(formats) => void runExport(formats)}
+      />
     </div>
   )
 }

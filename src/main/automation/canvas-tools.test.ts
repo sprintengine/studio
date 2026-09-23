@@ -120,6 +120,10 @@ test('canvas-tools', async () => {
         }
         return canvasFail('not_found', `Nothing at ${ref.path}.`)
       },
+      boardExists: async (ref) => {
+        state.calls.push(`boardExists:${ref.path}`)
+        return failed<boolean>('boardExists') ?? canvasOk(state.boards.has(ref.path))
+      },
       edit: async (ref, edit, actor) => {
         state.calls.push(`edit:${ref.path}:${JSON.stringify(edit)}`)
         state.actors.push(actor)
@@ -276,7 +280,10 @@ test('canvas-tools', async () => {
       // A named board is normalized: a bare name lands in the default folder.
       const explicit = harness()
       await explicit.tools.get('canvas.open')!.handler({ board: 'architecture' }, bound)
-      assert.ok(explicit.calls.includes('readBoard:diagrams/architecture.excalidraw:create'))
+      assert.ok(
+        explicit.calls.includes('readBoard:.sprintengine/canvas/architecture.excalidraw:create'),
+        explicit.calls.join(' '),
+      )
       assert.equal(
         explicit.calls.some((call) => call.startsWith('listBoards')),
         false,
@@ -284,6 +291,33 @@ test('canvas-tools', async () => {
       )
       const refused = await explicit.tools.get('canvas.open')!.handler({ board: '../escape.excalidraw' }, bound)
       assert.equal(errorOf(refused).code, 'invalid_path')
+    })
+
+    await run('a bare name finds a board already in the legacy folder when the store has none', async () => {
+      const legacy = 'diagrams/architecture.excalidraw'
+      const stored = '.sprintengine/canvas/architecture.excalidraw'
+
+      const h = harness([[legacy, boardState(legacy)]])
+      await h.tools.get('canvas.describe')!.handler({ board: 'architecture' }, bound)
+      assert.ok(h.calls.includes(`readBoard:${legacy}:read`), h.calls.join(' '))
+
+      // The store wins when it has the name: that is where the board lives now.
+      const both = harness([
+        [legacy, boardState(legacy)],
+        [stored, boardState(stored)],
+      ])
+      await both.tools.get('canvas.describe')!.handler({ board: 'architecture' }, bound)
+      assert.ok(both.calls.includes(`readBoard:${stored}:read`), both.calls.join(' '))
+      assert.equal(both.calls.includes(`boardExists:${legacy}`), false, 'the legacy folder is not asked about')
+
+      // A named folder means that folder, and is never re-pointed.
+      const named = harness([[legacy, boardState(legacy)]])
+      await named.tools.get('canvas.open')!.handler({ board: 'docs/architecture' }, bound)
+      assert.ok(named.calls.includes('readBoard:docs/architecture.excalidraw:create'), named.calls.join(' '))
+      assert.equal(
+        named.calls.some((call) => call.startsWith('boardExists')),
+        false,
+      )
     })
 
     await run('with the module disabled every tool answers the gateway’s words and touches nothing', async () => {
@@ -333,8 +367,8 @@ test('canvas-tools', async () => {
     await run('canvas.describe appends the lint, the person’s changes and the recent actions', async () => {
       const h = harness([
         [
-          'diagrams/canvas.excalidraw',
-          boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle', x: 0, y: 0 })]),
+          DEFAULT_CANVAS_BOARD_PATH,
+          boardState(DEFAULT_CANVAS_BOARD_PATH, [element({ id: 'r1', type: 'rectangle', x: 0, y: 0 })]),
         ],
       ])
       h.changes = ['Moved "Gateway".']
@@ -370,8 +404,8 @@ test('canvas-tools', async () => {
       async () => {
         const small = harness([
           [
-            'diagrams/canvas.excalidraw',
-            boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle' })]),
+            DEFAULT_CANVAS_BOARD_PATH,
+            boardState(DEFAULT_CANVAS_BOARD_PATH, [element({ id: 'r1', type: 'rectangle' })]),
           ],
         ])
         const full = structured(await small.tools.get('canvas.describe')!.handler({ detail: 'full' }, bound))
@@ -383,9 +417,9 @@ test('canvas-tools', async () => {
 
         const huge = harness([
           [
-            'diagrams/canvas.excalidraw',
+            DEFAULT_CANVAS_BOARD_PATH,
             boardState(
-              'diagrams/canvas.excalidraw',
+              DEFAULT_CANVAS_BOARD_PATH,
               Array.from({ length: 1200 }, (_, i) =>
                 element({ id: `r${i}`, type: 'rectangle', x: i * 10, y: i * 5, text: 'x'.repeat(120) }),
               ),
@@ -405,9 +439,9 @@ test('canvas-tools', async () => {
     await run('canvas.find needs a filter, returns skeletons, and caps what it hands back', async () => {
       const h = harness([
         [
-          'diagrams/canvas.excalidraw',
+          DEFAULT_CANVAS_BOARD_PATH,
           boardState(
-            'diagrams/canvas.excalidraw',
+            DEFAULT_CANVAS_BOARD_PATH,
             Array.from({ length: 250 }, (_, i) => element({ id: `r${i}`, type: 'rectangle', x: i, y: i })),
           ),
         ],
@@ -516,8 +550,8 @@ test('canvas-tools', async () => {
       async () => {
         const h = harness([
           [
-            'diagrams/canvas.excalidraw',
-            boardState('diagrams/canvas.excalidraw', [
+            DEFAULT_CANVAS_BOARD_PATH,
+            boardState(DEFAULT_CANVAS_BOARD_PATH, [
               element({ id: 'r1', type: 'rectangle' }),
               element({ id: 'r2', type: 'rectangle' }),
               element({ id: 'gone', type: 'rectangle', isDeleted: true }),
@@ -531,11 +565,11 @@ test('canvas-tools', async () => {
         const body = structured(result)
         assert.equal(body.caption, 'canvas: 800x600 image/png, 2 element(s).')
         assert.equal(JSON.stringify(body).includes('UE5H'), false, 'the base64 rides in the content block only')
-        assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:all:900:true'))
+        assert.ok(h.calls.includes(`screenshot:${DEFAULT_CANVAS_BOARD_PATH}:all:900:true`))
 
         const subset = await h.tools.get('canvas.screenshot')!.handler({ elementIds: ['r1'] }, bound)
         assert.equal(structured(subset).capturedElements, 1)
-        assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:r1:-:-'))
+        assert.ok(h.calls.includes(`screenshot:${DEFAULT_CANVAS_BOARD_PATH}:r1:-:-`))
       },
     )
 
@@ -555,7 +589,7 @@ test('canvas-tools', async () => {
       })
 
       h.fail = { where: 'screenshot', code: 'too_large', message: 'The rendered board was 3 MB.' }
-      h.boards.set('diagrams/canvas.excalidraw', boardState('diagrams/canvas.excalidraw'))
+      h.boards.set(DEFAULT_CANVAS_BOARD_PATH, boardState(DEFAULT_CANVAS_BOARD_PATH))
       const tooLarge = await h.tools.get('canvas.screenshot')!.handler({}, bound)
       assert.equal(errorOf(tooLarge).code, 'too_large')
 
