@@ -24,12 +24,7 @@ import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '
 import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFeedSlice'
 import { startCliModelDiscovery } from '../../store/cliModelDiscovery'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
-import {
-  discoveredModelAdditions,
-  newModelsNotice,
-  sourceUpdatesNotice,
-  updateReadyNotice,
-} from '../../utils/feedNotifications'
+import { discoveredModelAdditions, newModelsNotice, sourceUpdatesNotice } from '../../utils/feedNotifications'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
@@ -209,6 +204,7 @@ import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
+import { showAppUpdateReadyToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import {
@@ -1484,24 +1480,15 @@ export default function WorkspaceManager() {
     })
   }, [])
 
-  // The app update, once downloaded: one good toast and one bell row. The
-  // Settings banner is unchanged; autoInstallOnAppQuit does the rest.
+  // The app update, once main has downloaded it in the background: one toast
+  // asking to restart into it, and one bell row. Later leaves it to
+  // autoInstallOnAppQuit.
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (!api || typeof api.onUpdateStateChanged !== 'function') return
     let last: string | null = null
     return api.onUpdateStateChanged((state) => {
-      if (state.status === 'downloaded' && last !== 'downloaded') {
-        const notice = updateReadyNotice('SprintEngine Studio', state.updateVersion)
-        showToast({ tone: 'good', title: notice.title, description: notice.description })
-        publishDiagnosticSync({
-          level: 'info',
-          source: 'update',
-          title: notice.title,
-          message: notice.description,
-          navigationTarget: { kind: 'settings', ref: 'general' },
-        })
-      }
+      if (state.status === 'downloaded' && last !== 'downloaded') showAppUpdateReadyToast(state)
       last = state.status
     })
   }, [])

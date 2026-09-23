@@ -847,9 +847,21 @@ type ClaudeSettings = {
 // backslashes must survive (a separator rewrite would corrupt it to
 // `//./pipe/...`, which connect() can't open); on POSIX it has none. Both args
 // are double-quoted so spaces survive the shell.
+//
+// A command run through WSL is the exception on both counts, because a Linux
+// shell executes it and a Windows program receives it (see `wslInterop`).
 export type AgentStateCommandRuntime = {
   executable: string
   env?: Record<string, string>
+  /**
+   * The executable is a Windows program run from a Linux shell under WSL: the
+   * Windows-hosted runtime, since only a Windows process can open the app's
+   * named pipe. Its `env` must then name itself in `WSLENV` (`wslInteropEnv`),
+   * and the arguments are single-quoted: inside a POSIX shell's double quotes a
+   * doubled backslash collapses to one, which turns the pipe `\\.\pipe\…` into
+   * `\.\pipe\…`, a path nothing listens on.
+   */
+  wslInterop?: boolean
 }
 
 function quotePosixCommandArgument(value: string): string {
@@ -862,12 +874,17 @@ function commandRuntimePrefix(runtime?: AgentStateCommandRuntime): string {
   return ['env', ...env, quotePosixCommandArgument(runtime.executable)].join(' ')
 }
 
+function quoteCommandArgument(value: string, runtime?: AgentStateCommandRuntime): string {
+  return runtime?.wslInterop ? quotePosixCommandArgument(value) : `"${value}"`
+}
+
 export function buildAgentStateReporterCommand(
   scriptPath: string,
   socketPath: string,
   runtime?: AgentStateCommandRuntime,
 ): string {
-  return `${commandRuntimePrefix(runtime)} "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
+  const script = quoteCommandArgument(scriptPath.split(sep).join('/'), runtime)
+  return `${commandRuntimePrefix(runtime)} ${script} --socket ${quoteCommandArgument(socketPath, runtime)}`
 }
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {
@@ -887,17 +904,23 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
 // the tag. An untagged entry is unremovable by tag alone, and once the workspace
 // root moves its absolute script path dangles, firing MODULE_NOT_FOUND on every
 // event forever. So also claim untagged entries whose command has the exact
-// shape buildAgentStateReporterCommand emits: the script path is always
-// forward-slashed and ends in this suffix, immediately followed by `--socket`.
-const AGENT_STATE_COMMAND_SIGNATURE = '/.sprintengine/hooks/agent-state.mjs" --socket "'
+// shape buildAgentStateReporterCommand emits: `node`, or `env …` for a
+// runtime, then the script path, always forward-slashed and ending in this
+// suffix, immediately followed by `--socket`. Either quote style, because a
+// command run through WSL single-quotes its arguments.
+const AGENT_STATE_COMMAND_SIGNATURE = /\/\.sprintengine\/hooks\/agent-state\.mjs(["']) --socket \1/u
+
+function isAgentStateReporterCommand(command: unknown): boolean {
+  return (
+    typeof command === 'string' &&
+    (command.startsWith('node "') || command.startsWith('env ')) &&
+    AGENT_STATE_COMMAND_SIGNATURE.test(command)
+  )
+}
 
 function isAgentStateEntry(entry: ClaudeHookEntry): boolean {
   if (entry?._sprintengine === AGENT_STATE_HOOK_TAG) return true
-  return (
-    typeof entry?.command === 'string' &&
-    entry.command.startsWith('node "') &&
-    entry.command.includes(AGENT_STATE_COMMAND_SIGNATURE)
-  )
+  return isAgentStateReporterCommand(entry?.command)
 }
 
 function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string | undefined): ClaudeMatcherBlock {
@@ -1012,7 +1035,7 @@ export const STATUS_LINE_HOOK_SCRIPT_REL = join('.sprintengine', 'hooks', 'statu
 // `_sprintengine` with it, leaving an unremovable entry pointing at a script path
 // that dangles the moment the workspace moves). So ours is claimed by the
 // command's shape too, exactly as buildStatusLineForwarderCommand emits it.
-const STATUS_LINE_COMMAND_SIGNATURE = '/.sprintengine/hooks/status-line.mjs" --socket "'
+const STATUS_LINE_COMMAND_SIGNATURE = /\/\.sprintengine\/hooks\/status-line\.mjs(["']) --socket \1/u
 
 // The person's own command, as it rides in our argv: base64 of
 // {"command": "..."}, double-quoted. Read back out of a command string when a
@@ -1075,7 +1098,7 @@ export function buildStatusLineForwarderCommand(
 function isOurStatusLine(value: unknown): boolean {
   if (!isRecord(value)) return false
   if (value._sprintengine === true) return true
-  return typeof value.command === 'string' && value.command.includes(STATUS_LINE_COMMAND_SIGNATURE)
+  return typeof value.command === 'string' && STATUS_LINE_COMMAND_SIGNATURE.test(value.command)
 }
 
 /**
@@ -1457,6 +1480,12 @@ async function prepareStatusLineForwarder(
     // of a status line we cannot wrap is exactly the thing a build that shipped
     // without the forwarder still has to be able to do.
     if (resolved.kind === 'remove') return { action: 'remove' }
+    // Through WSL the forwarder is a Windows program, and it runs a wrapped
+    // command with the Windows shell, while the person's status line is a
+    // Linux command written for the Linux shell. Their status line wins: ours
+    // comes out (putting theirs back if we had displaced it) rather than
+    // breaking it.
+    if (options.commandRuntime?.wslInterop && resolved.wrapped) return { action: 'remove' }
     if (!existsSync(options.statusLineScriptPath)) return null
     const destScript = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
     const command = buildStatusLineForwarderCommand(
@@ -1514,11 +1543,7 @@ type FlatHooksFile = {
 }
 
 function isAgentStateFlatEntry(entry: FlatHooksEntry): boolean {
-  return (
-    typeof entry?.command === 'string' &&
-    entry.command.startsWith('node "') &&
-    entry.command.includes(AGENT_STATE_COMMAND_SIGNATURE)
-  )
+  return isAgentStateReporterCommand(entry?.command)
 }
 
 function stripFlatAgentStateEntries(hooks: Record<string, FlatHooksEntry[]>): void {

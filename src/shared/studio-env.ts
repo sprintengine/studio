@@ -33,3 +33,17 @@ export function withoutStudioEnv(env: Record<string, string>, names: readonly st
   for (const name of names) delete next[name]
   return next
 }
+
+// The identity vars an agent launch owns (see `applyAgentIdentityEnv` in
+// terminal-launch.ts). Cleared from a base env before the session's own
+// identity is applied, so a stale `SPRINTENGINE_AGENT_ID` inherited by the app's
+// own process (e.g. the app launched from inside an agent shell) never leaks
+// into a plain terminal or the wrong agent. Shared because a launch through WSL
+// must also name exactly these in `WSLENV` for them to reach the agent at all.
+export const AGENT_IDENTITY_ENV_KEYS = [
+  'SPRINTENGINE_WORKSPACE_ID',
+  'SPRINTENGINE_AGENT_ID',
+  'SPRINTENGINE_AGENT_NAME',
+  'SPRINTENGINE_AGENT_STATE_SOCKET',
+  'SPRINTENGINE_AGENT_CLI',
+] as const

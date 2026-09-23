@@ -6,7 +6,7 @@ import {
   parseGitConflictBlocks,
   replaceGitConflictBlock,
 } from '../../utils/gitConflictMarkers'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { detectLanguage } from '../../utils/files'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
@@ -210,6 +210,9 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
             <MonacoEditor
               height="100%"
               beforeMount={configureMonacoLanguages}
+              // See `remeasureWhenMonoFontLoads`: a fallback face measured at mount
+              // puts the caret off the text once the mono face swaps in.
+              onMount={remeasureMonacoFontsOnLoad}
               language={language}
               value={state.content}
               theme={monacoTheme}
@@ -251,6 +254,7 @@ function ConflictReadOnlyPane({
         <MonacoEditor
           height="100%"
           beforeMount={configureMonacoLanguages}
+          onMount={remeasureMonacoFontsOnLoad}
           language={language}
           value={content}
           theme={monacoTheme}

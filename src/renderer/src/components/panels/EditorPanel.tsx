@@ -10,7 +10,7 @@ import { basename, isPathOrChild, trimPath } from '../../utils/paths'
 import { getEditorBuffer, hasEditorBuffer, setEditorBuffer, subscribeEditorBuffer } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
 import { ContextMenu, EmptyState, IconButton, InlineNotice, MenuDivider, MenuItem, Spinner, Tooltip } from '../ui'
@@ -180,6 +180,9 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     editorRef.current = editor
     monacoRef.current = monaco
     gitDecorationsRef.current = editor.createDecorationsCollection()
+    // An editor opened early in the window's life may have measured a fallback
+    // face; see `remeasureWhenMonoFontLoads` for why the caret drifts until then.
+    remeasureMonacoFontsOnLoad(editor, monaco)
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
       const state = useWorkspaceStore.getState()
       const ws = state.workspaces.find((w) => w.id === workspaceId)
