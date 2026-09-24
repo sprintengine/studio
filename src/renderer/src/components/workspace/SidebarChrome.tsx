@@ -124,11 +124,13 @@ function BrandButton({ onNewChat, visibility }: { onNewChat: () => void; visibil
           tone's ink never reaches the mark — the wordmark paints its own two
           colours — so the button is the ground and the mark is the label. */}
       <GhostButton size="xs" onClick={onNewChat} aria-label="New chat" className={`app-no-drag ${visibility}`}>
-        {/* `material-bleed`: under the tinted window material the mark wears a
-            soft glow of the accent that leaks into the brand row
+        {/* `material-brand-wash`: under the tinted window material the mark
+            sits in a faint, heavily feathered wash of its own two inks — the
+            foreground behind "sprint", the accent behind "engine"
             (assets/index.css). It rides on the mark rather than the button so
-            it disappears with the mark at narrow widths. */}
-        <SprintEngineWordmark className="material-bleed" />
+            it follows the mark wherever the traffic-light inset puts it and
+            disappears with it at narrow widths. */}
+        <SprintEngineWordmark className="material-brand-wash" />
       </GhostButton>
     </Tooltip>
   )
