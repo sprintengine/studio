@@ -12,6 +12,7 @@ import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from './process-run'
 import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScriptDescriptor } from './hosts/wsl-distro'
+import { hostRegistry } from './hosts/host-registry'
 import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
 
@@ -346,9 +347,14 @@ export async function runCliCommand(input: {
   env?: NodeJS.ProcessEnv
 }): Promise<CliCommandOutcome> {
   const target = resolveInstallPlatform(process.platform, input.hostId)
-  const distro = await wslDistroFor(target, input.hostId)
+  // A WSL machine runs it through its helper, with the person's login PATH.
+  if (target === 'wsl') {
+    return hostRegistry()
+      .get(input.hostId)
+      .runCommand([input.binary, ...input.args], { timeoutMs: input.timeoutMs })
+  }
   return runDescriptor(
-    buildCommandDescriptor({ binary: input.binary, args: input.args, target, distro }),
+    buildCommandDescriptor({ binary: input.binary, args: input.args, target }),
     undefined,
     input.env ?? defaultProbeEnv(),
     input.timeoutMs,
@@ -392,13 +398,15 @@ export async function probeBinaryVersion(binary: string): Promise<BinaryVersionP
 
 // ── Batched detection (Windows and WSL) ─────────────────────────────────────
 //
-// On Windows every probe is a `powershell.exe` or a `wsl.exe` login shell, each
-// a second or more to start, and the registry holds around ten CLIs. Probing
-// them one process each cost ten such starts per refresh. A batch asks about
-// every CLI for one target in ONE process: a single login shell in the
-// distribution, or a single PowerShell. The CLIs' `--version` calls run side by
-// side inside it, each with its own deadline, so one slow CLI costs its own
-// answer and not everyone's.
+// On Windows every probe is a `powershell.exe`, a second or more to start, and
+// the registry holds around ten CLIs. Probing them one process each cost ten
+// such starts per refresh. A batch asks about every CLI in ONE PowerShell, the
+// CLIs' `--version` calls side by side inside it, each with its own deadline,
+// so one slow CLI costs its own answer and not everyone's.
+//
+// A WSL machine asks its helper instead (`WslHost.detectClis`), which walks the
+// person's login PATH without a shell and runs `--version` only for a binary
+// that changed since it last asked.
 
 const BATCH_BLOCK_MARKER = '@@SPRINTENGINE_CLI '
 const BATCH_NOT_FOUND = '@@SPRINTENGINE_NOT_FOUND'
@@ -410,28 +418,6 @@ const BATCH_TIMEOUT_MS = 25_000
 
 export type BatchProbeRequest = { binary: string; versionArgs: string[] }
 export type BatchProbeAnswer = ReturnType<typeof parseProbeOutput> | { error: string }
-
-function posixBatchProbeScript(requests: readonly BatchProbeRequest[], perCliTimeoutMs: number): string {
-  const seconds = Math.max(1, Math.ceil(perCliTimeoutMs / 1000))
-  return [
-    // `timeout` is coreutils and nearly always present; without it the batch
-    // deadline still bounds the run.
-    `T=''; command -v timeout >/dev/null 2>&1 && T='timeout -k 2 ${seconds}'`,
-    `d="$(mktemp -d 2>/dev/null)" || d="/tmp/sprintengine-probe-$$"; mkdir -p "$d"`,
-    'probe() {',
-    '  i="$1"; b="$2"; shift 2',
-    `  p="$(command -v "$b" 2>/dev/null)" || { printf '%s\\n' '${BATCH_NOT_FOUND}' > "$d/$i"; return; }`,
-    `  { printf '${PATH_SENTINEL}%s\\n' "$p"; $T "$b" "$@" </dev/null 2>&1; [ $? -eq 124 ] && printf '%s\\n' '${BATCH_TIMED_OUT}'; } > "$d/$i"`,
-    '}',
-    ...requests.map(
-      (request, index) =>
-        `probe ${index} ${[request.binary, ...request.versionArgs].map(posixSingleQuote).join(' ')} &`,
-    ),
-    'wait',
-    `for i in ${requests.map((_, index) => index).join(' ')}; do printf '${BATCH_BLOCK_MARKER}%s\\n' "$i"; cat "$d/$i" 2>/dev/null; done`,
-    'rm -rf "$d"',
-  ].join('\n')
-}
 
 function powerShellBatchProbeScript(requests: readonly BatchProbeRequest[], perCliTimeoutMs: number): string {
   const list = requests
@@ -468,25 +454,12 @@ function powerShellBatchProbeScript(requests: readonly BatchProbeRequest[], perC
   ].join('\n')
 }
 
-/**
- * One process that probes every request for a Windows-side target: a login
- * shell in the distribution for `wsl`, a PowerShell for `win32`. The output is
- * one block per request, in order, read by `parseBatchProbeOutput`.
- */
+/** One PowerShell that probes every request; read by `parseBatchProbeOutput`. */
 export function buildBatchProbeDescriptor(input: {
   requests: readonly BatchProbeRequest[]
-  target: 'wsl' | 'win32'
-  distro?: string | null
   perCliTimeoutMs?: number
 }): SpawnDescriptor {
-  const perCliTimeoutMs = input.perCliTimeoutMs ?? BATCH_PER_CLI_TIMEOUT_MS
-  if (input.target === 'wsl') {
-    return wslScriptDescriptor(
-      input.distro ?? null,
-      wslLoginScript(`{\n${posixBatchProbeScript(input.requests, perCliTimeoutMs)}\n} </dev/null`),
-    )
-  }
-  const script = powerShellBatchProbeScript(input.requests, perCliTimeoutMs)
+  const script = powerShellBatchProbeScript(input.requests, input.perCliTimeoutMs ?? BATCH_PER_CLI_TIMEOUT_MS)
   return {
     file: 'powershell.exe',
     args: [
@@ -540,9 +513,12 @@ export function parseBatchProbeOutput(stdout: string, count: number): BatchProbe
 export type DetectCliBatchDeps = {
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
-  // The default distribution, for a WSL request whose host names none.
-  resolveDistro?: () => Promise<string | null>
   run?: (desc: SpawnDescriptor, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<RunOutcome>
+  /** A WSL machine's own detection (its helper); absent is the host registry's. */
+  detectOnHost?: (
+    hostId: ExecutionHostId,
+    requests: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
+  ) => Promise<CliDetectResult[]>
 }
 
 type BatchItem = { index: number; binary: string; versionArgs: string[] }
@@ -568,8 +544,6 @@ function detectResult(
 }
 
 async function runBatchGroup(
-  target: 'wsl' | 'win32',
-  hostId: ExecutionHostId,
   items: readonly BatchItem[],
   deps: DetectCliBatchDeps,
   env: NodeJS.ProcessEnv,
@@ -578,17 +552,14 @@ async function runBatchGroup(
     deps.run ??
     ((desc: SpawnDescriptor, runEnv: NodeJS.ProcessEnv, timeoutMs: number) =>
       runDescriptor(desc, undefined, runEnv, timeoutMs))
-  const resolveDistro = deps.resolveDistro ?? (() => resolveDefaultWslDistro())
   try {
-    const distro = target === 'wsl' ? (distroOfHostId(hostId) ?? (await resolveDistro().catch(() => null))) : null
-    const outcome = await run(buildBatchProbeDescriptor({ requests: items, target, distro }), env, BATCH_TIMEOUT_MS)
+    const outcome = await run(buildBatchProbeDescriptor({ requests: items }), env, BATCH_TIMEOUT_MS)
     if (outcome.timedOut) {
       return items.map(() => ({ error: `The CLI check timed out after ${BATCH_TIMEOUT_MS / 1000} s.` }))
     }
     const answers = parseBatchProbeOutput(outcome.stdout, items.length)
     if (outcome.code !== 0 && answers.every((answer) => 'error' in answer)) {
-      // `wsl.exe` itself failed: no distribution, WSL not installed, the VM
-      // would not start. Its reason is the first line it printed.
+      // PowerShell itself failed. Its reason is the first line it printed.
       const detail = outcome.stderr.trim().split(/\r?\n/)[0] ?? ''
       return items.map(() => ({ error: `The CLI check exited with code ${outcome.code}. ${detail}`.trim() }))
     }
@@ -600,10 +571,10 @@ async function runBatchGroup(
 }
 
 /**
- * `detectCli` for many CLIs at once. On Windows, one process per machine (each
- * WSL distribution asked about, and this PC natively) whatever the count; on
- * macOS and Linux each CLI keeps its own probe, which has the interactive-shell
- * fallback a batch does not.
+ * `detectCli` for many CLIs at once. On Windows, this PC natively is one
+ * PowerShell whatever the count, and each WSL machine is one request to its
+ * helper; on macOS and Linux each CLI keeps its own probe, which has the
+ * interactive-shell fallback a batch does not.
  */
 export async function detectCliBatch(
   requests: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
@@ -611,7 +582,8 @@ export async function detectCliBatch(
 ): Promise<CliDetectResult[]> {
   const platform = deps.platform ?? process.platform
   const results: CliDetectResult[] = []
-  const groups = new Map<ExecutionHostId, { target: 'wsl' | 'win32'; items: BatchItem[] }>()
+  const windows: BatchItem[] = []
+  const wsl = new Map<ExecutionHostId, number[]>()
   const posix: number[] = []
   requests.forEach(({ cli, runtime }, index) => {
     const manifest = getPluginManifest(cli)
@@ -621,32 +593,99 @@ export async function detectCliBatch(
       return
     }
     const target = resolveInstallPlatform(platform, hostId)
-    if (target !== 'wsl' && target !== 'win32') {
+    if (target === 'wsl') {
+      wsl.set(hostId, [...(wsl.get(hostId) ?? []), index])
+      return
+    }
+    if (target !== 'win32') {
       posix.push(index)
       return
     }
-    const group = groups.get(hostId) ?? { target, items: [] }
-    group.items.push({
+    windows.push({
       index,
       binary: resolveBinary(manifest, runtime),
       versionArgs: manifest.detect?.versionArgs ?? ['--version'],
     })
-    groups.set(hostId, group)
   })
 
   const env = deps.env ?? defaultProbeEnv()
+  const detectOnHost =
+    deps.detectOnHost ??
+    ((hostId: ExecutionHostId, group: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>) =>
+      hostRegistry().get(hostId).detectClis(group))
   await Promise.all([
     ...posix.map(async (index) => {
       results[index] = await detectCli(requests[index].cli, requests[index].runtime, deps.env)
     }),
-    ...[...groups].map(async ([hostId, { target, items }]) => {
-      const answers = await runBatchGroup(target, hostId, items, deps, env)
-      items.forEach((item, position) => {
-        results[item.index] = detectResult(requests[item.index].cli, item.binary, hostId, answers[position])
+    ...(windows.length > 0
+      ? [
+          (async () => {
+            const answers = await runBatchGroup(windows, deps, env)
+            windows.forEach((item, position) => {
+              results[item.index] = detectResult(
+                requests[item.index].cli,
+                item.binary,
+                LOCAL_HOST_ID,
+                answers[position],
+              )
+            })
+          })(),
+        ]
+      : []),
+    ...[...wsl].map(async ([hostId, indexes]) => {
+      let answers: CliDetectResult[]
+      try {
+        answers = await detectOnHost(
+          hostId,
+          indexes.map((index) => requests[index]),
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        answers = indexes.map((index) =>
+          detectResult(requests[index].cli, requests[index].cli, hostId, { error: message }),
+        )
+      }
+      indexes.forEach((index, position) => {
+        results[index] =
+          answers[position] ?? detectResult(requests[index].cli, requests[index].cli, hostId, { error: 'No answer.' })
       })
     }),
   ])
   return results
+}
+
+// ── What a WSL machine's helper is asked, and what its answer means ─────────
+
+export type CliProbeRequest =
+  { cli: AgentCli; binary: string; versionArgs: string[] } | { cli: AgentCli; binary: string; error: string }
+
+/** What the helper's `cli.detect` is asked about one CLI. */
+export function cliProbeRequest(cli: AgentCli, runtime?: Partial<CliRuntimeSettings>): CliProbeRequest {
+  const manifest = getPluginManifest(cli)
+  if (!manifest) return { cli, binary: cli, error: `No plugin manifest found for "${cli}".` }
+  return { cli, binary: resolveBinary(manifest, runtime), versionArgs: manifest.detect?.versionArgs ?? ['--version'] }
+}
+
+/** One answer from the helper's `cli.detect`. */
+export type HelperProbeAnswer =
+  { found: false } | { found: true; path: string; output: string; timedOut?: boolean } | { error: string }
+
+/** A helper's answer as a detection result, read by the same parser as every other probe. */
+export function detectResultFromHelper(
+  probe: CliProbeRequest,
+  answer: HelperProbeAnswer,
+  hostId: ExecutionHostId,
+): CliDetectResult {
+  if ('error' in answer) return detectResult(probe.cli, probe.binary, hostId, { error: answer.error })
+  if (!answer.found) return detectResult(probe.cli, probe.binary, hostId, parseProbeOutput(NOT_FOUND_EXIT, ''))
+  // A CLI whose `--version` ran out of time was still found: installed, with
+  // whatever it printed before.
+  return detectResult(
+    probe.cli,
+    probe.binary,
+    hostId,
+    parseProbeOutput(0, `${PATH_SENTINEL}${answer.path}\n${answer.output}`),
+  )
 }
 
 export async function detectCli(

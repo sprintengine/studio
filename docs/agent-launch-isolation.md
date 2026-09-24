@@ -45,13 +45,15 @@ takes the bare name ahead of the plugin's, which is the precedence they would
 expect.
 
 One predicate decides whether a launch carries the plugin:
-`launchCarriesAppPlugins(cli)` in `src/main/app-services.ts`. It is true when
-the platform takes the flag (not Windows, native or WSL, because the copy holds
-absolute paths that do not translate into a Linux shell), the copy has been
-materialised, and the CLI's manifest declares `launchPlugins`. The launch flag,
-the agent-state installer, the skill installer and the MCP sync all ask this one
-question, so none of them can write a workspace copy of something the launch is
-also carrying, or skip one it is not.
+`launchCarriesAppPlugins(cli, host)` in `src/main/app-services.ts`. On this
+machine it is true when the platform takes the flag (not native Windows), the
+copy has been materialised, and the CLI's manifest declares `launchPlugins`. On
+a WSL machine it is true when the CLI declares `launchPlugins` and that
+distribution's helper has written its own copy, with Linux paths substituted
+into it (`src/main/hosts/wsl-plugin-copy.ts`). The launch flag, the agent-state
+installer and the MCP sync all ask this one question, so none of them can write
+a workspace copy of something the launch is also carrying, or skip one it is
+not.
 
 ## Inventory
 
@@ -178,10 +180,12 @@ measured first.
   machine. It would need a launch-time config file or override.
 - **Gemini.** No manifest ships under `resources/plugins`, so the app writes
   nothing for it.
-- **Windows, native and WSL.** The launch copy carries absolute paths that are
-  Windows paths, and WSL runs a Linux shell that cannot open them, so every
-  Claude-family launch on Windows still uses the workspace install (and the
-  gateway and skill copies) until the copy can be materialised per path style.
+- **Native Windows.** Claude-family launches there still use the workspace
+  install (and the gateway and skill copies). A WSL machine does not: its helper
+  holds a copy of its own inside the distribution.
+- **Bundled skills in WSL.** The skill installer does not yet ask which machine
+  a launch is on, so a Debug Mode or skill-at-spawn launch in WSL still copies
+  the skill into `.claude/skills` beside the plugin's own.
 - **Chat mode.** The conversation runtime (the Agent SDK provider) still pins
   the gateway into `.mcp.json` before a chat. The SDK takes MCP servers and
   plugins as options, so this can move to a launch-scoped route without a CLI

@@ -1,12 +1,59 @@
+// A WSL machine answers everything through its helper. These cases pin what
+// main asks the helper (and in which form: Linux paths, argv arrays, deadlines)
+// and how its answers come back, with a stand-in helper.
+
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { afterAll, beforeAll, test } from 'vitest'
 
-import type { RunOutcome } from '../process-run'
-import { buildWslGitScript, createWslHost, nativeGitOutput, wslGitArg, wslHostState } from './wsl-host'
+import { STUB_HELPER_INFO, stubWslHelper } from '../../../tests/wsl-helper-stub'
+import { createPluginRegistry } from '../plugin-registry'
+import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from '../plugin-registry-instance'
+import { createWslHost, nativeGitOutput, wslGitArg, wslHostState } from './wsl-host'
+import type { WslPluginCopy } from './wsl-plugin-copy'
+import { WslSetupError } from './wsl-setup-error'
+
+let temp = ''
+
+beforeAll(() => {
+  temp = mkdtempSync(join(tmpdir(), 'se-wsl-host-'))
+  __resetPluginRegistryForTest()
+  const registry = createPluginRegistry({
+    bundledRoot: join(process.cwd(), 'resources', 'plugins'),
+    userRoot: join(temp, 'no-user-plugins'),
+  })
+  __setPluginRegistryForTest(registry, registry.loadSync())
+})
+
+afterAll(() => {
+  __resetPluginRegistryForTest()
+  rmSync(temp, { recursive: true, force: true })
+})
+
+const PLUGIN_COPY: WslPluginCopy = {
+  files: [{ path: 'sprintengine-studio/hooks/hooks.json', b64: '' }],
+  digest: 'ab'.repeat(32),
+  root: `${STUB_HELPER_INFO.appDir}/plugin`,
+  pluginDirs: [
+    `${STUB_HELPER_INFO.appDir}/plugin/sprintengine-studio`,
+    `${STUB_HELPER_INFO.appDir}/plugin/studio-skills`,
+  ],
+  statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin/sprintengine-studio/hooks/status-line.mjs`,
+}
+
+function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin?: WslPluginCopy | null } = {}) {
+  const helper = stubWslHelper('Debian', handlers)
+  const host = createWslHost('Debian', {
+    readSettings: () => undefined,
+    listed: () => undefined,
+    helper,
+    buildPluginCopy: async () => (extra.plugin === undefined ? PLUGIN_COPY : extra.plugin),
+    survivorDelayMs: 0,
+  })
+  return { helper, host }
+}
 
 test('a git argument that is a Windows path crosses as the path in the distribution', () => {
   assert.equal(
@@ -18,49 +65,6 @@ test('a git argument that is a Windows path crosses as the path in the distribut
   assert.equal(wslGitArg('status'), 'status')
   assert.equal(wslGitArg(':(literal)src/[id].tsx'), ':(literal)src/[id].tsx')
   assert.equal(wslGitArg('origin/main'), 'origin/main')
-})
-
-test('the git script exports git environment and bounds a read with timeout', () => {
-  const script = buildWslGitScript({
-    cwd: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
-    args: ['status', '--porcelain=v2'],
-    env: { LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', 'bad-name': 'x' },
-    timeoutMs: 15_000,
-  })
-  assert.match(script, /^export LC_ALL='C'$/mu)
-  assert.match(script, /^export GIT_TERMINAL_PROMPT='0'$/mu)
-  assert.doesNotMatch(script, /bad-name/u)
-  assert.match(
-    script,
-    /exec timeout -k 2 15 'git' '-C' '\/home\/dev\/repo' 'status' '--porcelain=v2'; else exec 'git' '-C'/u,
-  )
-  const write = buildWslGitScript({ cwd: 'C:\\repo', args: ['commit', '-m', "it's done"], env: {}, timeoutMs: null })
-  assert.equal(write, `exec 'git' '-C' '/mnt/c/repo' 'commit' '-m' 'it'\\''s done'`, 'a write has no deadline')
-})
-
-test('the git script runs as sh reads it: quotes, dollars and spaces arrive intact', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'se-wsl-git-'))
-  try {
-    // Stand in for git with a script that prints what it was given.
-    const bin = join(dir, 'bin')
-    execFileSync('mkdir', ['-p', bin])
-    writeFileSync(join(bin, 'git'), '#!/bin/sh\nprintf "%s\\n" "$LC_ALL" "$@"\n', 'utf8')
-    chmodSync(join(bin, 'git'), 0o755)
-    const script = buildWslGitScript({
-      cwd: '/home/dev/my repo',
-      args: ['log', '--format=%H $x "q"'],
-      env: { LC_ALL: 'C' },
-      timeoutMs: null,
-    })
-    const out = execFileSync('/bin/sh', ['-s'], {
-      input: script,
-      env: { PATH: `${bin}:${process.env.PATH}` },
-      encoding: 'utf8',
-    })
-    assert.deepEqual(out.trimEnd().split('\n'), ['C', '-C', '/home/dev/my repo', 'log', '--format=%H $x "q"'])
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
 })
 
 test("git's absolute paths come back as Windows opens them", () => {
@@ -91,37 +95,198 @@ test('a distribution row reads as a host state', () => {
   assert.equal(wslHostState(undefined).state, 'unavailable')
 })
 
-function recorder(outcome: Partial<RunOutcome> = {}) {
-  const calls: Array<{ distro: string | null; script: string; timeoutMs: number | null }> = []
-  const run = async (distro: string | null, script: string, options: { timeoutMs: number | null }) => {
-    calls.push({ distro, script, timeoutMs: options.timeoutMs })
-    return { code: 0, stdout: '', stderr: '', timedOut: false, ...outcome }
-  }
-  return { calls, run }
-}
-
-test('a WSL host runs git and commands in its own distribution, through the stub runner', async () => {
-  const { calls, run } = recorder({ stdout: '/home/dev/repo\n' })
-  const host = createWslHost('Debian', { readSettings: () => undefined, listed: () => undefined, runScript: run })
+test('git runs through the helper with Linux paths, the runner env and its deadline; a write keeps none', async () => {
+  const { helper, host } = hostWith({
+    git: () => ({ code: 0, stdout: '/home/dev/repo\n', stderr: '', timedOut: false }),
+  })
   const git = await host.runGit('\\\\wsl.localhost\\Debian\\home\\dev\\repo', ['rev-parse', '--show-toplevel'], {
     timeoutMs: 15_000,
     env: { LC_ALL: 'C' },
   })
   assert.equal(git.stdout, '//wsl.localhost/Debian/home/dev/repo\n')
-  assert.equal(calls[0].distro, 'Debian')
-  assert.equal(calls[0].timeoutMs, 15_000)
-  await host.runGit('C:\\repo', ['commit', '-m', 'x'], { timeoutMs: null, env: {} })
-  assert.equal(calls[1].timeoutMs, null, 'a write keeps no deadline')
+  assert.deepEqual(helper.requests[0], {
+    method: 'git',
+    params: { cwd: '/home/dev/repo', args: ['rev-parse', '--show-toplevel'], timeoutMs: 15_000, env: { LC_ALL: 'C' } },
+    timeoutMs: 25_000,
+  })
+  await host.runGit('C:\\repo', ['worktree', 'add', 'C:\\repo\\wt'], { timeoutMs: null, env: {} })
+  assert.deepEqual(helper.requests[1].params, {
+    cwd: '/mnt/c/repo',
+    args: ['worktree', 'add', '/mnt/c/repo/wt'],
+    timeoutMs: null,
+    env: {},
+  })
+  assert.equal(helper.requests[1].timeoutMs, null, 'main waits as long as the write takes')
+})
 
-  await host.runCommand(['git', '--version'], { timeoutMs: 5_000, cwd: 'C:\\repo' })
-  assert.match(calls[2].script, /^exec bash -l <</u, 'run in a login shell, for the PATH the person set up')
-  assert.match(calls[2].script, /cd '\/mnt\/c\/repo' \|\| exit 1\nexec 'git' '--version' <\/dev\/null/u)
+test('a command is an argv run by the helper, and a helper that cannot start is a failed run, not a throw', async () => {
+  const { helper, host } = hostWith({
+    run: () => ({ code: 0, stdout: 'git version 2.43.0\n', stderr: '', timedOut: false }),
+  })
+  const outcome = await host.runCommand(['git', '--version'], { timeoutMs: 5_000, cwd: 'C:\\repo' })
+  assert.equal(outcome.stdout, 'git version 2.43.0\n')
+  assert.deepEqual(helper.requests[0].params, { argv: ['git', '--version'], cwd: '/mnt/c/repo', timeoutMs: 5_000 })
+  helper.failWith = new WslSetupError("Couldn't set up WSL: no network to download Node.js", {
+    fatal: true,
+    code: 'node-download',
+  })
+  await helper.shutdown()
+  const failed = await host.runCommand(['git', '--version'], { timeoutMs: 5_000 })
+  assert.equal(failed.spawnFailed, true)
+  assert.match(failed.stderr, /no network to download Node\.js/u)
+  assert.equal(host.summary().state, 'unavailable', 'the machine says why it cannot be used')
+  assert.match(host.summary().reason ?? '', /no network/u)
+})
+
+test('the reaper reads sessions by pid-file key; a failed read holds them all', async () => {
+  let fail = false
+  const { helper, host } = hostWith({
+    'proc.snapshot': () => {
+      if (fail) throw new Error('gone')
+      return { verdicts: { 'sid-a-1': 'listening_port', 'sid-b-2': null } }
+    },
+  })
+  const refs = [
+    { sessionId: 'a', rootPid: 11, startupScriptPath: 'C:\\Users\\dev\\terminal-startup\\sid-a-1.sh' },
+    { sessionId: 'b', rootPid: 12, startupScriptPath: 'C:\\Users\\dev\\terminal-startup\\sid-b-2.sh' },
+    { sessionId: 'c', rootPid: 13, startupScriptPath: 'C:\\Users\\dev\\terminal-startup\\sid-c-3.sh' },
+    { sessionId: 'd', rootPid: 14 },
+  ]
+  const verdicts = await host.probeSubtrees(refs)
+  assert.deepEqual(helper.requests[0].params, { keys: ['sid-a-1', 'sid-b-2', 'sid-c-3'] })
+  assert.equal(verdicts.get('a'), 'listening_port')
+  assert.equal(verdicts.get('b'), null)
+  assert.equal(verdicts.has('c'), false, 'no verdict is undetermined')
+  assert.equal(verdicts.has('d'), false, 'no pid file, no verdict')
+  fail = true
+  assert.equal((await host.probeSubtrees(refs)).size, 0)
+})
+
+test('the survivor kill names the session id and the pid file, and does nothing without either', async () => {
+  const { helper, host } = hostWith({ 'proc.killSession': () => ({ killed: [101, 102] }) })
+  assert.deepEqual(
+    await host.killSessionSurvivors('11111111-2222', { startupScriptPath: 'C:\\x\\terminal-startup\\k-1.sh' }),
+    [101, 102],
+  )
+  assert.deepEqual(helper.requests[0].params, { cliSessionId: '11111111-2222', key: 'k-1' })
+  // A plain terminal has no CLI session: its shell's subtree is still ended.
+  await host.killSessionSurvivors('', { startupScriptPath: 'C:\\x\\terminal-startup\\k-2.sh' })
+  assert.deepEqual(helper.requests[1].params, { cliSessionId: '', key: 'k-2' })
+  assert.deepEqual(await host.killSessionSurvivors(''), [])
+  assert.equal(helper.requests.length, 2)
+})
+
+test('CLI detection is one request, read with the same parser as every probe', async () => {
+  const { helper, host } = hostWith({
+    'cli.detect': () => ({
+      results: [
+        { found: true, path: '/home/dev/.local/bin/claude', output: 'Welcome\n2.1.4 (Claude Code)', timedOut: false },
+        { found: false },
+        { error: 'EACCES' },
+      ],
+    }),
+  })
+  const results = await host.detectClis([
+    { cli: 'claude-code' },
+    { cli: 'codex', runtime: { command: '/opt/codex/bin/codex' } },
+    { cli: 'opencode' },
+    { cli: 'not-a-cli' },
+  ])
+  const asked = (helper.requests[0].params as { requests: Array<{ binary: string }> }).requests
+  assert.deepEqual(
+    asked.map((request) => request.binary),
+    ['claude', '/opt/codex/bin/codex', 'opencode'],
+  )
+  assert.deepEqual(
+    results.map((result) => [result.cli, result.installed, result.version, result.resolvedPath, result.hostId]),
+    [
+      ['claude-code', true, '2.1.4 (Claude Code)', '/home/dev/.local/bin/claude', 'wsl:Debian'],
+      ['codex', false, null, null, 'wsl:Debian'],
+      ['opencode', false, null, null, 'wsl:Debian'],
+      ['not-a-cli', false, null, null, 'wsl:Debian'],
+    ],
+  )
+  assert.equal(results[1].error, null, 'not found is an answer')
+  assert.equal(results[2].error, 'EACCES', 'a failed check is not "not installed"')
+  assert.match(results[3].error ?? '', /No plugin manifest/u)
+})
+
+test('prepare starts the helper, writes the plugin copy only when it changed, and exposes the integration', async () => {
+  const trees: Array<{ digest: string; files: boolean }> = []
+  let current = false
+  const { host } = hostWith({
+    home: () => ({ home: '/home/dev', env: { CLAUDE_CONFIG_DIR: '/home/dev/.claude-work', BAD: 'relative' } }),
+    'files.ensureTree': (params: { digest: string; files?: unknown[] }) => {
+      trees.push({ digest: params.digest, files: Array.isArray(params.files) })
+      const answer = { root: PLUGIN_COPY.root, current: current || Array.isArray(params.files) }
+      return answer
+    },
+  })
+  assert.equal(host.agentIntegration(), null, 'nothing before the helper is up')
+  await host.prepare()
+  assert.deepEqual(trees, [
+    { digest: PLUGIN_COPY.digest, files: false },
+    { digest: PLUGIN_COPY.digest, files: true },
+  ])
+  const integration = host.agentIntegration()
+  assert.ok(integration)
+  assert.equal(integration.agentStateSocketPath, STUB_HELPER_INFO.agentSocket)
+  assert.equal(integration.commandRuntime.executable, STUB_HELPER_INFO.nodePath)
+  assert.equal(
+    integration.commandRuntime.toCommandPath?.('\\\\wsl.localhost\\Debian\\home\\dev\\repo\\x.mjs'),
+    '/home/dev/repo/x.mjs',
+  )
+  assert.deepEqual(integration.pluginDirs, PLUGIN_COPY.pluginDirs)
+  assert.deepEqual(integration.studioMcpEntry, {
+    command: STUB_HELPER_INFO.nodePath,
+    args: [`${STUB_HELPER_INFO.appDir}/automation/mcp-stdio-bridge.mjs`],
+    env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
+  })
+  assert.deepEqual(integration.home, {
+    host: '/home/dev',
+    native: '\\\\wsl.localhost\\Debian\\home\\dev',
+    env: { CLAUDE_CONFIG_DIR: '\\\\wsl.localhost\\Debian\\home\\dev\\.claude-work' },
+  })
+  const target = host.launchTarget()
+  assert.equal(target.kind === 'wsl' && target.integration?.agentStateSocketPath, STUB_HELPER_INFO.agentSocket)
+
+  // A second prepare against the same helper does nothing again.
+  current = true
+  await host.prepare()
+  assert.equal(trees.length, 2)
+})
+
+test('a helper that cannot start fails prepare with its reason, and one without the copy still launches', async () => {
+  const { helper, host } = hostWith({}, { plugin: null })
+  helper.failWith = new WslSetupError("Couldn't set up WSL: WSL is not installed on this PC.", {
+    fatal: true,
+    code: 'wsl-missing',
+  })
+  await assert.rejects(host.prepare(), /WSL is not installed on this PC/u)
+  assert.equal(host.agentIntegration(), null)
+
+  const ok = hostWith({ home: () => ({ home: '/home/dev' }) }, { plugin: null })
+  await ok.host.prepare()
+  assert.deepEqual(
+    ok.host.agentIntegration()?.pluginDirs,
+    [],
+    'no copy, no --plugin-dir: the workspace install carries it',
+  )
+})
+
+test('a session holds the helper and lets it go', () => {
+  const { helper, host } = hostWith({})
+  host.retainSession('sid#1')
+  assert.deepEqual([...helper.retained], ['sid#1'])
+  host.releaseSession('sid#1')
+  assert.equal(helper.retained.size, 0)
 })
 
 test("a WSL host's CLI runtime is its own command, tagged with the machine", () => {
   const host = createWslHost('Ubuntu', {
     readSettings: () => ({ enabled: true, cliCommands: { codex: ' /home/dev/.local/bin/codex ' }, env: {} }),
     listed: () => undefined,
+    helper: stubWslHelper('Ubuntu'),
   })
   assert.deepEqual(host.cliRuntime('codex', { command: 'C:\\tools\\codex.cmd' }), {
     command: '/home/dev/.local/bin/codex',

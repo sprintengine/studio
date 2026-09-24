@@ -12,21 +12,18 @@
 //   - `PosixLocalHost`: macOS and Linux, the only host there. It is a move of
 //     what those platforms always did; nothing about a launch changes.
 //   - `WindowsHost`: this PC, natively (PowerShell, CIM process reads).
-//   - `WslHost`: one per WSL distribution, reached through `wsl.exe` interop
-//     (`-d <distro>`, scripts on stdin, `--cd ~`).
+//   - `WslHost`: one per WSL distribution. Everything it answers comes from a
+//     long-lived helper inside the distribution (`resources/wsl-helper/`),
+//     reached over the stdio of one `wsl.exe` (`wsl-helper-client.ts`). The
+//     methods the helper answers are marked below.
 //
-// The interop transport is phase 2. Phase 3 puts a long-lived helper inside the
-// distribution and `WslHost` talks to it over the one `wsl.exe` stdio pipe
-// instead; everything that asks a host a question already goes through this
-// interface, so that swap is inside `WslHost` and nowhere else. The methods a
-// helper answers are marked below.
-//
-// Not here yet, and added by phase 3 with the helper: the agent-state endpoint
-// a hook reports to on this host, the MCP gateway entry a CLI on this host
-// starts, and the plugin copy materialised inside the distribution. Today the
-// agent-state service and the MCP sync still derive those from the path style.
+// A host also says how an agent there reports back (`agentIntegration`): the
+// socket its hooks write to, the Node that runs them, the MCP gateway entry,
+// and the app's plugin copy. The local hosts answer null, which means the
+// app's own socket and copy on this machine, exactly as before hosts existed.
 // =============================================================================
 
+import type { AgentStateCommandRuntime } from '../agent-state'
 import type { CliDetectResult, CliRuntimeSettings } from '../../shared/electron-api'
 import type {
   ExecutionHostId,
@@ -36,7 +33,7 @@ import type {
 } from '../../shared/execution-host'
 import type { TerminalPathStyle } from '../../shared/ipc/terminal'
 import type { RunOutcome } from '../process-run'
-import type { SubtreeLiveReason } from '../terminal-subtree-probe'
+import type { SubtreeLiveReason, SubtreeProbeDeps } from '../terminal-subtree-probe'
 
 /**
  * What the launch builders need to know about the machine a launch runs on.
@@ -54,7 +51,38 @@ export type HostLaunchTarget =
       env: Record<string, string>
       /** The shell a terminal ends in. Absent is `bash -li`. */
       shell?: string
+      /** How an agent here reports back; null before the helper is up. */
+      integration?: HostAgentIntegration | null
+      /**
+       * The launch's agent identity (`SPRINTENGINE_AGENT_ID` and the rest),
+       * exported by the startup script. Windows variables reach Linux only
+       * through `WSLENV`, which the person's own configuration may override, so
+       * the identity travels in the script, like every other launch variable.
+       */
+      identity?: Record<string, string>
     }
+
+/**
+ * How an agent on a host that is not this machine reports back. Every path is
+ * as that host's processes name it.
+ */
+export type HostAgentIntegration = {
+  /** The Unix socket hooks, the status line and OpenCode's plugin write frames to. */
+  agentStateSocketPath: string
+  /**
+   * What runs a hook script there: the host's own Node, and how a script main
+   * copied (a native path) is named on the host.
+   */
+  commandRuntime: AgentStateCommandRuntime
+  /** `--plugin-dir` arguments for the app's plugin copy; empty when it is not there. */
+  pluginDirs: string[]
+  /** The status-line forwarder inside that copy, or null. */
+  statusLineScriptPath: string | null
+  /** The app's MCP gateway as a stdio server a CLI there starts. */
+  studioMcpEntry: { command: string; args: string[]; env: Record<string, string> }
+  /** The host's home, for a user-scoped hook registration and the status line's settings. */
+  home: HostHome
+}
 
 /** A session to probe, in the host's own terms. */
 export type HostProcessRef = {
@@ -72,6 +100,11 @@ export type HostHome = {
   host: string
   /** The same folder as main's file system opens it (`\\wsl.localhost\Ubuntu\home\dev`). */
   native: string
+  /**
+   * The config-home variables the person's login shell sets (`CLAUDE_CONFIG_DIR`,
+   * `CODEX_HOME`, `XDG_CONFIG_HOME`), as native paths. Only a WSL host reads them.
+   */
+  env?: Record<string, string>
 }
 
 export interface ExecutionHost {
@@ -89,8 +122,24 @@ export interface ExecutionHost {
   toHostPath(nativePath: string): string
   /** A path as this host names it, back as a native path. Idempotent. */
   toNativePath(hostPath: string): string
-  /** The host's home folder, or null when it could not be read. (Helper: `home()`.) */
+  /** The host's home folder, or null when it could not be read. (Helper: `home`.) */
   homeDir(): Promise<HostHome | null>
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  /**
+   * Gets the host ready for a launch: for WSL, starts the helper (installing
+   * it on first use) and materialises the plugin copy. Rejects with a
+   * `WslSetupError` whose message says why the machine cannot be used. The
+   * local hosts are always ready.
+   */
+  prepare(): Promise<void>
+  /** Holds the host while a session lives on it. Keyed, so a second call is harmless. */
+  retainSession(leaseId: string): void
+  /** Lets go of a session's hold; the helper stops a while after the last one. */
+  releaseSession(leaseId: string): void
+  /** How an agent here reports back; null on the local hosts, and on WSL before `prepare`. */
+  agentIntegration(): HostAgentIntegration | null
 
   // ── Launch ─────────────────────────────────────────────────────────────────
 
@@ -106,10 +155,18 @@ export interface ExecutionHost {
 
   /**
    * Live-work verdicts by session id: a session absent from the result is
-   * undetermined and must be held. (Helper: `proc.snapshot`.)
+   * undetermined and must be held. (Helper: `proc.snapshot`.) `deps` stands in
+   * for the OS reads of the local hosts in tests.
    */
-  probeSubtrees(refs: readonly HostProcessRef[]): Promise<Map<string, SubtreeLiveReason | null>>
-  /** Ends what a suspended CLI session left running. (Helper: `proc.killSession`.) */
+  probeSubtrees(
+    refs: readonly HostProcessRef[],
+    deps?: SubtreeProbeDeps,
+  ): Promise<Map<string, SubtreeLiveReason | null>>
+  /**
+   * Ends what a suspended or closed session left running: every process
+   * carrying `--session-id <cliSessionId>`, and on WSL the session shell's
+   * whole subtree. (Helper: `proc.killSession`.)
+   */
   killSessionSurvivors(cliSessionId: string, ref?: { startupScriptPath?: string }): Promise<number[]>
 
   // ── Tooling ────────────────────────────────────────────────────────────────
@@ -132,7 +189,7 @@ export interface ExecutionHost {
     options: { timeoutMs: number | null; env: Record<string, string> },
   ): Promise<RunOutcome>
 
-  /** Stops whatever the host keeps running for itself. Nothing yet; the helper later. */
+  /** Stops whatever the host keeps running for itself: the WSL helper. */
   dispose(): Promise<void>
 }
 

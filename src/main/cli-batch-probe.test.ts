@@ -1,13 +1,10 @@
-// On Windows, CLI detection asks about every CLI for one target in ONE
-// process: a login shell in the WSL distribution, or one PowerShell. These
-// cases pin the script, the parse of what it prints, and the process count.
-// PowerShell cannot run here; the WSL script is POSIX, so it is run through a
-// real `sh` the way `wsl.exe --exec sh -s` would run it.
+// On Windows, CLI detection asks about every native CLI in ONE PowerShell, and
+// about each WSL machine's CLIs in one request to that machine's helper. These
+// cases pin the parse of what the PowerShell prints and the process count.
 
 import type { ExecutionHostId } from '../shared/execution-host'
 import assert from 'node:assert/strict'
-import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, test } from 'vitest'
@@ -39,11 +36,11 @@ afterAll(() => {
 
 beforeEach(() => clearCliAvailabilityCache())
 
-// What a WSL batch printed for four CLIs, captured with a login banner in
-// front and Windows line endings: found with a version, not found, found but
-// silent past its own deadline, and one the shell never reached.
-const WSL_FIXTURE = [
-  'Welcome to Ubuntu 24.04 LTS',
+// What a batch printed for four CLIs, with a banner in front and Windows line
+// endings: found with a version, not found, found but silent past its own
+// deadline, and one the shell never reached.
+const BATCH_FIXTURE = [
+  'Windows PowerShell',
   '@@SPRINTENGINE_CLI 0',
   'SPRINTENGINE_PATH:/home/dev/.local/bin/claude',
   '2.1.4 (Claude Code)',
@@ -58,7 +55,7 @@ const WSL_FIXTURE = [
 ].join('\r\n')
 
 test('a batch parse reads found, missing, silent and unanswered CLIs apart', () => {
-  const answers = parseBatchProbeOutput(WSL_FIXTURE, 4)
+  const answers = parseBatchProbeOutput(BATCH_FIXTURE, 4)
   assert.deepEqual(answers[0], {
     installed: true,
     version: '2.1.4 (Claude Code)',
@@ -93,103 +90,17 @@ test('a PowerShell batch reads the same way', () => {
   assert.deepEqual(codex, { installed: false, version: null, resolvedPath: null })
 })
 
-test('the WSL batch names the distribution and sends its script on stdin', () => {
-  const desc = buildBatchProbeDescriptor({
-    requests: [{ binary: 'claude', versionArgs: ['--version'] }],
-    target: 'wsl',
-    distro: 'Ubuntu',
-  })
-  assert.equal(desc.file, 'wsl.exe')
-  assert.deepEqual(desc.args, ['-d', 'Ubuntu', '--cd', '~', '--exec', 'sh', '-s'])
-  assert.ok(!desc.args.some((arg) => arg.includes('claude')), 'nothing about the CLIs is on the command line')
-  assert.match(desc.stdin ?? '', /probe 0 'claude' '--version' &/u)
-})
-
 test('the native batch is one encoded PowerShell command', () => {
   const desc = buildBatchProbeDescriptor({
     requests: [
       { binary: 'claude', versionArgs: ['--version'] },
       { binary: "it's", versionArgs: [] },
     ],
-    target: 'win32',
   })
   assert.equal(desc.file, 'powershell.exe')
   const script = Buffer.from(desc.args.at(-1) ?? '', 'base64').toString('utf16le')
   assert.match(script, /@\{ b = 'claude'; a = @\('--version'\) \}/u)
   assert.match(script, /@\{ b = 'it''s'; a = @\(\) \}/u, 'single quotes are doubled for PowerShell')
-})
-
-function fakeCli(bin: string, name: string, body: string): void {
-  const path = join(bin, name)
-  writeFileSync(path, `#!/bin/sh\n${body}\n`, 'utf8')
-  chmodSync(path, 0o755)
-}
-
-const HAS_BASH = spawnSync('bash', ['-c', 'true']).status === 0
-const HAS_TIMEOUT = spawnSync('sh', ['-c', 'command -v timeout']).status === 0
-
-test.skipIf(!HAS_BASH)('the WSL batch script runs every CLI in one shell and reports each', () => {
-  const home = join(temp, 'home')
-  const bin = join(home, 'bin')
-  mkdirSync(bin, { recursive: true })
-  // The login shell's profile is where a person's CLI directory joins PATH.
-  writeFileSync(join(home, '.bash_profile'), 'export PATH="$HOME/bin:$PATH"\n', 'utf8')
-  fakeCli(bin, 'alpha', 'echo "alpha 1.2.3"')
-  // Arguments with quotes and `$` reach the CLI exactly as written.
-  fakeCli(bin, 'echoer', 'printf "echoer 0.1 [%s]\\n" "$@"')
-  // A CLI that reads stdin gets end-of-file, not the rest of the script.
-  fakeCli(bin, 'reader', 'cat; echo "reader 9.9"')
-  const desc = buildBatchProbeDescriptor({
-    requests: [
-      { binary: 'alpha', versionArgs: ['--version'] },
-      { binary: 'missing-cli', versionArgs: ['--version'] },
-      { binary: 'echoer', versionArgs: ["it's $HOME"] },
-      { binary: 'reader', versionArgs: [] },
-    ],
-    target: 'wsl',
-    distro: 'Ubuntu',
-  })
-  const stdout = execFileSync('sh', ['-s'], {
-    input: desc.stdin,
-    cwd: home,
-    env: { HOME: home, PATH: '/usr/bin:/bin' },
-    encoding: 'utf8',
-    timeout: 20_000,
-  })
-  const [alpha, missing, echoer, reader] = parseBatchProbeOutput(stdout, 4)
-  assert.deepEqual(alpha, { installed: true, version: 'alpha 1.2.3', resolvedPath: join(bin, 'alpha') })
-  assert.deepEqual(missing, { installed: false, version: null, resolvedPath: null })
-  assert.ok(!('error' in echoer) && echoer.version === "echoer 0.1 [it's $HOME]", JSON.stringify(echoer))
-  assert.ok(!('error' in reader) && reader.version === 'reader 9.9', JSON.stringify(reader))
-})
-
-test.skipIf(!HAS_BASH || !HAS_TIMEOUT)('one hung CLI costs its own answer, not the batch', () => {
-  const home = join(temp, 'home-slow')
-  const bin = join(home, 'bin')
-  mkdirSync(bin, { recursive: true })
-  writeFileSync(join(home, '.bash_profile'), 'export PATH="$HOME/bin:$PATH"\n', 'utf8')
-  fakeCli(bin, 'quick', 'echo "quick 1.0.0"')
-  fakeCli(bin, 'hangs', 'sleep 30')
-  const desc = buildBatchProbeDescriptor({
-    requests: [
-      { binary: 'hangs', versionArgs: [] },
-      { binary: 'quick', versionArgs: [] },
-    ],
-    target: 'wsl',
-    perCliTimeoutMs: 1_000,
-  })
-  const started = Date.now()
-  const stdout = execFileSync('sh', ['-s'], {
-    input: desc.stdin,
-    cwd: home,
-    env: { HOME: home, PATH: '/usr/bin:/bin' },
-    encoding: 'utf8',
-    timeout: 20_000,
-  })
-  assert.ok(Date.now() - started < 10_000, 'the hung CLI was cut off at its own deadline')
-  const [hangs, quick] = parseBatchProbeOutput(stdout, 2)
-  assert.deepEqual(hangs, { installed: true, version: null, resolvedPath: join(bin, 'hangs') })
-  assert.ok(!('error' in quick) && quick.version === 'quick 1.0.0')
 })
 
 function outcome(stdout: string, code = 0): RunOutcome {
@@ -198,81 +109,49 @@ function outcome(stdout: string, code = 0): RunOutcome {
 
 test('detectCliBatch starts one process per machine, whatever the CLI count', async () => {
   const runs: SpawnDescriptor[] = []
+  const asked: Array<{ hostId: ExecutionHostId; clis: AgentCli[] }> = []
   const results = await detectCliBatch(
     [
       { cli: 'claude-code', runtime: { hostId: 'wsl:Debian' } },
       { cli: 'codex', runtime: { hostId: 'wsl:Debian' } },
-      { cli: 'opencode', runtime: { hostId: 'wsl:Debian' } },
+      { cli: 'opencode', runtime: { hostId: 'wsl:Ubuntu' } },
       { cli: 'cursor', runtime: {} },
     ],
     {
       platform: 'win32',
       env: {},
-      resolveDistro: async () => 'Ubuntu',
       run: async (desc) => {
         runs.push(desc)
-        return desc.file === 'wsl.exe'
-          ? outcome(
-              [
-                '@@SPRINTENGINE_CLI 0',
-                'SPRINTENGINE_PATH:/home/dev/.local/bin/claude',
-                '2.1.4',
-                '@@SPRINTENGINE_CLI 1',
-                '@@SPRINTENGINE_NOT_FOUND',
-              ].join('\n'),
-            )
-          : outcome('@@SPRINTENGINE_CLI 0\n@@SPRINTENGINE_NOT_FOUND\n')
+        return outcome('@@SPRINTENGINE_CLI 0\n@@SPRINTENGINE_NOT_FOUND\n')
+      },
+      detectOnHost: async (hostId, group) => {
+        asked.push({ hostId, clis: group.map((request) => request.cli) })
+        return group.map((request) => found(request.cli, hostId))
       },
     },
   )
-  assert.equal(runs.length, 2, 'one wsl.exe for three WSL CLIs, one PowerShell for the native one')
+  assert.equal(runs.length, 1, 'one PowerShell for the native CLI')
+  assert.equal(runs[0].file, 'powershell.exe')
   assert.deepEqual(
-    runs.find((run) => run.file === 'wsl.exe')?.args.slice(0, 2),
-    ['-d', 'Debian'],
-    'the machine names its distribution; the default is not asked',
-  )
-  assert.deepEqual(
-    results.map((result) => result.hostId),
-    ['wsl:Debian', 'wsl:Debian', 'wsl:Debian', 'local'],
-  )
-  assert.deepEqual(
-    results.map((result) => [result.cli, result.installed, result.error === null]),
+    asked.sort((a, b) => a.hostId.localeCompare(b.hostId)),
     [
-      ['claude-code', true, true],
-      ['codex', false, true],
-      // The batch printed nothing for it: unknown, not absent.
-      ['opencode', false, false],
-      ['cursor', false, true],
+      { hostId: 'wsl:Debian', clis: ['claude-code', 'codex'] },
+      { hostId: 'wsl:Ubuntu', clis: ['opencode'] },
+    ],
+    'each WSL machine is asked once, through its own helper',
+  )
+  assert.deepEqual(
+    results.map((result) => [result.cli, result.hostId, result.installed]),
+    [
+      ['claude-code', 'wsl:Debian', true],
+      ['codex', 'wsl:Debian', true],
+      ['opencode', 'wsl:Ubuntu', true],
+      ['cursor', 'local', false],
     ],
   )
 })
 
-test('two WSL machines are two probes, each in its own distribution', async () => {
-  const runs: SpawnDescriptor[] = []
-  await detectCliBatch(
-    [
-      { cli: 'claude-code', runtime: { hostId: 'wsl:Ubuntu' } },
-      { cli: 'codex', runtime: { hostId: 'wsl:Debian' } },
-      { cli: 'opencode', runtime: { hostId: 'wsl:Ubuntu' } },
-    ],
-    {
-      platform: 'win32',
-      env: {},
-      run: async (desc) => {
-        runs.push(desc)
-        return outcome(
-          '@@SPRINTENGINE_CLI 0\n@@SPRINTENGINE_NOT_FOUND\n@@SPRINTENGINE_CLI 1\n@@SPRINTENGINE_NOT_FOUND\n',
-        )
-      },
-    },
-  )
-  assert.deepEqual(runs.map((run) => run.args.slice(0, 2)).sort(), [
-    ['-d', 'Debian'],
-    ['-d', 'Ubuntu'],
-  ])
-})
-
-test('a batch whose wsl.exe failed reports every CLI as unanswered', async () => {
+test('a WSL machine whose helper could not answer reports every CLI there as unanswered', async () => {
   const results = await detectCliBatch(
     [
       { cli: 'claude-code', runtime: { hostId: 'wsl:Ubuntu' } },
@@ -281,11 +160,15 @@ test('a batch whose wsl.exe failed reports every CLI as unanswered', async () =>
     {
       platform: 'win32',
       env: {},
-      resolveDistro: async () => null,
-      run: async () => ({ code: 4294967295, stdout: '', stderr: 'There is no distribution.', timedOut: false }),
+      detectOnHost: async () => {
+        throw new Error("Couldn't set up WSL: no network to download Node.js")
+      },
     },
   )
-  for (const result of results) assert.match(result.error ?? '', /There is no distribution/u)
+  for (const result of results) {
+    assert.equal(result.installed, false)
+    assert.match(result.error ?? '', /no network to download Node\.js/u, 'an error, never "not installed"')
+  }
 })
 
 function entry(id: string): PluginRegistryListEntry {

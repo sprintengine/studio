@@ -207,6 +207,8 @@ export type TerminalSession = {
   // reads it before anything else, so a CLI's transcript is always looked for
   // in the home it was written to.
   hostId?: ExecutionHostId
+  // This pty's hold on its machine (see `retainSessionHost`); cleared on release.
+  hostLease?: string
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata, surfaced on the snapshot so the session

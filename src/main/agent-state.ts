@@ -911,20 +911,20 @@ type ClaudeSettings = {
 // `//./pipe/...`, which connect() can't open); on POSIX it has none. Both args
 // are double-quoted so spaces survive the shell.
 //
-// A command run through WSL is the exception on both counts, because a Linux
-// shell executes it and a Windows program receives it (see `wslInterop`).
+// A command for another host (a WSL distribution) is the exception on both
+// counts: see `AgentStateCommandRuntime`.
 export type AgentStateCommandRuntime = {
+  /** The host's own Node, as its shell names it. */
   executable: string
   env?: Record<string, string>
   /**
-   * The executable is a Windows program run from a Linux shell under WSL: the
-   * Windows-hosted runtime, since only a Windows process can open the app's
-   * named pipe. Its `env` must then name itself in `WSLENV` (`wslInteropEnv`),
-   * and the arguments are single-quoted: inside a POSIX shell's double quotes a
-   * doubled backslash collapses to one, which turns the pipe `\\.\pipe\…` into
-   * `\.\pipe\…`, a path nothing listens on.
+   * How a script main copied (a native path under `\\wsl.localhost\`) is
+   * named on the host (`/home/...`). A runtime means the command runs in a
+   * POSIX shell on that host, so its arguments are single-quoted: nothing in a
+   * path there, a `$` or a backtick in a folder name included, is ever
+   * expanded by it.
    */
-  wslInterop?: boolean
+  toCommandPath?: (nativePath: string) => string
 }
 
 function quotePosixCommandArgument(value: string): string {
@@ -938,7 +938,7 @@ function commandRuntimePrefix(runtime?: AgentStateCommandRuntime): string {
 }
 
 function quoteCommandArgument(value: string, runtime?: AgentStateCommandRuntime): string {
-  return runtime?.wslInterop ? quotePosixCommandArgument(value) : `"${value}"`
+  return runtime ? quotePosixCommandArgument(value) : `"${value}"`
 }
 
 export function buildAgentStateReporterCommand(
@@ -946,7 +946,8 @@ export function buildAgentStateReporterCommand(
   socketPath: string,
   runtime?: AgentStateCommandRuntime,
 ): string {
-  const script = quoteCommandArgument(scriptPath.split(sep).join('/'), runtime)
+  const hostScript = runtime?.toCommandPath ? runtime.toCommandPath(scriptPath) : scriptPath
+  const script = quoteCommandArgument(hostScript.split(sep).join('/'), runtime)
   return `${commandRuntimePrefix(runtime)} ${script} --socket ${quoteCommandArgument(socketPath, runtime)}`
 }
 
@@ -1390,8 +1391,14 @@ export function buildLaunchStatusLineSetting(input: {
   socketPath: string
   homeDir: string
   env: NodeJS.ProcessEnv
+  /**
+   * Another host's runtime (WSL). The script path is then that host's own,
+   * which this process cannot stat; the host installed it and vouches for it.
+   */
+  runtime?: AgentStateCommandRuntime
 }): Record<string, unknown> | null {
-  if (!input.scriptPath.trim() || !existsSync(input.scriptPath)) return null
+  if (!input.scriptPath.trim()) return null
+  if (!input.runtime && !existsSync(input.scriptPath)) return null
   const localPath = resolve(input.workspaceRoot, '.claude', 'settings.local.json')
   const projectPath = resolve(input.workspaceRoot, '.claude', 'settings.json')
   const userPath = resolve(resolveClaudeConfigDir(input.homeDir, input.env), 'settings.json')
@@ -1404,7 +1411,7 @@ export function buildLaunchStatusLineSetting(input: {
   )
   if (resolved.kind !== 'write') return null
 
-  const command = buildStatusLineForwarderCommand(input.scriptPath, input.socketPath, resolved.wrapped)
+  const command = buildStatusLineForwarderCommand(input.scriptPath, input.socketPath, resolved.wrapped, input.runtime)
   if (command.length > MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH) return null
 
   // No `_sprintengine` bookkeeping here, unlike the install: nothing is written to
@@ -1543,12 +1550,6 @@ async function prepareStatusLineForwarder(
     // of a status line we cannot wrap is exactly the thing a build that shipped
     // without the forwarder still has to be able to do.
     if (resolved.kind === 'remove') return { action: 'remove' }
-    // Through WSL the forwarder is a Windows program, and it runs a wrapped
-    // command with the Windows shell, while the person's status line is a
-    // Linux command written for the Linux shell. Their status line wins: ours
-    // comes out (putting theirs back if we had displaced it) rather than
-    // breaking it.
-    if (options.commandRuntime?.wslInterop && resolved.wrapped) return { action: 'remove' }
     if (!existsSync(options.statusLineScriptPath)) return null
     const destScript = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
     const command = buildStatusLineForwarderCommand(

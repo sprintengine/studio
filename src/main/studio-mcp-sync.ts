@@ -6,9 +6,8 @@ import {
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry } from '../shared/studio-env'
+import { studioEnvEntry } from '../shared/studio-env'
 import { isWindowsPath, toWslPath } from '../shared/host-paths'
-import { wslInteropEnv } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
 
@@ -78,11 +77,11 @@ export async function syncStudioMcpConfig(
   input: McpSyncInput & { executionPathStyle?: TerminalPathStyle; studioGatewayDeliveredAtLaunch?: boolean },
   deps: {
     mcpConfigService: Pick<McpConfigService, 'sync'>
-    studioGateway?: () => {
-      command: string
-      bridgeScriptPath: string
-      userDataDir: string
-    }
+    // The gateway as a stdio server on the machine the CLI runs on: this app's
+    // own binary as Node on this machine, the pinned Node and the helper's
+    // bridge inside a WSL distribution. Null leaves the gateway out (a WSL
+    // machine whose helper is not up).
+    studioGateway?: () => { command: string; args: string[]; env: Record<string, string> } | null
     // Where a warning about the person's own servers goes (a Windows program
     // handed to a CLI in WSL). Best-effort; the launch never waits on it.
     warn?: (message: string) => void
@@ -112,28 +111,14 @@ export async function syncStudioMcpConfig(
   if (studioGateway) {
     const clients = syncInput.clients ?? []
     const cliId = clients.length === 1 ? clients[0] : undefined
-    const throughWsl = syncInput.executionPathStyle === 'wsl'
-    const bridgeEnv = {
-      ELECTRON_RUN_AS_NODE: '1',
-      ...studioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
-      ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
-    }
     const studioServer: McpServerConfig = {
       id: STUDIO_MCP_SERVER_ID,
       name: STUDIO_MCP_SERVER_NAME,
       description: 'Always-on local control surface for SprintEngine Studio.',
       transport: 'stdio',
-      // Through WSL the CLI is a Linux process starting a Windows program: the
-      // executable crosses as `/mnt/<drive>/…`, while the bridge script and the
-      // user-data directory stay Windows paths, because the Windows-hosted
-      // runtime is what opens them.
-      command: throughWsl ? toWslPath(studioGateway.command) : studioGateway.command,
-      args: [studioGateway.bridgeScriptPath],
-      // A WSL CLI starts the Windows binary through interop, which forwards
-      // only what `WSLENV` names; without it the bridge would open the app. The
-      // agent identity the launch shared into WSL is named too, so the bridge
-      // can still attribute the connection to its agent.
-      env: throughWsl ? wslInteropEnv(bridgeEnv, AGENT_IDENTITY_ENV_KEYS) : bridgeEnv,
+      command: studioGateway.command,
+      args: studioGateway.args,
+      env: { ...studioGateway.env, ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId) },
       enabled: true,
       required: false,
       clients,

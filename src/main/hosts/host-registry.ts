@@ -24,7 +24,8 @@ import type { ExecutionHost } from './execution-host'
 import { createPosixLocalHost } from './posix-local-host'
 import { createWindowsHost } from './windows-host'
 import { createWslHost } from './wsl-host'
-import { knownWslListing, listWslDistros, type WslListing, type WslScriptRunner } from './wsl-distro'
+import { knownWslListing, listWslDistros, type WslListing } from './wsl-distro'
+import type { WslHelperClient } from './wsl-helper-client'
 
 export type HostRegistryDeps = {
   platform?: NodeJS.Platform
@@ -32,7 +33,8 @@ export type HostRegistryDeps = {
   readHostSettings: () => Partial<Record<ExecutionHostId, ExecutionHostSettings>>
   listDistros?: (options: { force: boolean }) => Promise<WslListing>
   knownListing?: () => WslListing | null
-  runScript?: WslScriptRunner
+  /** Stands in for a distribution's helper client in tests. */
+  createWslHelper?: (distro: string) => WslHelperClient
 }
 
 export type HostListing = HostsListResult
@@ -80,7 +82,7 @@ export function createHostRegistry(deps: HostRegistryDeps): HostRegistry {
     const host = createWslHost(distro, {
       readSettings,
       listed: () => knownListing()?.distros?.find((entry) => entry.name === distro),
-      ...(deps.runScript ? { runScript: deps.runScript } : {}),
+      ...(deps.createWslHelper ? { helper: deps.createWslHelper(distro) } : {}),
     })
     wslHosts.set(distro, host)
     return host

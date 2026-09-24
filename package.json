@@ -111,6 +111,13 @@
         "to": "sources.json"
       },
       {
+        "from": "resources/wsl-helper",
+        "to": "wsl-helper",
+        "filter": [
+          "**/*.mjs"
+        ]
+      },
+      {
         "from": "resources/hooks",
         "to": "hooks",
         "filter": [

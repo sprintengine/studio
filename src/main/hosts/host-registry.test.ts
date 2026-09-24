@@ -150,8 +150,15 @@ test("a WSL machine's launch target carries its own environment and shell", () =
     distro: 'Ubuntu',
     env: { NODE_OPTIONS: '--max-old-space-size=4096' },
     shell: 'zsh -l',
+    // Nothing reports back until the helper is up.
+    integration: null,
   })
-  assert.deepEqual(hosts.get('wsl:Debian').launchTarget(), { kind: 'wsl', distro: 'Debian', env: {} })
+  assert.deepEqual(hosts.get('wsl:Debian').launchTarget(), {
+    kind: 'wsl',
+    distro: 'Debian',
+    env: {},
+    integration: null,
+  })
   const ubuntu = hosts.get('wsl:Ubuntu')
   assert.equal(ubuntu.toHostPath('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'), '/home/dev/repo')
   assert.equal(ubuntu.toHostPath('C:\\Users\\dev\\repo'), '/mnt/c/Users/dev/repo')

@@ -38,8 +38,9 @@ export function withoutStudioEnv(env: Record<string, string>, names: readonly st
 // terminal-launch.ts). Cleared from a base env before the session's own
 // identity is applied, so a stale `SPRINTENGINE_AGENT_ID` inherited by the app's
 // own process (e.g. the app launched from inside an agent shell) never leaks
-// into a plain terminal or the wrong agent. Shared because a launch through WSL
-// must also name exactly these in `WSLENV` for them to reach the agent at all.
+// into a plain terminal or the wrong agent. Shared because a launch in WSL
+// exports exactly these from its startup script, the one way they reach a Linux
+// agent whatever the person's `WSLENV` says.
 export const AGENT_IDENTITY_ENV_KEYS = [
   'SPRINTENGINE_WORKSPACE_ID',
   'SPRINTENGINE_AGENT_ID',

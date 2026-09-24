@@ -11,6 +11,8 @@
     "design-system/scripts/*.mjs",
     "resources/marketplace/*.ts",
     "resources/hooks/*.mjs",
+    // The WSL helper runs inside Linux on its own Node; main installs it there.
+    "resources/wsl-helper/**/*.mjs",
     "packages/module-sdk/src/cli.ts",
     "packages/module-sdk/drift/*.ts",
   ],
@@ -22,8 +24,8 @@
     "tests/**/*.ts",
   ],
   "ignoreBinaries": [
-    // The Windows system launcher for a WSL distribution, run with execFile to
-    // ask the default distribution for its home folder. Not an npm binary.
+    // The Windows system launcher for a WSL distribution: it lists the
+    // distributions and starts each one's helper. Not an npm binary.
     "wsl.exe",
   ],
   "ignoreDependencies": [
