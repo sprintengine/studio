@@ -19,6 +19,14 @@ const TERMINAL_THROTTLE_MESSAGE = '\r\n[Terminal output throttled to keep the UI
 
 type TerminalOutputQueueOptions = {
   recordWrite: (data: string, elapsedMs: number) => void
+  /**
+   * Flow control: `units` of live output are finished with — parsed by xterm,
+   * or dropped by this queue — and main may count them as no longer in flight
+   * (see terminal-output-buffer.ts in main). Every unit enqueued is reported
+   * exactly once, including on clear and dispose, so a pane can never leave the
+   * pty waiting on output it will not parse.
+   */
+  onConsumed?: (units: number) => void
 }
 
 type XtermOutputQueue = ReturnType<typeof createXtermOutputQueue>
@@ -96,12 +104,23 @@ export function splitReplayIntoChunks(data: string, maxChars: number): string[] 
   return chunks
 }
 
-export function createXtermOutputQueue(term: Terminal, { recordWrite }: TerminalOutputQueueOptions) {
+export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed }: TerminalOutputQueueOptions) {
   const queue: string[] = []
   let scheduled = false
   let writing = false
   let disposed = false
   let queuedChars = 0
+  // Live output enqueued and not yet reported as consumed. A counter rather
+  // than a mark per chunk: chunks are split and trimmed on their way through,
+  // and what main needs is the amount, which the counter keeps exact while
+  // never reporting more than was enqueued.
+  let unreported = 0
+  const consume = (units: number) => {
+    const reported = Math.min(units, unreported)
+    if (reported <= 0) return
+    unreported -= reported
+    onConsumed?.(reported)
+  }
 
   // Modal repaint pause. While a covering dialog is open we keep accepting PTY
   // data into the SAME FIFO and simply stop draining it, so the pause cannot
@@ -168,6 +187,7 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     // Banner chars are added, not carried over from the payload, so the drop
     // count compares payload with payload.
     droppedChars += Math.max(payloadCharsBefore - retainedChars, 0)
+    consume(Math.max(payloadCharsBefore - retainedChars, 0))
   }
 
   const takeChunk = (): string | null => {
@@ -208,6 +228,8 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       term.write(data, () => {
         writing = false
         recordWrite(data, performance.now() - writeStartedAt)
+        // The throttle banner is this queue's own text, not output main sent.
+        if (data !== TERMINAL_THROTTLE_MESSAGE) consume(data.length)
 
         if (disposed) return
         // A pause that lands mid-drain stops here. The write already in flight
@@ -232,6 +254,11 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     if (disposed || nextPaused === paused) return
     paused = nextPaused
     if (paused) {
+      // A dialog is covering the pane and nothing will be parsed until it
+      // closes. That must not stall the pty behind it — the agent keeps running
+      // — so what is queued counts as taken; this queue's own bound decides
+      // what survives the pause.
+      consume(unreported)
       pauseStartedAt = performance.now()
       heldChunks = 0
       heldChars = 0
@@ -266,6 +293,9 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       if (paused) {
         heldChunks += 1
         heldChars += data.length
+        onConsumed?.(data.length)
+      } else {
+        unreported += data.length
       }
       trimQueue()
       // A no-op while paused; the resume handler is what restarts the drain.
@@ -279,11 +309,13 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       // carries.
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
     },
     dispose: () => {
       disposed = true
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
       // Unsubscribing here is what keeps a terminal disposed DURING a pause
       // from leaking: without it the store retains this closure — and the whole
       // buffered queue with it — for the life of the window.

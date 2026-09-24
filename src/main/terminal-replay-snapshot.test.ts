@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Terminal } from '@xterm/headless'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../shared/terminal-options'
-import { buildReplaySnapshot } from './terminal-replay-snapshot'
+import { buildReplaySnapshot, SNAPSHOT_RENDER_TAIL_UNITS, snapshotRenderTail } from './terminal-replay-snapshot'
 import { test } from 'vitest'
 
 test('terminal-replay-snapshot', async () => {
@@ -201,4 +201,35 @@ test('terminal-replay-snapshot', async () => {
   const suiteRun = main()
 
   await suiteRun
+})
+
+// The render reads only the newest SNAPSHOT_RENDER_TAIL_UNITS of the stream.
+// Cutting there must not lose the alternate screen a full-screen TUI entered
+// long before the cut, or the TUI is painted onto the normal buffer.
+test('the render tail re-enters an alternate screen entered before the cut', () => {
+  const data = `\x1b[?1049h${'x'.repeat(SNAPSHOT_RENDER_TAIL_UNITS + 10_000)}`
+  const tail = snapshotRenderTail(data)
+  assert.equal(tail.cut, true)
+  assert.ok(tail.text.startsWith('\x1b[?1049h'), 'the switch is put back in front of the tail')
+  assert.ok(tail.text.length <= SNAPSHOT_RENDER_TAIL_UNITS + '\x1b[?1049h'.length)
+
+  const exited = `\x1b[?1049h tui \x1b[?1049l${'y'.repeat(SNAPSHOT_RENDER_TAIL_UNITS + 10_000)}`
+  assert.equal(
+    snapshotRenderTail(exited).text.startsWith('\x1b['),
+    false,
+    'an alternate screen left again is not re-entered',
+  )
+})
+
+// A stream that repaints in place can spend the whole tail on a few rows. The
+// paused pane must still reopen on the scrollback it had: the render reads the
+// whole stream when the tail alone comes up short.
+test('a repaint-heavy stream still keeps its scrollback in the snapshot', async () => {
+  let data = ''
+  for (let line = 0; line < 1_500; line += 1) data += `history line ${line}\r\n`
+  const spinner = '\r\x1b[2K\x1b[38;2;200;120;80m⠋ Thinking…\x1b[0m'
+  while (data.length < SNAPSHOT_RENDER_TAIL_UNITS * 2) data += spinner
+  const snapshot = await buildReplaySnapshot(data, 100, 30)
+  assert.ok(snapshot?.includes('history line 1499'), 'the newest history line is kept')
+  assert.ok(snapshot?.includes('history line 700'), 'and the scrollback above it, which the tail alone does not reach')
 })

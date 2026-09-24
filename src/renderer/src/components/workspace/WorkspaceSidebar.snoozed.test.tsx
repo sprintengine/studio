@@ -71,7 +71,7 @@ test('WorkspaceSidebar.snoozed', async () => {
         activity: { kind: 'idle', since: 1 },
       },
     ],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async (sessionId: string) => {
       killed.push(sessionId)

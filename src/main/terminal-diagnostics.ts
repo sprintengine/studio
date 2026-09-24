@@ -63,7 +63,7 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
         batches: stats.batches,
         chunks: stats.chunks,
         bytes: stats.bytes,
-        retainedOutputBytes: session.outputBytes,
+        retainedOutputBytes: session.output.retainedBytes,
       })
       stats.batches = 0
       stats.chunks = 0
