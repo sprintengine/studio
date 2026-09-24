@@ -517,8 +517,8 @@ export type SurfaceIconComponent = ComponentType<{ className?: string }>
 
 // One drawer row of a surface that is several things to the person (Extensions
 // drawer ruling, 2026-09-05). The agent-runtime module registers ONE
-// `extensions` surface, but Plugins, Skills and Agent CLIs are three separate
-// destinations to the operator and the ruling gives each its own row in the
+// `extensions` surface, but Plugins and Skills are two separate destinations
+// to the operator and the ruling gives each its own row in the
 // Extensions drawer. A view is that row: the module owns its name, its glyph
 // and how the surface lands on it, so the shell never learns a module's
 // internal sections — it only places the rows.
@@ -618,8 +618,8 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
 // chevron.
 //
 // The registry STAYS, and it is deliberately no longer the main road (Extensions
-// drawer ruling, 2026-09-05). Automations, Design and Plugins/Skills/Agent CLIs
-// went back to being doors, so nothing the shell's own chrome offers is a modal
+// drawer ruling, 2026-09-05). Automations, Design and Plugins/Skills went back
+// to being doors, so nothing the shell's own chrome offers is a modal
 // any more; what is left here is Reviews, opened from the workspace pane strip
 // because a walkthrough is Monaco beside a transcript and the pane column is too
 // narrow to read it in. That is the shape a modal surface is FOR — a

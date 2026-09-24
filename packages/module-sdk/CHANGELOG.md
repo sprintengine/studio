@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`SegmentedControlItem` takes an optional `badge`.** `{ count, label, tone? }`
+  draws the kit's count badge after the segment's label and adds `label` to the
+  segment's accessible name — for a choice with something waiting behind it.
+  Additive: an item without one is unchanged.
+
 - **`send-after-ready` is implemented, and `CliReadinessSignal` says what
   "ready" means.** A CLI plugin whose `promptInjection.mode` is
   `send-after-ready` now has its first message typed in (one bracketed paste,

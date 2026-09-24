@@ -97,10 +97,13 @@ export function outstandingCliUpdates(input: {
  * again), so it stays 'offer'. A check that failed with nothing found is not
  * an update.
  */
-export function appUpdateStage(state: AppUpdateState | null): AppUpdateStage | null {
+function appUpdateStage(state: AppUpdateState | null): AppUpdateStage | null {
   if (!state || !state.packaged) return null
   if (state.downloaded || state.status === 'downloaded' || state.status === 'installing') return 'ready'
   if (state.status === 'available' || state.status === 'downloading') return 'offer'
+  // The hourly re-check of an update already offered: still the same offer, so
+  // the badge does not blink out for the length of the check.
+  if (state.status === 'checking' && state.updateVersion) return 'offer'
   if (state.status === 'error' && state.updateVersion) return 'offer'
   return null
 }

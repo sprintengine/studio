@@ -52,8 +52,12 @@ test('notificationStore', async () => {
   )
 
   async function main(): Promise<void> {
-    const { useNotificationStore, dropRetiredNotifications, mergePersistedNotificationState } =
-      await import('./notificationStore')
+    const {
+      useNotificationStore,
+      dropRetiredNotifications,
+      dismissedUpdatesFromStorage,
+      mergePersistedNotificationState,
+    } = await import('./notificationStore')
 
     // --- the real rehydrate drops the retired source, keeps everything else ---
     await useNotificationStore.persist.rehydrate()
@@ -100,6 +104,14 @@ test('notificationStore', async () => {
     assert.equal(kept.length, 50, 'the list is bounded')
     assert.equal(kept.at(-1), 'app@0.59.0', 'the newest dismissal is kept')
     assert.equal(kept.includes('cli:codex@0.154.0'), false, 'and the oldest falls off')
+
+    // Another window's dismissals, read from its storage write.
+    assert.deepEqual(
+      dismissedUpdatesFromStorage(JSON.stringify({ state: { dismissedUpdates: ['app@0.7.0:ready', 4] } })),
+      ['app@0.7.0:ready'],
+    )
+    assert.equal(dismissedUpdatesFromStorage('not json'), null)
+    assert.equal(dismissedUpdatesFromStorage(null), null)
 
     console.log('notificationStore.test.ts: ok')
   }

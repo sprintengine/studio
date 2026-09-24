@@ -96,6 +96,8 @@ test('the app update counts at every step to the restart, and clears when instal
   assert.equal(outstandingAppUpdate({ state: appState(), dismissed: [] }), null, 'up to date')
   const steps: Array<[Partial<AppUpdateState>, 'offer' | 'ready']> = [
     [{ status: 'available' }, 'offer'],
+    // The hourly re-check of an offered update keeps the badge.
+    [{ status: 'checking' }, 'offer'],
     [{ status: 'downloading', progress: { percent: 40, transferred: 4, total: 10, bytesPerSecond: 1 } }, 'offer'],
     [{ status: 'downloaded', downloaded: true }, 'ready'],
     [{ status: 'installing', downloaded: true }, 'ready'],

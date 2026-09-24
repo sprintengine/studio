@@ -862,8 +862,8 @@ export interface SettingsSliceState {
   activeModalSurfaceWorkspaceId: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
-  // the Extensions drawer — Design, Plugins, Skills, Agent CLIs
-  // (2026-09-05 ruling); Automations is what the product does rather than
+  // the Extensions drawer — Design, Plugins, Skills (2026-09-05 ruling;
+  // Agent CLIs moved to Settings ▸ Agents 2026-09-25); Automations is what the product does rather than
   // something added to it, so it stands on the rail and is not in the drawer.
   // Beside it the rail's Extensions glyph opens the Extensions home. Per window
   // and transient like activeGlobalSurface — a restart lands on Home.

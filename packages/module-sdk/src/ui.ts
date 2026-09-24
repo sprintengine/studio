@@ -54,6 +54,12 @@ export type SegmentedControlItem<V extends string = string> = {
   disabled?: boolean
   icon?: React.ReactNode
   tooltip?: string
+  /**
+   * A named count trailing the label — how much is waiting behind this choice
+   * (the badge component's count species). `label` joins the segment's
+   * accessible name. Ignored on an `iconOnly` strip; null or 0 draws nothing.
+   */
+  badge?: { count: number; label: string; tone?: Tone } | null
 }
 
 export type FilterMenuGroup = {

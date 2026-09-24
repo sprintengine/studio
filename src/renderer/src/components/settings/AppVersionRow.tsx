@@ -48,12 +48,12 @@ export function appVersionRowAction(state: AppUpdateState | null): AppVersionRow
 }
 
 /** The download's progress as a whole percent, or null when none is running. */
-export function appUpdateDownloadPercent(state: AppUpdateState | null): number | null {
+function appUpdateDownloadPercent(state: AppUpdateState | null): number | null {
   if (!state || state.downloaded || state.status !== 'downloading') return null
   return Math.max(0, Math.min(100, Math.round(state.progress?.percent ?? 0)))
 }
 
-export function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
+function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
   switch (channel) {
     case 'stable':
       return 'Stable'

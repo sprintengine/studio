@@ -1046,7 +1046,7 @@ test('ExtensionsHomeSurface', async () => {
       // on everything was a misreading of R4's ceremony ruling).
       assert.equal(
         direct?.getAttribute('aria-label'),
-        'Open Agent CLIs — Big task? No problem.',
+        'Open Agents settings — Big task? No problem.',
         'both hosts draw the same button: same label, same name, same card in it',
       )
       assert.equal(

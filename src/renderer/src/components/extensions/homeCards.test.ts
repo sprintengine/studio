@@ -307,7 +307,7 @@ test('homeCards', async () => {
           { verb: 'open.surface', view: 'agent-clis' },
         ]),
       ),
-      'Open Agent CLIs',
+      'Open Agents settings',
       'a runtime check does not turn a navigation into an install',
     )
     // But anything that actually changes the machine does.

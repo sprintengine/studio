@@ -158,3 +158,28 @@ export const useNotificationStore = create<NotificationStore>()(
     },
   ),
 )
+
+// Another window dismissed an update: take its list, so its badges clear here
+// too and this window's next write does not put the dismissal back. Only the
+// dismissals — every window keeps its own copy of the bell as it always has.
+export function dismissedUpdatesFromStorage(raw: string | null): string[] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { state?: { dismissedUpdates?: unknown } }
+    const list = parsed?.state?.dismissedUpdates
+    return Array.isArray(list) ? list.filter((key): key is string => typeof key === 'string') : null
+  } catch {
+    return null
+  }
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== NOTIFICATION_STORAGE_KEY) return
+    const dismissed = dismissedUpdatesFromStorage(event.newValue)
+    if (!dismissed) return
+    const current = useNotificationStore.getState().dismissedUpdates
+    const merged = [...new Set([...current, ...dismissed])]
+    if (merged.length !== current.length) useNotificationStore.setState({ dismissedUpdates: merged })
+  })
+}

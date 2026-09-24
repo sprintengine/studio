@@ -1,4 +1,4 @@
-// The three catalogues, rendered: Plugins, Skills and Agent CLIs are the SAME
+// The catalogues, rendered: Plugins and Skills are the SAME
 // page (source-tabs ruling, 2026-09-05), so what this asserts is the sameness —
 // each view's title on the chrome row, Installed first in the tab row, one tab
 // per source after it, the plus with its two items, and one pager at the foot.
