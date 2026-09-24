@@ -7,7 +7,8 @@ import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry } from '../shared/studio-env'
-import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
+import { toWslPath } from '../shared/host-paths'
+import { wslInteropEnv } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
 
@@ -72,7 +73,7 @@ export async function syncStudioMcpConfig(
       // executable crosses as `/mnt/<drive>/…`, while the bridge script and the
       // user-data directory stay Windows paths, because the Windows-hosted
       // runtime is what opens them.
-      command: throughWsl ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
+      command: throughWsl ? toWslPath(studioGateway.command) : studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
       // A WSL CLI starts the Windows binary through interop, which forwards
       // only what `WSLENV` names; without it the bridge would open the app. The

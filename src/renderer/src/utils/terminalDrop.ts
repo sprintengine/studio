@@ -3,6 +3,7 @@ import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { AgentSkill } from '../../../shared/skills'
 import { plainSkillInvocation } from '../../../shared/skill-invocation'
 import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
+import { isWindowsPath, toWslPath, wslToWindowsPath } from '../../../shared/host-paths'
 
 export const SPRINTENGINE_FILE_DROP_MIME = 'application/x-sprintengine-file-drop'
 const SPRINTENGINE_COMMIT_DROP_MIME = 'application/x-sprintengine-commit-drop'
@@ -509,7 +510,7 @@ function normalizeComparableShape(pathValue: string): string {
 
 function toRuntimePath(pathValue: string, style: TerminalPathStyle): string {
   if (style === 'wsl') return toWslPath(pathValue)
-  if (style === 'windows') return toWindowsPath(pathValue)
+  if (style === 'windows') return wslToWindowsPath(pathValue)
   return pathValue.replace(/\\/g, '/')
 }
 
@@ -518,25 +519,7 @@ function normalizeSeparatorsForStyle(pathValue: string, style: TerminalPathStyle
 }
 
 function inferPathStyle(pathValue: string): TerminalPathStyle {
-  if (/^[A-Za-z]:[\\/]/.test(pathValue) || pathValue.startsWith('\\\\')) return 'windows'
+  if (isWindowsPath(pathValue)) return 'windows'
   if (/^\/mnt\/[A-Za-z]\//.test(pathValue)) return 'wsl'
   return 'posix'
-}
-
-function toWslPath(pathValue: string): string {
-  const normalized = pathValue.replace(/\\/g, '/')
-  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/)
-  if (!driveMatch) return normalized
-
-  const [, drive, rest] = driveMatch
-  return `/mnt/${drive.toLowerCase()}/${rest}`
-}
-
-function toWindowsPath(pathValue: string): string {
-  const normalized = pathValue.replace(/\\/g, '/')
-  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-  if (!wslMatch) return pathValue
-
-  const [, drive, rest] = wslMatch
-  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
 }

@@ -6,46 +6,13 @@
 // launch path that hands such an agent something has to deal with both:
 //
 //   - Paths. A Linux shell cannot open `C:\Users\…` or `\\wsl$\Distro\…`; it
-//     needs `/mnt/c/Users/…` and `/…`. `toWslPath` is the one conversion.
+//     needs `/mnt/c/Users/…` and `/…`. `toWslPath` in `shared/host-paths.ts`
+//     is the one conversion.
 //   - Environment. Variables do not cross between Windows and Linux processes
 //     unless `WSLENV` names them — neither from the pty's Windows env into the
 //     Linux shell, nor from a Linux hook back out to a Windows program it runs
 //     through interop. `withWslSharedEnv` and `wslInteropEnv` name them.
 // =============================================================================
-
-/**
- * A Windows path as a Linux process under WSL sees it.
- *
- *   C:\Users\dev\repo                     → /mnt/c/Users/dev/repo
- *   \\wsl$\Ubuntu\home\dev\repo           → /home/dev/repo
- *   \\wsl.localhost\Ubuntu\home\dev\repo  → /home/dev/repo
- *
- * A path already in Linux form comes back with its separators normalized, so
- * the conversion is idempotent. The distribution in a `\\wsl$` path is
- * dropped: the launch runs `wsl.exe` without `-d`, so it lands in the default
- * distribution, and the path inside it is all that shell can use.
- */
-export function toWslPath(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const drive = /^([A-Za-z]):(?:\/(.*))?$/u.exec(normalized)
-  if (drive) return `/mnt/${drive[1].toLowerCase()}/${drive[2] ?? ''}`
-  // `//wsl$/<distro>/…` and `//wsl.localhost/<distro>/…` (any case, since the
-  // share names are case-insensitive on the Windows side).
-  const share = /^\/\/(?:wsl\$|wsl\.localhost)\/[^/]+(\/.*)?$/iu.exec(normalized)
-  if (share) return share[1] ?? '/'
-  return normalized
-}
-
-/**
- * Render a Windows executable's path so a Linux shell under WSL can run it.
- *
- * The launched process is still a Windows program, so its script arguments
- * stay in Windows path form; only the executable the Linux shell names crosses
- * through `/mnt/<drive>`.
- */
-export function toWslInteropExecutable(path: string): string {
-  return toWslPath(path)
-}
 
 // `WSLENV` is a colon-separated list of `NAME` or `NAME/flags` entries.
 function wslEnvNames(value: string | undefined): string[] {

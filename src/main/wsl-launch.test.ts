@@ -13,7 +13,8 @@ import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { applyAgentIdentityEnv, cleanupTerminalStartupScript, getShellLaunchConfig } from './terminal-launch'
-import { mergeWslEnv, toWslPath, withWslSharedEnv, wslInteropEnv } from './wsl-interop'
+import { toWslPath } from '../shared/host-paths'
+import { mergeWslEnv, withWslSharedEnv, wslInteropEnv } from './wsl-interop'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
 

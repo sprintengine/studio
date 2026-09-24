@@ -31,7 +31,8 @@ import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-run
 import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
-import { toWslPath, withWslSharedEnv } from './wsl-interop'
+import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
+import { withWslSharedEnv } from './wsl-interop'
 
 export type ShellLaunchConfig = {
   command: string
@@ -181,7 +182,7 @@ function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl')
   }
   if (!launchCarriesAppPluginsFor(cli, dirs)) return []
   if (target === 'posix') return dirs
-  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : toWindowsPath(dir)))
+  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : wslToWindowsPath(dir)))
 }
 
 /**
@@ -450,18 +451,6 @@ function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolea
   }
 }
 
-function toWindowsPath(dirPath: string): string {
-  const normalized = dirPath.replace(/\\/g, '/')
-  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-
-  if (!wslMatch) {
-    return dirPath
-  }
-
-  const [, drive, rest] = wslMatch
-  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
-}
-
 function replaceAllLiteral(value: string, search: string, replacement: string): string {
   return search && search !== replacement ? value.split(search).join(replacement) : value
 }
@@ -484,18 +473,14 @@ function normalizeTextPaths(
   for (const pathValue of paths) {
     if (!pathValue) continue
 
-    const targetPath = target === 'wsl' ? toWslPath(pathValue) : toWindowsPath(pathValue)
-    const candidates = Array.from(new Set([pathValue, toWindowsPath(pathValue), toWslPath(pathValue)]))
+    const targetPath = target === 'wsl' ? toWslPath(pathValue) : wslToWindowsPath(pathValue)
+    const candidates = Array.from(new Set([pathValue, wslToWindowsPath(pathValue), toWslPath(pathValue)]))
     for (const candidate of candidates) {
       normalizedPrompt = replaceAllLiteral(normalizedPrompt, candidate, targetPath)
     }
   }
 
   return normalizedPrompt
-}
-
-function isNativeWindowsPath(dirPath: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(dirPath) || dirPath.startsWith('\\\\')
 }
 
 function quotePosix(value: string): string {
@@ -1190,7 +1175,7 @@ export function hostContextRenderInputs(
   if (!target) return { contextFile: delivery.filePath, contextText: delivery.document }
   const allPaths = [...paths, delivery.filePath]
   return {
-    contextFile: target === 'wsl' ? toWslPath(delivery.filePath) : toWindowsPath(delivery.filePath),
+    contextFile: target === 'wsl' ? toWslPath(delivery.filePath) : wslToWindowsPath(delivery.filePath),
     contextText: normalizeTextPaths(delivery.document, target, allPaths) ?? delivery.document,
   }
 }
@@ -1288,12 +1273,12 @@ export function getShellLaunchConfig(
   const contributionPathStyle: LaunchContributionPathStyle =
     process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : 'posix'
   const merged = collectLaunchContributionMerge({
-    cwd: contributionPathStyle === 'windows' ? toWindowsPath(cwd) : cwd,
+    cwd: contributionPathStyle === 'windows' ? wslToWindowsPath(cwd) : cwd,
     sessionId,
     resume,
     cli,
     knowledgeRoot:
-      contributionPathStyle === 'windows' && memoryRootPath ? toWindowsPath(memoryRootPath) : memoryRootPath,
+      contributionPathStyle === 'windows' && memoryRootPath ? wslToWindowsPath(memoryRootPath) : memoryRootPath,
     pathStyle: contributionPathStyle,
   })
 
@@ -1340,14 +1325,14 @@ export function getShellLaunchConfig(
   })
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
-    const windowsCwd = toWindowsPath(cwd)
+    const windowsCwd = wslToWindowsPath(cwd)
     const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, memoryRootPath])
     const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [
       cwd,
       memoryRootPath,
       hostContext.filePath ?? undefined,
     ])
-    if (!isNativeWindowsPath(windowsCwd)) {
+    if (!isWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`,
       )
@@ -1475,9 +1460,9 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
   assertExistingDirectory(cwd)
 
   if (process.platform === 'win32') {
-    const windowsCwd = toWindowsPath(cwd)
+    const windowsCwd = wslToWindowsPath(cwd)
 
-    if (isNativeWindowsPath(windowsCwd)) {
+    if (isWindowsPath(windowsCwd)) {
       const merged = collectLaunchContributionMerge({
         cwd: windowsCwd,
         sessionId,

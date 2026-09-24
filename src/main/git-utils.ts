@@ -3,6 +3,7 @@ import { stat } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
 import { promisify } from 'util'
 import type { GitCommandResult } from './git'
+import { comparablePath, wslToWindowsPath } from '../shared/host-paths'
 
 const execFileAsync = promisify(execFile)
 
@@ -67,25 +68,12 @@ export function toPosixPath(pathValue: string): string {
   return pathValue.replace(/\\/g, '/')
 }
 
-function toWindowsPath(pathValue: string): string {
-  const normalized = toPosixPath(pathValue)
-  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-  if (!wslMatch) return pathValue
-
-  const [, drive, rest] = wslMatch
-  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
-}
-
 export function toFilesystemPath(pathValue: string): string {
-  return process.platform === 'win32' ? toWindowsPath(pathValue) : pathValue
+  return process.platform === 'win32' ? wslToWindowsPath(pathValue) : pathValue
 }
 
 export function normalizeComparablePath(pathValue: string): string {
-  const normalized = toPosixPath(pathValue).replace(/\/+$/, '')
-  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-  const comparable = wslMatch ? `${wslMatch[1].toUpperCase()}:/${wslMatch[2]}` : normalized
-
-  return /^[A-Za-z]:/.test(comparable) ? comparable.toLowerCase() : comparable
+  return comparablePath(pathValue)
 }
 
 export function toAbsolutePath(repoRoot: string, relativePath: string): string {

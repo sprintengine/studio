@@ -14,6 +14,7 @@ import { parseSkillFrontmatter } from '../shared/skills'
 import { skillsDirFromTemplate } from '../shared/harness-map'
 import { parseCodexConfigTables } from './mcp-config-readers/codex'
 import { resolveClaudeConfigDir } from './conversation-peek/locate'
+import { isWslDriveMountPath, wslToWindowsPath } from '../shared/host-paths'
 
 type Root = { path: string; scope: InstalledSkill['scope']; origin: string; managed?: boolean }
 /** `path.win32` or `path.posix`: the helpers below take either, so tests can speak Windows. */
@@ -55,8 +56,7 @@ export function samePath(a: string, b: string, api: PathApi = path): boolean {
  * Windows drive, any other absolute path lives under the distribution root.
  */
 export function wslToHost(value: string, root: string, api: PathApi = path): string {
-  const drive = /^\/mnt\/([A-Za-z])(?:\/(.*))?$/u.exec(value)
-  if (drive) return api.join(`${drive[1].toUpperCase()}:\\`, drive[2] ?? '')
+  if (isWslDriveMountPath(value)) return api.normalize(wslToWindowsPath(value))
   return value.startsWith('/') ? api.join(root, value) : value
 }
 
