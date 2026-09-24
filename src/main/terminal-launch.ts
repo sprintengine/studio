@@ -33,6 +33,7 @@ import type { LaunchContributionPathStyle } from '../shared/modules/launch-contr
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
 import { withWslSharedEnv } from './wsl-interop'
+import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './wsl-host'
 
 export type ShellLaunchConfig = {
   command: string
@@ -984,13 +985,36 @@ function buildInteractiveShellExec(shellPath: string, shellName: string | undefi
   return `exec ${quotePosixCommand(shellPath)}${loginArg}`
 }
 
-function createTerminalStartupScript(sessionId: string, extension: 'sh' | 'ps1', content: string): string {
+// `content` may be a function of the script's own path, for a script that
+// names itself: a WSL startup script records its shell's pid under a key
+// derived from that path (see `wslSessionPidKey`).
+function createTerminalStartupScript(
+  sessionId: string,
+  extension: 'sh' | 'ps1',
+  content: string | ((scriptPath: string) => string),
+): string {
   const scriptDirectory = join(app.getPath('userData'), 'terminal-startup')
   const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
   const scriptPath = join(scriptDirectory, `${safeSessionId}-${Date.now()}.${extension}`)
   mkdirSync(scriptDirectory, { recursive: true })
-  writeFileSync(scriptPath, `${content.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
+  const text = typeof content === 'function' ? content(scriptPath) : content
+  writeFileSync(scriptPath, `${text.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
   return scriptPath
+}
+
+/** The WSL startup script's first line: record this shell's Linux pid. */
+function wslPidFileLine(scriptPath: string): string {
+  const key = wslSessionPidKey(scriptPath)
+  return key ? wslSessionPidFileCommand(key) : ''
+}
+
+/**
+ * `wsl.exe` arguments that run a startup script in the distribution `cwd`
+ * belongs to: the one a `\\wsl.localhost\<distro>\…` folder names, else the
+ * default distribution. Exported for its test.
+ */
+export function wslStartupArgs(cwd: string, startupScriptPath: string): string[] {
+  return [...wslDistroArgs(wslDistroForPath(cwd)), '-e', 'bash', '-li', toWslPath(startupScriptPath)]
 }
 
 export function cleanupTerminalStartupScript(scriptPath: string | undefined): void {
@@ -1198,6 +1222,7 @@ export function applyHostContextToPrompt(
 }
 
 function buildWslShellScript(
+  scriptPath: string,
   cwd: string,
   sessionId: string,
   resume = false,
@@ -1223,6 +1248,7 @@ function buildWslShellScript(
     pathStyle: 'wsl',
   })
   return [
+    wslPidFileLine(scriptPath),
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
@@ -1376,10 +1402,9 @@ export function getShellLaunchConfig(
   }
 
   if (process.platform === 'win32') {
-    const startupScriptPath = createTerminalStartupScript(
-      sessionId,
-      'sh',
+    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
       buildWslShellScript(
+        scriptPath,
         cwd,
         sessionId,
         resume,
@@ -1398,7 +1423,7 @@ export function getShellLaunchConfig(
     )
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-li', toWslPath(startupScriptPath)],
+      args: wslStartupArgs(cwd, startupScriptPath),
       // The session's identity is applied to this env at spawn, on the Windows
       // side of `wsl.exe`, and Windows variables reach the Linux shell only when
       // `WSLENV` names them. Without this the agent's hooks run with no agent id
@@ -1485,17 +1510,21 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
       pathStyle: 'wsl',
       agentKind: 'terminal',
     })
-    const startupScriptPath = createTerminalStartupScript(
-      sessionId,
-      'sh',
-      [buildUserShellStartup(), `cd ${quotePosix(toWslPath(cwd))}`, buildLaunchShellBootstrap(merged), 'exec bash -li']
+    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
+      [
+        wslPidFileLine(scriptPath),
+        buildUserShellStartup(),
+        `cd ${quotePosix(toWslPath(cwd))}`,
+        buildLaunchShellBootstrap(merged),
+        'exec bash -li',
+      ]
         .filter(Boolean)
         .join('; '),
     )
 
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-li', toWslPath(startupScriptPath)],
+      args: wslStartupArgs(cwd, startupScriptPath),
       pathStyle: 'wsl',
       startupScriptPath,
       ...launchSessionTags(merged),

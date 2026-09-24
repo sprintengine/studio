@@ -12,8 +12,19 @@ import { createMcpConfigService } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
-import { applyAgentIdentityEnv, cleanupTerminalStartupScript, getShellLaunchConfig } from './terminal-launch'
+import {
+  applyAgentIdentityEnv,
+  cleanupTerminalStartupScript,
+  getShellLaunchConfig,
+  wslStartupArgs,
+} from './terminal-launch'
 import { toWslPath } from '../shared/host-paths'
+import {
+  __resetWslHostForTest,
+  __setDefaultWslDistroForTest,
+  wslSessionPidFileCommand,
+  wslSessionPidKey,
+} from './wsl-host'
 import { mergeWslEnv, withWslSharedEnv, wslInteropEnv } from './wsl-interop'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
@@ -282,6 +293,54 @@ test('an agent launched through WSL shares its identity with the Linux side', ()
     const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
     assert.ok(script.includes(`cd '${toWslPath(cwd)}'`), script)
     assert.ok(!script.includes('\r'), 'the startup script bash reads has LF line endings')
+  } finally {
+    cleanupTerminalStartupScript(config.startupScriptPath)
+  }
+})
+
+test('a WSL launch in a folder inside a distribution runs in that distribution', () => {
+  __setDefaultWslDistroForTest('Debian')
+  try {
+    const script = 'C:\\Users\\dev\\AppData\\Roaming\\SprintEngine Studio\\terminal-startup\\s1-1.sh'
+    assert.deepEqual(wslStartupArgs('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', script), [
+      '-d',
+      'Ubuntu',
+      '-e',
+      'bash',
+      '-li',
+      '/mnt/c/Users/dev/AppData/Roaming/SprintEngine Studio/terminal-startup/s1-1.sh',
+    ])
+    assert.deepEqual(wslStartupArgs('\\\\wsl$\\Ubuntu-24.04\\srv\\app', script).slice(0, 2), ['-d', 'Ubuntu-24.04'])
+    // Any other folder runs in the default distribution, by name.
+    assert.deepEqual(wslStartupArgs('C:\\Users\\dev\\repo', script).slice(0, 2), ['-d', 'Debian'])
+  } finally {
+    __resetWslHostForTest()
+  }
+  // Before the default is known, no `-d`: that is the default distribution.
+  assert.equal(wslStartupArgs('C:\\Users\\dev\\repo', 'C:\\s.sh')[0], '-e')
+})
+
+test('an agent launched through WSL names the distribution and records its shell pid', () => {
+  const cwd = join(temp, 'workspace-distro')
+  mkdirSync(cwd, { recursive: true })
+  __setDefaultWslDistroForTest('Debian')
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  let config: ReturnType<typeof getShellLaunchConfig>
+  try {
+    config = getShellLaunchConfig(cwd, 'sid-distro', false, 'claude-code', 'hello', {
+      'claude-code': { command: 'claude', useWsl: true },
+    })
+  } finally {
+    if (platform) Object.defineProperty(process, 'platform', platform)
+    __resetWslHostForTest()
+  }
+  try {
+    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Debian'])
+    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
+    const key = wslSessionPidKey(config.startupScriptPath)
+    assert.ok(key, 'the startup script path gives a pid key')
+    assert.ok(script.startsWith(wslSessionPidFileCommand(key)), script)
   } finally {
     cleanupTerminalStartupScript(config.startupScriptPath)
   }

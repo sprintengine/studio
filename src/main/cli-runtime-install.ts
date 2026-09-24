@@ -1,5 +1,3 @@
-import { spawn } from 'child_process'
-
 import type {
   AgentCli,
   CliDetectResult,
@@ -12,7 +10,8 @@ import type { PluginInstallMethod, PluginInstallPlatform, PluginManifest } from 
 import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
-import { killProcessTree } from './process-tree-kill'
+import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from './process-run'
+import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScriptDescriptor } from './wsl-host'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -20,12 +19,7 @@ import { killProcessTree } from './process-tree-kill'
 const NOT_FOUND_EXIT = 3
 const PATH_SENTINEL = 'SPRINTENGINE_PATH:'
 
-export type SpawnDescriptor = { file: string; args: string[] }
-// `timedOut` is carried alongside the exit code because a killed probe reports
-// the not-found code (callers that only want a yes/no verdict keep treating it
-// as "absent"), while callers that must distinguish "no such binary" from "the
-// probe never answered" read this flag instead.
-type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean }
+export type { SpawnDescriptor }
 
 // Maps the OS platform + per-CLI WSL override onto the manifest install bucket.
 // WSL is a logical target (Windows host, POSIX guest) distinct from win32.
@@ -34,6 +28,14 @@ export function resolveInstallPlatform(platform: NodeJS.Platform, useWsl: boolea
   if (platform === 'darwin') return 'darwin'
   // Treat any other POSIX-like platform (linux, and uncommon ones) as linux.
   return 'linux'
+}
+
+// Reads the default distribution's name before a WSL descriptor is built, so
+// the descriptor can pass it to `-d`. Cached, so only the first call starts
+// `wsl.exe`; a failed read leaves the descriptor without `-d`, which is the
+// default distribution anyway.
+async function knowWslDistro(target: PluginInstallPlatform): Promise<void> {
+  if (target === 'wsl') await resolveDefaultWslDistro().catch(() => null)
 }
 
 function isPosixTarget(target: PluginInstallPlatform): boolean {
@@ -50,7 +52,10 @@ function powerShellSingleQuote(value: string): string {
 
 // Wraps a shell snippet in the right host shell for the target. POSIX targets
 // run through a login shell so user-local install dirs (~/.local/bin, npm
-// global prefix) are on PATH; WSL routes through wsl.exe.
+// global prefix) are on PATH. WSL routes through wsl.exe into the default
+// distribution by name, with the script on stdin (see wsl-host.ts for why
+// never on the command line); its stdin is closed for everything the script
+// runs, so a command that reads input cannot swallow the rest of the script.
 function shellDescriptorForScript(target: PluginInstallPlatform, script: string): SpawnDescriptor {
   if (target === 'win32') {
     return {
@@ -59,7 +64,7 @@ function shellDescriptorForScript(target: PluginInstallPlatform, script: string)
     }
   }
   if (target === 'wsl') {
-    return { file: 'wsl.exe', args: ['-e', 'bash', '-lc', script] }
+    return wslScriptDescriptor(knownDefaultWslDistro(), wslLoginScript(`{\n${script}\n} </dev/null`))
   }
   return { file: 'bash', args: ['-lc', script] }
 }
@@ -186,83 +191,21 @@ export function parseProbeOutput(
   return { installed: true, version, resolvedPath }
 }
 
-// How long after the wrapper process exits its pipes may stay open before the
-// outcome is settled without them. Normally `close` follows `exit` at once; it
-// does not when something the wrapper started (a CLI's `--version` launched
-// through a `.cmd` shim, a daemon an installer leaves behind) inherited stdout
-// and outlives it. Waiting on `close` alone could then never return: the
-// probe's cache entry was never written, and the next refresh started another.
-const PIPE_DRAIN_GRACE_MS = 2_000
-
 function runDescriptor(
   desc: SpawnDescriptor,
   onData?: (chunk: string) => void,
   env: NodeJS.ProcessEnv = process.env,
   // When set, the child is killed at the deadline and the outcome reads as
   // not-found — a probe that hangs (e.g. a slow interactive shell profile)
-  // must never wedge the caller.
+  // must never wedge the caller. Callers that must tell "no such binary" from
+  // "the probe never answered" read the outcome's `timedOut` instead.
   timeoutMs?: number,
 ): Promise<RunOutcome> {
-  return new Promise((resolve) => {
-    const child = spawn(desc.file, desc.args, {
-      env,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    let timedOut = false
-    let settled = false
-    let drainTimer: ReturnType<typeof setTimeout> | null = null
-    const timer = timeoutMs
-      ? setTimeout(() => {
-          timedOut = true
-          // The whole tree: on Windows the wrapper is `powershell.exe` or
-          // `wsl.exe`, and what hangs is the CLI it launched.
-          killProcessTree(child)
-        }, timeoutMs)
-      : null
-    const settle = (outcome: RunOutcome) => {
-      if (settled) return
-      settled = true
-      if (timer) clearTimeout(timer)
-      if (drainTimer) clearTimeout(drainTimer)
-      resolve(outcome)
-    }
-    const settleTimedOut = () =>
-      settle({
-        code: NOT_FOUND_EXIT,
-        stdout: '',
-        stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms`,
-        timedOut: true,
-      })
-    child.stdout?.on('data', (chunk) => {
-      const text = chunk.toString()
-      stdout += text
-      onData?.(text)
-    })
-    child.stderr?.on('data', (chunk) => {
-      const text = chunk.toString()
-      stderr += text
-      onData?.(text)
-    })
-    child.on('error', (error) => {
-      settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)), timedOut: false })
-    })
-    child.on('exit', (code) => {
-      if (timedOut) {
-        settleTimedOut()
-        return
-      }
-      drainTimer = setTimeout(() => settle({ code: code ?? 1, stdout, stderr, timedOut: false }), PIPE_DRAIN_GRACE_MS)
-    })
-    child.on('close', (code) => {
-      if (timedOut) {
-        settleTimedOut()
-        return
-      }
-      settle({ code: code ?? 1, stdout, stderr, timedOut: false })
-    })
+  return runSpawnDescriptor(desc, {
+    ...(onData ? { onData } : {}),
+    env,
+    ...(timeoutMs ? { timeoutMs } : {}),
+    timedOutCode: NOT_FOUND_EXIT,
   })
 }
 
@@ -372,6 +315,7 @@ export async function runCliCommand(input: {
   env?: NodeJS.ProcessEnv
 }): Promise<CliCommandOutcome> {
   const target = resolveInstallPlatform(process.platform, input.useWsl)
+  await knowWslDistro(target)
   return runDescriptor(
     buildCommandDescriptor({ binary: input.binary, args: input.args, target }),
     undefined,
@@ -415,6 +359,258 @@ export async function probeBinaryVersion(binary: string): Promise<BinaryVersionP
   }
 }
 
+// ── Batched detection (Windows and WSL) ─────────────────────────────────────
+//
+// On Windows every probe is a `powershell.exe` or a `wsl.exe` login shell, each
+// a second or more to start, and the registry holds around ten CLIs. Probing
+// them one process each cost ten such starts per refresh. A batch asks about
+// every CLI for one target in ONE process: a single login shell in the
+// distribution, or a single PowerShell. The CLIs' `--version` calls run side by
+// side inside it, each with its own deadline, so one slow CLI costs its own
+// answer and not everyone's.
+
+const BATCH_BLOCK_MARKER = '@@SPRINTENGINE_CLI '
+const BATCH_NOT_FOUND = '@@SPRINTENGINE_NOT_FOUND'
+const BATCH_TIMED_OUT = '@@SPRINTENGINE_TIMED_OUT'
+// Each CLI's `--version` inside the batch.
+export const BATCH_PER_CLI_TIMEOUT_MS = 8_000
+// The whole batch: a login shell or PowerShell start, then the slowest CLI.
+const BATCH_TIMEOUT_MS = 25_000
+
+export type BatchProbeRequest = { binary: string; versionArgs: string[] }
+export type BatchProbeAnswer = ReturnType<typeof parseProbeOutput> | { error: string }
+
+function posixBatchProbeScript(requests: readonly BatchProbeRequest[], perCliTimeoutMs: number): string {
+  const seconds = Math.max(1, Math.ceil(perCliTimeoutMs / 1000))
+  return [
+    // `timeout` is coreutils and nearly always present; without it the batch
+    // deadline still bounds the run.
+    `T=''; command -v timeout >/dev/null 2>&1 && T='timeout -k 2 ${seconds}'`,
+    `d="$(mktemp -d 2>/dev/null)" || d="/tmp/sprintengine-probe-$$"; mkdir -p "$d"`,
+    'probe() {',
+    '  i="$1"; b="$2"; shift 2',
+    `  p="$(command -v "$b" 2>/dev/null)" || { printf '%s\\n' '${BATCH_NOT_FOUND}' > "$d/$i"; return; }`,
+    `  { printf '${PATH_SENTINEL}%s\\n' "$p"; $T "$b" "$@" </dev/null 2>&1; [ $? -eq 124 ] && printf '%s\\n' '${BATCH_TIMED_OUT}'; } > "$d/$i"`,
+    '}',
+    ...requests.map(
+      (request, index) =>
+        `probe ${index} ${[request.binary, ...request.versionArgs].map(posixSingleQuote).join(' ')} &`,
+    ),
+    'wait',
+    `for i in ${requests.map((_, index) => index).join(' ')}; do printf '${BATCH_BLOCK_MARKER}%s\\n' "$i"; cat "$d/$i" 2>/dev/null; done`,
+    'rm -rf "$d"',
+  ].join('\n')
+}
+
+function powerShellBatchProbeScript(requests: readonly BatchProbeRequest[], perCliTimeoutMs: number): string {
+  const list = requests
+    .map(
+      (request) =>
+        `@{ b = ${powerShellSingleQuote(request.binary)}; a = @(${request.versionArgs.map(powerShellSingleQuote).join(', ')}) }`,
+    )
+    .join(', ')
+  return [
+    `$ErrorActionPreference = 'SilentlyContinue'`,
+    `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`,
+    `$requests = @(${list})`,
+    // Every found CLI's `--version` starts in its own runspace inside this one
+    // process, so they run side by side and each can be abandoned alone.
+    `$jobs = @()`,
+    `foreach ($r in $requests) {`,
+    `  $c = Get-Command $r.b | Select-Object -First 1`,
+    `  if (-not $c) { $jobs += ,@{ found = $false }; continue }`,
+    `  $ps = [PowerShell]::Create()`,
+    `  [void]$ps.AddScript({ param($b, $a) & $b @a 2>&1 | Out-String -Width 4096 }).AddArgument($r.b).AddArgument($r.a)`,
+    `  $jobs += ,@{ found = $true; source = $c.Source; ps = $ps; handle = $ps.BeginInvoke() }`,
+    `}`,
+    `$deadline = [DateTime]::UtcNow.AddMilliseconds(${perCliTimeoutMs})`,
+    `for ($i = 0; $i -lt $jobs.Count; $i++) {`,
+    `  '${BATCH_BLOCK_MARKER}' + $i`,
+    `  $j = $jobs[$i]`,
+    `  if (-not $j.found) { '${BATCH_NOT_FOUND}'; continue }`,
+    `  '${PATH_SENTINEL}' + $j.source`,
+    `  $left = [int][Math]::Max(0, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)`,
+    `  if ($j.handle.AsyncWaitHandle.WaitOne($left)) { try { $j.ps.EndInvoke($j.handle) } catch {} }`,
+    `  else { '${BATCH_TIMED_OUT}'; [void]$j.ps.BeginStop($null, $null) }`,
+    `}`,
+    `exit 0`,
+  ].join('\n')
+}
+
+/**
+ * One process that probes every request for a Windows-side target: a login
+ * shell in the distribution for `wsl`, a PowerShell for `win32`. The output is
+ * one block per request, in order, read by `parseBatchProbeOutput`.
+ */
+export function buildBatchProbeDescriptor(input: {
+  requests: readonly BatchProbeRequest[]
+  target: 'wsl' | 'win32'
+  distro?: string | null
+  perCliTimeoutMs?: number
+}): SpawnDescriptor {
+  const perCliTimeoutMs = input.perCliTimeoutMs ?? BATCH_PER_CLI_TIMEOUT_MS
+  if (input.target === 'wsl') {
+    return wslScriptDescriptor(
+      input.distro ?? null,
+      wslLoginScript(`{\n${posixBatchProbeScript(input.requests, perCliTimeoutMs)}\n} </dev/null`),
+    )
+  }
+  const script = powerShellBatchProbeScript(input.requests, perCliTimeoutMs)
+  return {
+    file: 'powershell.exe',
+    args: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+      Buffer.from(script, 'utf16le').toString('base64'),
+    ],
+  }
+}
+
+/**
+ * A batch's output as one answer per request, in request order. Anything
+ * before the first block (a login banner) is ignored. A request with no block
+ * — the shell died part way, or printed something else — is an error, never
+ * "not installed": only a probe that ran says a CLI is absent.
+ */
+export function parseBatchProbeOutput(stdout: string, count: number): BatchProbeAnswer[] {
+  const blocks = new Map<number, string[]>()
+  let current: string[] | null = null
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line.startsWith(BATCH_BLOCK_MARKER)) {
+      const index = Number(line.slice(BATCH_BLOCK_MARKER.length).trim())
+      current = Number.isInteger(index) && index >= 0 && index < count ? [] : null
+      if (current) blocks.set(index, current)
+      continue
+    }
+    current?.push(line)
+  }
+  const answers: BatchProbeAnswer[] = []
+  for (let index = 0; index < count; index += 1) {
+    const lines = blocks.get(index)
+    if (!lines) {
+      answers.push({ error: 'The probe printed no answer for this CLI.' })
+      continue
+    }
+    if (lines.includes(BATCH_NOT_FOUND)) {
+      answers.push(parseProbeOutput(NOT_FOUND_EXIT, ''))
+      continue
+    }
+    // A CLI whose `--version` hit its own deadline was still found: installed,
+    // with whatever version it printed before, if any.
+    answers.push(parseProbeOutput(0, lines.filter((line) => line !== BATCH_TIMED_OUT).join('\n')))
+  }
+  return answers
+}
+
+export type DetectCliBatchDeps = {
+  env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+  resolveDistro?: () => Promise<string | null>
+  run?: (desc: SpawnDescriptor, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<RunOutcome>
+}
+
+type BatchItem = { index: number; binary: string; versionArgs: string[] }
+
+function detectResult(cli: AgentCli, binary: string, useWsl: boolean, answer: BatchProbeAnswer): CliDetectResult {
+  if ('error' in answer) {
+    return { cli, binary, installed: false, version: null, resolvedPath: null, useWsl, error: answer.error }
+  }
+  return {
+    cli,
+    binary,
+    installed: answer.installed,
+    version: answer.version,
+    resolvedPath: answer.resolvedPath,
+    useWsl,
+    error: null,
+  }
+}
+
+async function runBatchGroup(
+  target: 'wsl' | 'win32',
+  items: readonly BatchItem[],
+  deps: DetectCliBatchDeps,
+  env: NodeJS.ProcessEnv,
+): Promise<BatchProbeAnswer[]> {
+  const run =
+    deps.run ??
+    ((desc: SpawnDescriptor, runEnv: NodeJS.ProcessEnv, timeoutMs: number) =>
+      runDescriptor(desc, undefined, runEnv, timeoutMs))
+  const resolveDistro = deps.resolveDistro ?? (() => resolveDefaultWslDistro())
+  try {
+    const distro = target === 'wsl' ? await resolveDistro().catch(() => null) : null
+    const outcome = await run(buildBatchProbeDescriptor({ requests: items, target, distro }), env, BATCH_TIMEOUT_MS)
+    if (outcome.timedOut) {
+      return items.map(() => ({ error: `The CLI check timed out after ${BATCH_TIMEOUT_MS / 1000} s.` }))
+    }
+    const answers = parseBatchProbeOutput(outcome.stdout, items.length)
+    if (outcome.code !== 0 && answers.every((answer) => 'error' in answer)) {
+      // `wsl.exe` itself failed: no distribution, WSL not installed, the VM
+      // would not start. Its reason is the first line it printed.
+      const detail = outcome.stderr.trim().split(/\r?\n/)[0] ?? ''
+      return items.map(() => ({ error: `The CLI check exited with code ${outcome.code}. ${detail}`.trim() }))
+    }
+    return answers
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return items.map(() => ({ error: message }))
+  }
+}
+
+/**
+ * `detectCli` for many CLIs at once. On Windows, one process per target (the
+ * CLIs that run through WSL, the ones that run natively) whatever the count; on
+ * macOS and Linux each CLI keeps its own probe, which has the interactive-shell
+ * fallback a batch does not.
+ */
+export async function detectCliBatch(
+  requests: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
+  deps: DetectCliBatchDeps = {},
+): Promise<CliDetectResult[]> {
+  const platform = deps.platform ?? process.platform
+  const results: CliDetectResult[] = []
+  const groups = new Map<'wsl' | 'win32', BatchItem[]>()
+  const posix: number[] = []
+  requests.forEach(({ cli, runtime }, index) => {
+    const manifest = getPluginManifest(cli)
+    const useWsl = runtime?.useWsl ?? false
+    if (!manifest) {
+      results[index] = detectResult(cli, cli, useWsl, { error: `No plugin manifest found for "${cli}".` })
+      return
+    }
+    const target = resolveInstallPlatform(platform, useWsl)
+    if (target !== 'wsl' && target !== 'win32') {
+      posix.push(index)
+      return
+    }
+    const group = groups.get(target) ?? []
+    group.push({
+      index,
+      binary: resolveBinary(manifest, runtime),
+      versionArgs: manifest.detect?.versionArgs ?? ['--version'],
+    })
+    groups.set(target, group)
+  })
+
+  const env = deps.env ?? defaultProbeEnv()
+  await Promise.all([
+    ...posix.map(async (index) => {
+      results[index] = await detectCli(requests[index].cli, requests[index].runtime, deps.env)
+    }),
+    ...[...groups].map(async ([target, items]) => {
+      const answers = await runBatchGroup(target, items, deps, env)
+      items.forEach((item, position) => {
+        results[item.index] = detectResult(requests[item.index].cli, item.binary, target === 'wsl', answers[position])
+      })
+    }),
+  ])
+  return results
+}
+
 export async function detectCli(
   cli: AgentCli,
   runtime?: Partial<CliRuntimeSettings>,
@@ -435,6 +631,12 @@ export async function detectCli(
   }
   const binary = resolveBinary(manifest, runtime)
   const target = resolveInstallPlatform(process.platform, useWsl)
+  // On Windows a single CLI goes through the batch too, so every probe there
+  // is built, run and read one way.
+  if (target === 'wsl' || target === 'win32') {
+    const [result] = await detectCliBatch([{ cli, runtime }], env ? { env } : {})
+    return result
+  }
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
   try {
     // An explicit caller env still wins over the default probe PATH.
@@ -487,6 +689,7 @@ export async function cliInstallMethods(
   if (!manifest) return []
   const useWsl = runtime?.useWsl ?? false
   const target = resolveInstallPlatform(process.platform, useWsl)
+  await knowWslDistro(target)
   const methods = selectInstallMethods(manifest, target)
   const infos = await Promise.all(
     methods.map(async (method): Promise<CliInstallMethodInfo> => {
@@ -524,6 +727,7 @@ export async function installCli(
     }
   }
   const target = resolveInstallPlatform(process.platform, useWsl)
+  await knowWslDistro(target)
   const method = selectInstallMethods(manifest, target).find((entry) => entry.id === input.methodId)
   if (!method) {
     return {
@@ -614,6 +818,7 @@ export async function updateCli(
     }
   }
   const target = resolveInstallPlatform(process.platform, runtime?.useWsl ?? false)
+  await knowWslDistro(target)
 
   if (manifest.update?.args?.length) {
     const binary = resolveBinary(manifest, runtime)

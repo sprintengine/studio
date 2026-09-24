@@ -34,10 +34,13 @@ test('cli-runtime-install', async () => {
     assert.match(posixProbe.args[1], /'claude' '--version' 2>&1 \|\| true/)
     assert.match(posixProbe.args[1], /exit 3/)
 
-    // WSL probe is routed through wsl.exe + bash.
+    // WSL probe is routed through wsl.exe, with the script on stdin for a
+    // login bash rather than on the command line wsl.exe re-quotes.
     const wslProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'wsl' })
     assert.equal(wslProbe.file, 'wsl.exe')
-    assert.deepEqual(wslProbe.args.slice(0, 3), ['-e', 'bash', '-lc'])
+    assert.deepEqual(wslProbe.args.slice(-5), ['--cd', '~', '--exec', 'sh', '-s'])
+    assert.match(wslProbe.stdin ?? '', /^exec bash -l <</u)
+    assert.ok(wslProbe.stdin?.includes("command -v 'claude'"), wslProbe.stdin ?? '')
 
     // Windows probe is PowerShell + Get-Command.
     const winProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'win32' })
@@ -138,7 +141,8 @@ test('cli-runtime-install', async () => {
     assert.equal(posixUpdate.args[1], "'claude' 'update'")
     const wslUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'wsl' })
     assert.equal(wslUpdate.file, 'wsl.exe')
-    assert.deepEqual(wslUpdate.args.slice(0, 3), ['-e', 'bash', '-lc'])
+    assert.deepEqual(wslUpdate.args.slice(-5), ['--cd', '~', '--exec', 'sh', '-s'])
+    assert.ok(wslUpdate.stdin?.includes("'claude' 'update'"), wslUpdate.stdin ?? '')
     const winUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'win32' })
     assert.equal(winUpdate.file, 'powershell.exe')
     assert.equal(winUpdate.args.at(-1), "& 'claude' 'update'")

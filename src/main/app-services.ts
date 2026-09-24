@@ -12,6 +12,7 @@ import {
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
+import { primeDefaultWslDistro } from './wsl-host'
 import {
   appLaunchPluginsActive,
   launchCarriesAppPluginsFor,
@@ -143,6 +144,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
+  // Learn the default WSL distribution's name once, in the background, so a WSL
+  // launch built later can name it with `-d` (Windows only; a no-op elsewhere).
+  primeDefaultWslDistro()
   const sprintengineAuth = new SprintEngineAuthBridge()
   const mcpConfigService = createMcpConfigService()
   const resolveStudioMcpBridgeScriptPath = () =>
