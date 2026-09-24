@@ -765,10 +765,9 @@ test('terminal-session', async () => {
   }
 
   // `visible` means painted now: a minimized or locked window reports its panes
-  // hidden. A paused agent that sat on screen for days with no output must not
-  // be disposed — deleting the sidecar it reopens on after a restart — the
-  // moment its window is minimized. The backstop counts from when it was last
-  // on screen, and a hide repeated while hidden is not a look.
+  // hidden. A terminal that sat on screen for days with no output must not be
+  // disposed the moment its window is minimized. The backstop counts from when
+  // it was last on screen, and a hide repeated while hidden is not a look.
   function assertStaleRuleCountsFromTheLastMomentOnScreen(): void {
     const startedAt = 1_000
     const session = createSession({ startedAt, visible: false })
@@ -786,6 +785,16 @@ test('terminal-session', async () => {
     // repeat is not time on screen.
     recordTerminalVisibility(session, false, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS)
     assert.equal(isTerminalSessionStale(session, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+
+    // A settled agent is never reaped by the backstop, however long unseen:
+    // disposing it deletes the sidecar that is the only copy of its history.
+    const longAfter = minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS * 10
+    const paused = createSession({ startedAt, visible: false })
+    paused.suspended = true
+    assert.equal(isTerminalSessionStale(paused, longAfter), false, 'a paused agent keeps its history')
+    const finished = createSession({ startedAt, visible: false })
+    finished.hasExited = true
+    assert.equal(isTerminalSessionStale(finished, longAfter), false, 'so does a finished one')
   }
 
   // Freeze-the-view: a suspended session's pty is killed, so it reports not-alive

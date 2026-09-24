@@ -33,6 +33,7 @@ import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { WorkingEdge } from '../ui/WorkingEdge'
 import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
 import { windowActivity } from '../../utils/windowActivity'
+import { clearPaneAttachedHidden, notePaneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -158,6 +159,12 @@ async function resolveMemoryLaunchContext(
   // the host-context document, from this same pair, for every launcher.
   return knowledgeLaunchContext(status)
 }
+
+// How long a paste held for a resuming agent waits for the relaunched CLI's
+// first frame before it goes anyway. Well past the resume hold's own limits
+// (a one-second first-frame deadline, two seconds to settle), which cover
+// every CLI that prints at all.
+const RESUME_INPUT_FALLBACK_MS = 5_000
 
 /** Input taken while a paused agent's CLI is not yet reading it. */
 type PendingResumeInput = { kind: 'keys'; data: string } | { kind: 'paste'; text: string }
@@ -730,6 +737,9 @@ export default function TerminalView({
     let resumeLaunched = false
     let resumeFrameShown = false
     let deliveringResumeInput = false
+    // Which resume a timer belongs to, so one from an earlier attempt cannot
+    // let a later attempt's input go early.
+    let resumeGeneration = 0
 
     const deliverResumeInput = (upToFirstPaste: boolean): void => {
       const queue = pendingResumeInputRef.current
@@ -805,6 +815,7 @@ export default function TerminalView({
       resumeInputHeld = true
       resumeLaunched = false
       resumeFrameShown = false
+      const generation = ++resumeGeneration
       // Tell the paused footer (AgentPanel) a resume is in flight. It gives its
       // row back to the pane now, not when the session stops reading suspended:
       // that happened after the relaunch, so the pane grew under a CLI that was
@@ -837,6 +848,16 @@ export default function TerminalView({
           resumeLaunched = true
           deliverResumeInput(true)
           deliverHeldResumeInput()
+          // The hold starts timing only at the CLI's first byte. A CLI that
+          // prints nothing, or a pane hidden before it was sent anything, would
+          // otherwise keep a held paste — and every key typed behind it —
+          // waiting indefinitely. Past this, the paste goes with whatever modes
+          // xterm has.
+          window.setTimeout(() => {
+            if (disposed || generation !== resumeGeneration || !resumeInputHeld || !resumeLaunched) return
+            resumeFrameShown = true
+            deliverHeldResumeInput()
+          }, RESUME_INPUT_FALLBACK_MS)
         } else {
           // The hold already let go: the CLI exited before this answer came.
           deliverResumeInput(false)
@@ -1254,7 +1275,9 @@ export default function TerminalView({
         setCursorFrozen(true)
         // A fresh xterm: main paints it in full, now or — in a window that is
         // not being painted — when WorkspaceManager reveals it.
-        await window.api.terminalSetVisible(sessionId, paneIsPainted(), { freshPane: true }).catch(() => {})
+        const painted = paneIsPainted()
+        await window.api.terminalSetVisible(sessionId, painted, { freshPane: true }).catch(() => {})
+        if (!painted && !disposed) notePaneAttachedHidden(sessionId)
         logPerfEvent('TerminalView', 'terminal-paused-on-open', {
           sessionId,
           workspaceId,
@@ -1267,6 +1290,7 @@ export default function TerminalView({
       }
 
       replayGate.beginReplayWait()
+      const spawnPainted = paneIsPainted()
       const spawnResult = await window.api
         .terminalSpawn(
           sessionId,
@@ -1307,7 +1331,7 @@ export default function TerminalView({
             mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
             connectorLaunch: finalAgent.connectorMcpSettings != null,
             spawnSkillId: finalAgent.spawnSkillId,
-            visible: paneIsPainted(),
+            visible: spawnPainted,
             ...(agentSession ? { agentSession } : {}),
           } as TerminalSpawnMetadata & {
             executionMode: AgentExecutionMode
@@ -1323,6 +1347,7 @@ export default function TerminalView({
         }))
       replayGate.finishReplayWait()
       if (disposed) return
+      if (spawnResult.ok && !spawnPainted) notePaneAttachedHidden(sessionId)
       if (!spawnResult.ok) {
         const failureContext = currentContext()
         const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
@@ -1460,6 +1485,7 @@ export default function TerminalView({
       outputQueue.dispose()
       ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
+      clearPaneAttachedHidden(sessionId)
       studioTerminalRef.current = null
       // Last: it unbinds the theme, disposes the web-links addon and disposes
       // the terminal itself, so nothing above may still be reading `term`.

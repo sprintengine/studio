@@ -1888,8 +1888,8 @@ export async function runGuardedTerminalReapSweeps(
 
 // Probes the would-reap set and names every session that must be held. Only a
 // LIVE pty can hold live work: suspended placeholders and exited sessions have
-// nothing left to kill, and the stale backstop must stay free to reclaim their
-// retained buffers.
+// nothing left to kill. (The stale backstop leaves settled agents alone for
+// its own reason, and still reclaims exited plain shells.)
 async function buildReapGuardHolds(
   targetSessionIds: ReadonlySet<string>,
   deps: { subtree?: SubtreeProbeDeps },

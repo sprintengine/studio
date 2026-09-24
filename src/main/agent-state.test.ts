@@ -17,6 +17,7 @@ import {
   deriveActivityFromPhase,
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
+  backgroundStartAlreadyClosed,
   keepsTurnEnd,
   TURN_END_STRAGGLER_WINDOW_MS,
   installAgentStateReporter,
@@ -2126,4 +2127,14 @@ test('the latch only holds while the session rests on the turn end itself', asyn
     'an idle that is not the last turn end holds nothing',
   )
   assert.equal(keepsTurnEnd({ ...base, current: null, lastTurnEndedAt: null }), false)
+})
+
+// A short subagent's stop can overtake its start in delivery; that start is
+// already closed. A start stamped well before an unrelated stop is real work
+// still running, and must still count.
+test('only a start its own stop could have overtaken is taken as closed', () => {
+  assert.equal(backgroundStartAlreadyClosed(1_500, undefined), false, 'no stop that closed nothing')
+  assert.equal(backgroundStartAlreadyClosed(1_500, 1_600), true, 'stamped just before the stop')
+  assert.equal(backgroundStartAlreadyClosed(1_700, 1_600), false, 'a later subagent')
+  assert.equal(backgroundStartAlreadyClosed(1_600 - 60_000, 1_600), false, 'long-running work behind an unrelated stop')
 })

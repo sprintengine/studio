@@ -212,6 +212,7 @@ import { showAppUpdateReadyToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
+import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
 import {
   closeActiveLayoutTab,
@@ -1693,9 +1694,11 @@ export default function WorkspaceManager() {
         lastSent: applied.get(session.sessionId),
         mainVisible: session.visible !== false,
         paneMounted: hasTerminalInstance(session.sessionId),
+        paneAttachedHidden: paneAttachedHidden(session.sessionId),
       })
       if (!send) continue
       applied.set(session.sessionId, shouldPaint)
+      if (shouldPaint) clearPaneAttachedHidden(session.sessionId)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
     }
     // Forget sessions that unmounted or moved to another window; their own

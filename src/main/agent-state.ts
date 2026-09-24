@@ -202,13 +202,16 @@ export function applyBackgroundWork(outstanding: number, background: 'start' | '
  * the stall watch gave up on it. So the time of each stop that closed nothing
  * is kept, and a start stamped at or before it is taken as already closed.
  *
- * A start that genuinely belongs to a later subagent is stamped after the stop
- * and still counts. One that was merely delivered late behind an unrelated stop
- * goes uncounted, and its own stop then closes nothing: the count reads low
- * while that subagent runs, which is the error that cannot strand a session.
+ * Only a start stamped within a delivery window of that stop is taken: a
+ * reporter delivers for up to two seconds, so only a subagent that short can
+ * have its stop land first. A start that belongs to a later subagent is stamped
+ * after the stop and counts, and so does one stamped well before an unrelated
+ * stop — that is real work still running, and dropping it would let the agent
+ * read idle, and be reclaimed, mid-subagent.
  */
 export function backgroundStartAlreadyClosed(frameTs: number, unmatchedStopAt: number | null | undefined): boolean {
-  return typeof unmatchedStopAt === 'number' && frameTs <= unmatchedStopAt
+  if (typeof unmatchedStopAt !== 'number') return false
+  return frameTs <= unmatchedStopAt && unmatchedStopAt - frameTs < TURN_END_STRAGGLER_WINDOW_MS
 }
 
 export function holdTurnEndForBackgroundWork(

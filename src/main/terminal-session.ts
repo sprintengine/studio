@@ -371,14 +371,13 @@ export function getTerminalLastSeenAt(session: TerminalSession): number {
  * The start of the stretch the stale backstop measures: the later of the last
  * real activity and the last moment the session was on screen.
  *
- * On-screen time counts here because disposing is not idle suspension: it
- * deletes a paused or finished agent's snapshot sidecar, and with it the screen
- * and history that agent reopens on after a restart. `visible` alone cannot be
- * the guard any more, because it now means "painted" — a minimized or locked
- * window and an inactive workspace all report their panes hidden — and a
- * paused agent whose last output was days ago would be disposed at the first
- * sweep after its window was minimized. Counting from when it was last shown
- * reaps only what nobody has looked at for the whole window.
+ * `visible` alone cannot be the guard any more, because it now means
+ * "painted": a minimized or locked window and an inactive workspace all report
+ * their panes hidden, and a live terminal whose last output was days ago
+ * would be disposed at the first sweep after its window was minimized.
+ * Counting from when it was last shown reaps only what nobody has looked at
+ * for the whole window. (Settled agents are not reaped at all; see
+ * `isTerminalSessionStale`.)
  */
 export function getTerminalUnseenSince(session: TerminalSession): number {
   return Math.max(getTerminalLastSeenAt(session), session.lastOnScreenAt ?? 0)
@@ -390,6 +389,13 @@ export function isTerminalSessionStale(
   maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS,
 ): boolean {
   if (session.isDisposed) return false
+  // A settled agent — paused, or finished on its own — is never reaped here.
+  // Its process is already gone and its raw stream already released, so
+  // disposing it would free a rendered screen of a few megabytes at most, and
+  // would delete the sidecar that is the only copy of its history a restart
+  // can reopen. Its tab closing, or the agent being deleted, is what ends it;
+  // the sidecar's own TTL bounds the disk.
+  if (session.kind === 'agent' && (session.suspended || session.hasExited)) return false
   // A session painted in a pane right now is on screen; only trust the flag
   // while its window still exists.
   if (session.visible && !session.sender.isDestroyed()) return false
