@@ -136,6 +136,7 @@ test('terminal-runtime', async () => {
       await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
       await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
       await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
+      await assertTurnEndSurvivesLateFrames(runtimeModule)
       await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
       await assertAgentChangelistSeamsFire(runtimeModule)
       await assertContextUsageFollowsStatusLineFrames(runtimeModule)
@@ -2521,6 +2522,96 @@ test('terminal-runtime', async () => {
     } finally {
       unregister()
       runtime.ipcHandlers.killTerminal('sess-background')
+      await runtime.shutdown()
+    }
+  }
+
+  // A finished turn stays finished. Captured from a real Claude Code session:
+  // SessionStart, UserPromptSubmit, PostToolUse, Stop — then a SubagentStop with
+  // no SubagentStart four seconds later (the CLI's own post-turn helper), which
+  // used to put the row back on `thinking` and keep the sidebar clock running
+  // until the stall watch caught it. A straggler of the finished turn, and the
+  // same frame delivered twice by a doubled registration, must not reopen it
+  // either; a real new prompt must.
+  async function assertTurnEndSurvivesLateFrames(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-turn-end-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+    })
+    const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-turn-end')
+    const events: AgentPhaseEvent[] = []
+    const unregister = runtime.registerAgentPhaseListener((event) => {
+      events.push(event)
+    })
+
+    try {
+      const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'sess-turn-end',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-turn-end',
+        agentId: 'agent-turn-end',
+        agentName: 'Turn end',
+      })
+      assert.equal(spawn.ok, true, JSON.stringify(spawn))
+
+      const base = Date.now()
+      const ingest = async (event: string, ts: number, extra: Partial<AgentStateFrame> = {}): Promise<void> => {
+        runtime.ingestAgentStateFrame({
+          type: 'agent_state',
+          agentId: 'agent-turn-end',
+          workspaceId: 'ws-turn-end',
+          sessionId: null,
+          event,
+          ts: base + ts,
+          ...extra,
+        })
+        await delay(5)
+      }
+
+      await ingest('SessionStart', 0)
+      await ingest('UserPromptSubmit', 90)
+      await ingest('PostToolUse', 2_430, { toolUseId: 'toolu_read' })
+      await ingest('Stop', 3_750)
+      assert.equal(snapshot()?.agentState?.phase, 'idle')
+      assert.equal(snapshot()?.activity.kind, 'idle', 'the sidebar clock stops on Stop')
+      const phaseEventsAtStop = events.length
+
+      // The same PostToolUse again, as a second registration of the reporter
+      // would deliver it: older than the Stop, so it is dropped.
+      await ingest('PostToolUse', 2_430, { toolUseId: 'toolu_read' })
+      // A straggler stamped just after the Stop (its reporter started late).
+      await ingest('PostToolUse', 3_800, { toolUseId: 'toolu_read' })
+      // The CLI's post-turn helper agent, with no SubagentStart before it.
+      await ingest('SubagentStop', 8_450)
+      assert.equal(snapshot()?.agentState?.phase, 'idle', 'no late frame reopens a finished turn')
+      assert.equal(snapshot()?.activity.kind, 'idle', 'and the sidebar clock stays stopped')
+      assert.equal(snapshot()?.activeSubagents, 0)
+      assert.equal(events.length, phaseEventsAtStop, 'no phase event fires for a frame that changed nothing')
+
+      // The person sends the next prompt: that is a turn, and it reads as one.
+      await ingest('UserPromptSubmit', 20_000, { prompt: 'and now the next thing' })
+      assert.equal(snapshot()?.agentState?.phase, 'thinking')
+      assert.equal(snapshot()?.activity.kind, 'working')
+      await ingest('Stop', 22_000)
+      assert.equal(snapshot()?.activity.kind, 'idle')
+
+      // A promptless re-invocation well after the Stop (a background task
+      // finishing) still reads as working.
+      await ingest('PostToolUse', 40_000, { toolUseId: 'toolu_later' })
+      assert.equal(snapshot()?.agentState?.phase, 'thinking')
+    } finally {
+      unregister()
+      runtime.ipcHandlers.killTerminal('sess-turn-end')
       await runtime.shutdown()
     }
   }

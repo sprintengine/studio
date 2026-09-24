@@ -17,6 +17,8 @@ import {
   deriveActivityFromPhase,
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
+  keepsTurnEnd,
+  TURN_END_STRAGGLER_WINDOW_MS,
   installAgentStateReporter,
   isAtRestAgentPhase,
   MAX_FILE_CHANGE_COUNT,
@@ -2036,4 +2038,89 @@ test('agent-state', async () => {
   })
 
   await suiteRun
+})
+
+// The turn-end latch: once a turn has ended, a frame that is not new work must
+// not put the session back on a working phase.
+async function bundledSpecFor(pluginId: string): Promise<PluginAgentStateSpec> {
+  const manifestPath = join(process.cwd(), 'resources', 'plugins', pluginId, 'plugin.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { agentStateSpec?: PluginAgentStateSpec }
+  assert.ok(manifest.agentStateSpec, `${pluginId} manifest must declare agentStateSpec`)
+  return manifest.agentStateSpec
+}
+
+const TURN_ENDED_AT = 10_000
+
+function latches(spec: PluginAgentStateSpec, event: string, frameTs: number, outstandingBefore = 0): boolean {
+  const resolved = resolveAgentStateEvent(spec, { event })
+  assert.equal(resolved.action, 'apply', `${event} must resolve`)
+  if (resolved.action !== 'apply') return false
+  return keepsTurnEnd({
+    spec,
+    event,
+    resolution: resolved,
+    outstandingBefore,
+    current: { phase: 'idle', since: TURN_ENDED_AT },
+    lastTurnEndedAt: TURN_ENDED_AT,
+    frameTs,
+  })
+}
+
+test('a SubagentStop that closes nothing never moves the phase', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  // Claude Code's own post-turn helper: no SubagentStart, a stop four and a half
+  // seconds after Stop — outside the straggler window, and still not work.
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 4_500), true)
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 60_000), true)
+  // A stop that closes a background agent the count holds is the parent resuming.
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 4_500, 1), false)
+})
+
+test('a late tool frame from the finished turn does not reopen it', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + 1), true, 'a straggler right after Stop is held back')
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + TURN_END_STRAGGLER_WINDOW_MS - 1), true)
+  // Past the window it is a promptless turn (a background task finishing, a
+  // scheduled wakeup) and reads as working again.
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + TURN_END_STRAGGLER_WINDOW_MS), false)
+})
+
+test('a new prompt, a session start or a background agent starting always reopens', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  assert.equal(latches(claude, 'UserPromptSubmit', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(claude, 'SubagentStart', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(claude, 'SessionStart', TURN_ENDED_AT + 1), false, 'starting is not a working phase to hold')
+  const cursor = await bundledSpecFor('cursor')
+  assert.equal(latches(cursor, 'beforeSubmitPrompt', TURN_ENDED_AT + 1), false, "Cursor's prompt event opens a turn")
+  assert.equal(latches(cursor, 'postToolUse', TURN_ENDED_AT + 1), true)
+  const codex = await bundledSpecFor('codex')
+  assert.equal(latches(codex, 'UserPromptSubmit', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(codex, 'PostToolUse', TURN_ENDED_AT + 1), true)
+})
+
+test('the straggler window leaves a CLI without a prompt event alone', async () => {
+  // OpenCode opens a turn with `message.updated`; with no opener to tell a new
+  // turn from a straggler, nothing is held.
+  const opencode = await bundledSpecFor('opencode')
+  assert.equal(latches(opencode, 'message.updated', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(opencode, 'tool.execute.after', TURN_ENDED_AT + 1), false)
+})
+
+test('the latch only holds while the session rests on the turn end itself', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  const resolved = resolveAgentStateEvent(claude, { event: 'PostToolUse' })
+  assert.equal(resolved.action, 'apply')
+  if (resolved.action !== 'apply') return
+  const base = { spec: claude, event: 'PostToolUse', resolution: resolved, outstandingBefore: 0, frameTs: 10_001 }
+  assert.equal(
+    keepsTurnEnd({ ...base, current: { phase: 'thinking', since: 9_000 }, lastTurnEndedAt: 5_000 }),
+    false,
+    'mid-turn there is nothing to hold',
+  )
+  assert.equal(
+    keepsTurnEnd({ ...base, current: { phase: 'idle', since: 9_000 }, lastTurnEndedAt: 5_000 }),
+    false,
+    'an idle that is not the last turn end holds nothing',
+  )
+  assert.equal(keepsTurnEnd({ ...base, current: null, lastTurnEndedAt: null }), false)
 })
