@@ -12,6 +12,7 @@ carry information, and it teaches people to ignore movement.
 | Working dots | alive right now, for an unknown duration | `ui/AgentWorkingDots.tsx` |
 | Change pulse | just changed, one shot | `ui/ChangePulse.tsx` |
 | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) |
+| Working edge | alive right now, on a surface whose content stays readable meanwhile | [working-edge](../working-edge/component.md) |
 
 ## Working dots
 
