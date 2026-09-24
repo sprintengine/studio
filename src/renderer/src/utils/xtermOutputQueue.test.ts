@@ -219,15 +219,21 @@ test('xtermOutputQueue', async () => {
     gate.handleReplay('first-window\n')
     assert.ok(!writes.includes('[reset]'), 'initial attach must not reset the terminal')
     assert.ok(writes.includes('first-window\n'))
+    assert.ok(!writes.some((write) => write.startsWith('\x1bc')), 'nor send it a full reset')
 
     // Revisible resync: a replay arrives with no preceding beginReplayWait, on a
     // terminal that has already revealed content. It must reset first, then write
-    // the new window exactly once.
+    // the new window exactly once — and the reset travels IN the first write
+    // (RIS), never as a separate `term.reset()` that paints an empty frame before
+    // the content arrives.
     const resetAt = writes.length
     gate.handleReplay('second-window\n')
     const afterResync = writes.slice(resetAt)
-    assert.ok(afterResync.includes('[reset]'), 'revisible resync must reset before replaying')
-    assert.equal(afterResync.indexOf('[reset]') < afterResync.indexOf('second-window\n'), true)
+    assert.ok(!afterResync.includes('[reset]'), 'no reset of its own: it would paint a blank frame')
+    assert.deepEqual(
+      afterResync.filter((write) => write !== '[scroll-bottom]'),
+      ['\x1bcsecond-window\n'],
+    )
     // The pre-hide window is not re-written after the reset.
     assert.ok(!afterResync.includes('first-window\n'))
     gate.dispose()
@@ -584,5 +590,42 @@ test('xtermOutputQueue', async () => {
         return 1
       },
     } as Window & typeof globalThis
+  }
+})
+
+test('output drains without an animation frame when frames stop coming', () => {
+  // A compositor that has stopped producing frames (a locked screen with the
+  // display asleep) must not strand output in the queue until the cap starts
+  // discarding it.
+  const writes: string[] = []
+  const timers: Array<() => void> = []
+  const realWindow = globalThis.window
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  globalThis.window = { requestAnimationFrame: () => 1 } as unknown as Window & typeof globalThis
+  globalThis.setTimeout = ((callback: () => void) => {
+    timers.push(callback)
+    return timers.length as unknown as ReturnType<typeof setTimeout>
+  }) as typeof setTimeout
+  globalThis.clearTimeout = (() => {}) as typeof clearTimeout
+  try {
+    const term = {
+      write: (data: string, callback?: () => void) => {
+        writes.push(data)
+        callback?.()
+      },
+    } as unknown as Terminal
+    const queue = createXtermOutputQueue(term, { recordWrite: () => {} })
+    queue.enqueue('line 1\r\n')
+    queue.enqueue('line 2\r\n')
+    assert.deepEqual(writes, [], 'waits for a frame first')
+    assert.equal(timers.length, 1, 'one fallback armed for the pending drain')
+    timers[0]!()
+    assert.deepEqual(writes, ['line 1\r\n', 'line 2\r\n'], 'the fallback drained in order')
+    queue.dispose()
+  } finally {
+    globalThis.window = realWindow
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
   }
 })

@@ -14,6 +14,7 @@ import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/backgrou
 import { writeDiagnosticLog } from './diagnostics-service'
 import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
 import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
+import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
 import type { AgentPhaseListener } from '../shared/agent-runtime'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
@@ -441,23 +442,23 @@ export function registerAppLifecycle({
  * The canvas worker window is a hidden headless renderer and never counts.
  */
 function bindElectronPowerActivity(): void {
-  let screenLocked = false
   const syncFocus = (): void => {
     const focused =
-      !screenLocked &&
+      !powerActivity.isScreenLocked() &&
       BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && !isCanvasWorkerWindow(win) && win.isFocused())
     powerActivity.noteFocus(focused)
   }
   app.on('browser-window-focus', syncFocus)
   app.on('browser-window-blur', syncFocus)
-  powerMonitor.on('lock-screen', () => {
-    screenLocked = true
+  // A locked screen hides every window, which the pages cannot always see for
+  // themselves (see `sendWindowHidden`).
+  const syncLock = (locked: boolean): void => {
+    powerActivity.noteScreenLocked(locked)
     syncFocus()
-  })
-  powerMonitor.on('unlock-screen', () => {
-    screenLocked = false
-    syncFocus()
-  })
+    for (const win of BrowserWindow.getAllWindows()) sendWindowHidden(win)
+  }
+  powerMonitor.on('lock-screen', () => syncLock(true))
+  powerMonitor.on('unlock-screen', () => syncLock(false))
   powerMonitor.on('suspend', () => powerActivity.noteSuspend())
   powerMonitor.on('resume', () => {
     powerActivity.noteResume()

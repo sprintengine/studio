@@ -767,9 +767,7 @@ export default function WorkspaceManager() {
   // kept mounted but rendered with `content-visibility: hidden` (see the render
   // map below), so the compositor skips its per-frame work — that is the
   // scroll-jank fix. Warm = the most-recently-focused inactive layers, ranked by
-  // the same last-focused clock the retention policy uses. Their terminals are
-  // not fed while they are warm (see the terminal paint visibility effect
-  // below); a reveal replays them.
+  // the same last-focused clock the retention policy uses.
   const warmHiddenWorkspaceIdSet = useMemo(() => {
     const lastFocusedAt = workspaceLayoutLastFocusedAtRef.current
     const warm = renderedWorkspaceIds
@@ -1641,15 +1639,21 @@ export default function WorkspaceManager() {
     }
   }, [windowActiveWorkspaceId])
 
-  // Drive per-terminal paint visibility from what can actually be seen: the
-  // active layer of a window that is itself visible. Warm and cold layers stop
-  // painting alike — a warm layer is `visibility: hidden`, which xterm does not
-  // notice, so it used to parse and paint every byte its agents printed behind
-  // the active one. A window that has been hidden (minimized, covered, locked
-  // screen) for TERMINAL_HIDDEN_WINDOW_GRACE_MS stops painting too: with
-  // background throttling on, a hidden page gets no animation frames, so the
-  // terminal views could not drain their output queues anyway (see
-  // `window-factory.ts`).
+  // Drive per-terminal paint visibility from the layer state and the window.
+  // In a visible window, active + warm layers are fed live, so flicking between
+  // the recently-used pool is instant; cold layers (mounted but beyond the warm
+  // set — the workspaces you forgot about) stop being fed. A window that has
+  // been hidden (minimized, covered, locked screen) for
+  // TERMINAL_HIDDEN_WINDOW_GRACE_MS stops feeding every layer: nobody can see
+  // any of it, and a throttled page may get no animation frames to paint with.
+  //
+  // Warm layers stay fed on purpose. Unfed, a switch back to one replays the
+  // retained window from a reset, and a replay is not free: measured on
+  // 2026-09-24, 20,000 lines of scrollback took 60–100 ms to stream back in,
+  // against 4–15 ms for a fed warm layer, and an agent session's retained window
+  // can be several times that size. Once reveal replays carry only what the
+  // view missed, an idle warm layer costs nothing to reveal and can stop being
+  // fed too.
   //
   // The agent PTY keeps running and is supervised either way: `visible` only
   // gates whether main forwards output to the renderer's xterm. On reveal, main
@@ -1658,7 +1662,11 @@ export default function WorkspaceManager() {
   // one window, so windows never fight over a session's visibility.
   const windowShowsTerminals = useWindowPageVisible(TERMINAL_HIDDEN_WINDOW_GRACE_MS)
   useEffect(() => {
-    const paintingWorkspaceId = windowShowsTerminals ? windowActiveWorkspaceId : null
+    const paintingWorkspaceIds = new Set<string>()
+    if (windowShowsTerminals) {
+      for (const workspaceId of warmHiddenWorkspaceIdSet) paintingWorkspaceIds.add(workspaceId)
+      if (windowActiveWorkspaceId) paintingWorkspaceIds.add(windowActiveWorkspaceId)
+    }
 
     const applied = appliedTerminalVisibilityRef.current
     const liveSessionIds = new Set<string>()
@@ -1666,7 +1674,7 @@ export default function WorkspaceManager() {
       const workspaceId = session.workspaceId
       if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
       liveSessionIds.add(session.sessionId)
-      const shouldPaint = workspaceId === paintingWorkspaceId
+      const shouldPaint = paintingWorkspaceIds.has(workspaceId)
       if (applied.get(session.sessionId) === shouldPaint) continue
       applied.set(session.sessionId, shouldPaint)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
@@ -1676,7 +1684,7 @@ export default function WorkspaceManager() {
     for (const sessionId of [...applied.keys()]) {
       if (!liveSessionIds.has(sessionId)) applied.delete(sessionId)
     }
-  }, [terminalSessions, windowShowsTerminals, windowActiveWorkspaceId, visibleWorkspaceIdSet])
+  }, [terminalSessions, windowShowsTerminals, warmHiddenWorkspaceIdSet, windowActiveWorkspaceId, visibleWorkspaceIdSet])
 
   useEffect(() => {
     const now = Date.now()

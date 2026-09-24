@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 /**
  * Whether anyone can see this window, and whether anyone is using it.
  *
- * `visible` is the Page Visibility API: false while the window is minimized,
- * fully covered, on another Space, or behind a locked screen. It only means
- * that because the workspace windows run with background throttling on (see
- * `window-factory.ts`); with it off, Chromium reports every window as visible
- * forever.
+ * `visible` is false while either source says the window is out of sight: the
+ * Page Visibility API (which needs background throttling on, see
+ * `window-factory.ts`), or main's minimize / hide / locked-screen signal. Both
+ * are needed: on macOS the page itself was observed reporting `visible` while
+ * minimized, hidden and fully covered, and only main knew.
  *
  * `focused` is whether this window has the keyboard. It is read from
  * `document.hasFocus()` a tick after a blur rather than from the blur itself,
@@ -43,9 +43,17 @@ export type WindowActivity = {
   dispose(): void
 }
 
-export function createWindowActivity(doc: ActivityDocument, win: ActivityWindow): WindowActivity {
+export function createWindowActivity(
+  doc: ActivityDocument,
+  win: ActivityWindow,
+  // Main's word on minimize / hide / locked screen. The page's own visibility
+  // is not enough on macOS, where a minimized or covered window still reports
+  // `visible` (see `sendWindowHidden` in main).
+  subscribeOsHidden?: (listener: (hidden: boolean) => void) => () => void,
+): WindowActivity {
+  let osHidden = false
   const read = (): WindowActivityState => {
-    const visible = doc.visibilityState !== 'hidden'
+    const visible = doc.visibilityState !== 'hidden' && !osHidden
     let focused = false
     try {
       focused = visible && doc.hasFocus()
@@ -77,6 +85,10 @@ export function createWindowActivity(doc: ActivityDocument, win: ActivityWindow)
   doc.addEventListener('visibilitychange', refresh)
   win.addEventListener('focus', refresh)
   win.addEventListener('blur', refreshAfterBlur)
+  const unsubscribeOsHidden = subscribeOsHidden?.((hidden) => {
+    osHidden = hidden
+    refresh()
+  })
 
   return {
     get: () => state,
@@ -88,6 +100,7 @@ export function createWindowActivity(doc: ActivityDocument, win: ActivityWindow)
     },
     dispose() {
       listeners.clear()
+      unsubscribeOsHidden?.()
       doc.removeEventListener('visibilitychange', refresh)
       win.removeEventListener('focus', refresh)
       win.removeEventListener('blur', refreshAfterBlur)
@@ -107,7 +120,12 @@ let shared: WindowActivity | null = null
 export function windowActivity(): WindowActivity {
   if (shared) return shared
   if (typeof document === 'undefined' || typeof window === 'undefined') return ALWAYS_ACTIVE
-  shared = createWindowActivity(document, window)
+  const api = (window as { api?: { onWindowHiddenChanged?: (cb: (hidden: boolean) => void) => () => void } }).api
+  shared = createWindowActivity(
+    document,
+    window,
+    typeof api?.onWindowHiddenChanged === 'function' ? (listener) => api.onWindowHiddenChanged!(listener) : undefined,
+  )
   return shared
 }
 

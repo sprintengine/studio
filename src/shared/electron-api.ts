@@ -446,6 +446,8 @@ export type ElectronApi = {
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
+  /** Main's word on whether this window is minimized, hidden or behind a locked screen. */
+  onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The

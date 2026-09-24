@@ -19,6 +19,10 @@ export type PowerActivity = {
   /** True between `suspend` and `resume`. */
   isSuspended(): boolean
   isOnBattery(): boolean
+  /** True between `lock-screen` and `unlock-screen`. */
+  isScreenLocked(): boolean
+  onScreenLockChange(listener: (locked: boolean) => void): () => void
+  noteScreenLocked(locked: boolean): void
   onFocusChange(listener: (focused: boolean) => void): () => void
   onSuspend(listener: () => void): () => void
   onResume(listener: () => void): () => void
@@ -33,6 +37,8 @@ export function createPowerActivity(initial: { focused?: boolean; onBattery?: bo
   let focused = initial.focused ?? false
   let suspended = false
   let onBattery = initial.onBattery ?? false
+  let screenLocked = false
+  const lockListeners = new Set<(locked: boolean) => void>()
   const focusListeners = new Set<(focused: boolean) => void>()
   const suspendListeners = new Set<() => void>()
   const resumeListeners = new Set<() => void>()
@@ -58,6 +64,13 @@ export function createPowerActivity(initial: { focused?: boolean; onBattery?: bo
     isFocused: () => focused,
     isSuspended: () => suspended,
     isOnBattery: () => onBattery,
+    isScreenLocked: () => screenLocked,
+    onScreenLockChange: (listener) => subscribe(lockListeners, listener),
+    noteScreenLocked(next) {
+      if (next === screenLocked) return
+      screenLocked = next
+      emit(lockListeners, next)
+    },
     onFocusChange: (listener) => subscribe(focusListeners, listener),
     onSuspend: (listener) => subscribe(suspendListeners, listener),
     onResume: (listener) => subscribe(resumeListeners, listener),

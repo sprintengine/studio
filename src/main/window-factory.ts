@@ -3,7 +3,7 @@ import { join } from 'path'
 import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
-import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
+import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowMaterial } from './window-material-store'
 
 type CreateMainWindowOptions = {
@@ -191,6 +191,12 @@ export function createMainWindow({
   })
   win.on('enter-full-screen', () => sendWindowState(win))
   win.on('leave-full-screen', () => sendWindowState(win))
+  // Out of sight or back: what lets a hidden window stop feeding its
+  // terminals where the page cannot tell it is hidden (sendWindowHidden).
+  win.on('minimize', () => sendWindowHidden(win))
+  win.on('restore', () => sendWindowHidden(win))
+  win.on('hide', () => sendWindowHidden(win))
+  win.on('show', () => sendWindowHidden(win))
   const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)

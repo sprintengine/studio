@@ -100,3 +100,21 @@ test('the root attribute pauses motion while hidden or in the background', () =>
   fake.fire('visibilitychange')
   assert.equal(root.dataset['windowActive'], 'false', 'unbound')
 })
+
+test("main's minimize / lock signal hides the window even when the page still says visible", () => {
+  const fake = fakeWindow()
+  let push: ((hidden: boolean) => void) | null = null
+  const activity = createWindowActivity(fake.doc, fake.win, (listener) => {
+    push = listener
+    return () => {
+      push = null
+    }
+  })
+  assert.equal(activity.get().visible, true)
+  push!(true)
+  assert.deepEqual(activity.get(), { visible: false, focused: false }, 'macOS: minimized, page still "visible"')
+  push!(false)
+  assert.equal(activity.get().visible, true)
+  activity.dispose()
+  assert.equal(push, null, 'unsubscribed on dispose')
+})

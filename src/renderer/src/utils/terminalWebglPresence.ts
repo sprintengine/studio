@@ -1,5 +1,6 @@
 import { WORKSPACE_LAYER_REVEAL_EVENT } from './terminalFitScheduler'
 import { createTerminalWebglBudget, type TerminalWebglBudget, type TerminalWebglPresence } from './terminalWebglBudget'
+import { windowActivity } from './windowActivity'
 
 /**
  * The DOM half of the WebGL budget: where a terminal's element actually is,
@@ -23,11 +24,11 @@ type VisibilityProbe = {
 
 export function readTerminalWebglPresence(
   element: Element | null | undefined,
-  doc: Pick<Document, 'visibilityState'> = document,
+  windowVisible: boolean = windowActivity().get().visible,
 ): TerminalWebglPresence {
   if (!element || !element.isConnected) return 'off'
   if (element.closest('[data-layer-state="cold"]')) return 'off'
-  if (doc.visibilityState === 'hidden') return 'parked'
+  if (!windowVisible) return 'parked'
   const probe = element as Element & VisibilityProbe
   // An engine without checkVisibility cannot tell; treat the pane as seen, which
   // is what every pane was before the budget existed.
@@ -45,7 +46,7 @@ function installWindowSignals(): void {
   windowSignalsInstalled = true
   const updateAll = (): void => terminalWebglBudget.updateAll()
   window.addEventListener(WORKSPACE_LAYER_REVEAL_EVENT, updateAll)
-  document.addEventListener('visibilitychange', updateAll)
+  windowActivity().subscribe(updateAll)
 }
 
 /**
