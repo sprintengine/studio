@@ -1092,6 +1092,35 @@ export function suspendTerminal(sessionId: string): void {
   })
 }
 
+// A settled agent drops what it holds in memory. An agent whose pty ended on
+// its own is settled, but its tab stays open on its last screen and the agent
+// control plane can still read what it printed, synchronously. So, as suspend
+// does, render that screen once and let the raw stream behind it go: every
+// reveal, reattach and remote attach already prefers `replaySnapshot`, and
+// `readTerminalOutput` / `readTerminalOutputSince` answer from it once the
+// stream is released. Until the render lands the raw stream serves every read,
+// and a failed render keeps it as the fallback.
+//
+// The sidecar written on exit keeps its raw dump; a restart renders it, and the
+// quit path rewrites it from this snapshot if the app is still running then.
+function settleExitedAgentScreen(session: TerminalSession, source: string): void {
+  if (session.kind !== 'agent') return
+  // The size the CLI drew for: the last applied resize, else the size the pty
+  // was spawned at. An agent launched in the background may never have been
+  // fitted, and a render at a default 80 columns would garble its layout.
+  const cols = session.appliedCols ?? session.process.cols ?? 80
+  const rows = session.appliedRows ?? session.process.rows ?? 24
+  void buildReplaySnapshot(source, cols, rows).then((snapshot) => {
+    if (!snapshot) return
+    // Only onto this exact exited session: a respawn under the same id is a new
+    // record, and a dispose has already released everything.
+    if (terminals.get(session.sessionId) !== session || session.isDisposed) return
+    if (isTerminalProcessAlive(session) || session.replaySnapshot) return
+    session.replaySnapshot = snapshot
+    releaseTerminalOutput(session)
+  })
+}
+
 // A frozen view is at rest by construction — the same stamp
 // `createSuspendedPlaceholderSession` puts on the restart-rehydration path,
 // applied to the in-process suspend so the two agree.
@@ -2811,12 +2840,14 @@ function attachTerminalSession(
     // repainted. Only a pty that died on its own gets a snapshot: still in the map,
     // not disposed.
     if (terminals.get(sessionId) === terminalSession && !terminalSession.isDisposed) {
+      const rawReplay = terminalSession.replaySnapshot ? undefined : materializeTerminalReplay(terminalSession)
       writeTerminalSnapshotSidecar(terminalSession, {
         snapshot: terminalSession.replaySnapshot,
-        rawReplay: terminalSession.replaySnapshot ? undefined : materializeTerminalReplay(terminalSession),
+        rawReplay,
         cols: terminalSession.appliedCols ?? 80,
         rows: terminalSession.appliedRows ?? 24,
       })
+      if (rawReplay) settleExitedAgentScreen(terminalSession, rawReplay)
     }
     terminalDiagnostics.clear(sessionId)
     // Lifecycle stamp: the pty exit OWNS the terminal phase (it carries the
@@ -3328,8 +3359,8 @@ async function spawnTerminalFromIpc(
 function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
-  // A paused session let go of its raw stream once its screen was rendered;
-  // the rendered screen and its scrollback carry the same text.
+  // A paused or exited agent let go of its raw stream once its screen was
+  // rendered; the rendered screen and its scrollback carry the same text.
   if (session.replaySnapshot && session.output.retainedBytes === 0) return session.replaySnapshot
   return materializeTerminalReplay(session)
 }
@@ -3338,6 +3369,21 @@ function readTerminalOutputSince(sessionId: string, cursor: number): { text: str
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
   const read = readSessionOutputSince(session, cursor)
+  // A paused or exited agent let go of its stream once its screen was
+  // rendered. A reader that had not yet seen the end of that stream is handed
+  // the rendered screen, which carries the same text, instead of nothing: a
+  // pattern wait started after the release still sees what the agent printed.
+  // The screen can repeat text that reader already had: which part it missed
+  // cannot be told once the stream is gone, and a repeat is the lesser error
+  // for a reader looking for the agent's last words.
+  if (
+    read.text === '' &&
+    (cursor === 0 || cursor < read.cursor) &&
+    session.replaySnapshot &&
+    session.output.retainedBytes === 0
+  ) {
+    return { text: session.replaySnapshot, cursor: read.cursor }
+  }
   return { text: read.text, cursor: read.cursor }
 }
 

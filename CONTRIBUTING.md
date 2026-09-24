@@ -48,7 +48,7 @@ npm test                                    # the unit and contract suite (Vites
 npx vitest <file or name fragment>          # one file, re-run on save
 npm run test:coverage                       # the suite with a coverage report
 npm run typecheck:all                       # app and test projects
-npm run lint                                # oxlint, then the design-system and composition lints
+npm run lint                                # oxlint, the NUL-byte guard, then the design-system and composition lints
 npm run format                              # format with Prettier (format:check only checks)
 npm run knip                                # unused files and undeclared or unused dependencies
 npm run verify:app                          # everything CI runs, in one command
