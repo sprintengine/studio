@@ -11,13 +11,19 @@ import { agentWorktreeCleanupPlan, entriesRemovedBy } from '../utils/agentWorktr
  * the store entries for what was removed. Owned by the primary window alone,
  * so two windows never sweep side by side (main would share the run anyway).
  */
-// Unattended sweeps are paused. The cleanup's only sign that a worktree is in
-// use is this process's memory, so it can remove a worktree another Studio
-// profile (or a terminal outside the app) is working in, and it counts ignored
-// files and index-hidden edits as disposable. Until both are guarded on disk,
-// the Worktree manager's "Clean up merged agent worktrees" action, which a
-// person runs and reads the report of, is the only way it runs.
-const UNATTENDED_SWEEPS_ENABLED = false
+// Unattended sweeps run again now that what the cleanup relies on is on disk,
+// not only in this process's memory: every agent worktree is locked with
+// `git worktree lock` as it is created, so another Studio profile never takes
+// one it does not own; a worktree git touched within the last hour is kept; a
+// protected path matches however it is spelled (symlinks resolved, case folded
+// on macOS and Windows); and ignored files that may be work (an edited `.env`,
+// notes in an ignored folder) and edits hidden with `--skip-worktree` or
+// `--assume-unchanged` keep a worktree (agent-worktree-cleanup.ts). Unattended,
+// it takes only worktrees this profile locked (`ownedOnly`): an unlocked one may
+// belong to another profile on an older build. Set this to
+// false to leave the Worktree manager's "Clean up merged agent worktrees"
+// action, which a person runs and reads the report of, as the only way in.
+const UNATTENDED_SWEEPS_ENABLED = true
 
 const FIRST_SWEEP_DELAY_MS = 2 * 60_000
 const AFTER_RELEASE_DELAY_MS = 60_000
@@ -29,12 +35,16 @@ function agentCount(): number {
   return count
 }
 
-async function sweepAgentWorktrees(): Promise<void> {
+export async function sweepAgentWorktrees(): Promise<void> {
   if (typeof window.api?.cleanupAgentWorktrees !== 'function') return
-  const plan = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
-  for (const repoRoot of plan.repoRoots) {
+  const { repoRoots } = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
+  for (const repoRoot of repoRoots) {
     try {
-      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths: plan.protectedPaths })
+      // Read per repository, just before main lists it: a sweep over several
+      // repositories can take a while, and a worktree created during it must be
+      // protected by the records as they are when its repository is listed.
+      const { protectedPaths } = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
+      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths, ownedOnly: true })
       // Re-read the store: it may have moved while main was working.
       const store = useWorkspaceStore.getState()
       for (const [workspaceId, entryId] of entriesRemovedBy(store.workspaces, report)) {

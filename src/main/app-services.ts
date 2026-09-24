@@ -1232,6 +1232,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               // this checkout's branches); a local one forks HEAD as it always did.
               baseRef: baseRef?.trim() || 'HEAD',
               copyIncludedFiles: true,
+              // The agent's id is minted after this, by the launch; the branch
+              // names the owner until then.
+              agentLockOwner: paths.branchName,
             })
             if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
             return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }

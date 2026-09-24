@@ -255,6 +255,12 @@ export type GitWorktreeEntry = {
   bare: boolean
   locked: boolean
   lockedReason: string | null
+  /**
+   * Set when the lock is the in-use mark the app places on an agent worktree:
+   * this profile's, which it releases itself, or another Studio profile's,
+   * which it never touches.
+   */
+  agentLock?: 'this-profile' | 'other-profile'
   prunable: boolean
   prunableReason: string | null
 }
@@ -276,6 +282,13 @@ export type GitWorktreeCreateInput = {
   branchName: string
   baseRef: string
   copyIncludedFiles?: boolean
+  /**
+   * Lock the new worktree as in use by an agent, naming this owner: the
+   * agent's id, or the branch when the agent does not exist yet. The agent
+   * worktree cleanup never removes a worktree another profile has locked, and
+   * this profile releases its own lock once its records no longer use it.
+   */
+  agentLockOwner?: string
   /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
   hostId?: string
 }
@@ -300,9 +313,26 @@ export type GitCheckoutChange = {
   reason: 'gitdir' | 'activity' | 'fallback'
 }
 
-/** Why the cleanup kept an agent worktree, or that it removed it. */
+/**
+ * Why the cleanup kept an agent worktree, or that it removed it. `recent`: git
+ * touched it within the last hour; `ignored-files`: ignored files that are not
+ * rebuildable output or unchanged copies; `hidden-edits`: tracked files hidden
+ * from `git status` by `--assume-unchanged` or `--skip-worktree`;
+ * `not-owned`: an unattended sweep met a worktree this profile never locked.
+ */
 export type AgentWorktreeCleanupVerdict =
-  'removed' | 'dirty' | 'unmerged' | 'in-use' | 'locked' | 'missing' | 'no-default-branch' | 'error'
+  | 'removed'
+  | 'dirty'
+  | 'unmerged'
+  | 'in-use'
+  | 'locked'
+  | 'missing'
+  | 'recent'
+  | 'ignored-files'
+  | 'hidden-edits'
+  | 'not-owned'
+  | 'no-default-branch'
+  | 'error'
 
 export type AgentWorktreeCleanupEntry = {
   path: string
@@ -310,7 +340,7 @@ export type AgentWorktreeCleanupEntry = {
   verdict: AgentWorktreeCleanupVerdict
   /** For `unmerged`: commits on the branch that the default branch does not have. */
   uniqueCommits?: number
-  /** For `dirty`: how many paths `git status` reported. */
+  /** For `dirty`, `ignored-files` and `hidden-edits`: how many paths kept it. */
   changedPaths?: number
   detail?: string
 }
@@ -321,6 +351,12 @@ export type AgentWorktreeCleanupInput = {
   protectedPaths: string[]
   /** Report what would happen without removing anything. */
   dryRun?: boolean
+  /**
+   * Take only worktrees this profile locked and has since released. The
+   * unattended sweep sets it; a person's cleanup from the Worktree manager,
+   * whose report they read, does not.
+   */
+  ownedOnly?: boolean
 }
 
 export type AgentWorktreeCleanupReport = {

@@ -1,5 +1,6 @@
 import { watch as fsWatch, type FSWatcher, type WatchListener } from 'fs'
 import type { FileWatchEvent } from '../shared/ipc/filesystem'
+import { runGitCommand } from './git-run'
 
 /**
  * One OS watcher per watched root, shared by every caller that watches it.
@@ -35,16 +36,46 @@ const IGNORED_SEGMENTS = new Set(['.git', 'node_modules', '.sprintengine', '__py
 /**
  * Only at the root of the watch: the conventional build output directories. A
  * `build/` deep in a source tree is as likely to be source as output, so it is
- * left alone there.
+ * left alone there. Even at the top, a file git tracks is never dropped (this
+ * repository keeps its macOS entitlements in `build/`), nor is a folder that
+ * holds one: only what git does not track there is build output.
  */
-const IGNORED_TOP_LEVEL = new Set(['out', 'dist', 'build', 'coverage'])
+export const BUILD_OUTPUT_TOP_LEVEL = ['out', 'dist', 'build', 'coverage'] as const
+const BUILD_OUTPUT_TOP_LEVEL_SET = new Set<string>(BUILD_OUTPUT_TOP_LEVEL)
 
-export function isIgnoredWatchPath(relativePath: string): boolean {
+/**
+ * `isTracked` answers for a path under a top-level build directory (slashes
+ * forward). The default, nothing tracked, is for a root that is not a
+ * repository.
+ */
+export function isIgnoredWatchPath(relativePath: string, isTracked: (path: string) => boolean = () => false): boolean {
   const segments = relativePath.split(/[/\\]+/).filter(Boolean)
   if (segments.length === 0) return false
-  if (IGNORED_TOP_LEVEL.has(segments[0]) && segments.length > 1) return true
+  if (segments.length > 1 && BUILD_OUTPUT_TOP_LEVEL_SET.has(segments[0]) && !isTracked(segments.join('/'))) {
+    return true
+  }
   return segments.some((segment) => IGNORED_SEGMENTS.has(segment))
 }
+
+/**
+ * The tracked files under `root`'s top-level build directories, and every
+ * folder that leads to one, in one `ls-files`. Not a repository, or git
+ * failing, answers "none": the directories are then treated as the output they
+ * conventionally are.
+ */
+async function trackedUnderBuildDirs(root: string): Promise<Set<string>> {
+  const result = await runGitCommand(root, ['ls-files', '-z', '--', ...BUILD_OUTPUT_TOP_LEVEL])
+  const tracked = new Set<string>()
+  if (!result.ok) return tracked
+  for (const path of result.stdout.split('\0')) {
+    const segments = path.split('/').filter(Boolean)
+    for (let depth = 2; depth <= segments.length; depth += 1) tracked.add(segments.slice(0, depth).join('/'))
+  }
+  return tracked
+}
+
+/** How long a root's answer is trusted before it is asked again. */
+const BUILD_DIR_CLASSIFICATION_TTL_MS = 5 * 60_000
 
 /** Past this many distinct paths in one window a burst is reported as "many". */
 export const WATCH_BATCH_PATH_LIMIT = 256
@@ -62,6 +93,10 @@ type Subscriber = {
 type RootWatch = {
   watcher: FSWatcher
   subscribers: Set<Subscriber>
+  /** Tracked paths under the top-level build directories; null until git has answered. */
+  tracked: Set<string> | null
+  trackedAt: number
+  classifying: boolean
 }
 
 export type WatchSubscription = { close(): void }
@@ -89,8 +124,13 @@ export function createWatchHub(
     coalesceMs?: number
     setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout
     clearTimer?: (timer: NodeJS.Timeout) => void
+    /** The tracked paths (and their folders) under a root's top-level build directories. */
+    trackedBuildPaths?: (root: string) => Promise<Set<string>>
+    now?: () => number
   } = {},
 ): WatchHub {
+  const trackedBuildPaths = deps.trackedBuildPaths ?? trackedUnderBuildDirs
+  const now = deps.now ?? Date.now
   const watch: WatchFn = deps.watch ?? ((path, options, listener) => fsWatch(path, options, listener))
   const platform = deps.platform ?? process.platform
   const coalesceMs = deps.coalesceMs ?? WATCH_COALESCE_MS
@@ -119,8 +159,34 @@ export function createWatchHub(
     }
   }
 
-  const deliver = (entry: RootWatch, eventType: string, filename: string | null): void => {
-    const ignored = filename !== null && isIgnoredWatchPath(filename)
+  /**
+   * Whether a path under a top-level build directory is tracked. Git is asked
+   * the first time an event lands in one of them, and again after the TTL or
+   * when the index moves (`git add` / `git rm` rewrite `.git/index`). Until the
+   * first answer arrives everything counts as tracked, so no edit is lost to
+   * the wait; a refresh keeps using the previous answer meanwhile.
+   */
+  const trackedLookup = (entry: RootWatch, root: string, filename: string): ((path: string) => boolean) => {
+    const segments = filename.split(/[/\\]+/)
+    if (segments.length === 2 && segments[0] === '.git' && segments[1] === 'index') entry.trackedAt = 0
+    if (!BUILD_OUTPUT_TOP_LEVEL_SET.has(segments[0] ?? '')) return () => true
+    const stale = entry.tracked === null || now() - entry.trackedAt > BUILD_DIR_CLASSIFICATION_TTL_MS
+    if (stale && !entry.classifying) {
+      entry.classifying = true
+      void trackedBuildPaths(root)
+        .catch(() => new Set<string>())
+        .then((tracked) => {
+          entry.classifying = false
+          entry.tracked = tracked
+          entry.trackedAt = now()
+        })
+    }
+    const tracked = entry.tracked
+    return tracked ? (path) => tracked.has(path) : () => true
+  }
+
+  const deliver = (entry: RootWatch, root: string, eventType: string, filename: string | null): void => {
+    const ignored = filename !== null && isIgnoredWatchPath(filename, trackedLookup(entry, root, filename))
     for (const subscriber of entry.subscribers) {
       if (ignored && !subscriber.includeIgnored) continue
       if (filename === null || subscriber.pending.size >= WATCH_BATCH_PATH_LIMIT) {
@@ -138,9 +204,15 @@ export function createWatchHub(
   }
 
   const open = (root: string): RootWatch => {
-    const entry: RootWatch = { watcher: null as unknown as FSWatcher, subscribers: new Set() }
+    const entry: RootWatch = {
+      watcher: null as unknown as FSWatcher,
+      subscribers: new Set(),
+      tracked: null,
+      trackedAt: 0,
+      classifying: false,
+    }
     const listener: WatchListener<string> = (eventType, filename) => {
-      deliver(entry, eventType, typeof filename === 'string' && filename ? filename : null)
+      deliver(entry, root, eventType, typeof filename === 'string' && filename ? filename : null)
     }
     const recursive = platform === 'win32' || platform === 'darwin'
     try {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { FileWatchEvent } from '../shared/ipc/filesystem'
-import { createFileListCache, filterFileList } from './filesystem-search'
+import { FILE_LIST_TOO_LARGE, createFileListCache, filterFileList } from './filesystem-search'
 import type { WatchHub } from './workspace-watch-hub'
 
 function fakeHub() {
@@ -83,6 +83,35 @@ test('concurrent queries share one walk, and a walk overtaken by a change is not
   release!()
   await third
   assert.equal(walks, 2, 'the list that raced a rename was answered from but not held')
+  cache.clear()
+})
+
+test('a root too large to hold is remembered as such, not listed again on every keystroke', async () => {
+  const { hub, emit } = fakeHub()
+  let walks = 0
+  let clock = 0
+  const cache = createFileListCache({
+    hub: () => hub,
+    now: () => clock,
+    listFiles: async () => {
+      walks += 1
+      return FILE_LIST_TOO_LARGE
+    },
+  })
+  for (const _keystroke of 'widget') assert.equal(await cache.list('/Users/dev/monorepo'), null)
+  assert.equal(walks, 1, 'one listing, then the per-query walk alone')
+
+  emit({ eventType: 'rename', path: 'src/new.ts', paths: ['src/new.ts'] })
+  await cache.list('/Users/dev/monorepo')
+  assert.equal(walks, 1, 'a created file does not make it small')
+
+  emit({ eventType: 'change', path: '.gitignore', paths: ['.gitignore'] })
+  await cache.list('/Users/dev/monorepo')
+  assert.equal(walks, 2, 'an ignore-file edit might')
+
+  clock += 10 * 60_000
+  await cache.list('/Users/dev/monorepo')
+  assert.equal(walks, 3, 'and it is asked again after the age bound')
   cache.clear()
 })
 
