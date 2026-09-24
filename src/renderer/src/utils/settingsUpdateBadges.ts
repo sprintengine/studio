@@ -16,9 +16,9 @@
 // An update stops being counted when it is installed (the advisory stops saying
 // `behind_latest`; the app state stops offering a version) or when the person
 // dismisses it — pressing Dismiss or Later on its toast. A dismissal names one
-// version, so the next release badges again. Dismissing clears the badges and
-// nothing else: the Update button and the version line stay, because the update
-// is still there to take.
+// version (and, for the app, one step), so the next release badges again.
+// Dismissing clears the badges and nothing else: the Update button and the
+// version line stay, because the update is still there to take.
 //
 // Pure: the hook that reads the stores is `useSettingsUpdateBadges`.
 
@@ -43,9 +43,17 @@ export function cliUpdateKey(advisory: Pick<CliVersionAdvisory, 'cli' | 'latestV
   return `cli:${advisory.cli}@${advisory.latestVersion ?? ''}`
 }
 
-/** The dismissal key for one app release. */
-export function appUpdateKey(version: string | null): string {
-  return `app@${version ?? ''}`
+/**
+ * Which question about an app release the person said "not now" to: the offer
+ * to download it, or — once it is on disk — the offer to restart into it. A
+ * later step is news of its own, so dismissing the offer does not silence
+ * "ready to restart".
+ */
+export type AppUpdateStage = 'offer' | 'ready'
+
+/** The dismissal key for one app release at one step. */
+export function appUpdateKey(version: string | null, stage: AppUpdateStage): string {
+  return `app@${version ?? ''}:${stage}`
 }
 
 /**
@@ -76,31 +84,42 @@ export function outstandingCliUpdates(input: {
   )
 }
 
-// The steps between "there is one" and "it installed". `installing` is the
-// step after Restart to update where the update flow has one; naming it here
-// keeps the badge on through it rather than dropping it a moment early.
-const PENDING_APP_UPDATE_STATUSES: ReadonlySet<string> = new Set([
-  'available',
-  'downloading',
-  'downloaded',
-  'installing',
-])
+/**
+ * The step an app update is at, from update-service's own state, or null when
+ * there is none waiting:
+ *
+ *   available → downloading          'offer'  (Download is the question)
+ *   downloaded → installing          'ready'  (Restart to update is)
+ *
+ * A restart main refused goes back to `downloaded` with the reason, and stays
+ * 'ready'. A download that failed leaves `error` with the version it was
+ * fetching: the update is still there to take (the version row offers Download
+ * again), so it stays 'offer'. A check that failed with nothing found is not
+ * an update.
+ */
+export function appUpdateStage(state: AppUpdateState | null): AppUpdateStage | null {
+  if (!state || !state.packaged) return null
+  if (state.downloaded || state.status === 'downloaded' || state.status === 'installing') return 'ready'
+  if (state.status === 'available' || state.status === 'downloading') return 'offer'
+  if (state.status === 'error' && state.updateVersion) return 'offer'
+  return null
+}
 
 /**
- * The app release waiting to be installed, unless it was dismissed. Read off
- * update-service's own state, so it holds whichever way the update arrives —
- * offered and downloaded when asked, or downloaded on its own and ready.
+ * The app release waiting to be installed, unless its current step was
+ * dismissed. Read off update-service's own state (`update:state-changed`), so
+ * it holds whichever way the update arrives — offered and downloaded when
+ * asked, or downloaded on its own and ready — through every step to the
+ * restart. After the restart the new build reports no update, and it clears.
  */
 export function outstandingAppUpdate(input: {
   state: AppUpdateState | null
   dismissed: readonly string[]
-}): { version: string | null } | null {
-  const state = input.state
-  if (!state || !state.packaged) return null
-  const pending = state.downloaded || PENDING_APP_UPDATE_STATUSES.has(state.status)
-  if (!pending) return null
-  if (input.dismissed.includes(appUpdateKey(state.updateVersion))) return null
-  return { version: state.updateVersion }
+}): { version: string | null; stage: AppUpdateStage } | null {
+  const stage = appUpdateStage(input.state)
+  if (!input.state || !stage) return null
+  if (input.dismissed.includes(appUpdateKey(input.state.updateVersion, stage))) return null
+  return { version: input.state.updateVersion, stage }
 }
 
 function plural(count: number, one: string, many: string): string {
@@ -119,14 +138,17 @@ export type SettingsUpdateBadges = {
 
 export function settingsUpdateBadges(input: {
   cliUpdates: readonly CliVersionAdvisory[]
-  appUpdate: { version: string | null } | null
+  appUpdate: { version: string | null; stage?: AppUpdateStage } | null
 }): SettingsUpdateBadges {
   const cliCount = input.cliUpdates.length
   const cliDetail = plural(cliCount, 'CLI update available', 'CLI updates available')
   const agents: SettingsUpdateBadge | null =
     cliCount > 0 ? { count: cliCount, tone: UPDATE_TONE, label: `Agents: ${cliDetail}`, detail: cliDetail } : null
+  // Once it is on disk the news is that it is ready, which is what General's
+  // version row is then asking about (Restart to update).
+  const appDetail = input.appUpdate?.stage === 'ready' ? 'Update ready to install' : 'Update available'
   const general: SettingsUpdateBadge | null = input.appUpdate
-    ? { count: 1, tone: UPDATE_TONE, label: 'General: update available', detail: 'Update available' }
+    ? { count: 1, tone: UPDATE_TONE, label: `General: ${appDetail.toLowerCase()}`, detail: appDetail }
     : null
   const total = cliCount + (input.appUpdate ? 1 : 0)
   const totalDetail = plural(total, 'update available', 'updates available')

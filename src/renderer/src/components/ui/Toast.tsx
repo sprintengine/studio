@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import CliIcon from '../CliIcon'
 import { GhostButton, PrimaryButton } from './Buttons'
+import { Spinner } from './Spinner'
 import { TONE_COLOR_VAR, type Tone } from './tokens'
 
 const TOAST_ROLE: Record<Tone, 'status' | 'alert'> = {
@@ -50,7 +51,7 @@ type ToastProps = {
   cli?: string
   /** The action row. The CLI-update toast is the ONE toast that carries one
    *  (owner ruling 2026-09-04); the toast spec's action-row variant. */
-  actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; run: () => void }>
+  actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; busy?: boolean; run: () => void }>
   /** The acting body, under the description: the pair-request toast's code
    *  field and its answers (owner ruling 2026-09-05, the toast spec's
    *  answer-in-place variant). One producer; see the store's `content`. */
@@ -124,11 +125,15 @@ export function Toast({
           <div className="mt-2 flex justify-end gap-1.5">
             {actions.map((action) =>
               action.primary ? (
-                <PrimaryButton key={action.id} size="xs" onClick={action.run}>
+                // `busy`: the press went through and the work it started is
+                // running (the app-update toast's Restart, owner ruling
+                // 2026-09-24). Disabled, with the spinner beside the label.
+                <PrimaryButton key={action.id} size="xs" onClick={action.run} busy={action.busy} disabled={action.busy}>
+                  {action.busy ? <Spinner className="icon-sm" /> : null}
                   {action.label}
                 </PrimaryButton>
               ) : (
-                <GhostButton key={action.id} size="xs" onClick={action.run}>
+                <GhostButton key={action.id} size="xs" onClick={action.run} disabled={action.busy}>
                   {action.label}
                 </GhostButton>
               ),

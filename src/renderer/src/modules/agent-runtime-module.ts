@@ -85,6 +85,38 @@ export const agentRuntimeRendererModule: RendererModule = {
         },
       })
     }
+    // Copy message on the row for a first message that never reached its CLI
+    // (utils/undeliveredPrompt.ts): the row keeps the message, and this gives
+    // it back exactly as written. Open stays beside it, since claiming the
+    // source replaces the generic reveal-workspace action for this row. Every
+    // other terminal row gets no provider action and keeps that generic Open.
+    host.registerNotificationActionProvider({
+      source: 'terminal',
+      resolveActions: ({ notification }) => {
+        const text = notification.returnedPrompt
+        if (typeof text !== 'string') return []
+        const workspaceId = notification.workspaceId
+        return [
+          {
+            id: 'terminal.copy-returned-prompt',
+            label: 'Copy message',
+            run: async () => {
+              // A failed copy leaves the row, and the message on it, where they were.
+              await window.api.clipboardWriteText(text).catch(() => {})
+            },
+          },
+          ...(workspaceId
+            ? [
+                {
+                  id: 'terminal.reveal-workspace',
+                  label: 'Open',
+                  run: (ctx: { revealWorkspace(workspaceId: string): void }) => ctx.revealWorkspace(workspaceId),
+                },
+              ]
+            : []),
+        ]
+      },
+    })
     // Open on the source drift notice ("A plugin source has updates … Open
     // Plugins and press Sync"): the bell row lands on the Plugins view, where
     // the source's tab wears its update mark and Sync is — or on Skills when

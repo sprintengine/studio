@@ -341,9 +341,9 @@ test('plugin-registry', async () => {
     // --trust rides the bypass preset ONLY: it trusts every project-level .grok
     // config (including hooks committed in the repo itself), so the safe default
     // preset must not carry it — a freshly cloned repo would get arbitrary
-    // command execution. The prompt must NOT appear in argv — grok's interactive
-    // TUI documents no positional prompt, so the manifest uses send-after-ready
-    // injection instead.
+    // command execution. The prompt rides last, after `--`: Grok 1.0.41's
+    // `--help` documents a positional [PROMPT] for the interactive session, and
+    // the separator keeps a one-word prompt from being read as a subcommand.
     const launched = renderPluginLaunch(plugin!.manifest, {
       sessionId: 'sid_demo',
       prompt: 'do the thing',
@@ -358,6 +358,8 @@ test('plugin-registry', async () => {
       'grok-4.5',
       '--session-id',
       'sid_demo',
+      '--',
+      'do the thing',
     ])
     const launchedManual = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo' })
     assert.deepEqual(
@@ -383,7 +385,7 @@ test('plugin-registry', async () => {
       permissionPreset: 'none',
     })
     assert.deepEqual(launchedNone.argv, ['grok', '--session-id', 'sid_demo'])
-    assert.equal(plugin!.manifest.promptInjection.mode, 'send-after-ready')
+    assert.equal(plugin!.manifest.promptInjection.mode, 'positional-arg')
   }
 
   async function bundledRegistry(): Promise<ReturnType<typeof createPluginRegistry>> {

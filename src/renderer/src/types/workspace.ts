@@ -511,6 +511,14 @@ export type DiagnosticLogInput = {
    * source rule.
    */
   extensionsRow?: string
+  /**
+   * A message the person wrote that never reached its agent CLI, kept so the
+   * row can give it back (Copy message). Only the undelivered-first-message
+   * notice sets it, and that notice goes straight to the bell rather than
+   * through the diagnostics log: the text lives in the bell's own stored list,
+   * like every other row, and is never written to a log file.
+   */
+  returnedPrompt?: string
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {

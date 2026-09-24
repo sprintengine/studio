@@ -1017,10 +1017,24 @@ export default function SettingsPanel({
     }
   }, [setUpdateState])
 
+  // The press shows at once (the button goes busy before main is asked), and
+  // main's `installing` state keeps it busy until the app hands over.
   const restartToInstall = useCallback(async () => {
-    const result = await window.api.updateQuitAndInstall()
-    setUpdateState(result.state)
+    setUpdateActionPending(true)
+    try {
+      const result = await window.api.updateQuitAndInstall()
+      setUpdateState(result.state)
+    } finally {
+      setUpdateActionPending(false)
+    }
   }, [setUpdateState])
+
+  const setAutoDownload = useCallback(
+    async (enabled: boolean) => {
+      setUpdateState(await window.api.updateSetAutoDownload(enabled))
+    },
+    [setUpdateState],
+  )
 
   const saveGitHubToken = useCallback(async () => {
     const token = githubTokenDraft.trim()
@@ -1301,6 +1315,14 @@ export default function SettingsPanel({
 
           <SettingCard className="mt-5">
             <UpdateChannelSettings onResult={onUpdateChannelResult} />
+            {updateState ? (
+              <SettingToggle
+                label="Download updates automatically"
+                description="Off: Studio says when an update is out, and downloads it when you press Download."
+                enabled={updateState.autoDownload}
+                onChange={(enabled) => void setAutoDownload(enabled)}
+              />
+            ) : null}
             {backgroundModeDescriptor ? (
               <RegistrySwitchRow
                 descriptor={backgroundModeDescriptor}

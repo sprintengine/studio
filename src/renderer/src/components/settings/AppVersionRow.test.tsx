@@ -25,6 +25,9 @@ function state(over: Partial<AppUpdateState> = {}): AppUpdateState {
     progress: null,
     errorMessage: null,
     lastCheckedAt: null,
+    autoDownload: false,
+    installRequiresAdmin: false,
+    installOutcome: null,
     ...over,
   }
 }
@@ -107,6 +110,34 @@ test('downloaded: Restart to update', async () => {
   expect(host.querySelector('[role="progressbar"]')).toBe(null)
   await act(async () => buttonNamed('Restart to update')!.click())
   expect(calls).toEqual(['restart'])
+})
+
+test('installing: the restart stays pressed, busy, until the app hands over', async () => {
+  await render(state({ status: 'installing', downloaded: true, updateVersion: '0.7.0' }))
+  expect(host.textContent).toContain('installing 0.7.0…')
+  const restarting = buttonNamed('Restarting…')!
+  expect(restarting.disabled).toBe(true)
+  expect(restarting.getAttribute('aria-busy')).toBe('true')
+})
+
+test('a restart main refused is ready again, with the reason on the line', async () => {
+  await render(
+    state({
+      status: 'downloaded',
+      downloaded: true,
+      updateVersion: '0.7.0',
+      errorMessage: 'The installer did not start.',
+    }),
+  )
+  expect(host.textContent).toContain('The installer did not start.')
+  expect(buttonNamed('Restart to update')).toBeTruthy()
+})
+
+test('a download that failed says why and offers Download again', async () => {
+  await render(state({ status: 'error', updateVersion: '0.7.0', errorMessage: 'net::ERR_CONNECTION_RESET' }))
+  expect(host.textContent).toContain('net::ERR_CONNECTION_RESET')
+  await act(async () => buttonNamed('Download')!.click())
+  expect(calls).toEqual(['download'])
 })
 
 test('an action already asked for stays pressed until main answers', async () => {

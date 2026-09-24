@@ -42,6 +42,9 @@ function appState(over: Partial<AppUpdateState> = {}): AppUpdateState {
     progress: null,
     errorMessage: null,
     lastCheckedAt: null,
+    autoDownload: false,
+    installRequiresAdmin: false,
+    installOutcome: null,
     ...over,
   }
 }
@@ -88,29 +91,30 @@ test('a CLI update counts while it is behind, installed here, checked for and no
   )
 })
 
-test('the app update counts from available to ready, and clears when installed or dismissed', () => {
+test('the app update counts at every step to the restart, and clears when installed or dismissed', () => {
   assert.equal(outstandingAppUpdate({ state: null, dismissed: [] }), null, 'nothing known yet')
   assert.equal(outstandingAppUpdate({ state: appState(), dismissed: [] }), null, 'up to date')
-  for (const status of ['available', 'downloading'] as const) {
-    assert.deepEqual(outstandingAppUpdate({ state: appState({ status, updateVersion: '0.7.0' }), dismissed: [] }), {
-      version: '0.7.0',
-    })
+  const steps: Array<[Partial<AppUpdateState>, 'offer' | 'ready']> = [
+    [{ status: 'available' }, 'offer'],
+    [{ status: 'downloading', progress: { percent: 40, transferred: 4, total: 10, bytesPerSecond: 1 } }, 'offer'],
+    [{ status: 'downloaded', downloaded: true }, 'ready'],
+    [{ status: 'installing', downloaded: true }, 'ready'],
+    // A restart main refused: back to downloaded, with the reason.
+    [{ status: 'downloaded', downloaded: true, errorMessage: 'The installer did not start.' }, 'ready'],
+    // A download that failed: the update is still there to take.
+    [{ status: 'error', errorMessage: 'net::ERR_CONNECTION_RESET' }, 'offer'],
+  ]
+  for (const [over, stage] of steps) {
+    assert.deepEqual(
+      outstandingAppUpdate({ state: appState({ updateVersion: '0.7.0', ...over }), dismissed: [] }),
+      { version: '0.7.0', stage },
+      `${over.status}: counted, at the ${stage} step`,
+    )
   }
-  assert.deepEqual(
-    outstandingAppUpdate({
-      state: appState({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0' }),
-      dismissed: [],
-    }),
-    { version: '0.7.0' },
-    'ready to install',
-  )
   assert.equal(
-    outstandingAppUpdate({
-      state: appState({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0' }),
-      dismissed: [appUpdateKey('0.7.0')],
-    }),
+    outstandingAppUpdate({ state: appState({ status: 'error', errorMessage: 'offline' }), dismissed: [] }),
     null,
-    'Later on the toast dismisses this version',
+    'a check that failed with nothing found is not an update',
   )
   assert.equal(
     outstandingAppUpdate({
@@ -121,9 +125,28 @@ test('the app update counts from available to ready, and clears when installed o
     'an unpackaged build installs nothing',
   )
   assert.equal(
-    outstandingAppUpdate({ state: appState({ status: 'error', updateVersion: '0.7.0' }), dismissed: [] }),
+    outstandingAppUpdate({ state: appState({ version: '0.7.0' }), dismissed: [] }),
     null,
-    'a failed check or download is not an update waiting',
+    'installed: the new build reports nothing waiting',
+  )
+
+  // Dismissal names the version and the step.
+  const offered = appState({ status: 'available', updateVersion: '0.7.0' })
+  const ready = appState({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0' })
+  assert.equal(outstandingAppUpdate({ state: offered, dismissed: [appUpdateKey('0.7.0', 'offer')] }), null)
+  assert.deepEqual(
+    outstandingAppUpdate({ state: ready, dismissed: [appUpdateKey('0.7.0', 'offer')] }),
+    { version: '0.7.0', stage: 'ready' },
+    'waving off the offer does not silence "ready to restart"',
+  )
+  assert.equal(outstandingAppUpdate({ state: ready, dismissed: [appUpdateKey('0.7.0', 'ready')] }), null)
+  assert.deepEqual(
+    outstandingAppUpdate({
+      state: appState({ status: 'available', updateVersion: '0.8.0' }),
+      dismissed: [appUpdateKey('0.7.0', 'offer')],
+    }),
+    { version: '0.8.0', stage: 'offer' },
+    'a newer release badges again',
   )
 })
 
@@ -148,13 +171,21 @@ test('one derivation feeds the gear, General, Agents, the switcher and the rows'
   assert.equal(cliOnly.rail?.count, 2)
   assert.equal(cliOnly.rail?.label, '2 updates available')
 
-  const both = settingsUpdateBadges({ cliUpdates: [advisory('codex')], appUpdate: { version: '0.7.0' } })
+  const both = settingsUpdateBadges({
+    cliUpdates: [advisory('codex')],
+    appUpdate: { version: '0.7.0', stage: 'offer' },
+  })
   assert.deepEqual(both.general, {
     count: 1,
     tone: 'accent',
     label: 'General: update available',
     detail: 'Update available',
   })
+  assert.equal(
+    settingsUpdateBadges({ cliUpdates: [], appUpdate: { version: '0.7.0', stage: 'ready' } }).general?.detail,
+    'Update ready to install',
+    'once it is on disk, General says it is ready',
+  )
   assert.equal(both.agents?.detail, '1 CLI update available')
   assert.equal(both.rail?.count, 2, 'the gear counts the app and the CLIs together')
 

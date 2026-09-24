@@ -29,6 +29,9 @@
     "wsl.exe",
     // The POSIX tool clone-tree.test.ts makes a FIFO with; Node has no API for it.
     "mkfifo",
+    // The Windows registry tool; the updater reads where an all-users
+    // installation is recorded with it. Not an npm binary.
+    "reg.exe",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.

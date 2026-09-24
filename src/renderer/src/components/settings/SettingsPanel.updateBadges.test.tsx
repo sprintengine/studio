@@ -33,6 +33,9 @@ function appState(over: Partial<AppUpdateState> = {}): AppUpdateState {
     progress: null,
     errorMessage: null,
     lastCheckedAt: null,
+    autoDownload: false,
+    installRequiresAdmin: false,
+    installOutcome: null,
     ...over,
   }
 }
@@ -218,10 +221,23 @@ test('an app update badges General and fills the version row; it clears when ins
   expect(navBadge('general')).toBeTruthy()
   await act(async () => pushState?.(appState({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0' })))
   expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Restart to update')).toBe(true)
+  expect(navTab('general').getAttribute('aria-label')).toBe('General, Update ready to install')
+
+  // Installing: still waiting on the restart, still badged.
+  await act(async () => pushState?.(appState({ status: 'installing', downloaded: true, updateVersion: '0.7.0' })))
   expect(navBadge('general')).toBeTruthy()
 
-  // Dismissed (Later on the toast).
-  await act(async () => useNotificationStore.getState().dismissUpdate('app@0.7.0'))
+  // Refused: back to ready with the reason — still an update to take.
+  await act(async () =>
+    pushState?.(
+      appState({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0', errorMessage: 'Installer busy.' }),
+    ),
+  )
+  expect(navBadge('general')).toBeTruthy()
+  expect(host.textContent).toContain('Installer busy.')
+
+  // Dismissed at this step (Later on the ready toast).
+  await act(async () => useNotificationStore.getState().dismissUpdate('app@0.7.0:ready'))
   expect(navBadge('general')).toBe(null)
   expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Restart to update')).toBe(true)
 
@@ -230,6 +246,17 @@ test('an app update badges General and fills the version row; it clears when ins
   await act(async () => pushState?.(appState({ version: '0.7.0' })))
   expect(navBadge('general')).toBe(null)
   expect(host.textContent).toContain('SprintEngine Studio 0.7.0')
+})
+
+test('a download that failed keeps General badged and the row offers Download again', async () => {
+  appUpdate = appState({ status: 'error', updateVersion: '0.7.0', errorMessage: 'net::ERR_CONNECTION_RESET' })
+  await act(async () => root.render(<Panel initialTab="general" />))
+  await settle()
+  expect(navBadge('general')?.textContent).toBe('1')
+  expect(host.querySelector('button[aria-label="Download SprintEngine Studio 0.7.0"]')).toBeTruthy()
+  // The offer waved off: gone until the next step or the next release.
+  await act(async () => useNotificationStore.getState().dismissUpdate('app@0.7.0:offer'))
+  expect(navBadge('general')).toBe(null)
 })
 
 test('an opener that names a machine lands on it, even when the tab last showed another', async () => {

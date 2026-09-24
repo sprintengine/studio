@@ -24,6 +24,8 @@ type ToastAction = {
   id: string
   label: string
   primary?: boolean
+  /** The press went through and its work is running: disabled, with a spinner. */
+  busy?: boolean
   run: () => void
 }
 

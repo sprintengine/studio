@@ -112,6 +112,13 @@ the mark: the row wears one count, next to the one thing that clears it, and a
 person who arrived from the gear follows the number to the action. It still
 **replaces** the row's health dot (`provider-row`, "One status idiom").
 
+The app update's count holds through every step update-service reports —
+available, downloading, downloaded, installing — and through a download that
+failed (the update is still there to take, and General's version row offers
+Download again); it goes when the new build starts and reports nothing waiting.
+General's count says which question is open: "Update available", then "Update
+ready to install".
+
 An update stops being counted when it installs, or when the person dismisses it
 — Later or Dismiss on its toast (the toast entry, "Dismissing an update is
 'not now'"). A dismissal names one version, so the next release is counted

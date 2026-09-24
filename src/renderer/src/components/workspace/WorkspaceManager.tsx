@@ -67,6 +67,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -205,7 +206,7 @@ import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
-import { showAppUpdateReadyToast } from './manager/appUpdateToast'
+import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
 import { subscribeAppUpdateState } from '../../store/appUpdateStore'
@@ -1447,6 +1448,41 @@ export default function WorkspaceManager() {
     })
   }, [])
 
+  // A first message main could not type into its agent CLI (the CLI exited
+  // first, or never showed its message box): say so, and keep the message in
+  // the bell where Copy message gives it back. The toast is button-free; the
+  // row is where the message lives.
+  useEffect(() => {
+    const api = window.api
+    if (typeof api?.onTerminalPromptUndelivered !== 'function') return
+    if (typeof api.terminalTakeUndeliveredPrompts !== 'function') return
+    const take = (): void => {
+      void api
+        .terminalTakeUndeliveredPrompts()
+        .then((events) => {
+          const store = useWorkspaceStore.getState()
+          for (const event of events) {
+            const notice = undeliveredPromptNotice(
+              event,
+              (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
+            )
+            const workspaceName = event.workspaceId
+              ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
+              : undefined
+            useNotificationStore.getState().addNotification({
+              ...undeliveredPromptEntry(event, notice),
+              ...(workspaceName ? { workspaceName } : {}),
+            })
+            showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
+          }
+        })
+        .catch(() => {})
+    }
+    // Anything that went undelivered while no window was open.
+    take()
+    return api.onTerminalPromptUndelivered(take)
+  }, [])
+
   // Model discovery: main pushes a CLI's catalog whenever a probe answers (the
   // boot pass, an install through the app, Settings Refresh) and this window
   // stores it; every picker re-derives from `appSettings.cliModelCatalog`. One
@@ -1509,17 +1545,33 @@ export default function WorkspaceManager() {
   // The updates waiting in Settings, worn on the rail's gear.
   const settingsUpdateBadges = useSettingsUpdateBadges()
 
-  // The app update, once main has downloaded it in the background: one toast
-  // asking to restart into it, and one bell row. Later leaves it to
-  // autoInstallOnAppQuit.
+  // The app update: one toast that follows it through its steps (offered,
+  // downloading, ready, installing) and a bell row at each question, plus, at
+  // the first start after an update, how it went.
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (!api || typeof api.onUpdateStateChanged !== 'function') return
-    let last: string | null = null
-    return api.onUpdateStateChanged((state) => {
-      if (state.status === 'downloaded' && last !== 'downloaded') showAppUpdateReadyToast(state)
-      last = state.status
-    })
+    const drive = createAppUpdateToastDriver()
+    const unsubscribe = api.onUpdateStateChanged(drive)
+    let cancelled = false
+    if (typeof api.updateGetState === 'function') {
+      void api
+        .updateGetState()
+        .then((state) => {
+          if (cancelled) return
+          // The boot check often answers before this window subscribes; what it
+          // found is shown from here rather than waiting for the next check.
+          drive(state)
+          if (!state.installOutcome) return
+          showAppUpdateOutcomeToast(state.installOutcome)
+          void api.updateDismissInstallOutcome?.().catch(() => undefined)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
   }, [])
 
   // CLI version advisories: the Settings switch is mirrored into main (which

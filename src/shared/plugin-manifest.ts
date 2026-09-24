@@ -40,11 +40,18 @@ type PluginResumeSpec = {
 
 type PluginPromptInjectionMode = 'positional-arg' | 'stdin-pipe' | 'send-after-ready' | 'file'
 
-type PluginReadinessSignal = {
-  type: 'output-match'
-  pattern: string
-  timeoutMs: number
-}
+// When a CLI whose first message is typed in (`send-after-ready`, or an `input`
+// overflow) is ready to take it; see src/main/deferred-prompt-delivery.ts.
+//
+// - `bracketed-paste` — its line editor turned bracketed paste on, or its
+//   lifecycle hook reported in; past `timeoutMs` with neither, it is sent anyway.
+//   What a manifest declaring nothing gets.
+// - `output-match` — it printed `pattern` (a regex over the raw output), or its
+//   hook reported in. For a CLI that turns bracketed paste on for a dialog
+//   before its composer, where the typed Enter would answer the dialog. Past
+//   `timeoutMs` without a match nothing is typed, and the person is told.
+export type PluginReadinessSignal =
+  { type: 'bracketed-paste'; timeoutMs: number } | { type: 'output-match'; pattern: string; timeoutMs: number }
 
 // What a launch does with a first prompt too long for the command line the
 // platform allows (src/main/launch-arg-budget.ts).
@@ -53,11 +60,16 @@ type PluginReadinessSignal = {
 //   without it and type it into the CLI, as one bracketed paste and one Enter,
 //   once the CLI is ready for input. `args` are added to that launch only, as
 //   `promptOverflowArgs`: whatever keeps a startup dialog from standing between
-//   the CLI and its composer, where the typed Enter would answer it.
+//   the CLI and its composer, where the typed Enter would answer it; `env` is
+//   the same thing said through the environment.
 // - `file` — write it to a file and render `args` (which name `{{promptFile}}`)
 //   as `promptOverflowArgs`, for a CLI that documents a file option; `{{prompt}}`
 //   then renders a one-line note pointing at that file.
-type PluginPromptOverflow = { mode: 'input'; args?: string[] } | { mode: 'file'; args: string[] }
+//
+// A `send-after-ready` manifest types every first message in, so its `input`
+// args and env ride every launch that carries one.
+type PluginPromptOverflow =
+  { mode: 'input'; args?: string[]; env?: Record<string, string> } | { mode: 'file'; args: string[] }
 
 type PluginPromptInjection = {
   mode: PluginPromptInjectionMode

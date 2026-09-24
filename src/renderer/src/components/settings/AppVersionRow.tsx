@@ -14,23 +14,34 @@ import { IconButton, PrimaryButton, RefreshIcon, Spinner, Tooltip } from '../ui'
 //   available      … · Stable · 0.7.0 available                    Download
 //   downloading    … · Stable · downloading 0.7.0 · 42%  [progress bar]
 //   downloaded     … · Stable · 0.7.0 ready to install      Restart to update
+//   installing     … · Stable · installing 0.7.0…              Restarting… (busy)
+//
+// and the two ways it can go wrong: a download that failed says why and offers
+// Download again, and a restart main refused goes back to "ready" with the
+// reason on the line.
 //
 // It reads update-service's own state (`update:state-changed`), not a flow of
 // its own, so it draws whichever way an update arrives: offered and downloaded
-// when asked, or already downloaded by the time the row is opened. The actions
-// are the update IPC's (`updateDownload`, `updateQuitAndInstall`,
-// `updateCheck`), handed in by the panel.
+// when asked (the default), or downloaded on its own when "Download updates
+// automatically" is on. The actions are the update IPC's own — `updateDownload`
+// is the consent to download, `updateQuitAndInstall` the restart that hands
+// over to the installer, `updateCheck` — handed in by the panel, so this row
+// and the update toast press the same buttons.
 //
 // One action at a time, the one the current step needs: the update is a line
 // (check → download → restart), so only the next step renders.
 
-export type AppVersionRowAction = 'check' | 'download' | 'restart' | 'none'
+export type AppVersionRowAction = 'check' | 'download' | 'restart' | 'installing' | 'none'
 
 /** The one action the row offers for this state. */
 export function appVersionRowAction(state: AppUpdateState | null): AppVersionRowAction {
   if (state && !state.packaged) return 'none'
+  // Restart was pressed: the button stays, busy, until the app hands over.
+  if (state?.status === 'installing') return 'installing'
   if (state?.downloaded) return 'restart'
   if (state?.status === 'available') return 'download'
+  // A download that failed still has an update to take: offer it again.
+  if (state?.status === 'error' && state.updateVersion) return 'download'
   // A download in flight has nothing to press: the bar is the answer.
   if (state?.status === 'downloading') return 'none'
   return 'check'
@@ -62,7 +73,9 @@ export function formatUpdateStatus(state: AppUpdateState | null, now: number = D
   if (!state) return 'loading'
   if (!state.packaged) return 'unpackaged build'
   const next = state.updateVersion
-  if (state.downloaded) return next ? `${next} ready to install` : 'ready to install'
+  if (state.status === 'installing') return next ? `installing ${next}…` : 'installing…'
+  // A refused restart comes back as `downloaded` with the reason.
+  if (state.downloaded) return state.errorMessage ?? (next ? `${next} ready to install` : 'ready to install')
   switch (state.status) {
     case 'checking':
       return 'checking…'
@@ -128,9 +141,15 @@ export function AppVersionRow({
               <ReleaseNotesIcon className="icon-sm" />
             </IconButton>
           </Tooltip>
-          {action === 'restart' ? (
-            <PrimaryButton size="md" onClick={onRestart} disabled={pending}>
-              Restart to update
+          {action === 'restart' || action === 'installing' ? (
+            <PrimaryButton
+              size="md"
+              onClick={onRestart}
+              busy={pending || action === 'installing'}
+              disabled={pending || action === 'installing'}
+            >
+              {pending || action === 'installing' ? <Spinner className="icon-sm" /> : null}
+              {pending || action === 'installing' ? 'Restarting…' : 'Restart to update'}
             </PrimaryButton>
           ) : action === 'download' ? (
             <PrimaryButton

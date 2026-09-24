@@ -15,14 +15,14 @@ persistent surface the request is also readable behind.
 
 ## Anatomy
 
-| Part | Class | Required |
-|---|---|---|
-| Region | `.ds-toast-region` | yes — the fixed corner stack at `z.toast`; one per document |
-| Surface | `.ds-toast` | yes — `role` and `aria-live` chosen by tone (below) |
-| Tone dot | `.ds-toast-dot` | yes — the 6px status idiom, `aria-hidden` |
-| Content | `.ds-toast-content` | yes — title `.ds-toast-title`, optional description `.ds-toast-description` |
-| Answer row | `.ds-toast-answer` + `.ds-toast-code` + `.ds-toast-help` | no — the answer-in-place variant's one field and its two answers |
-| Dismiss | `.ds-toast-dismiss` | no — trailing icon button, `aria-label="Dismiss"` |
+| Part       | Class                                                    | Required                                                                    |
+| ---------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Region     | `.ds-toast-region`                                       | yes — the fixed corner stack at `z.toast`; one per document                 |
+| Surface    | `.ds-toast`                                              | yes — `role` and `aria-live` chosen by tone (below)                         |
+| Tone dot   | `.ds-toast-dot`                                          | yes — the 6px status idiom, `aria-hidden`                                   |
+| Content    | `.ds-toast-content`                                      | yes — title `.ds-toast-title`, optional description `.ds-toast-description` |
+| Answer row | `.ds-toast-answer` + `.ds-toast-code` + `.ds-toast-help` | no — the answer-in-place variant's one field and its two answers            |
+| Dismiss    | `.ds-toast-dismiss`                                      | no — trailing icon button, `aria-label="Dismiss"`                           |
 
 The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glass.opacity` over a `backdrop-filter` of
 `glass.blur` and `glass.saturation`, a `border.default` hairline, and
@@ -38,7 +38,7 @@ conversation peek — the hover card that shows what a chat was asked, drawn
 deliberately over a running terminal — is the second, through
 `PointerPopover`'s opt-in `material="glass"`. It is a larger area than a
 toast and this is not pretended otherwise: the ruling accepts that cost for a
-surface whose whole point is to sit *over* the app it is describing, while
+surface whose whole point is to sit _over_ the app it is describing, while
 the area argument still holds against the thing it was written for, a
 full-viewport scrim. **Amended again 2026-09-08:** the trigger-anchored
 `Popover` carries the same opt-in, for the composer's skill type-ahead drawn
@@ -65,13 +65,13 @@ tinting the surface. A toast that survives greyscale is the test.
 
 Five tones, each deciding color, politeness, and persistence:
 
-| Tone | Dot | Role / live | Auto-dismiss |
-|---|---|---|---|
-| `--neutral` | `status.neutral` | `status` / `polite` | 5 s |
-| `--good` | `status.good` | `status` / `polite` | 5 s |
-| `--accent` | `accent.primary` | `status` / `polite` | 5 s |
-| `--warn` | `status.warn` | `alert` / `assertive` | never |
-| `--danger` | `status.danger` | `alert` / `assertive` | never |
+| Tone        | Dot              | Role / live           | Auto-dismiss |
+| ----------- | ---------------- | --------------------- | ------------ |
+| `--neutral` | `status.neutral` | `status` / `polite`   | 5 s          |
+| `--good`    | `status.good`    | `status` / `polite`   | 5 s          |
+| `--accent`  | `accent.primary` | `status` / `polite`   | 5 s          |
+| `--warn`    | `status.warn`    | `alert` / `assertive` | never        |
+| `--danger`  | `status.danger`  | `alert` / `assertive` | never        |
 
 **Warn and danger stay until dismissed.** An auto-dismissing error is a
 failure the operator can miss by looking away for five seconds; a persistent
@@ -92,17 +92,37 @@ they answered. "Undo" in a toast is still an action on a timer racing its own
 dismissal and still belongs where the change is visible; a further consumer of
 the action row is a design decision to record here, not a styling choice.
 
-**The action row's second consumer (owner ruling 2026-09-23).** The app-update toast
-("SprintEngine Studio 0.6.0 is ready") carries **Later** (ghost) and **Restart
-to update** (primary), with the good tone's dot. The update has already
-downloaded in the background, so the one question left is when to restart, and
-it is asked where the person is working rather than behind a trip to Settings.
-Unlike the CLI-update toast it stays until answered: it appears once per
-downloaded version, and a restart prompt that times out while the person looks
-away is how an update ends up found by accident. Later is the dismissal, and
-loses nothing — the update installs at the next quit, and the bell row and the
-Settings version row still say it is ready. Once Restart is pressed the toast
-becomes the restart's report, as the CLI-update toast becomes its update's.
+**The action row's second consumer (owner ruling 2026-09-23, amended
+2026-09-24).** The app-update toast is one toast, shown again in place at each
+step of the update, so the corner always says where the update is:
+
+| Step        | Title                                                                      | Actions                                            |
+| ----------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
+| Found       | "SprintEngine Studio 0.7.0 is available" (accent dot)                      | **Later** (ghost), **Download** (primary)          |
+| Downloading | "Downloading SprintEngine Studio 0.7.0", the percentage as its description | none                                               |
+| Ready       | "SprintEngine Studio 0.7.0 is ready" (good dot)                            | **Later** (ghost), **Restart to update** (primary) |
+| Installing  | "Installing update"                                                        | **Restarting…**, busy                              |
+| Refused     | "Update not installed", and why (warn dot)                                 | **Later** (ghost), **Restart to update** (primary) |
+
+Nothing downloads until the person presses Download (2026-09-24), unless they
+turned automatic download on in Settings; then the Found and Downloading steps
+are skipped and the toast first appears at Ready. The question is asked where
+the person is working rather than behind a trip to Settings. Unlike the
+CLI-update toast it stays until answered: it appears once per version, and a
+prompt that times out while the person looks away is how an update ends up
+found by accident. Later is the dismissal, and loses nothing — a downloaded
+update installs at the next quit (except one that needs an administrator, which
+says so), and the bell row and the Settings version row still say it is ready.
+
+**The busy action (2026-09-24).** When Restart to update is pressed, the toast
+turns into the Installing step before the app does anything else, and its one
+button stays: disabled, `aria-busy`, with the [spinner](../spinner/component.md)
+beside its label. It is the answer to "did the press go through?" for the few
+seconds before the update's progress window takes over, and the one place in a
+toast a spinner may appear: the process it marks is live, named, and the one
+the person just started. At the start after an update the toast reports how it
+went — "Updated to SprintEngine Studio 0.7.0" (good) or "Update to 0.7.0 did
+not install" (warn, with the reason) — without buttons.
 These two are the only toasts in the system with buttons.
 
 **Dismissing an update is "not now" (owner ruling 2026-09-25).** Each outstanding
@@ -110,7 +130,10 @@ update also wears a count on the Settings gear and inside Settings (the
 [badge](../badge/component.md) entry, "In Settings"). Later, and the dismiss
 button on either update toast, are the person saying "not now" to that version,
 so they clear its badges; the toast's producer hears the press
-(`onDismissPressed` in the kit's store) and records the dismissal. The CLI
+(`onDismissPressed` in the kit's store) and records the dismissal. For the
+app update the dismissal names the step as well: waving off Found does not
+silence Ready when the download lands, which is news of its own; and closing
+the Downloading step only hides it, since the person asked for that download. The CLI
 toast's one-minute timer is **not** a dismissal — nobody pressed anything, and
 the badges stay until the update is installed or dismissed. Going to Settings
 from the toast is not one either: it is going to look.
@@ -131,11 +154,12 @@ would have chosen. A second consumer, or a second field, is a modal.
 
 ## States
 
-| State | Treatment |
-|---|---|
-| Entering | An 8px rise-and-fade at `motion.duration.normal` / `motion.ease.standard` — a *just-changed* motion composing the sanctioned pair, removed under reduced motion |
-| Resting | Static; no pulse, no progress ring counting down the dismissal |
-| Dismissed | Removed. No exit animation: leaving quietly is the whole job |
+| State       | Treatment                                                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entering    | An 8px rise-and-fade at `motion.duration.normal` / `motion.ease.standard` — a _just-changed_ motion composing the sanctioned pair, removed under reduced motion |
+| Resting     | Static; no pulse, no progress ring counting down the dismissal                                                                                                  |
+| Busy action | The app-update toast only: its pressed button disabled with a spinner while the work it started runs (above)                                                    |
+| Dismissed   | Removed. No exit animation: leaving quietly is the whole job                                                                                                    |
 
 ## Usage
 
@@ -204,13 +228,13 @@ None. Both entries that stood here were spent on 2026-08-05 (the menu-row sweep)
   flow advance the smaller target had.
 - The placement note pointed at the overlay-geometry sweep, which had already shipped.
 
-*2026-09-05:* the answer-in-place variant, above, was ruled and consumed in
+_2026-09-05:_ the answer-in-place variant, above, was ruled and consumed in
 the same breath — the remote epic's pair-request toast stopped pointing at the
 Remote glyph and started taking the code. Its `content` slot is one rendered
 body between the description and the action row; the shipped kit's store
 documents the same single-consumer rule the action row carries.
 
-*2026-09-04:* the corner region is consumed. The remote-sessions-ux epic's
+_2026-09-04:_ the corner region is consumed. The remote-sessions-ux epic's
 `toast-host-region` child shipped `.ds-toast-region`'s product counterpart —
 one bottom-trailing stack at `z.toast`, newest at the bottom, `space.sm`
 apart — and every producer (pair requests, remote-create failures, stranded

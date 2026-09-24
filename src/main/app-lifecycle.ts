@@ -16,6 +16,7 @@ import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
 import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
 import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
+import type { ShutdownLegReport } from './update-install-progress'
 import type { AgentPhaseListener } from '../shared/agent-runtime'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
@@ -430,7 +431,12 @@ export function registerAppLifecycle({
   //     process's end closes their stdin), telemetry's network send, and the
   //     module kernel's own shutdown.
   let shutdownRun: Promise<void> | null = null
-  const runShutdown = (): Promise<void> => {
+  // Who hears about each leg as it finishes: "Restart to update" passes one in,
+  // which drives the progress window and the diagnostics timings. Joined late
+  // (the shutdown already running), it still hears the legs that are left.
+  let shutdownObserver: ((leg: ShutdownLegReport) => void) | null = null
+  const runShutdown = (observer?: (leg: ShutdownLegReport) => void): Promise<void> => {
+    if (observer) shutdownObserver = observer
     if (shutdownRun) return shutdownRun
     // Drop the tray before the shutdown legs run: quit from the tray is the
     // same graceful path as any other quit (sidecar snapshots, gateway
@@ -444,45 +450,65 @@ export function registerAppLifecycle({
     stallMonitor.stop()
     releasePollerActivity?.()
     releasePollerActivity = null
-    // One failing leg must not cost the ones after it.
-    const leg = async (task: () => unknown): Promise<void> => {
-      try {
-        await task()
-      } catch {
-        // Best-effort by design: the process is leaving either way.
-      }
-    }
-    const shutdown = async () => {
+    const legs: Array<[name: string, task: () => unknown]> = [
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
-      await leg(() => moduleKernel?.runShutdownBegin())
-      if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
-      hostedFeedPoller?.stop()
-      await leg(() => automationService?.shutdown())
-      await leg(() => agentStateService?.shutdown())
-      await leg(() => workspaceSyncService?.flush())
-      await leg(() => conversationRuntime?.flushTranscripts?.())
-      await leg(() => terminalRuntime.shutdown())
+      ['modules (begin)', () => moduleKernel?.runShutdownBegin()],
+      [
+        'timers',
+        () => {
+          if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
+          hostedFeedPoller?.stop()
+        },
+      ],
+      ['automations', () => automationService?.shutdown()],
+      ['agent state', () => agentStateService?.shutdown()],
+      ['workspace registry', () => workspaceSyncService?.flush()],
+      ['chat transcripts', () => conversationRuntime?.flushTranscripts?.()],
+      ['terminals', () => terminalRuntime.shutdown()],
       // After the terminal service: the last frames it ingests can still file
       // a captured pull request, and this is what gets that write to disk and
       // stops the watch timers.
-      await leg(() => pullRequestRecord?.flush())
-      await leg(() => pullRequestRecord?.dispose())
-      await leg(() => conversationRuntime?.shutdown())
-      await leg(() => canvasService?.dispose())
-      await leg(() => workspaceSyncService?.flush())
+      ['pull requests (flush)', () => pullRequestRecord?.flush()],
+      ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
+      ['chats', () => conversationRuntime?.shutdown()],
+      ['canvas', () => canvasService?.dispose()],
+      ['workspace registry (final)', () => workspaceSyncService?.flush()],
       // Each WSL helper is told to shut down (it would also go on its own when
       // this process's end closes its stdin).
-      await leg(() => hostRegistry().dispose())
+      ['WSL helpers', () => hostRegistry().dispose()],
       // Last of the app-owned legs: every service above has had its chance to
       // record, and a network round trip must not sit in front of anything
       // that still has state to persist.
-      await leg(() => analytics?.shutdown())
+      ['telemetry', () => analytics?.shutdown()],
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars in reverse
       // registration order.
-      await leg(() => moduleKernel?.runShutdown())
+      ['modules', () => moduleKernel?.runShutdown()],
+    ]
+    const shutdown = async () => {
+      for (const [index, [name, task]] of legs.entries()) {
+        const started = Date.now()
+        let failed = false
+        // One failing leg must not cost the ones after it: best-effort by
+        // design, the process is leaving either way.
+        try {
+          await task()
+        } catch {
+          failed = true
+        }
+        try {
+          shutdownObserver?.({ name, done: index + 1, total: legs.length, durationMs: Date.now() - started, failed })
+        } catch {
+          // A progress report must not stop the shutdown.
+        }
+        // Back to the event loop between legs, so the window messages queued
+        // behind a leg's synchronous stretch are pumped before the next one:
+        // Windows marks a window "not responding" when its thread goes five
+        // seconds without them, and the progress window has to keep painting.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
     }
     shutdownRun = shutdown()
     return shutdownRun
@@ -505,8 +531,8 @@ export function registerAppLifecycle({
     })
   })
 
-  updateService.setPrepareForInstall(async () => {
-    const run = runShutdown()
+  updateService.setPrepareForInstall(async (report) => {
+    const run = runShutdown(report)
     let bounded: NodeJS.Timeout | undefined
     await Promise.race([
       run,
