@@ -2713,6 +2713,7 @@ test('automation', async () => {
           },
         })
       }
+      await store.flush()
       const path = join(dir, STUDIO_GATEWAY_AUDIT_FILENAME)
       assert.equal(existsSync(path), true)
       assert.equal(existsSync(`${path}.1`), true, 'bounded log rotates before unbounded growth')

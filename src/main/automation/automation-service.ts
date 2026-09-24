@@ -252,6 +252,9 @@ export function createAutomationService(options: AutomationServiceOptions) {
     fleet?.shutdown()
     await tailnet?.shutdown()
     await stopServer()
+    // After both transports have stopped, so no mutation can queue a record
+    // behind the close.
+    await audit?.close()
   }
 
   function warn(title: string, details: string): void {
