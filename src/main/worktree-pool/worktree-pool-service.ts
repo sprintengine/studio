@@ -1145,6 +1145,27 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       if (stopped) return
       if (!(await ready(pool))) return
       const current = await getSettings()
+      // A slot someone deleted from outside (a file manager, `git worktree
+      // remove` in a terminal) is forgotten, and git's record of it pruned.
+      // Only an idle or held slot: a leased one's absence is its owner's
+      // business, and is noticed when it comes back.
+      const gone: SlotRecord[] = []
+      for (const slot of pool.record.slots) {
+        if ((slot.state === 'warm' || slot.state === 'held') && !pool.busy.has(slot.id)) {
+          if (!(await pathExists(slot.path))) gone.push(slot)
+        }
+      }
+      if (gone.length > 0) {
+        // A held slot is locked, and git never prunes a locked worktree.
+        for (const slot of gone)
+          if (slot.state === 'held') await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+        await withWorktreeRegistryLock(pool.record.repoRoot, () => git(pool.record.repoRoot, ['worktree', 'prune']))
+        await withPool(pool, async () => {
+          pool.record.slots = pool.record.slots.filter((slot) => !gone.includes(slot))
+          await persist(pool)
+        })
+        for (const slot of gone) log(`${slot.path}: gone from disk; dropped from the pool`)
+      }
       // Returns that were interrupted, or postponed because a terminal was
       // still inside, try again.
       for (const slot of pool.record.slots.filter(

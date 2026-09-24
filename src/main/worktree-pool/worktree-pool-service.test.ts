@@ -751,6 +751,25 @@ test('the agent worktree cleanup never removes a pool slot, leased or not', asyn
   assert.equal(await exists(leased.path), true)
 })
 
+test('a slot deleted from outside is forgotten and pruned, never leased', async () => {
+  const harness = makeService()
+  await warmPool(harness, 2)
+  const [first, second] = (await snapshot(harness)).slots
+  await writeFile(join(second.path, 'wip.txt'), 'x\n')
+  await harness.settle() // holds nothing yet: warm slots are only re-read on use
+  await harness.service.action({ kind: 'refresh', repoRoot: repo, slotId: second.id })
+  await harness.settle()
+  assert.equal((await slotAt(harness, second.id)).state, 'held')
+  await harness.service.updateSettings({ warmTarget: 0 })
+  await rm(first.path, { recursive: true, force: true })
+  await rm(second.path, { recursive: true, force: true })
+  await harness.settle()
+  const pool = await snapshot(harness)
+  assert.equal(pool.slots.length, 0)
+  const list = await git(repo, 'worktree', 'list', '--porcelain')
+  assert.equal(list.includes(first.path) || list.includes(second.path), false)
+})
+
 test('evicting and idle rules never touch leased or held slots', async () => {
   let clock = Date.now()
   const harness = makeService({ now: () => clock })
