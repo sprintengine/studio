@@ -49,10 +49,12 @@ export function parseProcStat(text) {
   const ppid = Number(fields[1])
   const utime = Number(fields[11])
   const stime = Number(fields[12])
+  // Field 22, the start time in clock ticks since boot.
+  const started = fields[19] ?? ''
   if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isFinite(utime) || !Number.isFinite(stime)) {
     return null
   }
-  return { pid, ppid, ticks: utime + stime }
+  return { pid, ppid, ticks: utime + stime, started }
 }
 
 /** The socket inodes in LISTEN state (`0A`) in a /proc/net/tcp or tcp6 table. */
@@ -186,12 +188,17 @@ export function trustedPidDir(pidDir, uid) {
 export function sessionRoot({ procRoot, pidDir, key, rows }) {
   if (!pidDir || !PID_KEY.test(key)) return null
   const text = readText(join(pidDir, `${key}.pid`))
-  const pid = text === null ? NaN : Number(text.trim().split('\n')[0])
+  const [pidText, startedText] = (text ?? '').trim().split('\n')[0].split(/\s+/u)
+  const pid = Number(pidText)
   if (!Number.isInteger(pid) || pid <= 1) return null
   const row = rows.find((candidate) => candidate.pid === pid)
   if (!row) return null
-  // The pid is only trusted while its command line still names the startup
-  // script: a pid the kernel has since handed to something else is not ours.
+  // The pid is only trusted while it is still the same process: a pid the
+  // kernel has since handed to something else is not ours. The start time the
+  // script recorded says so, and survives the script's final `exec` of the
+  // terminal's shell. A pid file without one (written before the start time
+  // was recorded) falls back to the command line still naming the script.
+  if (startedText) return row.started === startedText ? pid : null
   const cmdline = readText(join(procRoot, String(pid), 'cmdline'))
   if (cmdline === null || !cmdline.includes(key)) return null
   return pid

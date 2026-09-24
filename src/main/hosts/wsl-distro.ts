@@ -300,5 +300,10 @@ export function wslSessionPidKey(startupScriptPath: string | undefined): string 
  */
 export function wslSessionPidFileCommand(key: string): string {
   const dir = WSL_SESSION_PID_DIR
-  return `(umask 077 && mkdir -p "${dir}" && printf '%s\\n' "$$" > "${dir}/${key}.pid") 2>/dev/null`
+  // The pid and its start time (field 22 of /proc/<pid>/stat, counted after
+  // the command name). The script's last line `exec`s the terminal's shell,
+  // which keeps the pid but replaces the command line, so the start time is
+  // what tells this shell from a later process that was handed the same pid.
+  const started = `$(sed 's/.*) //' /proc/$$/stat 2>/dev/null | cut -d' ' -f20)`
+  return `(umask 077 && mkdir -p "${dir}" && printf '%s %s\\n' "$$" "${started}" > "${dir}/${key}.pid") 2>/dev/null`
 }

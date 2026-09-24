@@ -27,6 +27,7 @@ export type WslPluginSources = {
 }
 
 export type WslPluginTokens = {
+  profile: string
   /** The pinned Linux Node. */
   nodeCommand: string
   /** The installed app directory in the distribution (`…/sprintengine-studio/<version>`). */
@@ -39,14 +40,26 @@ export type WslPluginTokens = {
 export type WslPluginCopy = {
   files: Array<{ path: string; b64: string }>
   digest: string
+  /** The helper's tree name for it. */
+  tree: string
   /** Where the copy lands in the distribution. */
   root: string
   pluginDirs: string[]
   statusLineScriptPath: string | null
 }
 
-/** The tree name the helper writes the copy under, inside the app directory. */
-export const WSL_PLUGIN_TREE = 'plugin'
+/**
+ * The tree the helper writes the copy under, inside the app directory. One per
+ * app profile: the copy has the profile's own socket and discovery directory
+ * substituted into it, and two profiles on one app version (a dev build beside
+ * another) must not overwrite each other's.
+ */
+export function wslPluginTree(profile: string): string {
+  return `plugin-${profile
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gu, '')
+    .slice(0, 32)}`
+}
 
 function posixJoin(...parts: string[]): string {
   return parts.join('/').replace(/\/+/gu, '/')
@@ -100,7 +113,8 @@ export async function buildWslPluginCopy(
   if (!sources.templateRoot || !sources.reporterSourcePath) return null
   const read = await readStudioPluginTemplate(sources.templateRoot)
   if (!read.ok) return null
-  const root = posixJoin(tokens.appDir, WSL_PLUGIN_TREE)
+  const tree = wslPluginTree(tokens.profile)
+  const root = posixJoin(tokens.appDir, tree)
   const staging = await mkdtemp(join(tmpdir(), 'sprintengine-wsl-plugin-'))
   try {
     const destination = join(staging, 'copy')
@@ -138,6 +152,7 @@ export async function buildWslPluginCopy(
     return {
       files: sorted.map(([path, data]) => ({ path, b64: data.toString('base64') })),
       digest: hash.digest('hex'),
+      tree,
       root,
       pluginDirs: launchPluginDirs(root).map(posixRel),
       statusLineScriptPath: statusLine ? posixJoin(root, posixRel(LAUNCH_STATUS_LINE_REL)) : null,

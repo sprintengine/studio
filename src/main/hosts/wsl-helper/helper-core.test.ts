@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import type { Server } from 'node:net'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
 
@@ -81,7 +82,7 @@ test('a line past the cap ends the decoder, with or without its newline', () => 
 
 test('stat fields are read after the last parenthesis, whatever the command name holds', () => {
   const line = '4242 (node (worker) x) S 4200 4242 4242 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 11 0 777 0 0'
-  assert.deepEqual(proc.parseProcStat(line), { pid: 4242, ppid: 4200, ticks: 300 })
+  assert.deepEqual(proc.parseProcStat(line), { pid: 4242, ppid: 4200, ticks: 300, started: '777' })
   assert.equal(proc.parseProcStat('garbage'), null)
 })
 
@@ -108,7 +109,10 @@ function fixtureProc(): { procRoot: string; pidDir: string } {
   const add = (pid: number, ppid: number, ticks: number, argv: string[], fds: string[] = []) => {
     const dir = join(procRoot, String(pid))
     mkdirSync(join(dir, 'fd'), { recursive: true })
-    writeFileSync(join(dir, 'stat'), `${pid} (${argv[0]}) S ${ppid} 1 1 0 -1 0 0 0 0 0 ${ticks} 0 0 0 20 0 1 0 1 0 0`)
+    writeFileSync(
+      join(dir, 'stat'),
+      `${pid} (${argv[0]}) S ${ppid} 1 1 0 -1 0 0 0 0 0 ${ticks} 0 0 0 20 0 1 0 ${pid * 10} 0 0`,
+    )
     writeFileSync(join(dir, 'cmdline'), `${argv.join('\0')}\0`)
     fds.forEach((link, index) => symlinkSync(link, join(dir, 'fd', String(index))))
   }
@@ -126,11 +130,34 @@ function fixtureProc(): { procRoot: string; pidDir: string } {
     'header\n   0: 0100007F:1435 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 51234 1\n',
   )
   writeFileSync(join(procRoot, 'net', 'tcp6'), 'header\n')
-  writeFileSync(join(pidDir, 'sid-a-1.pid'), '100\n')
-  writeFileSync(join(pidDir, 'sid-b-2.pid'), '200\n')
-  writeFileSync(join(pidDir, 'sid-c-3.pid'), '300\n')
+  // The startup script records the shell's pid and start time.
+  writeFileSync(join(pidDir, 'sid-a-1.pid'), '100 1000\n')
+  writeFileSync(join(pidDir, 'sid-b-2.pid'), '200 2000\n')
+  // This pid was handed to another process since: its start time differs.
+  writeFileSync(join(pidDir, 'sid-c-3.pid'), '300 1234\n')
+  // Written before start times were recorded: trusted by its command line.
+  writeFileSync(join(pidDir, 'sid-old-4.pid'), '200\n')
   return { procRoot, pidDir }
 }
+
+test("a session's shell is recognised by its start time after its script execs the terminal's shell", async () => {
+  const { procRoot, pidDir } = fixtureProc()
+  // The script's last line replaced the shell's command line.
+  writeFileSync(join(procRoot, '100', 'cmdline'), 'bash\0-li\0')
+  const verdicts = await proc.snapshot({
+    procRoot,
+    pidDir,
+    keys: ['sid-a-1', 'sid-old-4'],
+    sampleMs: 1,
+    uid: process.getuid?.(),
+  })
+  assert.equal(verdicts['sid-a-1'], 'listening_port')
+  assert.equal(
+    'sid-old-4' in verdicts,
+    false,
+    'an old pid file whose script is gone from the command line is not trusted',
+  )
+})
 
 test('a snapshot holds the session with a listening child, clears the quiet one, and leaves the rest undetermined', async () => {
   const { procRoot, pidDir } = fixtureProc()
@@ -307,4 +334,40 @@ test('a binary is found on the PATH the way the shell would, Linux directories f
   assert.equal(detect.resolveBinary('not-executable', { PATH: bin }), null)
   assert.equal(detect.resolveBinary(join(bin, 'claude'), { PATH: '' })?.path, join(bin, 'claude'))
   assert.equal(detect.resolveBinary('relative/claude', { PATH: bin }), null)
+})
+
+test('a helper shutting down never removes the socket a newer helper listens on at the same path', async () => {
+  const listen = sockets as unknown as {
+    listenPrivate(path: string, onConnection: () => void): Promise<Server>
+    closePrivate(server: Server, path: string): Promise<void>
+  }
+  // Short, for the socket path limit.
+  const base = mkdtempSync('/tmp/se-race-')
+  const dir = sockets.ensureSocketDir({ env: {}, uid: process.getuid?.() ?? 0, profile: 'race', base })
+  const path = join(dir, 'agent.sock')
+  const old = await listen.listenPrivate(path, () => undefined)
+  const fresh = await listen.listenPrivate(path, () => undefined)
+  await listen.closePrivate(old, path)
+  assert.equal(statSync(path).isSocket(), true, "the newer helper's socket is still there")
+  await listen.closePrivate(fresh, path)
+  assert.throws(() => statSync(path), 'and its own shutdown removes it')
+  rmSync(base, { recursive: true, force: true })
+})
+
+test('the login shell capture ends at its deadline, whatever its profile left running', async () => {
+  const shell = join(temp, 'slow-shell')
+  // A profile that starts something in its own session, holding the pipe.
+  writeFileSync(shell, '#!/bin/sh\n( trap "" HUP; sleep 30 ) &\nprintf "PATH=/x\\n"\nsleep 30\n', { mode: 0o755 })
+  const capture = loginEnv as unknown as {
+    captureLoginEnv(options: {
+      uid: number
+      shell: string
+      timeoutMs: number
+      baseEnv: Record<string, string>
+    }): Promise<Record<string, string>>
+  }
+  const started = Date.now()
+  const env = await capture.captureLoginEnv({ uid: 0, shell, timeoutMs: 500, baseEnv: { PATH: '/usr/bin' } })
+  assert.ok(Date.now() - started < 5_000, `settled in ${Date.now() - started} ms`)
+  assert.equal(env.PATH, '/usr/bin', 'no answer, so the helper keeps its own PATH')
 })

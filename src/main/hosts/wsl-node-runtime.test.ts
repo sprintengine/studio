@@ -74,3 +74,22 @@ test('no network is a named, fatal reason', async () => {
     /downloading Node\.js failed \(404 Not Found\)/u,
   )
 })
+
+test('a download that stalls is abandoned with a named reason', async () => {
+  await assert.rejects(
+    ensureWslNodeArchive(pinned(BODY), {
+      cacheDir: join(temp, 'stall'),
+      stallTimeoutMs: 100,
+      fetch: async (_url, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([1, 2, 3]))
+              init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason))
+            },
+          }),
+        ),
+    }),
+    /Node\.js download was interrupted .*stopped receiving data/u,
+  )
+})

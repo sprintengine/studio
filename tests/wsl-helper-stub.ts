@@ -7,6 +7,7 @@ import type { WslSetupError } from '../src/main/hosts/wsl-setup-error'
 
 export const STUB_HELPER_INFO: WslHelperInfo = {
   uid: 1000,
+  profile: 'abc123def456',
   home: '/home/dev',
   arch: 'x64',
   nodePath: '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node',

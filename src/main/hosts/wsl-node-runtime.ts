@@ -85,8 +85,14 @@ async function sha256OfFile(path: string): Promise<string | null> {
 export type NodeDownloadDeps = {
   /** Where verified archives are kept between runs (under userData). */
   cacheDir: string
-  fetch?: (url: string) => Promise<Response>
+  fetch?: (url: string, init?: { signal?: AbortSignal }) => Promise<Response>
+  /** The whole download, and the longest it may go without a byte. */
+  totalTimeoutMs?: number
+  stallTimeoutMs?: number
 }
+
+const DOWNLOAD_TIMEOUT_MS = 15 * 60_000
+const DOWNLOAD_STALL_MS = 60_000
 
 /**
  * The verified archive on this PC's disk, downloading it if it is not there
@@ -98,11 +104,25 @@ export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownlo
   if ((await sha256OfFile(target)) === pkg.sha256) return target
   await mkdir(deps.cacheDir, { recursive: true })
   const temp = `${target}.${randomBytes(4).toString('hex')}.part`
-  const doFetch = deps.fetch ?? ((url: string) => fetch(url))
+  const doFetch = deps.fetch ?? ((url: string, init?: { signal?: AbortSignal }) => fetch(url, init))
+  // A download that stalls must not hold every launch on this machine
+  // waiting: the whole thing has a deadline, and so does each silence.
+  const controller = new AbortController()
+  const total = setTimeout(
+    () => controller.abort(new Error('the download took too long')),
+    deps.totalTimeoutMs ?? DOWNLOAD_TIMEOUT_MS,
+  )
+  let stall: ReturnType<typeof setTimeout> | null = null
+  const stallMs = deps.stallTimeoutMs ?? DOWNLOAD_STALL_MS
+  const armStall = () => {
+    if (stall) clearTimeout(stall)
+    stall = setTimeout(() => controller.abort(new Error('the download stopped receiving data')), stallMs)
+  }
+  armStall()
   try {
     let response: Response
     try {
-      response = await doFetch(pkg.url)
+      response = await doFetch(pkg.url, { signal: controller.signal })
     } catch (error) {
       throw new WslSetupError(
         `Couldn't set up WSL: no network to download Node.js (${describe(error)}). WSL machines need it once, on first use.`,
@@ -117,7 +137,10 @@ export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownlo
     }
     const hash = createHash('sha256')
     const body = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>)
-    body.on('data', (chunk: Buffer) => hash.update(chunk))
+    body.on('data', (chunk: Buffer) => {
+      hash.update(chunk)
+      armStall()
+    })
     try {
       await pipeline(body, createWriteStream(temp))
     } catch (error) {
@@ -137,6 +160,8 @@ export async function ensureWslNodeArchive(pkg: WslNodePackage, deps: NodeDownlo
     await rename(temp, target)
     return target
   } finally {
+    clearTimeout(total)
+    if (stall) clearTimeout(stall)
     await rm(temp, { force: true }).catch(() => undefined)
   }
 }

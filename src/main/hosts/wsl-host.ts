@@ -36,7 +36,7 @@ import type {
 import { wslSessionPidKey, type WslDistro } from './wsl-distro'
 import type { WslHelperClient, WslHelperInfo } from './wsl-helper-client'
 import { createDefaultWslHelperClient, wslHelperEnvironment } from './wsl-helper-runtime'
-import { buildWslPluginCopy, WSL_PLUGIN_TREE, type WslPluginCopy } from './wsl-plugin-copy'
+import { buildWslPluginCopy, type WslPluginCopy } from './wsl-plugin-copy'
 
 /**
  * A git argument as Linux git reads it: a native absolute path (a worktree to
@@ -127,6 +127,7 @@ function defaultPluginCopy(info: WslHelperInfo): Promise<WslPluginCopy | null> {
   const env = wslHelperEnvironment()
   if (!env) return Promise.resolve(null)
   return buildWslPluginCopy(env.pluginSources(), {
+    profile: info.profile,
     nodeCommand: info.nodePath,
     appDir: info.appDir,
     userDataDir: info.userDataDir,
@@ -159,11 +160,11 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
     const copy = await buildPluginCopy(info).catch(() => null)
     if (!copy) return null
     const status = await helper.request<{ current: boolean }>('files.ensureTree', {
-      name: WSL_PLUGIN_TREE,
+      name: copy.tree,
       digest: copy.digest,
     })
     if (!status.current) {
-      await helper.request('files.ensureTree', { name: WSL_PLUGIN_TREE, digest: copy.digest, files: copy.files })
+      await helper.request('files.ensureTree', { name: copy.tree, digest: copy.digest, files: copy.files })
     }
     return copy
   }

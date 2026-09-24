@@ -314,6 +314,19 @@ test('a helper that dies is started again on the next need, after a backoff that
   await client.shutdown()
 })
 
+test('a helper that dies while sessions still run there is started again without being asked', async () => {
+  const h = harness([healthy()], { now: () => 5_000 })
+  const client = createWslHelperClient(h.deps)
+  await client.start()
+  client.retain('sid-1#1')
+  h.spawned[0].close(1)
+  await new Promise((resolve) => setTimeout(resolve, 1_300))
+  assert.equal(h.spawned.length, 2, 'restarted after the backoff, so live hooks find the sockets again')
+  assert.equal(client.state(), 'ready')
+  client.release('sid-1#1')
+  await client.shutdown()
+})
+
 test('an MCP channel reaches only the automation server, both ways, and closes with either end', async () => {
   const toServer: string[] = []
   const serverEnd = new PassThrough()

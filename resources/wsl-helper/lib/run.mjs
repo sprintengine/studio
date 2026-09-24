@@ -14,6 +14,15 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u
 
 const liveGroups = new Set()
 
+/** A process group the helper started some other way, ended on the way out too. */
+export function trackGroup(pid) {
+  if (pid) liveGroups.add(pid)
+}
+
+export function untrackGroup(pid) {
+  liveGroups.delete(pid)
+}
+
 /** Ends every process group still running. Called on the way out. */
 export function killAllChildren() {
   for (const pid of liveGroups) {
@@ -84,6 +93,7 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
             }
           }, timeoutMs)
     child.stdout.on('data', (chunk) => {
+      if (truncated) return
       if (outBytes + chunk.length > MAX_OUTPUT_BYTES) {
         truncated = true
         return
@@ -92,6 +102,7 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
       out.push(chunk)
     })
     child.stderr.on('data', (chunk) => {
+      if (truncated) return
       if (errBytes + chunk.length > MAX_OUTPUT_BYTES) {
         truncated = true
         return

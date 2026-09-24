@@ -15,6 +15,8 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
+import { trackGroup, untrackGroup } from './run.mjs'
+
 const EXACT = new Set([
   'PATH',
   'HOME',
@@ -102,6 +104,9 @@ export function loginShell(uid, passwd = () => readFileSync('/etc/passwd', 'utf8
   return '/bin/bash'
 }
 
+// Settles on the deadline whatever the shell does: something a profile
+// starts in a session of its own can hold the output pipe open long after
+// the shell itself is gone, and nothing may wait on that.
 function dump(shell, flags, timeoutMs) {
   return new Promise((resolve) => {
     let child
@@ -114,26 +119,34 @@ function dump(shell, flags, timeoutMs) {
       resolve(null)
       return
     }
+    trackGroup(child.pid)
     const chunks = []
     let size = 0
-    const timer = setTimeout(() => {
+    let settled = false
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      untrackGroup(child.pid)
       try {
         process.kill(-child.pid, 'SIGKILL')
       } catch {
         // Gone.
       }
-    }, timeoutMs)
+      child.stdout.destroy()
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(null), timeoutMs)
     child.stdout.on('data', (chunk) => {
       size += chunk.length
       if (size <= 4 * 1024 * 1024) chunks.push(chunk)
     })
-    child.on('error', () => {
-      clearTimeout(timer)
-      resolve(null)
-    })
-    child.on('close', () => {
-      clearTimeout(timer)
-      resolve(parseEnvDump(Buffer.concat(chunks)))
+    child.on('error', () => finish(null))
+    child.on('close', () => finish(parseEnvDump(Buffer.concat(chunks))))
+    // The shell exited but something it started still holds the pipe: what
+    // it printed is all there is.
+    child.on('exit', () => {
+      setTimeout(() => finish(parseEnvDump(Buffer.concat(chunks))), 1_000).unref()
     })
   })
 }

@@ -35,12 +35,13 @@ afterAll(() => {
 const PLUGIN_COPY: WslPluginCopy = {
   files: [{ path: 'sprintengine-studio/hooks/hooks.json', b64: '' }],
   digest: 'ab'.repeat(32),
-  root: `${STUB_HELPER_INFO.appDir}/plugin`,
+  tree: 'plugin-abc123def456',
+  root: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456`,
   pluginDirs: [
-    `${STUB_HELPER_INFO.appDir}/plugin/sprintengine-studio`,
-    `${STUB_HELPER_INFO.appDir}/plugin/studio-skills`,
+    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio`,
+    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/studio-skills`,
   ],
-  statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin/sprintengine-studio/hooks/status-line.mjs`,
+  statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio/hooks/status-line.mjs`,
 }
 
 function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin?: WslPluginCopy | null } = {}) {

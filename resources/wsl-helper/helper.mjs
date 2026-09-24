@@ -90,7 +90,12 @@ async function shutdown(code) {
   mux.closeAll()
   for (const socket of agentConnections) socket.destroy()
   await Promise.all(servers.map(({ server, path }) => closePrivate(server, path).catch(() => undefined)))
-  if (infoPath) rmSync(infoPath, { force: true })
+  // The discovery file too, unless a newer helper has written its own there.
+  try {
+    if (infoPath && JSON.parse(readFileSync(infoPath, 'utf8')).pid === process.pid) rmSync(infoPath, { force: true })
+  } catch {
+    // Gone or unreadable: nothing of ours to remove.
+  }
   process.exit(code)
 }
 
@@ -129,6 +134,7 @@ async function start(hello) {
   void loginEnv()
   return {
     uid,
+    profile,
     home: process.env.HOME || homedir(),
     arch: process.arch,
     nodePath: process.execPath,

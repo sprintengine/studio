@@ -300,7 +300,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     onPathsChanged: (distro) => invalidateCliAvailabilityOnHost(wslHostId(distro)),
     // Chromium's network stack, so the one-time Node.js download honours the
     // system proxy the way the rest of the app's requests do.
-    fetch: (url) => net.fetch(url),
+    fetch: (url, init) => net.fetch(url, init),
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', title: 'WSL helper', message, source: 'terminal' })
     },

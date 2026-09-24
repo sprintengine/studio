@@ -48,7 +48,7 @@ export type WslHelperEnvironment = {
   automationSocketPath: () => string
   ingestAgentStateLine: (line: string) => void
   onPathsChanged: (distro: string) => void
-  fetch?: (url: string) => Promise<Response>
+  fetch?: (url: string, init?: { signal?: AbortSignal }) => Promise<Response>
   log?: (message: string) => void
 }
 

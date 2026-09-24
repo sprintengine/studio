@@ -231,7 +231,8 @@ function launchSettingsForLaunch(
       scriptPath: integration.statusLineScriptPath,
       socketPath: integration.agentStateSocketPath,
       homeDir: integration.home.native,
-      env: {},
+      // The person's Linux CLAUDE_CONFIG_DIR, as this process opens it.
+      env: { ...integration.home.env },
       runtime: integration.commandRuntime,
     })
     return statusLine ? { statusLine } : undefined

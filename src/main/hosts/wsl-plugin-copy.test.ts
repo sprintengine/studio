@@ -28,6 +28,7 @@ test('the copy carries Linux paths throughout, and the same inputs give the same
     statusLineSourcePath: join(process.cwd(), 'resources', 'hooks', 'sprintengine-status-line.mjs'),
   }
   const tokens = {
+    profile: 'abc123def456',
     nodeCommand: NODE,
     appDir: APP,
     userDataDir: '/run/user/1000/sprintengine/abc123def456',
@@ -35,8 +36,11 @@ test('the copy carries Linux paths throughout, and the same inputs give the same
   }
   const copy = await buildWslPluginCopy(sources, tokens)
   assert.ok(copy)
-  assert.deepEqual(copy.pluginDirs, [`${APP}/plugin/sprintengine-studio`, `${APP}/plugin/studio-skills`])
-  assert.equal(copy.statusLineScriptPath, `${APP}/plugin/sprintengine-studio/hooks/status-line.mjs`)
+  assert.deepEqual(copy.pluginDirs, [
+    `${APP}/plugin-abc123def456/sprintengine-studio`,
+    `${APP}/plugin-abc123def456/studio-skills`,
+  ])
+  assert.equal(copy.statusLineScriptPath, `${APP}/plugin-abc123def456/sprintengine-studio/hooks/status-line.mjs`)
   const text = (path: string) =>
     Buffer.from(copy.files.find((file) => file.path === path)?.b64 ?? '', 'base64').toString('utf8')
   const mcp = JSON.parse(text('sprintengine-studio/.mcp.json')) as {
@@ -47,7 +51,10 @@ test('the copy carries Linux paths throughout, and the same inputs give the same
   assert.deepEqual(gateway.args, [`${APP}/automation/mcp-stdio-bridge.mjs`])
   assert.equal(gateway.env.SPRINTENGINE_USER_DATA_DIR, tokens.userDataDir)
   const hooks = text('sprintengine-studio/hooks/hooks.json')
-  assert.ok(hooks.includes(`'${NODE}' \\"${APP}/plugin/sprintengine-studio/hooks/agent-state.mjs\\"`), hooks)
+  assert.ok(
+    hooks.includes(`'${NODE}' \\"${APP}/plugin-abc123def456/sprintengine-studio/hooks/agent-state.mjs\\"`),
+    hooks,
+  )
   assert.ok(hooks.includes(tokens.agentStateSocketPath))
   assert.ok(!/node \\"/u.test(hooks), 'no hook runs a bare node')
   for (const file of copy.files) {
@@ -58,5 +65,8 @@ test('the copy carries Linux paths throughout, and the same inputs give the same
   assert.ok(copy.files.some((file) => file.path === 'sprintengine-studio/hooks/agent-state.mjs'))
   const again = await buildWslPluginCopy(sources, tokens)
   assert.equal(again?.digest, copy.digest)
+  assert.equal(copy.tree, 'plugin-abc123def456', 'each profile has a tree of its own')
+  const other = await buildWslPluginCopy(sources, { ...tokens, profile: 'fedcba987654' })
+  assert.equal(other?.tree, 'plugin-fedcba987654')
   assert.equal(await buildWslPluginCopy({ ...sources, templateRoot: null }, tokens), null)
 })

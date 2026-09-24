@@ -17,7 +17,7 @@
 // than used: the helper would otherwise listen where another user can replace
 // the socket under it.
 
-import { chmodSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 
@@ -67,12 +67,20 @@ export function ensureSocketDir({ env, uid, profile, base }) {
 
 /**
  * Listens on a Unix socket at `path`, readable and writable by this user only.
- * A stale socket file from a helper that died is removed first; the umask is
- * narrowed around `listen` so the socket is never briefly open to others.
+ * The umask is narrowed around `listen` so the socket is never briefly open to
+ * others.
+ *
+ * The socket is made under a name of its own and renamed into place, which
+ * atomically replaces a stale one from a helper that died. It also keeps two
+ * helpers' cleanups apart: a server's close unlinks the name it listened on
+ * (libuv does), which is the temporary one, long gone; and the real path is
+ * removed only while it is still this server's socket, so a helper shutting
+ * down never takes away the socket a newer one already listens on.
  */
 export async function listenPrivate(path, onConnection, options = {}) {
+  const temporary = `${path}.${process.pid}.tmp`
   try {
-    unlinkSync(path)
+    unlinkSync(temporary)
   } catch {
     // Not there, which is the usual case.
   }
@@ -81,7 +89,7 @@ export async function listenPrivate(path, onConnection, options = {}) {
   try {
     await new Promise((resolve, reject) => {
       server.once('error', reject)
-      server.listen(path, () => {
+      server.listen(temporary, () => {
         server.off('error', reject)
         resolve()
       })
@@ -89,16 +97,18 @@ export async function listenPrivate(path, onConnection, options = {}) {
   } finally {
     process.umask(previous)
   }
-  chmodSync(path, 0o600)
+  chmodSync(temporary, 0o600)
+  renameSync(temporary, path)
+  server.socketInode = statSync(path).ino
   return server
 }
 
-/** Closes a server and removes its socket file. */
+/** Closes a server and removes its socket file, while the file is still its own. */
 export async function closePrivate(server, path) {
-  await new Promise((resolve) => server.close(() => resolve()))
   try {
-    unlinkSync(path)
+    if (statSync(path).ino === server.socketInode) unlinkSync(path)
   } catch {
     // Already gone.
   }
+  await new Promise((resolve) => server.close(() => resolve()))
 }

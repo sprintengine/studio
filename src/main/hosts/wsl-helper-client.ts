@@ -41,6 +41,8 @@ export const WSL_HELPER_PROTOCOL = 1
 
 export type WslHelperInfo = {
   uid: number
+  /** The app profile this helper serves; its sockets and plugin copy are this profile's own. */
+  profile: string
   home: string
   arch: string
   nodePath: string
@@ -293,7 +295,8 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
     if (running !== entry) return
     running = null
     const wasIntentional = entry.intentional
-    state = 'stopped'
+    // A start already waiting on this exit keeps its own state.
+    if (state !== 'starting') state = 'stopped'
     clearIdle()
     for (const [id, item] of pending) {
       if (item.timer) clearTimeout(item.timer)
@@ -305,6 +308,15 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       crashes = now() - entry.startedAt > HEALTHY_RUN_MS ? 1 : crashes + 1
       lastCrashAt = now()
       log(`The WSL helper for ${deps.distro} exited on its own (${crashes} in a row).`)
+      // Sessions still run there, and their hooks and MCP bridges need the
+      // helper's sockets: start it again, after the backoff, rather than
+      // waiting for something to ask.
+      if (sessions.size > 0) {
+        const retry = setTimeout(() => {
+          if (sessions.size > 0 && state === 'stopped') void start().catch(() => undefined)
+        }, backoffMs(crashes))
+        retry.unref?.()
+      }
     }
   }
 
@@ -586,8 +598,11 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       return Promise.resolve(running.info)
     }
     if (starting) return starting
+    // A helper still shutting down is let go first: the new one listens on
+    // the same socket paths.
+    const leaving = state === 'stopping' ? running : null
     state = 'starting'
-    const attempt = startFresh()
+    const attempt = leaving ? leaving.exited.then(() => startFresh()) : startFresh()
     starting = attempt
     void attempt
       .catch(() => {
