@@ -603,11 +603,20 @@ export class ConversationRuntime {
       createdAt: this.now(),
     }
     this.trackStatefulSessionEvent(session, stamped)
-    // Listeners first: the chat on screen never waits for the disk. A delta is
-    // only buffered here; a boundary event is awaited, which writes the text
-    // run before it and keeps the transcript's order the emission order.
-    for (const listener of this.listeners) listener(stamped)
+    // A streamed delta goes to listeners at once and is only buffered for the
+    // disk: the chat on screen never waits on a write per token. A boundary
+    // event (tool, approval, turn end) is written first, together with the
+    // text run before it, and delivered after — so a listener that sees a turn
+    // end sees it on disk, and the caller that emitted it (which settles the
+    // session's state right after) is not overtaken by a listener's
+    // continuation while the write is in flight.
+    if (isStreamedDelta(stamped)) {
+      for (const listener of this.listeners) listener(stamped)
+      await this.persistEvent(session, stamped)
+      return stamped
+    }
     await this.persistEvent(session, stamped)
+    for (const listener of this.listeners) listener(stamped)
     return stamped
   }
 
@@ -898,4 +907,8 @@ function redactEvent(event: ConversationEvent): ConversationEvent {
       return value
     }),
   ) as ConversationEvent
+}
+
+function isStreamedDelta(event: ConversationEvent): boolean {
+  return event.type === 'content_delta' || event.type === 'reasoning_delta'
 }
