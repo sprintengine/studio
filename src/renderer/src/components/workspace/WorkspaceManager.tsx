@@ -33,7 +33,7 @@ import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   deriveWorkspaceWorkingSince,
-  getTerminalSessionsSignature,
+  type TerminalSessionsChange,
   reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
@@ -308,10 +308,6 @@ function newChatFolderLabel(path: string): string {
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
-// How long a window must stay hidden before its terminals stop being fed. A
-// glance at another app that covers the window costs nothing; the output that
-// arrives in those seconds waits in the views' queues and drains on return.
-const TERMINAL_HIDDEN_WINDOW_GRACE_MS = 10_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
@@ -611,7 +607,6 @@ export default function WorkspaceManager() {
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
-  const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reportedUserMessageRef = useRef<Map<string, number>>(new Map())
   const reportedTurnEndRef = useRef<Map<string, number>>(new Map())
@@ -1642,34 +1637,26 @@ export default function WorkspaceManager() {
     }
   }, [windowActiveWorkspaceId])
 
-  // Drive per-terminal paint visibility from the layer state and the window.
-  // In a visible window, active + warm layers are fed live, so flicking between
-  // the recently-used pool is instant; cold layers (mounted but beyond the warm
-  // set — the workspaces you forgot about) stop being fed. A window that has
-  // been hidden (minimized, covered, locked screen) for
-  // TERMINAL_HIDDEN_WINDOW_GRACE_MS stops feeding every layer: nobody can see
-  // any of it, and a throttled page may get no animation frames to paint with.
+  // Drive per-terminal paint visibility from what can actually be seen: the
+  // active layer of a window that is itself visible. Warm and cold layers are
+  // not fed — a warm layer is `visibility: hidden`, which xterm does not notice,
+  // so it used to parse and paint every byte its agents printed behind the
+  // active one. A hidden window (minimized, hidden, locked screen, or reported
+  // hidden by the page) feeds nothing at all, from the moment it is hidden.
   //
-  // Warm layers stay fed on purpose. Unfed, a switch back to one replays the
-  // retained window from a reset, and a replay is not free: measured on
-  // 2026-09-24, 20,000 lines of scrollback took 60–100 ms to stream back in,
-  // against 4–15 ms for a fed warm layer, and an agent session's retained window
-  // can be several times that size. Once reveal replays carry only what the
-  // view missed, an idle warm layer costs nothing to reveal and can stop being
-  // fed too.
+  // Both are cheap to undo because a reveal sends the pane only the bytes it
+  // missed, as live data, with no reset. That is also why there is no grace
+  // period before a hidden window stops being fed: a quick glance away costs a
+  // few KB on return, whereas a pane still marked visible is one main waits on
+  // for acknowledgements, and a hidden page may parse too rarely to give them —
+  // holding the agent's pty back. Marked hidden, the pane is never waited on and
+  // the agent runs at full speed while main keeps its output.
   //
-  // The agent PTY keeps running and is supervised either way: `visible` only
-  // gates whether main forwards output to the renderer's xterm. On reveal, main
-  // re-sends the retained replay and the terminal resyncs from a reset. Only
-  // sessions routed to THIS window are touched; a workspace lives in exactly
-  // one window, so windows never fight over a session's visibility.
-  const windowShowsTerminals = useWindowPageVisible(TERMINAL_HIDDEN_WINDOW_GRACE_MS)
+  // Only sessions routed to THIS window are touched; a workspace lives in
+  // exactly one window, so windows never fight over a session's visibility.
+  const windowShowsTerminals = useWindowPageVisible()
   useEffect(() => {
-    const paintingWorkspaceIds = new Set<string>()
-    if (windowShowsTerminals) {
-      for (const workspaceId of warmHiddenWorkspaceIdSet) paintingWorkspaceIds.add(workspaceId)
-      if (windowActiveWorkspaceId) paintingWorkspaceIds.add(windowActiveWorkspaceId)
-    }
+    const paintingWorkspaceId = windowShowsTerminals ? windowActiveWorkspaceId : null
 
     const applied = appliedTerminalVisibilityRef.current
     const liveSessionIds = new Set<string>()
@@ -1677,7 +1664,7 @@ export default function WorkspaceManager() {
       const workspaceId = session.workspaceId
       if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
       liveSessionIds.add(session.sessionId)
-      const shouldPaint = paintingWorkspaceIds.has(workspaceId)
+      const shouldPaint = workspaceId === paintingWorkspaceId
       if (applied.get(session.sessionId) === shouldPaint) continue
       applied.set(session.sessionId, shouldPaint)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
@@ -1687,7 +1674,7 @@ export default function WorkspaceManager() {
     for (const sessionId of [...applied.keys()]) {
       if (!liveSessionIds.has(sessionId)) applied.delete(sessionId)
     }
-  }, [terminalSessions, windowShowsTerminals, warmHiddenWorkspaceIdSet, windowActiveWorkspaceId, visibleWorkspaceIdSet])
+  }, [terminalSessions, windowShowsTerminals, windowActiveWorkspaceId, visibleWorkspaceIdSet])
 
   useEffect(() => {
     const now = Date.now()
@@ -1862,14 +1849,18 @@ export default function WorkspaceManager() {
   useEffect(() => {
     let disposed = false
 
-    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
+    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[], change: TerminalSessionsChange) => {
       if (disposed) return
+      // The per-session bookkeeping below only has to look at what changed:
+      // every one of these folds is a running maximum or an already-offered
+      // check, so a session that did not move has nothing new to say.
+      const changed = change.upserted
 
       // Persist "last typed" recency from lastInputAt, not lastOutputAt: opening a
       // workspace replays scrollback / triggers a TUI repaint, and counting that
       // output made every reopened workspace jump to "now". Only genuine input moves it.
       const lastInputByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastInputAt !== 'number') continue
         const current = lastInputByWorkspace.get(session.workspaceId)
@@ -1891,7 +1882,7 @@ export default function WorkspaceManager() {
       // and a message answers "did the person say something here", which is
       // the event they mean when they expect a chat to move.
       const userMessageByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         const at = session.lastPrompt?.at
         if (typeof at !== 'number') continue
@@ -1911,7 +1902,7 @@ export default function WorkspaceManager() {
       // each session carries, so a parked chat still knows when its agent
       // stopped after the session is gone (owner, 2026-09-05).
       const turnEndByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastTurnEndedAt !== 'number') continue
         const current = turnEndByWorkspace.get(session.workspaceId)
@@ -1934,7 +1925,7 @@ export default function WorkspaceManager() {
       // prompt that yields no usable title (an app-injected skill drop, pure
       // filler), leaving the next prompt to try. So this only has to avoid
       // re-offering a prompt it already offered.
-      for (const session of sessions) {
+      for (const session of changed) {
         const prompt = session.lastPrompt
         if (!prompt || typeof session.workspaceId !== 'string') continue
         const offered = titledPromptAtRef.current.get(session.sessionId)
@@ -1984,9 +1975,9 @@ export default function WorkspaceManager() {
         useWorkspaceStore.getState().removeAgent(retired.workspaceId, retired.agentId)
       }
 
-      const signature = getTerminalSessionsSignature(sessions)
-      if (signature === terminalSessionsSignatureRef.current) return
-      terminalSessionsSignatureRef.current = signature
+      // The store has already signed every session it applied; nothing rendered
+      // moved unless it says so.
+      if (!change.semanticChanged) return
       setTerminalSessions(sessions)
     }
 
@@ -3998,7 +3989,7 @@ export default function WorkspaceManager() {
   // Pause = freeze-the-view suspend: kill the agent PTY to free memory but keep
   // the painted scrollback and the resume flags, so reopening relaunches the CLI
   // with --resume. Unlike stopSession we do NOT reset launch flags or prune the
-  // session — the suspend broadcast (terminal:sessions-changed) flips it to
+  // session — the suspend broadcast (terminal:sessions-delta) flips it to
   // suspended (processAlive=false), which drops it out of the working-sessions
   // list on its own.
   const pauseSession = (item: SessionItem) => {

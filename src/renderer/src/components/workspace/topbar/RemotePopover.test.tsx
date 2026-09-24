@@ -106,7 +106,7 @@ test('RemotePopover', async () => {
     // The driven-terminal line reads the terminal-session store, which seeds
     // itself from these two.
     terminalList: () => Promise.resolve(bridge.terminalSessions),
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
   }
 
   let failures = 0

@@ -156,14 +156,16 @@ export function createMainWindow({
       // hidden" guard in the renderer was dead and the ambient animations kept
       // compositing frames nobody could see.
       //
-      // Terminal liveness is now kept a different way. When the page goes hidden
-      // the window reports its terminals hidden to main (WorkspaceManager, via the
-      // same `terminalSetVisible` a cold workspace layer uses), and main stops
-      // forwarding their output and keeps it in each session's retained replay.
-      // Main is not throttled, so nothing is lost; when the page is visible again
-      // the window reports them visible and main re-sends the replay, which the
-      // view applies from a reset. The agents themselves never depended on the
-      // renderer: their ptys, hooks, attention and scheduling all live in main.
+      // Terminal liveness is now kept a different way. When the window is hidden
+      // (the page says so, or main does: `sendWindowHidden`) it reports its
+      // terminals hidden to main (WorkspaceManager, via the same
+      // `terminalSetVisible` a layer switch uses), and main stops forwarding their
+      // output and keeps it in each session's retained stream. Main is not
+      // throttled and a hidden pane is never waited on for acknowledgements, so
+      // the agent keeps its full speed and nothing is lost; when the window is
+      // visible again it reports them visible and main sends each pane only the
+      // bytes it missed. The agents themselves never depended on the renderer:
+      // their ptys, hooks, attention and scheduling all live in main.
       // The browser pane's <webview> guest is its own page with its own
       // throttling, and is unaffected either way.
       backgroundThrottling: true,

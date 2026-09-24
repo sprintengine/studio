@@ -23,6 +23,7 @@ import {
   type TerminalShellMarkTracker,
 } from '../../utils/terminalShellMarks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
+import { createSessionAckReporter } from '../../utils/terminalOutputAck'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
@@ -94,6 +95,12 @@ export default function PlainTerminalPanel({
     return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
   const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name)
+  // Read by the effect below only to label a diagnostic, so it goes through a
+  // ref: as a dependency, renaming the workspace tore the terminal down and
+  // rebuilt it — a fresh xterm and a full replay of the shell's history — for a
+  // label nobody sees until something fails.
+  const workspaceNameRef = useRef(workspaceName)
+  workspaceNameRef.current = workspaceName
 
   useEffect(() => {
     const container = containerRef.current
@@ -321,8 +328,13 @@ export default function PlainTerminalPanel({
       term.refresh(0, Math.max(0, term.rows - 1))
     })
     let reportedTerminalFailure = false
+    // Flow control: tell main what this pane has parsed, so a burst the pane
+    // cannot keep up with pauses the pty instead of queueing ahead of the
+    // person's own keystroke echo.
+    const ackReporter = createSessionAckReporter(sessionId)
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onConsumed: ackReporter.ack,
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
@@ -363,7 +375,7 @@ export default function PlainTerminalPanel({
           message: `Terminal exited with code ${code}.`,
           details: `Session: ${sessionId}`,
           workspaceId,
-          workspaceName,
+          workspaceName: workspaceNameRef.current,
           sessionId,
         })
       }
@@ -379,7 +391,7 @@ export default function PlainTerminalPanel({
         message,
         details: `Session: ${sessionId}`,
         workspaceId,
-        workspaceName,
+        workspaceName: workspaceNameRef.current,
         sessionId,
       })
     })
@@ -489,7 +501,7 @@ export default function PlainTerminalPanel({
                   .filter(Boolean)
                   .join('\n'),
                 workspaceId,
-                workspaceName,
+                workspaceName: workspaceNameRef.current,
                 sessionId,
               })
             }
@@ -505,7 +517,7 @@ export default function PlainTerminalPanel({
               message: error instanceof Error ? error.message : 'Failed to start terminal.',
               details: `Session: ${sessionId}`,
               workspaceId,
-              workspaceName,
+              workspaceName: workspaceNameRef.current,
               sessionId,
             })
           })
@@ -539,6 +551,7 @@ export default function PlainTerminalPanel({
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
+      ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
       studioTerminalRef.current = null
       // Last: it unbinds the theme and disposes the terminal itself, so nothing
@@ -564,7 +577,6 @@ export default function PlainTerminalPanel({
     shouldKillOnUnmount,
     terminalId,
     workspaceId,
-    workspaceName,
     workspaceWorktreeGitRoot,
   ])
 

@@ -4,6 +4,7 @@ import type {
   CliRuntimeSettings,
   ElectronApi,
   TerminalSessionSnapshot,
+  TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
 } from '../../shared/electron-api'
@@ -98,12 +99,13 @@ export const terminalApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void): (() => void) => {
-    const ch = 'terminal:sessions-changed'
-    const handler = (_: IpcRendererEvent, sessions: TerminalSessionSnapshot[]) => cb(sessions)
+  onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void): (() => void) => {
+    const ch = 'terminal:sessions-delta'
+    const handler = (_: IpcRendererEvent, delta: TerminalSessionsDelta) => cb(delta)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  terminalAck: (sessionId: string, units: number): void => ipcRenderer.send('terminal:ack', { sessionId, units }),
 } satisfies Pick<
   ElectronApi,
   | 'terminalSpawn'
@@ -123,5 +125,6 @@ export const terminalApi = {
   | 'onTerminalData'
   | 'onTerminalExit'
   | 'onTerminalError'
-  | 'onTerminalSessionsChanged'
+  | 'onTerminalSessionsDelta'
+  | 'terminalAck'
 >

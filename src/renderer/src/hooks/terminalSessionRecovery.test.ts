@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import type { TerminalSessionSnapshot } from '../../../shared/electron-api'
+import type { TerminalSessionSnapshot, TerminalSessionsDelta } from '../../../shared/electron-api'
 import { TERMINAL_SESSION_RECOVERY_POLL_MS, startTerminalSessionRecovery } from './terminalSessionRecovery'
 import { createTerminalSessionsStore } from './terminalSessionsStore'
 
@@ -98,10 +98,10 @@ test('the store reconciles against what the pushes delivered', async () => {
       reapExempt: false,
     }) as unknown as TerminalSessionSnapshot
   let mainList: TerminalSessionSnapshot[] = [session('a')]
-  let push: ((sessions: TerminalSessionSnapshot[]) => void) | null = null
+  let push: ((delta: TerminalSessionsDelta) => void) | null = null
   const store = createTerminalSessionsStore(() => ({
     terminalList: async () => mainList,
-    onTerminalSessionsChanged: (cb) => {
+    onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void) => {
       push = cb
       return () => {
         push = null
@@ -113,7 +113,7 @@ test('the store reconciles against what the pushes delivered', async () => {
   assert.equal(await store.reconcile(), 'in-sync')
 
   mainList = [session('a'), session('b')]
-  push!(mainList)
+  push!({ upserts: [session('b')] as unknown as TerminalSessionsDelta['upserts'], removed: [] })
   assert.equal(await store.reconcile(), 'in-sync', 'the push delivered it')
 
   mainList = [session('a'), session('b'), session('c')]
