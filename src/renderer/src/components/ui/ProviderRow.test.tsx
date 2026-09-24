@@ -612,8 +612,8 @@ test('ProviderRow', async () => {
       assert.ok(name, 'the name renders')
       assert.match(
         name?.className ?? '',
-        /text-\[color:var\(--text-default\)\]/,
-        'a recessed name drops one ink step, the way the sidebar recedes an inactive conversation',
+        /text-\[color:var\(--text-muted\)\]/,
+        'a recessed name drops to the muted ink, the lowest that still clears AA in both modes',
       )
       const mark = host.querySelector('span.relative.mt-px') as HTMLElement | null
       assert.match(mark?.className ?? '', /opacity-60/, 'and the mark, being an image, recedes by opacity')
@@ -679,7 +679,11 @@ test('ProviderRow', async () => {
     // Host wiring a mounted row cannot observe
     // ---------------------------------------------------------------------------
     const repoRoot = process.cwd()
-    const settings = readFileSync(join(repoRoot, 'src/renderer/src/components/settings/SettingsPanel.tsx'), 'utf8')
+    // Settings → Agents is the panel (its band) and the list it renders, which
+    // is a file of its own since the list became one machine's at a time.
+    const settings = ['SettingsPanel.tsx', 'AgentClisSection.tsx']
+      .map((file) => readFileSync(join(repoRoot, 'src/renderer/src/components/settings', file), 'utf8'))
+      .join('\n')
     const onboarding = readFileSync(
       join(repoRoot, 'src/renderer/src/components/onboarding/FirstRunCliCard.tsx'),
       'utf8',

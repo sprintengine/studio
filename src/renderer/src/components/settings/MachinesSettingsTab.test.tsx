@@ -65,8 +65,8 @@ afterEach(async () => {
   host.remove()
 })
 
-async function render(): Promise<void> {
-  await act(async () => root.render(<MachinesSettingsTab />))
+async function render(onShowAgentClis?: (id: string) => void): Promise<void> {
+  await act(async () => root.render(<MachinesSettingsTab onShowAgentClis={onShowAgentClis} />))
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
 }
 
@@ -84,6 +84,40 @@ test('turning a distribution on writes its settings whole', async () => {
   expect(toggle).toBeTruthy()
   await act(async () => toggle!.click())
   expect(writes).toEqual([['wsl:Ubuntu', { enabled: true, cliCommands: {}, env: {} }]])
+})
+
+test('each machine that is on opens its agent CLIs on the Agents tab', async () => {
+  const shown: string[] = []
+  fixtures.state.appSettings.hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: {}, env: {} } }
+  await render((id) => shown.push(id))
+  const links = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).filter(
+    (button) => button.textContent === 'Agent CLIs on this machine',
+  )
+  expect(links.map((link) => link.getAttribute('aria-label'))).toEqual([
+    'Agent CLIs on this machine, This PC (Windows)',
+    'Agent CLIs on this machine, WSL: Ubuntu',
+  ])
+  await act(async () => links[1].click())
+  await act(async () => links[0].click())
+  expect(shown).toEqual(['wsl:Ubuntu', 'local'])
+})
+
+test('a distribution that is off offers no link: the Agents tab does not list it', async () => {
+  await render(() => {})
+  const labels = Array.from(host.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'))
+  expect(labels).toContain('Agent CLIs on this machine, This PC (Windows)')
+  expect(labels).not.toContain('Agent CLIs on this machine, WSL: Ubuntu')
+})
+
+test('the machine detail holds the machine, and no list of CLIs', async () => {
+  fixtures.state.pluginCatalogEntries = [{ id: 'codex', displayName: 'Codex', binary: 'codex', source: 'bundled' }]
+  await render()
+  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  await act(async () => disclosure!.click())
+  expect(host.querySelector('textarea[aria-label="WSL: Ubuntu environment"]')).toBeTruthy()
+  expect(host.querySelector('input[aria-label="WSL: Ubuntu shell"]')).toBeTruthy()
+  expect(host.textContent).not.toContain('Codex')
+  expect(host.textContent).not.toContain('Command override')
 })
 
 test('WSL that did not answer says so', async () => {

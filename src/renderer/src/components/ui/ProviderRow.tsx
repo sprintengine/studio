@@ -56,9 +56,10 @@ export type ProviderRowProps = {
    *  count of 0, renders nothing. */
   badge?: MarkBadge | null
   /**
-   * The provider is not present on this machine. Drops the mark and the name a
-   * contrast step, the way the sidebar recedes a conversation that is not the
-   * active one, so a scan down the list lands on what IS here. It is not a
+   * The provider is not present on this machine. Drops the mark by opacity and
+   * the name to `--text-muted` (the state line's own ink, and the lowest that
+   * still clears AA here in both modes), so a scan down the list lands on what
+   * IS here. It is not a
    * disabled state and never the only carrier of the fact: the state line still
    * says "Not installed — no `muse` on PATH", and every control on the row keeps
    * working (an Install button on a recessed row is the whole point).
@@ -253,7 +254,7 @@ export function ProviderRow({
               sentence of version output. */}
           <span
             className={`min-w-0 truncate text-body font-semibold ${
-              recessed ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-strong)]'
+              recessed ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-strong)]'
             }`}
           >
             {name}

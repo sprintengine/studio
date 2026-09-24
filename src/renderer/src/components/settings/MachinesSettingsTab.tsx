@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   emptyExecutionHostSettings,
+  LOCAL_HOST_ID,
   type ExecutionHostId,
   type ExecutionHostSettings,
   type ExecutionHostSummary,
@@ -9,10 +10,7 @@ import {
 import { useExecutionHosts } from '../../hooks/useExecutionHosts'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { WslMachineGlyph } from '../AppIcons'
-import CliIcon from '../CliIcon'
-import { GhostButton, InlineNotice, Input, ProviderRow, ProviderStateId, Textarea } from '../ui'
-import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { CliInstallControl } from './CliInstallControl'
+import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Textarea } from '../ui'
 import { SettingCard, SettingsPageHeader, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 
 const ROW_FIELD = 'w-60 max-w-full font-mono'
@@ -60,17 +58,23 @@ export function machineStateWords(host: ExecutionHostSummary): string {
  * decides what new chats are offered.
  *
  * Each distribution keeps its own settings, because it is its own machine:
- * the commands its CLIs run as, the environment every launch there exports,
- * and the shell a plain terminal opens. These replace the per-CLI "run through
- * WSL" switch the Agents tab used to carry.
+ * the environment every launch there exports and the shell a plain terminal
+ * opens. Its agent CLIs — which are installed, the command each runs as, and
+ * installing one — are on the Agents tab with this machine picked there, which
+ * each row's "Agent CLIs on this machine" opens (owner ruling 2026-09-24): one
+ * list of CLIs with a machine switcher, rather than a second list here that
+ * never said how it differed from the first.
  */
-export function MachinesSettingsTab(): React.JSX.Element {
+export function MachinesSettingsTab({
+  onShowAgentClis,
+}: {
+  /** Open Settings ▸ Agents with this machine picked. */
+  onShowAgentClis?: (id: ExecutionHostId) => void
+} = {}): React.JSX.Element {
   const { listing, refresh } = useExecutionHosts({ all: true, refreshOnMount: true })
   const [refreshing, setRefreshing] = useState(false)
   const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
   const setHostSettings = useWorkspaceStore((s) => s.setHostSettings)
-  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const clis = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
   const [expanded, setExpanded] = useState<ExecutionHostId | null>(null)
 
   const wslHosts = (listing?.hosts ?? []).filter((host) => host.kind === 'wsl')
@@ -109,7 +113,8 @@ export function MachinesSettingsTab(): React.JSX.Element {
             surface="card"
             icon={<span aria-hidden="true" className="size-icon-lg" />}
             name="This PC (Windows)"
-            stateLine="Always available. Its CLI commands are set on the Agents tab."
+            stateLine="Always available."
+            actions={<AgentClisLink hostId={LOCAL_HOST_ID} label="This PC (Windows)" onShow={onShowAgentClis} />}
           />
           {wslHosts.map((host) => {
             const own = settingsOf(host.id)
@@ -128,8 +133,13 @@ export function MachinesSettingsTab(): React.JSX.Element {
                 onEnabledChange={(enabled) => write(host.id, { enabled })}
                 expanded={isOpen}
                 onExpandedChange={(next) => setExpanded(next ? host.id : null)}
+                // Only a machine that is on is one the Agents tab offers, so
+                // only its row can open it there.
+                actions={
+                  own.enabled ? <AgentClisLink hostId={host.id} label={host.label} onShow={onShowAgentClis} /> : null
+                }
               >
-                <MachineDetail host={host} settings={own} clis={clis} onChange={(patch) => write(host.id, patch)} />
+                <MachineDetail host={host} settings={own} onChange={(patch) => write(host.id, patch)} />
               </ProviderRow>
             )
           })}
@@ -148,15 +158,33 @@ export function MachinesSettingsTab(): React.JSX.Element {
 // writes: long enough not to send main a patch per character.
 const ENV_COMMIT_DELAY_MS = 600
 
+function AgentClisLink({
+  hostId,
+  label,
+  onShow,
+}: {
+  hostId: ExecutionHostId
+  label: string
+  onShow?: (id: ExecutionHostId) => void
+}): React.JSX.Element | null {
+  if (!onShow) return null
+  // The visible words lead the accessible name, so a person who says what they
+  // see reaches it by voice; the machine follows, so a list of these is not a
+  // list of identical buttons.
+  return (
+    <OutlineButton size="xs" aria-label={`Agent CLIs on this machine, ${label}`} onClick={() => onShow(hostId)}>
+      Agent CLIs on this machine
+    </OutlineButton>
+  )
+}
+
 function MachineDetail({
   host,
   settings,
-  clis,
   onChange,
 }: {
   host: ExecutionHostSummary
   settings: ExecutionHostSettings
-  clis: ReturnType<typeof orderInstalledPlugins>
   onChange: (patch: Partial<ExecutionHostSettings>) => void
 }): React.JSX.Element {
   // The environment is edited as text and parsed only when it is written, so
@@ -226,63 +254,6 @@ function MachineDetail({
           />
         </SettingsRow>
       </div>
-
-      <section className="space-y-2">
-        <SettingsSectionTitle count={clis.length}>Agent CLIs on {host.label}</SettingsSectionTitle>
-        <div className="divide-y divide-[color:var(--border-subtle)]">
-          {clis.map((plugin) => {
-            const command = settings.cliCommands[plugin.id] ?? ''
-            return (
-              <div key={plugin.id} className="space-y-2 py-3">
-                <div className="flex items-center gap-2">
-                  <CliIcon cli={plugin.id} className="size-icon-md text-[color:var(--text-default)]" />
-                  <span className="text-body font-medium text-[color:var(--text-strong)]">{plugin.displayName}</span>
-                </div>
-                <CliInstallControl
-                  cli={plugin.id}
-                  displayName={plugin.displayName}
-                  binary={plugin.binary}
-                  command={command}
-                  hostId={host.id}
-                  showName={false}
-                  onInstalled={(result) => {
-                    if (result.resolvedPath && !command) {
-                      onChange({ cliCommands: { ...settings.cliCommands, [plugin.id]: result.resolvedPath } })
-                    }
-                  }}
-                />
-                <SettingsRow
-                  label="Command override"
-                  help={
-                    <>
-                      Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> in{' '}
-                      {host.label} when blank.
-                    </>
-                  }
-                  htmlFor={`machine-cli-${host.id}-${plugin.id}`}
-                >
-                  <Input
-                    id={`machine-cli-${host.id}-${plugin.id}`}
-                    aria-label={`${plugin.displayName} command override on ${host.label}`}
-                    value={command}
-                    onChange={(event) => {
-                      const next = { ...settings.cliCommands }
-                      if (event.target.value) next[plugin.id] = event.target.value
-                      else delete next[plugin.id]
-                      onChange({ cliCommands: next })
-                    }}
-                    placeholder={plugin.binary}
-                    size="md"
-                    variant="well"
-                    fullWidth={false}
-                    className={ROW_FIELD}
-                  />
-                </SettingsRow>
-              </div>
-            )
-          })}
-        </div>
-      </section>
     </div>
   )
 }
