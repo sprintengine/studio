@@ -52,6 +52,9 @@ const READ_SUBCOMMANDS = new Set([
   'ls-files',
   'ls-tree',
   'merge-base',
+  // `--write-tree` stores the merged tree's objects and nothing else: no ref,
+  // no index, no working tree moves, so it is a read for every purpose here.
+  'merge-tree',
   'name-rev',
   'rev-list',
   'rev-parse',

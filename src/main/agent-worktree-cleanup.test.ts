@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, test } from 'vitest'
 
 import { cleanupAgentWorktrees } from './agent-worktree-cleanup'
+import { runGitCommand } from './git-run'
 
 const execFileAsync = promisify(execFile)
 const env = {
@@ -141,6 +142,64 @@ test('only clean agent worktrees whose work is on the default branch are removed
   assert.equal(await exists(untouched), false)
   for (const kept of [unmerged, dirty, inUse, live, locked, manual]) assert.ok(await exists(kept), `${kept} is kept`)
   assert.match(await git(repo, 'branch', '--list', 'agent/merged'), /agent\/merged/, 'the branch itself is kept')
+})
+
+/** A branch whose two commits reach origin/main as ONE squash commit. */
+async function squashMerged(slug: string, extra?: string): Promise<string> {
+  const path = await addWorktree(slug)
+  await writeFile(join(path, `${slug}-1.txt`), 'one\n')
+  await git(path, 'add', '.')
+  await git(path, 'commit', '-q', '-m', 'one')
+  await writeFile(join(path, `${slug}-2.txt`), 'two\n')
+  await git(path, 'add', '.')
+  await git(path, 'commit', '-q', '-m', 'two')
+  // Squash onto origin/main from a scratch clone, as a PR merge would.
+  const merger = join(scratch, `merger-${slug}`)
+  await git(scratch, 'clone', '-q', join(scratch, 'origin.git'), merger)
+  await git(merger, 'fetch', '-q', path, `agent/${slug}`)
+  await git(merger, 'merge', '-q', '--squash', 'FETCH_HEAD')
+  await git(merger, 'commit', '-q', '-m', `squash ${slug}`)
+  await git(merger, 'push', '-q', 'origin', 'HEAD:main')
+  await git(repo, 'fetch', '-q')
+  if (extra) {
+    // Work the squash did not carry: committed on the branch afterwards.
+    await writeFile(join(path, extra), 'not merged\n')
+    await git(path, 'add', '.')
+    await git(path, 'commit', '-q', '-m', 'after the merge')
+  }
+  return path
+}
+
+test('a squash-merged branch is removable; one carrying more work is kept', async () => {
+  const squashed = await squashMerged('squashed')
+  const moreWork = await squashMerged('more-work', 'late.txt')
+
+  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {} })
+  const byName = Object.fromEntries(report.entries.map((entry) => [entry.path.split('/').pop(), entry]))
+  assert.equal(byName.squashed?.verdict, 'removed', 'its changes are already on origin/main')
+  assert.match(byName.squashed?.detail ?? '', /squash-merged/)
+  assert.equal(await exists(squashed), false)
+  assert.equal(byName['more-work']?.verdict, 'unmerged', 'a commit the squash did not carry keeps it')
+  assert.ok(await exists(moreWork))
+  assert.match(await git(repo, 'branch', '--list', 'agent/squashed'), /agent\/squashed/, 'the branch is kept')
+})
+
+test('a git without merge-tree --write-tree falls back to the ancestry rule', async () => {
+  const squashed = await squashMerged('old-git')
+  const report = await cleanupAgentWorktrees(
+    { repoRoot: repo, protectedPaths: [] },
+    {
+      log: () => {},
+      // What git < 2.38 says to the flag: a usage error, never a tree.
+      runGit: async (cwd, args) =>
+        args[0] === 'merge-tree'
+          ? { ok: false, stdout: '', stderr: "error: unknown option `write-tree'", message: 'usage: git merge-tree' }
+          : runGitCommand(cwd, args),
+    },
+  )
+  const entry = report.entries.find((candidate) => candidate.path === squashed)
+  assert.equal(entry?.verdict, 'unmerged', 'an unsupported test is not "merged"')
+  assert.ok(await exists(squashed))
 })
 
 test('with no default branch to compare against, nothing is removed', async () => {

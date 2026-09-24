@@ -31,12 +31,14 @@ import { resolveRepoRoot } from './git-worktree-validation'
  *    reported and left for `worktree prune`, which the person runs; a locked
  *    one is locked on purpose.
  * 4. **It is clean.** `git status` reports nothing, untracked files included.
- * 5. **Its work is on the default branch.** Its HEAD has no commit that the
- *    remote's default branch (`origin/HEAD`, else `origin/main` or
- *    `origin/master`; with no remote, the local `main` or `master`) lacks. A
- *    branch that never got a commit has none by definition. A branch that was
- *    squash-merged still counts as unmerged — its commits are not on the trunk
- *    by hash — and is kept and reported for the person to remove.
+ * 5. **Its work is on the default branch** (`origin/HEAD`, else `origin/main`
+ *    or `origin/master`; with no remote, the local `main` or `master`). Either
+ *    its HEAD has no commit the default branch lacks (a branch that never got
+ *    a commit has none by definition), or — for a squash-merged branch, whose
+ *    commits are not on the trunk by hash — merging it into the default
+ *    branch would produce the default branch's own tree, so its changes are
+ *    already there (`changesAlreadyIn`). On a git too old for that test the
+ *    ancestry rule alone decides, and a squash-merged branch is kept.
  *
  * The removal itself is `git worktree remove` WITHOUT `--force`, so git checks
  * cleanliness again at the moment of removal: anything written between the
@@ -77,6 +79,36 @@ async function resolveDefaultRef(
     if (verified.ok && verified.stdout.trim()) return candidate
   }
   return null
+}
+
+/**
+ * Whether merging `head` into `defaultRef` would change nothing — that is,
+ * every change on the branch is already on the default branch, however it got
+ * there (a squash merge, a rebase-and-merge, a cherry-pick).
+ *
+ * `git merge-tree --write-tree` performs the merge in memory and prints the
+ * resulting tree without touching a ref, the index or a working tree. If that
+ * tree is the default branch's own tree, removing the worktree loses nothing
+ * the default branch does not already hold.
+ *
+ * Anything short of a clean answer is "not merged": a conflict (exit 1), an
+ * unreadable result, or a git older than 2.38 that does not know
+ * `--write-tree` (it fails with a usage error). The caller then keeps the
+ * ancestry rule's verdict, which only ever keeps more.
+ */
+export async function changesAlreadyIn(
+  cwd: string,
+  defaultRef: string,
+  head: string,
+  runGit: NonNullable<AgentWorktreeCleanupDeps['runGit']>,
+): Promise<boolean> {
+  const merged = await runGit(cwd, ['merge-tree', '--write-tree', defaultRef, head])
+  if (!merged.ok) return false
+  const mergedTree = merged.stdout.split(/\r?\n/)[0]?.trim() ?? ''
+  if (!/^[0-9a-f]{40,64}$/i.test(mergedTree)) return false
+  const defaultTree = await runGit(cwd, ['rev-parse', '--verify', '--quiet', `${defaultRef}^{tree}`])
+  if (!defaultTree.ok) return false
+  return defaultTree.stdout.trim() === mergedTree
 }
 
 export async function cleanupAgentWorktrees(
@@ -165,19 +197,23 @@ export async function cleanupAgentWorktrees(
       record({ ...base, verdict: 'error', detail: unique.message ?? 'could not count commits' })
       continue
     }
-    if (uniqueCommits > 0) {
+    // Commits the default branch lacks by hash may still be there by content:
+    // a squash merge lands the same changes as one new commit.
+    const mergedByContent = uniqueCommits > 0 && (await changesAlreadyIn(worktree.path, defaultRef, head, runGit))
+    if (uniqueCommits > 0 && !mergedByContent) {
       record({ ...base, verdict: 'unmerged', uniqueCommits })
       continue
     }
+    const how = mergedByContent ? 'changes already on the default branch (squash-merged)' : undefined
     if (dryRun) {
-      record({ ...base, verdict: 'removed' })
+      record({ ...base, verdict: 'removed', detail: how })
       continue
     }
     // No --force: git re-checks cleanliness itself at the moment of removal.
     const removed = await runGit(root, ['worktree', 'remove', worktree.path])
     record(
       removed.ok
-        ? { ...base, verdict: 'removed' }
+        ? { ...base, verdict: 'removed', detail: how }
         : { ...base, verdict: 'error', detail: removed.message ?? 'git worktree remove failed' },
     )
   }
