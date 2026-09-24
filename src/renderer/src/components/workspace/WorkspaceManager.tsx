@@ -1453,21 +1453,34 @@ export default function WorkspaceManager() {
   // the bell where Copy message gives it back. The toast is button-free; the
   // row is where the message lives.
   useEffect(() => {
-    if (typeof window.api?.onTerminalPromptUndelivered !== 'function') return
-    return window.api.onTerminalPromptUndelivered((event) => {
-      const store = useWorkspaceStore.getState()
-      const notice = undeliveredPromptNotice(
-        event,
-        (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
-      )
-      const workspaceName = event.workspaceId
-        ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
-        : undefined
-      useNotificationStore
-        .getState()
-        .addNotification({ ...undeliveredPromptEntry(event, notice), ...(workspaceName ? { workspaceName } : {}) })
-      showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
-    })
+    const api = window.api
+    if (typeof api?.onTerminalPromptUndelivered !== 'function') return
+    if (typeof api.terminalTakeUndeliveredPrompts !== 'function') return
+    const take = (): void => {
+      void api
+        .terminalTakeUndeliveredPrompts()
+        .then((events) => {
+          const store = useWorkspaceStore.getState()
+          for (const event of events) {
+            const notice = undeliveredPromptNotice(
+              event,
+              (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
+            )
+            const workspaceName = event.workspaceId
+              ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
+              : undefined
+            useNotificationStore.getState().addNotification({
+              ...undeliveredPromptEntry(event, notice),
+              ...(workspaceName ? { workspaceName } : {}),
+            })
+            showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
+          }
+        })
+        .catch(() => {})
+    }
+    // Anything that went undelivered while no window was open.
+    take()
+    return api.onTerminalPromptUndelivered(take)
   }, [])
 
   // Model discovery: main pushes a CLI's catalog whenever a probe answers (the

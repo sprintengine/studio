@@ -14,7 +14,10 @@
   `promptInjection.overflow` may carry `env`, set only on a launch whose first
   message is typed in; a `send-after-ready` manifest's overflow must be `input`.
   A manifest whose `output-match` pattern was a never-matching placeholder now
-  never types its message and hands it back instead.
+  never types its message and hands it back instead. `readiness` is validated
+  and used whatever the mode: on a `positional-arg` manifest it governs the
+  typed delivery of a first message too long for the command line, and an
+  invalid one now rejects the manifest instead of being ignored.
 
 - **The app's previous name is gone from every contract.** This is a
   **breaking change**, with no aliases kept:

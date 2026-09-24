@@ -1874,18 +1874,26 @@ export function buildNativeAgentLaunchPowerShellScript(
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
     ...powerShellTypedPromptEnvLines(plan.typedPromptEnv),
     ...buildNativeWindowsInvocation(args),
+    ...powerShellClearTypedPromptEnvLines(plan.typedPromptEnv),
     ...(plan.promptDelivery.kind === 'input' ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
 
 // The environment a launch whose first message is typed in adds (see
 // `PlannedAgentLaunch.typedPromptEnv`), set for the CLI the script is about to
-// start. PowerShell has no per-command assignment, so it stays set in the
-// session the script leaves behind; nothing there reads it.
+// start. PowerShell has no per-command assignment, so it is removed again once
+// the CLI returns: the session the script leaves behind must not run the same
+// CLI by hand with its update check silently off.
 function powerShellTypedPromptEnvLines(env: Record<string, string> | undefined): string[] {
-  return Object.entries(env ?? {})
-    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-    .map(([name, value]) => `$env:${name} = ${quotePowerShell(value)}`)
+  return typedPromptEnvEntries(env).map(([name, value]) => `$env:${name} = ${quotePowerShell(value)}`)
+}
+
+function powerShellClearTypedPromptEnvLines(env: Record<string, string> | undefined): string[] {
+  return typedPromptEnvEntries(env).map(([name]) => `Remove-Item Env:${name} -ErrorAction SilentlyContinue`)
+}
+
+function typedPromptEnvEntries(env: Record<string, string> | undefined): Array<[string, string]> {
+  return Object.entries(env ?? {}).filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
 }
 
 // Exported for launch regression coverage. The legacy name is retained for
@@ -1961,6 +1969,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     `}`,
     ...powerShellTypedPromptEnvLines(typedPromptEnv),
     ...invoke,
+    ...powerShellClearTypedPromptEnvLines(typedPromptEnv),
     ...(typedPrompt ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }

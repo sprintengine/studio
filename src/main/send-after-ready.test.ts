@@ -206,8 +206,9 @@ test('a native Windows Kimi Code launch does the same in its PowerShell script',
   assert.deepEqual(delivery, { kind: 'input', text: PROMPT })
   assert.ok(!script.includes('expected 2'))
   const envAt = script.indexOf("$env:KIMI_CODE_NO_AUTO_UPDATE = '1'")
+  const clearAt = script.indexOf('Remove-Item Env:KIMI_CODE_NO_AUTO_UPDATE')
   const sentinelAt = script.indexOf(CLI_EXITED)
-  assert.ok(envAt > 0 && sentinelAt > envAt, script)
+  assert.ok(envAt > 0 && clearAt > envAt && sentinelAt > clearAt, script)
 
   const resumed = buildNativeAgentLaunchPowerShellScript('kimi-code', 'sid', true, 'C:\\Users\\dev\\repo', PROMPT, {
     command: '',

@@ -4956,23 +4956,55 @@ test('terminal-runtime', async () => {
       await settle(1_000)
       assert.equal(pty.writes.length, 0, 'nothing is typed into the shell the CLI left behind')
 
-      const handedBack = mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered')
-      assert.deepEqual(
-        handedBack.map((event) => event.payload),
-        [
-          {
-            sessionId: 'session-kimi-exits',
-            workspaceId: 'ws-kimi',
-            agentId: 'agent-kimi-exits',
-            agentName: 'Iris',
-            cli: 'kimi-code',
-            text: 'Refactor the parser',
-            reason: 'exited',
-          },
-        ],
-      )
+      const nudges = mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered')
+      assert.equal(nudges.length, 1, 'the window is told there is something to take')
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [
+        {
+          sessionId: 'session-kimi-exits',
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-exits',
+          agentName: 'Iris',
+          cli: 'kimi-code',
+          text: 'Refactor the parser',
+          reason: 'exited',
+        },
+      ])
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [], 'taken once, by one window')
       assert.equal(logged.length, 1)
       assert.ok(!logged[0]?.includes('Refactor the parser'), 'the log records that it happened, not the text')
+
+      // With no window open (an automation, background mode) it waits in main
+      // for the next window, and what comes back is what the person wrote, not
+      // the Debug Mode directive the launch would have typed with it.
+      mockPty.spawnCalls = []
+      mockSender.sent = []
+      await withNoWindows(async () => {
+        const headless = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+          sessionId: 'session-kimi-headless',
+          cols: 120,
+          rows: 30,
+          cwd: workspaceRoot,
+          cli: 'kimi-code',
+          initialPrompt: 'Write the release notes',
+          debugMode: true,
+          kind: 'agent',
+          shellOnly: false,
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-headless',
+          visible: false,
+          mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+        })
+        assert.equal(headless.ok, true, JSON.stringify(headless))
+        const headlessPty = mockPty.spawnCalls[0]?.process
+        assert.ok(headlessPty)
+        headlessPty.emitData('\x1b]6973;sprintengine-cli-exited\x07')
+      })
+      assert.equal(mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered').length, 0)
+      const queued = runtime.ipcHandlers.takeUndeliveredPrompts()
+      assert.deepEqual(
+        queued.map((event) => [event.sessionId, event.text, event.reason]),
+        [['session-kimi-headless', 'Write the release notes', 'exited']],
+      )
     } finally {
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })

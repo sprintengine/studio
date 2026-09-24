@@ -22,7 +22,7 @@
     "supported": false
   },
   "promptInjection": {
-    "$comment": "Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), so the first message is typed in once the TUI is reading: when it turns bracketed paste on and output has gone quiet, the signal Claude Code, Codex and Cursor were verified against, with the message sent anyway after timeoutMs. Not verified against Muse itself: it was not installed on the machine this was written on (2026-09-24), so neither its help nor whether a startup dialog precedes the composer could be checked. If one does, this needs an output-match readiness like Kimi Code's.",
+    "$comment": "Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), so the first message is typed in once the TUI is reading: when it turns bracketed paste on and output has gone quiet, the signal Claude Code, Codex and Cursor were verified against, with the message sent anyway after timeoutMs. Not verified against Muse itself: it was not installed on the machine this was written on (2026-09-24), so neither its help nor whether a startup dialog precedes the composer could be checked. If one does, this needs an output-match readiness like Kimi Code's before Muse can run as an agent at all; today it cannot, because it declares no agentStateSpec and the launch refuses it.",
     "mode": "send-after-ready",
     "readiness": {
       "type": "bracketed-paste",
