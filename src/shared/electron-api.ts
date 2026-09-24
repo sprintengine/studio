@@ -9,12 +9,7 @@ import type {
   AgentLaunchSettingsSnapshot,
   AgentLaunchSettingsWriteAck,
 } from './launch-settings'
-export type {
-  ConversationPeek,
-  ConversationPeekAttachment,
-  ConversationPeekMessage,
-  ConversationPeekSource,
-} from './conversation-peek'
+export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -1203,12 +1198,11 @@ export type ElectronApi = {
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
-  // The conversation peek: what has actually been said in a chat the person is
-  // hovering rather than looking at — the first message, everything since, and
-  // what they attached to the first. `source` says which of the three shapes the
-  // answer is in (the CLI's transcript, the prompts seen since launch, or
-  // neither), because the card is required to say so rather than look broken.
-  // See `shared/conversation-peek.ts`.
+  // The conversation peek: what has been said in a chat the person is hovering
+  // rather than looking at — the first message and everything since, from the
+  // prompts this app captured. `source` says whether there is an answer, a
+  // runtime that reports nothing, or no record at all, because the card is
+  // required to say so rather than look broken. See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
@@ -1228,11 +1222,6 @@ export type ElectronApi = {
   listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
   /** Which conversations' lists moved; the ids only, never the lists. */
   onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
-  // Open an attachment the peek just handed out: an image goes to the OS image
-  // viewer, a file is revealed in the file manager. Takes the attachment's id,
-  // never a path — main resolves it against the peek it produced, so a renderer
-  // cannot name a file of its own.
-  openConversationPeekAttachment: (sessionId: string, attachmentId: string) => Promise<void>
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).

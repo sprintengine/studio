@@ -13,7 +13,7 @@ import type {
 import { parseSkillFrontmatter } from '../shared/skills'
 import { skillsDirFromTemplate } from '../shared/harness-map'
 import { parseCodexConfigTables } from './mcp-config-readers/codex'
-import { resolveClaudeConfigDir } from './conversation-peek/locate'
+import { resolveClaudeConfigDir } from './claude-config-dir'
 
 type Root = { path: string; scope: InstalledSkill['scope']; origin: string; managed?: boolean }
 /** `path.win32` or `path.posix`: the helpers below take either, so tests can speak Windows. */

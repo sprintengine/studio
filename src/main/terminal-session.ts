@@ -95,22 +95,20 @@ export type TerminalSession = {
   // I working on here?") and names a new chat after its first real prompt.
   // Absent for plain terminals, for hookless CLIs, and until the first prompt.
   lastPrompt?: SessionPrompt
-  // Every prompt this session has been sent since it launched, oldest first and
-  // bounded (see rememberSessionPrompt). This is the conversation peek's LIVE
-  // fallback: Codex, Grok and Kimi Code report `UserPromptSubmit` but hand us no
-  // transcript, so without this the card for one of them could only ever show
-  // the single most recent thing said.
+  // The prompts this chat has been sent, oldest first and bounded (see
+  // rememberSessionPrompt). This is the conversation peek's only source: the
+  // peek never reads a CLI's own transcript (owner ruling 2026-09-24).
   //
-  // Persisted with the snapshot sidecar, and nowhere else — never the workspace
-  // registry, never a log. That reverses the original decision to keep prompts
-  // out of every file the app writes (the app that writes none cannot leak
-  // any), and the reason is that the alternative was worse: a Codex chat is a
-  // runtime with no transcript we can read, so on the far side of a restart the
-  // card for one could only say it had no messages — about a chat whose own
-  // title was its first prompt. The sidecar is the narrowest home for them: one
-  // file per parked chat under userData, mode 0600, deleted on dispose and
-  // swept at 30 days, holding a painted screen that already shows this text.
+  // Written to disk in two places, both under userData and mode 0600: the
+  // snapshot sidecar, beside a painted screen that already shows this text, and
+  // for an agent the agent prompt store (agent-prompt-store.ts), which outlives
+  // the sidecar's 30-day sweep so a chat still in the sidebar keeps its card.
+  // Never the workspace registry, never a log.
   peekPrompts?: SessionPrompt[]
+  // Set once this session's prompts have been reconciled with its agent's
+  // stored list (terminal-runtime.ts, reinflateSessionPrompts), and settled
+  // when that is done. Never persisted.
+  peekPromptsReinflated?: Promise<void>
   // Whether the retained replay has ever had its head cut off — a chunk evicted
   // past the byte budget, or an oversized chunk trimmed. Sticky, because
   // compaction renumbers the chunk list and `outputChunkStart` goes back to 0
@@ -118,11 +116,6 @@ export type TerminalSession = {
   // {@link materializeTerminalReplay}: an untouched buffer starts where the CLI
   // started and must be replayed byte for byte.
   replayTruncated?: boolean
-  // The CLI's own transcript, as its turn-end hook last reported it. Retained so
-  // the conversation peek can read the whole history on a hover instead of only
-  // what this app happened to watch go by. UNTRUSTED — a path chosen by the hook
-  // reporter — so containment belongs to the reader (conversation-peek/transcript.ts).
-  transcriptPath?: string
   // When the agent's last turn ended (hook-reported Stop). Stamped in
   // ingestAgentStateFrame, carried across resume and through the snapshot
   // sidecar; never overwritten by suspend/exit. See the snapshot field.
@@ -453,7 +446,7 @@ type SuspendedPlaceholderSessionInput = {
   // full it was.
   contextUsage?: SessionContextUsage
   // The prompts the sidecar persisted, oldest first, so the conversation peek
-  // for a transcript-less runtime survives the restart along with the screen.
+  // for a parked chat survives the restart along with the screen.
   peekPrompts?: SessionPrompt[]
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be

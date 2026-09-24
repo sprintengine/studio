@@ -157,7 +157,7 @@ test('conversationPeekRow', async () => {
     assert.deepEqual(
       chat([], { a1: agent({ cliHasLaunched: false, cliLastExitedAt: null }) }),
       [],
-      'no transcript and no sidecar by construction — main would answer "none" and the card would ' +
+      'no prompts and no sidecar by construction — main would answer "none" and the card would ' +
         'then call a Claude chat a runtime that cannot report',
     )
   })
