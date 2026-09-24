@@ -5,7 +5,12 @@ import { resolveSkillInvocation } from '../shared/skill-invocation'
 
 import { getPluginById } from './plugin-registry-instance'
 import { launchArgvExceedsBudget, measureLaunchArgv, type LaunchArgBudget } from './launch-arg-budget'
-import { renderPluginContextArgs, renderPluginLaunch, renderPluginResume } from './plugin-render'
+import {
+  renderPluginContextArgs,
+  renderPluginLaunch,
+  renderPluginResume,
+  renderPluginTypedPromptEnv,
+} from './plugin-render'
 
 export function pluginIdForCli(cli: AgentCli): string {
   return cli
@@ -118,11 +123,12 @@ export type AgentLaunchRenderInput = {
   // that never fills and nothing in the terminal to say so. Absent renders the
   // document the theme alone would have.
   launchSettings?: Record<string, unknown>
-  // Set by `planAgentLaunch` when the prompt is too long for the command line:
-  // the prompt leaves argv and the manifest's `promptInjection.overflow` args
-  // render in its place. `input` renders no prompt at all (it is typed in once
-  // the CLI is up); `file` renders a one-line note naming `promptFile`. Nothing
-  // else sets it, so every other launch renders the argv it always did.
+  // Set by `planAgentLaunch` when the prompt is too long for the command line,
+  // or is typed in because the manifest is `send-after-ready`: the prompt leaves
+  // argv and the manifest's `promptInjection.overflow` args render in its place.
+  // `input` renders no prompt at all (it is typed in once the CLI is up); `file`
+  // renders a one-line note naming `promptFile`. Nothing else sets it, so every
+  // other launch renders the argv it always did.
   promptOverflow?: { mode: 'input' } | { mode: 'file'; promptFile: string }
 }
 
@@ -266,6 +272,11 @@ function renderWithPlugin(
 // 3. If the launch is still over, the context is cut to what room is left; and
 //    if that is not enough either, the launch goes as rendered and says so in
 //    the log. A launch that fits is never changed, context included.
+//
+// A `send-after-ready` manifest never puts the prompt on the command line: its
+// CLI documents no way to take a first message there, so every new launch that
+// carries one types it in, whatever its length. A resume never does — the
+// conversation being resumed already had its first message.
 
 export type AgentPromptDelivery =
   /** On the command line, where `{{prompt}}` put it — or there is no prompt. */
@@ -277,6 +288,11 @@ export type AgentPromptDelivery =
 
 export type PlannedAgentLaunch = RenderedAgentLaunch & {
   promptDelivery: AgentPromptDelivery
+  /**
+   * Environment the launch adds because its first message is typed in (the
+   * manifest's `promptInjection.overflow.env`). Absent for every other launch.
+   */
+  typedPromptEnv?: Record<string, string>
   /** Set when the host-context document was cut to fit: characters kept of the whole. */
   contextTruncated?: { shown: number; total: number }
   /** True when nothing more could be moved and the launch is still over budget. */
@@ -378,10 +394,20 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   }
   if (originalContext && !contextFits(working)) cutContext(contextFits)
 
-  // 2. The prompt, when the launch does not fit with it on the command line.
-  let rendered = render(working)
+  // 2. The prompt: typed in by a `send-after-ready` manifest, or moved off the
+  //    command line when the launch does not fit with it there.
   let promptDelivery: AgentPromptDelivery = { kind: 'argv' }
-  if (overBudget(rendered.argv) && prompt && promptRendersIntoArgv(working, plugin, rendered.argv)) {
+  if (typesFirstMessage(plugin, input, prompt)) {
+    working = { ...working, promptOverflow: { mode: 'input' } }
+    promptDelivery = { kind: 'input', text: prompt }
+  }
+  let rendered = render(working)
+  if (
+    promptDelivery.kind === 'argv' &&
+    overBudget(rendered.argv) &&
+    prompt &&
+    promptRendersIntoArgv(working, plugin, rendered.argv)
+  ) {
     const overflow = plugin.manifest.promptInjection?.overflow ?? { mode: 'input' as const }
     if (overflow.mode === 'file') {
       // A CLI that takes an overflowed message from a file has no line editor
@@ -421,6 +447,11 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
     })
   }
 
+  const typedPromptEnv =
+    promptDelivery.kind === 'input'
+      ? renderPluginTypedPromptEnv(plugin.manifest, buildLaunchRenderContext(working, plugin, undefined).context)
+      : {}
+
   const stillOver = overBudget(rendered.argv)
   if (stillOver) {
     const measured = measureLaunchArgv(rendered.argv, budget)
@@ -438,15 +469,30 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   return {
     ...rendered,
     promptDelivery,
+    ...(Object.keys(typedPromptEnv).length > 0 ? { typedPromptEnv } : {}),
     ...(contextTruncated ? { contextTruncated } : {}),
     ...(stillOver ? { overBudget: true } : {}),
   }
 }
 
 /**
- * Whether this manifest puts the prompt on the command line at all. A CLI that
- * takes its first message some other way (a `send-after-ready` manifest renders
- * no `{{prompt}}`) gains nothing from moving it, and must not be handed a
+ * Whether this launch types its first message in because the manifest takes it
+ * no other way (`send-after-ready`). Only a new launch with something to say: a
+ * resume must never send the first message a second time, and a message of
+ * nothing but whitespace has nothing to type.
+ */
+function typesFirstMessage(
+  plugin: LoadedPlugin,
+  input: AgentLaunchRenderInput,
+  prompt: string | undefined,
+): prompt is string {
+  return plugin.manifest.promptInjection?.mode === 'send-after-ready' && !input.resume && Boolean(prompt?.trim())
+}
+
+/**
+ * Whether this manifest puts the prompt on the command line at all. A launch
+ * that never carries it there (a resumed session whose manifest renders no
+ * `{{prompt}}` on resume) gains nothing from moving it, and must not be handed a
  * prompt to type in that its own launch never carried.
  */
 function promptRendersIntoArgv(input: AgentLaunchRenderInput, plugin: LoadedPlugin, argv: string[]): boolean {
@@ -538,6 +584,8 @@ export function renderAgentLaunchPreview(
   return { binary, args, display: argvToPosixShellCommand(argv) }
 }
 
+const POSIX_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 // Exit status the launch script reports when its agent binary is not there —
 // the shell's own "command not found", matching AGENT_CLI_NOT_FOUND_EXIT.
 const AGENT_BINARY_NOT_FOUND_EXIT = 127
@@ -570,9 +618,18 @@ export function planAgentShellCommand(
   return { command: agentShellCommandFor(input, plan), plan }
 }
 
-function agentShellCommandFor(input: AgentLaunchRenderInput, rendered: RenderedAgentLaunch): string {
+function agentShellCommandFor(
+  input: AgentLaunchRenderInput,
+  rendered: RenderedAgentLaunch & Pick<PlannedAgentLaunch, 'typedPromptEnv'>,
+): string {
   const { argv, binary, plugin } = rendered
-  const shellCommand = argvToPosixShellCommand(argv)
+  // Assignments in front of the command set them for the CLI alone, not for the
+  // shell the startup script leaves behind.
+  const envPrefix = Object.entries(rendered.typedPromptEnv ?? {})
+    .filter(([name]) => POSIX_ENV_NAME.test(name))
+    .map(([name, value]) => `${name}=${quotePosixForced(value)} `)
+    .join('')
+  const shellCommand = `${envPrefix}${argvToPosixShellCommand(argv)}`
   const displayName = plugin.manifest.displayName
   const shortName = displayName.split(/\s+/)[0] || displayName
   const message = `${shortName} CLI was not found. Check the ${input.cli} command in Settings.`

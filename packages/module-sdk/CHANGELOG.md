@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **`send-after-ready` is implemented, and `CliReadinessSignal` says what
+  "ready" means.** A CLI plugin whose `promptInjection.mode` is
+  `send-after-ready` now has its first message typed in (one bracketed paste,
+  one Enter) on a new launch; a resume never sends it again. Its `readiness` is
+  one of `{ type: 'bracketed-paste', timeoutMs }` (the line editor turned
+  bracketed paste on; sent anyway at the deadline) or
+  `{ type: 'output-match', pattern, timeoutMs }` (the CLI printed `pattern`;
+  nothing is typed at the deadline, and the person is handed the message back).
+  `pattern` must now compile as a regular expression. An `input`
+  `promptInjection.overflow` may carry `env`, set only on a launch whose first
+  message is typed in; a `send-after-ready` manifest's overflow must be `input`.
+  A manifest whose `output-match` pattern was a never-matching placeholder now
+  never types its message and hands it back instead. `readiness` is validated
+  and used whatever the mode: on a `positional-arg` manifest it governs the
+  typed delivery of a first message too long for the command line, and an
+  invalid one now rejects the manifest instead of being ignored.
+
 - **The app's previous name is gone from every contract.** This is a
   **breaking change**, with no aliases kept:
   - the host's import map answers only the `@sprintengine/module-sdk` scope, so

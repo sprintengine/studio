@@ -270,9 +270,10 @@ export function isAppTheme(value: unknown): value is AppTheme {
 // Window chrome material — a second appearance axis, orthogonal to the theme.
 // 'glass' frosts the window canvas (sidebar, title strip, aside column) with
 // OS-native vibrancy under the active theme's tint; macOS-only.
-// 'tinted' paints the same canvas opaque, with a static gradient washed with
-// the theme's accent and a soft accent glow bleeding out from the brand mark
-// and the rail's buttons — the premium ground for platforms with no vibrancy,
+// 'tinted' paints the same canvas opaque, with a static, heavily feathered
+// wash in the colours of what sits on it — the foreground under the rail and
+// the title band, the wordmark's own two inks behind it, and no control of its
+// own — the premium ground for platforms with no vibrancy,
 // and an option on macOS for anyone who would rather not have glass (owner
 // ruling 2026-09-24). 'solid' is the plain opaque canvas.
 const WINDOW_MATERIALS = ['solid', 'glass', 'tinted'] as const

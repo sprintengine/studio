@@ -168,11 +168,11 @@ function RailGlyph({
   children: React.ReactNode
 }) {
   return (
-    // `material-bleed` is the tinted window material's accent glow around the
-    // square (assets/index.css); it is on the tooltip's wrapper, not the
-    // button, because the button owns its own box-shadow. Nothing on glass or
-    // solid.
-    <Tooltip content={label} placement="right" wrapperClassName="material-bleed flex">
+    // No material paint of its own: under the tinted window material the
+    // square is exactly the solid one, standing on the rail's ambient wash
+    // (assets/index.css). A glow worn per square read as a tile behind every
+    // button, so the material never decorates a single control.
+    <Tooltip content={label} placement="right" wrapperClassName="flex">
       {/* The kit's icon button at its one `lg` step — the rail's own square,
           which is what `size.control.lg` exists for. `pressed` carries the
           neutral selection fill for BOTH rail states; the explicit

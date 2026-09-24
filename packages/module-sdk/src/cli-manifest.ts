@@ -55,21 +55,37 @@ export type CliResumeSpec = {
 
 export type CliPromptInjectionMode = 'positional-arg' | 'stdin-pipe' | 'send-after-ready' | 'file'
 
-export type CliReadinessSignal = {
-  type: 'output-match'
-  pattern: string
-  timeoutMs: number
-}
+/**
+ * When a CLI whose first message is typed in (`send-after-ready`, or an `input`
+ * overflow) is ready to take it. The message goes as one bracketed paste and
+ * one Enter, once the signal has been seen and the screen has been quiet for
+ * half a second.
+ *
+ * - `bracketed-paste`: the CLI's line editor turned bracketed paste on, or its
+ *   lifecycle hook reported in. Past `timeoutMs` with neither, the message is
+ *   sent anyway. This is what a manifest that declares nothing gets.
+ * - `output-match`: the CLI printed `pattern` (a regular expression over its raw
+ *   output), or its lifecycle hook reported in. For a CLI that turns bracketed
+ *   paste on for a dialog before its composer, where an Enter would answer the
+ *   dialog. Past `timeoutMs` without a match, nothing is typed: the host tells
+ *   the person the message was not sent and gives it back to them.
+ */
+export type CliReadinessSignal =
+  { type: 'bracketed-paste'; timeoutMs: number } | { type: 'output-match'; pattern: string; timeoutMs: number }
 
 /**
  * What a launch does with a first prompt too long for the platform's command
  * line. `input` (the default): launch without it and type it in once the CLI is
- * ready, adding `args` to that launch only. `file`: write it to a file and
- * render `args` (naming `{{promptFile}}`) in its place, for a CLI that
+ * ready, adding `args` and `env` to that launch only. `file`: write it to a file
+ * and render `args` (naming `{{promptFile}}`) in its place, for a CLI that
  * documents a file option. Either way the args are spread as
  * `promptOverflowArgs`.
+ *
+ * A `send-after-ready` manifest types every first message in, so its `input`
+ * args and env ride every launch that carries one; `file` is not valid there.
  */
-export type CliPromptOverflow = { mode: 'input'; args?: string[] } | { mode: 'file'; args: string[] }
+export type CliPromptOverflow =
+  { mode: 'input'; args?: string[]; env?: Record<string, string> } | { mode: 'file'; args: string[] }
 
 export type CliPromptInjection = {
   mode: CliPromptInjectionMode
@@ -538,28 +554,56 @@ function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): vo
   if (typeof value.mode !== 'string' || !INJECTION_MODES.includes(value.mode as CliPromptInjectionMode)) {
     issues.push({ path: 'promptInjection.mode', message: `mode must be one of: ${INJECTION_MODES.join(', ')}.` })
   }
-  if (value.mode === 'send-after-ready') {
-    if (!isObject(value.readiness)) {
-      issues.push({ path: 'promptInjection.readiness', message: 'send-after-ready requires a readiness signal.' })
-    } else {
-      if (value.readiness.type !== 'output-match') {
-        issues.push({ path: 'promptInjection.readiness.type', message: 'Only "output-match" readiness is supported.' })
-      }
-      if (typeof value.readiness.pattern !== 'string' || value.readiness.pattern.length === 0) {
-        issues.push({
-          path: 'promptInjection.readiness.pattern',
-          message: 'readiness.pattern must be a non-empty string.',
-        })
-      }
-      if (typeof value.readiness.timeoutMs !== 'number' || value.readiness.timeoutMs <= 0) {
-        issues.push({
-          path: 'promptInjection.readiness.timeoutMs',
-          message: 'readiness.timeoutMs must be a positive number.',
-        })
-      }
-    }
+  if (value.mode === 'send-after-ready' && !isObject(value.readiness)) {
+    issues.push({ path: 'promptInjection.readiness', message: 'send-after-ready requires a readiness signal.' })
+  } else if (value.readiness !== undefined) {
+    validateReadiness(value.readiness, issues)
+  }
+  if (value.mode === 'send-after-ready' && isObject(value.overflow) && value.overflow.mode === 'file') {
+    issues.push({
+      path: 'promptInjection.overflow.mode',
+      message: 'send-after-ready types the first message in, so its overflow must be input.',
+    })
   }
   if (value.overflow !== undefined) validatePromptOverflow(value.overflow, issues)
+}
+
+function validateReadiness(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'promptInjection.readiness', message: 'readiness must be an object when present.' })
+    return
+  }
+  if (value.type !== 'output-match' && value.type !== 'bracketed-paste') {
+    issues.push({
+      path: 'promptInjection.readiness.type',
+      message: 'readiness.type must be one of: output-match, bracketed-paste.',
+    })
+  }
+  if (value.type === 'output-match') {
+    if (typeof value.pattern !== 'string' || value.pattern.length === 0) {
+      issues.push({
+        path: 'promptInjection.readiness.pattern',
+        message: 'readiness.pattern must be a non-empty string.',
+      })
+    } else if (!isValidRegExp(value.pattern)) {
+      issues.push({ path: 'promptInjection.readiness.pattern', message: 'readiness.pattern must be a valid regex.' })
+    }
+  }
+  if (typeof value.timeoutMs !== 'number' || !Number.isFinite(value.timeoutMs) || value.timeoutMs <= 0) {
+    issues.push({
+      path: 'promptInjection.readiness.timeoutMs',
+      message: 'readiness.timeoutMs must be a positive number.',
+    })
+  }
+}
+
+function isValidRegExp(pattern: string): boolean {
+  try {
+    new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): void {
@@ -574,6 +618,14 @@ function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): voi
   const argsAreStrings = Array.isArray(args) && args.every((arg) => typeof arg === 'string')
   if (args !== undefined && !argsAreStrings) {
     issues.push({ path: 'promptInjection.overflow.args', message: 'overflow.args must be an array of strings.' })
+  }
+  const env = value.env
+  if (env !== undefined) {
+    if (value.mode !== 'input') {
+      issues.push({ path: 'promptInjection.overflow.env', message: 'overflow.env is only valid for input.' })
+    } else if (!isObject(env) || !Object.values(env).every((entry) => typeof entry === 'string')) {
+      issues.push({ path: 'promptInjection.overflow.env', message: 'overflow.env must map names to strings.' })
+    }
   }
   if (value.mode === 'file' && (!argsAreStrings || !(args as string[]).some((arg) => arg.includes('{{promptFile}}')))) {
     issues.push({

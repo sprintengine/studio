@@ -7,6 +7,7 @@ import type {
   McpSettings,
   CliPermissionPreset,
   TerminalKind,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
   TerminalVisibilityOptions,
@@ -92,9 +93,11 @@ type TerminalIpcDependencies = {
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
   ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void
+  takeUndeliveredPrompts(): TerminalPromptUndelivered[]
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
+  ipcMain.handle('terminal:take-undelivered-prompts', (): TerminalPromptUndelivered[] => deps.takeUndeliveredPrompts())
   ipcMain.handle('terminal:spawn', async (event, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult> => {
     return deps.spawnTerminal(event.sender, payload)
   })

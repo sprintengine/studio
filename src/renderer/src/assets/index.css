@@ -514,7 +514,8 @@
      the same source since 2026-09-02, so Tailwind's bare `z-20` / `z-30` are
      no longer the way to say it: write `z-[var(--z-pane)]` / `z-[var(--z-float)]`. */
   /* Below them all, one step for decoration behind its own element's content
-     inside an isolated stacking context (the tinted material's bleed). */
+     inside an isolated stacking context (the tinted material's wash behind the
+     brand wordmark). */
   --z-behind: var(--sem-z-behind);
   --z-sticky: var(--sem-z-sticky);
   --z-pane: var(--sem-z-pane);
@@ -3264,73 +3265,117 @@ body:has([data-selection-pane]:focus-within)
 /* Tinted window material (data-window-material="tinted"; the default where
  * there is no vibrancy, and an option on macOS). The window is an ordinary
  * opaque one — main gives it the theme's --bg-app as its background colour —
- * and the material is two static paints on top, both derived from the active
- * theme's own --bg-app and --accent-primary so it follows every theme and both
- * modes with no per-theme block. The recipe's strengths are design-system
- * tokens (sem.tinted.*), which carry their own light and dark values.
+ * and the material is a hint of colour on that ground, derived from the active
+ * theme's own inks so it follows every theme and both modes with no per-theme
+ * block. The strengths are design-system tokens (sem.tinted.*), which carry
+ * their own light and dark values.
  *
- * Nothing here is backdrop-filter, and nothing animates: the gradient and the
- * glow are rasterised once and only repaint when the window resizes, which is
- * what makes this the cheap premium material on machines with no vibrancy.
+ * Nothing here is backdrop-filter, and nothing animates: every gradient is
+ * rasterised once and only repaints when the window resizes, which is what
+ * makes this the cheap material on machines with no vibrancy.
  *
- * 1. The ground. One gradient on body, painted once, under every canvas layer
- *    the shared block above made see-through: the accent washes in at the
- *    top-left corner — where the rail and the brand row meet — eases to plain
- *    --bg-app through the middle of the window, and returns at half strength in
- *    the far corner so the window does not read as lit from one side only. The
- *    workspace card and every panel stay opaque on top of it, so the wash is
- *    only ever seen in the chrome. Text on it keeps its contrast: at most a
- *    tenth of the accent moves --bg-app by a fraction of a luminance step. */
-:root[data-window-material="tinted"] body {
-  background-color: var(--bg-app);
-  background-image: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 100%), var(--bg-app)) 0%,
-    var(--bg-app) 50%,
-    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 50%), var(--bg-app)) 100%
-  );
+ * The rule the whole block keeps (owner ruling 2026-09-24): the wash is
+ * AMBIENT. It is never worn by a single control — a glow per rail button read
+ * as a square tile with a green halo around it on every one of them — and its
+ * colour is the ink of whatever sits on it. The rail's glyphs and the chrome's
+ * text are the foreground, so the wash under them is the foreground; the
+ * accent appears only behind the accent half of the wordmark.
+ *
+ * The falloff. Every wash below fades on the same curve — a raised cosine,
+ * sampled every tenth of the radius — rather than on a two- or three-stop
+ * linear ramp. A linear ramp has a corner in its slope at each stop, and the
+ * eye reads a slope corner as an edge: that is where a glow's ring and its
+ * rim came from. The cosine leaves the heart flat and meets zero flat, so
+ * there is no edge to find at any stop or at the end. It is written once as
+ * --tinted-feather against two per-element inputs, the ink and its peak
+ * share, and each element that wears it sets those two. */
+:root[data-window-material="tinted"] body,
+:root[data-window-material="tinted"] .material-brand-wash::before,
+:root[data-window-material="tinted"] .material-brand-wash::after {
+  --tinted-feather:
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 100%), transparent) 0%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 97.6%), transparent) 10%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 90.5%), transparent) 20%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 79.4%), transparent) 30%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 65.5%), transparent) 40%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 50%), transparent) 50%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 34.5%), transparent) 60%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 20.6%), transparent) 70%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 9.5%), transparent) 80%,
+    color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 2.4%), transparent) 90%,
+    transparent 100%;
 }
-/* 2. The bleed. The brand wordmark and each rail button sit in a soft glow of
- *    the accent that leaks into the chrome around them. It is one static
- *    radial gradient on a pseudo-element that reaches --sem-tinted-bleed-reach
- *    past the element on every side, strongest in a ring at the element's own
- *    edge and fading to nothing beyond it. Under the element's centre — where a
- *    glyph or a letter sits — it carries only half the strength, so the ink
- *    keeps its contrast; a ring-only glow (a box-shadow) was tried first and
- *    left an unlit hole in the shape of the button, which read as a filled
- *    tile on every rail square. `isolation` keeps the pseudo-element behind
- *    the element's own content and inside its stacking context, and it is
- *    worn on a wrapper rather than on the kit's button so the button's hover
- *    and selection fills paint over it untouched. Every rail button glows the
- *    same whether or not it is selected: the glow is ground, and selection
- *    stays the neutral fill. */
-:root[data-window-material="tinted"] .material-bleed {
+/* 1. The ground. One wash on body, painted once, under every canvas layer the
+ *    shared block above made see-through. It is centred on the top-left
+ *    corner, where the rail and the title band meet, and is far larger than
+ *    either — sized in fractions of the window, not of any control — so what
+ *    shows in the rail and along the band is a slow drift of the foreground
+ *    ink, not a shape. The workspace card and every panel stay opaque on top
+ *    of it, so it is only ever seen in the chrome. Its heart lifts --bg-app by
+ *    less than the step up to the cards, so on a dark theme a card still
+ *    stands above the chrome instead of sinking into it; and a share that
+ *    small moves the ground by one 8-bit step per tens of pixels, which keeps
+ *    the chrome's text at its contrast and is also why the wash does not
+ *    band. */
+:root[data-window-material="tinted"] body {
+  --tinted-feather-ink: var(--text-strong);
+  --tinted-feather-peak: var(--sem-tinted-wash);
+  background-color: var(--bg-app);
+  background-image: radial-gradient(ellipse 60% 90% at 0% 0%, var(--tinted-feather));
+}
+/* 2. The wordmark. The one place the wash takes a colour other than the
+ *    foreground, because it is the one thing in the chrome that is two
+ *    colours: "sprint" in the foreground ink and "engine" in the accent. Two
+ *    ellipses, one behind each half, on the mark's two pseudo-elements; they
+ *    overlap across the join, so the colour crosses from one ink to the other
+ *    rather than meeting at a line. Each is sized to reach exactly to its
+ *    pseudo-element's edge, where the feather is already zero, so nothing is
+ *    ever clipped into a visible edge. The reach runs --sem-tinted-brand-reach
+ *    along the row and four tenths of it above and below, which keeps the
+ *    wash inside the 36px brand row and off the sidebar card beneath it.
+ *    The two halves carry different shares because their inks do: the
+ *    foreground is far further from the ground than the accent is, so the same
+ *    share of it lifts the ground several times as much, and one number for
+ *    both left a grey smudge behind "sprint" and almost nothing behind
+ *    "engine". --sem-tinted-brand-ink is the smaller share that makes the two
+ *    halves read as the same faint strength.
+ *    `isolation` keeps both pseudo-elements behind the letters and inside the
+ *    mark's own stacking context (--z-behind). It rides on the mark rather
+ *    than on its button so it follows the mark wherever the row puts it and
+ *    goes with it when the row is too narrow to show it. */
+:root[data-window-material="tinted"] .material-brand-wash {
   position: relative;
   isolation: isolate;
 }
-:root[data-window-material="tinted"] .material-bleed::before {
+:root[data-window-material="tinted"] .material-brand-wash::before,
+:root[data-window-material="tinted"] .material-brand-wash::after {
   content: "";
   position: absolute;
-  inset: calc(var(--sem-tinted-bleed-reach) * -1);
+  inset: calc(var(--sem-tinted-brand-reach) * -0.4) calc(var(--sem-tinted-brand-reach) * -1);
   z-index: var(--z-behind);
   pointer-events: none;
-  background-image: radial-gradient(
-    closest-side,
-    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 50%), transparent) 0%,
-    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 100%), transparent) 55%,
-    transparent 100%
-  );
+}
+:root[data-window-material="tinted"] .material-brand-wash::before {
+  --tinted-feather-ink: var(--text-strong);
+  --tinted-feather-peak: var(--sem-tinted-brand-ink);
+  background-image: radial-gradient(ellipse 36% 50% at 36% 50%, var(--tinted-feather));
+}
+:root[data-window-material="tinted"] .material-brand-wash::after {
+  --tinted-feather-ink: var(--accent-primary);
+  --tinted-feather-peak: var(--sem-tinted-brand);
+  background-image: radial-gradient(ellipse 36% 50% at 64% 50%, var(--tinted-feather));
 }
 /* 3. Forced colours. The material is colour on the ground, and a forced
- *    palette decides the ground: the wash and the glow both go, so nothing
- *    the person's palette did not choose sits under the chrome or around a
- *    rail glyph. Said here rather than left to how the engine treats a
- *    gradient under forced colours. */
+ *    palette decides the ground: both washes go, so nothing the person's
+ *    palette did not choose sits under the chrome or behind the wordmark.
+ *    Said here rather than left to how the engine treats a gradient under
+ *    forced colours. */
 @media (forced-colors: active) {
   :root[data-window-material="tinted"] body {
     background-image: none;
   }
-  :root[data-window-material="tinted"] .material-bleed::before {
+  :root[data-window-material="tinted"] .material-brand-wash::before,
+  :root[data-window-material="tinted"] .material-brand-wash::after {
     content: none;
   }
 }

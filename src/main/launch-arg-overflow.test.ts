@@ -167,7 +167,11 @@ test('an ordinary prompt stays on the command line, byte for byte, for every bun
         }
         const { plan, logged } = silentPlan(input, budget)
         assert.deepEqual(plan.argv, expected, `${cli} ${budget.platform} resume=${resume}`)
-        assert.deepEqual(plan.promptDelivery, { kind: 'argv' })
+        // A CLI that takes its first message no way but typed in gets it typed
+        // in on a new launch, and a resume never sends it again.
+        const typed =
+          !resume && renderAgentLaunchArgv(input).plugin.manifest.promptInjection.mode === 'send-after-ready'
+        assert.deepEqual(plan.promptDelivery, typed ? { kind: 'input', text: prompt } : { kind: 'argv' }, cli)
         assert.deepEqual(logged, [])
       }
     }
@@ -280,11 +284,25 @@ test("Debug Mode's directive travels with the typed-in message", () => {
   assert.ok(expected && expected.length > prompt.length)
 })
 
-test('a manifest that never puts the prompt on the command line is not handed one to type', () => {
-  // Grok's first message takes another road entirely (send-after-ready); a
-  // huge one must not start arriving by this one.
-  const { plan } = silentPlan({ cli: 'grok', sessionId: 's', initialPrompt: pastedLog(300 * 1024) }, LINUX)
-  assert.deepEqual(plan.promptDelivery, { kind: 'argv' })
+test("Grok's first message rides the command line after `--`, and an oversized one is typed in with updates off", () => {
+  // A bare `grok version` runs the subcommand; with `--` in front the TUI opens
+  // with it as the prompt (verified against 1.0.41), so a one-word message never
+  // runs a subcommand.
+  const small = silentPlan({ cli: 'grok', sessionId: 's', initialPrompt: 'update' }, LINUX).plan
+  assert.deepEqual(small.promptDelivery, { kind: 'argv' })
+  assert.deepEqual(small.argv.slice(-2), ['--', 'update'])
+  assert.ok(!small.argv.includes('--no-auto-update'), 'an ordinary launch is untouched')
+  const dashed = silentPlan({ cli: 'grok', sessionId: 's', initialPrompt: '--help me' }, LINUX).plan
+  assert.deepEqual(dashed.argv.slice(-2), ['--', '--help me'])
+  const none = renderAgentLaunchArgv({ cli: 'grok', sessionId: 's' }).argv
+  assert.ok(!none.includes('--'), 'no separator without a prompt')
+
+  const prompt = pastedLog(300 * 1024)
+  const { plan } = silentPlan({ cli: 'grok', sessionId: 's', initialPrompt: prompt }, LINUX)
+  assert.deepEqual(plan.promptDelivery, { kind: 'input', text: prompt })
+  assert.ok(plan.argv.includes('--no-auto-update'), plan.argv.join(' '))
+  assert.ok(!plan.argv.includes('--'), 'the typed launch carries no prompt and so no separator')
+  assert.equal(launchArgvExceedsBudget(plan.argv, LINUX), false)
 })
 
 test('a resumed Claude Code session with a long message types it in too', () => {
