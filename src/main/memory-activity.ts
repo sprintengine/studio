@@ -288,7 +288,7 @@ function ensureWorkspaceState(workspaceRoot: string, memoryRelativeRoot: string)
 }
 
 function synapseKey(src: string, dst: string): string {
-  return `${src} ${dst}`
+  return `${src}\0${dst}`
 }
 
 function broadcast(channel: string, payload: unknown): void {

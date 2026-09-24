@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { isWindowVisible } from '../../../../utils/windowActivity'
 import { EMPTY_TAILNET_SHARE_STATUS, type TailnetShareStatus } from '../../../../../../shared/tailnet-share'
 
 // Which of this machine's dev servers are published on the tailnet.
@@ -35,7 +36,7 @@ export function useTailnetShares(active: boolean, pollMs: number): TailnetShares
     let cancelled = false
     let timer: number | null = null
     const poll = async () => {
-      if (document.visibilityState !== 'hidden') {
+      if (isWindowVisible()) {
         const mine = ++generation.current
         try {
           const next = await window.api.tailnetShareStatus()

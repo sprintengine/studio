@@ -14,10 +14,11 @@ import { useEffect, useState } from 'react'
  * because focus moving into the browser pane's guest page blurs this document
  * without the person having left the window.
  *
- * Three things read it: the terminal visibility push (a hidden window stops
- * having output forwarded to its terminals), the ambient animations (paused on
- * `:root[data-window-active='false']`), and the browser start page's local
- * server poll.
+ * It is what the renderer pauses background work on: the terminal visibility
+ * push (a hidden window stops having output forwarded to its terminals), the
+ * ambient animations (paused on `:root[data-window-active='false']`), the
+ * browser start page's local server poll, the git status and sidebar git
+ * reads, the relative-time clocks, and the tailnet share poll.
  */
 export type WindowActivityState = {
   visible: boolean
@@ -127,6 +128,34 @@ export function windowActivity(): WindowActivity {
     typeof api?.onWindowHiddenChanged === 'function' ? (listener) => api.onWindowHiddenChanged!(listener) : undefined,
   )
   return shared
+}
+
+/**
+ * Whether this window can be seen right now. Background work that only feeds
+ * what is on screen (a git poll, a relative-time clock) checks this rather than
+ * `document.hidden`, which on macOS stays false for a minimized or covered
+ * window.
+ */
+export function isWindowVisible(activity: WindowActivity = windowActivity()): boolean {
+  return activity.get().visible
+}
+
+/**
+ * Call `listener` each time this window goes from seen to unseen or back.
+ * Focus changes alone are not reported: a window in the background is still
+ * on screen, and work that pauses only while nobody can see it should not
+ * restart every time the person clicks into another app. Returns the unbind.
+ */
+export function onWindowVisibilityChange(
+  listener: (visible: boolean) => void,
+  activity: WindowActivity = windowActivity(),
+): () => void {
+  let visible = activity.get().visible
+  return activity.subscribe((state) => {
+    if (state.visible === visible) return
+    visible = state.visible
+    listener(visible)
+  })
 }
 
 /**
