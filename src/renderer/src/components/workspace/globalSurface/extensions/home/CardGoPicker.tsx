@@ -30,13 +30,12 @@
 // differently is the trigger, and only because a card already has exactly one
 // control and it is called Go.
 //
-// **The preset is not a new axis and nothing new is stored.** Since 2026-09-05
-// a permission preset is a property of the model row, remembered against
-// `modelFavouriteKey` (`<cli>:<model>`) and falling back to
-// `appSettings.lastAgentSpawnPermissionPreset` for a row nobody has touched. So
-// the footer here is `SpawnPermissionFooter`, the same chip the other hosts
-// pass, and the value that rides the launch is read from the row that was
-// clicked at the moment it was clicked.
+// **The preset is not a new axis and nothing new is stored.** A permission
+// preset is a property of the runtime, remembered once per CLI for all of its
+// models and falling back to `appSettings.lastAgentSpawnPermissionPreset` for a
+// CLI nobody has touched. So the footer here is `SpawnPermissionFooter`, the
+// same chip the other hosts pass, and the value that rides the launch is read
+// for the CLI of the row that was clicked, at the moment it was clicked.
 //
 // **Which row it opens on, and which rows it offers.** A card declaring
 // `require.cli` PRESELECTS that runtime — the picker opens standing on it, with
@@ -65,7 +64,7 @@
 import React, { type JSX } from 'react'
 
 import { CliModelPopoverSurface } from '../../../../ui'
-import { resolveModelPermissionPreset } from '../../../../ui/modelPermissionPresets'
+import { resolveCliPermissionPreset } from '../../../../ui/cliPermissionPresets'
 import { CliInstallRosterRow } from '../../../cliInstallRoute'
 import { SpawnPermissionFooter } from '../../../agentComposer/spawnFooter'
 import { useAgentComposer, type AgentComposerSelection } from '../../../agentComposer/useAgentComposer'
@@ -80,8 +79,8 @@ import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
  * Four facts and no more: everything else about a launch (the workspace, the
  * skills, the prompt) belongs to the card or to the shell. `model` is null on a
  * runtime's own default row, `reasoning` is null where the CLI declares no
- * effort axis, and `permissionPreset` is resolved from the row rather than from
- * a control standing beside it.
+ * effort axis, and `permissionPreset` is resolved for the row's CLI rather than
+ * from a control standing beside it.
  *
  * The four travel together for the whole of the run and are never recombined
  * with a runtime from somewhere else: a Codex model id on a Claude Code launch
@@ -148,7 +147,7 @@ export function cardRunsAModel(card: HostedCard): boolean {
  * back `runCardGo` touches `launch` only inside its `result.chat` branch — the
  * branch a card with no `open.chat` never reaches. So the honest thing to send
  * is not a hole in the type; it is the app's own defaults, which is exactly
- * what the picker would have resolved for a row nobody had touched.
+ * what the picker would have resolved for a CLI nobody had touched.
  *
  * Read as two primitive selectors rather than one object selector, because a
  * selector that builds an object returns a new identity on every store change
@@ -163,7 +162,7 @@ export function useCardLaunchDefaults(): CardLaunchChoice {
     cli,
     model: null,
     reasoning: null,
-    permissionPreset: resolveModelPermissionPreset(cli, null, permissionFallback),
+    permissionPreset: resolveCliPermissionPreset(cli, permissionFallback),
   }
 }
 
@@ -190,9 +189,9 @@ export function CardGoPicker({
     conversationAvailable: false,
     initialSelection: CARD_SELECTION,
   })
-  // The app-wide default a row nobody has set still resolves to. The footer
-  // writes per-row; this reads the row back at the moment it is clicked, which
-  // is what `resolveModelPermissionPreset`'s own docstring asks of a caller.
+  // The app-wide default a CLI nobody has set still resolves to. The footer
+  // writes per CLI; this reads the CLI back at the moment a row is clicked, which
+  // is what `resolveCliPermissionPreset`'s own docstring asks of a caller.
   const permissionFallback = useWorkspaceStore(
     (state) => state.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   )
@@ -230,7 +229,7 @@ export function CardGoPicker({
       cli,
       model,
       reasoning: effortFor(cli) ?? null,
-      permissionPreset: resolveModelPermissionPreset(cli, model, permissionFallback),
+      permissionPreset: resolveCliPermissionPreset(cli, permissionFallback),
     })
   }
 
@@ -305,10 +304,10 @@ export function CardGoPicker({
       // `footer` slot is the host's control cluster, not a place for a sentence
       // about the list above it.
       {...(requiredOption ? { groupNote: { cli: requiredOption.value, note: 'the card asks for this one' } } : {})}
-      // Permissions sit with the model, remembered against the row — the same
-      // control every other picker host carries, so the preset a person set for
-      // a model in New chat is the preset this card launches on.
-      permissions={(cli, model) => <SpawnPermissionFooter cli={cli} model={model} fallback={permissionFallback} />}
+      // Permissions sit with the model, remembered per CLI — the same control
+      // every other picker host carries, so the preset a person set for a
+      // runtime in New chat is the preset this card launches on.
+      permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionFallback} />}
     />
   )
 }
