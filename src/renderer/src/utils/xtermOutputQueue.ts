@@ -15,6 +15,12 @@ import {
 const MAX_TERMINAL_WRITE_CHARS = 32 * 1024
 const MAX_QUEUED_TERMINAL_CHARS = TERMINAL_RECENT_REPLAY_BYTES
 const TERMINAL_WRITE_FRAME_BUDGET_MS = 8
+// How long a scheduled drain waits for an animation frame before draining
+// without one (see `scheduleDrain`).
+const DRAIN_WITHOUT_FRAME_MS = 250
+// RIS: full terminal reset, as an escape sequence so it is parsed in order
+// with the replay it precedes.
+const FULL_RESET = '\x1bc'
 const TERMINAL_THROTTLE_MESSAGE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
 type TerminalOutputQueueOptions = {
@@ -205,10 +211,33 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
     return head
   }
 
+  // A drain waits for the next animation frame, so a burst lands as one paint.
+  // It must not wait for a frame that never comes: a window whose compositor
+  // has stopped producing frames (a locked screen with the display asleep, a
+  // background-throttled page) would otherwise hold every byte here until the
+  // cap above started discarding the oldest. The fallback timer drains without
+  // a frame; xterm parses now and paints when frames return. Whichever fires
+  // first runs the drain and the other finds nothing to do.
+  let drainGeneration = 0
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+  const clearFallback = () => {
+    if (fallbackTimer === null) return
+    clearTimeout(fallbackTimer)
+    fallbackTimer = null
+  }
   const scheduleDrain = () => {
     if (scheduled || writing || disposed || paused) return
     scheduled = true
-    window.requestAnimationFrame(drain)
+    drainGeneration += 1
+    const generation = drainGeneration
+    const run = () => {
+      if (generation !== drainGeneration || !scheduled) return
+      clearFallback()
+      drain()
+    }
+    clearFallback()
+    fallbackTimer = setTimeout(run, DRAIN_WITHOUT_FRAME_MS)
+    window.requestAnimationFrame(run)
   }
 
   const drain = () => {
@@ -313,6 +342,7 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
     },
     dispose: () => {
       disposed = true
+      clearFallback()
       queue.length = 0
       queuedChars = 0
       consume(unreported)
@@ -513,8 +543,16 @@ export function createXtermReplayGate(
       // output so the window is applied exactly once (no duplicated pre-hide
       // content). An initial attach (awaitingReplay) writes onto an empty xterm
       // and must NOT reset.
-      if (!awaitingReplay && revealedOnce) {
-        term.reset()
+      //
+      // The reset rides the first replay chunk as RIS (`ESC c`, which xterm
+      // handles by running the same `reset()`), rather than being called here.
+      // Called here, it painted: the chunk is written on the next animation
+      // frame, so every reveal showed one frame of an empty terminal before the
+      // content came back — a flash on every workspace switch. Inside the write
+      // it is parsed together with the content, and the next paint shows the
+      // result.
+      const resync = !awaitingReplay && revealedOnce
+      if (resync) {
         outputQueue.clear()
         liveBuffer.length = 0
       }
@@ -528,6 +566,7 @@ export function createXtermReplayGate(
       writeCount = 0
       maxWriteMs = 0
       replayChunks = splitReplayIntoChunks(data, MAX_TERMINAL_WRITE_CHARS)
+      if (resync) replayChunks[0] = FULL_RESET + (replayChunks[0] ?? '')
       replayIndex = 0
       emitState('replaying', false)
       scheduleDrain()

@@ -3,7 +3,7 @@ import { join } from 'path'
 import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
-import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
+import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
 
 type CreateMainWindowOptions = {
@@ -138,13 +138,37 @@ export function createMainWindow({
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Workspace windows host terminal views, projection polling and session
-      // reconcile passes. A locked screen occludes the window and Chromium
-      // background-throttles its timers to ~1/min, which stalled those views
-      // mid-work. The window's periodic work already quiesces when idle
-      // (registered pollers unregister), so disabling throttling does not burn
-      // CPU on dormant workspaces.
-      backgroundThrottling: false,
+      // Background throttling stays ON (Electron's default), deliberately.
+      //
+      // It was switched off when sprint auto-run was moved into main, because
+      // a locked screen occludes the window and Chromium then throttled what was
+      // left in the renderer: the scheduler's leftover reconcile passes, and the
+      // terminal views. The first of those is gone. The second is the one that
+      // mattered: a terminal view drains incoming pty output on animation
+      // frames, an occluded window gets none, so output piled up in the view's
+      // queue until the queue's cap started discarding the oldest of it — and
+      // the person unlocked their screen to a pane that had skipped part of what
+      // the agent did.
+      //
+      // Switching throttling off fixed that by never letting the window rest,
+      // which also switched off the Page Visibility API: `document.hidden` stayed
+      // false on a minimized, covered or locked window, so every "pause while
+      // hidden" guard in the renderer was dead and the ambient animations kept
+      // compositing frames nobody could see.
+      //
+      // Terminal liveness is now kept a different way. When the window is hidden
+      // (the page says so, or main does: `sendWindowHidden`) it reports its
+      // terminals hidden to main (WorkspaceManager, via the same
+      // `terminalSetVisible` a layer switch uses), and main stops forwarding their
+      // output and keeps it in each session's retained stream. Main is not
+      // throttled and a hidden pane is never waited on for acknowledgements, so
+      // the agent keeps its full speed and nothing is lost; when the window is
+      // visible again it reports them visible and main sends each pane only the
+      // bytes it missed. The agents themselves never depended on the renderer:
+      // their ptys, hooks, attention and scheduling all live in main.
+      // The browser pane's <webview> guest is its own page with its own
+      // throttling, and is unaffected either way.
+      backgroundThrottling: true,
       // The workspace pane's browser tab is a <webview> guest (browser-pane
       // epic, decision 1). Only workspace windows host one; see
       // `will-attach-webview` below for what a guest may be.
@@ -185,6 +209,12 @@ export function createMainWindow({
   })
   win.on('enter-full-screen', () => sendWindowState(win))
   win.on('leave-full-screen', () => sendWindowState(win))
+  // Out of sight or back: what lets a hidden window stop feeding its
+  // terminals where the page cannot tell it is hidden (sendWindowHidden).
+  win.on('minimize', () => sendWindowHidden(win))
+  win.on('restore', () => sendWindowHidden(win))
+  win.on('hide', () => sendWindowHidden(win))
+  win.on('show', () => sendWindowHidden(win))
   const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
@@ -375,13 +405,10 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Workspace windows host terminal views, projection polling and session
-      // reconcile passes. A locked screen occludes the window and Chromium
-      // background-throttles its timers to ~1/min, which stalled those views
-      // mid-work. The window's periodic work already quiesces when idle
-      // (registered pollers unregister), so disabling throttling does not burn
-      // CPU on dormant workspaces.
-      backgroundThrottling: false,
+      // A diff or editor window hosts no terminal and no background work, so it
+      // has no reason to keep painting while hidden. See the workspace window
+      // above for why throttling is on there too.
+      backgroundThrottling: true,
     },
   })
   auxWindows.set(registryKey, win)

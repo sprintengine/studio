@@ -34,7 +34,7 @@ import {
   deriveWorkspaceTerminalActivity,
   deriveWorkspaceWorkingSince,
   type TerminalSessionsChange,
-  refreshTerminalSessions,
+  reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
@@ -110,6 +110,8 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
+import { useWindowPageVisible, windowActivity } from '../../utils/windowActivity'
+import { startTerminalSessionRecovery } from '../../hooks/terminalSessionRecovery'
 import {
   TERMINAL_FOCUS_RETRY_DELAYS_MS,
   focusRequestWouldInterrupt,
@@ -306,7 +308,6 @@ function newChatFolderLabel(path: string): string {
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
-const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
@@ -1636,18 +1637,26 @@ export default function WorkspaceManager() {
     }
   }, [windowActiveWorkspaceId])
 
-  // Drive per-terminal paint visibility from the layer state. Active + warm
-  // layers paint live (so flicking between the recently-used pool is instant);
-  // cold layers (mounted but beyond the warm set — the workspaces you forgot
-  // about) stop painting. The agent PTY keeps running and is supervised either
-  // way: `visible` only gates whether main forwards output to the renderer's
-  // xterm, so this trades nothing but wasted off-screen rendering. On reveal,
-  // main re-sends the retained replay and the terminal resyncs. Only sessions
-  // routed to THIS window are touched; a workspace lives in exactly one window,
-  // so windows never fight over a session's visibility.
+  // Drive per-terminal paint visibility from what can actually be seen: the
+  // active layer of a window that is itself visible. Warm and cold layers are
+  // not fed — a warm layer is `visibility: hidden`, which xterm does not notice,
+  // so it used to parse and paint every byte its agents printed behind the
+  // active one. A hidden window (minimized, hidden, locked screen, or reported
+  // hidden by the page) feeds nothing at all, from the moment it is hidden.
+  //
+  // Both are cheap to undo because a reveal sends the pane only the bytes it
+  // missed, as live data, with no reset. That is also why there is no grace
+  // period before a hidden window stops being fed: a quick glance away costs a
+  // few KB on return, whereas a pane still marked visible is one main waits on
+  // for acknowledgements, and a hidden page may parse too rarely to give them —
+  // holding the agent's pty back. Marked hidden, the pane is never waited on and
+  // the agent runs at full speed while main keeps its output.
+  //
+  // Only sessions routed to THIS window are touched; a workspace lives in
+  // exactly one window, so windows never fight over a session's visibility.
+  const windowShowsTerminals = useWindowPageVisible()
   useEffect(() => {
-    const paintingWorkspaceIds = new Set<string>(warmHiddenWorkspaceIdSet)
-    if (windowActiveWorkspaceId) paintingWorkspaceIds.add(windowActiveWorkspaceId)
+    const paintingWorkspaceId = windowShowsTerminals ? windowActiveWorkspaceId : null
 
     const applied = appliedTerminalVisibilityRef.current
     const liveSessionIds = new Set<string>()
@@ -1655,7 +1664,7 @@ export default function WorkspaceManager() {
       const workspaceId = session.workspaceId
       if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
       liveSessionIds.add(session.sessionId)
-      const shouldPaint = paintingWorkspaceIds.has(workspaceId)
+      const shouldPaint = workspaceId === paintingWorkspaceId
       if (applied.get(session.sessionId) === shouldPaint) continue
       applied.set(session.sessionId, shouldPaint)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
@@ -1665,7 +1674,7 @@ export default function WorkspaceManager() {
     for (const sessionId of [...applied.keys()]) {
       if (!liveSessionIds.has(sessionId)) applied.delete(sessionId)
     }
-  }, [terminalSessions, warmHiddenWorkspaceIdSet, windowActiveWorkspaceId, visibleWorkspaceIdSet])
+  }, [terminalSessions, windowShowsTerminals, windowActiveWorkspaceId, visibleWorkspaceIdSet])
 
   useEffect(() => {
     const now = Date.now()
@@ -1973,14 +1982,19 @@ export default function WorkspaceManager() {
     }
 
     const unsubscribe = subscribeLiveTerminalSessionSnapshots(applyTerminalSessions)
-    const interval = window.setInterval(() => {
-      void refreshTerminalSessions().catch(() => {})
-    }, TERMINAL_SESSION_RECOVERY_POLL_MS)
+    // Polls only after a missed push (terminalSessionRecovery.ts).
+    const stopRecovery = startTerminalSessionRecovery({
+      reconcile: reconcileTerminalSessions,
+      subscribeReturn: (listener) =>
+        windowActivity().subscribe((state) => {
+          if (state.visible) listener()
+        }),
+    })
 
     return () => {
       disposed = true
       unsubscribe()
-      window.clearInterval(interval)
+      stopRecovery()
     }
   }, [
     recordWorkspaceTerminalActivity,
@@ -4290,6 +4304,9 @@ export default function WorkspaceManager() {
                         return (
                           <div
                             key={workspaceId}
+                            // Read by the terminals' WebGL budget: a cold layer gives
+                            // its GPU contexts back (terminalWebglPresence.ts).
+                            data-layer-state={active ? 'active' : cold ? 'cold' : 'warm'}
                             className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
                             style={{
                               pointerEvents: active ? 'auto' : 'none',

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 
 import {
+  POLLER_BATTERY_STRETCH,
   POLLER_FEED_INTERVAL_MS,
+  POLLER_FOCUS_UPDATE_AFTER_MS,
+  POLLER_WAKE_SETTLE_MS,
   POLLER_FIRST_TICK_MS,
   POLLER_UPDATE_INTERVAL_MS,
   createHostedFeedPoller,
@@ -43,7 +46,7 @@ test('poller', async () => {
   }
 
   async function main(): Promise<void> {
-    // The schedule: feed and versions at 15 s, updates at 4 min, then repeats.
+    // The schedule: feed and versions at 15 s, updates an hour in, then repeats.
     {
       const clock = fakeClock()
       const calls: string[] = []
@@ -52,6 +55,7 @@ test('poller', async () => {
         refreshFeed: async () => void calls.push(`feed@${clock.now()}`),
         refreshVersions: async () => void calls.push(`versions@${clock.now()}`),
         setTimer: clock.setTimer,
+        now: clock.now,
         clearTimer: clock.clearTimer,
         random: () => 0.5,
       })
@@ -65,14 +69,15 @@ test('poller', async () => {
         calls.includes(`updates@${POLLER_UPDATE_INTERVAL_MS}`),
         'the update leg waits a full interval (the boot leg already checked)',
       )
+      assert.equal(POLLER_UPDATE_INTERVAL_MS, 60 * 60_000, 'updates are hourly, not every few minutes')
       await clock.advance(POLLER_UPDATE_INTERVAL_MS)
-      assert.ok(calls.includes(`updates@${2 * POLLER_UPDATE_INTERVAL_MS}`), 'updates repeat every four minutes')
-      await clock.advance(POLLER_FEED_INTERVAL_MS)
+      assert.ok(calls.includes(`updates@${2 * POLLER_UPDATE_INTERVAL_MS}`), 'updates repeat hourly')
       assert.equal(
         calls.filter((c) => c.startsWith('feed@')).length,
         2,
         'the feed leg repeats hourly (jitter 0 at random 0.5)',
       )
+      assert.equal(calls.filter((c) => c.startsWith('updates@')).length, 2, 'two update checks in two hours')
       poller.stop()
       assert.equal(clock.pending(), 0, 'stop clears every timer')
       const before = calls.length
@@ -96,6 +101,7 @@ test('poller', async () => {
         refreshVersions: async () => {},
         isOnline: () => online,
         setTimer: clock.setTimer,
+        now: clock.now,
         clearTimer: clock.clearTimer,
         random: () => 0.5,
       })
@@ -128,6 +134,7 @@ test('poller', async () => {
         },
         refreshVersions: async () => void (versions += 1),
         setTimer: clock.setTimer,
+        now: clock.now,
         clearTimer: clock.clearTimer,
         random: () => 0.5,
         onError: (leg, error) => errors.push(`${leg}:${(error as Error).message}`),
@@ -138,6 +145,104 @@ test('poller', async () => {
       await clock.advance(POLLER_FEED_INTERVAL_MS)
       assert.deepEqual(errors, ['feed:boom', 'feed:boom'], 'the failing leg is retried on schedule')
       assert.equal(versions, 2, 'the other legs are unaffected')
+      poller.stop()
+    }
+
+    // Sleep: nothing runs while suspended; waking checks for an update at once
+    // and brings overdue legs back shortly after, not in the same instant.
+    {
+      const clock = fakeClock()
+      const calls: string[] = []
+      const poller = createHostedFeedPoller({
+        checkUpdates: async () => void calls.push(`updates@${clock.now()}`),
+        refreshFeed: async () => void calls.push(`feed@${clock.now()}`),
+        refreshVersions: async () => void calls.push(`versions@${clock.now()}`),
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+        now: clock.now,
+        random: () => 0.5,
+      })
+      poller.start()
+      poller.suspend()
+      assert.equal(clock.pending(), 0, 'a sleeping machine holds no poller timers')
+      await clock.advance(3 * POLLER_FEED_INTERVAL_MS)
+      assert.equal(calls.length, 0, 'nothing ran while suspended')
+      poller.wake()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      assert.deepEqual(calls, [`updates@${clock.now()}`], 'waking checks for an update at once')
+      const wokeAt = clock.now()
+      await clock.advance(POLLER_WAKE_SETTLE_MS)
+      assert.deepEqual(
+        calls.slice(1).sort(),
+        [`feed@${wokeAt + POLLER_WAKE_SETTLE_MS}`, `versions@${wokeAt + POLLER_WAKE_SETTLE_MS}`],
+        'overdue legs run once, shortly after waking',
+      )
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS - POLLER_WAKE_SETTLE_MS)
+      assert.equal(
+        calls.filter((c) => c.startsWith('updates@')).length,
+        2,
+        'the wake check restarted the update interval from the wake',
+      )
+      poller.stop()
+    }
+
+    // Focus after a long absence checks for an update; a quick return does not.
+    {
+      const clock = fakeClock()
+      let checks = 0
+      const poller = createHostedFeedPoller({
+        checkUpdates: async () => void (checks += 1),
+        refreshFeed: async () => {},
+        refreshVersions: async () => {},
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+        now: clock.now,
+        random: () => 0.5,
+      })
+      poller.start()
+      await clock.advance(POLLER_FOCUS_UPDATE_AFTER_MS - 1)
+      poller.noteFocus()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      assert.equal(checks, 0, 'the boot check is still fresh')
+      await clock.advance(1)
+      poller.noteFocus()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      assert.equal(checks, 1, 'half an hour away: coming back checks')
+      poller.noteFocus()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      assert.equal(checks, 1, 'a second focus right after does not')
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS - 1)
+      assert.equal(checks, 1, 'the hourly check restarted from the focus check')
+      await clock.advance(1)
+      assert.equal(checks, 2)
+      poller.stop()
+    }
+
+    // Battery stretches every wait, including the one already running.
+    {
+      const clock = fakeClock()
+      let checks = 0
+      const poller = createHostedFeedPoller({
+        checkUpdates: async () => void (checks += 1),
+        refreshFeed: async () => {},
+        refreshVersions: async () => {},
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+        now: clock.now,
+        random: () => 0.5,
+      })
+      poller.start()
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS / 2)
+      poller.setOnBattery(true)
+      await clock.advance((POLLER_UPDATE_INTERVAL_MS / 2) * POLLER_BATTERY_STRETCH - 1)
+      assert.equal(checks, 0, 'the remaining half hour became two hours')
+      await clock.advance(1)
+      assert.equal(checks, 1)
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS * POLLER_BATTERY_STRETCH - 1)
+      assert.equal(checks, 1, 'on battery the next interval is stretched too')
+      poller.setOnBattery(false)
+      await clock.advance(1)
+      assert.equal(checks, 2, 'back on power: what was left shrinks back')
       poller.stop()
     }
 

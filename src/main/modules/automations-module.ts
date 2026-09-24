@@ -34,6 +34,7 @@ import {
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
 import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
+import { powerActivity } from '../power-activity'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -182,7 +183,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // Runs after every definition write from either front door: refresh the
       // webhook receiver, then tell every window so an open Automations panel
       // reflects module-driven (and other-window) writes without a remount.
+      // The scheduler sleeps until the next run it knows about, so a write that
+      // adds or moves a schedule wakes it to re-read.
       const onDefinitionsChanged = async (workspaceRoot: string): Promise<void> => {
+        engine.wake()
         try {
           await webhookReceiver.refresh()
         } finally {
@@ -203,6 +207,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const moduleAutomationsRegistry = moduleAutomations
       host.onShutdown(() => moduleAutomationsRegistry.dispose())
 
+      let releaseEngineWakeOnResume: (() => void) | null = null
       const engineSidecar = host.registerSidecar(
         {
           id: 'automations-engine',
@@ -214,8 +219,15 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           start: async () => {
             await webhookReceiver.refresh()
             engine.start()
+            // A timer armed before a sleep only counts awake time, so a schedule
+            // that came due during the nap is evaluated on waking, not whenever
+            // the stretched timer finally fires.
+            releaseEngineWakeOnResume?.()
+            releaseEngineWakeOnResume = powerActivity.onResume(() => engine.wake())
           },
           stop: async () => {
+            releaseEngineWakeOnResume?.()
+            releaseEngineWakeOnResume = null
             await webhookReceiver.stop()
             engine.stop()
           },

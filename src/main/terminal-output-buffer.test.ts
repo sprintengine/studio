@@ -120,3 +120,34 @@ test('records how far the pane has been sent, and not while it is hidden', () =>
   assert.equal(sent.length, 1)
   assert.equal(session.output.readFrom(delivered ?? 0), 'two\r\n', 'what the reveal owes the pane')
 })
+
+test('a hidden pane is never waited on, even when late acks for what it was sent before arrive', () => {
+  // Seen in the running app: a window minimized mid-flood. The reset on hide
+  // forgot the pane, but the renderer was still parsing what it had been sent
+  // before, and those acks made main wait on it again — while the renderer
+  // bucket, which is never forwarded to a hidden pane, filled past the high
+  // watermark on every chunk. The agent ran at the pane's parse speed while
+  // minimized instead of its own.
+  const { buffer, emit, flow, session } = harness()
+  emit('a'.repeat(60))
+  buffer.flush(session.sessionId)
+  buffer.ack(session.sessionId, 10)
+
+  session.visible = false
+  buffer.resetRendererFlow(session.sessionId)
+  buffer.ack(session.sessionId, 50)
+  emit('x'.repeat(HIGH * 5))
+  emit('y'.repeat(HIGH * 5))
+  assert.deepEqual(flow, [], 'the pty ran on while the pane was hidden')
+  assert.equal(buffer.isFlowPaused(session.sessionId), false)
+
+  // Revealed, the pane is waited on again once it acks.
+  buffer.flush(session.sessionId)
+  session.visible = true
+  buffer.resetRendererFlow(session.sessionId)
+  emit('b'.repeat(20))
+  buffer.flush(session.sessionId)
+  buffer.ack(session.sessionId, 20)
+  emit('c'.repeat(HIGH * 2))
+  assert.deepEqual(flow, ['pause'])
+})

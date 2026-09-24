@@ -319,6 +319,7 @@ test('automations-module', async () => {
     | 'isRunning'
     | 'handleStartup'
     | 'tick'
+    | 'wake'
     | 'runNow'
     | 'deliverTriggerEvent'
     | 'finalizeRun'
@@ -369,6 +370,7 @@ test('automations-module', async () => {
       async tick() {
         return emptyEvaluation()
       },
+      wake() {},
       async runNow() {
         return {
           ok: false as const,

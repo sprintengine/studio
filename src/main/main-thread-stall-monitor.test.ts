@@ -29,7 +29,11 @@ function harness(options: { reportEveryMs?: number } = {}) {
     clock += elapsedMs
     tick?.()
   }
-  return { monitor, reports, beat, running: () => tick !== null }
+  // Advance the clock without a heartbeat: time the process spent asleep.
+  const sleep = (elapsedMs: number) => {
+    clock += elapsedMs
+  }
+  return { monitor, reports, beat, sleep, running: () => tick !== null }
 }
 
 test('a healthy loop reports nothing', () => {
@@ -104,4 +108,24 @@ test('a reporter that throws does not stop the heartbeat', () => {
   clock += 5_000
   heartbeat.tick?.()
   assert.equal(calls, 2)
+})
+
+test('a wake from sleep re-arms the baseline instead of reporting the nap as a stall', () => {
+  const { monitor, reports, beat, sleep } = harness()
+  monitor.start()
+  beat(500)
+  // The machine slept for an hour with the heartbeat armed. The wake handler
+  // resets before the first late tick lands.
+  sleep(60 * 60_000)
+  monitor.reset()
+  beat(500)
+  assert.deepEqual(reports, [])
+
+  // The same hour without the reset is exactly what the reset is for.
+  sleep(60 * 60_000)
+  beat(500)
+  assert.equal(reports.length, 1)
+  assert.equal(monitor.isRunning(), true)
+  monitor.stop()
+  assert.equal(monitor.isRunning(), false)
 })

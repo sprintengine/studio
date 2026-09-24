@@ -161,11 +161,23 @@ export function createAnalyticsService(deps: AnalyticsServiceDeps): AnalyticsSer
     return keyed && config.envEnabled && !stopped && deps.isConsented()
   }
 
+  // The flush timer exists only while there is something to flush. It is armed
+  // by the first event into an empty buffer and disarmed by the drain that
+  // empties it, so an app that records nothing for an hour wakes for nothing
+  // for an hour — rather than every thirty seconds for as long as it is open.
+  // A failed send leaves the buffer non-empty and the timer armed: that is the
+  // retry.
   function ensureTimer(): void {
     if (timer !== null || stopped) return
     timer = timers.setInterval(() => {
       void flush()
     }, config.flushIntervalMs)
+  }
+
+  function disarmTimerIfDrained(): void {
+    if (timer === null || buffer.length > 0) return
+    timers.clearInterval(timer)
+    timer = null
   }
 
   function record(event: TelemetryEventName, properties?: TelemetryProperties): void {
@@ -270,6 +282,7 @@ export function createAnalyticsService(deps: AnalyticsServiceDeps): AnalyticsSer
       .catch(() => undefined)
       .finally(() => {
         flushing = null
+        disarmTimerIfDrained()
       })
     return flushing
   }

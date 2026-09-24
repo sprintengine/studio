@@ -296,6 +296,23 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
     return sessions
   }
 
+  /**
+   * Ask main for the list and say whether the pushes had already delivered it.
+   * `missed` means the semantic picture main holds differs from the one the
+   * push channel left here — a push went missing somewhere — and the fresh
+   * list has now been applied. A push racing the request can read as `missed`
+   * once; the next reconcile then reads `in-sync`.
+   */
+  const reconcile = async (): Promise<'in-sync' | 'missed'> => {
+    const before = new Map(signaturesById)
+    const sessions = await refresh()
+    if (sessions.length !== before.size) return 'missed'
+    for (const session of sessions) {
+      if (before.get(session.sessionId) !== getTerminalSessionSignature(session)) return 'missed'
+    }
+    return 'in-sync'
+  }
+
   const connect = () => {
     if (unsubscribeIpc) return
     // A host without the terminal bridge (a partial test harness, an aux
@@ -399,6 +416,7 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
     /** True once main has answered at least once — before that, "no sessions" is "not asked yet". */
     hasSnapshot: () => hasLiveSnapshot,
     refresh,
+    reconcile,
     subscribeLive: (listener: () => void) => subscribe(liveListeners, listener),
     subscribeLiveSnapshot,
     subscribeSemantic: (listener: () => void) => subscribe(semanticListeners, listener),
@@ -411,6 +429,7 @@ export const getLiveTerminalSessionsSnapshot = terminalSessionsStore.getLiveSnap
 export const getTerminalSessionsSnapshot = terminalSessionsStore.getSemanticSnapshot
 export const hasTerminalSessionsSnapshot = terminalSessionsStore.hasSnapshot
 export const refreshTerminalSessions = terminalSessionsStore.refresh
+export const reconcileTerminalSessions = terminalSessionsStore.reconcile
 export const subscribeLiveTerminalSessions = terminalSessionsStore.subscribeLive
 export const subscribeLiveTerminalSessionSnapshots = terminalSessionsStore.subscribeLiveSnapshot
 export const subscribeTerminalSessions = terminalSessionsStore.subscribeSemantic

@@ -253,6 +253,14 @@ export function createTerminalOutputBuffer({
     if (!flowControl) return
     const flow = rendererFlow.get(session.sessionId)
     if (!flow) return
+    // A hidden pane is sent nothing, so there is nothing to wait on it for —
+    // and the renderer bucket still fills with every chunk until the flush
+    // drops it, so counting it would pause the pty of an agent nobody is
+    // looking at (a minimized window) at the pane's parse speed.
+    if (session.visible === false) {
+      if (flow.paused) resumeFlow(session, flow)
+      return
+    }
     const backlog = rendererBacklog(session.sessionId)
     if (!flow.paused) {
       if (!flow.acking || backlog <= flowControl.highWatermark) return
@@ -297,6 +305,10 @@ export function createTerminalOutputBuffer({
     if (!session) return
     const flow = flowFor(sessionId)
     flow.inflight = Math.max(0, flow.inflight - units)
+    // Acks that arrive after a hide are for what the pane was sent before it:
+    // the renderer is still parsing its queue. They must not make main start
+    // waiting on a pane it no longer sends to.
+    if (session.visible === false) return
     flow.acking = true
     if (flow.paused) armStallTimer(session, flow)
     evaluateFlow(session)

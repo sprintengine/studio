@@ -4,6 +4,7 @@ import {
   getTerminalSessionsSignature,
   getTerminalSessionsSnapshot,
   getWorkspaceTerminalSessionsSnapshot,
+  reconcileTerminalSessions,
   refreshTerminalSessions,
   subscribeLiveTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
@@ -15,6 +16,7 @@ export type { TerminalSessionsChange } from './terminalSessionsStore'
 export {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
+  reconcileTerminalSessions,
   refreshTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 }

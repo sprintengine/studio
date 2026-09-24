@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, net } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
@@ -13,6 +13,8 @@ import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './bac
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
+import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
+import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
 import type { AgentPhaseListener } from '../shared/agent-runtime'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
@@ -185,9 +187,11 @@ export function registerAppLifecycle({
   let hostedFeedPoller: HostedFeedPoller | null = null
   let bootModelDiscoveryTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Always on, and cheap: a report of "the main thread stopped answering for N
-  // ms" is the one piece of evidence a frozen terminal leaves behind on a
-  // packaged build, where nobody has a console open.
+  // On whenever a window has focus, and cheap: a report of "the main thread
+  // stopped answering for N ms" is the one piece of evidence a frozen terminal
+  // leaves behind on a packaged build, where nobody has a console open.
+  let releaseStallMonitorGate: (() => void) | null = null
+  let releasePollerActivity: (() => void) | null = null
   const stallMonitor = createMainThreadStallMonitor({
     report: (report) => {
       void writeDiagnosticLog({
@@ -210,7 +214,8 @@ export function registerAppLifecycle({
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
-    stallMonitor.start()
+    bindElectronPowerActivity()
+    releaseStallMonitorGate = gateStallMonitorOnActivity(powerActivity, stallMonitor)
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio')
@@ -289,12 +294,14 @@ export function registerAppLifecycle({
     })
 
     // What the studio pulls on its own after boot: the hosted card and sources
-    // feeds and the CLI version advisories 15 s after the window is
-    // up and then hourly, app updates every four minutes — often enough that a
-    // session left open all day still learns about a same-day release.
-    // The boot leg above keeps the one immediate update check; the poller's
-    // first update check waits a full interval so it is not repeated. Skipped
-    // while offline.
+    // feeds and the CLI version advisories 15 s after the window is up and then
+    // hourly, and app updates hourly plus on waking from sleep and on coming
+    // back to the app after half an hour — so a session left open all day still
+    // learns about a same-day release without a network wake every few minutes.
+    // Nothing runs while the machine sleeps, and every interval stretches on
+    // battery (see poller.ts). The boot leg above keeps the one immediate update
+    // check; the poller's first update check waits a full interval so it is not
+    // repeated. Skipped while offline.
     hostedFeedPoller = createHostedFeedPoller({
       checkUpdates: async () => {
         if (!app.isPackaged) return
@@ -332,6 +339,7 @@ export function registerAppLifecycle({
       isOnline: () => net.isOnline(),
     })
     hostedFeedPoller.start()
+    releasePollerActivity = bindPollerToActivity(powerActivity, hostedFeedPoller)
 
     // Work that only has to happen at some point after launch, started once
     // the window is on screen so none of it competes with the renderer's first
@@ -409,7 +417,11 @@ export function registerAppLifecycle({
     markAppQuitInProgressForWindowClose()
     // Quit legitimately blocks (snapshot writes, waiting on ptys); that is not
     // a stall anyone is reporting.
+    releaseStallMonitorGate?.()
+    releaseStallMonitorGate = null
     stallMonitor.stop()
+    releasePollerActivity?.()
+    releasePollerActivity = null
     const shutdown = async () => {
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
@@ -442,6 +454,48 @@ export function registerAppLifecycle({
       app.exit(0)
     })
   })
+}
+
+/**
+ * Feed `powerActivity` from Electron. Needs the app ready (`powerMonitor` is
+ * unavailable before it), so it runs first thing in `whenReady`.
+ *
+ * Focus is "any app window is focused", recomputed on every focus and blur so
+ * moving between two app windows does not read as leaving the app. A locked
+ * screen counts as unfocused whatever the key window says: nobody is typing.
+ * The canvas worker window is a hidden headless renderer and never counts.
+ */
+function bindElectronPowerActivity(): void {
+  const syncFocus = (): void => {
+    const focused =
+      !powerActivity.isScreenLocked() &&
+      BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && !isCanvasWorkerWindow(win) && win.isFocused())
+    powerActivity.noteFocus(focused)
+  }
+  app.on('browser-window-focus', syncFocus)
+  app.on('browser-window-blur', syncFocus)
+  // A locked screen hides every window, which the pages cannot always see for
+  // themselves (see `sendWindowHidden`).
+  const syncLock = (locked: boolean): void => {
+    powerActivity.noteScreenLocked(locked)
+    syncFocus()
+    for (const win of BrowserWindow.getAllWindows()) sendWindowHidden(win)
+  }
+  powerMonitor.on('lock-screen', () => syncLock(true))
+  powerMonitor.on('unlock-screen', () => syncLock(false))
+  powerMonitor.on('suspend', () => powerActivity.noteSuspend())
+  powerMonitor.on('resume', () => {
+    powerActivity.noteResume()
+    syncFocus()
+  })
+  powerMonitor.on('on-battery', () => powerActivity.noteBattery(true))
+  powerMonitor.on('on-ac', () => powerActivity.noteBattery(false))
+  try {
+    powerActivity.noteBattery(powerMonitor.isOnBatteryPower())
+  } catch {
+    // A platform that cannot say is treated as on power: the plain cadence.
+  }
+  syncFocus()
 }
 
 // Both schemes, current and legacy — see `deep-link-scheme.ts` for why the old
