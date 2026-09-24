@@ -188,7 +188,9 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "include": "build/installer.nsh",
+      "installerHeaderIcon": "resources/icon.ico"
     },
     "publish": {
       "provider": "github",

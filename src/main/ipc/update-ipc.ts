@@ -33,6 +33,15 @@ export function registerUpdateIpc(ipcMain: IpcMain, { updateService }: UpdateIpc
     return updateService.setChannel(channel)
   })
 
+  ipcMain.handle('update:set-auto-download', (_event, enabled: unknown): AppUpdateState => {
+    if (typeof enabled !== 'boolean') throw new Error('Automatic download is on or off.')
+    return updateService.setAutoDownload(enabled)
+  })
+
+  ipcMain.handle('update:dismiss-install-outcome', (): AppUpdateState => {
+    return updateService.dismissInstallOutcome()
+  })
+
   ipcMain.handle('update:open-release-notes', async (): Promise<{ opened: true; url: string }> => {
     return updateService.openReleaseNotes()
   })

@@ -39,6 +39,9 @@ function stateFor(version: string, buildChannel: AppUpdateTrack, channel: AppUpd
     progress: null,
     errorMessage: null,
     lastCheckedAt: null,
+    autoDownload: false,
+    installRequiresAdmin: false,
+    installOutcome: null,
   }
 }
 

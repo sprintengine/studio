@@ -1268,9 +1268,20 @@ export default function SettingsPanel({
     }
   }, [])
 
+  // The press shows at once (the button goes busy before main is asked), and
+  // main's `installing` state keeps it busy until the app hands over.
   const restartToInstall = useCallback(async () => {
-    const result = await window.api.updateQuitAndInstall()
-    setUpdateState(result.state)
+    setUpdateActionPending(true)
+    try {
+      const result = await window.api.updateQuitAndInstall()
+      setUpdateState(result.state)
+    } finally {
+      setUpdateActionPending(false)
+    }
+  }, [])
+
+  const setAutoDownload = useCallback(async (enabled: boolean) => {
+    setUpdateState(await window.api.updateSetAutoDownload(enabled))
   }, [])
 
   const saveGitHubToken = useCallback(async () => {
@@ -1315,11 +1326,12 @@ export default function SettingsPanel({
     }
   }, [])
 
-  const nextUpdateAction: UpdateAction = updateState?.downloaded
-    ? 'restart'
-    : updateState?.status === 'available'
-      ? 'download'
-      : 'check'
+  const nextUpdateAction: UpdateAction =
+    updateState?.downloaded || updateState?.status === 'installing'
+      ? 'restart'
+      : updateState?.status === 'available'
+        ? 'download'
+        : 'check'
 
   // Write-only token entry: render the input only when nothing is saved or the
   // user is replacing; a saved token reads as meta text plus Replace/Clear.
@@ -1577,8 +1589,14 @@ export default function SettingsPanel({
                 </IconButton>
               </Tooltip>
               {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
-                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
-                  Restart to install
+                <PrimaryButton
+                  size="md"
+                  onClick={() => void restartToInstall()}
+                  busy={updateActionPending || updateState?.status === 'installing'}
+                  disabled={updateActionPending || updateState?.status === 'installing'}
+                >
+                  {updateActionPending || updateState?.status === 'installing' ? <Spinner className="icon-sm" /> : null}
+                  {updateActionPending || updateState?.status === 'installing' ? 'Restarting…' : 'Restart to install'}
                 </PrimaryButton>
               ) : nextUpdateAction === 'download' ? (
                 <PrimaryButton
@@ -1614,6 +1632,14 @@ export default function SettingsPanel({
 
           <SettingCard className="mt-5">
             <UpdateChannelSettings onResult={onUpdateChannelResult} />
+            {updateState ? (
+              <SettingToggle
+                label="Download updates automatically"
+                description="Off: Studio says when an update is out, and downloads it when you press Download."
+                enabled={updateState.autoDownload}
+                onChange={(enabled) => void setAutoDownload(enabled)}
+              />
+            ) : null}
             {backgroundModeDescriptor ? (
               <RegistrySwitchRow
                 descriptor={backgroundModeDescriptor}
@@ -2368,7 +2394,9 @@ function formatUpdateStatus(state: AppUpdateState | null): string {
     case 'downloading':
       return state.progress ? `downloading ${Math.round(state.progress.percent)}%` : 'downloading…'
     case 'downloaded':
-      return 'restart to install'
+      return state.errorMessage ?? 'restart to install'
+    case 'installing':
+      return 'installing…'
     case 'not_available':
       return 'up to date'
     case 'error':

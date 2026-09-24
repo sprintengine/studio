@@ -16,6 +16,9 @@ export const updateApi = {
   updateGetChannel: (): Promise<AppUpdateChannelSetting> => ipcRenderer.invoke('update:get-channel'),
   updateSetChannel: (channel: AppUpdateTrack): Promise<AppUpdateCheckResult> =>
     ipcRenderer.invoke('update:set-channel', channel),
+  updateSetAutoDownload: (enabled: boolean): Promise<AppUpdateState> =>
+    ipcRenderer.invoke('update:set-auto-download', enabled),
+  updateDismissInstallOutcome: (): Promise<AppUpdateState> => ipcRenderer.invoke('update:dismiss-install-outcome'),
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void): (() => void) => {
     const ch = 'update:state-changed'
     const handler = (_: IpcRendererEvent, state: AppUpdateState) => cb(state)
@@ -31,5 +34,7 @@ export const updateApi = {
   | 'updateOpenReleaseNotes'
   | 'updateGetChannel'
   | 'updateSetChannel'
+  | 'updateSetAutoDownload'
+  | 'updateDismissInstallOutcome'
   | 'onUpdateStateChanged'
 >
