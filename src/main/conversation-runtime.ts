@@ -1,5 +1,4 @@
-import { mkdir, stat, appendFile, readFile } from 'fs/promises'
-import { join } from 'path'
+import { stat, readFile } from 'fs/promises'
 
 import type {
   ConversationCliRuntimeOverrides,
@@ -32,6 +31,7 @@ import {
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
 import { workspaceSidecarPath } from './workspace-sidecar'
+import { ConversationEventLog, expandCoalescedDeltas, type ConversationEventLogOptions } from './conversation-event-log'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -65,9 +65,10 @@ type ConversationRuntimeOptions = {
   secretStore?: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   getProviderById?: typeof getConversationProviderById
   stat?: typeof stat
-  mkdir?: typeof mkdir
-  appendFile?: typeof appendFile
   readFile?: typeof readFile
+  // How transcript lines reach disk; tests shorten the delta flush or stub the
+  // stream. Defaults to one append stream per transcript file.
+  eventLog?: ConversationEventLogOptions
   now?: () => number
   randomId?: () => string
   prepareStudioMcp?: (input: {
@@ -94,8 +95,7 @@ export class ConversationRuntime {
     Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   private readonly getProviderById: typeof getConversationProviderById
   private readonly stat: typeof stat
-  private readonly mkdir: typeof mkdir
-  private readonly appendFile: typeof appendFile
+  private readonly eventLog: ConversationEventLog
   private readonly readFile: typeof readFile
   private readonly now: () => number
   private readonly randomId: () => string
@@ -124,8 +124,15 @@ export class ConversationRuntime {
       this.adapters.set(adapter.id, adapter)
     }
     this.stat = options.stat ?? stat
-    this.mkdir = options.mkdir ?? mkdir
-    this.appendFile = options.appendFile ?? appendFile
+    this.eventLog = new ConversationEventLog({
+      onError: (filePath, error) => {
+        console.warn(
+          `[conversation-runtime] transcript write failed for ${filePath}:`,
+          error instanceof Error ? error.message : error,
+        )
+      },
+      ...options.eventLog,
+    })
     this.readFile = options.readFile ?? readFile
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
@@ -388,6 +395,7 @@ export class ConversationRuntime {
       )
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
+    await this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
@@ -432,10 +440,13 @@ export class ConversationRuntime {
   sweepIdleSessions(now: number = this.now()): string[] {
     const disposed: string[] = []
     for (const session of this.sessions.values()) {
-      if (!session.stateful) continue
-      if (session.status !== 'ready' && session.status !== 'failed') continue
       if (isSessionBusy(session)) continue
       if (now - session.updatedAt < this.idleThresholdMs) continue
+      // An idle chat does not hold a file handle open for the rest of the run;
+      // its next event reopens the stream.
+      void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+      if (!session.stateful) continue
+      if (session.status !== 'ready' && session.status !== 'failed') continue
       const adapter = this.getAdapterForProviderId(session.providerId)
       if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
     }
@@ -481,6 +492,7 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       adapter.disposeAll?.()
     }
+    await this.eventLog.closeAll()
   }
 
   private async validateStartInput(
@@ -591,6 +603,18 @@ export class ConversationRuntime {
       createdAt: this.now(),
     }
     this.trackStatefulSessionEvent(session, stamped)
+    // A streamed delta goes to listeners at once and is only buffered for the
+    // disk: the chat on screen never waits on a write per token. A boundary
+    // event (tool, approval, turn end) is written first, together with the
+    // text run before it, and delivered after — so a listener that sees a turn
+    // end sees it on disk, and the caller that emitted it (which settles the
+    // session's state right after) is not overtaken by a listener's
+    // continuation while the write is in flight.
+    if (isStreamedDelta(stamped)) {
+      for (const listener of this.listeners) listener(stamped)
+      await this.persistEvent(session, stamped)
+      return stamped
+    }
     await this.persistEvent(session, stamped)
     for (const listener of this.listeners) listener(stamped)
     return stamped
@@ -739,13 +763,10 @@ export class ConversationRuntime {
     session.updatedAt = this.now()
   }
 
-  private async persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
-    const dir = workspaceSidecarPath(session.workspaceRoot, 'conversations', safeSegment(session.workspaceId))
-    await this.mkdir(dir, { recursive: true })
-    await this.appendFile(
-      join(dir, `${safeSegment(session.agentId)}.jsonl`),
-      `${JSON.stringify(redactEvent(event))}\n`,
-      'utf-8',
+  private persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
+    return this.eventLog.append(
+      this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId),
+      redactEvent(event),
     )
   }
 
@@ -764,12 +785,12 @@ export class ConversationRuntime {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim()) {
       return { ok: false, message: 'Conversation transcript request is invalid.' }
     }
+    const filePath = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    // Buffered deltas first, so a reload mid-stream sees everything emitted.
+    await this.eventLog.flush(filePath)
     let raw: string
     try {
-      raw = (await this.readFile(
-        this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
-        'utf-8',
-      )) as string
+      raw = (await this.readFile(filePath, 'utf-8')) as string
     } catch {
       return { ok: true, events: [] }
     }
@@ -779,7 +800,9 @@ export class ConversationRuntime {
       if (!trimmed) continue
       try {
         const parsed = JSON.parse(trimmed) as ConversationEvent
-        if (parsed && typeof parsed.type === 'string') events.push(parsed)
+        // A merged run of deltas comes back as the deltas that were emitted,
+        // ids included — the chat view dedupes replay against live pushes.
+        if (parsed && typeof parsed.type === 'string') events.push(...expandCoalescedDeltas(parsed))
       } catch {
         // Skip torn/corrupt lines (e.g. a crash mid-append).
       }
@@ -884,4 +907,8 @@ function redactEvent(event: ConversationEvent): ConversationEvent {
       return value
     }),
   ) as ConversationEvent
+}
+
+function isStreamedDelta(event: ConversationEvent): boolean {
+  return event.type === 'content_delta' || event.type === 'reasoning_delta'
 }

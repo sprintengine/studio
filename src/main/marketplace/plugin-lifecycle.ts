@@ -455,7 +455,7 @@ async function installInlineMcpEntry(
     const clients = normalizeMcpClients(
       input.mcpClients?.length ? input.mcpClients : servers.flatMap((server) => server.clients),
     )
-    const sync = services.mcpConfigService.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
+    const sync = await services.mcpConfigService.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
     if (!sync.ok) {
       const restored = previousSnapshot.snapshot
         ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
@@ -1046,7 +1046,7 @@ async function uninstallReceipt(
     try {
       switch (component.kind) {
         case 'mcp':
-          nextMcpSettings = removeMcpComponent(component, input, services, nextMcpSettings)
+          nextMcpSettings = await removeMcpComponent(component, input, services, nextMcpSettings)
           break
         case 'skills':
           await removeSkillComponent(component, input)
@@ -1106,12 +1106,12 @@ async function uninstallReceipt(
   }
 }
 
-function removeMcpComponent(
+async function removeMcpComponent(
   component: MarketplacePluginInstalledComponent,
   input: MarketplacePluginUninstallInput,
   services: MarketplacePluginLifecycleServices,
   currentSettings: McpSettings | undefined,
-): McpSettings {
+): Promise<McpSettings> {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) throw new Error('Workspace root is required to uninstall MCP components.')
 
@@ -1134,7 +1134,7 @@ function removeMcpComponent(
     servers: { ...currentServers, ...disabledServers },
   }
   const clients = input.mcpClients?.length ? input.mcpClients : clientsFromServers(Object.values(disabledServers))
-  const result = services.mcpConfigService.sync({
+  const result = await services.mcpConfigService.sync({
     workspaceRoot,
     settings: syncSettings,
     clients,
@@ -1221,7 +1221,7 @@ async function restorePreviousInstallSnapshot(
     const workspaceRoot = input.workspaceRoot?.trim()
     if (snapshot.mcpSettings && workspaceRoot) {
       const servers = Object.values(snapshot.mcpSettings.servers)
-      const result = services.mcpConfigService.sync({
+      const result = await services.mcpConfigService.sync({
         workspaceRoot,
         settings: snapshot.mcpSettings,
         clients: input.mcpClients?.length ? input.mcpClients : clientsFromServers(servers),

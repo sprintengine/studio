@@ -401,11 +401,10 @@ async function neuterMaterialisedHooks(pluginRoot: string): Promise<void> {
   await writeFile(
     hooksPath,
     `${JSON.stringify(
-      {
-        $comment:
-          'Emptied at install: SprintEngine Studio registers the agent-state reporter itself, in this workspace\u2019s .claude/settings.local.json. Claude Code loads this plugin natively, so a declaration here would be a SECOND registration and would fire the reporter twice per tool call. The declaration lives in the app\u2019s template (resources/studio-plugin/\u2026/hooks/hooks.json), which is what the merge reads.',
-        hooks: {},
-      },
+      // No `$comment` explaining the emptiness: Claude Code validates this file
+      // and reports an unknown top-level key at the foot of every session. The
+      // reason lives in this function's doc comment instead.
+      { hooks: {} },
       null,
       2,
     )}\n`,
@@ -433,6 +432,50 @@ function substitutable(name: string): boolean {
   return name.toLowerCase().endsWith('.json')
 }
 
+/**
+ * The key the template's JSON files explain themselves under.
+ *
+ * It is for whoever reads the template in this repository, and no CLI reading
+ * the materialised copy knows it: Claude Code validates a plugin's
+ * `hooks/hooks.json` and prints `unknown key "$comment" ignored` at the bottom
+ * of every session that loads it, once per load. Nested, it is worse than
+ * noise — under `mcpServers` it would read as a server named `$comment`.
+ */
+export const TEMPLATE_COMMENT_KEY = '$comment'
+
+/**
+ * Drop every `$comment` key, at any depth, from one JSON file's text.
+ *
+ * Runs before token substitution, so a comment that names a token is gone
+ * before substitution could rewrite it into a path. A file with no comment, or
+ * one that does not parse, is returned byte-for-byte: re-serialising only when
+ * something was removed keeps the rest of the template's layout intact.
+ */
+export function stripTemplateComments(text: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return text
+  }
+  let removed = false
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip)
+    if (!isRecord(value)) return value
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value)) {
+      if (key === TEMPLATE_COMMENT_KEY) {
+        removed = true
+        continue
+      }
+      out[key] = strip(child)
+    }
+    return out
+  }
+  const stripped = strip(parsed)
+  return removed ? `${JSON.stringify(stripped, null, 2)}\n` : text
+}
+
 async function copyTree(from: string, to: string, tokens: StudioPluginTokens, depth = 0): Promise<void> {
   await mkdir(to, { recursive: true })
   const entries = await readdir(from, { withFileTypes: true })
@@ -450,7 +493,7 @@ async function copyTree(from: string, to: string, tokens: StudioPluginTokens, de
       await copyFile(source, target)
       continue
     }
-    const text = await readFile(source, 'utf8')
+    const text = stripTemplateComments(await readFile(source, 'utf8'))
     await writeFile(target, substituteStudioPluginTokens(text, tokens), 'utf8')
   }
 }

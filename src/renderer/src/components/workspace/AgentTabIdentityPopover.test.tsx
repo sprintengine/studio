@@ -56,12 +56,11 @@ test('AgentTabIdentityPopover', async () => {
 
   const PEEK: ConversationPeek = {
     sessionId: SELF.sessionId,
-    source: 'transcript',
+    source: 'live',
     first: {
       id: 'm1',
       text: 'Freeze the title after the first prompt and put the rest on the hover.',
       at: NOW - 3 * 3_600_000,
-      attachments: [],
       truncatedChars: 0,
     },
     since: [
@@ -69,11 +68,9 @@ test('AgentTabIdentityPopover', async () => {
         id: 'm2',
         text: 'Drop the role row from the tab card while you are in there',
         at: NOW - 32 * 60_000,
-        attachments: [],
         truncatedChars: 0,
       },
     ],
-    images: [],
   }
 
   function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {
@@ -85,7 +82,6 @@ test('AgentTabIdentityPopover', async () => {
         now={NOW}
         copied={false}
         onCopySession={() => {}}
-        onOpenAttachment={() => {}}
       />,
     )
   }

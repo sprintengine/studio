@@ -7,6 +7,7 @@ import {
   TabSetNode,
   type Action,
   type BorderNode,
+  type IJsonModel,
   type ITabRenderValues,
   type ITabSetRenderValues,
   type NodeMouseEvent,
@@ -72,6 +73,8 @@ import {
   type Tone,
   Tooltip,
 } from '../ui'
+
+const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type: 'row', children: [] } }
 
 interface Props {
   workspaceId: string
@@ -233,7 +236,7 @@ function timedPanel(component: string, children: React.ReactNode) {
   )
 }
 
-function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined, now: number): React.ReactNode {
+function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined): React.ReactNode {
   if (!session) return null
   // Active work gets the pulsing green dot. Idle sessions show elapsed idle
   // time instead, beginning at 1m; sub-minute recency renders blank.
@@ -245,16 +248,25 @@ function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undef
   }
   const recency = pickTerminalTabRecency(session)
   if (!recency) return null
-  const recencyText = formatRelativeMs(recency.at, now)
-  if (!recencyText) return null
-  const label = tabRecencyLabel(recency.source)
+  return <TabRecencyText at={recency.at} label={tabRecencyLabel(recency.source)} />
+}
+
+/**
+ * A tab's "how long ago", reading its own clock. The tab strip is rebuilt by
+ * `renderTab`, and a clock there made every tab of the workspace re-render on
+ * each tick; this leaf re-renders alone. Sub-minute recency renders nothing.
+ */
+function TabRecencyText({ at, label }: { at: number; label: string }): React.ReactElement | null {
+  const now = useRelativeNow()
+  const text = formatRelativeMs(at, now)
+  if (!text) return null
   return (
     <span
       className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-      title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
-      aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
+      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`}
+      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`}
     >
-      {recencyText}
+      {text}
     </span>
   )
 }
@@ -282,7 +294,17 @@ function agentIdOfTab(node: TabNode, sessions: readonly { sessionId: string; age
   return null
 }
 
-function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Props) {
+// A workspace with no layout renders nothing. That is decided here, above the
+// body, rather than by an early return inside it: the body calls its hooks
+// unconditionally, and a return ahead of them would change how many ran
+// between one render and the next.
+function WorkspaceLayout(props: Props) {
+  const hasLayout = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === props.workspaceId)?.layoutModel != null)
+  if (!hasLayout) return null
+  return <WorkspaceLayoutBody {...props} />
+}
+
+function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
@@ -294,9 +316,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   )
   const editorOpenFiles = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES,
-  )
-  const lastTerminalActivityAt = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null,
   )
   // Worktree-backed workspace (a worktree opened as a workspace). The branch
   // glyph is workspace-level on the tabs below: every
@@ -344,7 +363,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   const terminalSessions = useTerminalSessions()
   // Which terminals a paired phone is watching, for the tab's remote mark.
   const remoteAttachedSessions = useRemoteAttachedSessions()
-  const now = useRelativeNow()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
@@ -392,9 +410,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   const [renameValue, setRenameValue] = useState('')
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
 
-  if (!layoutModel) return null
   if (!modelRef.current) {
-    modelRef.current = Model.fromJson(layoutModel)
+    // Mounted only once the workspace has a layout (`WorkspaceLayout` above),
+    // and built once; the empty model covers the render in which the layout
+    // is removed, before the parent unmounts this body.
+    modelRef.current = Model.fromJson(layoutModel ?? EMPTY_LAYOUT_MODEL)
     // Applied to EVERY model, not just newly-built ones: a persisted layout
     // carries its own `global` block. The splitter's width and grab area are
     // CSS (`--fl-splitter-size` in index.css), not model attributes.
@@ -500,6 +520,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // bespoke props (file-editor, git-conflict) need an explicit gated
   // arm below; those read enablement from this single overrides object.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // Read through a ref: the factory is not rebuilt when the launch surface's
+  // renderer changes (it is absent while this layer is in the background, and
+  // present once it is active), and a tab drawn later must use the current one.
+  const renderNewAgentPanelRef = useRef(renderNewAgentPanel)
+  renderNewAgentPanelRef.current = renderNewAgentPanel
 
   const factory = useCallback(
     (node: TabNode) => {
@@ -582,9 +607,10 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         case NEW_AGENT_TAB_COMPONENT:
           // The tab already wears the name its agent will take; the surface
           // hands it back on launch so the spawn adopts it.
-          return renderNewAgentPanel
-            ? renderNewAgentPanel(node.getId(), (config as { agentName?: string } | undefined)?.agentName)
-            : null
+          return (
+            renderNewAgentPanelRef.current?.(node.getId(), (config as { agentName?: string } | undefined)?.agentName) ??
+            null
+          )
         // A remote terminal is core chrome, not a module: tailnet remote control
         // is a built-in opt-in feature, and a pane that vanished with a module
         // toggle would strand a person mid-session on another machine. (The
@@ -1120,7 +1146,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           )
           const terminalId = config?.terminalId ?? node.getId()
           const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
-          const indicator = renderTerminalRecencyIndicator(session, now)
+          const indicator = renderTerminalRecencyIndicator(session)
           if (indicator) {
             renderValues.content = (
               <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -1215,19 +1241,23 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
 
       // Recency only when NOT working: an active agent shows the pulsing green
       // dot instead.
+      //
+      // The workspace's persisted keystroke clock is read off the store here
+      // rather than subscribed to: it moves on terminal input, and a
+      // subscription re-rendered the whole layout to redraw one tab's label.
+      // It is only the fallback for an agent with no live session, and a live
+      // session's broadcast is what re-runs this callback anyway.
+      const lastTerminalActivityAt =
+        useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
       const agentRecency = isWorking
         ? null
         : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
-      const agentRecencyText = agentRecency !== null ? formatRelativeMs(agentRecency.at, now) : ''
+      // The card's status line is read when the tab is drawn; the chip on
+      // the tab itself keeps its own time (`TabRecencyText`).
+      const agentRecencyText = agentRecency !== null ? formatRelativeMs(agentRecency.at, Date.now()) : ''
       const recencyIndicator =
-        agentRecency !== null && agentRecencyText ? (
-          <span
-            className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-            title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
-            aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
-          >
-            {agentRecencyText}
-          </span>
+        agentRecency !== null ? (
+          <TabRecencyText at={agentRecency.at} label={tabRecencyLabel(agentRecency.source)} />
         ) : null
 
       // Trailing status treatment: the activity dot, plus recency while idle.
@@ -1361,9 +1391,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       commitRename,
       editorOpenFiles,
       hideTab,
-      lastTerminalActivityAt,
       moduleOverrides,
-      now,
       renameValue,
       renamingTabId,
       openTabContextMenu,

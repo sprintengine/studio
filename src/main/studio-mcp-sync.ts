@@ -42,12 +42,12 @@ export async function syncStudioMcpConfig(
   const { studioGatewayDeliveredAtLaunch, ...syncInput } = input
   if (studioGatewayDeliveredAtLaunch) {
     if (syncInput.settings.syncEnabled && Object.keys(syncInput.settings.servers).length > 0) {
-      const result = deps.mcpConfigService.sync(syncInput)
+      const result = await deps.mcpConfigService.sync(syncInput)
       if (!result.ok) return { ok: false, message: result.message }
     }
     // Best-effort by construction (it never throws): a stale entry that could
     // not be removed costs a duplicate server, never the launch.
-    removeManagedStudioGatewayFromClaudeWorkspace(syncInput.workspaceRoot)
+    await removeManagedStudioGatewayFromClaudeWorkspace(syncInput.workspaceRoot)
     return { ok: true }
   }
 
@@ -105,7 +105,7 @@ export async function syncStudioMcpConfig(
   }
 
   for (const pass of syncInputs) {
-    const result = deps.mcpConfigService.sync(pass)
+    const result = await deps.mcpConfigService.sync(pass)
     if (!result.ok) return { ok: false, message: result.message }
   }
   return { ok: true }

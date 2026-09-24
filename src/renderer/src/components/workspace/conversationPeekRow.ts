@@ -81,7 +81,7 @@ export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: str
  * once.
  *
  * Shells are not in it: a plain terminal has no conversation. Neither is an
- * agent record that has never launched — no transcript and no sidecar by
+ * agent record that has never launched — no prompts and no sidecar by
  * construction, so main would answer `none` and the card would call a Claude
  * Code chat a runtime that cannot report.
  *

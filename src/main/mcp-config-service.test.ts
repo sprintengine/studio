@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -69,7 +69,7 @@ test('mcp-config-service', async () => {
       },
     }
 
-    const codexResult = service.sync({ workspaceRoot, settings: codexSettings, clients: ['codex'] })
+    const codexResult = await service.sync({ workspaceRoot, settings: codexSettings, clients: ['codex'] })
     assert.equal(codexResult.ok, true)
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf-8')
     assert.match(codexConfig, /\[mcp_servers\.context7\]/)
@@ -80,7 +80,7 @@ test('mcp-config-service', async () => {
     const codexFileConflictRoot = join(temp, 'codex-file-conflict-workspace')
     await mkdir(codexFileConflictRoot, { recursive: true })
     await writeFile(join(codexFileConflictRoot, '.codex'), '', 'utf-8')
-    const codexFileConflictResult = service.sync({
+    const codexFileConflictResult = await service.sync({
       workspaceRoot: codexFileConflictRoot,
       settings: codexSettings,
       clients: ['codex'],
@@ -140,7 +140,7 @@ test('mcp-config-service', async () => {
       },
     }
 
-    const claudeResult = service.sync({ workspaceRoot, settings: claudeSettings, clients: ['claude-code'] })
+    const claudeResult = await service.sync({ workspaceRoot, settings: claudeSettings, clients: ['claude-code'] })
     assert.equal(claudeResult.ok, true)
     const claudeConfig = JSON.parse(await readFile(claudePath, 'utf-8')) as {
       mcpServers: Record<string, unknown>
@@ -166,7 +166,7 @@ test('mcp-config-service', async () => {
       ),
       'utf-8',
     )
-    const studioClaudeResult = service.sync({
+    const studioClaudeResult = await service.sync({
       workspaceRoot,
       clients: ['claude-code'],
       settings: {
@@ -249,7 +249,7 @@ test('mcp-config-service', async () => {
         },
       },
     }
-    const opencodeResult = opencodeService.sync({
+    const opencodeResult = await opencodeService.sync({
       workspaceRoot: opencodeRoot,
       settings: opencodeSettings,
       clients: ['opencode'],
@@ -281,7 +281,7 @@ test('mcp-config-service', async () => {
     assert.doesNotMatch(opencodeRaw, /\$\{/, 'opencode uses {env:VAR}, never shell-style ${VAR} interpolation')
 
     // Idempotent re-sync: no duplicated entry, same three servers.
-    const opencodeRerun = opencodeService.sync({
+    const opencodeRerun = await opencodeService.sync({
       workspaceRoot: opencodeRoot,
       settings: opencodeSettings,
       clients: ['opencode'],
@@ -293,7 +293,7 @@ test('mcp-config-service', async () => {
     assert.deepEqual(Object.keys(opencodeConfigRerun.mcp).sort(), ['local-helper', 'user-remote', 'env-remote'].sort())
 
     // Forgetting a server takes its entry out and leaves the user's own alone.
-    const opencodeForget = opencodeService.sync({
+    const opencodeForget = await opencodeService.sync({
       workspaceRoot: opencodeRoot,
       settings: { syncEnabled: true, servers: {} },
       clients: ['opencode'],
@@ -321,7 +321,7 @@ test('mcp-config-service', async () => {
       ),
       'utf-8',
     )
-    const opencodeSoloCleanup = opencodeService.sync({
+    const opencodeSoloCleanup = await opencodeService.sync({
       workspaceRoot: opencodeSoloRoot,
       settings: { syncEnabled: true, servers: {} },
       clients: ['opencode'],
@@ -336,7 +336,7 @@ test('mcp-config-service', async () => {
     assert.equal(opencodeSolo.$schema, 'https://opencode.ai/config.json')
 
     // Honest failure for a shape OpenCode cannot express (SSE): error issue, no fake write.
-    const opencodeUnsupported = opencodeService.sync({
+    const opencodeUnsupported = await opencodeService.sync({
       workspaceRoot: opencodeRoot,
       clients: ['opencode'],
       settings: {
@@ -367,7 +367,7 @@ test('mcp-config-service', async () => {
       `unsupported SSE shape should emit an error issue, got: ${JSON.stringify(opencodeUnsupportedIssues)}`,
     )
 
-    const blocked = service.sync({
+    const blocked = await service.sync({
       workspaceRoot,
       clients: ['codex'],
       settings: {
@@ -438,7 +438,7 @@ test('mcp-config-service', async () => {
       },
     }
 
-    const pluginResult = pluginService.sync({
+    const pluginResult = await pluginService.sync({
       workspaceRoot,
       settings: pluginSettings,
       clients: ['third-party-codex'],
@@ -451,7 +451,7 @@ test('mcp-config-service', async () => {
     const pluginConfig = await readFile(join(workspaceRoot, '.third-party-codex', 'config.toml'), 'utf-8')
     assert.match(pluginConfig, /\[mcp_servers\.plugin-context\]/)
 
-    const unsupportedResult = pluginService.sync({
+    const unsupportedResult = await pluginService.sync({
       workspaceRoot,
       clients: ['generic-agent'],
       settings: {
@@ -534,7 +534,7 @@ test('mcp-config-service', async () => {
         },
       },
     }
-    const managedHttpResult = managedService.sync({
+    const managedHttpResult = await managedService.sync({
       workspaceRoot: siblingRoot,
       settings: managedSettings,
       clients: ['codex', 'claude-code'],
@@ -597,7 +597,7 @@ test('mcp-config-service', async () => {
       homeDir: () => homeRoot,
       userDataDir: () => join(temp, 'no-mcp-plugin-user-data'),
     })
-    const noMcpResult = noMcpService.sync({
+    const noMcpResult = await noMcpService.sync({
       workspaceRoot: siblingRoot,
       settings: requiredCodexSettings,
       clients: ['codex'],
@@ -639,7 +639,7 @@ test('mcp-config-service', async () => {
       homeDir: () => homeRoot,
       userDataDir: () => join(temp, 'no-mcp-capability-user-data'),
     })
-    const noMcpCapabilityResult = noMcpCapabilityService.sync({
+    const noMcpCapabilityResult = await noMcpCapabilityService.sync({
       workspaceRoot: siblingRoot,
       settings: requiredCodexSettings,
       clients: ['codex'],
@@ -681,7 +681,7 @@ test('mcp-config-service', async () => {
       homeDir: () => homeRoot,
       userDataDir: () => join(temp, 'unsupported-format-user-data'),
     })
-    const unsupportedFormatResult = unsupportedFormatService.sync({
+    const unsupportedFormatResult = await unsupportedFormatService.sync({
       workspaceRoot: siblingRoot,
       settings: requiredCodexSettings,
       clients: ['codex'],
@@ -750,7 +750,7 @@ test('mcp-config-service', async () => {
     })
 
     // Control: without the flag, the committed server survives (merge).
-    const mergeClaude = service.sync({
+    const mergeClaude = await service.sync({
       workspaceRoot: connectorRoot,
       settings: connectorServer(['claude-code']),
       clients: ['claude-code'],
@@ -765,7 +765,7 @@ test('mcp-config-service', async () => {
       'default sync merges: committed server survives',
     )
 
-    const connectorClaude = service.sync({
+    const connectorClaude = await service.sync({
       workspaceRoot: connectorRoot,
       settings: connectorServer(['claude-code']),
       clients: ['claude-code'],
@@ -781,7 +781,7 @@ test('mcp-config-service', async () => {
       'connector-scoped write must prune the committed server and leave only the connector',
     )
 
-    const connectorCodex = service.sync({
+    const connectorCodex = await service.sync({
       workspaceRoot: connectorRoot,
       settings: connectorServer(['codex']),
       clients: ['codex'],
@@ -845,7 +845,7 @@ test('mcp-config-service', async () => {
         },
       },
     }
-    const result = service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
+    const result = await service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
     assert.equal(result.ok, true, 'a source-owned server is a valid server to sync')
     const written = JSON.parse(await readFile(join(root, '.mcp.json'), 'utf-8')) as {
       mcpServers: Record<string, { command?: string }>
@@ -900,14 +900,14 @@ test('mcp-config-service', async () => {
         },
       },
     }
-    assert.equal(service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] }).ok, true)
+    assert.equal((await service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })).ok, true)
     const path = join(root, '.mcp.json')
     const before = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
     assert.deepEqual(Object.keys(before.mcpServers).sort(), ['keeper', 'telegram'])
 
     // What the uninstall does: the server is gone from settings, and named here.
     const remaining: McpSettings = { syncEnabled: true, servers: { keeper: settings.servers.keeper } }
-    const after = service.sync({
+    const after = await service.sync({
       workspaceRoot: root,
       settings: remaining,
       clients: ['claude-code'],
@@ -918,8 +918,8 @@ test('mcp-config-service', async () => {
     assert.deepEqual(Object.keys(written.mcpServers), ['keeper'], 'the forgotten server is gone, the other stays')
 
     // Without it, the same sync leaves the entry behind — which is the bug.
-    service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
-    const restored = service.sync({ workspaceRoot: root, settings: remaining, clients: ['claude-code'] })
+    await service.sync({ workspaceRoot: root, settings, clients: ['claude-code'] })
+    const restored = await service.sync({ workspaceRoot: root, settings: remaining, clients: ['claude-code'] })
     assert.equal(restored.ok, true)
     const stale = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
     assert.deepEqual(Object.keys(stale.mcpServers).sort(), ['keeper', 'telegram'])
@@ -1025,4 +1025,62 @@ test('mcp-config-service', async () => {
   })
 
   await suiteRun
+})
+
+test('a sync whose output matches the file on disk leaves every file untouched', async () => {
+  const registry = createPluginRegistry({
+    bundledRoot: join(process.cwd(), 'resources', 'plugins'),
+    userRoot: join(process.cwd(), '.does-not-exist', 'sprintengine', 'plugins'),
+  })
+  registry.loadSync()
+  const lookupPlugin: PluginLookup = (id) => {
+    const plugin = registry.get(id)
+    return plugin ? { manifest: plugin.manifest as PluginManifest } : undefined
+  }
+  const temp = await mkdtemp(join(tmpdir(), 'sprintengine-mcp-unchanged-'))
+  const root = join(temp, 'workspace')
+  await mkdir(root, { recursive: true })
+  const service = createMcpConfigService({
+    lookupPlugin,
+    homeDir: () => join(temp, 'home'),
+    userDataDir: () => join(temp, 'user-data'),
+  })
+  const docs: McpSettings['servers'][string] = {
+    id: 'docs',
+    name: 'Docs',
+    transport: 'http',
+    url: 'https://mcp.example.com/mcp',
+    enabled: true,
+    clients: ['claude-code', 'codex'],
+    scope: 'workspace',
+    source: 'custom',
+    riskLevel: 'network',
+  }
+  const input = {
+    workspaceRoot: root,
+    clients: docs.clients,
+    settings: { syncEnabled: true, servers: { docs } },
+  }
+  const first = await service.sync(input)
+  assert.equal(first.ok, true, first.ok ? '' : first.message)
+  const files = [join(root, '.mcp.json'), join(root, '.codex', 'config.toml')]
+  // Backdate every file, so a rewrite of the same bytes would still show as a
+  // new modification time.
+  const past = new Date(Date.now() - 60 * 60 * 1000)
+  for (const file of files) await utimes(file, past, past)
+  const before = await Promise.all(files.map(async (file) => (await stat(file)).mtimeMs))
+
+  const second = await service.sync(input)
+  assert.equal(second.ok, true, second.ok ? '' : second.message)
+  const after = await Promise.all(files.map(async (file) => (await stat(file)).mtimeMs))
+  assert.deepEqual(after, before, 'an unchanged config is not rewritten')
+
+  // A change still lands.
+  const changed = await service.sync({
+    ...input,
+    settings: { syncEnabled: true, servers: { docs: { ...docs, url: 'https://mcp.example.com/v2' } } },
+  })
+  assert.equal(changed.ok, true, changed.ok ? '' : changed.message)
+  assert.match(await readFile(join(root, '.mcp.json'), 'utf8'), /mcp\.example\.com\/v2/)
+  assert.notEqual((await stat(join(root, '.mcp.json'))).mtimeMs, before[0], 'a changed config is written')
 })

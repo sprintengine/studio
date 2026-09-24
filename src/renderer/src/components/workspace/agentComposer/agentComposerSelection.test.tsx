@@ -109,12 +109,12 @@ test('agentComposerSelection', async () => {
   run('New chat opens on the plain agent row: the manager seeds { kind: general }', () => {
     assert.match(
       managerSource,
-      /const composerInitialSelection: AgentComposerSelection = \{ kind: 'general' \}/,
+      /const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = \{ kind: 'general' \}/,
       'the composer seed is the agent row, not a remembered identity',
     )
     assert.match(
       managerSource,
-      /<NewAgentPanel[\s\S]{0,400}initialSelection=\{composerInitialSelection\}/,
+      /<NewAgentPanel[\s\S]{0,400}initialSelection=\{COMPOSER_INITIAL_SELECTION\}/,
       'the New chat panel is seeded from that constant',
     )
   })

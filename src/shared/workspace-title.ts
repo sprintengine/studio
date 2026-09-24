@@ -132,7 +132,7 @@ function escapeRegExp(value: string): string {
  * The shapes an app-injected fragment takes inside a prompt, named once so the
  * two consumers cannot drift apart. `stripInjectedFragments` deletes all of
  * them; the conversation peek (`src/main/conversation-peek/text.ts`) deletes
- * some and turns the path-shaped ones into attachment chips — the same tokens
+ * some and shortens the path-shaped ones to their names — the same tokens
  * have to be recognised identically on both routes or a peek would quote a path
  * the title already knew was not part of the sentence.
  *

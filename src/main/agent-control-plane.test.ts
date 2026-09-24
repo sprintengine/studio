@@ -509,6 +509,59 @@ test('agent-control-plane', async () => {
     assert.ok(reads > 3, 'the buffer was polled until it matched')
   })
 
+  run('a pattern wait with a cursor reads only new output and still matches across polls', async () => {
+    const sessions = [agentSession()]
+    let printed = 'banner\n'.repeat(1_000)
+    let polls = 0
+    const readSizes: number[] = []
+    const clock = makeClock()
+    const plane = createAgentControlPlane({
+      terminal: {
+        list: () => sessions,
+        write: () => {},
+        read: () => {
+          throw new Error('the whole scrollback is never read when a cursor is available')
+        },
+        readSince: (_sessionId, cursor) => {
+          polls += 1
+          // The sentinel arrives split across two polls.
+          if (polls === 3) printed += 'Do'
+          if (polls === 5) printed += 'ne.'
+          const text = printed.slice(cursor)
+          readSizes.push(text.length)
+          return { text, cursor: printed.length }
+        },
+      },
+      now: clock.now,
+      delay: clock.delay,
+    })
+
+    const result = await plane.wait('session-1', { pattern: /Done\./, timeoutMs: 5_000 })
+    assert.equal(result.ok, true)
+    if (result.ok) assert.equal(result.matched, 'pattern')
+    assert.equal(polls, 5, 'matched on the poll that finished the sentinel')
+    assert.equal(readSizes[0], 7_000, 'the first poll searches everything retained')
+    assert.deepEqual(readSizes.slice(1), [0, 2, 0, 3], 'every later poll reads only what is new')
+  })
+
+  run('a pattern already on screen satisfies a cursor wait at once', async () => {
+    const sessions = [agentSession()]
+    const clock = makeClock()
+    const plane = createAgentControlPlane({
+      terminal: {
+        list: () => sessions,
+        write: () => {},
+        read: () => undefined,
+        readSince: (_sessionId, cursor) => ({ text: 'ready> '.slice(cursor), cursor: 7 }),
+      },
+      now: clock.now,
+      delay: clock.delay,
+    })
+    const result = await plane.wait('session-1', { pattern: /ready>/g, timeoutMs: 1_000 })
+    assert.equal(result.ok, true)
+    assert.equal(clock.now(), 1_000, 'no poll interval was waited out')
+  })
+
   run('wait resolves once a session has been quiet long enough', async () => {
     const harness = makeHarness({ sessions: [agentSession({ lastOutputAt: 0 })] })
     const result = await harness.plane.wait('session-1', { idleMs: 500 })
