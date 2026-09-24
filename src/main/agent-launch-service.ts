@@ -54,7 +54,11 @@ import type {
   AgentLaunchRequest,
   AgentLaunchResult,
 } from '../shared/agent-launch'
-import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../shared/launch-settings'
+import {
+  effectiveAgentLaunchSettings,
+  resolveAgentSpawnPermissionPreset,
+  type AgentLaunchSettings,
+} from '../shared/launch-settings'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -93,7 +97,7 @@ export type AgentLaunchServiceDeps = {
   listWorkspaces: () => ReadonlyArray<AgentLaunchWorkspace>
   /**
    * The main-owned launch settings: CLI runtimes, MCP servers, the
-   * last-selected CLI, and the agent-spawn permission preset. Read at launch
+   * last-selected CLI, and the agent-spawn permission presets. Read at launch
    * time, never cached, so a setting changed in the UI reaches the next launch
    * without a restart.
    */
@@ -237,11 +241,13 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       name,
       cli,
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
-      // The automation path always sends one (spawn-agent.ts resolves it for
-      // every start path); the fallback covers the other agent.launch callers,
-      // which take the person's spawn preset, or the app default when they
-      // never chose one.
-      cliPermissionPreset: request.permissionPreset ?? settings.lastAgentSpawnPermissionPreset,
+      // The caller's preset when it names one: an automation's spawn-agent
+      // action always does (its own configured preset, or the automation
+      // default), and so do the agent.launch and backlog.work tools, which
+      // floor an unnamed preset to their most restrictive one. A caller that
+      // names none gets what the spawn footer shows for this CLI: the preset
+      // the person chose for it, else the app-wide spawn default.
+      cliPermissionPreset: resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset),
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),

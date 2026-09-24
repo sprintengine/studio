@@ -163,6 +163,7 @@
   --sem-tinted-wash: 0.06;
   --sem-tinted-bleed: 0.2;
   --sem-tinted-bleed-reach: 18px;
+  --sem-z-behind: -1;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
   --sem-z-float: 30;
@@ -8106,6 +8107,18 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
+/* Forced colours: the light is a gradient, and a forced palette paints no
+ * gradients, so the edge would vanish and say nothing. It becomes a still ring
+ * in the system Highlight colour instead, drawn by the border the mask already
+ * leaves showing. */
+@media (forced-colors: active) {
+  .ds-working-edge {
+    background: none;
+    border-color: Highlight; /* ds-lint-allow: a forced-colors system colour, which no token can stand for */
+    animation: none;
+  }
+}
+
 @keyframes ds-working-edge-orbit {
   to {
     --ds-working-edge-angle: 360deg;
@@ -11431,6 +11444,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.tinted.wash</code><code class="catalog-token-value">0.06</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">How much of the accent the tinted window material's canvas gradient carries at its lit corner; the gradient eases back to plain bg.app across the window. The tinted window material's canvas only (owner ruling 2026-09-24): an opaque, static gradient painted once on the window ground — color-mix(accent.primary at tinted.wash, bg.app) at the top-left corner, easing to bg.app by the middle of the window and back to half the wash at the far corner. It sits under the window chrome (rail, sidebar strip, title band), never under a card. Dark mode carries a little more because a near-black ground swallows a faint wash. <strong>Do not:</strong> Any card, panel, row, or control ground, and any surface that says something — the wash is ground, not signal. Never animated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.tinted.bleed</code><code class="catalog-token-value">0.2</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">How much of the accent the tinted material's glow carries at its brightest — the soft colour bleed around the brand mark and the rail's buttons. The tinted window material's glow: one static radial gradient of accent.primary reaching tinted.bleed-reach past the brand wordmark and every rail button alike, at tinted.bleed in a ring at the element's edge and at half that under its centre, so the glyph or letter there keeps its contrast. Dark mode glows more because the same share of accent reads weaker against near-black. <strong>Do not:</strong> Marking state. Every rail button wears the same glow whether or not it is selected — selection stays the neutral bg.selected fill — and nothing outside the window chrome glows.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.tinted.bleed-reach</code><code class="catalog-token-value">18px</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">How far the tinted material's glow reaches past the brand mark and the rail's buttons into the chrome around them. The outset of the tinted glow's gradient on every side of the element, paired with tinted.bleed. Short enough that neighbouring rail buttons' glows merge into one soft column rather than a row of separate halos. <strong>Do not:</strong> Any shadow — elevation comes from the sem.shadow set.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.behind</code><code class="catalog-token-value">-1</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Decoration painted behind its own element's content: a glow or wash pseudo-element inside the element's isolated stacking context. A `::before` or `::after` that decorates the ground under its own element (the tinted material's bleed) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further. <strong>Do not:</strong> Pushing a real surface under another one, or anything outside an isolated stacking context: without the isolation it slips behind the element's ancestors' backgrounds and vanishes.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.pane</code><code class="catalog-token-value">20</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay. The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins. <strong>Do not:</strong> Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.float</code><code class="catalog-token-value">30</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: panel-internal popovers and HUDs that float over a pane's own content — above docked panes, below every overlay. The top in-flow depth step: a panel-internal popover, HUD or tray that floats over its own pane's content and must clear a docked `z.pane` sibling, but stays inside the pane and portals nowhere. Sits directly below `z.drawer`. <strong>Do not:</strong> Surfaces that leave their pane (portalled popovers, menus, dialogs) — they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface.</p></div></div>
@@ -37897,11 +37911,11 @@ measureAll()
 <h4>Variants</h4>
 <p>None. One surface, one edge, one colour. A second hue for &quot;resuming with problems&quot; would be status by colour alone; a problem is reported as a problem, by the surface or a notice, when it happens.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Absent | Not rendered. The surface at rest carries no edge at all | | Working | The light laps the edge; it fades in on <code>motion.duration.normal</code> | | Reduced motion | A still <code>accent.soft</code> ring. No lap, no fade | | Done | Removed the moment the work lands, with no exit choreography; what replaced the old content is the signal |</p>
+<p>| State | Treatment | |---|---| | Absent | Not rendered. The surface at rest carries no edge at all | | Working | The light laps the edge; it fades in on <code>motion.duration.normal</code> | | Reduced motion | A still <code>accent.soft</code> ring. No lap, no fade | | Forced colors | A still ring in the system <code>Highlight</code> colour: a forced palette paints no gradient, so the light would otherwise vanish | | Done | Removed the moment the work lands, with no exit choreography; what replaced the old content is the signal |</p>
 <h4>Usage</h4>
 <ul><li>Use it for a bounded wait on a surface whose content stays useful during the wait: a terminal resuming, a document reconnecting. The content is the reason it exists. A surface with nothing to show yet takes a [skeleton](../skeleton/component.md) or the loading overlay ([spinner](../spinner/component.md)) instead.</li><li>One per surface, and never together with a spinner or a skeleton on the same surface. One loading idiom per region.</li><li>Never ambient. It appears because the person asked for something (a click, a keystroke) and it leaves when that has happened. An edge that is always running stops meaning anything.</li><li>It takes no pointer events. The surface under it stays scrollable and selectable, and a click there must still reach the surface.</li><li>The edge sits on <code>z.float</code>, over its own surface's content and inside its pane, and it portals nowhere.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The edge is <code>aria-hidden</code>. The fact is carried by one visually hidden <code>role=&quot;status&quot;</code> phrase, polite, rendered with the edge and removed with it.</li><li>Motion is never the only signal: under <code>prefers-reduced-motion: reduce</code> the ring is still there, just still.</li><li>It takes no focus and changes nothing about focus. Whatever had the keyboard keeps it, which on a terminal is what lets the keys typed during a resume reach the resumed agent.</li></ul>
+<ul><li>The edge is <code>aria-hidden</code>. The fact is carried by one visually hidden <code>role=&quot;status&quot;</code> phrase, polite, rendered with the edge and removed with it.</li><li>Motion is never the only signal: under <code>prefers-reduced-motion: reduce</code> the ring is still there, just still.</li><li>Under <code>forced-colors: active</code> the ring stays, still, in <code>Highlight</code>, so the edge is not lost with the gradient it is drawn in.</li><li>It takes no focus and changes nothing about focus. Whatever had the keyboard keeps it, which on a terminal is what lets the keys typed during a resume reach the resumed agent.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/working-edge/component.css</summary><pre><code>/* Working edge — a light that travels round the edge of a surface while that
@@ -37954,6 +37968,18 @@ measureAll()
 @media (prefers-reduced-motion: reduce) {
   .ds-working-edge {
     background: var(--sem-color-accent-soft) border-box;
+    animation: none;
+  }
+}
+
+/* Forced colours: the light is a gradient, and a forced palette paints no
+ * gradients, so the edge would vanish and say nothing. It becomes a still ring
+ * in the system Highlight colour instead, drawn by the border the mask already
+ * leaves showing. */
+@media (forced-colors: active) {
+  .ds-working-edge {
+    background: none;
+    border-color: Highlight; /* ds-lint-allow: a forced-colors system colour, which no token can stand for */
     animation: none;
   }
 }

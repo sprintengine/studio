@@ -513,6 +513,9 @@
      panel-internal popover or HUD (`--z-float`) — has its own three steps in
      the same source since 2026-09-02, so Tailwind's bare `z-20` / `z-30` are
      no longer the way to say it: write `z-[var(--z-pane)]` / `z-[var(--z-float)]`. */
+  /* Below them all, one step for decoration behind its own element's content
+     inside an isolated stacking context (the tinted material's bleed). */
+  --z-behind: var(--sem-z-behind);
   --z-sticky: var(--sem-z-sticky);
   --z-pane: var(--sem-z-pane);
   --z-float: var(--sem-z-float);
@@ -2287,14 +2290,29 @@ samp,
   }
 }
 
-/* The three infinite "something is working" motions above hold still while the
- * window is hidden or in the background (data-window-active, stamped by
- * utils/windowActivity.ts). They exist to catch the eye of someone looking at
- * the window; with nobody looking, every frame they ask for is a compositor
- * wakeup spent on nothing — and on the glass material, a full-window re-blend.
- * Paused rather than removed, so each resumes from the frame it stopped on
- * instead of snapping. */
-:root[data-window-active='false'] :is(.status-dot-pulse, .agent-working-dot, .lifecycle-spin) {
+/* Every infinite "something is working" motion holds still while the window is
+ * hidden or in the background (data-window-active, stamped by
+ * utils/windowActivity.ts): the three above, the working edge and the chat
+ * shimmer below, the skeleton sweep, and Tailwind's `animate-pulse` and
+ * `animate-ping`. They exist to catch the eye of someone looking at the
+ * window; with nobody looking, every frame they ask for is a wakeup spent on
+ * nothing — on the glass material a full-window re-blend, and for the working
+ * edge, whose conic gradient turns a registered custom property, a main-thread
+ * repaint. Paused rather than removed, so each resumes from the frame it
+ * stopped on instead of snapping. The skeleton's sweep is its `::after`, which
+ * `:is()` cannot name, so it has a selector of its own. The rule is checked
+ * against every infinite animation here by assets/idleAnimations.test.ts. */
+:root[data-window-active='false']
+  :is(
+    .status-dot-pulse,
+    .agent-working-dot,
+    .lifecycle-spin,
+    .working-edge,
+    .chat-shimmer,
+    .animate-pulse,
+    .animate-ping
+  ),
+:root[data-window-active='false'] .skeleton-shimmer::after {
   animation-play-state: paused;
 }
 
@@ -2351,6 +2369,17 @@ samp,
 @media (prefers-reduced-motion: reduce) {
   .working-edge {
     background: var(--accent-primary-soft) border-box;
+    animation: none;
+  }
+}
+
+/* Forced colours paint no gradient, so the light would vanish and the edge
+ * would say nothing: a still ring in the system Highlight colour instead,
+ * drawn by the border the mask already leaves showing. */
+@media (forced-colors: active) {
+  .working-edge {
+    background: none;
+    border-color: Highlight;
     animation: none;
   }
 }
@@ -3283,7 +3312,7 @@ body:has([data-selection-pane]:focus-within)
   content: "";
   position: absolute;
   inset: calc(var(--sem-tinted-bleed-reach) * -1);
-  z-index: -1;
+  z-index: var(--z-behind);
   pointer-events: none;
   background-image: radial-gradient(
     closest-side,
@@ -3291,4 +3320,17 @@ body:has([data-selection-pane]:focus-within)
     color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 100%), transparent) 55%,
     transparent 100%
   );
+}
+/* 3. Forced colours. The material is colour on the ground, and a forced
+ *    palette decides the ground: the wash and the glow both go, so nothing
+ *    the person's palette did not choose sits under the chrome or around a
+ *    rail glyph. Said here rather than left to how the engine treats a
+ *    gradient under forced colours. */
+@media (forced-colors: active) {
+  :root[data-window-material="tinted"] body {
+    background-image: none;
+  }
+  :root[data-window-material="tinted"] .material-bleed::before {
+    content: none;
+  }
 }

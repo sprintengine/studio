@@ -8,11 +8,16 @@ import { WATCH_BATCH_PATH_LIMIT, createWatchHub, isIgnoredWatchPath } from './wo
 
 type FakeWatcher = { root: string; recursive: boolean; emit: WatchListener<string>; closed: boolean }
 
-function harness() {
+function harness(tracked: string[] = []) {
   const watchers: FakeWatcher[] = []
   const timers: Array<{ callback: () => void; cleared: boolean }> = []
+  const asked: string[] = []
   const hub = createWatchHub({
     platform: 'darwin',
+    trackedBuildPaths: async (root) => {
+      asked.push(root)
+      return new Set(tracked)
+    },
     watch: (root, options, listener) => {
       const record: FakeWatcher = { root, recursive: options.recursive, emit: listener, closed: false }
       watchers.push(record)
@@ -34,8 +39,11 @@ function harness() {
   const flushTimers = (): void => {
     for (const timer of timers.splice(0)) if (!timer.cleared) timer.callback()
   }
-  return { hub, watchers, timers, flushTimers }
+  return { hub, watchers, timers, flushTimers, asked }
 }
+
+/** Lets a pending `trackedBuildPaths` answer land. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 test('one OS watcher per root, however many callers watch it', () => {
   const { hub, watchers } = harness()
@@ -50,12 +58,18 @@ test('one OS watcher per root, however many callers watch it', () => {
   assert.equal(hub.watcherCount(), 0)
 })
 
-test('a burst is delivered as the set of paths that changed, with churn filtered in main', () => {
+test('a burst is delivered as the set of paths that changed, with churn filtered in main', async () => {
   const { hub, watchers, timers, flushTimers } = harness()
   const events: FileWatchEvent[] = []
   hub.subscribe('/Users/dev/app', (event) => events.push(event))
 
   const emit = watchers[0].emit
+  // The first event in a build directory asks git what it tracks there; until
+  // the answer lands it is delivered.
+  emit('change', 'dist/first.js')
+  await settle()
+  flushTimers()
+  assert.deepEqual(events.splice(0)[0]?.paths, ['dist/first.js'])
   emit('change', 'node_modules/left-pad/index.js')
   emit('change', 'src/app.ts')
   emit('rename', '.git/index.lock')
@@ -114,4 +128,36 @@ test('the ignore rules', () => {
   assert.equal(isIgnoredWatchPath('src/build/index.ts'), false, 'a nested build/ may be source')
   assert.equal(isIgnoredWatchPath('src/app.ts'), false)
   assert.equal(isIgnoredWatchPath('.gitignore'), false)
+  const tracked = new Set(['build/entitlements.mac.plist', 'build/icons', 'build/icons/app.icns'])
+  const isTracked = (path: string) => tracked.has(path)
+  assert.equal(isIgnoredWatchPath('build/entitlements.mac.plist', isTracked), false, 'a tracked file is never dropped')
+  assert.equal(isIgnoredWatchPath('build/icons', isTracked), false, 'nor a folder holding one')
+  assert.equal(isIgnoredWatchPath('build\\entitlements.mac.plist', isTracked), false, 'in either slash')
+  assert.equal(isIgnoredWatchPath('build/out.o', isTracked), true, 'untracked output beside them still is')
+})
+
+test('a tracked file in a top-level build directory reaches the subscribers; output beside it does not', async () => {
+  const { hub, watchers, flushTimers, asked } = harness(['build/entitlements.mac.plist'])
+  const events: FileWatchEvent[] = []
+  hub.subscribe('/Users/dev/app', (event) => events.push(event))
+  const emit = watchers[0].emit
+
+  emit('change', 'build/entitlements.mac.plist')
+  await settle()
+  flushTimers()
+  assert.deepEqual(events.splice(0)[0]?.paths, ['build/entitlements.mac.plist'])
+
+  emit('change', 'build/entitlements.mac.plist')
+  emit('change', 'build/electron/out.js')
+  emit('change', 'coverage/lcov.info')
+  flushTimers()
+  assert.deepEqual(events.splice(0)[0]?.paths, ['build/entitlements.mac.plist'])
+  assert.equal(asked.length, 1, 'one git question per root, not per event')
+
+  // The index moving (a `git add` in build/) asks again, once.
+  emit('change', '.git/index')
+  emit('change', 'build/new.plist')
+  emit('change', 'build/other.plist')
+  await settle()
+  assert.equal(asked.length, 2)
 })

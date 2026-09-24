@@ -92,7 +92,7 @@ import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/h
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
-import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
@@ -110,7 +110,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeekService } from './conversation-peek/service'
-import { createAgentPromptStore } from './agent-prompt-store'
+import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   cliResumeCapabilities,
   createTerminalRuntime,
@@ -558,6 +558,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     broadcast: broadcastGitChangelistsChanged,
   })
 
+  // The conversation peek's durable history: each agent's captured prompts,
+  // kept beside the agent's record in userData so they outlive the session,
+  // the app and the sidecar sweep. The registry (created below, and only asked
+  // once prompts are being written) says which agents still exist, so eviction
+  // never takes the history of one still in the sidebar.
+  const agentPrompts = createAgentPromptStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    agentExists: ({ workspaceId, agentId }) => {
+      const record = workspaceRegistry.getRecord(workspaceId)
+      if (record) return Object.hasOwn(record.agents, agentId)
+      // A workspace the registry has never heard of is gone only once the
+      // registry is authoritative; before hydration nothing is known.
+      return workspaceRegistry.needsHydration() ? undefined : false
+    },
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
+    },
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
@@ -592,15 +611,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
       },
     }),
-    // The conversation peek's durable history: each agent's captured prompts,
-    // kept beside the agent's record in userData so they outlive the session,
-    // the app and the sidecar sweep.
-    agentPrompts: createAgentPromptStore({
-      resolveUserDataDir: () => app.getPath('userData'),
-      logDiagnostic: (diagnostic) => {
-        void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
-      },
-    }),
+    agentPrompts,
     // Reaper decision trail (actions + rate-limited skips) into the daily
     // diagnostics JSONL — the in-memory reap ring buffer dies with the process.
     logDiagnostic: (diagnostic) => {
@@ -775,6 +786,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveUserDataDir: () => app.getPath('userData'),
     // Read at write time, so the registry built below is in place by then.
     readRegistry: () => workspaceRegistry.getState(),
+    // At most one registry serialization every ten seconds; the newest request
+    // inside the interval is written when it ends.
+    minRegistryIntervalMs: 10_000,
   })
   const logWorkspaceSyncDiagnostic = (diagnostic: {
     level: 'warning'
@@ -796,6 +810,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const workspaceRegistry = createWorkspaceRegistryService({
     store: workspaceRegistryStore,
     logDiagnostic: logWorkspaceSyncDiagnostic,
+  })
+  // An agent removed from the registry (its row deleted, or its workspace
+  // removed) takes its stored prompts with it: they are a person's verbatim
+  // typing, and nothing can show them any more.
+  let registeredAgents = registeredAgentOwners(workspaceRegistry.getState())
+  workspaceRegistry.subscribe((state) => {
+    const next = registeredAgentOwners(state)
+    for (const [key, owner] of registeredAgents) {
+      if (!next.has(key)) void agentPrompts.remove(owner)
+    }
+    registeredAgents = next
   })
   const workspaceSyncService = createWorkspaceSyncService({
     registry: workspaceRegistry,
@@ -1111,10 +1136,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // Read live, never captured: the same store the launch service reads, so
           // a preset changed in Settings reaches the next terminal.create without
           // a restart.
-          // A never-chosen preset reads as the app default, as it does in the
-          // window's pickers and in the launch service.
-          getAgentSpawnPermissionDefault: () =>
-            effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+          // The CLI's own preset, else the app-wide one, and a never-chosen
+          // preset reads as the app default: the same resolution the window's
+          // pickers and the launch service use. With no CLI named, the launch
+          // runs on the last-selected one, so that is whose preset applies.
+          getAgentSpawnPermissionDefault: (cli) => {
+            const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
+            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
+          },
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
@@ -1226,6 +1255,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               // this checkout's branches); a local one forks HEAD as it always did.
               baseRef: baseRef?.trim() || 'HEAD',
               copyIncludedFiles: true,
+              // The agent's id is minted after this, by the launch; the branch
+              // names the owner until then.
+              agentLockOwner: paths.branchName,
             })
             if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
             return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }

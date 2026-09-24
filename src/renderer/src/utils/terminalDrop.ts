@@ -3,7 +3,7 @@ import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { AgentSkill } from '../../../shared/skills'
 import { plainSkillInvocation } from '../../../shared/skill-invocation'
 import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
-import { isWindowsPath, toWslPath, wslToWindowsPath } from '../../../shared/host-paths'
+import { isWindowsPath, isWslDriveMountPath, toWslPath, wslToWindowsPath } from '../../../shared/host-paths'
 
 export const SPRINTENGINE_FILE_DROP_MIME = 'application/x-sprintengine-file-drop'
 const SPRINTENGINE_COMMIT_DROP_MIME = 'application/x-sprintengine-commit-drop'
@@ -520,6 +520,7 @@ function normalizeSeparatorsForStyle(pathValue: string, style: TerminalPathStyle
 
 function inferPathStyle(pathValue: string): TerminalPathStyle {
   if (isWindowsPath(pathValue)) return 'windows'
-  if (/^\/mnt\/[A-Za-z]\//.test(pathValue)) return 'wsl'
+  // The shared answer, which also reads a bare drive root (`/mnt/c`) as WSL.
+  if (isWslDriveMountPath(pathValue)) return 'wsl'
   return 'posix'
 }

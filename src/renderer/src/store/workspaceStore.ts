@@ -113,6 +113,8 @@ import {
 import { isLegacyV44WorkspaceEnvelope, splitLegacyV44Envelope } from './repositories/workspaceRegistry'
 import type { AgentLaunchSettings } from '../../../shared/launch-settings'
 import { launchSettingsApiFromWindow, launchSettingsClient } from './launchSettingsClient'
+import { migrateLegacyCliPermissionPresets } from './legacyCliPermissionPresets'
+import { onWindowVisibilityChange } from '../utils/windowActivity'
 import {
   launchSettingsFieldsEqual,
   launchSettingsFromAppSettings,
@@ -276,6 +278,8 @@ export interface WorkspaceStore
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
+  /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
   setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
@@ -454,6 +458,33 @@ function scheduleBackupWrite(): void {
         })
       })
   }, BACKUP_WRITE_DEBOUNCE_MS)
+}
+
+// Workspace fields whose change alone does not refresh the backup: the
+// keystroke clock, written on terminal input. The next change that does
+// refresh it carries the clock along.
+const BACKUP_IGNORED_WORKSPACE_FIELDS: ReadonlySet<string> = new Set(['lastTerminalActivityAt'])
+
+/**
+ * Whether a new workspace list differs from the previous one in anything but
+ * the fields above. Cheap by construction: the store shares every workspace it
+ * did not touch, so only the changed ones have their top-level fields compared.
+ */
+export function workspacesChangedForBackup(previous: readonly Workspace[], next: readonly Workspace[]): boolean {
+  if (previous.length !== next.length) return true
+  for (let index = 0; index < next.length; index += 1) {
+    const before = previous[index] as Record<string, unknown> | undefined
+    const after = next[index] as unknown as Record<string, unknown>
+    if (before === after) continue
+    if (!before) return true
+    for (const key of Object.keys(after)) {
+      if (!BACKUP_IGNORED_WORKSPACE_FIELDS.has(key) && before[key] !== after[key]) return true
+    }
+    for (const key of Object.keys(before)) {
+      if (!(key in after)) return true
+    }
+  }
+  return false
 }
 
 // Two-key split persistence (T23). The custom storage adapter is the only
@@ -826,11 +857,13 @@ function installSettingsFlushOnExit(): void {
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
   window.addEventListener('pagehide', flushWorkspaceSettingsWrite)
   window.addEventListener('beforeunload', flushWorkspaceSettingsWrite)
-  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') flushWorkspaceSettingsWrite()
-    })
-  }
+  // On hide, through the window's own visibility rather than
+  // `document.visibilityState`, which stays 'visible' for a minimized macOS
+  // window. A hidden window's timers are throttled, so a write left on the
+  // 250 ms timer could otherwise sit there for as long as it stays hidden.
+  onWindowVisibilityChange((visible) => {
+    if (!visible) flushWorkspaceSettingsWrite()
+  })
 }
 installSettingsFlushOnExit()
 
@@ -940,8 +973,15 @@ const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
 
     // A changed workspace list asks main for a fresh backup. Only a non-empty
     // one: the intentional empty case is honored locally but never promoted
-    // over the last-known-good copy.
-    if (previous && previous.workspaces !== next.workspaces && next.workspaces.length > 0) {
+    // over the last-known-good copy. And not for the keystroke clock alone,
+    // which moves on terminal input: each backup has main serialize the whole
+    // registry, and typing is not a change worth recovering.
+    if (
+      previous &&
+      previous.workspaces !== next.workspaces &&
+      next.workspaces.length > 0 &&
+      workspacesChangedForBackup(previous.workspaces, next.workspaces)
+    ) {
       scheduleBackupWrite()
     }
 
@@ -1775,6 +1815,27 @@ function initLaunchSettingsClient(): void {
   })
 }
 initLaunchSettingsClient()
+
+// The per-CLI permission presets this profile kept in localStorage before main
+// owned them: offered once, after main's record is in, for the CLIs main holds
+// nothing for (legacyCliPermissionPresets.ts).
+function migrateCliPermissionPresetsToMain(): void {
+  if (!launchSettingsApiFromWindow()) return
+  let storage: Storage | null = null
+  try {
+    storage = window.localStorage
+  } catch {
+    // A restricted context has no localStorage, and so nothing to hand over.
+  }
+  void launchSettingsClient.ready.then(() =>
+    migrateLegacyCliPermissionPresets({
+      storage,
+      held: async () => (await window.api.launchSettingsGet()).settings.cliPermissionPresets ?? {},
+      update: (patch) => launchSettingsClient.update(patch),
+    }),
+  )
+}
+migrateCliPermissionPresetsToMain()
 
 /**
  * Resolves once main's launch settings are in this window's store (or main

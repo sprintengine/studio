@@ -44,6 +44,7 @@ by the surface or a notice, when it happens.
 | Absent | Not rendered. The surface at rest carries no edge at all |
 | Working | The light laps the edge; it fades in on `motion.duration.normal` |
 | Reduced motion | A still `accent.soft` ring. No lap, no fade |
+| Forced colors | A still ring in the system `Highlight` colour: a forced palette paints no gradient, so the light would otherwise vanish |
 | Done | Removed the moment the work lands, with no exit choreography; what replaced the old content is the signal |
 
 ## Usage
@@ -69,6 +70,8 @@ by the surface or a notice, when it happens.
   `role="status"` phrase, polite, rendered with the edge and removed with it.
 - Motion is never the only signal: under `prefers-reduced-motion: reduce` the
   ring is still there, just still.
+- Under `forced-colors: active` the ring stays, still, in `Highlight`, so the
+  edge is not lost with the gradient it is drawn in.
 - It takes no focus and changes nothing about focus. Whatever had the keyboard
   keeps it, which on a terminal is what lets the keys typed during a resume
   reach the resumed agent.

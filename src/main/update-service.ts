@@ -138,6 +138,10 @@ export class SprintEngineUpdateService {
   /** The loaded and configured updater; null until the first check or download needs it. */
   private updater: UpdaterModule | null = null
   private updaterLoading: Promise<UpdaterModule> | null = null
+  /** The app's own ordered shutdown, run before the installer takes over. */
+  private prepareForInstall: (() => Promise<void>) | null = null
+  /** Set once "Restart to update" has begun, so a second click is not a second shutdown. */
+  private installing: Promise<AppUpdateCheckResult> | null = null
 
   constructor({ writeDiagnosticLog, channelStore }: UpdateServiceOptions) {
     this.writeDiagnosticLog = writeDiagnosticLog
@@ -344,11 +348,54 @@ export class SprintEngineUpdateService {
     return download
   }
 
-  quitAndInstall(): AppUpdateCheckResult {
+  /**
+   * What runs before the installer is started: the app lifecycle's ordered,
+   * time-bounded shutdown. Registered by the lifecycle, which owns it.
+   */
+  setPrepareForInstall(prepare: () => Promise<void>): void {
+    this.prepareForInstall = prepare
+  }
+
+  quitAndInstall(): Promise<AppUpdateCheckResult> {
+    if (this.installing) return this.installing
     const autoUpdater = this.updater?.autoUpdater
     // `downloaded` is only ever set by the loaded updater's own event, so the
     // second half is belt and braces.
     if (!this.state.downloaded || !autoUpdater) {
+      return Promise.resolve({
+        ok: false,
+        state: this.getState(),
+        message: 'No downloaded update is ready to install.',
+      })
+    }
+    this.installing = this.installAfterShutdown(autoUpdater)
+    return this.installing
+  }
+
+  private async installAfterShutdown(autoUpdater: AppUpdater): Promise<AppUpdateCheckResult> {
+    // The app's own shutdown first — terminal snapshots, chat transcripts, the
+    // workspace registry — while nothing is waiting to kill the process. The
+    // Windows installer force-closes a running app a couple of seconds after it
+    // starts, which is shorter than a shutdown with many terminals takes, so
+    // a shutdown that only began at the updater's quit could lose its later
+    // legs. The hook bounds its own wait.
+    try {
+      await this.prepareForInstall?.()
+    } catch (error) {
+      void this.writeDiagnosticLog({
+        level: 'warning',
+        source: 'update',
+        title: 'Shutdown before update failed',
+        message: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined)
+    }
+    // A channel switch during the shutdown drops the download it would have
+    // installed. The app's services are already down, so restart it as it is
+    // rather than leave a window over them.
+    if (!this.state.downloaded) {
+      this.installing = null
+      app.relaunch()
+      app.quit()
       return { ok: false, state: this.getState(), message: 'No downloaded update is ready to install.' }
     }
     // Silent, then relaunch. On Windows the first argument runs the NSIS

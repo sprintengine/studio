@@ -484,17 +484,25 @@ export function filterFileList(
  *   whose watch is not recursive (Linux) or a root that cannot be watched;
  * - a root nobody has searched for `idleMs` is dropped and its watch closed;
  * - a listing past `maxFiles` paths is not held at all, and that root keeps
- *   the per-query walk, which stops early at the result limit.
+ *   the per-query walk, which stops early at the result limit. That verdict is
+ *   remembered for the root (until `maxAgeMs`, or an ignore-file edit that may
+ *   shrink the list), so a keystroke does not start a 200,000-path listing
+ *   only to throw it away before its own walk.
  */
 type CachedFileList = {
   files: string[] | null
   building: Promise<string[] | null> | null
   builtAt: number
+  /** When the listing last came back too large to hold; null when it did not. */
+  tooLargeAt: number | null
   lastUsedAt: number
   generation: number
   watch: WatchSubscription | null
   idleTimer: NodeJS.Timeout | null
 }
+
+/** What `listFiles` answers for a root with more than `maxFiles` paths. */
+export const FILE_LIST_TOO_LARGE = 'too-large' as const
 
 const FILE_LIST_MAX_FILES = 200_000
 const FILE_LIST_MAX_AGE_MS = 5 * 60_000
@@ -503,7 +511,7 @@ const IGNORE_FILE_NAMES = new Set(['.gitignore', '.ignore', '.rgignore'])
 
 export function createFileListCache(
   deps: {
-    listFiles?: (rootPath: string, maxFiles: number) => Promise<string[] | null>
+    listFiles?: (rootPath: string, maxFiles: number) => Promise<string[] | typeof FILE_LIST_TOO_LARGE | null>
     hub?: () => WatchHub
     now?: () => number
     maxAgeMs?: number
@@ -542,6 +550,7 @@ export function createFileListCache(
       files: null,
       building: null,
       builtAt: 0,
+      tooLargeAt: null,
       lastUsedAt: now(),
       generation: 0,
       watch: null,
@@ -550,9 +559,12 @@ export function createFileListCache(
     try {
       entry.watch = hub().subscribe(rootPath, (event) => {
         const paths = watchEventPaths(event)
-        const reshaped =
-          paths === null || event.eventType === 'rename' || paths.some((path) => IGNORE_FILE_NAMES.has(basename(path)))
+        const ignoreFileEdited = paths !== null && paths.some((path) => IGNORE_FILE_NAMES.has(basename(path)))
+        const reshaped = paths === null || event.eventType === 'rename' || ignoreFileEdited
         if (reshaped) invalidate(entry)
+        // A file created or removed hardly moves a count past 200,000; an
+        // ignore file can halve it.
+        if (ignoreFileEdited) entry.tooLargeAt = null
       })
     } catch {
       // Unwatchable (a network mount): the age bound alone keeps it honest.
@@ -570,14 +582,21 @@ export function createFileListCache(
       }
       touch(key, entry)
       if (entry.files && now() - entry.builtAt < maxAgeMs) return entry.files
+      if (entry.tooLargeAt !== null && now() - entry.tooLargeAt < maxAgeMs) return null
       if (entry.building) return entry.building
 
       const generation = entry.generation
       const current = entry
       current.building = listFiles(rootPath, FILE_LIST_MAX_FILES)
         .catch(() => null)
-        .then((files) => {
+        .then((listed) => {
           current.building = null
+          if (listed === FILE_LIST_TOO_LARGE) {
+            current.tooLargeAt = now()
+            return null
+          }
+          const files = listed
+          current.tooLargeAt = null
           // The tree changed shape while it was being walked: answer this
           // query from the walk, but do not keep it.
           if (files && current.generation === generation) {
@@ -598,15 +617,19 @@ export function createFileListCache(
 const fileListCache = createFileListCache()
 
 /**
- * Every file `rg` would list under `rootPath`, root-relative, or null when the
- * walk failed or passed `maxFiles` (it is stopped there rather than finished).
+ * Every file `rg` would list under `rootPath`, root-relative; `too-large` when
+ * the walk passed `maxFiles` (it is stopped there rather than finished); null
+ * when it failed.
  */
-function listFilesWithRipgrep(rootPath: string, maxFiles: number): Promise<string[] | null> {
+function listFilesWithRipgrep(
+  rootPath: string,
+  maxFiles: number,
+): Promise<string[] | typeof FILE_LIST_TOO_LARGE | null> {
   return new Promise((resolve) => {
     const files: string[] = []
     let buffered = ''
     let settled = false
-    const finish = (value: string[] | null): void => {
+    const finish = (value: string[] | typeof FILE_LIST_TOO_LARGE | null): void => {
       if (settled) return
       settled = true
       resolve(value)
@@ -623,7 +646,7 @@ function listFilesWithRipgrep(rootPath: string, maxFiles: number): Promise<strin
       buffered = lines.pop() ?? ''
       for (const line of lines) if (line) files.push(line)
       if (files.length > maxFiles) {
-        finish(null)
+        finish(FILE_LIST_TOO_LARGE)
         try {
           child.kill()
         } catch {

@@ -32,6 +32,10 @@ async function exists(path: string): Promise<boolean> {
   )
 }
 
+// Every worktree here is seconds old, which the idle rule keeps; these cases
+// are about the other rules, so they run with the clock two hours on.
+const later = (): number => Date.now() + 2 * 60 * 60_000
+
 let scratch = ''
 let repo = ''
 let container = ''
@@ -105,7 +109,7 @@ test('only clean agent worktrees whose work is on the default branch are removed
   const logs: string[] = []
   const dry = await cleanupAgentWorktrees(
     { repoRoot: repo, protectedPaths: [inUse], dryRun: true },
-    { livePaths: () => [join(live, 'src')], log: (line) => logs.push(line) },
+    { livePaths: () => [join(live, 'src')], log: (line) => logs.push(line), now: later },
   )
   const verdicts = Object.fromEntries(dry.entries.map((entry) => [entry.path.split('/').pop(), entry.verdict]))
   assert.deepEqual(verdicts, {
@@ -129,7 +133,7 @@ test('only clean agent worktrees whose work is on the default branch are removed
 
   const real = await cleanupAgentWorktrees(
     { repoRoot: repo, protectedPaths: [inUse] },
-    { livePaths: () => [join(live, 'src')], log: () => {} },
+    { livePaths: () => [join(live, 'src')], log: () => {}, now: later },
   )
   assert.deepEqual(
     real.entries
@@ -174,7 +178,7 @@ test('a squash-merged branch is removable; one carrying more work is kept', asyn
   const squashed = await squashMerged('squashed')
   const moreWork = await squashMerged('more-work', 'late.txt')
 
-  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {} })
+  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [] }, { log: () => {}, now: later })
   const byName = Object.fromEntries(report.entries.map((entry) => [entry.path.split('/').pop(), entry]))
   assert.equal(byName.squashed?.verdict, 'removed', 'its changes are already on origin/main')
   assert.match(byName.squashed?.detail ?? '', /squash-merged/)
@@ -190,6 +194,7 @@ test('a git without merge-tree --write-tree falls back to the ancestry rule', as
     { repoRoot: repo, protectedPaths: [] },
     {
       log: () => {},
+      now: later,
       // What git < 2.38 says to the flag: a usage error, never a tree.
       runGit: async (cwd, args) =>
         args[0] === 'merge-tree'
@@ -213,7 +218,7 @@ test('with no default branch to compare against, nothing is removed', async () =
   await mkdir(lonelyContainer, { recursive: true })
   const path = join(lonelyContainer, 'x')
   await git(lonely, 'worktree', 'add', '-q', '-b', 'agent/x', path)
-  const report = await cleanupAgentWorktrees({ repoRoot: lonely, protectedPaths: [] }, { log: () => {} })
+  const report = await cleanupAgentWorktrees({ repoRoot: lonely, protectedPaths: [] }, { log: () => {}, now: later })
   assert.equal(report.defaultRef, null)
   assert.deepEqual(
     report.entries.map((entry) => entry.verdict),

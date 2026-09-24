@@ -1,14 +1,18 @@
 /**
  * The seam between the store's `appSettings` and main's agent-launch settings.
  *
- * Six `appSettings` fields are a read model of main's record rather than
+ * Seven `appSettings` fields are a read model of main's record rather than
  * settings this window owns: they are filled from main, never persisted to
  * localStorage, and ignored when a persisted envelope is read back (except
  * once, as the migration offer — see `launchSettingsClient`). Everything that
  * needs to know which fields those are, or to convert between the two shapes,
  * goes through here so the list cannot drift.
  */
-import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../../../shared/launch-settings'
+import {
+  effectiveAgentLaunchSettings,
+  normalizeCliPermissionPresets,
+  type AgentLaunchSettings,
+} from '../../../shared/launch-settings'
 import type { AppSettings, Workspace } from '../types/workspace'
 import { normalizeAppSettings } from './slices/settingsSlice'
 
@@ -19,6 +23,7 @@ export const LAUNCH_SETTINGS_KEYS = [
   'projectKnowledgeRoots',
   'lastSelectedCli',
   'lastAgentSpawnPermissionPreset',
+  'cliPermissionPresets',
 ] as const
 
 type LaunchSettingsKey = (typeof LAUNCH_SETTINGS_KEYS)[number]
@@ -39,6 +44,7 @@ export function pickLaunchSettings(appSettings: AppSettings): LaunchSettingsFiel
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots,
     lastSelectedCli: appSettings.lastSelectedCli,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset,
+    cliPermissionPresets: appSettings.cliPermissionPresets,
   }
 }
 
@@ -61,6 +67,7 @@ export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLa
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots ?? {},
     lastSelectedCli: appSettings.lastSelectedCli ?? null,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset ?? null,
+    cliPermissionPresets: normalizeCliPermissionPresets(appSettings.cliPermissionPresets),
   }
 }
 
@@ -86,6 +93,7 @@ export function withLaunchSettings(
       projectKnowledgeRoots: effective.projectKnowledgeRoots,
       lastSelectedCli: effective.lastSelectedCli,
       lastAgentSpawnPermissionPreset: effective.lastAgentSpawnPermissionPreset,
+      cliPermissionPresets: effective.cliPermissionPresets,
     },
     workspaces,
   )

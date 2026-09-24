@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   emptyExecutionHostSettings,
@@ -144,6 +144,10 @@ export function MachinesSettingsTab(): React.JSX.Element {
   )
 }
 
+// How long the environment field waits after the last keystroke before it
+// writes: long enough not to send main a patch per character.
+const ENV_COMMIT_DELAY_MS = 600
+
 function MachineDetail({
   host,
   settings,
@@ -155,9 +159,27 @@ function MachineDetail({
   clis: ReturnType<typeof orderInstalledPlugins>
   onChange: (patch: Partial<ExecutionHostSettings>) => void
 }): React.JSX.Element {
-  // The environment is edited as text and written on blur, so a half-typed
-  // line is never parsed away under the cursor.
+  // The environment is edited as text and parsed only when it is written, so
+  // a half-typed line is never parsed away under the cursor. It is written a
+  // moment after typing stops, on blur, and when the panel goes away: closing
+  // Settings with Escape unmounts the field without a blur, and the edit used
+  // to go with it.
   const [envText, setEnvText] = useState(() => formatEnvLines(settings.env))
+  const latest = useRef({ envText, env: settings.env, onChange })
+  latest.current = { envText, env: settings.env, onChange }
+  const envTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const commitEnv = useCallback(() => {
+    if (envTimer.current !== null) {
+      clearTimeout(envTimer.current)
+      envTimer.current = null
+    }
+    const current = latest.current
+    const env = parseEnvLines(current.envText)
+    // Unchanged is not a write: an unmount after no edit leaves main alone.
+    if (formatEnvLines(env) === formatEnvLines(current.env)) return
+    current.onChange({ env })
+  }, [])
+  useEffect(() => commitEnv, [commitEnv])
   return (
     <div className="space-y-4">
       <div className="divide-y divide-[color:var(--border-subtle)]">
@@ -188,8 +210,14 @@ function MachineDetail({
             id={`machine-env-${host.id}`}
             aria-label={`${host.label} environment`}
             value={envText}
-            onChange={(event) => setEnvText(event.target.value)}
-            onBlur={() => onChange({ env: parseEnvLines(envText) })}
+            onChange={(event) => {
+              const text = event.target.value
+              latest.current.envText = text
+              setEnvText(text)
+              if (envTimer.current !== null) clearTimeout(envTimer.current)
+              envTimer.current = setTimeout(commitEnv, ENV_COMMIT_DELAY_MS)
+            }}
+            onBlur={commitEnv}
             placeholder="NAME=value"
             size="md"
             variant="well"

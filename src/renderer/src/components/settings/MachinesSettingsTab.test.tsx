@@ -92,6 +92,57 @@ test('WSL that did not answer says so', async () => {
   expect(host.textContent).toContain('WSL did not answer.')
 })
 
+async function openUbuntuEnvironment(): Promise<HTMLTextAreaElement> {
+  await render()
+  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  expect(disclosure).toBeTruthy()
+  await act(async () => disclosure!.click())
+  const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="WSL: Ubuntu environment"]')
+  expect(field).toBeTruthy()
+  return field!
+}
+
+async function type(field: HTMLTextAreaElement, text: string): Promise<void> {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  await act(async () => {
+    setValue.call(field, text)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+test('an environment edit is written when the panel goes away without a blur', async () => {
+  const field = await openUbuntuEnvironment()
+  await type(field, 'API_URL=http://localhost:3000')
+  expect(writes).toEqual([])
+  // Escape closes Settings by unmounting it; the field never blurs.
+  await act(async () => root.unmount())
+  expect(writes).toEqual([
+    ['wsl:Ubuntu', { enabled: false, cliCommands: {}, env: { API_URL: 'http://localhost:3000' } }],
+  ])
+  root = createRoot(host)
+})
+
+test('an environment edit is written a moment after typing stops', async () => {
+  const field = await openUbuntuEnvironment()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    await type(field, 'A=1')
+    await type(field, 'A=12')
+    expect(writes).toEqual([])
+    await act(async () => vi.advanceTimersByTime(1_000))
+    expect(writes).toEqual([['wsl:Ubuntu', { enabled: false, cliCommands: {}, env: { A: '12' } }]])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('closing the panel with no edit writes nothing', async () => {
+  await openUbuntuEnvironment()
+  await act(async () => root.unmount())
+  expect(writes).toEqual([])
+  root = createRoot(host)
+})
+
 test('the environment is edited as NAME=value lines', () => {
   expect(parseEnvLines('A=1\n# note\n\nB = two words\nbad-name=x\nC=a=b')).toEqual({
     A: '1',

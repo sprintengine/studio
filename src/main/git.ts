@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
+import { lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
 import { cloneTree } from './clone-tree'
 import {
   getRelativeGitPath,
@@ -160,6 +161,12 @@ export type GitWorktreeEntry = {
   bare: boolean
   locked: boolean
   lockedReason: string | null
+  /**
+   * Set when the lock is the in-use mark the app places on an agent worktree
+   * (agent-worktree-lock.ts): this profile's, which it releases itself, or
+   * another Studio profile's, which it never touches.
+   */
+  agentLock?: 'this-profile' | 'other-profile'
   prunable: boolean
   prunableReason: string | null
 }
@@ -186,6 +193,14 @@ export type GitWorktreeCreateInput = {
   branchName: string
   baseRef: string
   copyIncludedFiles?: boolean
+  /**
+   * Lock the new worktree as in use by an agent (agent-worktree-lock.ts),
+   * naming this owner: the agent's id, or the branch when the agent does not
+   * exist yet. The agent worktree cleanup never removes a worktree another
+   * profile has locked, and this profile releases its own lock once its
+   * records no longer use the worktree.
+   */
+  agentLockOwner?: string
 }
 
 export type GitWorktreeRemoveInput = {
@@ -326,7 +341,8 @@ async function seedWorktreeIncludedFiles(
  *
  * Five git processes, in order, and no more: resolve the repository root once,
  * check the branch name and the base ref, `worktree add`, and one `worktree
- * list` to report the entry the way git spells it. Every one is a process start
+ * list` to report the entry the way git spells it. An agent worktree adds a
+ * sixth, the `worktree lock` that marks it in use. Every one is a process start
  * on the launch path of a worktree agent, and on Windows or a network mount
  * each costs far more than the ~20 ms it costs here.
  *
@@ -375,6 +391,18 @@ export async function createGitWorktree(
         'Unable to create Git worktree.',
       stdout: addResult.stdout,
       stderr: addResult.stderr,
+    }
+  }
+
+  if (input.agentLockOwner) {
+    // Straight after the add, before the seeding copies anything in: from here
+    // on no other Studio profile's cleanup will remove it. A lock that fails is
+    // logged, not fatal; the cleanup's age guard still covers a new worktree.
+    const locked = await lockAgentWorktree(root.data, destination.data.destinationPath, input.agentLockOwner)
+    if (!locked.ok) {
+      console.warn(
+        `[git] could not lock agent worktree ${destination.data.destinationPath}: ${locked.message ?? locked.stderr}`,
+      )
     }
   }
 
@@ -458,12 +486,23 @@ export async function removeGitWorktree(
     }
   }
 
+  // The in-use lock this profile put on its own agent worktree is the app's
+  // mark, not the person's, and a person removing the worktree releases it.
+  // Any other lock (another profile's agent, or one placed by hand) makes git
+  // refuse below, which is the point of it.
+  const ownLock = registeredWorktree.locked && registeredWorktree.agentLock === 'this-profile'
+  if (ownLock) {
+    const unlocked = await unlockWorktree(root.data, worktreePath)
+    if (!unlocked.ok) return toWorktreeResult(unlocked, unlocked)
+  }
+
   const removeResult = await runGitCommand(root.data, [
     'worktree',
     'remove',
     ...(input.force ? ['--force'] : []),
     worktreePath,
   ])
+  if (!removeResult.ok && ownLock) await relockWorktree(root.data, worktreePath, registeredWorktree.lockedReason)
 
   return toWorktreeResult(removeResult, removeResult)
 }
@@ -472,7 +511,48 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
   const root = await resolveRepoRoot(repoRoot)
   if (!root.ok) return root
 
+  // `prune` skips locked entries (git never even reports a locked one as
+  // prunable). One of this profile's own agent locks on a worktree whose folder
+  // is gone would otherwise keep its metadata for good, which is not what a
+  // person pressing Prune asked for.
+  const listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (listed.ok) {
+    for (const worktree of listed.data.worktrees) {
+      if (worktree.locked && worktree.agentLock === 'this-profile' && !(await pathExists(worktree.path))) {
+        await unlockWorktree(root.data, worktree.path)
+      }
+    }
+  }
+
   const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  return toWorktreeResult(result, result)
+}
+
+/**
+ * Lift an agent in-use lock from a worktree, at a person's request. For a lock
+ * nothing will lift by itself: another profile's (one since deleted, or whose
+ * user-data folder moved), or one placed before a profile was named. A lock a
+ * person placed by hand is not the app's to lift, and is refused.
+ */
+export async function unlockAgentGitWorktree(
+  repoRoot: string,
+  worktreePath: string,
+): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(repoRoot)
+  if (!root.ok) return root
+  const listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (!listed.ok) return listed
+  const worktree = listed.data.worktrees.find(
+    (candidate) => normalizeComparablePath(candidate.path) === normalizeComparablePath(worktreePath),
+  )
+  if (!worktree?.locked) return { ok: false, message: `Worktree is not locked: ${worktreePath}` }
+  if (!worktree.agentLock) {
+    return {
+      ok: false,
+      message: 'This lock was not placed by SprintEngine Studio. Unlock it with git worktree unlock.',
+    }
+  }
+  const result = await unlockWorktree(root.data, worktree.path)
   return toWorktreeResult(result, result)
 }
 

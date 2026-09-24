@@ -325,6 +325,14 @@ export type AppSettings = {
   lastFolderOpenTarget: FolderOpenTargetId | null
   lastAgentSpawnPermissionPreset: CliPermissionPreset
   /**
+   * The preset a spawn on each CLI launches with, keyed by CLI id: what the
+   * spawn footer's picker last chose for that runtime. A CLI with no entry
+   * reads `lastAgentSpawnPermissionPreset`. A read model of main's launch
+   * settings, like `cliRuntimes`, so every window and a launch with no window
+   * open read the same choice.
+   */
+  cliPermissionPresets?: Partial<Record<AgentCli, CliPermissionPreset>>
+  /**
    * The model (and reasoning-effort level) an agent spawn last ran on, stored
    * with the CLI it was picked for so a later CLI switch cannot leak a stale
    * model across CLIs. Honored only when the spawn's effective CLI matches;

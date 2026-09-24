@@ -91,8 +91,10 @@ export type AutomationBackends = {
   /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
   /**
-   * This machine's own agent-spawn permission preset, from the main-owned
-   * launch settings store; `null` when the user has never chosen one.
+   * This machine's own agent-spawn permission preset for `cli` (the CLI the
+   * launch will run on; absent for the last-selected one), from the main-owned
+   * launch settings store: the preset the person chose for that CLI, else the
+   * app-wide spawn default; `null` when they have chosen neither.
    *
    * Read by `terminal.create` so a remotely-opened terminal runs under the
    * preset the person at this machine chose — and read HERE rather than left to
@@ -101,7 +103,7 @@ export type AutomationBackends = {
    * accessor: the launch service resolves it from the same store and says so
    * when there is none.
    */
-  getAgentSpawnPermissionDefault(): CliPermissionPreset | null
+  getAgentSpawnPermissionDefault(cli?: string): CliPermissionPreset | null
   /**
    * Mint a workspace in main's registry. Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
@@ -1204,7 +1206,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // inherited it would get an unsandboxed agent nobody on either end asked
       // for. Falling to the most restrictive preset is the surface's ceiling,
       // and the answer reports which preset actually applied.
-      const machineDefault = backends.getAgentSpawnPermissionDefault()
+      const machineDefault = backends.getAgentSpawnPermissionDefault(optionalString(args.cli))
       const permissionPreset =
         requestedPreset ??
         (machineDefault && machineDefault !== 'bypass' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])

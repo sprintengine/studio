@@ -1919,6 +1919,18 @@
       }
     },
     "z": {
+      "behind": {
+        "$type": "number",
+        "$value": -1,
+        "$description": "Decoration painted behind its own element's content: a glow or wash pseudo-element inside the element's isolated stacking context.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "layering",
+            "use": "A `::before` or `::after` that decorates the ground under its own element (the tinted material's bleed) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further.",
+            "doNotUse": "Pushing a real surface under another one, or anything outside an isolated stacking context: without the isolation it slips behind the element's ancestors' backgrounds and vanishes."
+          }
+        }
+      },
       "sticky": {
         "$type": "number",
         "$value": 10,

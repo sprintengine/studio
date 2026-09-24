@@ -289,6 +289,9 @@ export class AutomationsEngine {
   private readonly maxSleepMs: number
   private readonly timers: { setTimeout(handler: () => void, ms: number): unknown; clearTimeout(handle: unknown): void }
   private timer: unknown = null
+  // When the armed timer fires (engine clock), so a deadline that turns up
+  // between evaluations can tell whether it needs an earlier one.
+  private timerDueAt: number | null = null
   // Set by an evaluation that asked a trigger provider to poll.
   private polledTriggers = false
   private timerLoopActive = false
@@ -352,6 +355,32 @@ export class AutomationsEngine {
     if (this.timer === null) return
     this.timers.clearTimeout(this.timer)
     this.timer = null
+    this.timerDueAt = null
+  }
+
+  private setWake(delay: number): void {
+    this.timerDueAt = this.now() + delay
+    this.timer = this.timers.setTimeout(() => {
+      this.timer = null
+      this.timerDueAt = null
+      void this.runTimerEvaluation()
+    }, delay)
+  }
+
+  /**
+   * A pending run registered outside a timer evaluation — a manual run, a
+   * webhook delivery, a run a finished evaluation dispatched in the background —
+   * brings a max-duration deadline the armed timer was not computed from. Pull
+   * the timer in to that deadline when it is sooner, so the limit is enforced on
+   * time rather than at the next quarter-hour wake. An evaluation in flight
+   * re-arms from the pending set when it ends, and one that has not started yet
+   * (startup) arms afterwards, so both are left alone.
+   */
+  private armForDeadline(deadline: number): void {
+    if (!this.started || this.timer === null || this.timerLoopActive) return
+    if (this.timerDueAt !== null && this.timerDueAt <= deadline) return
+    this.clearWake()
+    this.setWake(Math.max(MIN_WAKE_DELAY_MS, Math.ceil(deadline - this.now())))
   }
 
   private armWake(result: AutomationsEngineEvaluationResult | null): void {
@@ -368,10 +397,7 @@ export class AutomationsEngine {
       pollIntervalMs: this.pollIntervalMs,
       maxSleepMs: this.maxSleepMs,
     })
-    this.timer = this.timers.setTimeout(() => {
-      this.timer = null
-      void this.runTimerEvaluation()
-    }, delay)
+    this.setWake(delay)
   }
 
   // One timer evaluation, joined if one is already running, then re-armed. A
@@ -1104,6 +1130,7 @@ export class AutomationsEngine {
       return
     }
     const startedAt = Date.parse(run.startedAt ?? '')
+    const startedAtMs = Number.isFinite(startedAt) ? startedAt : this.now()
     this.pendingAgentRuns.set(key, {
       workspaceRoot,
       automationId: run.automationId,
@@ -1112,9 +1139,10 @@ export class AutomationsEngine {
       workspaceId: workspaceId ?? run.workspaceId,
       agentId: run.agentId,
       executionId: run.executionId,
-      startedAtMs: Number.isFinite(startedAt) ? startedAt : this.now(),
+      startedAtMs,
       observedWorkingPhase: false,
     })
+    this.armForDeadline(startedAtMs + this.maxAgentRunMs)
   }
 
   private pendingRunKey(workspaceRoot: string, automationId: string, runId: string): string {

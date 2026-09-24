@@ -1,6 +1,6 @@
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import type { ExecutionHostId, ExecutionHostSettings } from '../../../../shared/execution-host'
-import { normalizeAgentLaunchHosts } from '../../../../shared/launch-settings'
+import { normalizeAgentLaunchHosts, normalizeCliPermissionPresets } from '../../../../shared/launch-settings'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
@@ -677,6 +677,8 @@ export const defaultAppSettings = (): AppSettings => ({
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,
   lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  // No CLI chosen for yet: every one reads the app-wide default above.
+  cliPermissionPresets: {},
   lastSelectedAgentModel: null,
   projectKnowledgeRoots: {},
   // Nothing seen yet. Every project in the map got there by being shown once,
@@ -736,6 +738,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
     lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
     // merge-not-only-migrate enforcement as the opt-in reset below.
@@ -987,6 +990,8 @@ export interface SettingsSliceActions {
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
+  /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
   /**
    * Write (or clear with `null`) the model an agent spawn is remembered on. A
    * stored reasoning-effort level survives a model change within the same CLI
@@ -1435,6 +1440,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.lastAgentSpawnPermissionPreset = normalized
       })
       launchSettingsClient.update({ lastAgentSpawnPermissionPreset: normalized })
+    },
+
+    // One CLI's preset (the spawn footer's picker). Only that CLI's key goes to
+    // main, so two windows setting two CLIs cannot overwrite each other, and
+    // main's broadcast carries the result to every window.
+    setCliPermissionPreset: (cli, preset) => {
+      const normalized = preset === null ? null : normalizeCliPermissionPreset(preset)
+      set((state) => {
+        const presets = { ...state.appSettings.cliPermissionPresets }
+        if (normalized) presets[cli] = normalized
+        else delete presets[cli]
+        state.appSettings.cliPermissionPresets = presets
+      })
+      launchSettingsClient.update({ cliPermissionPresets: { [cli]: normalized } })
     },
 
     setLastSelectedAgentModel: (selection) =>

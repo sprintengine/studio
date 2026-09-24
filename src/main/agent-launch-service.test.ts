@@ -153,6 +153,28 @@ test('agent-launch-service', async () => {
     assert.equal(spawn.cliPermissionPreset, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, 'the app default spawn preset')
   })
 
+  run('a launch with no preset named takes the one chosen for its CLI, then the app-wide one', async () => {
+    const app = harness({
+      settings: settings({
+        lastSelectedCli: 'claude-code',
+        lastAgentSpawnPermissionPreset: 'auto',
+        cliPermissionPresets: { codex: 'manual' },
+      }),
+    })
+    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex' })
+    await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex', permissionPreset: 'auto' })
+    assert.deepEqual(
+      app.spawns.map((spawn) => [spawn.cli, spawn.cliPermissionPreset]),
+      [
+        ['codex', 'manual'],
+        ['claude-code', 'auto'],
+        ['codex', 'auto'],
+      ],
+      'Codex keeps its own choice, Claude Code reads the app-wide default, and a named preset wins',
+    )
+  })
+
   run('a CLI that cannot report agent state is refused, never substituted', async () => {
     // Hooks-only selectability: the predicate is manifest-derived in prod
     // (agentStateSpec presence); here it bans 'muse'. The refusal must cover a

@@ -4,7 +4,7 @@ Who owns the settings an agent launch is composed from, how a window reads
 and changes them, and how a profile from before this arrangement was carried
 over.
 
-The settings in question are six fields, one record:
+The settings in question are seven fields, one record:
 
 - `cliRuntimes` — each agent CLI's command on this machine and the model ids
   the person added to it;
@@ -18,7 +18,12 @@ The settings in question are six fields, one record:
 - `projectKnowledgeRoots` — the knowledge folder per project;
 - `lastSelectedCli` — the CLI a spawn runs on when the caller names none;
 - `lastAgentSpawnPermissionPreset` — the permission preset a spawn defaults
-  to.
+  to;
+- `cliPermissionPresets` — the preset a spawn on each CLI launches with, keyed
+  by CLI id: what the spawn footer's picker last chose for that runtime. A CLI
+  with no entry reads `lastAgentSpawnPermissionPreset`, and every launch, in a
+  window or in main, resolves `requested ?? cliPermissionPresets[cli] ??
+  lastAgentSpawnPermissionPreset` (`resolveAgentSpawnPermissionPreset`).
 
 The shapes and the patch rules are in `src/shared/launch-settings.ts`.
 
@@ -38,7 +43,7 @@ boot or after an install. None of them needs a window to be open.
 
 Windows do not author these settings any more. The store's
 `appSettings.cliRuntimes`, `hosts`, `mcp`, `projectKnowledgeRoots`,
-`lastSelectedCli` and `lastAgentSpawnPermissionPreset` are a read model of main's record
+`lastSelectedCli`, `lastAgentSpawnPermissionPreset` and `cliPermissionPresets` are a read model of main's record
 (`src/renderer/src/store/launchSettingsClient.ts`), and they are not persisted
 to localStorage.
 
@@ -119,3 +124,10 @@ forward.
 A backup restore after a wiped localStorage brings back the fields this window
 owns (recent folders, sidebar state and the rest) but not the launch settings:
 those were never in localStorage's care and main's file still has them.
+
+The per-CLI permission presets came later and had their own localStorage key
+(`sprintengine.cli-permission-presets`), outside the envelope. After boot a
+window sends that map once as an ordinary `update`, only for the CLIs main
+holds nothing for, so a choice made in another window since the upgrade wins.
+The key is removed once main answers with a record on disk
+(`store/legacyCliPermissionPresets.ts`).

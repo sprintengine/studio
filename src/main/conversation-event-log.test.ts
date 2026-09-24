@@ -148,6 +148,48 @@ test('close flushes and releases the stream; the next append reopens it', async 
   assert.equal(streams.closed, 2)
 })
 
+test('flush waits for a close of that file still in flight', async () => {
+  // A write that only lands when the test says so: the idle sweep's `void
+  // close()` has detached the log, and its last chunk is still on its way.
+  const writes: string[] = []
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const log = new ConversationEventLog({
+    flushDelayMs: 60_000,
+    openStream: async () => ({
+      write: async (chunk) => {
+        await gate
+        writes.push(chunk)
+      },
+      close: async () => undefined,
+    }),
+  })
+  void log.append('/t.jsonl', event('content_delta', { turnId: 't1', text: 'tail' }))
+  const closing = log.close('/t.jsonl')
+  let flushed = false
+  const flushing = log.flush('/t.jsonl').then(() => {
+    flushed = true
+  })
+  let flushedAll = false
+  const flushingAll = log.flush().then(() => {
+    flushedAll = true
+  })
+  let closedAgain = false
+  const closingAgain = log.close('/t.jsonl').then(() => {
+    closedAgain = true
+  })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(flushed, false, 'flush(file) does not settle before the closing write lands')
+  assert.equal(flushedAll, false, 'flush() waits for closing files too')
+  assert.equal(closedAgain, false, 'a second close waits for the first')
+  release()
+  await Promise.all([closing, flushing, flushingAll, closingAgain])
+  assert.equal(writes.length, 1)
+  assert.match(writes[0], /"text":"tail"/)
+})
+
 test('a failed write is reported, never thrown, and the next write reopens', async () => {
   const errors: unknown[] = []
   let attempt = 0

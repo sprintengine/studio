@@ -81,3 +81,48 @@ test('the fleet signature is computed once per layout object', () => {
   assert.equal(layoutFleetSignature({ layoutModel: layoutWith([agentTab]) }), '')
   assert.notEqual(signature, '')
 })
+
+// Every Workspace field the manager, the sidebar or its row reads off this
+// projection, each given a new value. A field missing from the equality hands
+// back the cached workspace, and the row keeps drawing the old value until
+// something unrelated moves: Snooze and Wake did exactly that.
+const RENDERED_FIELD_CHANGES: { [K in keyof Workspace]?: Workspace[K] } = {
+  name: 'Renamed',
+  mode: 'automations-host',
+  folderPath: '/Users/dev/other',
+  folderMissing: true,
+  remoteOrigin: {
+    connectionId: 'conn-1',
+    machineName: 'mac-mini',
+    workspaceId: 'remote-ws',
+    workspaceName: 'Remote chat',
+  } as Workspace['remoteOrigin'],
+  hostId: 'wsl:Ubuntu',
+  worktree: { branch: 'feature/row' },
+  templateId: 'template-2',
+  layoutModel: layoutWith([agentTab, fleetTab]),
+  worktreeState: {} as Workspace['worktreeState'],
+  memory: {} as Workspace['memory'],
+  editorState: {} as Workspace['editorState'],
+  fileExplorerState: {} as Workspace['fileExplorerState'],
+  moduleState: {} as Workspace['moduleState'],
+  highlight: { starred: true, color: null },
+  createdAt: 2_000,
+  lastUserMessageAt: 9_000,
+  lastTurnEndedAt: 9_000,
+  settledAt: 9_000,
+  settledOverride: 'active',
+  snoozedUntil: 9_000,
+  paneState: {} as Workspace['paneState'],
+}
+
+for (const [field, value] of Object.entries(RENDERED_FIELD_CHANGES)) {
+  test(`a change to ${field} moves the projection`, () => {
+    const first = workspace()
+    const [projected] = selectWorkspaceManagerWorkspaces([first])
+    const changed = { ...first, [field]: value } as Workspace
+    const [again] = selectWorkspaceManagerWorkspaces([changed])
+    assert.notEqual(again, projected, `the sidebar reads ${field}, so it has to see the change`)
+    assert.equal(again, changed)
+  })
+}

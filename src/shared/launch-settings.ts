@@ -3,7 +3,7 @@
  *
  * Every input main needs to compose an agent launch with no window open lives
  * here: the user-configured CLI runtimes, MCP settings, project knowledge
- * roots, the last-selected CLI and the agent-spawn permission preset. Main
+ * roots, the last-selected CLI and the agent-spawn permission presets. Main
  * holds the one authoritative record under userData; a window reads it at
  * boot, writes to it only through partial `update` patches, and follows every
  * change through the `changed` broadcast. A boot with zero windows (the
@@ -58,6 +58,15 @@ export type AgentLaunchSettings = {
   lastSelectedCli: string | null
   /** The permission preset an agent spawn defaults to. `null` = never chosen. */
   lastAgentSpawnPermissionPreset: CliPermissionPreset | null
+  /**
+   * The permission preset a spawn on each CLI launches with, keyed by CLI id:
+   * what the spawn footer's picker last chose for that runtime. A CLI with no
+   * entry falls back to `lastAgentSpawnPermissionPreset`. Per CLI and not per
+   * model, because a person trusts a runtime in a repository, and Claude Code's
+   * auto mode is not Codex's sandbox (owner ruling 2026-09-24). Main owns it so
+   * a launch with no window open, and every window, read the same choice.
+   */
+  cliPermissionPresets: Record<string, CliPermissionPreset>
 }
 
 /** Names the process boundary a write came through, never the human. */
@@ -90,6 +99,8 @@ export type AgentLaunchSettingsRecord = {
  *   removes the entry.
  * - `lastSelectedCli` and `lastAgentSpawnPermissionPreset` replace the value;
  *   `null` returns it to "never chosen".
+ * - `cliPermissionPresets`: per CLI, a preset sets it and `null` removes the
+ *   entry, so that CLI reads the app-wide default again.
  */
 export type AgentLaunchSettingsPatch = {
   cliRuntimes?: Record<string, AgentLaunchCliRuntimeSettings | null>
@@ -102,6 +113,7 @@ export type AgentLaunchSettingsPatch = {
   projectKnowledgeRoots?: Record<string, string | null>
   lastSelectedCli?: string | null
   lastAgentSpawnPermissionPreset?: CliPermissionPreset | null
+  cliPermissionPresets?: Record<string, CliPermissionPreset | null>
 }
 
 /**
@@ -190,6 +202,25 @@ export function effectiveAgentLaunchSettings(settings: AgentLaunchSettings): Eff
   }
 }
 
+/**
+ * The preset a spawn on `cli` launches with: the caller's own, else the one
+ * the person chose for that CLI, else the app-wide spawn default (itself the
+ * app default when never chosen). Main's launch service and the window's
+ * spawn paths both resolve through here, so a launch with no window open runs
+ * on the preset the picker shows for that CLI.
+ */
+export function resolveAgentSpawnPermissionPreset(
+  settings: Pick<AgentLaunchSettings, 'cliPermissionPresets' | 'lastAgentSpawnPermissionPreset'>,
+  cli: string | null | undefined,
+  requested?: CliPermissionPreset | null,
+): CliPermissionPreset {
+  const presets = settings.cliPermissionPresets
+  // Own keys only: a free-form CLI name such as `constructor` must not read
+  // something off Object.prototype as its preset.
+  const own = cli && presets && Object.hasOwn(presets, cli) ? presets[cli] : undefined
+  return requested ?? own ?? settings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
+}
+
 export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   return {
     cliRuntimes: {},
@@ -198,6 +229,7 @@ export function emptyAgentLaunchSettings(): AgentLaunchSettings {
     projectKnowledgeRoots: {},
     lastSelectedCli: null,
     lastAgentSpawnPermissionPreset: null,
+    cliPermissionPresets: {},
   }
 }
 
@@ -247,6 +279,22 @@ function normalizeStoredPreset(value: unknown): CliPermissionPreset | null {
 }
 
 /**
+ * The per-CLI presets from a stored record or a migration offer. An entry is a
+ * choice somebody made, so it reads like the app-wide one: a legacy spelling
+ * keeps its meaning and anything unrecognised floors to `manual` rather than
+ * disappearing into the (bypass) default.
+ */
+export function normalizeCliPermissionPresets(value: unknown): Record<string, CliPermissionPreset> {
+  const presets: Record<string, CliPermissionPreset> = {}
+  if (!isPlainObject(value)) return presets
+  for (const [cli, entry] of Object.entries(value)) {
+    const preset = cli ? normalizeStoredPreset(entry) : null
+    if (preset) presets[cli] = preset
+  }
+  return presets
+}
+
+/**
  * Fail-soft parse of a settings payload (a migration offer or a legacy on-disk
  * file). Unknown fields are dropped; missing fields default to empty. Never
  * throws.
@@ -275,6 +323,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
     projectKnowledgeRoots,
     lastSelectedCli: normalizeLastSelectedCli(raw.lastSelectedCli),
     lastAgentSpawnPermissionPreset: normalizeStoredPreset(raw.lastAgentSpawnPermissionPreset),
+    cliPermissionPresets: normalizeCliPermissionPresets(raw.cliPermissionPresets),
   }
 }
 
@@ -339,6 +388,19 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
     const preset = normalizePreset(raw.lastAgentSpawnPermissionPreset)
     if (preset) patch.lastAgentSpawnPermissionPreset = preset
   }
+  if (isPlainObject(raw.cliPermissionPresets)) {
+    const presets: Record<string, CliPermissionPreset | null> = {}
+    for (const [cli, value] of Object.entries(raw.cliPermissionPresets)) {
+      if (!cli) continue
+      if (value === null) {
+        presets[cli] = null
+        continue
+      }
+      const preset = normalizePreset(value)
+      if (preset) presets[cli] = preset
+    }
+    patch.cliPermissionPresets = presets
+  }
   return patch
 }
 
@@ -353,6 +415,7 @@ export function applyAgentLaunchSettingsPatch(
     hosts: { ...settings.hosts },
     mcp: { ...settings.mcp, servers: { ...settings.mcp.servers } },
     projectKnowledgeRoots: { ...settings.projectKnowledgeRoots },
+    cliPermissionPresets: { ...settings.cliPermissionPresets },
   }
   for (const [cli, runtime] of Object.entries(patch.cliRuntimes ?? {})) {
     if (runtime === null) delete next.cliRuntimes[cli]
@@ -376,6 +439,10 @@ export function applyAgentLaunchSettingsPatch(
   if (patch.lastSelectedCli !== undefined) next.lastSelectedCli = patch.lastSelectedCli
   if (patch.lastAgentSpawnPermissionPreset !== undefined) {
     next.lastAgentSpawnPermissionPreset = patch.lastAgentSpawnPermissionPreset
+  }
+  for (const [cli, preset] of Object.entries(patch.cliPermissionPresets ?? {})) {
+    if (preset === null) delete next.cliPermissionPresets[cli]
+    else next.cliPermissionPresets[cli] = preset
   }
   return next
 }

@@ -813,9 +813,10 @@ export function listLiveTerminalSessions(): TerminalSession[] {
  * question, not this module's — a session is reached either because it sits on
  * the repository and branch that changed or because it opened one of the pull
  * requests in it, possibly in another repository entirely — so the predicate
- * comes from there. The channel carries the whole session array, so this is the
- * existing coalesced broadcast; the point of the check is that a change no live
- * session is on buys no repaint at all.
+ * comes from there. Each reached session goes out on the existing coalesced
+ * broadcast as a delta entry, which carries its pull request list only when that
+ * list moved; the point of the check is that a change no live session is on
+ * buys no broadcast and no repaint at all.
  */
 export function notePullRequestRecordChanged(affectsSession: (session: TerminalSession) => boolean): void {
   for (const session of terminals.values()) {

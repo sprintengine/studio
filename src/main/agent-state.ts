@@ -9,6 +9,7 @@ import { isRecord } from '../shared/records'
 import { parsePullRequestUrl } from '../shared/git/pr-url'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './claude-config-dir'
+import { withConfigFileLock, writeFileAtomically } from './config-file-write'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -1050,7 +1051,7 @@ export async function mergeAgentStateHooks(
   if (statusLine) applyStatusLineForwarder(settings, statusLine)
 
   await mkdir(resolve(settingsPath, '..'), { recursive: true })
-  await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(settingsPath, JSON.stringify(settings, null, 2) + '\n')
 }
 
 // Exported for the studio plugin's migration: a workspace that was written to
@@ -1065,7 +1066,7 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
   stripAgentStateEntries(existing.hooks)
   if (Object.keys(existing.hooks).length === 0) delete existing.hooks
 
-  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(settingsPath, JSON.stringify(existing, null, 2) + '\n')
 }
 
 // =============================================================================
@@ -1582,7 +1583,7 @@ export async function unmergeStatusLineForwarder(settingsPath: string): Promise<
   // place to argue.
   if (!isOurStatusLine(existing.statusLine)) return
   removeStatusLineForwarder(existing)
-  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(settingsPath, JSON.stringify(existing, null, 2) + '\n')
 }
 
 // =============================================================================
@@ -1643,7 +1644,7 @@ async function mergeFlatAgentStateHooks(
   }
 
   await mkdir(resolve(hooksPath, '..'), { recursive: true })
-  await writeFile(hooksPath, JSON.stringify(file, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(hooksPath, JSON.stringify(file, null, 2) + '\n')
 }
 
 // =============================================================================
@@ -1874,70 +1875,75 @@ export async function installAgentStateReporter(
   try {
     const homeDir = options.homeDir ?? homedir()
     const targetPath = resolveRegistrationPath(workspaceRoot, registration, homeDir)
-    await mkdir(resolve(targetPath, '..'), { recursive: true })
+    // Under the per-file lock every writer of these CLI configs shares: the MCP
+    // sync read-modify-writes `.claude/settings.local.json` and Codex's
+    // `config.toml` too, often for a launch in the same checkout at once.
+    return await withConfigFileLock(targetPath, async (): Promise<AgentStateInstallResult> => {
+      await mkdir(resolve(targetPath, '..'), { recursive: true })
 
-    if (registration.kind === 'plugin-file') {
-      const template = await readFile(options.sourceScriptPath, 'utf8')
-      await writeFile(targetPath, renderAgentStatePluginTemplate(template, options.socketPath), 'utf8')
-      return { ok: true, settingsPath: targetPath, hookScriptPath: targetPath }
-    }
+      if (registration.kind === 'plugin-file') {
+        const template = await readFile(options.sourceScriptPath, 'utf8')
+        await writeFileAtomically(targetPath, renderAgentStatePluginTemplate(template, options.socketPath))
+        return { ok: true, settingsPath: targetPath, hookScriptPath: targetPath }
+      }
 
-    // Command-hook kinds share the stdin-filter reporter, referenced by its
-    // ABSOLUTE path (hook commands run with no guaranteed cwd). The copy lives
-    // where the REGISTRATION lives: a workspace-scoped registration uses the
-    // workspace copy; a user-scoped one (a user-global config like Kimi's)
-    // gets a home-scoped copy (~/.sprintengine/hooks/) — pointing a user-global
-    // config into a workspace would dangle machine-wide the moment that
-    // workspace (or a deleted worktree) goes away, firing
-    // MODULE_NOT_FOUND for every session of that CLI until reinstalled.
-    const destScript =
-      registration.scope === 'user'
-        ? resolve(homeDir, AGENT_STATE_HOOK_SCRIPT_REL)
-        : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-    await mkdir(resolve(destScript, '..'), { recursive: true })
-    await copyFile(options.sourceScriptPath, destScript)
-    if (registration.scope !== 'user') await ensureWorkspaceHooksDirSelfIgnored(resolve(destScript, '..'))
-    const command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
-    const events = registeredAgentStateEvents(spec)
+      // Command-hook kinds share the stdin-filter reporter, referenced by its
+      // ABSOLUTE path (hook commands run with no guaranteed cwd). The copy lives
+      // where the REGISTRATION lives: a workspace-scoped registration uses the
+      // workspace copy; a user-scoped one (a user-global config like Kimi's)
+      // gets a home-scoped copy (~/.sprintengine/hooks/) — pointing a user-global
+      // config into a workspace would dangle machine-wide the moment that
+      // workspace (or a deleted worktree) goes away, firing
+      // MODULE_NOT_FOUND for every session of that CLI until reinstalled.
+      const destScript =
+        registration.scope === 'user'
+          ? resolve(homeDir, AGENT_STATE_HOOK_SCRIPT_REL)
+          : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
+      await mkdir(resolve(destScript, '..'), { recursive: true })
+      await copyFile(options.sourceScriptPath, destScript)
+      if (registration.scope !== 'user') await ensureWorkspaceHooksDirSelfIgnored(resolve(destScript, '..'))
+      const command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
+      const events = registeredAgentStateEvents(spec)
 
-    switch (registration.kind) {
-      case 'settings-json': {
-        // The status line rides the same settings file and the same WRITE.
-        // Workspace-scoped only: the precedence scan reads the project's own
-        // .claude/, which a user-global registration has none of. Everything
-        // about it is best-effort — it resolves to null rather than throwing,
-        // so the hooks land whatever happens to it.
-        const statusLine =
-          spec.statusLine === true && registration.scope !== 'user' && options.statusLineScriptPath
-            ? await prepareStatusLineForwarder(workspaceRoot, targetPath, {
-                statusLineScriptPath: options.statusLineScriptPath,
-                socketPath: options.socketPath,
-                homeDir,
-                env: options.env ?? process.env,
-                commandRuntime: options.commandRuntime,
-              })
-            : null
-        await mergeAgentStateHooks(targetPath, command, events, statusLine)
-        break
+      switch (registration.kind) {
+        case 'settings-json': {
+          // The status line rides the same settings file and the same WRITE.
+          // Workspace-scoped only: the precedence scan reads the project's own
+          // .claude/, which a user-global registration has none of. Everything
+          // about it is best-effort — it resolves to null rather than throwing,
+          // so the hooks land whatever happens to it.
+          const statusLine =
+            spec.statusLine === true && registration.scope !== 'user' && options.statusLineScriptPath
+              ? await prepareStatusLineForwarder(workspaceRoot, targetPath, {
+                  statusLineScriptPath: options.statusLineScriptPath,
+                  socketPath: options.socketPath,
+                  homeDir,
+                  env: options.env ?? process.env,
+                  commandRuntime: options.commandRuntime,
+                })
+              : null
+          await mergeAgentStateHooks(targetPath, command, events, statusLine)
+          break
+        }
+        case 'flat-hooks-json':
+          await mergeFlatAgentStateHooks(targetPath, command, events)
+          break
+        case 'toml-block': {
+          const previous = (await readTextIfExists(targetPath)) ?? ''
+          await writeFileAtomically(targetPath, mergeTomlAgentStateHooks(previous, command, events))
+          break
+        }
+        case 'toml-array-block': {
+          const previous = (await readTextIfExists(targetPath)) ?? ''
+          await writeFileAtomically(targetPath, mergeTomlArrayAgentStateHooks(previous, command, events))
+          break
+        }
+        case 'owned-json':
+          await writeFileAtomically(targetPath, renderOwnedJsonAgentStateHooksConfig(command, events))
+          break
       }
-      case 'flat-hooks-json':
-        await mergeFlatAgentStateHooks(targetPath, command, events)
-        break
-      case 'toml-block': {
-        const previous = (await readTextIfExists(targetPath)) ?? ''
-        await writeFile(targetPath, mergeTomlAgentStateHooks(previous, command, events), 'utf8')
-        break
-      }
-      case 'toml-array-block': {
-        const previous = (await readTextIfExists(targetPath)) ?? ''
-        await writeFile(targetPath, mergeTomlArrayAgentStateHooks(previous, command, events), 'utf8')
-        break
-      }
-      case 'owned-json':
-        await writeFile(targetPath, renderOwnedJsonAgentStateHooksConfig(command, events), 'utf8')
-        break
-    }
-    return { ok: true, settingsPath: targetPath, hookScriptPath: destScript }
+      return { ok: true, settingsPath: targetPath, hookScriptPath: destScript }
+    })
   } catch (error) {
     return {
       ok: false,
@@ -2006,39 +2012,42 @@ export async function removeWorkspaceAgentStateRegistration(
   if (registration.kind !== 'settings-json' || registration.scope === 'user') return changed
 
   const settingsPath = resolveRegistrationPath(root, registration, homedir())
-  try {
-    const raw = await readFile(settingsPath, 'utf8').catch(() => null)
-    const parsed: unknown = raw === null || raw.trim() === '' ? null : JSON.parse(raw)
-    if (isRecord(parsed)) {
-      const settings = parsed as ClaudeSettings
-      let touched = false
-      if (settings.hooks && typeof settings.hooks === 'object') {
-        const before = JSON.stringify(settings.hooks)
-        stripAgentStateEntries(settings.hooks)
-        if (JSON.stringify(settings.hooks) !== before) touched = true
-        if (Object.keys(settings.hooks).length === 0) {
-          delete settings.hooks
+  // The same per-file lock the install and the MCP sync take for this file.
+  await withConfigFileLock(settingsPath, async () => {
+    try {
+      const raw = await readFile(settingsPath, 'utf8').catch(() => null)
+      const parsed: unknown = raw === null || raw.trim() === '' ? null : JSON.parse(raw)
+      if (isRecord(parsed)) {
+        const settings = parsed as ClaudeSettings
+        let touched = false
+        if (settings.hooks && typeof settings.hooks === 'object') {
+          const before = JSON.stringify(settings.hooks)
+          stripAgentStateEntries(settings.hooks)
+          if (JSON.stringify(settings.hooks) !== before) touched = true
+          if (Object.keys(settings.hooks).length === 0) {
+            delete settings.hooks
+            touched = true
+          }
+        }
+        if (isOurStatusLine(settings.statusLine)) {
+          removeStatusLineForwarder(settings)
           touched = true
         }
-      }
-      if (isOurStatusLine(settings.statusLine)) {
-        removeStatusLineForwarder(settings)
-        touched = true
-      }
-      if (touched) {
-        if (Object.keys(settings).length === 0) {
-          await rm(settingsPath, { force: true })
-          await rmdir(resolve(settingsPath, '..')).catch(() => undefined)
-        } else {
-          await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
+        if (touched) {
+          if (Object.keys(settings).length === 0) {
+            await rm(settingsPath, { force: true })
+            await rmdir(resolve(settingsPath, '..')).catch(() => undefined)
+          } else {
+            await writeFileAtomically(settingsPath, JSON.stringify(settings, null, 2) + '\n')
+          }
+          changed.push(registration.path)
         }
-        changed.push(registration.path)
       }
+    } catch {
+      // Unparseable or unwritable: someone's work in progress keeps its stale
+      // entry, and the next launch tries again.
     }
-  } catch {
-    // Unparseable or unwritable: someone's work in progress keeps its stale
-    // entry, and the next launch tries again.
-  }
+  })
 
   // The status-line forwarder is only ever named by a Claude settings file, so
   // it goes once the entry above has.

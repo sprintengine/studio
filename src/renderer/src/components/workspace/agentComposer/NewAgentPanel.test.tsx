@@ -205,12 +205,8 @@ test('NewAgentPanel', async () => {
     const { useWorkspaceStore } = await import('../../../store/workspaceStore')
     const { projectHue } = await import('../../../utils/projectColor')
     const { useToastStore } = await import('../../../store/toastStore')
-    const {
-      __reloadCliPermissionPresetsForTest,
-      __resetCliPermissionPresetsForTest,
-      storedCliPermissionPreset,
-      resolveCliPermissionPreset,
-    } = await import('../../ui/cliPermissionPresets')
+    const { __resetCliPermissionPresetsForTest, storedCliPermissionPreset, resolveCliPermissionPreset } =
+      await import('../../ui/cliPermissionPresets')
 
     let failures = 0
     // Every mounted harness, so a check that throws before its own unmount
@@ -231,8 +227,8 @@ test('NewAgentPanel', async () => {
     }
 
     const seedStore = (options: { plugins?: unknown[] } = {}): void => {
-      // Permissions are remembered per CLI, in a module-level store that would
-      // otherwise carry a preset from one check into the next.
+      // Permissions are remembered per CLI, in the store's launch-settings read
+      // model, which would otherwise carry a preset from one check into the next.
       __resetCliPermissionPresetsForTest()
       const plugins = options.plugins ?? [
         {
@@ -2444,7 +2440,7 @@ test('NewAgentPanel', async () => {
     // choosing Bypass while one Claude model is highlighted is choosing it for
     // every Claude model, it outlives the app, and Codex keeps its own.
     await check(
-      'a permission pick on one model applies to every model of that CLI, survives a reload, and leaves Codex alone',
+      'a permission pick on one model applies to every model of that CLI, is read back by a fresh panel, and leaves Codex alone',
       async () => {
         const claude = {
           id: 'claude-code',
@@ -2517,8 +2513,8 @@ test('NewAgentPanel', async () => {
         assert.equal(storedCliPermissionPreset('codex'), undefined)
         view.unmount()
 
-        // A reload reads the store back from storage, the way an app restart does.
-        __reloadCliPermissionPresetsForTest()
+        // A fresh panel reads the choice back from the launch-settings read
+        // model, which is what main's record fills on every window's boot.
         const again = await render({ permissionPreset: 'manual' })
         await click(engineChip(again))
         await click(tab('Claude Code'))
