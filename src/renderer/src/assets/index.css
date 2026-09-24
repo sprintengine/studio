@@ -185,7 +185,8 @@
      own values through the cascade, exactly like --agent-surface above. The
      glass window material (data-window-material="glass", macOS vibrancy)
      overrides ONLY these to transparent so the OS frost shows through the
-     chrome while every other --bg-app consumer stays opaque. Panels inside
+     chrome while every other --bg-app consumer stays opaque; the tinted
+     material does the same over its opaque gradient on body. Panels inside
      the workspace card must never paint these tokens. */
   --bg-canvas: var(--bg-app);
   /* Ground for the window's top 36px band — the app rail's traffic-light
@@ -3068,8 +3069,14 @@ body:has([data-selection-pane]:focus-within)
  * and the active theme's tint is painted exactly once, on body: translucent
  * layers must not stack (body + shell root + sidebar would compound alpha and
  * erase the frost). color-mix derives the tint from each theme's own --bg-app,
- * so glass works over every theme with no per-theme block. */
-:root[data-window-material="glass"] {
+ * so glass works over every theme with no per-theme block.
+ *
+ * The tinted material (below) shares this block and the two after it: it too
+ * is one ground painted once on body with the canvas layers see-through above
+ * it — an opaque gradient rather than the OS frost — so every chrome fill here
+ * has the same job there, tinting the ground instead of covering it. */
+:root[data-window-material="glass"],
+:root[data-window-material="tinted"] {
   --bg-canvas: transparent;
   /* The top band is a canvas layer, not a stacking one: nothing scrolls under
      it, so it paints nothing and inherits the OS frost, and the frost runs
@@ -3109,7 +3116,8 @@ body:has([data-selection-pane]:focus-within)
  * a scope and not a second block of :root overrides. Nothing stacks: a row
  * wears one of these at a time, so it is one alpha step over the body tint,
  * the same budget --bg-field spends. */
-:root[data-window-material="glass"] .window-chrome {
+:root[data-window-material="glass"] .window-chrome,
+:root[data-window-material="tinted"] .window-chrome {
   --bg-surface-raised: var(--bg-chrome-raised);
   --bg-hover: var(--bg-chrome-hover);
   --bg-active: var(--bg-chrome-active);
@@ -3129,6 +3137,68 @@ body:has([data-selection-pane]:focus-within)
  * --bg-chrome-bar, so whatever that token is set to above, the band is one
  * continuous thing rather than four tiles — and at `transparent` it is exactly
  * one layer (body's tint) over the OS frost, with nothing stacked on it. */
-:root[data-window-material="glass"] .chrome-bar {
+:root[data-window-material="glass"] .chrome-bar,
+:root[data-window-material="tinted"] .chrome-bar {
   background-color: var(--bg-chrome-bar);
+}
+
+/* Tinted window material (data-window-material="tinted"; the default where
+ * there is no vibrancy, and an option on macOS). The window is an ordinary
+ * opaque one — main gives it the theme's --bg-app as its background colour —
+ * and the material is two static paints on top, both derived from the active
+ * theme's own --bg-app and --accent-primary so it follows every theme and both
+ * modes with no per-theme block. The recipe's strengths are design-system
+ * tokens (sem.tinted.*), which carry their own light and dark values.
+ *
+ * Nothing here is backdrop-filter, and nothing animates: the gradient and the
+ * glow are rasterised once and only repaint when the window resizes, which is
+ * what makes this the cheap premium material on machines with no vibrancy.
+ *
+ * 1. The ground. One gradient on body, painted once, under every canvas layer
+ *    the shared block above made see-through: the accent washes in at the
+ *    top-left corner — where the rail and the brand row meet — eases to plain
+ *    --bg-app through the middle of the window, and returns at half strength in
+ *    the far corner so the window does not read as lit from one side only. The
+ *    workspace card and every panel stay opaque on top of it, so the wash is
+ *    only ever seen in the chrome. Text on it keeps its contrast: at most a
+ *    tenth of the accent moves --bg-app by a fraction of a luminance step. */
+:root[data-window-material="tinted"] body {
+  background-color: var(--bg-app);
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 100%), var(--bg-app)) 0%,
+    var(--bg-app) 50%,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 50%), var(--bg-app)) 100%
+  );
+}
+/* 2. The bleed. The brand wordmark and each rail button sit in a soft glow of
+ *    the accent that leaks into the chrome around them. It is one static
+ *    radial gradient on a pseudo-element that reaches --sem-tinted-bleed-reach
+ *    past the element on every side, strongest in a ring at the element's own
+ *    edge and fading to nothing beyond it. Under the element's centre — where a
+ *    glyph or a letter sits — it carries only half the strength, so the ink
+ *    keeps its contrast; a ring-only glow (a box-shadow) was tried first and
+ *    left an unlit hole in the shape of the button, which read as a filled
+ *    tile on every rail square. `isolation` keeps the pseudo-element behind
+ *    the element's own content and inside its stacking context, and it is
+ *    worn on a wrapper rather than on the kit's button so the button's hover
+ *    and selection fills paint over it untouched. Every rail button glows the
+ *    same whether or not it is selected: the glow is ground, and selection
+ *    stays the neutral fill. */
+:root[data-window-material="tinted"] .material-bleed {
+  position: relative;
+  isolation: isolate;
+}
+:root[data-window-material="tinted"] .material-bleed::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--sem-tinted-bleed-reach) * -1);
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 50%), transparent) 0%,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 100%), transparent) 55%,
+    transparent 100%
+  );
 }

@@ -1868,6 +1868,56 @@
         }
       }
     },
+    "tinted": {
+      "wash": {
+        "$type": "number",
+        "$value": 0.06,
+        "$description": "How much of the accent the tinted window material's canvas gradient carries at its lit corner; the gradient eases back to plain bg.app across the window.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "surface",
+            "use": "The tinted window material's canvas only (owner ruling 2026-09-24): an opaque, static gradient painted once on the window ground \u2014 color-mix(accent.primary at tinted.wash, bg.app) at the top-left corner, easing to bg.app by the middle of the window and back to half the wash at the far corner. It sits under the window chrome (rail, sidebar strip, title band), never under a card. Dark mode carries a little more because a near-black ground swallows a faint wash.",
+            "doNotUse": "Any card, panel, row, or control ground, and any surface that says something \u2014 the wash is ground, not signal. Never animated.",
+            "modes": {
+              "light": 0.06,
+              "dark": 0.09
+            }
+          }
+        }
+      },
+      "bleed": {
+        "$type": "number",
+        "$value": 0.2,
+        "$description": "How much of the accent the tinted material's glow carries at its brightest \u2014 the soft colour bleed around the brand mark and the rail's buttons.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "surface",
+            "use": "The tinted window material's glow: one static radial gradient of accent.primary reaching tinted.bleed-reach past the brand wordmark and every rail button alike, at tinted.bleed in a ring at the element's edge and at half that under its centre, so the glyph or letter there keeps its contrast. Dark mode glows more because the same share of accent reads weaker against near-black.",
+            "doNotUse": "Marking state. Every rail button wears the same glow whether or not it is selected \u2014 selection stays the neutral bg.selected fill \u2014 and nothing outside the window chrome glows.",
+            "modes": {
+              "light": 0.2,
+              "dark": 0.28
+            }
+          }
+        }
+      },
+      "bleed-reach": {
+        "$type": "dimension",
+        "$value": "18px",
+        "$description": "How far the tinted material's glow reaches past the brand mark and the rail's buttons into the chrome around them.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "surface",
+            "use": "The outset of the tinted glow's gradient on every side of the element, paired with tinted.bleed. Short enough that neighbouring rail buttons' glows merge into one soft column rather than a row of separate halos.",
+            "doNotUse": "Any shadow \u2014 elevation comes from the sem.shadow set.",
+            "modes": {
+              "light": "18px",
+              "dark": "22px"
+            }
+          }
+        }
+      }
+    },
     "z": {
       "sticky": {
         "$type": "number",

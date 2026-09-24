@@ -3,7 +3,12 @@ import { nativeTheme, type IpcMain } from 'electron'
 import type { ColorScheme, WindowMaterial } from '../../shared/electron-api'
 import { setColorScheme } from '../color-scheme-store'
 import { applyWindowMaterialToWorkspaceWindows } from '../window-factory'
-import { setWindowMaterial } from '../window-material-store'
+import {
+  getWindowCanvasColor,
+  normalizeWindowCanvasColor,
+  resolveWindowMaterial,
+  setWindowMaterial,
+} from '../window-material-store'
 
 // Kernel-level (not feature-owned) IPC: the renderer pushes its resolved color
 // scheme here so main can launch agent CLIs matching the app's light/dark
@@ -24,10 +29,12 @@ export function registerAppearanceIpc(ipcMain: IpcMain): void {
   })
   // Same push contract as the scheme: renderer owns the preference
   // (appSettings.appearance.windowMaterial); main persists a mirror so window
-  // creation can apply vibrancy pre-boot, and re-applies live on change.
-  ipcMain.handle('appearance:set-window-material', (_event, material: WindowMaterial): void => {
-    const normalized: WindowMaterial = material === 'glass' ? 'glass' : 'solid'
-    setWindowMaterial(normalized)
-    applyWindowMaterialToWorkspaceWindows(normalized)
+  // creation can apply vibrancy — or the opaque materials' theme canvas
+  // colour — pre-boot, and re-applies live on change. The renderer re-pushes
+  // on a theme change too, since the canvas colour follows the theme.
+  ipcMain.handle('appearance:set-window-material', (_event, material: WindowMaterial, canvasColor?: string): void => {
+    const normalized = resolveWindowMaterial(material)
+    setWindowMaterial(normalized, normalizeWindowCanvasColor(canvasColor))
+    applyWindowMaterialToWorkspaceWindows(normalized, getWindowCanvasColor())
   })
 }

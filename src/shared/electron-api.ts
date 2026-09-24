@@ -1247,7 +1247,9 @@ export type ElectronApi = {
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
-  setWindowMaterial: (material: WindowMaterial) => Promise<void>
+  // `canvasColor` is the theme's opaque window ground (`#rrggbb`), sent with an
+  // opaque material so main can paint new windows in it; omitted under glass.
+  setWindowMaterial: (material: WindowMaterial, canvasColor?: string) => Promise<void>
   // Renderer → main mirror of `appSettings.keepRunningInBackground`.
   // Main reads it inside `window-all-closed`, when no renderer is left to ask.
   setBackgroundMode: (enabled: boolean) => Promise<void>
