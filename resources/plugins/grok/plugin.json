@@ -37,8 +37,11 @@
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
       { "spreadIf": "contextArgs" },
+      { "spreadIf": "promptOverflowArgs" },
       "--session-id",
-      "{{sessionId}}"
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "--" },
+      { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
   "resume": {
@@ -53,12 +56,12 @@
     ]
   },
   "promptInjection": {
-    "$comment": "Grok Build's interactive TUI documents no positional prompt argument (headless -p is a one-shot, not a session). The pattern (?!) never matches by design: Grok's real input-ready marker is unknown, and any guessable pattern (e.g. the brand name) matches the startup banner before the TUI accepts input — injecting there both swallows the keystrokes and cancels the timeout fallback, while a post-timeout late match would inject a second copy. Never-match makes delivery deterministic: exactly one injection, via the runtime's timeout fallback, after the TUI has had timeoutMs to become ready. If a real install confirms `grok \"prompt\"` works interactively (Claude Code parity), flip mode to positional-arg — config-only change.",
-    "mode": "send-after-ready",
-    "readiness": {
-      "type": "output-match",
-      "pattern": "(?!)",
-      "timeoutMs": 8000
+    "$comment": "Verified 2026-09-24 against the installed Grok Build 1.0.41: `grok --help` prints `Usage: grok [OPTIONS] [PROMPT] [COMMAND]` and documents [PROMPT] as \"Initial prompt for the interactive session, e.g. `grok \"fix the bug\"`\", so the first message rides the command line like Claude Code's. It goes after `--` because the same position also takes a subcommand: `grok version` printed the version and exited, while `grok -- version` opened the TUI with `version` as its prompt, so without the separator a one-word first message such as `update` or `logout` would run that command instead, and one starting with `-` would be read as an option. Not verified end to end with a signed-in session (that would spend tokens).",
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "A first message too long for the platform's command line is typed in: launched without it, then pasted (bracketed) and submitted once the TUI is reading. `--no-auto-update` rides only that launch. Grok 1.0.41's startup update check can stop at `Update now? [Y/n/d]`, where the typed Enter would accept the default and install the update; the binary's bundled docs list `--no-auto-update` (session scope) under Update Check Suppression, and 1.0.41 accepts it (`grok --no-auto-update --version` printed the version, where an unknown option is refused).",
+      "mode": "input",
+      "args": ["--no-auto-update"]
     }
   },
   "contextInjection": {

@@ -67,6 +67,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -1445,6 +1446,41 @@ export default function WorkspaceManager() {
         extensionsRow: 'plugins',
       })
     })
+  }, [])
+
+  // A first message main could not type into its agent CLI (the CLI exited
+  // first, or never showed its message box): say so, and keep the message in
+  // the bell where Copy message gives it back. The toast is button-free; the
+  // row is where the message lives.
+  useEffect(() => {
+    const api = window.api
+    if (typeof api?.onTerminalPromptUndelivered !== 'function') return
+    if (typeof api.terminalTakeUndeliveredPrompts !== 'function') return
+    const take = (): void => {
+      void api
+        .terminalTakeUndeliveredPrompts()
+        .then((events) => {
+          const store = useWorkspaceStore.getState()
+          for (const event of events) {
+            const notice = undeliveredPromptNotice(
+              event,
+              (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
+            )
+            const workspaceName = event.workspaceId
+              ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
+              : undefined
+            useNotificationStore.getState().addNotification({
+              ...undeliveredPromptEntry(event, notice),
+              ...(workspaceName ? { workspaceName } : {}),
+            })
+            showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
+          }
+        })
+        .catch(() => {})
+    }
+    // Anything that went undelivered while no window was open.
+    take()
+    return api.onTerminalPromptUndelivered(take)
   }, [])
 
   // Model discovery: main pushes a CLI's catalog whenever a probe answers (the

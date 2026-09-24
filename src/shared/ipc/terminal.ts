@@ -295,6 +295,23 @@ export type TerminalSessionsDelta = {
   removed: string[]
 }
 
+/**
+ * A first message main was to type into an agent CLI once it was ready, and did
+ * not (`src/main/deferred-prompt-delivery.ts`): the CLI exited first, the
+ * terminal stopped taking input, or the CLI never showed the screen its
+ * manifest says it is ready on. `text` is the message as the person wrote it,
+ * handed back so it is not lost.
+ */
+export type TerminalPromptUndelivered = {
+  sessionId: string
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cli?: string
+  text: string
+  reason: 'exited' | 'write-failed' | 'not-ready'
+}
+
 // One process row from Electron's app.getAppMetrics() plus throttled child
 // process tree sampling. `kind` maps Electron's process type and known spawned
 // child categories to the roles operators reason about: 'main' (Browser),

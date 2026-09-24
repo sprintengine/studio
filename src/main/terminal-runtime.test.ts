@@ -180,6 +180,8 @@ test('terminal-runtime', async () => {
       await assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule)
       await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
       await assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule)
+      await assertSendAfterReadyTypesTheFirstMessageOnce(runtimeModule)
+      await assertUndeliveredFirstMessageIsHandedBack(runtimeModule)
     } finally {
       restoreModules()
     }
@@ -4837,6 +4839,172 @@ test('terminal-runtime', async () => {
         'the refusal names the reason, never silently substitutes',
       )
       assert.equal(mockPty.spawnCalls.length, 0, 'nothing is spawned for a refused CLI')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  const PASTE_START = '\x1b[200~'
+  const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Kimi Code takes no first message on its command line, so the launch types it
+  // in: once, and only once the composer is on screen. Its bracketed-paste mode
+  // turns on for the trust dialog first, whose selected choice is Trust, so that
+  // signal alone must type nothing.
+  async function assertSendAfterReadyTypesTheFirstMessageOnce(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-send-after-ready-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'session-kimi-first-message',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'kimi-code',
+        initialPrompt: 'Summarise the README',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-kimi',
+        agentId: 'agent-kimi',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[0]?.process
+      assert.ok(pty)
+      const script = await readFile(String(mockPty.spawnCalls[0]?.args.at(-1)), 'utf8')
+      assert.ok(!script.includes('Summarise the README'), 'the message is not on the command line')
+      assert.ok(script.includes("KIMI_CODE_NO_AUTO_UPDATE='1' kimi"), script.slice(-400))
+      assert.ok(script.includes('sprintengine-cli-exited'), 'the launch says when its CLI exits')
+
+      pty.emitData('\x1b[?2004h Trust this folder?')
+      await settle(800)
+      assert.equal(pty.writes.length, 0, 'bracketed paste on a dialog is not the composer')
+
+      pty.emitData('\x1b[38;2;224;224;224mcontext: 0%\x1b[39m')
+      await settle(1_000)
+      const pastes = pty.writes.filter((data) => data.startsWith(PASTE_START))
+      assert.deepEqual(pastes, [`${PASTE_START}Summarise the README\x1b[201~`])
+      assert.equal(pty.writes.filter((data) => data === '\r').length, 1, 'one Enter')
+
+      // Anything the CLI says afterwards, a hook frame included, types nothing more.
+      pty.emitData('context: 0%\x1b[?2004h')
+      runtime.ingestAgentStateFrame({
+        type: 'agent_state',
+        agentId: 'agent-kimi',
+        workspaceId: 'ws-kimi',
+        sessionId: null,
+        phase: 'thinking',
+        event: 'UserPromptSubmit',
+        ts: Date.now(),
+      })
+      await settle(800)
+      assert.equal(pty.writes.filter((data) => data.startsWith(PASTE_START)).length, 1, 'delivered exactly once')
+      assert.ok(!mockSender.sent.some((event) => event.channel === 'terminal:prompt-undelivered'))
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A first message that could not be typed is handed back to the window, not
+  // only logged: a CLI that exited first gets nothing typed after it (the shell
+  // it leaves behind would run the text), and a composer that never appeared
+  // gets nothing typed into whatever is there instead.
+  async function assertUndeliveredFirstMessageIsHandedBack(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-undelivered-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const logged: string[] = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      logDiagnostic: (diagnostic) => logged.push(`${diagnostic.title}: ${diagnostic.message} ${diagnostic.details}`),
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'session-kimi-exits',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'kimi-code',
+        initialPrompt: 'Refactor the parser',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-kimi',
+        agentId: 'agent-kimi-exits',
+        agentName: 'Iris',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[0]?.process
+      assert.ok(pty)
+
+      // The person chose "Don't trust": Kimi exits and the startup script says
+      // so before the interactive shell draws its own prompt.
+      pty.emitData('\x1b[?2004h Trust this folder?')
+      pty.emitData('\x1b]6973;sprintengine-cli-exited\x07')
+      pty.emitData('\x1b[?2004h% ')
+      pty.emitData('context: 0%')
+      await settle(1_000)
+      assert.equal(pty.writes.length, 0, 'nothing is typed into the shell the CLI left behind')
+
+      const nudges = mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered')
+      assert.equal(nudges.length, 1, 'the window is told there is something to take')
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [
+        {
+          sessionId: 'session-kimi-exits',
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-exits',
+          agentName: 'Iris',
+          cli: 'kimi-code',
+          text: 'Refactor the parser',
+          reason: 'exited',
+        },
+      ])
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [], 'taken once, by one window')
+      assert.equal(logged.length, 1)
+      assert.ok(!logged[0]?.includes('Refactor the parser'), 'the log records that it happened, not the text')
+
+      // With no window open (an automation, background mode) it waits in main
+      // for the next window, and what comes back is what the person wrote, not
+      // the Debug Mode directive the launch would have typed with it.
+      mockPty.spawnCalls = []
+      mockSender.sent = []
+      await withNoWindows(async () => {
+        const headless = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+          sessionId: 'session-kimi-headless',
+          cols: 120,
+          rows: 30,
+          cwd: workspaceRoot,
+          cli: 'kimi-code',
+          initialPrompt: 'Write the release notes',
+          debugMode: true,
+          kind: 'agent',
+          shellOnly: false,
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-headless',
+          visible: false,
+          mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+        })
+        assert.equal(headless.ok, true, JSON.stringify(headless))
+        const headlessPty = mockPty.spawnCalls[0]?.process
+        assert.ok(headlessPty)
+        headlessPty.emitData('\x1b]6973;sprintengine-cli-exited\x07')
+      })
+      assert.equal(mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered').length, 0)
+      const queued = runtime.ipcHandlers.takeUndeliveredPrompts()
+      assert.deepEqual(
+        queued.map((event) => [event.sessionId, event.text, event.reason]),
+        [['session-kimi-headless', 'Write the release notes', 'exited']],
+      )
     } finally {
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })

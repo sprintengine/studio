@@ -72,6 +72,21 @@ export function renderPluginContextArgs(manifest: PluginManifest, context: Plugi
   return Array.isArray(value) ? value : []
 }
 
+/**
+ * The environment a launch whose first message is typed in adds (the manifest's
+ * `promptInjection.overflow.env`): whatever keeps a startup prompt from standing
+ * between the CLI and its composer, said through the environment. Empty for
+ * every other launch, and for a manifest that declares none.
+ */
+export function renderPluginTypedPromptEnv(
+  manifest: PluginManifest,
+  context: PluginRenderContext,
+): Record<string, string> {
+  const spec = manifest.promptInjection?.overflow
+  if (context.promptOverflow?.mode !== 'input' || !spec || spec.mode !== 'input' || !spec.env) return {}
+  return renderEnv(spec.env, buildVariableScope(manifest, context))
+}
+
 function renderArgvSpec(
   manifest: PluginManifest,
   context: PluginRenderContext,

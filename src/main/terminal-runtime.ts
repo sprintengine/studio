@@ -8,6 +8,7 @@ import type {
   McpSettings,
   SessionActivity,
   TerminalPathStyle,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
   TerminalVisibilityOptions,
@@ -55,7 +56,11 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
-import { createDeferredPromptDelivery } from './deferred-prompt-delivery'
+import {
+  createDeferredPromptDelivery,
+  type DeferredPromptOutcome,
+  type DeferredPromptReadiness,
+} from './deferred-prompt-delivery'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
@@ -275,6 +280,8 @@ type TerminalIpcHandlers = {
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
   ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void
+  /** First messages that could not be typed in, handed to the window that asks, once. */
+  takeUndeliveredPrompts(): TerminalPromptUndelivered[]
 }
 
 type TerminalRuntime = {
@@ -450,6 +457,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       setKeepRecentTerminalsAlive: setKeepRecentTerminalsAlive,
       setTerminalReapExempt: setTerminalReapExempt,
       ackTerminalOutput,
+      takeUndeliveredPrompts: () => undeliveredPrompts.splice(0),
     },
   }
 }
@@ -2898,13 +2906,17 @@ function materializeAgentSessionIdentity(
 }
 
 /**
- * Type a first message the launch's command line could not carry into the CLI
+ * Type a first message the launch's command line did not carry into the CLI
  * once it is ready (`deferred-prompt-delivery.ts`): one paste, one Enter, once.
  * Lives on the session so its output, hook frames, exit and dispose reach it.
+ * A message that could not be typed is handed back to the person
+ * (`reportUndeliveredPrompt`), never only logged.
  */
-function armDeferredPrompt(session: TerminalSession, text: string): void {
+function armDeferredPrompt(session: TerminalSession, text: string, personText: string | undefined): void {
+  const readiness = deferredPromptReadinessFor(session.cli)
   session.deferredPrompt = createDeferredPromptDelivery({
     text,
+    ...(readiness ? { readiness } : {}),
     write: (data) => {
       recordTerminalInput(session)
       session.process.write(data)
@@ -2917,8 +2929,78 @@ function armDeferredPrompt(session: TerminalSession, text: string): void {
         promptLength: text.length,
         ...(outcome.kind === 'delivered' ? { via: outcome.via, atMs: outcome.atMs } : { reason: outcome.reason }),
       })
+      // The hand-back is what the person wrote, not what the launch would have
+      // typed: that also carries Debug Mode's directive and, for a CLI whose host
+      // context rides the prompt, the whole host-context document.
+      if (outcome.kind === 'abandoned')
+        reportUndeliveredPrompt(session, personText?.trim() ? personText : text, outcome.reason)
     },
   })
+}
+
+/**
+ * The manifest's `promptInjection.readiness`, in the shape the delivery takes.
+ * Undefined (the delivery's default) for a manifest that declares none, and for
+ * one whose pattern will not compile — the SDK validator refuses that, so it is
+ * only reachable through a manifest that skipped validation.
+ */
+function deferredPromptReadinessFor(cli: string | undefined): DeferredPromptReadiness | undefined {
+  const declared = cli ? getPluginById(pluginIdForCli(cli))?.manifest.promptInjection?.readiness : undefined
+  if (!declared) return undefined
+  if (declared.type === 'bracketed-paste') return { type: 'bracketed-paste', timeoutMs: declared.timeoutMs }
+  try {
+    return { type: 'output-match', pattern: new RegExp(declared.pattern), timeoutMs: declared.timeoutMs }
+  } catch {
+    return undefined
+  }
+}
+
+// First messages that could not be typed in, waiting for a workspace window to
+// take them. Held in memory only, and taken once: the window that takes them
+// shows them and keeps them in its bell. A launch with no window open (an
+// automation, the agent-launch tool, background mode) queues here until one
+// opens. Bounded, oldest dropped, so a runaway never grows it.
+const undeliveredPrompts: TerminalPromptUndelivered[] = []
+const MAX_UNDELIVERED_PROMPTS = 20
+
+/**
+ * Tell the person their first message never reached the CLI, and hand it back:
+ * queue it, and tell every window there is something to take (only a workspace
+ * window takes it, so an aux or diagnostics window never swallows it). The
+ * diagnostics log records that it happened, without the text. A session torn
+ * down on purpose (`cancelled`) says nothing: the person closed it, or the app
+ * is quitting.
+ */
+function reportUndeliveredPrompt(
+  session: TerminalSession,
+  text: string,
+  reason: Extract<DeferredPromptOutcome, { kind: 'abandoned' }>['reason'],
+): void {
+  if (reason === 'cancelled') return
+  const event: TerminalPromptUndelivered = {
+    sessionId: session.sessionId,
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+    ...(session.agentId ? { agentId: session.agentId } : {}),
+    ...(session.agentName ? { agentName: session.agentName } : {}),
+    ...(session.cli ? { cli: session.cli } : {}),
+    text,
+    reason,
+  }
+  logReapDiagnostic?.({
+    level: 'warning',
+    title: 'First message not sent',
+    message: `The first message for ${session.cli ?? 'an agent'} was not typed in (${reason}).`,
+    details: `${text.length} characters`,
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+    ...(session.agentId ? { agentId: session.agentId } : {}),
+    sessionId: session.sessionId,
+  })
+  undeliveredPrompts.push(event)
+  if (undeliveredPrompts.length > MAX_UNDELIVERED_PROMPTS) undeliveredPrompts.shift()
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win.webContents.isDestroyed() || isCanvasWorkerWindow(win)) continue
+    win.webContents.send('terminal:prompt-undelivered')
+  }
 }
 
 function attachTerminalSession(
@@ -3579,7 +3661,7 @@ async function spawnTerminalFromIpc(
       ...(launchPromptPath ? { launchPromptPath } : {}),
       ...(channelToken ? { channelToken } : {}),
     }
-    if (deferredPrompt) armDeferredPrompt(terminalSession, deferredPrompt)
+    if (deferredPrompt) armDeferredPrompt(terminalSession, deferredPrompt, initialPrompt)
     unownedLaunchPromptPath = undefined
 
     attachTerminalSession(sessionId, terminalSession, initialInput)
