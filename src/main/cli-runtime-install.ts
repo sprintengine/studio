@@ -243,6 +243,15 @@ export function invalidateLoginShellPath(): void {
   loginShellPath.invalidate()
 }
 
+/**
+ * The session's login-shell PATH, for another process the app starts on the
+ * person's behalf with the tools their terminal would find (the worktree
+ * pool's dependency installs). Shared with the CLI probes: one shell answers.
+ */
+export function resolveSessionLoginPath(env: NodeJS.ProcessEnv): Promise<string | null> {
+  return loginShellPath.resolve(env)
+}
+
 // Host macOS/Linux: resolve the binary against the session's login-shell PATH
 // in this process, then run only the binary itself for its version. That is
 // one process per INSTALLED CLI and none for an absent one, where this used to

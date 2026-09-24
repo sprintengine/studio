@@ -25,6 +25,7 @@ export function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | un
     createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
     updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now,
     missingAt: status === 'missing' ? (typeof input.missingAt === 'number' ? input.missingAt : now) : null,
+    ...(typeof input.leaseId === 'string' && input.leaseId.trim() ? { leaseId: input.leaseId } : {}),
   }
 }
 
@@ -48,6 +49,11 @@ export function normalizeWorkspaceWorktreeState(
 /**
  * Hand back every worktree entry an agent held: `assigned` → `available`, no
  * owner. Mutates the draft it is given; called from inside a store `set`.
+ *
+ * A pooled worktree's entry is dropped instead: the pool takes the slot back
+ * once the agent's record is gone (main's worktree-pool) and hands the same
+ * path to the next agent, so an `available` entry left behind would describe a
+ * worktree that is about to be someone else's.
  */
 export function releaseWorktreeEntriesOwnedBy(
   workspace: { worktreeState?: WorkspaceWorktreeState | null },
@@ -57,6 +63,12 @@ export function releaseWorktreeEntriesOwnedBy(
   let released = 0
   for (const entry of Object.values(workspace.worktreeState?.entries ?? {})) {
     if (entry.ownerAgentId !== agentId) continue
+    if (entry.leaseId && workspace.worktreeState) {
+      delete workspace.worktreeState.entries[entry.id]
+      workspace.worktreeState.updatedAt = now
+      released += 1
+      continue
+    }
     entry.ownerAgentId = null
     if (entry.status === 'assigned') entry.status = 'available'
     entry.updatedAt = now
