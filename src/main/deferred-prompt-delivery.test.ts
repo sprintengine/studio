@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
+  CLI_EXITED_SENTINEL,
   createDeferredPromptDelivery,
   DEFERRED_PROMPT_FALLBACK_MS,
   DEFERRED_PROMPT_QUIET_MS,
   deferredPromptSubmitDelayMs,
+  sanitizeTypedPrompt,
   type DeferredPromptOutcome,
 } from './deferred-prompt-delivery'
 
@@ -170,8 +172,60 @@ test('a multi-line prompt is one paste with LF line ends, and the Enter waits lo
   assert.equal(writes.length, 1)
   assert.ok(!writes[0]?.includes('\r'), 'a CR inside the paste would read as a submit')
   assert.ok(deferredPromptSubmitDelayMs(big) > deferredPromptSubmitDelayMs('short'))
-  timers.advance(deferredPromptSubmitDelayMs(big) - 1)
+  timers.advance(deferredPromptSubmitDelayMs(sanitizeTypedPrompt(big)) - 1)
   assert.equal(writes.length, 1)
   timers.advance(1)
   assert.deepEqual(writes.slice(1), ['\r'])
+})
+
+test('a CLI that dies at startup never has the message typed into the shell that follows it', () => {
+  const { timers, writes, outcomes, delivery } = harness()
+  delivery.observeOutput('Error: invalid settings\r\n')
+  // The startup script prints the sentinel, split here across two chunks,
+  // then execs a shell that turns bracketed paste on and goes quiet.
+  delivery.observeOutput(CLI_EXITED_SENTINEL.slice(0, 5))
+  delivery.observeOutput(`${CLI_EXITED_SENTINEL.slice(5)}${PASTE_ON}$ `)
+  timers.advance(DEFERRED_PROMPT_FALLBACK_MS * 2)
+  assert.deepEqual(writes, [])
+  assert.deepEqual(outcomes, [{ kind: 'abandoned', reason: 'exited' }])
+})
+
+test('the sentinel between the paste and its Enter stops the Enter', () => {
+  const { timers, writes, outcomes, delivery, text } = harness()
+  delivery.observeOutput(PASTE_ON)
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  delivery.observeOutput(CLI_EXITED_SENTINEL)
+  timers.advance(5_000)
+  assert.deepEqual(writes, [pasteOf(text)])
+  assert.deepEqual(outcomes, [{ kind: 'abandoned', reason: 'exited' }])
+})
+
+test('text that would break the paste frame or read as keys is typed as text', () => {
+  const hostile = 'a\x1b[201~b\rc\r\nd\x03e\tf\x1b[31mred\x1b[0m\x1b[200~'
+  assert.equal(sanitizeTypedPrompt(hostile), 'ab\nc\nde\tf\x1b[31mred\x1b[0m')
+  const { timers, writes, delivery } = harness(hostile)
+  delivery.observeOutput(PASTE_ON)
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  assert.deepEqual(writes, [pasteOf(sanitizeTypedPrompt(hostile))])
+  assert.equal(writes[0]?.split('\x1b[201~').length, 2, 'exactly one end marker: the frame itself')
+})
+
+test('a paste written while the message is pending goes after its Enter, never into it', () => {
+  const { timers, writes, delivery, text } = harness()
+  const prefill = '\x1b[200~/review \x1b[201~'
+  assert.equal(delivery.holdPaste(prefill), true)
+  delivery.observeOutput(PASTE_ON)
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  assert.equal(delivery.holdPaste(prefill), true, 'still held between the paste and its Enter')
+  timers.advance(deferredPromptSubmitDelayMs(text))
+  assert.deepEqual(writes, [pasteOf(text), '\r', prefill, prefill])
+  assert.equal(delivery.holdPaste(prefill), false, 'once settled the caller writes it itself')
+})
+
+test('a held paste is dropped when the CLI is gone', () => {
+  const { timers, writes, delivery } = harness()
+  delivery.holdPaste('\x1b[200~/review \x1b[201~')
+  delivery.observeOutput(CLI_EXITED_SENTINEL)
+  timers.advance(DEFERRED_PROMPT_FALLBACK_MS * 2)
+  assert.deepEqual(writes, [])
 })

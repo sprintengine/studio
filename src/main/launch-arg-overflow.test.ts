@@ -258,10 +258,12 @@ test('OpenCode takes an overflowed message as a documented file attachment, with
   assert.deepEqual(plan.promptDelivery, { kind: 'file', text: prompt, path })
   assert.deepEqual(plan.argv.slice(-3), [promptFileNote(path), '--file', path])
 
-  // A file that could not be written falls back to typing it in.
+  // A file that could not be written leaves it on the command line: `run` has
+  // no line editor to type it into, and a refused launch at least says so.
   const unwritable = silentPlan({ cli: 'opencode', sessionId: 'sid', initialPrompt: prompt }, LINUX, () => null)
-  assert.deepEqual(unwritable.plan.promptDelivery, { kind: 'input', text: prompt })
-  assert.ok(!unwritable.plan.argv.includes('--file'))
+  assert.deepEqual(unwritable.plan.promptDelivery, { kind: 'argv' })
+  assert.equal(unwritable.plan.argv.at(-1), prompt)
+  assert.equal(unwritable.plan.overBudget, true)
 })
 
 test("Debug Mode's directive travels with the typed-in message", () => {
@@ -357,4 +359,30 @@ test('a POSIX launch with a small first message is unchanged; a 300 KB one on ma
   assert.equal(config.deferredPrompt, prompt)
   const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
   assert.ok(!script.includes('ERROR build failed'))
+})
+
+test('a host-context document that fits is never cut, even when it is most of the budget', () => {
+  const contextFile = 'C:\\Users\\dev\\AppData\\Roaming\\SprintEngine Studio\\host-context\\sid.md'
+  const contextText = `# Design system\n\n${'Use the tokens. '.repeat(1_250)}`
+  assert.ok(contextText.length > 20_000)
+  for (const cli of ['codex', 'grok'] as AgentCli[]) {
+    const input: AgentLaunchRenderInput = { cli, sessionId: 'sid', contextFile, contextText }
+    const { plan, logged } = silentPlan(input, WINDOWS)
+    assert.deepEqual(plan.argv, renderAgentLaunchArgv(input).argv, cli)
+    assert.equal(plan.contextTruncated, undefined, cli)
+    assert.deepEqual(logged, [], cli)
+  }
+})
+
+test('only a launch whose prompt is typed in announces its CLI exiting, before the shell starts', () => {
+  const cwd = join(temp, 'sentinel-workspace')
+  mkdirSync(cwd, { recursive: true })
+  const small = readFileSync(launch(cwd, 'hello there').startupScriptPath ?? '', 'utf8')
+  assert.ok(!small.includes('sprintengine-cli-exited'), 'an ordinary launch is unchanged')
+  const typed = launch(cwd, pastedLog(600 * 1024))
+  const script = readFileSync(typed.startupScriptPath ?? '', 'utf8')
+  const cliAt = script.indexOf('--session-id')
+  const sentinelAt = script.indexOf("printf '\\033]6973;sprintengine-cli-exited\\007'")
+  const shellAt = script.lastIndexOf('exec ')
+  assert.ok(cliAt > 0 && sentinelAt > cliAt && shellAt > sentinelAt, script.slice(-600))
 })

@@ -41,7 +41,9 @@ export const LAUNCH_ARG_BUDGETS: Readonly<Record<LaunchArgPlatform, LaunchArgBud
   // shell.
   darwin: { platform: 'darwin', unit: 'utf8-bytes', maxArg: 256 * KIB, maxTotal: 256 * KIB },
   // 24K code units against the 32,767 CreateProcess allows, so the `-C <cwd>`
-  // a Codex launch adds, and a shim's re-quoting, still fit.
+  // and `codex.js` path a Codex launch adds still fit. Not the 8,191 cmd.exe
+  // allows: a runtime command that resolves to a `.cmd` shim is still bounded
+  // by that, as it was before this budget existed.
   windows: { platform: 'windows', unit: 'utf16-units', maxArg: 24_000, maxTotal: 24_000 },
 }
 

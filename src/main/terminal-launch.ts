@@ -28,6 +28,7 @@ import {
   type PlannedAgentLaunch,
 } from './agent-launch-render'
 import { launchArgBudgetFor, quoteWindowsCommandLineArg } from './launch-arg-budget'
+import { CLI_EXITED_OSC } from './deferred-prompt-delivery'
 import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
 import { getPluginManifest } from './plugin-registry-instance'
@@ -1267,7 +1268,9 @@ const LAUNCH_PROMPT_DIRECTORY = 'launch-prompts'
 function writeLaunchPromptFile(sessionId: string, cwd: string, text: string): string | null {
   try {
     const directory = join(app.getPath('userData'), LAUNCH_PROMPT_DIRECTORY)
-    const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}.md`)
+    // Named per launch, not per session: a relaunch under the same session id
+    // must not have its file reaped by the previous pty's exit.
+    const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}-${randomUUID()}.md`)
     mkdirSync(directory, { recursive: true })
     writeFileSync(filePath, text, { encoding: 'utf8', mode: 0o600 })
     return filePath
@@ -1287,7 +1290,7 @@ function launchPlanOptions(
     budget: launchArgBudgetFor(target.kind),
     writePromptFile: (text) => {
       if (!onHost) return writeLaunchPromptFile(sessionId, cwd, text)
-      const path = `${onHost.dir}/launch-prompt-${hostContextSessionKey(sessionId, cwd)}.md`
+      const path = `${onHost.dir}/launch-prompt-${hostContextSessionKey(sessionId, cwd)}-${randomUUID()}.md`
       onHost.files.push({ path, content: text })
       return path
     },
@@ -1867,6 +1870,7 @@ function buildNativeAgentLaunchPowerShellScript(
     `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
     ...buildNativeWindowsInvocation(args),
+    ...(plan.promptDelivery.kind === 'input' ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
 
@@ -1905,10 +1909,12 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     ...hostContext,
   }
   let rendered: { argv: string[]; binary: string }
+  let typedPrompt = false
   if (planOptions) {
     const plan = planAgentLaunch(renderInput, planOptions)
     onPlan?.(plan)
     rendered = plan
+    typedPrompt = plan.promptDelivery.kind === 'input'
   } else {
     rendered = renderAgentLaunchArgv(renderInput)
   }
@@ -1938,6 +1944,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     `  $env:SPRINTENGINE_LAUNCH_ARGS = '"' + $codexJs + '" ' + $env:SPRINTENGINE_LAUNCH_ARGS`,
     `}`,
     ...invoke,
+    ...(typedPrompt ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
 
@@ -1978,5 +1985,12 @@ function buildAgentLaunchCommand(
     planOptions,
   )
   onPlan?.(plan)
-  return command
+  return plan.promptDelivery.kind === 'input' ? `${command}; ${POSIX_CLI_EXITED_LINE}` : command
 }
+
+// A launch whose first message is typed in says when its CLI has exited, before
+// the shell the script ends in starts (see `CLI_EXITED_SENTINEL`): that shell
+// turns bracketed paste on too, and the message must never be typed into it.
+// Only such a launch prints it, so every other launch is byte-for-byte as it was.
+const POSIX_CLI_EXITED_LINE = `printf '\\033]${CLI_EXITED_OSC}\\007'`
+const POWERSHELL_CLI_EXITED_LINE = `[Console]::Out.Write([string][char]27 + ']${CLI_EXITED_OSC}' + [char]7)`

@@ -23,9 +23,36 @@ import { bracketedTerminalPaste } from '../shared/terminal-paste'
 // session. And one fallback: a CLI that never turns the mode on still gets the
 // message once the fallback window has passed, because a prompt that never
 // arrives is the failure this exists to prevent.
+//
+// "The CLI exits" is not the pty exiting. An agent launch runs the CLI from a
+// startup script that then execs an interactive shell, and a modern shell turns
+// bracketed paste on too: a CLI that died at startup would hand the message to
+// the shell, whose Enter runs it. So a launch whose prompt is typed in prints
+// `CLI_EXITED_SENTINEL` (an OSC nothing renders) between the CLI and the shell,
+// and seeing it abandons the delivery exactly as a pty exit does.
 
 /** The sequence a line editor writes when it starts accepting bracketed pastes. */
 const BRACKETED_PASTE_ON = '\x1b[?2004h'
+/**
+ * What a launch whose prompt is typed in prints once its CLI has exited, before
+ * the shell the startup script ends in. An OSC with a private number: a
+ * terminal that does not know it (xterm.js among them) shows nothing.
+ */
+export const CLI_EXITED_OSC = '6973;sprintengine-cli-exited'
+export const CLI_EXITED_SENTINEL = `\x1b]${CLI_EXITED_OSC}\x07`
+/**
+ * The message as it is typed. A paste marker inside it would end the bracketed
+ * block early and send the rest as keystrokes, and a carriage return (a pasted
+ * progress bar, a CRLF log) reads as a submit to some line editors; other C0
+ * controls (^C, ^D) are keys, not text. Tabs, newlines and ESC-led colour codes
+ * are kept: inside the block they are text.
+ */
+export function sanitizeTypedPrompt(text: string): string {
+  return text
+    .replace(/\x1b\[20[01]~/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/g, '')
+}
 /** How long output must have been quiet, once the CLI is reading, before the paste goes. */
 export const DEFERRED_PROMPT_QUIET_MS = 500
 /** From spawn: past this, the message goes whatever the CLI has or has not said. */
@@ -66,6 +93,15 @@ export type DeferredPromptDelivery = {
   observeExit(): void
   /** The session is being torn down. */
   cancel(): void
+  /**
+   * A paste someone else is writing into this session before the message has
+   * gone (the composer's skill prefill, a person's paste). Held and written
+   * after the message's Enter, so it neither joins the message nor is submitted
+   * with it; dropped if the message is abandoned, since there is then no line
+   * editor to take it (a paste into the shell the CLI left behind would run).
+   * False when nothing is pending and the caller should write it itself.
+   */
+  holdPaste(data: string): boolean
   /** True once the message has been written or given up on. */
   readonly settled: boolean
 }
@@ -79,7 +115,10 @@ export function createDeferredPromptDelivery(input: {
   timers?: Timers
 }): DeferredPromptDelivery {
   const timers = input.timers ?? realTimers
+  const text = sanitizeTypedPrompt(input.text)
   const startedAt = timers.now()
+  const held: string[] = []
+  let exitCarry = ''
   let lastOutputAt = startedAt
   let reading = false
   // The tail of the previous chunk, so the mode sequence split across two
@@ -103,7 +142,18 @@ export function createDeferredPromptDelivery(input: {
     clearTimers()
     if (submitTimer !== null) timers.clearTimeout(submitTimer)
     submitTimer = null
+    // Only after a delivery is there a line editor to take them; a CLI that
+    // is gone, or a session being torn down, has none.
+    const release = outcome.kind === 'delivered' ? held.splice(0) : []
+    held.length = 0
     input.onSettled?.(outcome)
+    for (const data of release) {
+      try {
+        input.write(data)
+      } catch {
+        break
+      }
+    }
   }
 
   const deliver = (via: 'ready' | 'fallback'): void => {
@@ -111,7 +161,7 @@ export function createDeferredPromptDelivery(input: {
     pasted = true
     clearTimers()
     try {
-      input.write(bracketedTerminalPaste(input.text))
+      input.write(bracketedTerminalPaste(text))
     } catch {
       settle({ kind: 'abandoned', reason: 'write-failed' })
       return
@@ -126,7 +176,7 @@ export function createDeferredPromptDelivery(input: {
         return
       }
       settle({ kind: 'delivered', via, atMs: timers.now() - startedAt })
-    }, deferredPromptSubmitDelayMs(input.text))
+    }, deferredPromptSubmitDelayMs(text))
   }
 
   const pollForQuiet = (): void => {
@@ -148,7 +198,14 @@ export function createDeferredPromptDelivery(input: {
 
   return {
     observeOutput(data: string): void {
-      if (settled || pasted) return
+      if (settled) return
+      const exitWindow = exitCarry + data
+      if (exitWindow.includes(CLI_EXITED_SENTINEL)) {
+        settle({ kind: 'abandoned', reason: 'exited' })
+        return
+      }
+      exitCarry = exitWindow.slice(-(CLI_EXITED_SENTINEL.length - 1))
+      if (pasted) return
       lastOutputAt = timers.now()
       if (reading) return
       const window = carry + data
@@ -165,6 +222,11 @@ export function createDeferredPromptDelivery(input: {
     },
     cancel(): void {
       settle({ kind: 'abandoned', reason: 'cancelled' })
+    },
+    holdPaste(data: string): boolean {
+      if (settled) return false
+      held.push(data)
+      return true
     },
     get settled(): boolean {
       return settled

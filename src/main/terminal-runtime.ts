@@ -3289,6 +3289,9 @@ async function spawnTerminalFromIpc(
 
   const workingDirectory = cwd || process.cwd()
   let channelToken: string | undefined
+  // A first message the launch wrote to a file: the session reaps it once it
+  // owns it, and a spawn that fails before then reaps it here.
+  let unownedLaunchPromptPath: string | undefined
   try {
     // Resolve the agent's binary before this launch touches anything, and
     // refuse the spawn when the CLI is definitively absent. Both halves
@@ -3491,6 +3494,7 @@ async function spawnTerminalFromIpc(
           resolvedBinaryPath,
           launchFor,
         )
+    unownedLaunchPromptPath = launchPromptPath
     // A WSL launch's startup script (and host-context file) are written inside
     // the distribution by its helper, and the terminal runs them from there.
     if (hostFiles && hostFiles.length > 0) {
@@ -3576,12 +3580,14 @@ async function spawnTerminalFromIpc(
       ...(channelToken ? { channelToken } : {}),
     }
     if (deferredPrompt) armDeferredPrompt(terminalSession, deferredPrompt)
+    unownedLaunchPromptPath = undefined
 
     attachTerminalSession(sessionId, terminalSession, initialInput)
 
     return { ok: true, sessionId } satisfies TerminalSpawnResult
   } catch (error) {
     if (channelToken) host.revokeChannelToken?.(channelToken)
+    if (unownedLaunchPromptPath) void cleanupHostContextFile(unownedLaunchPromptPath)
     const message = getTerminalErrorMessage(error)
     retainFailedTerminalSession({
       sessionId,
@@ -3648,6 +3654,11 @@ function writeTerminalInput(sessionId: string, data: string): void {
   const startedAt = Date.now()
   const session = terminals.get(sessionId)
   if (!session || !isTerminalProcessAlive(session)) return
+  // A paste arriving while a first message is still waiting to be typed in
+  // (the composer's skill prefill is written right after spawn) goes after that
+  // message's Enter, never into it. Keystrokes are not held: the pane answers
+  // the CLI's terminal queries through this same write.
+  if (data.startsWith('\x1b[200~') && session.deferredPrompt?.holdPaste(data)) return
 
   try {
     recordTerminalInput(session, startedAt)

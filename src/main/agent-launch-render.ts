@@ -257,15 +257,15 @@ function renderWithPlugin(
 // whole command line is. `planAgentLaunch` renders the launch, measures it
 // against `launch-arg-budget.ts`, and moves what does not fit:
 //
-// 1. The host-context document is held to half the budget. Past that it is cut,
-//    with a marker naming the file main wrote it to, so the agent can read the
-//    rest — a launch that loses the tail of its context beats one that does not
-//    start.
-// 2. A prompt that still does not fit leaves argv by the manifest's
+// 1. A host-context document longer than one argument may be is cut, with a
+//    marker naming the file main wrote it to, so the agent can read the rest —
+//    a launch that loses the tail of its context beats one that does not start.
+// 2. A prompt that does not fit leaves argv by the manifest's
 //    `promptInjection.overflow`: typed in once the CLI is ready (the default),
 //    or written to a file the CLI documents an option for.
-// 3. If the launch is still over, the context is cut further; and if that is
-//    not enough either, the launch goes as rendered and says so in the log.
+// 3. If the launch is still over, the context is cut to what room is left; and
+//    if that is not enough either, the launch goes as rendered and says so in
+//    the log. A launch that fits is never changed, context included.
 
 export type AgentPromptDelivery =
   /** On the command line, where `{{prompt}}` put it — or there is no prompt. */
@@ -288,7 +288,7 @@ export type AgentLaunchPlanOptions = {
   /**
    * Write the prompt where the launched CLI can read it, returning the path as
    * the launched shell names it, or null when it could not be written (the
-   * prompt is then typed in instead). Only consulted for a manifest whose
+   * prompt then stays on the command line). Only consulted for a manifest whose
    * overflow is `file`.
    */
   writePromptFile?: (text: string) => string | null
@@ -368,13 +368,13 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
     return true
   }
 
-  // 1. The context document alone: within one argument, and within half the
-  //    whole, so it can never crowd out the launch it belongs to.
-  const contextShare = Math.min(budget.maxArg, Math.floor(budget.maxTotal / 2))
+  // 1. The context document alone must fit in one argument; past that nothing
+  //    else moving could save the launch. A document that fits is left whole
+  //    here, and only cut in step 3 if the launch is still over.
   const contextFits = (candidate: AgentLaunchRenderInput): boolean => {
     const { context } = buildLaunchRenderContext(candidate, plugin, undefined)
     const measured = measureLaunchArgv(renderPluginContextArgs(plugin.manifest, context), budget)
-    return measured.largest <= contextShare && measured.total <= contextShare
+    return measured.largest <= budget.maxArg && measured.total <= budget.maxArg
   }
   if (originalContext && !contextFits(working)) cutContext(contextFits)
 
@@ -383,23 +383,29 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   let promptDelivery: AgentPromptDelivery = { kind: 'argv' }
   if (overBudget(rendered.argv) && prompt && promptRendersIntoArgv(working, plugin, rendered.argv)) {
     const overflow = plugin.manifest.promptInjection?.overflow ?? { mode: 'input' as const }
-    const promptFile = overflow.mode === 'file' ? options.writePromptFile?.(prompt) : null
-    if (promptFile) {
-      working = { ...working, promptOverflow: { mode: 'file', promptFile } }
-      promptDelivery = { kind: 'file', text: prompt, path: promptFile }
+    if (overflow.mode === 'file') {
+      // A CLI that takes an overflowed message from a file has no line editor
+      // to type it into (OpenCode's `run` is one-shot). A file that could not
+      // be written leaves the prompt on the command line: a launch the platform
+      // refuses says so, where a message typed at nothing is lost in silence.
+      const promptFile = options.writePromptFile?.(prompt) ?? null
+      if (promptFile) {
+        working = { ...working, promptOverflow: { mode: 'file', promptFile } }
+        promptDelivery = { kind: 'file', text: prompt, path: promptFile }
+      }
     } else {
-      // A manifest whose overflow is `file` but whose file could not be written
-      // still has a prompt to deliver, and typing it in is the other way.
       working = { ...working, promptOverflow: { mode: 'input' } }
       promptDelivery = { kind: 'input', text: prompt }
     }
-    rendered = render(working)
-    log('prompt-moved-off-command-line', {
-      cli: input.cli,
-      platform: budget.platform,
-      delivery: promptDelivery.kind,
-      promptLength: prompt.length,
-    })
+    if (promptDelivery.kind !== 'argv') {
+      rendered = render(working)
+      log('prompt-moved-off-command-line', {
+        cli: input.cli,
+        platform: budget.platform,
+        delivery: promptDelivery.kind,
+        promptLength: prompt.length,
+      })
+    }
   }
 
   // 3. Still over: whatever room is left goes to the context.
