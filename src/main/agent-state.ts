@@ -196,6 +196,69 @@ export function holdTurnEndForBackgroundWork(
   return { ...resolution, phase: 'tool_use', turnEnd: false }
 }
 
+// =============================================================================
+// Turn-end latch (pure; the runtime asks it before applying a working phase)
+//
+// A turn end is the one phase change a person is waiting on: it stops the
+// sidebar's working clock, finalizes an automation run, and makes the agent
+// reclaimable. Two kinds of frame used to undo it, and neither is the agent
+// working again.
+//
+// 1. A background stop that closes nothing. Claude Code runs a helper agent of
+//    its own after a turn and reports it with a `SubagentStop` (empty
+//    `agent_type`) and no `SubagentStart`, four to five seconds after `Stop`
+//    (observed on CLI 2.1.281, 2026-09-24; not after every turn). Mapped as
+//    "the parent resumes", it put a finished session back on `thinking`, where
+//    it stayed until the stall watch found it 90 seconds later. A stop only means the parent resumes when it closes
+//    work the count holds open — that case is the held Stop above, and it
+//    still works — so one that closes nothing moves no phase at all.
+//
+// 2. A straggler from the turn that just ended. Every hook is its own reporter
+//    process, stamped when it has started up rather than when the CLI fired
+//    it, and a delivery retries for up to two seconds; a `PostToolUse` spawned
+//    before `Stop` can therefore carry a later timestamp and land after it. The
+//    stale-frame guard cannot see that, so a short window after a turn end
+//    admits only a frame that OPENS work: the person's prompt, a session
+//    start, a background agent starting.
+//
+// The window is short on purpose. Claude Code re-invokes the model without a
+// prompt (a background task finishing, a scheduled wakeup), and those turns
+// report tool calls well after the Stop they follow; they must still read as
+// working. And the window applies only to a CLI whose manifest reports the
+// person's prompt, because only there does a real new turn have an opener to
+// be recognized by — OpenCode starts one with `message.updated`, and holding
+// that back would hide a turn rather than a straggler.
+// =============================================================================
+
+// Reporter delivery deadline (TOTAL_DEADLINE_MS in the reporter, 2 s) plus the
+// time a reporter process takes to start and stamp its frame.
+export const TURN_END_STRAGGLER_WINDOW_MS = 3_000
+
+export function keepsTurnEnd(input: {
+  spec: Pick<PluginAgentStateSpec, 'events'> | null | undefined
+  event: string | null
+  resolution: AppliedAgentStateEvent
+  // Background work the session held open BEFORE this frame was counted.
+  outstandingBefore: number
+  // The phase the session is in now, and since when.
+  current: { phase: AgentPhase; since: number } | null
+  lastTurnEndedAt: number | null | undefined
+  frameTs: number
+}): boolean {
+  const { resolution } = input
+  if (resolution.phase !== 'thinking' && resolution.phase !== 'tool_use') return false
+  // (1) Anywhere: a stop that closes nothing is not the parent resuming.
+  if (resolution.background === 'stop' && input.outstandingBefore <= 0) return true
+  // (2) Only while the session rests on the turn end itself.
+  const turnEndedAt = input.lastTurnEndedAt
+  if (turnEndedAt == null || !input.current) return false
+  if (input.current.phase !== 'idle' || input.current.since !== turnEndedAt) return false
+  if (resolution.background === 'start') return false
+  if (input.event && PROMPT_REPORTING_EVENTS.has(canonicalEventName(input.event))) return false
+  if (!agentStateSpecReportsPrompts(input.spec)) return false
+  return input.frameTs - turnEndedAt < TURN_END_STRAGGLER_WINDOW_MS
+}
+
 // The registration subset of a spec's event table: what actually gets written
 // into the CLI's hook config. `register: false` entries are mapped if a frame
 // ever arrives (a stale registration from an older release) but never
