@@ -82,6 +82,7 @@ type TerminalIpcDependencies = {
   setIdleSuspendThresholdMs(value: unknown): void
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
+  ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
@@ -99,6 +100,16 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
     if (typeof sessionId !== 'string' || typeof data !== 'string') return
 
     deps.writeTerminal(sessionId, data)
+  })
+
+  // Flow control: the pane parsed this many UTF-16 units of the session's
+  // output (xterm's write callback). Fire-and-forget like write-fast; it is
+  // sent many times a second under load and nothing waits on an answer.
+  ipcMain.on('terminal:ack', (event, payload: unknown): void => {
+    if (!payload || typeof payload !== 'object') return
+    const { sessionId, units } = payload as { sessionId?: unknown; units?: unknown }
+    if (typeof sessionId !== 'string' || typeof units !== 'number' || !Number.isFinite(units) || units <= 0) return
+    deps.ackTerminalOutput(sessionId, units, event.sender)
   })
 
   ipcMain.handle(

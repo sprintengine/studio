@@ -7,7 +7,7 @@
 // lifecycle — not the soft idle/working activity status that only refreshes when
 // a workspace gets attention. When the memory reaper suspends an idle agent it
 // disposes the session (processAlive → false) and broadcasts
-// terminal:sessions-changed, so a derived set recomputes immediately. Attribution
+// terminal:sessions-delta, so a derived set recomputes immediately. Attribution
 // is by the session's recorded workspaceId, matching how workspace activity is
 // derived elsewhere.
 

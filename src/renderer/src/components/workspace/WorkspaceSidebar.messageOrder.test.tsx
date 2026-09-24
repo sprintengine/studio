@@ -69,7 +69,7 @@ test('WorkspaceSidebar.messageOrder', async () => {
         agentState: { phase: 'idle', since: 1, source: 'hook' },
       },
     ],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
   }
 

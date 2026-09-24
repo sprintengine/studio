@@ -1,13 +1,16 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
   getTerminalSessionsSnapshot,
+  getWorkspaceTerminalSessionsSnapshot,
   refreshTerminalSessions,
   subscribeLiveTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
   subscribeTerminalSessions,
 } from './terminalSessionsStore'
+
+export type { TerminalSessionsChange } from './terminalSessionsStore'
 
 export {
   getLiveTerminalSessionsSnapshot,
@@ -31,6 +34,17 @@ export function useTerminalSessions(options?: UseTerminalSessionsOptions): Termi
     live ? getLiveTerminalSessionsSnapshot : getTerminalSessionsSnapshot,
     live ? getLiveTerminalSessionsSnapshot : getTerminalSessionsSnapshot,
   )
+}
+
+/**
+ * The sessions one workspace's surfaces can be about — its own, and any that
+ * name no workspace — as an array that keeps its identity until one of THEM
+ * changes in a rendered way. A workspace layout keyed on the whole list rebuilt
+ * every tab whenever any agent in any workspace moved.
+ */
+export function useWorkspaceTerminalSessions(workspaceId: string): TerminalSessionSnapshot[] {
+  const getSnapshot = useCallback(() => getWorkspaceTerminalSessionsSnapshot(workspaceId), [workspaceId])
+  return useSyncExternalStore(subscribeTerminalSessions, getSnapshot, getSnapshot)
 }
 
 export function isLiveTerminal(session: TerminalSessionSnapshot | null | undefined): boolean {
