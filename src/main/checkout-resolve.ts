@@ -29,6 +29,7 @@ import { readFile, realpath, stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { pathExists, runGitCommand } from './git-utils'
+import { isWindowsPath, isWslDriveMountPath, wslToWindowsPath } from '../shared/host-paths'
 
 export type ResolvedCheckoutFacts = Pick<
   ObservedCheckout,
@@ -108,11 +109,10 @@ function firstLine(stdout: string): string {
  * unanswerable. Exported for its unit test; the platform is injectable.
  */
 export function hostCwdForResolution(cwd: string, platform: NodeJS.Platform = process.platform): string | null {
-  const windowsForm = /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\')
+  const windowsForm = isWindowsPath(cwd)
   if (platform === 'win32') {
     if (windowsForm) return cwd
-    const wsl = cwd.match(/^\/mnt\/([A-Za-z])(?:\/(.*))?$/)
-    if (wsl) return `${wsl[1].toUpperCase()}:/${wsl[2] ?? ''}`
+    if (isWslDriveMountPath(cwd)) return wslToWindowsPath(cwd, { separator: '/' })
     return null
   }
   return windowsForm ? null : cwd

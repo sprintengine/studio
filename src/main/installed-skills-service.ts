@@ -14,16 +14,12 @@ import { parseSkillFrontmatter } from '../shared/skills'
 import { skillsDirFromTemplate } from '../shared/harness-map'
 import { parseCodexConfigTables } from './mcp-config-readers/codex'
 import { resolveClaudeConfigDir } from './claude-config-dir'
+import { isWslDriveMountPath, wslToWindowsPath } from '../shared/host-paths'
+import type { WslHome } from './wsl-home'
 
 type Root = { path: string; scope: InstalledSkill['scope']; origin: string; managed?: boolean }
 /** `path.win32` or `path.posix`: the helpers below take either, so tests can speak Windows. */
 type PathApi = typeof path.win32
-/**
- * Where a CLI running inside WSL keeps its files, as this (Windows) process
- * can reach them: the Linux home and the distribution root as UNC paths, and
- * the config-home variables already converted the same way.
- */
-export type WslHome = { home: string; root: string; env: NodeJS.ProcessEnv }
 type Options = {
   listPlugins: () => PluginRegistryListEntry[]
   trashItem: (path: string) => Promise<void>
@@ -55,43 +51,9 @@ export function samePath(a: string, b: string, api: PathApi = path): boolean {
  * Windows drive, any other absolute path lives under the distribution root.
  */
 export function wslToHost(value: string, root: string, api: PathApi = path): string {
-  const drive = /^\/mnt\/([A-Za-z])(?:\/(.*))?$/u.exec(value)
-  if (drive) return api.join(`${drive[1].toUpperCase()}:\\`, drive[2] ?? '')
+  if (isWslDriveMountPath(value)) return api.normalize(wslToWindowsPath(value))
   return value.startsWith('/') ? api.join(root, value) : value
 }
-
-/**
- * The marker-prefixed lines the WSL probe prints, back as a `WslHome`. A login
- * shell may print its own banner first, which is why every line we want
- * carries a prefix and anything else is ignored.
- */
-export function parseWslProbe(stdout: string): WslHome | null {
-  const values: Record<string, string> = {}
-  for (const line of stdout.split(/\r?\n/u)) {
-    const match = /^SPRINTENGINE_WSL_([A-Z_]+)=(.+)$/u.exec(line.trim())
-    if (match) values[match[1]] = match[2].trim()
-  }
-  if (!values.HOME || !values.ROOT) return null
-  const env: NodeJS.ProcessEnv = {}
-  for (const key of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME']) if (values[key]) env[key] = values[key]
-  return { home: values.HOME, root: values.ROOT, env }
-}
-
-/**
- * Printed by a login shell in the default distribution, the one `wsl.exe`
- * launches agents into. `wslpath -w` turns each Linux path into the UNC path
- * Windows opens it by. Only the first entry of a comma-separated
- * `CLAUDE_CONFIG_DIR` counts, as for every other Claude reader here.
- */
-export const WSL_PROBE_SCRIPT = [
-  `p() { [ -n "$2" ] && printf 'SPRINTENGINE_WSL_%s=%s\\n' "$1" "$(wslpath -w "$2")"; }`,
-  'p HOME "$HOME"',
-  'p ROOT /',
-  'p CLAUDE_CONFIG_DIR "${CLAUDE_CONFIG_DIR%%,*}"',
-  'p CODEX_HOME "$CODEX_HOME"',
-  'p XDG_CONFIG_HOME "$XDG_CONFIG_HOME"',
-  'true',
-].join('; ')
 
 type ReceiptRoot = { path: string; scope: InstalledSkill['scope']; origin: string }
 

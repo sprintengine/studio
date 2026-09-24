@@ -8,7 +8,8 @@ import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
 import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
 import { AGENT_IDENTITY_ENV_KEYS } from '../shared/studio-env'
-import { toWslInteropExecutable, wslInteropEnv } from './wsl-interop'
+import { toWslPath } from '../shared/host-paths'
+import { wslInteropEnv } from './wsl-interop'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -57,6 +58,13 @@ export type AgentStateServiceOptions = {
   // Home directory a user-scoped registration resolves against. Injected so
   // tests never write the real home; production omits it (os.homedir()).
   resolveHomeDir?: () => string
+  // The Linux home of the distribution a WSL launch in `workspaceRoot` runs
+  // in, as a path this process can write (`\\wsl.localhost\<distro>\home\…`).
+  // A user-scoped registration for a CLI run through WSL is read by that CLI
+  // from its Linux home, so it is written there, not into the Windows profile.
+  // Null when the distribution cannot be asked; the install is then skipped and
+  // retried on the next launch rather than written where nothing reads it.
+  resolveWslHomeDir?: (workspaceRoot: string) => Promise<string | null>
   // WSL hooks run in a Linux shell but must use the Windows-hosted runtime so
   // they can reach the app's named pipe. The executable itself is rendered as
   // a /mnt/<drive> path; its script and pipe arguments remain Windows-native.
@@ -237,7 +245,22 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // of any workspace heals a stale config, and later workspaces skip a write
     // that would be byte-identical anyway.
     const pathStyle = execution.pathStyle ?? (process.platform === 'win32' ? 'windows' : 'posix')
-    const keyRoot = spec.registration.scope === 'user' ? 'user' : root
+    const userScoped = spec.registration.scope === 'user'
+    let homeDir = options.resolveHomeDir?.()
+    if (userScoped && pathStyle === 'wsl' && options.resolveWslHomeDir) {
+      const wslHome = await options.resolveWslHomeDir(root).catch(() => null)
+      if (!wslHome) {
+        warn(
+          'Agent-state hook not installed',
+          `Could not find the WSL home for ${cli}, whose hook configuration lives there. It is tried again on the next launch.`,
+        )
+        return
+      }
+      homeDir = wslHome
+    }
+    // A user-scoped key names the home it wrote to: a CLI run natively and the
+    // same CLI run through WSL keep separate user configurations.
+    const keyRoot = userScoped ? `user:${homeDir ?? ''}` : root
     const key = `${cli}::${keyRoot}::${pathStyle}`
     if (installed.has(key)) return
 
@@ -246,8 +269,9 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // two of them launching concurrently in one workspace must not interleave
     // that file's read-modify-write. (Their specs are identical today, so the
     // race would be benign — until the day one diverges.)
-    const chainKey =
-      spec.registration.scope === 'user' ? `user:${spec.registration.path}` : `${spec.registration.path}::${root}`
+    const chainKey = userScoped
+      ? `user:${homeDir ?? ''}:${spec.registration.path}`
+      : `${spec.registration.path}::${root}`
     const prior = installChains.get(chainKey) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
@@ -266,7 +290,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         ...(pathStyle === 'wsl' && options.resolveHostNodeCommand
           ? {
               commandRuntime: {
-                executable: toWslInteropExecutable(options.resolveHostNodeCommand()),
+                executable: toWslPath(options.resolveHostNodeCommand()),
                 // The reporter reads the agent's id and socket from its env,
                 // and the WSL launch shared them into the Linux session, so
                 // they are named for the crossing back out as well.
@@ -275,7 +299,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
               },
             }
           : {}),
-        ...(options.resolveHomeDir ? { homeDir: options.resolveHomeDir() } : {}),
+        ...(homeDir ? { homeDir } : {}),
       })
       if (result.ok) {
         installed.add(key)

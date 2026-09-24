@@ -1,5 +1,6 @@
 import { access } from 'fs/promises'
 import type { WorkspaceFolderCheckResult } from '../shared/electron-api'
+import { wslToWindowsPath } from '../shared/host-paths'
 
 export function isMissingPathError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
@@ -71,16 +72,6 @@ async function accessWithTimeout(targetPath: string, timeoutMs = 5000): Promise<
   }
 }
 
-function toWindowsPath(dirPath: string): string {
-  const wslMatch = dirPath.match(/^\/mnt\/([a-zA-Z])(?:\/(.*))?$/)
-  if (!wslMatch) {
-    return dirPath
-  }
-
-  const [, drive, rest] = wslMatch
-  return `${drive.toUpperCase()}:\\${(rest ?? '').replace(/\//g, '\\')}`
-}
-
 export async function checkWorkspaceFolder(targetPath: string): Promise<WorkspaceFolderCheckResult> {
   const trimmedPath = targetPath?.trim()
   if (!trimmedPath) {
@@ -96,7 +87,7 @@ export async function checkWorkspaceFolder(targetPath: string): Promise<Workspac
   const direct = await accessWithTimeout(trimmedPath)
   if (direct.ok || process.platform !== 'win32') return direct
 
-  const windowsPath = toWindowsPath(trimmedPath)
+  const windowsPath = wslToWindowsPath(trimmedPath)
   if (windowsPath === trimmedPath) return direct
 
   const normalized = await accessWithTimeout(windowsPath)

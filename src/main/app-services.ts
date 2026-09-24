@@ -6,15 +6,17 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
-import { cliTakesLaunchPlugins } from './agent-launch-render'
 import {
   ensureAgentIntegrationHome,
   LAUNCH_STATUS_LINE_REL,
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
+import { primeDefaultWslDistro, resolveWslDistroForPath } from './wsl-host'
+import { probeWslHome } from './wsl-home'
 import {
-  launchPluginsSupportedOnThisPlatform,
+  appLaunchPluginsActive,
+  launchCarriesAppPluginsFor,
   setLaunchPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
@@ -146,6 +148,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
+  // Learn the default WSL distribution's name once, in the background, so a WSL
+  // launch built later can name it with `-d` (Windows only; a no-op elsewhere).
+  primeDefaultWslDistro()
   const sprintengineAuth = new SprintEngineAuthBridge()
   const mcpConfigService = createMcpConfigService()
   const resolveStudioMcpBridgeScriptPath = () =>
@@ -202,8 +207,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `pluginDirsForLaunch` asks the same three things), the agent-state
   // installer, the skill installer and the MCP sync can never disagree — a
   // disagreement is either a doubled registration or a session with none.
-  const launchCarriesAppPlugins = (cli: string): boolean =>
-    launchPluginsSupportedOnThisPlatform() && agentIntegrationPluginDirs.length > 0 && cliTakesLaunchPlugins(cli)
+  const launchCarriesAppPlugins = (cli: string): boolean => launchCarriesAppPluginsFor(cli, agentIntegrationPluginDirs)
   // Bundled skills arrive in the `studio-skills` directory of that same copy.
   setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
   const listAgentStateSpecs = () =>
@@ -223,6 +227,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
     resolveHostNodeCommand: () => process.execPath,
+    // A CLI run through WSL reads its user-global hook config (Kimi's) from the
+    // Linux home of the distribution the workspace runs in.
+    resolveWslHomeDir: async (workspaceRoot) =>
+      (await probeWslHome(await resolveWslDistroForPath(workspaceRoot)))?.home ?? null,
     // A CLI that takes the app's plugin directories at launch gets this same
     // reporter for the session, so nothing is written into the workspace. Both
     // halves must hold: a manifest that declares the flag, and a materialised
@@ -310,7 +318,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // old way seconds before the launch starts carrying the same pieces, while
     // a build whose copy FAILED still gets the workspace install, which is what
     // keeps agent state working rather than losing it.
-    resolveLaunchPluginsActive: () => agentIntegrationPluginDirs.length > 0,
+    resolveLaunchPluginsActive: () => appLaunchPluginsActive(agentIntegrationPluginDirs),
     whenLaunchPluginsSettled: () => agentIntegrationReady,
     listAgentStateSpecs,
     logDiagnostic: (diagnostic) => {

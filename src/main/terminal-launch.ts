@@ -32,7 +32,9 @@ import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry, withoutStudioEnv } from '../sh
 import { withoutInheritedSessionEnv } from './inherited-session-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
-import { toWslPath, withWslSharedEnv } from './wsl-interop'
+import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
+import { withWslSharedEnv } from './wsl-interop'
+import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './wsl-host'
 
 export type ShellLaunchConfig = {
   command: string
@@ -180,16 +182,15 @@ function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl')
   // Linux `claude` would run `node "C:/Users/…/agent-state.mjs"` and report
   // MODULE_NOT_FOUND for every event. Native Windows would work, but one
   // platform answering two ways is how the double registration gets back in.
-  if (!launchPluginsSupportedOnThisPlatform()) return []
-  if (!cliTakesLaunchPlugins(cli)) return []
   let dirs: string[]
   try {
     dirs = launchPluginDirsResolver?.() ?? []
   } catch {
     return []
   }
+  if (!launchCarriesAppPluginsFor(cli, dirs)) return []
   if (target === 'posix') return dirs
-  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : toWindowsPath(dir)))
+  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : wslToWindowsPath(dir)))
 }
 
 /**
@@ -241,8 +242,32 @@ function launchSettingsForLaunch(
   return statusLine ? { statusLine } : undefined
 }
 
-export function launchPluginsSupportedOnThisPlatform(): boolean {
-  return process.platform !== 'win32'
+export function launchPluginsSupportedOnThisPlatform(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32'
+}
+
+/**
+ * Whether launches carry the app's plugin copy at all: the platform takes it
+ * and the copy has landed. The workspace installer skips its Claude half on
+ * exactly this answer, so it must be the same one the launch flag reads — on
+ * Windows the copy materialises but no launch passes it, and a workspace
+ * installer that only looked at the copy removed the hook the launch was never
+ * going to register, leaving Claude there with no agent state.
+ */
+export function appLaunchPluginsActive(
+  pluginDirs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return launchPluginsSupportedOnThisPlatform(platform) && pluginDirs.length > 0
+}
+
+/** `appLaunchPluginsActive`, narrowed to one CLI: does THIS launch pass `--plugin-dir`. */
+export function launchCarriesAppPluginsFor(
+  cli: string,
+  pluginDirs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return appLaunchPluginsActive(pluginDirs, platform) && cliTakesLaunchPlugins(cli)
 }
 
 // Apply this session's agent identity onto a base env: strip any inherited
@@ -434,18 +459,6 @@ function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolea
   }
 }
 
-function toWindowsPath(dirPath: string): string {
-  const normalized = dirPath.replace(/\\/g, '/')
-  const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-
-  if (!wslMatch) {
-    return dirPath
-  }
-
-  const [, drive, rest] = wslMatch
-  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`
-}
-
 function replaceAllLiteral(value: string, search: string, replacement: string): string {
   return search && search !== replacement ? value.split(search).join(replacement) : value
 }
@@ -468,18 +481,14 @@ function normalizeTextPaths(
   for (const pathValue of paths) {
     if (!pathValue) continue
 
-    const targetPath = target === 'wsl' ? toWslPath(pathValue) : toWindowsPath(pathValue)
-    const candidates = Array.from(new Set([pathValue, toWindowsPath(pathValue), toWslPath(pathValue)]))
+    const targetPath = target === 'wsl' ? toWslPath(pathValue) : wslToWindowsPath(pathValue)
+    const candidates = Array.from(new Set([pathValue, wslToWindowsPath(pathValue), toWslPath(pathValue)]))
     for (const candidate of candidates) {
       normalizedPrompt = replaceAllLiteral(normalizedPrompt, candidate, targetPath)
     }
   }
 
   return normalizedPrompt
-}
-
-function isNativeWindowsPath(dirPath: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(dirPath) || dirPath.startsWith('\\\\')
 }
 
 function quotePosix(value: string): string {
@@ -983,13 +992,36 @@ function buildInteractiveShellExec(shellPath: string, shellName: string | undefi
   return `exec ${quotePosixCommand(shellPath)}${loginArg}`
 }
 
-function createTerminalStartupScript(sessionId: string, extension: 'sh' | 'ps1', content: string): string {
+// `content` may be a function of the script's own path, for a script that
+// names itself: a WSL startup script records its shell's pid under a key
+// derived from that path (see `wslSessionPidKey`).
+function createTerminalStartupScript(
+  sessionId: string,
+  extension: 'sh' | 'ps1',
+  content: string | ((scriptPath: string) => string),
+): string {
   const scriptDirectory = join(app.getPath('userData'), 'terminal-startup')
   const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
   const scriptPath = join(scriptDirectory, `${safeSessionId}-${Date.now()}.${extension}`)
   mkdirSync(scriptDirectory, { recursive: true })
-  writeFileSync(scriptPath, `${content.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
+  const text = typeof content === 'function' ? content(scriptPath) : content
+  writeFileSync(scriptPath, `${text.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
   return scriptPath
+}
+
+/** The WSL startup script's first line: record this shell's Linux pid. */
+function wslPidFileLine(scriptPath: string): string {
+  const key = wslSessionPidKey(scriptPath)
+  return key ? wslSessionPidFileCommand(key) : ''
+}
+
+/**
+ * `wsl.exe` arguments that run a startup script in the distribution `cwd`
+ * belongs to: the one a `\\wsl.localhost\<distro>\…` folder names, else the
+ * default distribution. Exported for its test.
+ */
+export function wslStartupArgs(cwd: string, startupScriptPath: string): string[] {
+  return [...wslDistroArgs(wslDistroForPath(cwd)), '-e', 'bash', '-li', toWslPath(startupScriptPath)]
 }
 
 export function cleanupTerminalStartupScript(scriptPath: string | undefined): void {
@@ -1174,7 +1206,7 @@ export function hostContextRenderInputs(
   if (!target) return { contextFile: delivery.filePath, contextText: delivery.document }
   const allPaths = [...paths, delivery.filePath]
   return {
-    contextFile: target === 'wsl' ? toWslPath(delivery.filePath) : toWindowsPath(delivery.filePath),
+    contextFile: target === 'wsl' ? toWslPath(delivery.filePath) : wslToWindowsPath(delivery.filePath),
     contextText: normalizeTextPaths(delivery.document, target, allPaths) ?? delivery.document,
   }
 }
@@ -1197,6 +1229,7 @@ export function applyHostContextToPrompt(
 }
 
 function buildWslShellScript(
+  scriptPath: string,
   cwd: string,
   sessionId: string,
   resume = false,
@@ -1222,6 +1255,7 @@ function buildWslShellScript(
     pathStyle: 'wsl',
   })
   return [
+    wslPidFileLine(scriptPath),
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
@@ -1272,12 +1306,12 @@ export function getShellLaunchConfig(
   const contributionPathStyle: LaunchContributionPathStyle =
     process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : 'posix'
   const merged = collectLaunchContributionMerge({
-    cwd: contributionPathStyle === 'windows' ? toWindowsPath(cwd) : cwd,
+    cwd: contributionPathStyle === 'windows' ? wslToWindowsPath(cwd) : cwd,
     sessionId,
     resume,
     cli,
     knowledgeRoot:
-      contributionPathStyle === 'windows' && memoryRootPath ? toWindowsPath(memoryRootPath) : memoryRootPath,
+      contributionPathStyle === 'windows' && memoryRootPath ? wslToWindowsPath(memoryRootPath) : memoryRootPath,
     pathStyle: contributionPathStyle,
   })
 
@@ -1324,14 +1358,14 @@ export function getShellLaunchConfig(
   })
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
-    const windowsCwd = toWindowsPath(cwd)
+    const windowsCwd = wslToWindowsPath(cwd)
     const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, memoryRootPath])
     const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [
       cwd,
       memoryRootPath,
       hostContext.filePath ?? undefined,
     ])
-    if (!isNativeWindowsPath(windowsCwd)) {
+    if (!isWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`,
       )
@@ -1375,10 +1409,9 @@ export function getShellLaunchConfig(
   }
 
   if (process.platform === 'win32') {
-    const startupScriptPath = createTerminalStartupScript(
-      sessionId,
-      'sh',
+    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
       buildWslShellScript(
+        scriptPath,
         cwd,
         sessionId,
         resume,
@@ -1397,7 +1430,7 @@ export function getShellLaunchConfig(
     )
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-li', toWslPath(startupScriptPath)],
+      args: wslStartupArgs(cwd, startupScriptPath),
       // The session's identity is applied to this env at spawn, on the Windows
       // side of `wsl.exe`, and Windows variables reach the Linux shell only when
       // `WSLENV` names them. Without this the agent's hooks run with no agent id
@@ -1459,9 +1492,9 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
   assertExistingDirectory(cwd)
 
   if (process.platform === 'win32') {
-    const windowsCwd = toWindowsPath(cwd)
+    const windowsCwd = wslToWindowsPath(cwd)
 
-    if (isNativeWindowsPath(windowsCwd)) {
+    if (isWindowsPath(windowsCwd)) {
       const merged = collectLaunchContributionMerge({
         cwd: windowsCwd,
         sessionId,
@@ -1484,17 +1517,21 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
       pathStyle: 'wsl',
       agentKind: 'terminal',
     })
-    const startupScriptPath = createTerminalStartupScript(
-      sessionId,
-      'sh',
-      [buildUserShellStartup(), `cd ${quotePosix(toWslPath(cwd))}`, buildLaunchShellBootstrap(merged), 'exec bash -li']
+    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
+      [
+        wslPidFileLine(scriptPath),
+        buildUserShellStartup(),
+        `cd ${quotePosix(toWslPath(cwd))}`,
+        buildLaunchShellBootstrap(merged),
+        'exec bash -li',
+      ]
         .filter(Boolean)
         .join('; '),
     )
 
     return {
       command: 'wsl.exe',
-      args: ['-e', 'bash', '-li', toWslPath(startupScriptPath)],
+      args: wslStartupArgs(cwd, startupScriptPath),
       pathStyle: 'wsl',
       startupScriptPath,
       ...launchSessionTags(merged),

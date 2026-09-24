@@ -5,14 +5,8 @@ import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, test } from 'vitest'
 import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
-import {
-  claudeReceiptRoots,
-  createInstalledSkillsService,
-  parseWslProbe,
-  samePath,
-  wslToHost,
-  type WslHome,
-} from './installed-skills-service'
+import { claudeReceiptRoots, createInstalledSkillsService, samePath, wslToHost } from './installed-skills-service'
+import { parseWslProbe, type WslHome } from './wsl-home'
 
 const temporary: string[] = []
 afterEach(async () => {

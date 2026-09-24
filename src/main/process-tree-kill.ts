@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
  *
  * `child.kill()` on Windows is `TerminateProcess` on that one pid. The helpers
  * this app starts with a deadline are wrappers — `powershell.exe -Command`,
- * `cmd.exe /c`, `wsl.exe -e bash -lc` — and the thing that actually hangs is
+ * `cmd.exe /c`, `wsl.exe --exec sh -s` — and the thing that actually hangs is
  * what the wrapper launched: an agent CLI's `--version`, which is itself a
  * `.cmd` shim over `node.exe`. Killing only the wrapper leaves those running
  * with no parent the app knows about, still holding the stdout pipe the app is
