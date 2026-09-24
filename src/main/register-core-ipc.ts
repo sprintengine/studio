@@ -22,6 +22,7 @@ import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
+import { registerWorktreePoolIpc } from './ipc/worktree-pool-ipc'
 import { listLiveTerminalSessions } from './terminal-runtime'
 import { registerFleetIpc } from './ipc/fleet-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
@@ -164,9 +165,11 @@ export function registerCoreIpc(
             (path): path is string => typeof path === 'string' && path.length > 0,
           ),
         ),
+      poolOwns: (path) => services.worktreePool.ownsPath(path),
     },
   )
   registerGitRepoWatchIpc(ipcMain)
+  registerWorktreePoolIpc(ipcMain, services.worktreePool)
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerGitHubReposIpc(ipcMain, services.githubTokenStore)

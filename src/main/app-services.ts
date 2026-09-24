@@ -100,6 +100,12 @@ import { getGitBranches } from './git-read-models'
 import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
+import { resolveSessionLoginPath } from './cli-runtime-install'
+import { broadcastWorktreePoolChanged } from './ipc/worktree-pool-ipc'
+import { powerActivity } from './power-activity'
+import { createDepsEnvironment } from './worktree-pool/deps'
+import { createPoolStore } from './worktree-pool/pool-store'
+import { createWorktreePoolService, worktreePoolOwnerIndex } from './worktree-pool/worktree-pool-service'
 import { createConversationPeekService } from './conversation-peek/service'
 import { createAgentPromptStore } from './agent-prompt-store'
 import {
@@ -689,6 +695,27 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     registry: workspaceRegistry,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
+  // The pool of warm agent worktrees (worktree-pool/). It reads the registry
+  // to learn when a slot's owner is gone, the live terminals to never recycle
+  // a slot something runs in, and the power state to keep its background
+  // refreshes off battery.
+  const worktreePool = createWorktreePoolService({
+    store: createPoolStore(app.getPath('userData')),
+    depsEnv: createDepsEnvironment({ resolveLoginPath: resolveSessionLoginPath }),
+    livePaths: () =>
+      listLiveTerminalSessions().flatMap((session) =>
+        [session.cwd, session.observedCheckout?.cwd].filter(
+          (path): path is string => typeof path === 'string' && path.length > 0,
+        ),
+      ),
+    ownerIndex: () => worktreePoolOwnerIndex(workspaceSyncService.getSnapshot().state.workspaces),
+    shouldDefer: () => powerActivity.isOnBattery() || powerActivity.isSuspended(),
+    onChange: broadcastWorktreePoolChanged,
+  })
+  workspaceSyncService.subscribeAppliedEvents(() => worktreePool.noteRegistryChanged())
+  // Recovery and warming are background work: they wait for the deferred boot
+  // jobs, and the service itself waits a further minute before warming.
+  void Promise.all([app.whenReady(), bootJobsGate]).then(() => worktreePool.start())
   // Composing an agent launch is main's job. Built here, after the
   // terminal runtime and workspace sync, because it reads both: the workspace it
   // launches into comes from the sync snapshot, and the launch itself is the
@@ -1092,6 +1119,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
             const paths = agentWorktreePaths(workspaceRoot, name)
             if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+            // A warm pool slot when one is ready: it sits at the default
+            // branch, so only a launch that names no other base can take one.
+            // The agent does not exist yet; its id is bound once it does. On
+            // Windows a launched CLI may run in WSL, which no native slot suits,
+            // so those launches keep creating their own.
+            if (!baseRef?.trim() && process.platform !== 'win32') {
+              const leased = await worktreePool.lease({
+                repoRoot: workspaceRoot,
+                name,
+                owner: { agentId: null, workspaceId: null },
+                runtime: 'native',
+              })
+              if (leased.ok) return { worktreePath: leased.path, branch: leased.branch, leaseId: leased.leaseId }
+            }
             const created = await createGitWorktree({
               repoRoot: workspaceRoot,
               containerPath: paths.containerPath,
@@ -1105,6 +1146,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
             return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
           },
+          bindAgentWorktree: (leaseId, owner) => worktreePool.bind(leaseId, owner).then(() => undefined),
+          releaseAgentWorktree: (leaseId) => worktreePool.release(leaseId).then(() => undefined),
           readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
           // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
           // create): the same readers the sidebar rows and the Worktree manager
@@ -1304,6 +1347,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     capabilityWatcher,
     workspaceSyncService,
     workspaceRegistry,
+    worktreePool,
   }
 }
 

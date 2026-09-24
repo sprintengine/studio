@@ -66,6 +66,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { leaseOrCreateAgentWorktree, poolRuntimeFor } from '../../utils/poolWorktree'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -2200,6 +2201,7 @@ export default function WorkspaceManager() {
     agentId: string,
     tabName: string,
     requestedName: string,
+    cli: AgentCli,
   ): Promise<AgentExecution | null> => {
     const spawnError = (title: string, message: string) =>
       publishDiagnosticSync({
@@ -2231,13 +2233,13 @@ export default function WorkspaceManager() {
       spawnError('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
       return null
     }
-    const result = await window.api.createGitWorktree({
+    // A warm pool slot when one is ready (instant); otherwise the worktree is
+    // created here as it always was.
+    const result = await leaseOrCreateAgentWorktree({
       repoRoot,
-      containerPath: paths.containerPath,
-      destinationPath: paths.destinationPath,
-      branchName: paths.branchName,
-      baseRef: 'HEAD',
-      copyIncludedFiles: true,
+      name,
+      owner: { agentId, workspaceId: workspace.id },
+      runtime: poolRuntimeFor(cli),
     })
     if (!result.ok) {
       spawnError('Agent worktree failed', result.message)
@@ -2247,17 +2249,18 @@ export default function WorkspaceManager() {
     const store = useWorkspaceStore.getState()
     store.setWorkspaceWorktreeState(workspace.id, { containerPath: paths.containerPath })
     const now = Date.now()
-    const worktreeId = worktreeIdFromPath(result.data.path)
+    const worktreeId = worktreeIdFromPath(result.worktree.path, result.worktree.leaseId)
     store.upsertWorktreeEntry(workspace.id, {
       id: worktreeId,
-      path: result.data.path,
-      branch: result.data.branch ?? paths.branchName,
+      path: result.worktree.path,
+      branch: result.worktree.branch,
       ownerAgentId: agentId,
       status: 'assigned',
       createdAt: now,
       updatedAt: now,
+      leaseId: result.worktree.leaseId,
     })
-    return { mode: 'worktree', worktreeId, cwd: result.data.path }
+    return { mode: 'worktree', worktreeId, cwd: result.worktree.path }
   }
 
   const addNewCliAgent = async (
@@ -2309,7 +2312,7 @@ export default function WorkspaceManager() {
     let execution: AgentExecution | undefined
     if (worktree) {
       if (!activeWorkspace) return
-      const created = await createAgentSpawnWorktree(activeWorkspace, newId, tabName, worktree.name)
+      const created = await createAgentSpawnWorktree(activeWorkspace, newId, tabName, worktree.name, spawnCli)
       if (!created) return
       execution = created
     }
@@ -2528,6 +2531,7 @@ export default function WorkspaceManager() {
   const createNewChatWorktree = async (
     folderPath: string | null,
     requestedName: string,
+    cli: AgentCli | null,
   ): Promise<{ folderPath: string; worktree: WorkspaceWorktree } | null> => {
     const fail = (title: string, message: string) => {
       publishDiagnosticSync({ level: 'error', source: 'workspace', title, message })
@@ -2544,20 +2548,19 @@ export default function WorkspaceManager() {
       )
     }
     const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
-    const paths = agentWorktreePaths(repoRoot, name)
-    if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
-    const result = await window.api.createGitWorktree({
+    // The chat's own workspace is made after this returns, with its folder IN
+    // the worktree; that folder is what keeps a pooled slot leased (the pool
+    // sees the registry pointing into it), so the lease names no owner.
+    const result = await leaseOrCreateAgentWorktree({
       repoRoot,
-      containerPath: paths.containerPath,
-      destinationPath: paths.destinationPath,
-      branchName: paths.branchName,
-      baseRef: 'HEAD',
-      copyIncludedFiles: true,
+      name,
+      owner: { agentId: null, workspaceId: null },
+      runtime: poolRuntimeFor(cli),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {
-      folderPath: result.data.path,
-      worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD', repoRoot: projectFolder },
+      folderPath: result.worktree.path,
+      worktree: { branch: result.worktree.branch, baseRef: result.worktree.baseRef, repoRoot: projectFolder },
     }
   }
 
@@ -3130,7 +3133,7 @@ export default function WorkspaceManager() {
     let folderPath = scopedFolder
     let worktree: WorkspaceWorktree | undefined
     if (confirm.kind === 'general' && confirm.worktree) {
-      const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
+      const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name, confirm.cli)
       if (!made) return
       folderPath = made.folderPath
       worktree = made.worktree

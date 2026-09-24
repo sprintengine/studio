@@ -86,6 +86,8 @@ export type GitIpcPaths = {
   onChangelistsChanged?: (repoRoot: string) => void
   /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
   livePaths?: () => string[]
+  /** Whether a path is a worktree pool slot, which the cleanup leaves to the pool. */
+  poolOwns?: (path: string) => boolean
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
@@ -401,7 +403,7 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
       () =>
         cleanupAgentWorktreesOnce(
           { repoRoot: input.repoRoot, protectedPaths, dryRun: input.dryRun === true },
-          { livePaths: paths.livePaths },
+          { livePaths: paths.livePaths, poolOwns: paths.poolOwns },
         ),
     )
   })

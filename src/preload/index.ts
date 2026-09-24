@@ -23,6 +23,7 @@ import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
+import { worktreePoolApi } from './api/worktree-pool'
 import { marketplaceApi } from './api/marketplace'
 import { hostedSourcesFeedApi } from './api/hosted-sources-feed'
 import { hostedCardFeedApi } from './api/hosted-card-feed'
@@ -78,6 +79,7 @@ const api = {
   ...filesystemApi,
   ...launchSettingsApi,
   ...gitApi,
+  ...worktreePoolApi,
   ...marketplaceApi,
   ...memoryActivityApi,
   ...mcpApi,
