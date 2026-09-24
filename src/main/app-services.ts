@@ -87,6 +87,7 @@ import {
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
 import { createAgentLaunchSettingsStore } from './launch-settings-store'
+import type { HostAgentIntegration } from './hosts/execution-host'
 import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/host-registry'
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
@@ -218,11 +219,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   //
   // Asked with the launch's machine. A WSL distribution carries the copy its
   // helper wrote inside it, once the helper is up; the launch builder reads the
-  // same host (`pluginDirsForLaunch`), so the two agree there too.
-  const launchCarriesAppPlugins = (cli: string, hostId?: string | null): boolean => {
+  // same host (`pluginDirsForLaunch`), so the two agree there too. A launch
+  // passes the `integration` it captured when it prepared that machine, so a
+  // helper restarting in between cannot make this answer differ from what the
+  // launch itself carries; absent, the machine is asked as it stands now.
+  const launchCarriesAppPlugins = (
+    cli: string,
+    hostId?: string | null,
+    integration?: HostAgentIntegration | null,
+  ): boolean => {
     const host = hostRegistry().get(hostId)
     if (host.kind === 'wsl') {
-      return cliTakesLaunchPlugins(cli) && (host.agentIntegration()?.pluginDirs.length ?? 0) > 0
+      const current = integration === undefined ? host.agentIntegration() : integration
+      return cliTakesLaunchPlugins(cli) && (current?.pluginDirs.length ?? 0) > 0
     }
     return launchCarriesAppPluginsFor(cli, agentIntegrationPluginDirs)
   }
@@ -230,12 +239,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // app's own binary run as Node here, and inside a WSL distribution the
   // pinned Node and the bridge the helper installed, which finds the helper's
   // socket through the discovery file in the helper's directory. Null (no
-  // gateway written) for a WSL machine whose helper is not up.
+  // gateway written) for a WSL machine whose helper is not up. `integration`
+  // as for `launchCarriesAppPlugins`.
   const studioGatewayFor = (
     hostId?: string | null,
-  ): { command: string; args: string[]; env: Record<string, string> } | null => {
+    integration?: HostAgentIntegration | null,
+  ): { command: string; args: string[]; env: Record<string, string>; envVarNames?: string[] } | null => {
     const host = hostRegistry().get(hostId)
-    if (host.kind === 'wsl') return host.agentIntegration()?.studioMcpEntry ?? null
+    if (host.kind === 'wsl') {
+      return (integration === undefined ? host.agentIntegration() : integration)?.studioMcpEntry ?? null
+    }
     return {
       command: process.execPath,
       args: [resolveStudioMcpBridgeScriptPath()],
@@ -593,7 +606,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
-    syncMcpConfig: (input) =>
+    syncMcpConfig: ({ integration, ...input }) =>
       whenAgentLaunchReady().then(() =>
         syncStudioMcpConfig(
           {
@@ -603,11 +616,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             // as well would be a second copy of the server, and one a plain
             // terminal's `claude` in that checkout would load too.
             studioGatewayDeliveredAtLaunch:
-              input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0], input.hostId),
+              input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0], input.hostId, integration),
           },
           {
             mcpConfigService,
-            studioGateway: () => studioGatewayFor(input.hostId),
+            studioGateway: () => studioGatewayFor(input.hostId, integration),
             // Once per server per run: the same config is synced on every
             // WSL launch, and the same sentence each time is noise.
             warn: (message) => {
@@ -627,8 +640,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // skill dir before launch. Check-first so already-installed workspaces skip
     // the rewrite; install only fills missing or stale native targets. A CLI
     // whose launch carries the skill in the app's plugin directory gets no copy.
-    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli) => {
-      const result = await ensureSkillInstalled(workspaceRoot, skillId, { cli })
+    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, launch) => {
+      const result = await ensureSkillInstalled(workspaceRoot, skillId, {
+        cli,
+        ...(launch ? { hostId: launch.hostId, integration: launch.integration } : {}),
+      })
       if (result.ok) return
       // An id nothing answers to used to be a silent no-op, so a renamed skill
       // or a module that failed to load produced an agent invoking a skill
@@ -1269,9 +1285,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           listPlugins: () => getPluginRegistry().loaded(),
           // backlog.work ensures the Backlog skill exists in the CLI's native dir
           // before launch (same getStatus → install seam as Debug Mode). Reports
-          // whether the skill is now present; a false result is non-fatal.
-          ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli) => {
-            const result = await ensureSkillInstalled(workspaceRoot, skillId, { cli })
+          // whether the skill is now present; a false result is non-fatal. Asked
+          // of the machine the agent will run on: a WSL machine is prepared
+          // first (the launch that follows waits for the same), so its answer
+          // is the one that launch will act on.
+          ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, hostId) => {
+            const host = hostRegistry().resolve({ requested: hostId ?? null, folder: workspaceRoot })
+            if (host.kind === 'wsl') await host.prepare().catch(() => undefined)
+            const result = await ensureSkillInstalled(workspaceRoot, skillId, {
+              cli,
+              hostId: host.id,
+              integration: host.agentIntegration(),
+            })
             if (!result.ok && result.status === 'unknown-skill') {
               console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
             }

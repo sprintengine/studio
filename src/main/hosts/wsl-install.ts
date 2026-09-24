@@ -203,6 +203,11 @@ export function buildCommitScript(input: CommitInput): string {
     '  [ -d "$d" ] || continue',
     '  [ "$d" = "$final" ] && continue',
     '  live "$d" && continue',
+    // A tree set aside while live is still named, by the processes running
+    // from it, under the path it had before the move; nothing names the
+    // `.old-` path. It goes only once nothing names the original path either,
+    // which is the one reading that cannot mistake it for unused.
+    '  case "$d" in *.old-*) live "${d%.old-*}" && continue ;; esac',
     '  rm -rf "$d"',
     'done',
     `echo ${COMMITTED_MARKER}`,

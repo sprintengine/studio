@@ -14,6 +14,7 @@ import type {
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../shared/modules/skills'
+import type { HostAgentIntegration } from './hosts/execution-host'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 import { isPathInsideOrEqual } from './path-containment'
 
@@ -118,6 +119,8 @@ type SkillTargetOptions = {
    * existing agent configuration) still lands in every native directory.
    */
   skipLaunchDeliveredHarnesses?: boolean
+  /** The machine those launches run on (see `SkillLaunchHost`); absent is this one. */
+  launch?: SkillLaunchHost
 }
 
 type SkillTargetDescriptor = {
@@ -448,13 +451,13 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
   // a Codex launch, where the next Claude session the app starts does not need
   // it and a `claude` from a plain terminal would pick it up. `agents` has no
   // CLI of its own here, so it is never skipped.
-  function launchDeliveredHarness(harness: string): boolean {
+  function launchDeliveredHarness(harness: string, launch: SkillLaunchHost = {}): boolean {
     const readers = listPlugins().filter(
       (plugin) =>
         plugin.manifest.skillIntegration?.support === 'native' &&
         plugin.manifest.skillIntegration.harnessId === harness,
     )
-    return readers.length > 0 && readers.every((plugin) => launchDeliversBundledSkillsTo(plugin.manifest.id))
+    return readers.length > 0 && readers.every((plugin) => launchDeliversBundledSkillsTo(plugin.manifest.id, launch))
   }
 
   function skillTargets(
@@ -466,7 +469,9 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     const result: SkillTargetDescriptor[] = []
     const skipLaunchDelivered = options.skipLaunchDeliveredHarnesses === true && findBuiltinSkill(skill.id) !== null
     for (const target of [...staticSkillTargets(workspaceRoot, skill), ...pluginSkillTargets(workspaceRoot, skill)]) {
-      if (skipLaunchDelivered && target.destinationPath && launchDeliveredHarness(target.harness)) continue
+      if (skipLaunchDelivered && target.destinationPath && launchDeliveredHarness(target.harness, options.launch)) {
+        continue
+      }
       // Path-bearing targets dedupe on the resolved destination alone: several
       // plugins can render the same native path (claude-code and zai both
       // target .claude/skills/<id>), and install() cp's each listed target with
@@ -673,25 +678,44 @@ function skillManager(): BuiltinSkillManager {
 // tree, not in the `studio-skills` plugin, so it has no launch-scoped route and
 // is still copied for every CLI.
 
-let launchDeliversBundledSkills: ((cli: string) => boolean) | null = null
+/**
+ * The machine a launch runs on, and what it said about itself when the launch
+ * prepared it. Whether a launch carries the plugin directory is a property of
+ * that machine: on Windows this PC's launches never do, while a WSL
+ * distribution's do once its helper has written the copy. Absent is this
+ * machine; an absent `integration` is read from the machine as it stands.
+ */
+export type SkillLaunchHost = { hostId?: string | null; integration?: HostAgentIntegration | null }
 
-export function setLaunchDeliversBundledSkillsResolver(resolver: ((cli: string) => boolean) | null): void {
+type LaunchDeliversBundledSkillsResolver = (
+  cli: string,
+  hostId?: string | null,
+  integration?: HostAgentIntegration | null,
+) => boolean
+
+let launchDeliversBundledSkills: LaunchDeliversBundledSkillsResolver | null = null
+
+export function setLaunchDeliversBundledSkillsResolver(resolver: LaunchDeliversBundledSkillsResolver | null): void {
   launchDeliversBundledSkills = resolver
 }
 
-function launchDeliversBundledSkillsTo(cli: string): boolean {
+function launchDeliversBundledSkillsTo(cli: string, launch: SkillLaunchHost = {}): boolean {
   const id = cli.trim()
   if (id === '') return false
   try {
-    return launchDeliversBundledSkills?.(id) === true
+    return launchDeliversBundledSkills?.(id, launch.hostId, launch.integration) === true
   } catch {
     return false
   }
 }
 
-/** Whether this launch of `cli` receives `skillId` from the app's plugin directory. */
-export function bundledSkillDeliveredAtLaunch(cli: string | undefined, skillId: string): boolean {
-  return findBuiltinSkill(skillId) !== null && launchDeliversBundledSkillsTo(cli ?? '')
+/** Whether this launch of `cli`, on `launch`'s machine, receives `skillId` from the app's plugin directory. */
+export function bundledSkillDeliveredAtLaunch(
+  cli: string | undefined,
+  skillId: string,
+  launch: SkillLaunchHost = {},
+): boolean {
+  return findBuiltinSkill(skillId) !== null && launchDeliversBundledSkillsTo(cli ?? '', launch)
 }
 
 /**
@@ -715,19 +739,21 @@ export function bundledSkillDeliveredAtLaunch(cli: string | undefined, skillId: 
 export async function ensureSkillInstalled(
   workspaceRoot: string,
   skillId: string,
-  options: { cli?: string } = {},
+  options: { cli?: string } & SkillLaunchHost = {},
 ): Promise<EnsureSkillInstalledResult> {
   if (!resolveSkillById(skillId)) {
     return { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
   }
-  if (bundledSkillDeliveredAtLaunch(options.cli, skillId)) {
+  const { cli, ...launch } = options
+  if (bundledSkillDeliveredAtLaunch(cli, skillId, launch)) {
     return { ok: true, status: 'delivered-at-launch' }
   }
   try {
     const manager = skillManager()
-    // A launch-time install: native targets a launch carries are left out even
-    // when THIS launch does not carry them (see `launchDeliveredHarness`).
-    const targetOptions: SkillTargetOptions = { skipLaunchDeliveredHarnesses: true }
+    // A launch-time install: native targets a launch on this machine carries
+    // are left out even when THIS launch does not carry them (see
+    // `launchDeliveredHarness`).
+    const targetOptions: SkillTargetOptions = { skipLaunchDeliveredHarnesses: true, launch }
     const status = await manager.getStatus(workspaceRoot, skillId, targetOptions)
     if (!status.ok) return { ok: false, status: status.status, ...(status.message ? { message: status.message } : {}) }
     if (status.status === 'missing' || status.status === 'update-available') {

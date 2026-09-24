@@ -89,6 +89,68 @@ test("git's absolute paths come back as Windows opens them", () => {
   assert.equal(nativeGitOutput(['status', '--porcelain'], ' M /not/a/path\n', 'Ubuntu'), ' M /not/a/path\n')
 })
 
+test('with -z every worktree record comes back native, not only the first', () => {
+  // What `git worktree list --porcelain -z` prints: NUL after each field, and
+  // a second NUL between worktrees.
+  const listing = [
+    'worktree /home/dev/repo',
+    'HEAD abc',
+    'branch refs/heads/main',
+    '',
+    'worktree /home/dev/repo/.sprintengine-worktrees/repo/fix',
+    'HEAD def',
+    'branch refs/heads/fix',
+    '',
+    'worktree /mnt/c/Users/dev/other',
+    'HEAD 123',
+    'detached',
+    '',
+    '',
+  ].join('\0')
+  const native = nativeGitOutput(['worktree', 'list', '--porcelain', '-z'], listing, 'Ubuntu').split('\0')
+  assert.deepEqual(
+    native.filter((field) => field.startsWith('worktree ')),
+    [
+      'worktree //wsl.localhost/Ubuntu/home/dev/repo',
+      'worktree //wsl.localhost/Ubuntu/home/dev/repo/.sprintengine-worktrees/repo/fix',
+      'worktree C:/Users/dev/other',
+    ],
+  )
+  assert.equal(native.length, listing.split('\0').length, 'the record structure is kept')
+  assert.ok(!native.join('\0').includes('\n'), 'no newline is invented')
+})
+
+test("git's subcommand is read past its global options, so a -c value is never taken for it", () => {
+  assert.equal(
+    nativeGitOutput(['-c', 'core.quotepath=off', 'rev-parse', '--show-toplevel'], '/home/dev/repo\n', 'Ubuntu'),
+    '//wsl.localhost/Ubuntu/home/dev/repo\n',
+  )
+  assert.equal(
+    nativeGitOutput(['-C', '/home/dev/repo', 'worktree', 'list', '--porcelain'], 'worktree /home/dev/wt\n', 'Ubuntu'),
+    'worktree //wsl.localhost/Ubuntu/home/dev/wt\n',
+  )
+  // A -c value that looks like a subcommand is still only a value.
+  assert.equal(
+    nativeGitOutput(['-c', 'rev-parse', 'status', '--porcelain'], ' M /x\n', 'Ubuntu'),
+    ' M /x\n',
+    'status output is left alone',
+  )
+})
+
+test("git's stdin crosses to the helper as base64, byte for byte", async () => {
+  const { helper, host } = hostWith({ git: () => ({ code: 0, stdout: 'a\0', stderr: '', timedOut: false }) })
+  const patch = 'diff --git a/x b/x\r\n--- a/x\r\n+++ b/x\r\n@@ -1 +1 @@\r\n-é\r\n+ü\r\n'
+  await host.runGit('\\\\wsl.localhost\\Debian\\home\\dev\\repo', ['apply', '--cached', '-'], {
+    timeoutMs: null,
+    env: {},
+    stdin: patch,
+  })
+  const params = helper.requests[0].params as { stdinB64?: string }
+  assert.equal(Buffer.from(params.stdinB64 ?? '', 'base64').toString('utf8'), patch)
+  await host.runGit('\\\\wsl.localhost\\Debian\\home\\dev\\repo', ['status'], { timeoutMs: 1_000, env: {} })
+  assert.equal('stdinB64' in (helper.requests[1].params as object), false, 'no stdin, no field')
+})
+
 test('a distribution row reads as a host state', () => {
   assert.equal(wslHostState({ name: 'Ubuntu', isDefault: true, state: 'Running', version: 2 }).state, 'ready')
   assert.equal(wslHostState({ name: 'Ubuntu', isDefault: true, state: 'Stopped', version: 2 }).state, 'stopped')
@@ -242,6 +304,7 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
     command: STUB_HELPER_INFO.nodePath,
     args: [`${STUB_HELPER_INFO.appDir}/automation/mcp-stdio-bridge.mjs`],
     env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
+    envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
   })
   assert.deepEqual(integration.home, {
     host: '/home/dev',
@@ -250,6 +313,8 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
   })
   const target = host.launchTarget()
   assert.equal(target.kind === 'wsl' && target.integration?.agentStateSocketPath, STUB_HELPER_INFO.agentSocket)
+  assert.equal(target.kind === 'wsl' && target.sessionDir, STUB_HELPER_INFO.sessionDir)
+  assert.equal(target.kind === 'wsl' && target.pidDir, STUB_HELPER_INFO.pidDir)
 
   // A second prepare against the same helper does nothing again.
   current = true
@@ -273,6 +338,125 @@ test('a helper that cannot start fails prepare with its reason, and one without 
     [],
     'no copy, no --plugin-dir: the workspace install carries it',
   )
+})
+
+test('prepare does not finish on a preparation for a helper that restarted under it', async () => {
+  // The helper restarts while `home` is being read: the first preparation is
+  // for a helper that is gone, and a launch must not go ahead without hooks,
+  // socket or gateway because of it.
+  const first = { ...STUB_HELPER_INFO }
+  const second = { ...STUB_HELPER_INFO, agentSocket: '/run/user/1000/sprintengine/abc123def456/agent-2.sock' }
+  let current = first
+  let homes = 0
+  const helper = stubWslHelper('Debian', {
+    home: () => {
+      homes += 1
+      if (homes === 1) current = second
+      return { home: '/home/dev' }
+    },
+    'files.ensureTree': () => ({ current: true }),
+  })
+  helper.info = () => current
+  helper.start = async () => current
+  const host = createWslHost('Debian', {
+    readSettings: () => undefined,
+    listed: () => undefined,
+    helper,
+    buildPluginCopy: async () => PLUGIN_COPY,
+    survivorDelayMs: 0,
+  })
+  await host.prepare()
+  assert.equal(homes, 2, 'prepared again for the helper that is running now')
+  assert.equal(host.agentIntegration()?.agentStateSocketPath, second.agentSocket)
+
+  // One that keeps restarting fails with a reason rather than looping.
+  let flips = 0
+  const flapping = stubWslHelper('Debian', {
+    home: () => {
+      flips += 1
+      current = { ...STUB_HELPER_INFO, agentSocket: `/run/flip-${flips}.sock` }
+      return { home: '/home/dev' }
+    },
+    'files.ensureTree': () => ({ current: true }),
+  })
+  flapping.info = () => current
+  flapping.start = async () => current
+  const unstable = createWslHost('Debian', {
+    readSettings: () => undefined,
+    listed: () => undefined,
+    helper: flapping,
+    buildPluginCopy: async () => PLUGIN_COPY,
+  })
+  await assert.rejects(unstable.prepare(), /kept restarting/u)
+})
+
+test("a launch's files are written into the helper's directory by relative name, and nowhere else", async () => {
+  const { helper, host } = hostWith({ 'session.write': () => ({ paths: [] }), 'session.remove': () => ({}) })
+  await helper.start()
+  const dir = STUB_HELPER_INFO.sessionDir
+  await host.writeLaunchFiles?.([
+    { path: `${dir}/sid-1-17.sh`, content: "export A='1'\n" },
+    { path: `${dir}/host-context-sid-1/rules/host-context.mdc`, content: 'é' },
+  ])
+  const write = helper.requests.find((request) => request.method === 'session.write')
+  assert.deepEqual(write?.params, {
+    files: [
+      { path: 'sid-1-17.sh', b64: Buffer.from("export A='1'\n").toString('base64') },
+      { path: 'host-context-sid-1/rules/host-context.mdc', b64: Buffer.from('é').toString('base64') },
+    ],
+  })
+  await assert.rejects(
+    host.writeLaunchFiles?.([{ path: '/home/dev/.bashrc', content: 'x' }]) ?? Promise.reject(new Error('none')),
+    /not inside the WSL helper's launch directory/u,
+  )
+  host.discardLaunchFiles?.([`${dir}/sid-1-17.sh`, `${dir}/host-context-sid-1`, '/etc/passwd', undefined])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const remove = helper.requests.find((request) => request.method === 'session.remove')
+  assert.deepEqual(remove?.params, { names: ['sid-1-17.sh', 'host-context-sid-1'] })
+  // A stopped helper is not started to tidy.
+  await helper.shutdown()
+  const before = helper.starts
+  host.discardLaunchFiles?.([`${dir}/sid-2-18.sh`])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(helper.starts, before)
+})
+
+test('at quit the survivor kill gives no grace and starts nothing', async () => {
+  const { helper, host } = hostWith({ 'proc.killSession': () => ({ killed: [7] }) })
+  assert.deepEqual(
+    await host.killSessionSurvivors('', { startupScriptPath: '/x/sessions/k-1.sh', quitting: true }),
+    [],
+    'no helper running: nothing is started for it',
+  )
+  assert.equal(helper.starts, 0)
+  await helper.start()
+  const started = Date.now()
+  assert.deepEqual(
+    await host.killSessionSurvivors('', { startupScriptPath: '/x/sessions/k-1.sh', quitting: true }),
+    [7],
+  )
+  assert.ok(Date.now() - started < 1_000)
+})
+
+test("a WSL host's MCP channel tokens and directory watches are its helper's", () => {
+  const { helper, host } = hostWith({})
+  const token = host.issueChannelToken?.() ?? ''
+  assert.ok(helper.tokens.has(token))
+  host.revokeChannelToken?.(token)
+  assert.equal(helper.tokens.size, 0)
+  const heard: Array<string | null> = []
+  const watcher = host.watchDir?.('\\\\wsl.localhost\\Debian\\home\\dev\\repo\\.git', true, (name) => heard.push(name))
+  assert.ok(watcher)
+  const errors: Error[] = []
+  watcher.on('error', (error) => errors.push(error))
+  assert.equal(helper.watches[0].path, '/home/dev/repo/.git', 'watched as Linux names it')
+  assert.equal(helper.watches[0].recursive, true)
+  helper.watches[0].listener('HEAD')
+  assert.deepEqual(heard, ['HEAD'])
+  helper.watches[0].onError()
+  assert.equal(errors.length, 1)
+  watcher.close()
+  assert.equal(helper.watches[0].closed, true)
 })
 
 test('a session holds the helper and lets it go', () => {

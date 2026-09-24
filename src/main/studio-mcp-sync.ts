@@ -81,7 +81,14 @@ export async function syncStudioMcpConfig(
     // own binary as Node on this machine, the pinned Node and the helper's
     // bridge inside a WSL distribution. Null leaves the gateway out (a WSL
     // machine whose helper is not up).
-    studioGateway?: () => { command: string; args: string[]; env: Record<string, string> } | null
+    // `envVarNames` are variables the CLI passes on from its own environment
+    // (a WSL launch's MCP channel token), never written into the file.
+    studioGateway?: () => {
+      command: string
+      args: string[]
+      env: Record<string, string>
+      envVarNames?: string[]
+    } | null
     // Where a warning about the person's own servers goes (a Windows program
     // handed to a CLI in WSL). Best-effort; the launch never waits on it.
     warn?: (message: string) => void
@@ -119,6 +126,7 @@ export async function syncStudioMcpConfig(
       command: studioGateway.command,
       args: studioGateway.args,
       env: { ...studioGateway.env, ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId) },
+      ...(studioGateway.envVarNames?.length ? { envVarNames: studioGateway.envVarNames } : {}),
       enabled: true,
       required: false,
       clients,

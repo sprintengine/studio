@@ -156,8 +156,26 @@ test('the hello goes out only after the helper booted, and carries the protocol,
     protocol: WSL_HELPER_PROTOCOL,
     appVersion: '0.4.0',
     profile: 'abc123def456',
+    // The first helper this main starts ends what an earlier main left running.
+    endOrphans: true,
   })
   assert.equal(client.state(), 'ready')
+  await client.shutdown()
+  const shutdown = fake.written.map((line) => JSON.parse(line) as Frame).find((frame) => frame.t === 'shutdown')
+  assert.deepEqual(shutdown, { t: 'shutdown', endSessions: true }, "the app's own shutdown ends its sessions there")
+})
+
+test('only the first helper a main starts ends orphans, and an idle stop leaves sessions alone', async () => {
+  const h = harness([healthy(), healthy()], { idleMs: 10 })
+  const client = createWslHelperClient(h.deps)
+  await client.start()
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  assert.equal(client.state(), 'stopped', 'stopped once idle')
+  const idleStop = h.spawned[0].written.map((line) => JSON.parse(line) as Frame).find((frame) => frame.t === 'shutdown')
+  assert.deepEqual(idleStop, { t: 'shutdown', endSessions: false })
+  await client.start()
+  const hello = JSON.parse(h.spawned[1].written[0]) as Frame
+  assert.equal(hello.endOrphans, false, 'a later helper never ends what this main is running')
   await client.shutdown()
 })
 
@@ -348,7 +366,8 @@ test('an MCP channel reaches only the automation server, both ways, and closes w
   const client = createWslHelperClient(h.deps)
   await client.start()
   const fake = h.spawned[0]
-  fake.send({ t: 'ch', ch: 1, op: 'open' })
+  const token = client.issueChannelToken()
+  fake.send({ t: 'ch', ch: 1, op: 'open', token })
   fake.send({ t: 'ch', ch: 1, op: 'data', b64: Buffer.from('{"jsonrpc":"2.0","id":1}\n').toString('base64') })
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(connects, 1)
@@ -365,6 +384,102 @@ test('an MCP channel reaches only the automation server, both ways, and closes w
       return frame.t === 'ch' && frame.op === 'close' && frame.ch === 1
     }),
   )
+  await client.shutdown()
+})
+
+test('an MCP channel without a live launch token never reaches the automation server', async () => {
+  let connects = 0
+  const logs: string[] = []
+  const h = harness([healthy()], {
+    connectAutomation: () => {
+      connects += 1
+      return new PassThrough()
+    },
+    log: (message) => logs.push(message),
+  })
+  const client = createWslHelperClient(h.deps)
+  await client.start()
+  const fake = h.spawned[0]
+  const revoked = client.issueChannelToken()
+  client.revokeChannelToken(revoked)
+  const live = client.issueChannelToken()
+  assert.notEqual(live, revoked, 'every launch gets its own')
+  assert.match(live, /^[A-Za-z0-9_-]{40,}$/u, 'long, and plain enough for an env value and the auth line')
+  fake.send({ t: 'ch', ch: 1, op: 'open' })
+  fake.send({ t: 'ch', ch: 2, op: 'open', token: 'guessed-token-0000000000' })
+  fake.send({ t: 'ch', ch: 3, op: 'open', token: revoked })
+  fake.send({ t: 'ch', ch: 4, op: 'open', token: 42 })
+  fake.send({ t: 'ch', ch: 2, op: 'data', b64: Buffer.from('{"jsonrpc":"2.0","id":1}\n').toString('base64') })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(connects, 0, 'nothing was connected')
+  const closed = fake.written
+    .map((line) => JSON.parse(line) as Frame)
+    .filter((frame) => frame.t === 'ch' && frame.op === 'close')
+    .map((frame) => frame.ch)
+  assert.deepEqual(closed, [1, 2, 3, 4], 'each was answered with a close')
+  assert.ok(logs.some((line) => line.includes('no valid launch token')))
+  fake.send({ t: 'ch', ch: 5, op: 'open', token: live })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(connects, 1, 'a live token opens')
+  await client.shutdown()
+})
+
+test('a helper watch is registered with each helper that starts, and never starts one itself', async () => {
+  let adds = 0
+  const removes: unknown[] = []
+  const answers = {
+    'watch.add': () => {
+      adds += 1
+      return { id: 100 + adds }
+    },
+    'watch.remove': (params: unknown) => {
+      removes.push(params)
+      return {}
+    },
+  }
+  const h = harness([healthy(answers), healthy(answers)])
+  const client = createWslHelperClient(h.deps)
+  const heard: Array<string | null> = []
+  let errors = 0
+  const watch = client.watch(
+    '/home/dev/repo/.git',
+    false,
+    (name) => heard.push(name),
+    () => (errors += 1),
+  )
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(h.spawned.length, 0, 'a watch alone does not start the helper')
+  await client.start()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(adds, 1)
+  h.spawned[0].send({ t: 'ev', event: 'watch', id: 101, filename: 'HEAD' })
+  h.spawned[0].send({ t: 'ev', event: 'watch', id: 999, filename: 'index' })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.deepEqual(heard, ['HEAD'], 'only its own events')
+  // The helper goes; the next one is given the watch again.
+  h.spawned[0].close(1)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  await client.start()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(adds, 2)
+  h.spawned[1].send({ t: 'ev', event: 'watch', id: 102, filename: 'index' })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.deepEqual(heard, ['HEAD', 'index'])
+  watch.close()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.deepEqual(removes, [{ id: 102 }])
+  // A helper that cannot watch a directory says so once; the watch is dead.
+  const failing = client.watch(
+    '/home/dev/repo/.git/worktrees',
+    false,
+    () => undefined,
+    () => (errors += 1),
+  )
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  h.spawned[1].send({ t: 'ev', event: 'watchError', id: 103 })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(errors, 1)
+  failing.close()
   await client.shutdown()
 })
 

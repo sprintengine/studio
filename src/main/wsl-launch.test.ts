@@ -13,12 +13,7 @@ import { createMcpConfigService } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { mcpServersForWsl, syncStudioMcpConfig } from './studio-mcp-sync'
-import {
-  cleanupTerminalStartupScript,
-  getPlainShellLaunchConfig,
-  getShellLaunchConfig,
-  wslStartupArgs,
-} from './terminal-launch'
+import { getPlainShellLaunchConfig, getShellLaunchConfig, wslStartupArgs } from './terminal-launch'
 import { toWslPath } from '../shared/host-paths'
 import {
   __resetWslHostForTest,
@@ -217,20 +212,62 @@ test('the MCP gateway written for a WSL launch is the helper bridge, with no WSL
   assert.equal(gateway.env.WSLENV, undefined)
 })
 
+test("Codex in WSL is told to pass the launch's MCP channel token on to the gateway, by name only", async () => {
+  const root = join(temp, 'mcp-wsl-codex')
+  mkdirSync(root, { recursive: true })
+  const service = createMcpConfigService({ homeDir: () => join(temp, 'home'), userDataDir: () => join(temp, 'ud') })
+  const result = await syncStudioMcpConfig(
+    {
+      workspaceRoot: root,
+      settings: { syncEnabled: false, servers: {} },
+      clients: ['codex'],
+      executionPathStyle: 'wsl',
+    },
+    {
+      mcpConfigService: service,
+      studioGateway: () => ({
+        command: NODE,
+        args: ['/home/dev/.local/share/sprintengine-studio/0.4.0/automation/mcp-stdio-bridge.mjs'],
+        env: { SPRINTENGINE_USER_DATA_DIR: '/run/user/1000/sprintengine/abc123def456' },
+        envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
+      }),
+    },
+  )
+  assert.equal(result.ok, true, result.ok ? '' : result.message)
+  const config = readFileSync(join(root, '.codex', 'config.toml'), 'utf8')
+  // Codex hands a stdio server only the variables its entry names.
+  assert.match(config, /env_vars = \["SPRINTENGINE_MCP_CHANNEL_TOKEN"\]/u)
+})
+
+// The helper's private directories inside the distribution, as its hello
+// names them.
+const SESSION_DIR = '/home/dev/.local/share/sprintengine-studio/sessions/abc123def456'
+const PID_DIR = '/run/user/1000/sprintengine/abc123def456/sessions'
+
+type WslTarget = {
+  kind: 'wsl'
+  distro: string | null
+  env: Record<string, string>
+  shell?: string
+  integration?: HostAgentIntegration | null
+  identity?: Record<string, string>
+  sessionDir?: string
+  pidDir?: string
+  channelToken?: string
+}
+
+// The startup script a WSL launch hands its host to write: it is never a
+// file on this machine.
+function scriptOf(config: { startupScriptPath?: string; hostFiles?: Array<{ path: string; content: string }> }) {
+  const file = config.hostFiles?.find((entry) => entry.path === config.startupScriptPath)
+  assert.ok(file, `the startup script is one of the launch's host files: ${JSON.stringify(config.hostFiles)}`)
+  return file.content
+}
+
 // An agent launch on a WSL machine, the way the terminal runtime makes one:
-// the host's launch target rides as the last argument.
-function launchInWsl(
-  cwd: string,
-  sessionId: string,
-  target: {
-    kind: 'wsl'
-    distro: string | null
-    env: Record<string, string>
-    shell?: string
-    integration?: HostAgentIntegration | null
-    identity?: Record<string, string>
-  },
-): ReturnType<typeof getShellLaunchConfig> {
+// the host's launch target rides as the last argument, carrying the helper's
+// directories unless a case says otherwise.
+function launchInWsl(cwd: string, sessionId: string, target: WslTarget): ReturnType<typeof getShellLaunchConfig> {
   return getShellLaunchConfig(
     cwd,
     sessionId,
@@ -247,7 +284,7 @@ function launchInWsl(
     undefined,
     undefined,
     undefined,
-    target,
+    { sessionDir: SESSION_DIR, pidDir: PID_DIR, ...target },
   )
 }
 
@@ -274,24 +311,79 @@ test('an agent in WSL gets its identity and the helper socket as exports, not th
   } finally {
     if (platform) Object.defineProperty(process, 'platform', platform)
   }
-  try {
-    assert.equal(config.command, 'wsl.exe')
-    assert.equal(config.pathStyle, 'wsl')
-    assert.equal(config.args.at(-1), toWslPath(config.startupScriptPath ?? ''))
-    assert.equal(config.env?.WSLENV, process.env.WSLENV, 'the launch leaves WSLENV as the person has it')
-    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-    assert.ok(script.includes("export SPRINTENGINE_AGENT_ID='agent-1'"), script)
-    assert.ok(script.includes("export SPRINTENGINE_WORKSPACE_ID='ws-1'"), script)
-    assert.ok(script.includes(`export SPRINTENGINE_AGENT_STATE_SOCKET='${SOCK}'`), script)
-    assert.ok(!script.includes('pipe'), 'the Windows pipe never reaches Linux')
-    for (const dir of INTEGRATION.pluginDirs) {
-      assert.ok(script.includes(`--plugin-dir ${dir}`), `Claude in WSL takes the in-distro copy: ${script}`)
-    }
-    assert.ok(script.includes(`cd '${toWslPath(cwd)}'`), script)
-    assert.ok(!script.includes('\r'), 'the startup script bash reads has LF line endings')
-  } finally {
-    cleanupTerminalStartupScript(config.startupScriptPath)
+  assert.equal(config.command, 'wsl.exe')
+  assert.equal(config.pathStyle, 'wsl')
+  assert.equal(config.args.at(-1), config.startupScriptPath)
+  assert.equal(config.env?.WSLENV, process.env.WSLENV, 'the launch leaves WSLENV as the person has it')
+  const script = scriptOf(config)
+  assert.ok(script.includes("export SPRINTENGINE_AGENT_ID='agent-1'"), script)
+  assert.ok(script.includes("export SPRINTENGINE_WORKSPACE_ID='ws-1'"), script)
+  assert.ok(script.includes(`export SPRINTENGINE_AGENT_STATE_SOCKET='${SOCK}'`), script)
+  assert.ok(!script.includes('pipe'), 'the Windows pipe never reaches Linux')
+  for (const dir of INTEGRATION.pluginDirs) {
+    assert.ok(script.includes(`--plugin-dir ${dir}`), `Claude in WSL takes the in-distro copy: ${script}`)
   }
+  assert.ok(script.includes(`cd '${toWslPath(cwd)}'`), script)
+  assert.ok(!script.includes('\r'), 'the startup script bash reads has LF line endings')
+})
+
+test('a WSL startup script lives in the helper directory inside the distribution, never behind /mnt', () => {
+  const cwd = join(temp, 'workspace-session-dir')
+  mkdirSync(cwd, { recursive: true })
+  const config = launchInWsl(cwd, 'sid/odd name', { kind: 'wsl', distro: 'Ubuntu', env: {} })
+  const path = config.startupScriptPath ?? ''
+  assert.ok(path.startsWith(`${SESSION_DIR}/`), path)
+  assert.match(path.slice(SESSION_DIR.length + 1), /^sid_odd_name-\d+\.sh$/u, 'a plain file name')
+  assert.ok(
+    !config.args.some((arg) => arg.startsWith('/mnt/')),
+    `nothing is read through a drive mount: ${config.args}`,
+  )
+  assert.deepEqual(config.args.slice(-3), ['bash', '-li', path])
+  assert.ok(scriptOf(config).endsWith('\n'))
+})
+
+test('a WSL launch with no helper directory says the helper is not running, and writes nothing here', () => {
+  const cwd = join(temp, 'workspace-no-helper')
+  mkdirSync(cwd, { recursive: true })
+  assert.throws(
+    () => launchInWsl(cwd, 'sid-none', { kind: 'wsl', distro: 'Ubuntu', env: {}, sessionDir: undefined }),
+    /The WSL helper for Ubuntu is not running/u,
+  )
+  assert.throws(
+    () => getPlainShellLaunchConfig(cwd, 'plain-none', { kind: 'wsl', distro: 'Ubuntu', env: {} }),
+    /The WSL helper for Ubuntu is not running/u,
+  )
+})
+
+test("a WSL agent's MCP channel token is exported by its startup script and by nothing else", () => {
+  const cwd = join(temp, 'workspace-token')
+  mkdirSync(cwd, { recursive: true })
+  const token = 'tok_0123456789abcdefABCDEF'
+  const config = launchInWsl(cwd, 'sid-token', {
+    kind: 'wsl',
+    distro: 'Ubuntu',
+    env: {},
+    integration: INTEGRATION,
+    identity: { SPRINTENGINE_AGENT_ID: 'agent-t' },
+    channelToken: token,
+  })
+  assert.ok(scriptOf(config).includes(`export SPRINTENGINE_MCP_CHANNEL_TOKEN='${token}'`), scriptOf(config))
+  assert.ok(!config.args.some((arg) => arg.includes(token)), 'not on the command line')
+  assert.ok(!Object.values(config.env ?? {}).includes(token), 'not in the Windows environment')
+  const without = launchInWsl(cwd, 'sid-token-2', { kind: 'wsl', distro: 'Ubuntu', env: {} })
+  assert.ok(!scriptOf(without).includes('SPRINTENGINE_MCP_CHANNEL_TOKEN'), 'a launch without one exports none')
+})
+
+test("a WSL agent's host-context document goes into the distribution with its script", () => {
+  const cwd = join(temp, 'workspace-context')
+  mkdirSync(join(cwd, 'design-system'), { recursive: true })
+  const config = launchInWsl(cwd, 'sid-context', { kind: 'wsl', distro: 'Ubuntu', env: {}, integration: INTEGRATION })
+  const contextPath = config.hostContextPath ?? ''
+  assert.ok(contextPath.startsWith(`${SESSION_DIR}/host-context-`), contextPath)
+  const file = config.hostFiles?.find((entry) => entry.path === contextPath)
+  assert.ok(file, 'the document is one of the host files')
+  assert.ok(file.content.includes(toWslPath(join(cwd, 'design-system'))), 'its paths are as Linux names them')
+  assert.ok(scriptOf(config).includes(contextPath), 'the CLI is pointed at the Linux path')
 })
 
 test('a WSL agent whose helper has not written the plugin copy gets no --plugin-dir', () => {
@@ -304,25 +396,20 @@ test('a WSL agent whose helper has not written the plugin copy gets no --plugin-
     integration: { ...INTEGRATION, pluginDirs: [] },
     identity: { SPRINTENGINE_AGENT_ID: 'agent-2' },
   })
-  try {
-    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-    assert.ok(!script.includes('--plugin-dir'), script)
-  } finally {
-    cleanupTerminalStartupScript(config.startupScriptPath)
-  }
+  assert.ok(!scriptOf(config).includes('--plugin-dir'), scriptOf(config))
 })
 
 test('a WSL launch in a folder inside a distribution runs in that distribution', () => {
   __setDefaultWslDistroForTest('Debian')
   try {
-    const script = 'C:\\Users\\dev\\AppData\\Roaming\\SprintEngine Studio\\terminal-startup\\s1-1.sh'
+    const script = `${SESSION_DIR}/s1-1.sh`
     assert.deepEqual(wslStartupArgs('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', script), [
       '-d',
       'Ubuntu',
       '-e',
       'bash',
       '-li',
-      '/mnt/c/Users/dev/AppData/Roaming/SprintEngine Studio/terminal-startup/s1-1.sh',
+      script,
     ])
     assert.deepEqual(wslStartupArgs('\\\\wsl$\\Ubuntu-24.04\\srv\\app', script).slice(0, 2), ['-d', 'Ubuntu-24.04'])
     // Any other folder runs in the default distribution, by name.
@@ -331,7 +418,7 @@ test('a WSL launch in a folder inside a distribution runs in that distribution',
     __resetWslHostForTest()
   }
   // Before the default is known, no `-d`: that is the default distribution.
-  assert.equal(wslStartupArgs('C:\\Users\\dev\\repo', 'C:\\s.sh')[0], '-e')
+  assert.equal(wslStartupArgs('C:\\Users\\dev\\repo', `${SESSION_DIR}/s.sh`)[0], '-e')
 })
 
 test('an agent launched through WSL names the distribution and records its shell pid', () => {
@@ -347,15 +434,12 @@ test('an agent launched through WSL names the distribution and records its shell
     if (platform) Object.defineProperty(process, 'platform', platform)
     __resetWslHostForTest()
   }
-  try {
-    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Debian'])
-    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-    const key = wslSessionPidKey(config.startupScriptPath)
-    assert.ok(key, 'the startup script path gives a pid key')
-    assert.ok(script.startsWith(wslSessionPidFileCommand(key)), script)
-  } finally {
-    cleanupTerminalStartupScript(config.startupScriptPath)
-  }
+  assert.deepEqual(config.args.slice(0, 2), ['-d', 'Debian'])
+  const script = scriptOf(config)
+  const key = wslSessionPidKey(config.startupScriptPath)
+  assert.ok(key, 'the startup script path gives a pid key')
+  assert.ok(script.startsWith(wslSessionPidFileCommand(PID_DIR, key)), script)
+  assert.ok(script.includes(`'${PID_DIR}'`), "into the helper's private directory")
 })
 
 test("a launch on a WSL machine runs in the machine's distribution, whatever folder it opens", () => {
@@ -376,18 +460,14 @@ test("a launch on a WSL machine runs in the machine's distribution, whatever fol
     if (platform) Object.defineProperty(process, 'platform', platform)
     __resetWslHostForTest()
   }
-  try {
-    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'], 'the machine, not the default distribution')
-    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-    assert.ok(script.includes(`export NODE_OPTIONS='--max-old-space-size=4096 --title='"'"'x'"'"''`), script)
-    assert.ok(!script.includes('bad-name'), 'a name no shell can export is left out')
-    assert.ok(script.trimEnd().endsWith('exec zsh -l'), 'the tab ends in the machine shell')
-    // The machine's environment comes before the launch's own exports, so a
-    // provider's endpoint still wins over a machine-wide default.
-    assert.ok(script.indexOf('export NODE_OPTIONS') < script.indexOf(`cd '`), script)
-  } finally {
-    cleanupTerminalStartupScript(config.startupScriptPath)
-  }
+  assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'], 'the machine, not the default distribution')
+  const script = scriptOf(config)
+  assert.ok(script.includes(`export NODE_OPTIONS='--max-old-space-size=4096 --title='"'"'x'"'"''`), script)
+  assert.ok(!script.includes('bad-name'), 'a name no shell can export is left out')
+  assert.ok(script.trimEnd().endsWith('exec zsh -l'), 'the tab ends in the machine shell')
+  // The machine's environment comes before the launch's own exports, so a
+  // provider's endpoint still wins over a machine-wide default.
+  assert.ok(script.indexOf('export NODE_OPTIONS') < script.indexOf(`cd '`), script)
 })
 
 test('a plain terminal on a WSL machine opens in its distribution with its shell', () => {
@@ -397,20 +477,23 @@ test('a plain terminal on a WSL machine opens in its distribution with its shell
   Object.defineProperty(process, 'platform', { value: 'win32' })
   let config: ReturnType<typeof getPlainShellLaunchConfig>
   try {
-    config = getPlainShellLaunchConfig(cwd, 'plain-machine', { kind: 'wsl', distro: 'Ubuntu', env: { A: '1' } })
+    config = getPlainShellLaunchConfig(cwd, 'plain-machine', {
+      kind: 'wsl',
+      distro: 'Ubuntu',
+      env: { A: '1' },
+      sessionDir: SESSION_DIR,
+      pidDir: PID_DIR,
+    })
   } finally {
     if (platform) Object.defineProperty(process, 'platform', platform)
   }
-  try {
-    assert.equal(config.command, 'wsl.exe')
-    assert.equal(config.pathStyle, 'wsl')
-    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'])
-    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-    assert.ok(script.includes("export A='1'"), script)
-    assert.ok(script.trimEnd().endsWith('exec bash -li'), 'no configured shell: a login bash, as always')
-  } finally {
-    cleanupTerminalStartupScript(config.startupScriptPath)
-  }
+  assert.equal(config.command, 'wsl.exe')
+  assert.equal(config.pathStyle, 'wsl')
+  assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'])
+  assert.ok(config.startupScriptPath?.startsWith(`${SESSION_DIR}/`), String(config.startupScriptPath))
+  const script = scriptOf(config)
+  assert.ok(script.includes("export A='1'"), script)
+  assert.ok(script.trimEnd().endsWith('exec bash -li'), 'no configured shell: a login bash, as always')
 })
 
 test("the person's own MCP servers are handed to a CLI in WSL with Linux paths", () => {

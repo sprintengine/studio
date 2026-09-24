@@ -6,12 +6,15 @@
 //
 //   <runtime>/sprintengine/<profile>/agent.sock   agent-state frames
 //   <runtime>/sprintengine/<profile>/mcp.sock     MCP bridge connections
+//   <runtime>/sprintengine/<profile>/sessions/    each session shell's pid file
 //
 // <runtime> is `$XDG_RUNTIME_DIR` when it is a directory this user owns and no
 // one else can enter, else `/tmp/sprintengine-<uid>`. Every directory the
-// helper creates is 0700 and each socket 0600, the same trust level as the
-// app's own socket on macOS and Linux: only this user can connect, and this
-// user could already drive the app's automation server anyway.
+// helper creates is 0700 and each socket 0600: only this user can connect.
+// That is not the whole of the MCP socket's guard. Its other end can start a
+// shell on Windows, which a Linux process with `[interop] enabled=false` could
+// not otherwise do, so a channel also needs a live launch's token
+// (`relay.mjs`).
 //
 // A directory someone else created first (a shared `/tmp`) is refused rather
 // than used: the helper would otherwise listen where another user can replace

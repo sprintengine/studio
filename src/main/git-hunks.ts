@@ -13,11 +13,10 @@
 // by content (`locateHunk`). An offset that was true when the box was drawn is
 // not evidence a second later.
 
-import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 
 import type { GitCommandResult } from './git'
-import { getRelativeGitPath, gitEnv, runGitCommand, toPathspec, toPosixPath } from './git-utils'
+import { getRelativeGitPath, runGitCommand, toPathspec, toPosixPath } from './git-utils'
 import {
   formatHunkHeader,
   hunkFingerprint,
@@ -205,39 +204,17 @@ export function buildOneHunkPatch(file: ParsedFileDiff, hunk: DiffHunk): string 
 }
 
 /**
- * `git apply` with the patch on stdin. `runGitCommand` cannot do this — it has
- * no stdin — and writing the patch to a temp file would leave the person's
- * changes lying in /tmp.
+ * `git apply` with the patch on stdin, through the app's one git runner: a
+ * repository inside a WSL distribution is applied by that distribution's git,
+ * which owns its index. Writing the patch to a temp file instead would leave
+ * the person's changes lying in /tmp.
+ *
+ * A write (it rewrites the index), so no deadline and no optional-lock opt-out.
+ * On a refusal the message is git apply's own words, which say WHICH line
+ * failed to match — the most useful thing anyone can be told then.
  */
 function applyPatch(repoRoot: string, args: string[], patch: string): Promise<GitCommandResult> {
-  return new Promise((resolve) => {
-    const child = execFile(
-      'git',
-      ['-C', repoRoot, ...args],
-      // A write (it rewrites the index), so no deadline and no optional-lock
-      // opt-out; the shared environment still turns the terminal prompt off.
-      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, windowsHide: true, env: gitEnv() },
-      (error, stdout, stderr) => {
-        const err = (stderr ?? '').trim()
-        if (!error) {
-          resolve({ ok: true, stdout: stdout ?? '', stderr: err, message: null })
-          return
-        }
-        resolve({
-          ok: false,
-          stdout: stdout ?? '',
-          stderr: err,
-          // git apply's own words, which say WHICH line failed to match — the
-          // most useful thing anyone can be told when a patch is refused.
-          message: err || (error as Error).message || 'git apply failed.',
-        })
-      },
-    )
-    // git exits before reading the whole patch when it rejects one; the EPIPE
-    // that follows is not the failure and must not become an unhandled error.
-    child.stdin?.on('error', () => {})
-    child.stdin?.end(patch)
-  })
+  return runGitCommand(repoRoot, args, undefined, { kind: 'write', stdin: patch })
 }
 
 const NOT_FOUND: Record<'gone' | 'ambiguous', string> = {

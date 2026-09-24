@@ -260,6 +260,11 @@ export type TerminalSession = {
    * on every launch and resume, so nothing outlives the pty.
    */
   hostContextPath?: string
+  /**
+   * A WSL agent launch's MCP channel token (`ExecutionHost.issueChannelToken`),
+   * revoked with the session so a bridge outliving it cannot open a channel.
+   */
+  channelToken?: string
 }
 
 // Working/idle bolding for PLAIN terminals only: agent sessions' activity is

@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -163,11 +163,14 @@ test('garbage and over-long lines on the agent socket never reach main', async (
 
 test("the app's own MCP bridge reaches the automation server through a helper channel, both ways", async () => {
   const info = await client.start()
+  const token = client.issueChannelToken()
   const request = `${JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' })}\n`
   const out = await runNode(BRIDGE, [], request, {
     SPRINTENGINE_USER_DATA_DIR: info.userDataDir,
     SPRINTENGINE_AGENT_ID: 'agent-1',
     SPRINTENGINE_AGENT_CLI: 'claude-code',
+    // Exported by the launch's startup script, inherited through the CLI.
+    SPRINTENGINE_MCP_CHANNEL_TOKEN: token,
   })
   assert.deepEqual(JSON.parse(out.trim()), { jsonrpc: '2.0', id: 7, result: { ok: true } })
   const connectFrame = JSON.parse(automationLines[0]) as { method: string; params: { agentId: string; cliId: string } }
@@ -175,6 +178,130 @@ test("the app's own MCP bridge reaches the automation server through a helper ch
   assert.equal(connectFrame.params.agentId, 'agent-1')
   assert.equal(connectFrame.params.cliId, 'claude-code')
   assert.deepEqual(JSON.parse(automationLines[1]), { jsonrpc: '2.0', id: 7, method: 'tools/list' })
+  assert.ok(!automationLines.some((line) => line.includes(token)), 'the token never reaches the automation server')
+  client.revokeChannelToken(token)
+})
+
+test('anything in the distribution without a live launch token is kept from the automation server', async () => {
+  const info = await client.start()
+  const before = automationLines.length
+  const request = `${JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list' })}\n`
+  // The app's own bridge, run by something no launch started: it says why.
+  const refused = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+    const child = spawn(process.execPath, [BRIDGE], {
+      env: { PATH: process.env.PATH, SPRINTENGINE_USER_DATA_DIR: info.userDataDir },
+    })
+    let stderr = ''
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+    child.on('close', (code) => resolve({ code, stderr }))
+    child.stdin.end(request)
+  })
+  assert.notEqual(refused.code, 0)
+  assert.match(refused.stderr, /not started by a SprintEngine Studio launch/u)
+  // A process speaking to the socket directly, with a revoked token and with
+  // none at all.
+  const revoked = client.issueChannelToken()
+  client.revokeChannelToken(revoked)
+  for (const preamble of [`{"t":"auth","token":"${revoked}"}\n`, '']) {
+    await new Promise<void>((resolve) => {
+      const socket = connect(info.mcpSocket, () => socket.write(`${preamble}${request}`))
+      socket.on('close', () => resolve())
+      socket.on('error', () => resolve())
+      setTimeout(() => {
+        socket.destroy()
+        resolve()
+      }, 1_000)
+    })
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(automationLines.length, before, 'nothing reached the automation server')
+})
+
+test("a launch's files are written inside the Linux home, private, and removed by name", async () => {
+  const info = await client.start()
+  assert.equal(
+    info.sessionDir,
+    join(temp, 'home', '.local', 'share', 'sprintengine-studio', 'sessions', 'abc123def456'),
+  )
+  assert.equal(statSync(info.sessionDir).mode & 0o777, 0o700)
+  assert.ok(info.pidDir.startsWith(join(temp, 'rt', 'abc123def456')), 'the pid files sit beside the sockets')
+  assert.equal(statSync(info.pidDir).mode & 0o777, 0o700)
+  await client.request('session.write', {
+    files: [{ path: 'sid-9-1.sh', b64: Buffer.from("export T='x'\n").toString('base64') }],
+  })
+  const script = join(info.sessionDir, 'sid-9-1.sh')
+  assert.equal(readFileSync(script, 'utf8'), "export T='x'\n")
+  assert.equal(statSync(script).mode & 0o777, 0o600)
+  await assert.rejects(
+    client.request('session.write', { files: [{ path: '../../.bashrc', b64: '' }] }),
+    /Refusing the launch file path/u,
+  )
+  await client.request('session.remove', { names: ['sid-9-1.sh'] })
+  assert.equal(existsSync(script), false)
+})
+
+test('git through the helper takes stdin: a hunk applied to the index, and paths checked against ignores', async () => {
+  if (spawnSync('git', ['--version']).status !== 0) return
+  const repo = join(temp, 'repo-stdin')
+  mkdirSync(repo)
+  const git = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  git('init', '-q')
+  git('config', 'user.email', 'dev@example.com')
+  git('config', 'user.name', 'Dev')
+  writeFileSync(join(repo, '.gitignore'), 'out/\n*.log\n')
+  writeFileSync(join(repo, 'a.txt'), 'one\n')
+  git('add', '.')
+  git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'init')
+  writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n')
+  const patch = git('diff', 'a.txt').stdout
+  const applied = await client.request<{ code: number; stderr: string }>('git', {
+    cwd: repo,
+    args: ['apply', '--cached', '-'],
+    timeoutMs: null,
+    env: { LC_ALL: 'C' },
+    stdinB64: Buffer.from(patch).toString('base64'),
+  })
+  assert.equal(applied.code, 0, applied.stderr)
+  assert.equal(git('diff', '--cached', '--name-only').stdout.trim(), 'a.txt', 'the hunk is in the index')
+  mkdirSync(join(repo, 'out'))
+  const ignored = await client.request<{ code: number; stdout: string }>('git', {
+    cwd: repo,
+    args: ['check-ignore', '-z', '--stdin'],
+    timeoutMs: 10_000,
+    env: { LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
+    stdinB64: Buffer.from('out\0a.txt\0x.log\0').toString('base64'),
+  })
+  assert.deepEqual(ignored.stdout.split('\0').filter(Boolean), ['out', 'x.log'])
+  await assert.rejects(
+    client.request('git', { cwd: repo, args: ['status'], timeoutMs: 5_000, stdinB64: '***' }),
+    /base64/u,
+  )
+})
+
+test('a directory the helper watches reports its changes to main, and stops when told', async () => {
+  const dir = join(temp, 'watched')
+  mkdirSync(dir)
+  await client.start()
+  const heard: Array<string | null> = []
+  let failed = 0
+  const watch = client.watch(
+    dir,
+    false,
+    (name) => heard.push(name),
+    () => (failed += 1),
+  )
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  writeFileSync(join(dir, 'HEAD'), 'ref: refs/heads/main\n')
+  await waitFor(() => (heard.includes('HEAD') ? true : undefined))
+  watch.close()
+  const missing = client.watch(
+    join(temp, 'not-there'),
+    false,
+    () => undefined,
+    () => (failed += 1),
+  )
+  await waitFor(() => (failed === 1 ? true : undefined))
+  missing.close()
 })
 
 test('main asks the helper to run argv and git, and to read processes', async () => {

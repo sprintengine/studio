@@ -107,9 +107,19 @@ export function linuxPathUnderRoot(linuxPath: string, root: string, separator: '
  * A path reduced to a form two spellings of the same folder agree on:
  * forward slashes, no trailing slash, `/mnt/<drive>` read as the drive, and
  * drive paths lower-cased (Windows compares them without regard to case).
+ *
+ * A distribution's share has two names, `\\wsl$\<distro>` and
+ * `\\wsl.localhost\<distro>`, and Windows reads both, like the distribution
+ * name in them, without regard to case. Both are read as
+ * `//wsl.localhost/<distro>` with those two parts lower-cased; the Linux path
+ * after them is case-sensitive and kept as it is. Git's output for a WSL
+ * repository is always spelled the `wsl.localhost` way, so a workspace stored
+ * under `\\wsl$\` still compares equal to its own repository root.
  */
 export function comparablePath(path: string): string {
   const normalized = forwardSlashes(path).replace(/\/+$/u, '')
+  const share = WSL_SHARE_PATH.exec(normalized)
+  if (share) return `//wsl.localhost/${share[1].toLowerCase()}${share[2] ?? ''}`
   const mount = WSL_DRIVE_MOUNT.exec(normalized)
   const comparable = mount ? `${mount[1].toUpperCase()}:/${mount[2] ?? ''}` : normalized
   return /^[A-Za-z]:/u.test(comparable) ? comparable.toLowerCase() : comparable

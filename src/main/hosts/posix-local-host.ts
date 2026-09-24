@@ -77,7 +77,7 @@ export function createPosixLocalHost(platform: NodeJS.Platform = process.platfor
       ),
     runGit: (cwd, args, options) =>
       runSpawnDescriptor(
-        { file: 'git', args: ['-C', cwd, ...args] },
+        { file: 'git', args: ['-C', cwd, ...args], ...(options.stdin !== undefined ? { stdin: options.stdin } : {}) },
         {
           env: { ...process.env, ...options.env },
           ...(options.timeoutMs !== null ? { timeoutMs: options.timeoutMs } : {}),

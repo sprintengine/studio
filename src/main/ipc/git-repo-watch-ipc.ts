@@ -1,5 +1,15 @@
 import { app, BrowserWindow, type IpcMain, type WebContents } from 'electron'
-import { checkoutKey, createGitRepoWatch, type GitCheckoutChange, type GitRepoWatch } from '../git-repo-watch'
+import { watch as fsWatch } from 'fs'
+import { wslHostId } from '../../shared/execution-host'
+import { distroOfUncPath } from '../../shared/host-paths'
+import {
+  checkoutKey,
+  createGitRepoWatch,
+  type GitCheckoutChange,
+  type GitRepoWatch,
+  type WatchFn,
+} from '../git-repo-watch'
+import { hostRegistry } from '../hosts/host-registry'
 import { invalidateCheckoutSummary } from '../workspace-change-summary'
 
 /**
@@ -37,9 +47,25 @@ function deliver(changes: GitCheckoutChange[]): void {
   for (const [sender, list] of bySender) sender.send('git:checkout-changed', list)
 }
 
+/**
+ * A git directory's watch, placed where its events are heard. On Windows a
+ * directory inside a WSL distribution (`\\wsl.localhost\<distro>\…`) is
+ * watched by that distribution's helper, because Windows accepts a watch on
+ * that share and then reports nothing; everything else is an ordinary
+ * `fs.watch`. Exported for its test.
+ */
+export const watchGitDirOnHost: WatchFn = (path, options, listener) => {
+  const distro = process.platform === 'win32' ? distroOfUncPath(path) : null
+  const host = distro ? hostRegistry().get(wslHostId(distro)) : null
+  if (host?.kind === 'wsl' && host.watchDir) {
+    return host.watchDir(path, options.recursive, (filename) => listener('change', filename))
+  }
+  return fsWatch(path, options, (event, filename) => listener(event, typeof filename === 'string' ? filename : null))
+}
+
 /** The process-wide watch. Also fed by the observed-checkout resolver (app-services). */
 export function getGitRepoWatch(): GitRepoWatch {
-  sharedWatch ??= createGitRepoWatch({ emit: deliver })
+  sharedWatch ??= createGitRepoWatch({ emit: deliver, watch: watchGitDirOnHost })
   return sharedWatch
 }
 

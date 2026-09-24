@@ -28,13 +28,13 @@ import { resolveAgentStateSocketPath } from './agent-state-service'
 import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
-import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
+import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import { withoutInheritedSessionEnv } from './inherited-session-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
 import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './hosts/wsl-distro'
-import type { HostLaunchTarget } from './hosts/execution-host'
+import type { HostLaunchFile, HostLaunchTarget } from './hosts/execution-host'
 
 export type ShellLaunchConfig = {
   command: string
@@ -50,6 +50,14 @@ export type ShellLaunchConfig = {
    * the startup script; see `cleanupHostContextFile`.
    */
   hostContextPath?: string
+  /**
+   * Files the launch needs on its host, which the caller has the host write
+   * before it starts the terminal (`ExecutionHost.writeLaunchFiles`). Only a
+   * WSL launch has any: its startup script and host-context file live inside
+   * the distribution, and `startupScriptPath`/`hostContextPath` name them as
+   * Linux does.
+   */
+  hostFiles?: HostLaunchFile[]
   /**
    * A module owns this session's lifetime. The idle reaper excludes it from the
    * recency floor that protects the user's own agents. Set from launch
@@ -1008,27 +1016,49 @@ function buildInteractiveShellExec(shellPath: string, shellName: string | undefi
   return `exec ${quotePosixCommand(shellPath)}${loginArg}`
 }
 
-// `content` may be a function of the script's own path, for a script that
-// names itself: a WSL startup script records its shell's pid under a key
-// derived from that path (see `wslSessionPidKey`).
-function createTerminalStartupScript(
-  sessionId: string,
-  extension: 'sh' | 'ps1',
-  content: string | ((scriptPath: string) => string),
-): string {
+// A startup script for a shell on this machine (macOS, Linux, This PC). A WSL
+// launch's script is written inside the distribution instead; see
+// `wslStartupScript`.
+function createTerminalStartupScript(sessionId: string, extension: 'sh' | 'ps1', content: string): string {
   const scriptDirectory = join(app.getPath('userData'), 'terminal-startup')
   const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
   const scriptPath = join(scriptDirectory, `${safeSessionId}-${Date.now()}.${extension}`)
   mkdirSync(scriptDirectory, { recursive: true })
-  const text = typeof content === 'function' ? content(scriptPath) : content
-  writeFileSync(scriptPath, `${text.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
+  writeFileSync(scriptPath, `${content.trim()}\n`, { encoding: 'utf8', mode: 0o600 })
   return scriptPath
 }
 
-/** The WSL startup script's first line: record this shell's Linux pid. */
-function wslPidFileLine(scriptPath: string): string {
+/**
+ * A WSL launch's startup script, as a file for the helper to write into its
+ * private launch directory inside the distribution, and the Linux path it is
+ * run from. Never a Windows file read through `/mnt/<drive>`: a distribution
+ * that mounts its drives elsewhere (`[automount] root = /`), or not at all,
+ * would not find it. Throws when the helper is not up, which is the one
+ * reason there is no directory to name.
+ */
+function wslStartupScript(
+  sessionId: string,
+  host: WslLaunchTarget,
+  content: (scriptPath: string) => string,
+): { path: string; file: HostLaunchFile } {
+  const dir = requireWslSessionDir(host)
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
+  const path = `${dir}/${safeSessionId}-${Date.now()}.sh`
+  return { path, file: { path, content: `${content(path).trim()}\n` } }
+}
+
+function requireWslSessionDir(host: WslLaunchTarget): string {
+  if (host.sessionDir) return host.sessionDir
+  throw new Error(
+    `The WSL helper for ${host.distro ?? 'this distribution'} is not running, so nothing can be started there. ` +
+      'Try again in a moment; if it keeps failing, Settings ▸ Machines says why.',
+  )
+}
+
+/** The WSL startup script's first line: record this shell's Linux pid in the helper's private directory. */
+function wslPidFileLine(scriptPath: string, host: WslLaunchTarget): string {
   const key = wslSessionPidKey(scriptPath)
-  return key ? wslSessionPidFileCommand(key) : ''
+  return key && host.pidDir ? wslSessionPidFileCommand(host.pidDir, key) : ''
 }
 
 /**
@@ -1040,8 +1070,14 @@ export function wslStartupArgs(cwd: string, startupScriptPath: string, distro?: 
   return [...wslDistroArgs(distro || wslDistroForPath(cwd)), '-e', 'bash', '-li', toWslPath(startupScriptPath)]
 }
 
+// A WSL launch's files are Linux paths inside the distribution, which this
+// file system cannot open; the host removes those (`discardLaunchFiles`).
+function isForeignLaunchPath(path: string): boolean {
+  return process.platform === 'win32' && path.startsWith('/')
+}
+
 export function cleanupTerminalStartupScript(scriptPath: string | undefined): void {
-  if (!scriptPath) return
+  if (!scriptPath || isForeignLaunchPath(scriptPath)) return
   void unlink(scriptPath).catch(() => {})
 }
 
@@ -1087,6 +1123,10 @@ export type HostContextDelivery = {
  * exists — deliberately KG-independent, so a repo with a design system and no
  * knowledge graph still gets told. A failed write degrades to no context rather
  * than to an empty flag: `--append-system-prompt-file ""` is worse than silence.
+ *
+ * `onHost` is a WSL launch's: the document is not written here but added to
+ * `files` under the helper's launch directory `dir` (with its paths as Linux
+ * names them), and `filePath` is its Linux path.
  */
 export function resolveHostContextDelivery(input: {
   cwd: string
@@ -1095,6 +1135,7 @@ export function resolveHostContextDelivery(input: {
   memoryRootPath?: string
   memoryRelativeRoot?: string
   moduleSections?: Array<{ heading: string; body: string }>
+  onHost?: { dir: string; files: HostLaunchFile[] }
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
@@ -1117,6 +1158,22 @@ export function resolveHostContextDelivery(input: {
     ...(input.moduleSections && input.moduleSections.length > 0 ? { moduleSections: input.moduleSections } : {}),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
+  if (input.onHost) {
+    const hostDocument = normalizeTextPaths(document, 'wsl', [input.cwd, input.memoryRootPath]) ?? document
+    const base = `${input.onHost.dir}/host-context-${hostContextSessionKey(input.sessionId, input.cwd)}`
+    if (contextInjectionWritesPluginDir(injection)) {
+      input.onHost.files.push(
+        { path: `${base}/${CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL}`, content: buildCursorHostContextPluginManifest() },
+        {
+          path: `${base}/${CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL}`,
+          content: buildCursorHostContextRuleFile(hostDocument),
+        },
+      )
+      return { mode, document, filePath: base }
+    }
+    input.onHost.files.push({ path: `${base}.md`, content: `${hostDocument}\n` })
+    return { mode, document, filePath: `${base}.md` }
+  }
   const filePath = contextInjectionWritesPluginDir(injection)
     ? writeHostContextCursorPlugin(input.sessionId, input.cwd, document)
     : writeHostContextFile(input.sessionId, input.cwd, document)
@@ -1194,7 +1251,7 @@ function writeHostContextCursorPlugin(sessionId: string, cwd: string, document: 
 
 /** Reap a session's host-context document or plugin directory. */
 export function cleanupHostContextFile(contextPath: string | undefined): Promise<void> {
-  if (!contextPath) return Promise.resolve()
+  if (!contextPath || isForeignLaunchPath(contextPath)) return Promise.resolve()
   return stat(contextPath)
     .then((info) => (info.isDirectory() ? rm(contextPath, { recursive: true, force: true }) : unlink(contextPath)))
     .catch(() => {})
@@ -1272,7 +1329,7 @@ function buildWslShellScript(
     pathStyle: 'wsl',
   })
   return [
-    wslPidFileLine(scriptPath),
+    wslPidFileLine(scriptPath, host),
     buildUserShellStartup(),
     wslHostEnvExports(host),
     wslIdentityExports(host),
@@ -1328,7 +1385,9 @@ function wslHostEnvExports(host: WslLaunchTarget): string {
  * the CLI, and the helper's socket in this distribution, which the hooks, the
  * status line and OpenCode's plugin report to. The socket is always the
  * helper's (the identity handed in names this machine's own, which Linux
- * cannot open), and is left out when the helper is not up.
+ * cannot open), and is left out when the helper is not up. Last, the launch's
+ * MCP channel token, which the app's MCP bridge under this CLI opens its
+ * channel with; nothing else in the distribution has it.
  */
 function wslIdentityExports(host: WslLaunchTarget): string {
   const identity: Record<string, string> = { ...host.identity }
@@ -1336,10 +1395,11 @@ function wslIdentityExports(host: WslLaunchTarget): string {
   if (identity.SPRINTENGINE_AGENT_ID && host.integration) {
     identity.SPRINTENGINE_AGENT_STATE_SOCKET = host.integration.agentStateSocketPath
   }
-  return Object.entries(identity)
+  const lines = Object.entries(identity)
     .filter(([key, value]) => (AGENT_IDENTITY_ENV_KEYS as readonly string[]).includes(key) && value !== '')
     .map(([key, value]) => `export ${key}=${quotePosix(value)}`)
-    .join('; ')
+  if (host.channelToken) lines.push(`export ${MCP_CHANNEL_TOKEN_ENV}=${quotePosix(host.channelToken)}`)
+  return lines.join('; ')
 }
 
 /**
@@ -1394,7 +1454,10 @@ export function getShellLaunchConfig(
   // launcher gets the same document — interactive, mobile, and the headless
   // AgentLaunchService all arrive at this function. The manifest's
   // `contextInjection` decides the channel; only the prompt fallback touches
-  // the user's message, and then only by putting the block after it.
+  // the user's message, and then only by putting the block after it. On WSL
+  // the document goes with the startup script, into the distribution.
+  const hostFiles: HostLaunchFile[] = []
+  const onHost = launchHost.kind === 'wsl' ? { dir: requireWslSessionDir(launchHost), files: hostFiles } : undefined
   const hostContext = resolveHostContextDelivery({
     cwd,
     sessionId,
@@ -1402,6 +1465,7 @@ export function getShellLaunchConfig(
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
     ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
+    ...(onHost ? { onHost } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined
@@ -1483,7 +1547,7 @@ export function getShellLaunchConfig(
   }
 
   if (launchHost.kind === 'wsl') {
-    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
+    const startup = wslStartupScript(sessionId, launchHost, (scriptPath) =>
       buildWslShellScript(
         scriptPath,
         cwd,
@@ -1505,13 +1569,14 @@ export function getShellLaunchConfig(
     )
     return {
       command: 'wsl.exe',
-      args: wslStartupArgs(cwd, startupScriptPath, launchHost.distro),
+      args: wslStartupArgs(cwd, startup.path, launchHost.distro),
       // The agent's identity and the helper's socket travel in the startup
       // script as `export` lines (see `wslIdentityExports`), not through this
       // env: a Windows variable reaches Linux only when `WSLENV` names it.
       env: getTerminalEnv(),
       pathStyle: 'wsl',
-      startupScriptPath,
+      startupScriptPath: startup.path,
+      hostFiles: [startup.file, ...hostFiles],
       ...(hostContextPath ? { hostContextPath } : {}),
       ...launchSessionTags(merged),
     }
@@ -1572,8 +1637,8 @@ export function getPlainShellLaunchConfig(
     const windowsCwd = wslToWindowsPath(cwd)
 
     // This PC opens PowerShell in any folder Windows can name. One it cannot
-    // (a bare Linux path) still opens in the default distribution, as a
-    // terminal there always has.
+    // (a bare Linux path) is opened in the default distribution by the caller,
+    // which hands this a WSL target for it.
     if (launchHost.kind === 'windows' && isWindowsPath(windowsCwd)) {
       const merged = collectLaunchContributionMerge({
         cwd: windowsCwd,
@@ -1598,9 +1663,9 @@ export function getPlainShellLaunchConfig(
       pathStyle: 'wsl',
       agentKind: 'terminal',
     })
-    const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
+    const startup = wslStartupScript(sessionId, wslHost, (scriptPath) =>
       [
-        wslPidFileLine(scriptPath),
+        wslPidFileLine(scriptPath, wslHost),
         buildUserShellStartup(),
         wslHostEnvExports(wslHost),
         `cd ${quotePosix(toWslPath(cwd))}`,
@@ -1613,9 +1678,10 @@ export function getPlainShellLaunchConfig(
 
     return {
       command: 'wsl.exe',
-      args: wslStartupArgs(cwd, startupScriptPath, wslHost.distro),
+      args: wslStartupArgs(cwd, startup.path, wslHost.distro),
       pathStyle: 'wsl',
-      startupScriptPath,
+      startupScriptPath: startup.path,
+      hostFiles: [startup.file],
       ...launchSessionTags(merged),
     }
   }
