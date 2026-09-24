@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { distroOfHostId } from '../shared/execution-host'
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path, { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -26,7 +27,8 @@ type Options = {
   homeDir?: string
   env?: NodeJS.ProcessEnv
   /** Resolves the WSL side for a session that runs its CLI there. Windows only. */
-  probeWsl?: () => Promise<WslHome | null>
+  // `distro` is the machine's (`wsl:<distro>`); absent, the default distribution.
+  probeWsl?: (distro?: string | null) => Promise<WslHome | null>
 }
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -100,7 +102,7 @@ export function createInstalledSkillsService(options: Options) {
   // Re-scanning alone would authorize a replacement created after the dialog.
   const observed = new Map<string, { path: string; fingerprint: string; context: string }>()
   const contextKey = (input: InstalledSkillsInput) =>
-    JSON.stringify([input.workspaceRoot, input.pluginId, input.pathStyle === 'wsl'])
+    JSON.stringify([input.workspaceRoot, input.pluginId, input.pathStyle === 'wsl', input.hostId ?? null])
 
   async function rootsFor(input: InstalledSkillsInput, diagnostics: string[]): Promise<Root[]> {
     const plugin = options.listPlugins().find((entry) => entry.id === input.pluginId)
@@ -112,7 +114,7 @@ export function createInstalledSkillsService(options: Options) {
     // the same files either way: the launch `cd`s into it through /mnt.
     let wsl: WslHome | null = null
     if (input.pathStyle === 'wsl') {
-      wsl = options.probeWsl ? await options.probeWsl().catch(() => null) : null
+      wsl = options.probeWsl ? await options.probeWsl(distroOfHostId(input.hostId)).catch(() => null) : null
       if (!wsl) diagnostics.push('Could not read the WSL home folder, so skills installed inside WSL are not listed.')
     }
     const home = wsl?.home ?? hostHome

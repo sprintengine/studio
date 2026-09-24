@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { hostIdForFolder, isWslHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
@@ -1241,6 +1242,11 @@ export default function WorkspaceManager() {
   // agent (terminal/general/conversation) in the new workspace, seeded at
   // creation so it is race-free before first render. Shared by createNewChat and
   // the Open-in-new-chat handlers.
+  //
+  // `newChatHostRef` is the machine the New chat door stands on while one of
+  // its launches is being made (set and cleared by confirmNewChatNow), null
+  // at every other moment.
+  const newChatHostRef = useRef<ExecutionHostId | null>(null)
   const createSoloChatWorkspace = useCallback(
     (opts: {
       folderPath?: string | null
@@ -1251,6 +1257,10 @@ export default function WorkspaceManager() {
       // must already point at the worktree so resolveWorkspaceWorktree resolves the
       // Git view/glyph to it.
       worktree?: WorkspaceWorktree
+      // The machine it runs on. Absent: the New chat door's pick when one is
+      // confirming, else the active workspace's when the folder is inherited
+      // from it, else the distribution the folder lives in, else this machine.
+      hostId?: ExecutionHostId | null
     }): WorkspaceId | null => {
       if (!SOLO_CHAT_TEMPLATE) {
         publishDiagnosticSync({
@@ -1262,6 +1272,11 @@ export default function WorkspaceManager() {
         return null
       }
       const targetFolderPath = opts.folderPath === undefined ? (activeWorkspace?.folderPath ?? null) : opts.folderPath
+      const hostId =
+        opts.hostId ??
+        newChatHostRef.current ??
+        (opts.folderPath === undefined ? activeWorkspace?.hostId : null) ??
+        hostIdForFolder(targetFolderPath)
       // The id is returned so a caller that must reach the agent it just seeded —
       // the Backlog handoff, which records the item ↔ agent link — can find it
       // without racing the mount. Every other caller ignores it.
@@ -1272,6 +1287,7 @@ export default function WorkspaceManager() {
         templateAgentCli: opts.templateAgentCli,
         seedAgent: opts.seedAgent,
         ...(opts.worktree ? { worktree: opts.worktree } : {}),
+        ...(hostId ? { hostId } : {}),
       })
       // A real workspace root now exists — for a fresh profile this is the first
       // one — which is the earliest point an existing agent config can be
@@ -1284,6 +1300,7 @@ export default function WorkspaceManager() {
     },
     [
       activeWorkspace?.folderPath,
+      activeWorkspace?.hostId,
       addWorkspace,
       closeSettingsOverlay,
       pickNewChatName,
@@ -2536,7 +2553,10 @@ export default function WorkspaceManager() {
     if (!folderPath)
       return fail('Worktree needs a project', 'Choose a project folder before starting a chat on a worktree.')
     const projectFolder = workspaceProjectRootOf({ folderPath }) ?? folderPath
-    const repoRoot = await window.api.getGitRepoRoot(projectFolder)
+    // The machine the chat will run on makes its worktree too: a worktree made
+    // by another machine's git names a gitdir this one cannot follow.
+    const worktreeHostId = newChatHostRef.current ?? undefined
+    const repoRoot = await window.api.getGitRepoRoot(projectFolder, worktreeHostId)
     if (!repoRoot) {
       return fail(
         'Worktree needs a git repository',
@@ -2553,6 +2573,7 @@ export default function WorkspaceManager() {
       branchName: paths.branchName,
       baseRef: 'HEAD',
       copyIncludedFiles: true,
+      ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {
@@ -3046,8 +3067,16 @@ export default function WorkspaceManager() {
   const selectNewChatProject = (path: string) => {
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
   }
-  const browseNewChatProject = async () => {
-    const dir = await window.api.openDir()
+  // The folder picker opens where the machine the door stands on keeps its
+  // files: a WSL machine's Linux home (`\\wsl.localhost\<distro>\home\…`),
+  // this machine's usual place otherwise.
+  const browseNewChatProject = async (hostId?: ExecutionHostId | null) => {
+    let defaultPath: string | undefined
+    if (isWslHostId(hostId) && typeof window.api.hostsHome === 'function') {
+      const home = await window.api.hostsHome(hostId).catch(() => null)
+      if (home?.ok) defaultPath = home.native
+    }
+    const dir = await window.api.openDir(defaultPath ? { defaultPath } : undefined)
     if (!dir) return
     setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: dir, folderLabel: newChatFolderLabel(dir) } : prev))
   }
@@ -3106,7 +3135,7 @@ export default function WorkspaceManager() {
   // mint a second worktree and a second chat.
   const newChatConfirmInFlight = useRef(false)
   const confirmNewChat = async (
-    confirm: AgentComposerConfirm,
+    confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
   ) => {
@@ -3119,11 +3148,25 @@ export default function WorkspaceManager() {
     }
   }
   const confirmNewChatNow = async (
-    confirm: AgentComposerConfirm,
+    confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
   ) => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
+    // The machine the door's dropdown stands on rides every creation below
+    // (they all end in createSoloChatWorkspace), then lets go.
+    newChatHostRef.current = confirm.hostId ?? null
+    try {
+      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt)
+    } finally {
+      newChatHostRef.current = null
+    }
+  }
+  const confirmNewChatOnHost = async (
+    confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
+    scopedFolder: string | null,
+    startupPrompt?: string,
+  ) => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
     // leaves the door open with the diagnostic, never a chat in the checkout.
@@ -4349,7 +4392,7 @@ export default function WorkspaceManager() {
                               folderPath={newChatPanelState.folderPath}
                               projectOptions={newChatProjectOptions}
                               onSelectProject={selectNewChatProject}
-                              onBrowseProject={() => void browseNewChatProject()}
+                              onBrowseProject={(hostId) => void browseNewChatProject(hostId)}
                               initialSelection={lastNewChatAgent ?? { kind: 'general' }}
                               permissionPreset={agentSpawnPermissionPreset}
                               debugMode={agentSpawnDebugMode}

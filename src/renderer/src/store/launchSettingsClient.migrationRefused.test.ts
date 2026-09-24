@@ -12,7 +12,8 @@ import { LAUNCH_SETTINGS_KEYS } from './launchSettingsReadModel'
 const { APP_SETTINGS_STORAGE_KEY, WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
 
 const fakeMain = createFakeLaunchSettingsMain({
-  cliRuntimes: { codex: { command: 'codex', useWsl: false } },
+  cliRuntimes: { codex: { command: 'codex' } },
+  hosts: {},
   mcp: { syncEnabled: false, servers: {} },
   projectKnowledgeRoots: {},
   lastSelectedCli: 'claude-code',
@@ -30,7 +31,7 @@ const stored = installFakeWindow(racingApi, {
   [APP_SETTINGS_STORAGE_KEY]: JSON.stringify({
     state: {
       appSettings: {
-        cliRuntimes: { codex: { command: '/Users/dev/stale/codex', useWsl: true } },
+        cliRuntimes: { codex: { command: '/Users/dev/stale/codex' } },
         lastSelectedCli: 'codex',
         lastAgentSpawnPermissionPreset: 'manual',
         telemetryEnabled: false,
@@ -52,7 +53,7 @@ test('an offer onto an existing record is refused and main values win', async ()
   const { appSettings } = useWorkspaceStore.getState()
   assert.equal(appSettings.lastSelectedCli, 'claude-code')
   assert.equal(appSettings.lastAgentSpawnPermissionPreset, 'auto')
-  assert.deepEqual(appSettings.cliRuntimes.codex, { command: 'codex', useWsl: false })
+  assert.deepEqual(appSettings.cliRuntimes.codex, { command: 'codex' })
   assert.equal(appSettings.telemetryEnabled, false, 'settings the window owns hydrate as before')
 })
 

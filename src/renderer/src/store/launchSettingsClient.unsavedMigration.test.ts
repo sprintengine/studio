@@ -18,7 +18,7 @@ const stored = installFakeWindow(fakeMain.api, {
   [APP_SETTINGS_STORAGE_KEY]: JSON.stringify({
     state: {
       appSettings: {
-        cliRuntimes: { codex: { command: '/Users/dev/bin/codex', useWsl: false } },
+        cliRuntimes: { codex: { command: '/Users/dev/bin/codex' } },
         lastSelectedCli: 'codex',
         lastAgentSpawnPermissionPreset: 'manual',
         telemetryEnabled: false,

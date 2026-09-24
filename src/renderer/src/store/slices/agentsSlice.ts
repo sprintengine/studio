@@ -318,6 +318,13 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               // harness id learned from the hook. Don't clobber a known id with
               // an undefined snapshot (the hook may not have reported yet).
               if (matchingLive.cliSessionId) agent.harnessSessionId = matchingLive.cliSessionId
+              // And the machine it runs on, so a relaunch with nothing painted
+              // to resume from goes back to the home its transcript is in.
+              // `local` is the unmarked default, so a macOS or Linux record is
+              // left as it always was.
+              if (matchingLive.hostId && (matchingLive.hostId !== 'local' || agent.hostId)) {
+                agent.hostId = matchingLive.hostId
+              }
               agent.cliResumeAvailable = true
               if (matchingLive.cli) agent.cli = matchingLive.cli
               continue

@@ -212,7 +212,7 @@ test('terminal-runtime', async () => {
           installed: detect.installed,
           version: detect.installed ? '2.0.0' : null,
           resolvedPath: detect.resolvedPath ?? null,
-          useWsl: false,
+          hostId: 'local',
           error: null,
         }),
         // Each case is its own question; never serve another case's cached verdict.

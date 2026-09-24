@@ -16,6 +16,7 @@ import type {
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
 import type { AgentLaunchRecord } from '../shared/agent-launch'
+import type { ExecutionHostId } from '../shared/execution-host'
 import type { AgentStateFrameStatusLine } from './agent-state'
 import { isValidFileChangePath, MAX_AGENT_PROMPT_LENGTH, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
@@ -39,6 +40,10 @@ type FailedTerminalSessionInput = {
   exitCode?: number
   kind?: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on (see shared/execution-host.ts). A resume
+  // reads it before anything else, so a CLI's transcript is always looked for
+  // in the home it was written to.
+  hostId?: ExecutionHostId
   workspaceId?: string
   agentId?: string
   agentName?: string
@@ -198,6 +203,10 @@ export type TerminalSession = {
   rendererDeliveredTo?: WebContents
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on (see shared/execution-host.ts). A resume
+  // reads it before anything else, so a CLI's transcript is always looked for
+  // in the home it was written to.
+  hostId?: ExecutionHostId
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata, surfaced on the snapshot so the session
@@ -398,6 +407,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     output: new TerminalReplayBuffer(),
     kind: input.kind ?? 'agent',
     pathStyle: input.pathStyle,
+    hostId: input.hostId,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     agentName: input.agentName,
@@ -432,6 +442,9 @@ type SuspendedPlaceholderSessionInput = {
   terminalId?: string
   cli?: AgentCli
   cliSessionId?: string
+  // The machine it ran on, so the resume that replaces this placeholder
+  // relaunches there.
+  hostId?: ExecutionHostId
   cwd?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
@@ -496,6 +509,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
     terminalId: input.terminalId,
     cliSessionId: input.cliSessionId,
     cli: input.cli,
+    hostId: input.hostId,
     cwd: input.cwd,
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
@@ -990,6 +1004,7 @@ export function getTerminalSnapshotBase(session: TerminalSession): TerminalSessi
     processAlive: isTerminalProcessAlive(session),
     kind: session.kind,
     pathStyle: session.pathStyle,
+    ...(session.hostId ? { hostId: session.hostId } : {}),
     workspaceId: session.workspaceId,
     agentId: session.agentId,
     agentName: session.agentName,

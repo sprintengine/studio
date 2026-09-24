@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { hostIdForFolder, isWslHostId } from '../../../../shared/execution-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
@@ -254,6 +255,14 @@ export default function TerminalView({
     return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  // The machine this agent runs on: its own once it has launched somewhere,
+  // else its workspace's. Main keeps a resumed session on the machine it ran
+  // on whatever this says; this is what a fresh launch asks for.
+  const hostId = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    // A workspace from before hosts, inside a distribution, runs there too.
+    return agent?.hostId ?? workspace?.hostId ?? hostIdForFolder(workspace?.folderPath) ?? undefined
+  })
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -272,6 +281,7 @@ export default function TerminalView({
     cli,
     cliPermissionPreset,
     cliRuntimes,
+    hostId,
     mcpSettings,
     memoryConfig,
     openFile,
@@ -287,6 +297,7 @@ export default function TerminalView({
       cli,
       cliPermissionPreset,
       cliRuntimes,
+      hostId,
       mcpSettings,
       memoryConfig,
       openFile,
@@ -300,6 +311,7 @@ export default function TerminalView({
     cli,
     cliPermissionPreset,
     cliRuntimes,
+    hostId,
     mcpSettings,
     memoryConfig,
     openFile,
@@ -862,8 +874,8 @@ export default function TerminalView({
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
       imagePasteKey: () => {
-        const { cli: paneCli, cliRuntimes: runtimes } = launchContextRef.current
-        return claudeImagePasteKey(paneCli, paneCli ? runtimes?.[paneCli]?.useWsl : undefined)
+        const { cli: paneCli, hostId: paneHostId } = launchContextRef.current
+        return claudeImagePasteKey(paneCli, isWslHostId(paneHostId))
       },
     })
 
@@ -1095,6 +1107,7 @@ export default function TerminalView({
           {
             kind: 'agent',
             workspaceId,
+            ...(finalContext.hostId ? { hostId: finalContext.hostId } : {}),
             agentId,
             agentName: finalAgent.name,
             // The agent's own CLI/harness session id, used as the resume token so
@@ -1164,6 +1177,7 @@ export default function TerminalView({
           {
             kind: 'agent',
             workspaceId,
+            ...(finalContext.hostId ? { hostId: finalContext.hostId } : {}),
             agentId,
             agentName: finalAgent.name,
             // The agent's own CLI/harness session id, used as the resume token so
@@ -1244,6 +1258,12 @@ export default function TerminalView({
           })
         }
         return
+      }
+
+      // Bind the agent to the machine it launched on, so a relaunch after a
+      // restart (with no painted session to resume from) goes back there too.
+      if (finalContext.hostId && finalAgent.hostId !== finalContext.hostId) {
+        finalContext.updateAgent(workspaceId, agentId, { hostId: finalContext.hostId })
       }
 
       // The spawn succeeded — this agent is running again, so any stale

@@ -32,7 +32,7 @@ function detected(cli: AgentCli, installed: boolean, error: string | null = null
     installed,
     version: installed ? '1.0.0' : null,
     resolvedPath: installed ? `/usr/bin/${cli}` : null,
-    useWsl: false,
+    hostId: 'local',
     error,
   }
 }
@@ -312,7 +312,7 @@ test('a boot-style probe warms the cache for the renderer first refresh', async 
 
   // The renderer, moments later, with a settings object that carries no command
   // overrides — the shape a fresh profile has.
-  await detectAgentCliAvailability({ cliRuntimes: { codex: {}, 'claude-code': { useWsl: false } } }, deps)
+  await detectAgentCliAvailability({ cliRuntimes: { codex: {}, 'claude-code': {} } }, deps)
   assert.equal(probes, 2, 'the renderer refresh spawns nothing: every CLI hits the boot cache')
 })
 

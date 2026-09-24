@@ -56,7 +56,7 @@ export type ConversationSessionSummary = {
 // structural (not the electron-api types) to avoid a shared-type cycle.
 export type ConversationCliRuntimeOverrides = Record<
   string,
-  { command?: string; useWsl?: boolean; models?: string[] } | undefined
+  { command?: string; hostId?: import('./execution-host').ExecutionHostId; models?: string[] } | undefined
 >
 
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary

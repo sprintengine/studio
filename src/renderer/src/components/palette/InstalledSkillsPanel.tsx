@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { isWslHostId } from '../../../../shared/execution-host'
 import type { InstalledSkill, InstalledSkillsInput, InstalledSkillsResult } from '../../../../shared/installed-skills'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { PaletteAgentTarget } from './paletteOpenRequest'
@@ -79,7 +80,9 @@ export const InstalledSkillsPanel = forwardRef<InstalledSkillsPanelHandle, Props
 ) {
   const clis = useWorkspaceStore((state) => state.pluginCatalogEntries)
   const cliAvailability = useWorkspaceStore((state) => state.cliAvailability)
-  const cliRuntimes = useWorkspaceStore((state) => state.appSettings.cliRuntimes)
+  const workspaceHostId = useWorkspaceStore((state) =>
+    workspaceId ? (state.workspaces.find((workspace) => workspace.id === workspaceId)?.hostId ?? undefined) : undefined,
+  )
   const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
   const focusedAgentId = useWorkspaceStore((state) =>
     workspaceId ? state.focusedAgentByWorkspaceId[workspaceId] : undefined,
@@ -111,12 +114,15 @@ export const InstalledSkillsPanel = forwardRef<InstalledSkillsPanelHandle, Props
   const root = session ? session.worktreePath || session.cwd || workspaceRoot : workspaceRoot
   // A CLI run inside WSL keeps its user skills in the Linux home, which main
   // reads only when told. The session says where it runs; without one, the
-  // CLI's runtime setting does.
-  const wsl = session
-    ? session.pathStyle === 'wsl'
-    : window.api.platform === 'win32' && cliRuntimes?.[pluginId]?.useWsl === true
-  const contextKey = JSON.stringify([root, pluginId, wsl])
-  const request = (): InstalledSkillsInput => ({ workspaceRoot: root, pluginId, ...(wsl ? { pathStyle: 'wsl' } : {}) })
+  // workspace's machine does.
+  const hostId = session ? session.hostId : workspaceHostId
+  const wsl = session ? session.pathStyle === 'wsl' : window.api.platform === 'win32' && isWslHostId(workspaceHostId)
+  const contextKey = JSON.stringify([root, pluginId, wsl, hostId ?? null])
+  const request = (): InstalledSkillsInput => ({
+    workspaceRoot: root,
+    pluginId,
+    ...(wsl ? { pathStyle: 'wsl', ...(isWslHostId(hostId) ? { hostId } : {}) } : {}),
+  })
 
   const [selected, setSelected] = useState(0)
   const [limits, setLimits] = useState<Record<Scope, number>>({

@@ -10,7 +10,16 @@ import type {
 import type { TailnetScope } from '../../../../../shared/tailnet'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { FolderTypeIcon, RemoteMachineGlyph } from '../../AppIcons'
+import { FolderTypeIcon, RemoteMachineGlyph, WslMachineGlyph } from '../../AppIcons'
+import {
+  hostIdForFolder,
+  isWslHostId,
+  LOCAL_HOST_ID,
+  type ExecutionHostId,
+  type ExecutionHostSummary,
+} from '../../../../../shared/execution-host'
+import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
+import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
 import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColors'
 import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
@@ -82,6 +91,12 @@ import {
 export type NewAgentLaunch = AgentComposerConfirm & {
   /** The agent's startup prompt. Empty means "start with nothing typed". */
   prompt: string
+  /**
+   * The machine on this computer the new chat runs on (the door's dropdown):
+   * absent where the surface offers no choice (the tab strip's "+", which
+   * spawns into a workspace whose machine is already fixed).
+   */
+  hostId?: ExecutionHostId
 }
 
 /** One choosable project scope: a folder some open workspace lives in. */
@@ -107,7 +122,8 @@ export type NewAgentPanelProps = {
   folderPath?: string | null
   projectOptions?: NewAgentProjectOption[]
   onSelectProject?: (path: string) => void
-  onBrowseProject?: () => void
+  /** Browse for a folder; `hostId` is the machine the dropdown stands on, so a WSL one opens in its home. */
+  onBrowseProject?: (hostId?: ExecutionHostId) => void
   initialSelection: AgentComposerSelection
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
@@ -311,10 +327,26 @@ const GREETINGS: ReadonlyArray<(name: string | null) => string> = [
 // New chat keeps the target a person just used, while a fresh app start opens
 // on This device — a remote is never preselected on first open.
 let lastPickedMachineId: string | null = null
+// The same, for a machine on this computer (a WSL distribution). Null follows
+// the folder: a folder inside a distribution runs there, anything else here.
+let lastPickedHostId: ExecutionHostId | null = null
 
 /** Test seam: forget the session's remembered machine. */
 export function resetRememberedMachineForTests(): void {
   lastPickedMachineId = null
+  lastPickedHostId = null
+}
+
+/**
+ * The machine a New chat runs on when the person has not picked one: the
+ * distribution a folder inside WSL lives in, else this machine (owner decision
+ * 2026-09-24). A pick stands until the folder names a distribution of its own.
+ */
+export function defaultNewChatHostId(
+  folder: string | null | undefined,
+  picked: ExecutionHostId | null,
+): ExecutionHostId {
+  return hostIdForFolder(folder) ?? picked ?? LOCAL_HOST_ID
 }
 
 // This device first, then paired machines alphabetically — a list that
@@ -363,7 +395,71 @@ export default function NewAgentPanel({
   // last stepped off it. An explicit connector attachment leads the draft's
   // own picks (a connector "New chat" over a parked draft adds, never doubles).
   const [draft] = React.useState(() => (draftKey ? readNewChatDraft(draftKey) : null))
+  // The machines on THIS computer (this one, and the WSL distributions turned
+  // on in Settings ▸ Machines). Offered only where a launch creates its
+  // workspace — the door — because a workspace's machine is fixed once it
+  // exists. One entry on macOS and Linux, which draws exactly what it drew.
+  const hostChoosable = Boolean(onBrowseProject || onSelectProject)
+  const { listing: hostListing } = useExecutionHosts()
+  const localHosts: ExecutionHostSummary[] = hostChoosable ? (hostListing?.hosts ?? []) : []
+  const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() => lastPickedHostId)
+  const scopeFolder = folderPath !== undefined ? folderPath : null
+  // A remembered pick counts only while that machine is still offered: one
+  // turned off in Settings, or gone from WSL, falls back to this machine
+  // rather than launching somewhere the dropdown no longer shows.
+  const pickedStillOffered =
+    pickedHostId !== null && localHosts.some((host) => host.id === pickedHostId && host.state !== 'unavailable')
+  const hostId: ExecutionHostId = hostChoosable
+    ? defaultNewChatHostId(scopeFolder, pickedStillOffered ? pickedHostId : null)
+    : LOCAL_HOST_ID
+  const pickLocalHost = (next: ExecutionHostId): void => {
+    const remembered = next === LOCAL_HOST_ID ? null : next
+    lastPickedHostId = remembered
+    setPickedHostId(remembered)
+  }
+  // Which agent CLIs the chosen WSL machine has: its own probe, one process
+  // for the lot, asked when the machine is picked — never on focus. This
+  // machine's answer stays the store's, exactly as before.
+  const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
+  const catalogIds = useWorkspaceStore((s) => s.pluginCatalogEntries.map((entry) => entry.id).join('\u0000'))
+  const [hostAvailability, setHostAvailability] = React.useState<{
+    hostId: ExecutionHostId
+    map: AgentCliAvailabilityMap
+    status: 'loading' | 'ready' | 'error'
+  } | null>(null)
+  React.useEffect(() => {
+    if (!isWslHostId(hostId) || typeof window.api.pluginsDetectAvailability !== 'function') {
+      setHostAvailability(null)
+      return
+    }
+    let cancelled = false
+    setHostAvailability({ hostId, map: {}, status: 'loading' })
+    const commands = hostSettings?.[hostId]?.cliCommands ?? {}
+    const cliRuntimes = Object.fromEntries(
+      catalogIds
+        .split('\u0000')
+        .filter(Boolean)
+        .map((cli) => [cli, { command: commands[cli] ?? '', hostId }]),
+    )
+    void window.api
+      .pluginsDetectAvailability({ cliRuntimes })
+      .then((result) => {
+        if (cancelled) return
+        setHostAvailability(
+          result.ok ? { hostId, map: result.availability, status: 'ready' } : { hostId, map: {}, status: 'error' },
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setHostAvailability({ hostId, map: {}, status: 'error' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hostId, hostSettings, catalogIds])
   const composer = useAgentComposer({
+    ...(hostAvailability && hostAvailability.hostId === hostId
+      ? { availability: { map: hostAvailability.map, status: hostAvailability.status } }
+      : {}),
     showTerminal: true,
     conversationAvailable: conversationModeEnabled && conversationAvailable,
     initialSelection: draft?.selection ?? initialSelection,
@@ -886,9 +982,13 @@ export default function NewAgentPanel({
       model,
       reasoning,
       permissionPreset: effectivePreset,
-      runtime: launchCli ? cliRuntimes?.[launchCli] : undefined,
+      runtime: launchCli
+        ? isWslHostId(hostId)
+          ? { command: hostSettings?.[hostId]?.cliCommands[launchCli] ?? '', hostId }
+          : cliRuntimes?.[launchCli]
+        : undefined,
     }),
-    [cliRuntimes, effectivePreset, launchCli, model, reasoning],
+    [cliRuntimes, effectivePreset, hostId, hostSettings, launchCli, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {
@@ -997,7 +1097,9 @@ export default function NewAgentPanel({
     // The attached images ride along as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
     const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
-    onLaunch({ ...composer.buildConfirm(selection), prompt })
+    // A conversation runs in this app's process, which is this machine.
+    const launchHostId = selection.kind === 'conversation' ? LOCAL_HOST_ID : hostId
+    onLaunch({ ...composer.buildConfirm(selection), prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
   }
 
   React.useEffect(() => {
@@ -1067,7 +1169,9 @@ export default function NewAgentPanel({
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
   const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
 
-  if (composer.noAgentCliInstalled) {
+  // With a second machine on this computer the dropdown is the way to one that
+  // has a CLI, so the panel stays up and the roster says what this one lacks.
+  if (composer.noAgentCliInstalled && localHosts.length <= 1) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 py-8">
         <div className="mx-auto w-full max-w-[620px]">
@@ -1120,11 +1224,32 @@ export default function NewAgentPanel({
                 — no separate Local/Remote switch). Shown whenever a remote
                 launch is possible and a machine is paired; on This device the
                 line reads exactly as it always did. */}
-            {remoteSelectable && remoteMachines.length > 0 ? (
+            {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 ? (
               <MachineScopePicker
-                machines={remoteMachines}
+                machines={remoteSelectable ? remoteMachines : []}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
+                localHosts={localHosts}
+                selectedHostId={hostId}
+                onSelectHost={(next) => {
+                  pickRemoteMachine(null)
+                  pickLocalHost(next)
+                }}
+                hostDisabledReason={(host) => {
+                  // A conversation agent runs in this app's own process, which
+                  // is this machine; it cannot be sent into a distribution.
+                  if (host.kind === 'wsl' && selection.kind === 'conversation') {
+                    return 'Conversation agents run on This PC.'
+                  }
+                  // A folder inside a distribution runs there: its files, its
+                  // git and its CLIs' homes are that machine's.
+                  const folderHost = hostIdForFolder(scopeFolder)
+                  if (folderHost && host.id !== folderHost) {
+                    return `This folder is inside ${folderHost.replace(/^wsl:/u, 'WSL: ')}, so the chat runs there.`
+                  }
+                  if (host.state === 'unavailable') return host.reason ?? 'Not available.'
+                  return null
+                }}
                 availability={(machine) =>
                   machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)
                 }
@@ -1159,7 +1284,7 @@ export default function NewAgentPanel({
                 options={projectOptions ?? []}
                 selectedPath={workspaceRoot}
                 onSelect={(path) => onSelectProject?.(path)}
-                onBrowse={onBrowseProject}
+                onBrowse={onBrowseProject ? () => onBrowseProject(hostId) : undefined}
                 onClone={onCloneProject}
                 // The hue, resolved here because only this component holds the
                 // repository identity behind the folder; the identity map goes
@@ -1625,11 +1750,22 @@ function DebugGlyph() {
  * This device is the first entry and the default; paired machines follow with
  * the shared stacked-server mark. One dropdown — the owner rejected a
  * separate Local/Remote switch as redundant.
+ *
+ * On Windows the machines on THIS computer lead it (owner decision
+ * 2026-09-24): "This PC (Windows)", then each WSL distribution turned on in
+ * Settings ▸ Machines ("WSL: Ubuntu", the default one marked), then a divider
+ * and the paired machines. With one machine here (macOS, Linux, or Windows
+ * with no distribution turned on) the first row is the "This device" it
+ * always was.
  */
 function MachineScopePicker({
   machines,
   selected,
   onSelect,
+  localHosts = [],
+  selectedHostId = LOCAL_HOST_ID,
+  onSelectHost,
+  hostDisabledReason,
   availability,
   onOpen,
   projectName,
@@ -1637,6 +1773,12 @@ function MachineScopePicker({
   machines: FleetConnection[]
   selected: FleetConnection | null
   onSelect: (connection: FleetConnection | null) => void
+  /** This computer's machines, this one first. One entry (or none) draws the plain "This device" row. */
+  localHosts?: ExecutionHostSummary[]
+  selectedHostId?: ExecutionHostId
+  onSelectHost?: (hostId: ExecutionHostId) => void
+  /** Why a machine here cannot be picked right now, or null. */
+  hostDisabledReason?: (host: ExecutionHostSummary) => string | null
   /** Whether each machine holds the project in hand (one-project-across-machines); `none` lists it plainly. */
   availability?: (machine: FleetConnection) => MachineAvailability
   onOpen?: () => void
@@ -1651,6 +1793,17 @@ function MachineScopePicker({
   }
   const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
+  const hostRows = localHosts.length > 1 ? localHosts : []
+  const selectedHost = selected ? null : (hostRows.find((host) => host.id === selectedHostId) ?? null)
+  const localSelected = selected === null && (hostRows.length === 0 || selectedHostId === LOCAL_HOST_ID)
+  // This machine can be ruled out too: a folder inside a distribution runs there.
+  const localReason = hostRows[0] ? (hostDisabledReason?.(hostRows[0]) ?? null) : null
+  const activateLocal = (): void => {
+    if (localReason) return
+    if (hostRows.length > 0) onSelectHost?.(LOCAL_HOST_ID)
+    else onSelect(null)
+    setOpen(false)
+  }
   const focusChecked = React.useCallback((surface: HTMLElement) => {
     const target =
       surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]:not([disabled])') ??
@@ -1680,7 +1833,8 @@ function MachineScopePicker({
         // scope-line trigger already spelled.
         <ChipButton ref={ref} onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
           {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
-          {selected ? selected.machineName : 'This device'}
+          {!selected && selectedHost?.kind === 'wsl' ? <WslMachineGlyph className="icon-xs shrink-0" /> : null}
+          {selected ? selected.machineName : selectedHost && hostRows.length > 0 ? selectedHost.label : 'This device'}
           <ChevronGlyph />
         </ChipButton>
       )}
@@ -1690,23 +1844,61 @@ function MachineScopePicker({
           the width of the machine glyph rather than sliding its label left. */}
       <MenuOption
         role="menuitemradio"
-        selected={selected === null}
+        selected={localSelected}
+        stacked={Boolean(localReason)}
+        disabled={Boolean(localReason)}
         data-machine-option="true"
-        tabIndex={selected === null ? 0 : -1}
-        onKeyDown={(event) =>
-          rowKey(event, () => {
-            onSelect(null)
-            setOpen(false)
-          })
-        }
-        onClick={() => {
-          onSelect(null)
-          setOpen(false)
-        }}
+        tabIndex={localSelected ? 0 : -1}
+        onKeyDown={(event) => rowKey(event, activateLocal)}
+        onClick={activateLocal}
         icon={<span aria-hidden="true" className="icon-xs shrink-0" />}
       >
-        This device
+        {localReason ? (
+          <>
+            <span className="block truncate text-body font-medium">{hostRows[0]?.label}</span>
+            <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{localReason}</span>
+          </>
+        ) : (
+          (hostRows[0]?.label ?? 'This device')
+        )}
       </MenuOption>
+      {hostRows
+        .filter((host) => host.id !== LOCAL_HOST_ID)
+        .map((host) => {
+          const reason = hostDisabledReason?.(host) ?? null
+          const isSelected = selected === null && host.id === selectedHostId
+          const activate = () => {
+            if (reason) return
+            onSelectHost?.(host.id)
+            setOpen(false)
+          }
+          return (
+            <MenuOption
+              key={host.id}
+              role="menuitemradio"
+              selected={isSelected}
+              stacked={Boolean(reason)}
+              disabled={Boolean(reason)}
+              data-machine-option="true"
+              data-machine-host={host.id}
+              tabIndex={isSelected ? 0 : -1}
+              onKeyDown={(event) => rowKey(event, activate)}
+              onClick={activate}
+              icon={<WslMachineGlyph className={`icon-xs shrink-0${reason ? ' mt-0.5' : ''}`} />}
+              trailing={
+                !reason && host.isDefaultDistro ? (
+                  <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">default</span>
+                ) : null
+              }
+            >
+              <span className={reason ? 'block truncate text-body font-medium' : 'block truncate'}>{host.label}</span>
+              {reason ? (
+                <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{reason}</span>
+              ) : null}
+            </MenuOption>
+          )
+        })}
+      {hostRows.length > 0 && machines.length > 0 ? <div className={MENU_DIVIDER_CLASS} role="separator" /> : null}
       {machines.map((machine) => {
         const state = availabilityOf(machine)
         const pickable = chosen(machine)

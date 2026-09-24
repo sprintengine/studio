@@ -245,6 +245,10 @@ export interface WorkspaceStore
   projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
   setAuthState: (authState: SprintEngineAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setHostSettings: (
+    hostId: import('../../../shared/execution-host').ExecutionHostId,
+    settings: import('../../../shared/execution-host').ExecutionHostSettings | null,
+  ) => void
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -305,6 +309,8 @@ export interface WorkspaceStore
       folderPath?: string | null
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
+      // The machine on this computer the workspace runs on; see Workspace.hostId.
+      hostId?: import('../../../shared/execution-host').ExecutionHostId | null
       worktree?: WorkspaceWorktree | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null

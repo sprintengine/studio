@@ -4,10 +4,16 @@ Who owns the settings an agent launch is composed from, how a window reads
 and changes them, and how a profile from before this arrangement was carried
 over.
 
-The settings in question are five fields, one record:
+The settings in question are six fields, one record:
 
-- `cliRuntimes` — each agent CLI's command, its WSL switch and the model ids
+- `cliRuntimes` — each agent CLI's command on this machine and the model ids
   the person added to it;
+- `hosts` — per machine on this computer other than this one (each WSL
+  distribution on Windows, keyed `wsl:<distro>`): whether it is offered for
+  new chats, its own CLI commands, the environment every launch there exports,
+  and its terminal shell. Schema version 2 replaced the per-CLI WSL switch with
+  it; a version-1 record is read through the same normalizer and loses only
+  the switch;
 - `mcp` — the MCP config sync switch and the installed servers;
 - `projectKnowledgeRoots` — the knowledge folder per project;
 - `lastSelectedCli` — the CLI a spawn runs on when the caller names none;
@@ -31,8 +37,8 @@ permission default, and the model discovery pass main starts on its own at
 boot or after an install. None of them needs a window to be open.
 
 Windows do not author these settings any more. The store's
-`appSettings.cliRuntimes`, `mcp`, `projectKnowledgeRoots`, `lastSelectedCli`
-and `lastAgentSpawnPermissionPreset` are a read model of main's record
+`appSettings.cliRuntimes`, `hosts`, `mcp`, `projectKnowledgeRoots`,
+`lastSelectedCli` and `lastAgentSpawnPermissionPreset` are a read model of main's record
 (`src/renderer/src/store/launchSettingsClient.ts`), and they are not persisted
 to localStorage.
 

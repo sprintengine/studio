@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import type { CliRuntimeSettings } from '../../types/workspace'
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../workspaceStore'
 import type { ChatListView, DiffViewMode, SettingsOverlayState, SidebarSection } from './settingsSlice'
@@ -41,7 +42,8 @@ test('settingsSlice', async () => {
   const normalized = normalizeAppSettings(
     {
       cliRuntimes: {
-        codex: { command: 'codex-next', useWsl: true },
+        // A copy persisted before the per-CLI WSL switch was retired.
+        codex: { command: 'codex-next', useWsl: true } as CliRuntimeSettings,
       },
       mcp: {
         syncEnabled: true,
@@ -79,6 +81,8 @@ test('settingsSlice', async () => {
   )
 
   assert.equal(normalized.cliRuntimes.codex.command, 'codex-next')
+  assert.equal('useWsl' in normalized.cliRuntimes.codex, false, 'the retired WSL switch is dropped on read')
+  assert.deepEqual(normalized.hosts, {}, 'no machine settings reads as none')
   assert.equal(normalized.cliRuntimes['claude-code'].command, defaultAppSettings().cliRuntimes['claude-code'].command)
   assert.equal(normalized.cliRuntimes.claude, undefined)
   assert.equal(normalized.lastSelectedCli, 'claude-code')
@@ -214,7 +218,7 @@ test('settingsSlice', async () => {
   const modelNormalized = normalizeAppSettings(
     {
       cliRuntimes: {
-        codex: { command: 'codex', useWsl: false, models: [' gpt-5-codex ', '', 'gpt-5-codex', 'o4-mini'] },
+        codex: { command: 'codex', models: [' gpt-5-codex ', '', 'gpt-5-codex', 'o4-mini'] },
       },
     },
     [],
@@ -295,7 +299,7 @@ test('settingsSlice', async () => {
   )
   const catalogNormalized = normalizeAppSettings(
     {
-      cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+      cliRuntimes: { codex: { command: 'codex', models: ['o4-mini'] } },
       cliModelCatalog: {
         codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
         grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' },
@@ -551,7 +555,7 @@ test('settingsSlice', async () => {
   store.setLastSelectedCli('codex')
   assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
 
-  store.setCliRuntime('codex', { command: 'codex', useWsl: false, models: ['o4-mini'] })
+  store.setCliRuntime('codex', { command: 'codex', models: ['o4-mini'] })
   store.setCliModelCatalog('codex', {
     models: [{ id: 'gpt-5.6' }, { id: 'gpt-5.4' }],
     fetchedAt: '2026-07-26T00:00:00Z',
@@ -737,12 +741,12 @@ test('settingsSlice', async () => {
   )
 
   // setCliRuntime on a plugin-id key (no bundled default) must NOT pin the command
-  // to the plugin id when only the WSL flag is toggled; a blank command resolves
-  // to the manifest binary at launch (T4 AC3).
-  store.setCliRuntime('opencode', { useWsl: true })
+  // to the plugin id when only its models are set; a blank command resolves
+  // to the manifest binary at launch.
+  store.setCliRuntime('opencode', { models: ['big-pickle'] })
   assert.deepEqual(
     useWorkspaceStore.getState().appSettings.cliRuntimes.opencode,
-    { command: '', useWsl: true },
+    { command: '', models: ['big-pickle'] },
     'plugin-id row defaults to a blank command, not the plugin id',
   )
   // A bundled key keeps its existing command default behavior.

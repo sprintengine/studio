@@ -41,7 +41,7 @@ export function launchCommandLineKey(input: LaunchCommandLineInput): string {
     input.reasoning ?? '',
     input.permissionPreset,
     input.runtime?.command ?? '',
-    input.runtime?.useWsl ? 'wsl' : '',
+    input.runtime?.hostId ?? '',
   ].join('\0')
 }
 
@@ -56,6 +56,8 @@ export function launchPreviewRequest(input: LaunchCommandLineInput): AgentLaunch
     cliPermissionPreset: input.permissionPreset,
     // Only forward a runtime override that actually overrides something: an
     // empty command would otherwise render as a blank binary in the receipt.
-    ...(runtime?.command?.trim() ? { cliRuntime: { command: runtime.command, useWsl: runtime.useWsl === true } } : {}),
+    ...(runtime?.command?.trim()
+      ? { cliRuntime: { command: runtime.command, ...(runtime.hostId ? { hostId: runtime.hostId } : {}) } }
+      : {}),
   }
 }

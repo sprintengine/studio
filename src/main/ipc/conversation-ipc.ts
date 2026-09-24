@@ -88,7 +88,7 @@ export function createConversationIpcHandlers(
     cliRuntimes?: ConversationCliRuntimeOverrides,
   ): Promise<boolean> {
     const override = cliRuntimes?.[cli]
-    const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.useWsl === true}`
+    const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.hostId ?? 'local'}`
     const cached = cliChecks.get(cacheKey)
     if (cached && Date.now() - cached.at < (cached.installed ? CLI_AVAILABLE_TTL_MS : CLI_UNAVAILABLE_TTL_MS)) {
       return cached.installed

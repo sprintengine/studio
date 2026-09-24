@@ -4,7 +4,7 @@
 // registrations (Kimi's `~/.kimi-code/config.toml`) belong in the Linux home a
 // WSL CLI reads, not in the Windows profile. One cached probe serves both.
 
-import { resolveDefaultWslDistro, runWslScript, wslLoginScript, type WslScriptRunner } from './wsl-host'
+import { resolveDefaultWslDistro, runWslScript, wslLoginScript, type WslScriptRunner } from './hosts/wsl-distro'
 
 /**
  * The Linux home and the distribution root as UNC paths, and the config-home

@@ -15,7 +15,7 @@ import type { McpSettings } from '../shared/electron-api'
 import { standIn } from '../../tests/stand-in'
 import type { RunOutcome } from './process-run'
 import type { SubtreeProbeDeps } from './terminal-subtree-probe'
-import { wslSessionPidKey } from './wsl-host'
+import { wslSessionPidKey } from './hosts/wsl-distro'
 
 type MockPty = {
   pid: number
@@ -83,7 +83,8 @@ test('an idle WSL agent is suspended once its distribution says it is at rest, a
           workspaceId: `ws-${sessionId}`,
           agentId: sessionId,
           visible: false,
-          cliRuntimes: { 'claude-code': { command: 'claude', useWsl: true } },
+          cliRuntimes: { 'claude-code': { command: 'claude' } },
+          hostId: 'wsl:Ubuntu',
           mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
         })
         assert.equal(result.ok, true, JSON.stringify(result))

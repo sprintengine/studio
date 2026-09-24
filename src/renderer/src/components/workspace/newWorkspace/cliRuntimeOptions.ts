@@ -213,16 +213,16 @@ export function orderInstalledPlugins(entries: PluginCatalogEntry[] | null | und
   return ordered
 }
 
-// Effective invocation override shown on a plugin's settings row. Uses the
-// plugin-id key only; a blank command means "use the manifest binary" at launch.
+// Effective invocation override shown on a plugin's settings row: its command
+// on this machine. Uses the plugin-id key only; a blank command means "use the
+// manifest binary" at launch.
 export function cliRuntimeForPlugin(
   pluginId: AgentCli,
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
-): { command: string; useWsl: boolean } {
+): { command: string } {
   const direct = cliRuntimes?.[pluginId]
   const command = (typeof direct?.command === 'string' ? direct.command : undefined) ?? ''
-  const useWsl = direct?.useWsl ?? false
-  return { command, useWsl }
+  return { command }
 }
 
 export function isAgentCliAvailable(cli: AgentCli, catalog: AgentCliCatalogOption[]): boolean {
