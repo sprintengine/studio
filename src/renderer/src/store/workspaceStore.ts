@@ -113,6 +113,7 @@ import {
 import { isLegacyV44WorkspaceEnvelope, splitLegacyV44Envelope } from './repositories/workspaceRegistry'
 import type { AgentLaunchSettings } from '../../../shared/launch-settings'
 import { launchSettingsApiFromWindow, launchSettingsClient } from './launchSettingsClient'
+import { migrateLegacyCliPermissionPresets } from './legacyCliPermissionPresets'
 import {
   launchSettingsFieldsEqual,
   launchSettingsFromAppSettings,
@@ -276,6 +277,8 @@ export interface WorkspaceStore
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
+  /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
   setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
@@ -1775,6 +1778,27 @@ function initLaunchSettingsClient(): void {
   })
 }
 initLaunchSettingsClient()
+
+// The per-CLI permission presets this profile kept in localStorage before main
+// owned them: offered once, after main's record is in, for the CLIs main holds
+// nothing for (legacyCliPermissionPresets.ts).
+function migrateCliPermissionPresetsToMain(): void {
+  if (!launchSettingsApiFromWindow()) return
+  let storage: Storage | null = null
+  try {
+    storage = window.localStorage
+  } catch {
+    // A restricted context has no localStorage, and so nothing to hand over.
+  }
+  void launchSettingsClient.ready.then(() =>
+    migrateLegacyCliPermissionPresets({
+      storage,
+      held: () => useWorkspaceStore.getState().appSettings.cliPermissionPresets ?? {},
+      update: (patch) => launchSettingsClient.update(patch),
+    }),
+  )
+}
+migrateCliPermissionPresetsToMain()
 
 /**
  * Resolves once main's launch settings are in this window's store (or main

@@ -24,6 +24,7 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',
     lastAgentSpawnPermissionPreset: 'auto',
+    cliPermissionPresets: {},
     ...overrides,
   }
 }
@@ -165,6 +166,15 @@ test('update writes only the fields its patch names', async () => {
     assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, null)
     assert.equal(result.record.settings.lastSelectedCli, 'codex')
     assert.equal(result.record.lastWrite.actor, 'ui')
+
+    // Per-CLI presets are keyed like the runtimes: one CLI's write leaves the
+    // others alone, so two windows setting two CLIs both land, and `null`
+    // returns a CLI to the app-wide default.
+    result = store.update({ cliPermissionPresets: { 'claude-code': 'bypass' } }, 'ui')
+    result = store.update({ cliPermissionPresets: { codex: 'manual' } }, 'ui')
+    assert.deepEqual(result.record.settings.cliPermissionPresets, { 'claude-code': 'bypass', codex: 'manual' })
+    result = store.update({ cliPermissionPresets: { 'claude-code': null, gemini: 'everything' } }, 'ui')
+    assert.deepEqual(result.record.settings.cliPermissionPresets, { codex: 'manual' }, 'an unknown preset is dropped')
     await result.persisted
 
     assert.deepEqual(harness.create().get(), result.record.settings, 'every partial write reached the file')

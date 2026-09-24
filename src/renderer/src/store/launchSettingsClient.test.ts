@@ -153,9 +153,10 @@ test('every launch setter round-trips through main, and main answer is what the 
   state().setProjectKnowledgeRoot('/Users/dev/other', 'notes')
   state().setProjectKnowledgeRoot('/Users/dev/repo', null)
   state().setHostSettings('wsl:Ubuntu', { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: {} })
+  state().setCliPermissionPreset('codex', 'manual')
   await settleIpc()
 
-  assert.equal(fakeMain.calls.update.length - before, 12, 'one patch per setter call')
+  assert.equal(fakeMain.calls.update.length - before, 13, 'one patch per setter call')
   const patches = fakeMain.calls.update.slice(before)
   assert.deepEqual(patches[0], {
     cliRuntimes: { codex: { command: '/Users/dev/.local/bin/codex' } },
@@ -169,6 +170,7 @@ test('every launch setter round-trips through main, and main answer is what the 
   assert.deepEqual(patches[11], {
     hosts: { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: {} } },
   })
+  assert.deepEqual(patches[12], { cliPermissionPresets: { codex: 'manual' } }, 'only the CLI that changed')
 
   const settings = mainRecord().settings
   assert.equal(settings.cliRuntimes.codex?.command, '/Users/dev/.local/bin/codex')
@@ -181,6 +183,8 @@ test('every launch setter round-trips through main, and main answer is what the 
   assert.equal(settings.mcp.servers.docs?.name, 'Docs (refreshed)')
   assert.equal(settings.lastSelectedCli, 'claude-code')
   assert.equal(settings.lastAgentSpawnPermissionPreset, 'auto')
+  assert.deepEqual(settings.cliPermissionPresets, { codex: 'manual' })
+  assert.deepEqual(useWorkspaceStore.getState().appSettings.cliPermissionPresets, { codex: 'manual' })
   assert.deepEqual(settings.projectKnowledgeRoots, { '/Users/dev/other': 'notes' })
 
   // The store is main's record read through the hydration normalizers.
@@ -225,6 +229,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
+    cliPermissionPresets: {},
   })
   const applied: Array<string | null> = []
   const client = createLaunchSettingsClient()
@@ -238,6 +243,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
       projectKnowledgeRoots: {},
       lastSelectedCli: 'ignored',
       lastAgentSpawnPermissionPreset: null,
+      cliPermissionPresets: {},
     }),
     onLegacySettled: () => applied.push('settled'),
   })
@@ -277,6 +283,7 @@ test('client: a main that does not answer the boot read leaves the legacy values
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
+    cliPermissionPresets: {},
   }
   const warn = console.warn
   console.warn = () => undefined

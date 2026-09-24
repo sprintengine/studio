@@ -2,7 +2,7 @@
  * The window's side of main's agent-launch settings.
  *
  * Main owns the settings a launch is composed from (CLI runtimes, MCP, project
- * knowledge roots, the last-selected CLI, the spawn permission preset). The
+ * knowledge roots, the last-selected CLI, the spawn permission presets). The
  * store's `appSettings` copy of them is a read model: this client fills it at
  * boot, keeps it current from main's `changed` broadcast, and turns every
  * setter into a partial `update` on main. A setter may apply its change to the
@@ -56,7 +56,13 @@ export type LaunchSettingsClientConfig = {
 
 export type LaunchSettingsClient = {
   start: (config: LaunchSettingsClientConfig) => Promise<void>
-  update: (patch: AgentLaunchSettingsPatch) => void
+  /**
+   * Send main a patch. Resolves true once main has answered with a record that
+   * is on disk, false when main refused, failed or could keep it only in
+   * memory. Most callers ignore it; a one-time migration waits on it before it
+   * drops the copy it migrated.
+   */
+  update: (patch: AgentLaunchSettingsPatch) => Promise<boolean>
   /** Resolves once the boot read (and any migration) has finished or failed. */
   ready: Promise<void>
   stop: () => void
@@ -170,19 +176,21 @@ export function createLaunchSettingsClient(): LaunchSettingsClient {
 
     update(patch) {
       const api = config?.api
-      if (!api) return
+      if (!api) return Promise.resolve(false)
       inFlight += 1
       dirty = true
-      void ready
+      return ready
         .then(() => api.launchSettingsUpdate(patch))
         .then((ack) => {
           offer(ack?.record)
           released(ack)
+          return Boolean(ack?.record) && ack?.persisted === true
         })
         .catch((error: unknown) => {
           console.warn('[launchSettings] update was not applied by main', {
             message: error instanceof Error ? error.message : 'unknown',
           })
+          return false
         })
         .finally(() => {
           inFlight -= 1

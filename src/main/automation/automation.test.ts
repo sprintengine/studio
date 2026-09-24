@@ -998,6 +998,14 @@ test('automation', async () => {
     assert.equal(overridden.requests[0].cli, 'claude-code')
     assert.equal(overridden.requests[0].permissionPreset, 'manual')
 
+    // The machine default is the one chosen for the CLI being launched.
+    const perCli = launchHarness({
+      defaultCli: 'claude-code',
+      getAgentSpawnPermissionDefault: (cli) => (cli === 'codex' ? 'manual' : 'auto'),
+    })
+    await tool(perCli.tools, 'terminal.create').handler({ workspaceId: 'ws-1', cli: 'codex' })
+    assert.equal(perCli.requests[0].permissionPreset, 'manual', "Codex's own preset, not Claude Code's")
+
     // Asked for: refused with its own code, and nothing is spawned.
     const asked = launchHarness()
     const refused = await tool(asked.tools, 'terminal.create').handler({
