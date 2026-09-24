@@ -67,9 +67,15 @@ the other.
   number is what makes it a pip rather than one more status colour.
 - Recessed (`ds-provider-row--recessed`) — the provider is not present on this
   machine. The mark drops to 60% and the name drops from `text.primary` to
-  `text.default`; nothing else changes. **Not a disabled state** — every control
-  keeps working, and the Install button such a row carries is the reason it is
-  listed at all.
+  `text.muted`; nothing else changes. `text.muted` rather than the one step to
+  `text.default`, which sat too close to the present rows to read as receded
+  (owner ruling 2026-09-24), and rather than `text.subtle`, which falls under AA
+  on the dark card. A glyph mark drawn in the text ink takes `text.muted` with
+  it. **Not a disabled state** — every control keeps working, and the Install
+  button such a row carries is the reason it is listed at all. That button is
+  the `--outline` secondary, not the primary: an accent fill on every absent row
+  pulls the eye straight back to the rows the list recedes (owner ruling
+  2026-09-24). The accent stays for the action on a present row (Update).
 - In a card (`ds-provider-row--in-card`) — the row inside the list card
   ([setting-row](../setting-row/component.md) → *The list card*, ruled
   2026-09-15). The face drops its radius and takes the card's `space.xl` side
@@ -126,8 +132,10 @@ the other.
   sentence.
 - **Recede absence, do not grey it out.** A provider the machine does not have
   belongs in the list — that is how it gets installed — but it should not hold
-  the same weight as one that is there. Drop it a contrast step and leave its
-  controls alone.
+  the same weight as one that is there. Recede it and leave its controls working.
+  A list that mixes the two puts the present ones first, in their usual order,
+  and the receded ones after them in the same order, so the list reads as what
+  is here and then what could be.
 - Do not render a switch a host cannot honour. A toggle wired to nothing is
   worse than no toggle: it reports a state the product does not have.
 - Do not render a disclosure over an empty panel. Where a provider has nothing
@@ -162,7 +170,12 @@ the other.
   reader is elsewhere is exactly what that is for.
 - Recessed is a contrast change and nothing else. It sets no `aria-disabled`,
   removes nothing from the tab order, and adds no state to the announcement —
-  the state line already carries the fact in words. Both inks clear AA.
+  the state line already carries the fact in words. The receded name's
+  `text.muted` clears AA on the row's ground and on its hover fill in the
+  system's light and dark modes (at worst 4.7:1, light, hovered) — the same
+  ink the state line has always worn there. It does not clear AA on
+  `bg.selected` (3.9:1, light), so a row that is both selected and recessed
+  keeps `text.primary` on its name; the mark still recedes.
 - Focus-visible is a 2px `border.focus` mark on the chevron and the switch
   independently — a ring on the chevron, an offset outline on the switch, whose
   checked fill is `border.focus`'s own colour. The row itself never takes focus,
