@@ -12,7 +12,8 @@ import {
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
-import { primeDefaultWslDistro } from './wsl-host'
+import { primeDefaultWslDistro, resolveWslDistroForPath } from './wsl-host'
+import { probeWslHome } from './wsl-home'
 import {
   appLaunchPluginsActive,
   launchCarriesAppPluginsFor,
@@ -223,6 +224,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
     resolveHostNodeCommand: () => process.execPath,
+    // A CLI run through WSL reads its user-global hook config (Kimi's) from the
+    // Linux home of the distribution the workspace runs in.
+    resolveWslHomeDir: async (workspaceRoot) =>
+      (await probeWslHome(await resolveWslDistroForPath(workspaceRoot)))?.home ?? null,
     // A CLI that takes the app's plugin directories at launch gets this same
     // reporter for the session, so nothing is written into the workspace. Both
     // halves must hold: a manifest that declares the flag, and a materialised
