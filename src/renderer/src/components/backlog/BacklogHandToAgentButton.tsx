@@ -95,9 +95,9 @@ function HandToAgentPicker({
     conversationAvailable: false,
     initialSelection: HANDOFF_SELECTION,
   })
-  // The app-wide default a model row nobody has set still resolves to. The
-  // footer writes per-row; the spawn re-reads the row it launches, so there is
-  // no value to carry from here to the handoff.
+  // The app-wide default a CLI nobody has set still resolves to. The footer
+  // writes per CLI; the spawn re-reads the CLI it launches, so there is no
+  // value to carry from here to the handoff.
   const permissionFallback = useWorkspaceStore(
     (state) => state.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   )
@@ -162,10 +162,10 @@ function HandToAgentPicker({
       reasoningAriaLabel="Reasoning effort"
       onSelectCli={(cli) => hand(cli, null)}
       onSelectModel={(cli, model) => hand(cli, model)}
-      // Permissions sit with the model, remembered against the row — the same
-      // control the New chat picker carries, so the preset a person set for a
-      // model there is the preset this handoff launches on.
-      permissions={(cli, model) => <SpawnPermissionFooter cli={cli} model={model} fallback={permissionFallback} />}
+      // Permissions sit with the model, remembered per CLI — the same control
+      // the New chat picker carries, so the preset a person set for a runtime
+      // there is the preset this handoff launches on.
+      permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionFallback} />}
     />
   )
 }

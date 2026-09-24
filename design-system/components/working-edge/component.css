@@ -1,0 +1,65 @@
+/* Working edge — a light that travels round the edge of a surface while that
+ * surface is being brought back, and its content stays readable underneath
+ * (src/renderer/src/components/ui/WorkingEdge.tsx; first use: a paused
+ * terminal resuming).
+ *
+ * The ring is the element's border box with the padding box masked out, so
+ * only the edge paints and nothing inside is covered. The light is a conic
+ * gradient whose start angle turns: a faint accent.soft track all the way
+ * round, and an accent.primary head that fades into it behind. The mask
+ * layers read only alpha, so they are drawn in currentColor rather than a
+ * colour of their own. */
+
+@property --ds-working-edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.ds-working-edge {
+  position: absolute;
+  inset: 0;
+  z-index: var(--sem-z-float);
+  pointer-events: none;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  color: var(--sem-color-accent-primary);
+  background: conic-gradient(
+      from var(--ds-working-edge-angle),
+      var(--sem-color-accent-soft) 0turn 0.55turn,
+      var(--sem-color-accent-primary) 0.94turn,
+      var(--sem-color-accent-soft) 1turn
+    )
+    border-box;
+  mask:
+    linear-gradient(currentColor 0 0) padding-box exclude,
+    linear-gradient(currentColor 0 0) border-box;
+  /* The 1800ms lap is a loop, not a transition: the motion.duration tokens
+   * govern the eased motions, and this is none of them (the spinner's 900ms
+   * is the same call). Linear, because a light that eases reads as stalling.
+   * The entrance is an ordinary fade on the normal step. */
+  animation:
+    ds-working-edge-orbit 1800ms linear infinite,
+    ds-working-edge-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
+}
+
+/* Reduced motion: a still ring in the soft accent. The edge keeps saying
+ * "working" without moving, and the status text says it to a screen reader. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-edge {
+    background: var(--sem-color-accent-soft) border-box;
+    animation: none;
+  }
+}
+
+@keyframes ds-working-edge-orbit {
+  to {
+    --ds-working-edge-angle: 360deg;
+  }
+}
+
+@keyframes ds-working-edge-in {
+  from {
+    opacity: 0;
+  }
+}

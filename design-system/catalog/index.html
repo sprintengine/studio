@@ -688,6 +688,8 @@ code {
 #ds-view-component-trigger-button:checked ~ .ds-catalog #component-trigger-button { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #component-truncated-text { display: block; }
+#ds-view-component-working-edge:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-working-edge:checked ~ .ds-catalog #component-working-edge { display: block; }
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #component-workspace-panel { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -798,6 +800,8 @@ code {
 #ds-view-component-trigger-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-trigger-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-truncated-text:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-working-edge:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-working-edge"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-working-edge:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-working-edge"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-workspace-panel:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-workspace-panel"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-workspace-panel:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-workspace-panel"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
@@ -8047,6 +8051,73 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   overflow-wrap: anywhere;
 }
 
+/* components/working-edge/component.css */
+/* Working edge — a light that travels round the edge of a surface while that
+ * surface is being brought back, and its content stays readable underneath
+ * (src/renderer/src/components/ui/WorkingEdge.tsx; first use: a paused
+ * terminal resuming).
+ *
+ * The ring is the element's border box with the padding box masked out, so
+ * only the edge paints and nothing inside is covered. The light is a conic
+ * gradient whose start angle turns: a faint accent.soft track all the way
+ * round, and an accent.primary head that fades into it behind. The mask
+ * layers read only alpha, so they are drawn in currentColor rather than a
+ * colour of their own. */
+
+@property --ds-working-edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.ds-working-edge {
+  position: absolute;
+  inset: 0;
+  z-index: var(--sem-z-float);
+  pointer-events: none;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  color: var(--sem-color-accent-primary);
+  background: conic-gradient(
+      from var(--ds-working-edge-angle),
+      var(--sem-color-accent-soft) 0turn 0.55turn,
+      var(--sem-color-accent-primary) 0.94turn,
+      var(--sem-color-accent-soft) 1turn
+    )
+    border-box;
+  mask:
+    linear-gradient(currentColor 0 0) padding-box exclude,
+    linear-gradient(currentColor 0 0) border-box;
+  /* The 1800ms lap is a loop, not a transition: the motion.duration tokens
+   * govern the eased motions, and this is none of them (the spinner's 900ms
+   * is the same call). Linear, because a light that eases reads as stalling.
+   * The entrance is an ordinary fade on the normal step. */
+  animation:
+    ds-working-edge-orbit 1800ms linear infinite,
+    ds-working-edge-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
+}
+
+/* Reduced motion: a still ring in the soft accent. The edge keeps saying
+ * "working" without moving, and the status text says it to a screen reader. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-edge {
+    background: var(--sem-color-accent-soft) border-box;
+    animation: none;
+  }
+}
+
+@keyframes ds-working-edge-orbit {
+  to {
+    --ds-working-edge-angle: 360deg;
+  }
+}
+
+@keyframes ds-working-edge-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* components/workspace-panel/component.css */
 /* Workspace panel — the full-height content frame: one panel-header band, an
  * optional category rail, and a scrolling body whose text is capped to a
@@ -10445,6 +10516,46 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-muted);
   }
+.ds-embed-component-working-edge {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-working-edge .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+.ds-embed-component-working-edge .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-working-edge .demo-surface {
+    position: relative;
+    max-width: 420px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    padding: var(--sem-space-lg);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-working-edge .demo-surface p {
+    margin: 0;
+  }
+.ds-embed-component-working-edge .demo-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 .ds-embed-component-workspace-panel {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -11077,6 +11188,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-trigger-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-truncated-text" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-working-edge" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-workspace-panel" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-context-rail" />
@@ -11152,6 +11264,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-item" for="ds-view-component-trigger-button">Trigger button</label>
 <label class="catalog-nav-item" for="ds-view-component-truncated-text">Truncated text</label>
+<label class="catalog-nav-item" for="ds-view-component-working-edge">Working edge</label>
 <label class="catalog-nav-item" for="ds-view-component-workspace-panel">Workspace panel</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
 <label class="catalog-nav-item" for="ds-view-pattern-context-rail">Context rail</label>
@@ -24631,7 +24744,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <div class="catalog-doc">
 <p>The two things motion is allowed to mean, and the marks that mean them.</p>
 <p>Motion in this system says exactly one of two things: <strong>something is alive right now</strong>, or <strong>something just changed</strong>. Anything else — an entrance flourish, a hover lift, a decorative loop — is noise competing with the two signals that carry information, and it teaches people to ignore movement.</p>
-<p>| Mark | Means | Shipped as | |---|---|---| | Working dots | alive right now, for an unknown duration | <code>ui/AgentWorkingDots.tsx</code> | | Change pulse | just changed, one shot | <code>ui/ChangePulse.tsx</code> | | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) |</p>
+<p>| Mark | Means | Shipped as | |---|---|---| | Working dots | alive right now, for an unknown duration | <code>ui/AgentWorkingDots.tsx</code> | | Change pulse | just changed, one shot | <code>ui/ChangePulse.tsx</code> | | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) | | Working edge | alive right now, on a surface whose content stays readable meanwhile | [working-edge](../working-edge/component.md) |</p>
 <h4>Working dots</h4>
 <p>Three staggered dots in <code>accent.primary</code>, ~14px wide, on a pure-CSS keyframe loop. Use it where work is genuinely in flight and has no predictable end — an agent running, a job with no progress to report.</p>
 <p>It is <strong>not</strong> a spinner substitute. A spinner says &quot;wait, this will finish&quot;; the dots say &quot;this is ongoing&quot;, which is why they live on a row that stays readable and interactive around them rather than over a blocked surface.</p>
@@ -37740,6 +37853,193 @@ targets.forEach((el) =&gt; {
 window.addEventListener('resize', measureAll)
 measureAll()
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-working-edge" class="catalog-view catalog-component">
+<h3>Working edge</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-working-edge">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a paused terminal resuming: the output stays readable while the light laps the edge.</p>
+  <div class="demo-surface">
+    <p>❯ run the migration against staging</p>
+    <p>⏺ Migration applied: 14 tables, 0 errors.</p>
+    <p>❯ </p>
+    <div class="ds-working-edge" aria-hidden="true"></div>
+    <span class="demo-sr" role="status">Resuming agent</span>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — same tokens; the accent head and soft tail come from the same semantic ramp.</p>
+  <div class="demo-surface">
+    <p>❯ run the migration against staging</p>
+    <p>⏺ Migration applied: 14 tables, 0 errors.</p>
+    <p>❯ </p>
+    <div class="ds-working-edge" aria-hidden="true"></div>
+    <span class="demo-sr" role="status">Resuming agent</span>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>A light that travels round the edge of a surface while that surface is being brought back, with its content still on screen and still readable. Shipped as <code>WorkingEdge</code> (<code>src/renderer/src/components/ui/WorkingEdge.tsx</code>). Its first use is a paused agent terminal resuming: the frozen output stays up, readable and scrollable, until the relaunched agent's first frame replaces it, and the edge is what says the click was heard.</p>
+<p>It is a [liveness](../liveness/component.md) mark: it means *alive right now*. What sets it apart from the spinner and the working dots is where it sits. Both of those are marks placed beside something; the working edge belongs to a whole surface, and it is the one liveness mark that can run while the content it concerns is fully visible, because it paints on the edge and never over the content.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Edge | <code>.ds-working-edge</code> | yes. An empty element, last child of a positioned surface; it fills that surface's box and follows its radius | | Status | <code>role=&quot;status&quot;</code>, visually hidden | yes. One short phrase (&quot;Resuming agent&quot;) |</p>
+<p>The edge is a 2px ring: the element's border box with its padding box masked out. It is a faint <code>accent.soft</code> track all the way round with an <code>accent.primary</code> head that fades into the track behind it, and the head laps the ring once every 1800ms. Everything inside the ring is left alone.</p>
+<p>On a surface that wears a focus ring, the edge runs on the ring's own line (same inset, same radius) and stands in for it while it runs: an accent head travelling over a solid accent ring is the same colour on the same pixels, so it would not be seen. When the edge goes, the ring is back.</p>
+<h4>Variants</h4>
+<p>None. One surface, one edge, one colour. A second hue for &quot;resuming with problems&quot; would be status by colour alone; a problem is reported as a problem, by the surface or a notice, when it happens.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Absent | Not rendered. The surface at rest carries no edge at all | | Working | The light laps the edge; it fades in on <code>motion.duration.normal</code> | | Reduced motion | A still <code>accent.soft</code> ring. No lap, no fade | | Done | Removed the moment the work lands, with no exit choreography; what replaced the old content is the signal |</p>
+<h4>Usage</h4>
+<ul><li>Use it for a bounded wait on a surface whose content stays useful during the wait: a terminal resuming, a document reconnecting. The content is the reason it exists. A surface with nothing to show yet takes a [skeleton](../skeleton/component.md) or the loading overlay ([spinner](../spinner/component.md)) instead.</li><li>One per surface, and never together with a spinner or a skeleton on the same surface. One loading idiom per region.</li><li>Never ambient. It appears because the person asked for something (a click, a keystroke) and it leaves when that has happened. An edge that is always running stops meaning anything.</li><li>It takes no pointer events. The surface under it stays scrollable and selectable, and a click there must still reach the surface.</li><li>The edge sits on <code>z.float</code>, over its own surface's content and inside its pane, and it portals nowhere.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The edge is <code>aria-hidden</code>. The fact is carried by one visually hidden <code>role=&quot;status&quot;</code> phrase, polite, rendered with the edge and removed with it.</li><li>Motion is never the only signal: under <code>prefers-reduced-motion: reduce</code> the ring is still there, just still.</li><li>It takes no focus and changes nothing about focus. Whatever had the keyboard keeps it, which on a terminal is what lets the keys typed during a resume reach the resumed agent.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/working-edge/component.css</summary><pre><code>/* Working edge — a light that travels round the edge of a surface while that
+ * surface is being brought back, and its content stays readable underneath
+ * (src/renderer/src/components/ui/WorkingEdge.tsx; first use: a paused
+ * terminal resuming).
+ *
+ * The ring is the element's border box with the padding box masked out, so
+ * only the edge paints and nothing inside is covered. The light is a conic
+ * gradient whose start angle turns: a faint accent.soft track all the way
+ * round, and an accent.primary head that fades into it behind. The mask
+ * layers read only alpha, so they are drawn in currentColor rather than a
+ * colour of their own. */
+
+@property --ds-working-edge-angle {
+  syntax: '&lt;angle&gt;';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.ds-working-edge {
+  position: absolute;
+  inset: 0;
+  z-index: var(--sem-z-float);
+  pointer-events: none;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  color: var(--sem-color-accent-primary);
+  background: conic-gradient(
+      from var(--ds-working-edge-angle),
+      var(--sem-color-accent-soft) 0turn 0.55turn,
+      var(--sem-color-accent-primary) 0.94turn,
+      var(--sem-color-accent-soft) 1turn
+    )
+    border-box;
+  mask:
+    linear-gradient(currentColor 0 0) padding-box exclude,
+    linear-gradient(currentColor 0 0) border-box;
+  /* The 1800ms lap is a loop, not a transition: the motion.duration tokens
+   * govern the eased motions, and this is none of them (the spinner's 900ms
+   * is the same call). Linear, because a light that eases reads as stalling.
+   * The entrance is an ordinary fade on the normal step. */
+  animation:
+    ds-working-edge-orbit 1800ms linear infinite,
+    ds-working-edge-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
+}
+
+/* Reduced motion: a still ring in the soft accent. The edge keeps saying
+ * &quot;working&quot; without moving, and the status text says it to a screen reader. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-edge {
+    background: var(--sem-color-accent-soft) border-box;
+    animation: none;
+  }
+}
+
+@keyframes ds-working-edge-orbit {
+  to {
+    --ds-working-edge-angle: 360deg;
+  }
+}
+
+@keyframes ds-working-edge-in {
+  from {
+    opacity: 0;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/working-edge/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Working edge&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A terminal-like surface whose content stays readable under the edge. */
+  .demo-surface {
+    position: relative;
+    max-width: 420px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    padding: var(--sem-space-lg);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-surface p {
+    margin: 0;
+  }
+  .demo-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a paused terminal resuming: the output stays readable while the light laps the edge.&lt;/p&gt;
+  &lt;div class=&quot;demo-surface&quot;&gt;
+    &lt;p&gt;❯ run the migration against staging&lt;/p&gt;
+    &lt;p&gt;⏺ Migration applied: 14 tables, 0 errors.&lt;/p&gt;
+    &lt;p&gt;❯ &lt;/p&gt;
+    &lt;div class=&quot;ds-working-edge&quot; aria-hidden=&quot;true&quot;&gt;&lt;/div&gt;
+    &lt;span class=&quot;demo-sr&quot; role=&quot;status&quot;&gt;Resuming agent&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — same tokens; the accent head and soft tail come from the same semantic ramp.&lt;/p&gt;
+  &lt;div class=&quot;demo-surface&quot;&gt;
+    &lt;p&gt;❯ run the migration against staging&lt;/p&gt;
+    &lt;p&gt;⏺ Migration applied: 14 tables, 0 errors.&lt;/p&gt;
+    &lt;p&gt;❯ &lt;/p&gt;
+    &lt;div class=&quot;ds-working-edge&quot; aria-hidden=&quot;true&quot;&gt;&lt;/div&gt;
+    &lt;span class=&quot;demo-sr&quot; role=&quot;status&quot;&gt;Resuming agent&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
