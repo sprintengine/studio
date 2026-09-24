@@ -12,6 +12,7 @@ export { StatusDot } from './StatusDot'
 export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
+export { WorkingEdge } from './WorkingEdge'
 export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
 export { PullRequestGlyph } from './PullRequestGlyph'
 export {

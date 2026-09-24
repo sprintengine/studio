@@ -2281,6 +2281,63 @@ samp,
   }
 }
 
+/* Working edge — a light travelling round the edge of a surface that is being
+ * brought back while its content stays readable (a paused terminal resuming;
+ * WorkingEdge.tsx, design-system/components/working-edge). The ring is the
+ * element's border box with its padding box masked out, so only the edge is
+ * painted and the content under it is untouched. The light is a conic
+ * gradient whose start angle turns: a faint accent track all the way round,
+ * and a bright head that fades into it behind. The 1800ms lap is a loop, not a transition, so it takes
+ * no motion duration token (the same call as the spinner's 900ms). Reduced
+ * motion keeps a still ring in the soft accent: the edge still says "working",
+ * and the status text says it to a screen reader. */
+@property --working-edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes working-edge-orbit {
+  to {
+    --working-edge-angle: 360deg;
+  }
+}
+
+@keyframes working-edge-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.working-edge {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-float);
+  pointer-events: none;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  background: conic-gradient(
+      from var(--working-edge-angle),
+      var(--accent-primary-soft) 0turn 0.55turn,
+      var(--accent-primary) 0.94turn,
+      var(--accent-primary-soft) 1turn
+    )
+    border-box;
+  mask:
+    linear-gradient(currentColor 0 0) padding-box exclude,
+    linear-gradient(currentColor 0 0) border-box;
+  animation:
+    working-edge-orbit 1800ms linear infinite,
+    working-edge-in var(--motion-normal) var(--motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-edge {
+    background: var(--accent-primary-soft) border-box;
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
@@ -2853,6 +2910,11 @@ body:has([data-selection-pane]:focus-within)
    the same 2px --border-focus value the focus-ring utility applies — so this is
    a second SHAPE, never a second treatment: move the indicator and this moves
    with it. */
+.terminal-focus-ring {
+  /* Read by the ring below and by a working edge standing in for it. */
+  --terminal-ring-inset: 3px;
+}
+
 .terminal-focus-ring::after {
   /* The ring is CONCENTRIC with the tabset card it sits inside: an inner
      rounded rect whose corners run parallel to the card's at a constant
@@ -2861,7 +2923,6 @@ body:has([data-selection-pane]:focus-within)
      card and visibly wrong the moment the cards went to --sem-radius-shell-lg:
      the two curves crossed at the corners instead of nesting. Deriving it means
      the ring follows the card wherever the radius goes next. */
-  --terminal-ring-inset: 3px;
   content: '';
   position: absolute;
   inset: var(--terminal-ring-inset);
@@ -2873,6 +2934,19 @@ body:has([data-selection-pane]:focus-within)
 
 .terminal-focus-ring:focus-within::after {
   opacity: 1;
+}
+
+/* A resuming terminal's working edge runs on the focus ring's own line, and
+   stands in for the ring while it runs: a moving accent head over a solid
+   accent ring would be the same colour on the same pixels, and invisible. When
+   the edge goes, the ring is back where it was. */
+.terminal-focus-ring > .working-edge {
+  inset: var(--terminal-ring-inset);
+  border-radius: calc(var(--shell-card-radius) - var(--terminal-ring-inset));
+}
+
+.terminal-focus-ring:has(> .working-edge)::after {
+  opacity: 0;
 }
 
 /* The splitter is a GAP, not a rule: at rest it paints nothing, so between two
