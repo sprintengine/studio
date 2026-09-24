@@ -390,8 +390,12 @@ export class SprintEngineUpdateService {
       }).catch(() => undefined)
     }
     // A channel switch during the shutdown drops the download it would have
-    // installed; the lifecycle's fallback relaunches the app that is left.
+    // installed. The app's services are already down, so restart it as it is
+    // rather than leave a window over them.
     if (!this.state.downloaded) {
+      this.installing = null
+      app.relaunch()
+      app.quit()
       return { ok: false, state: this.getState(), message: 'No downloaded update is ready to install.' }
     }
     // Silent, then relaunch. On Windows the first argument runs the NSIS

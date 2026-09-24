@@ -489,7 +489,12 @@ export function registerAppLifecycle({
   }
 
   let exitScheduled = false
+  let installFallback: NodeJS.Timeout | null = null
   app.on('before-quit', (event) => {
+    // The updater did take over: its quit is the exit, so the fallback below
+    // must never relaunch the old build under a running installer.
+    if (installFallback) clearTimeout(installFallback)
+    installFallback = null
     if (exitScheduled) return
     event.preventDefault()
     exitScheduled = true
@@ -511,12 +516,19 @@ export function registerAppLifecycle({
     ])
     clearTimeout(bounded)
     // The services are down from here, so the app must not outlive a hand-over
-    // that goes wrong (an installer that fails to start leaves nothing to quit
-    // the app). The updater's quit normally lands well before this.
-    setTimeout(() => {
+    // that goes wrong: on Windows and Linux the updater starts the installer
+    // and quits at once, so an installer that fails to start leaves nothing to
+    // quit the app. Any `before-quit` cancels this. Not on macOS, where the
+    // quit can legitimately wait on Squirrel still copying the update, and a
+    // relaunch there would race the bundle swap.
+    if (process.platform === 'darwin' || exitScheduled) return
+    installFallback = setTimeout(() => {
+      installFallback = null
+      if (exitScheduled) return
       app.relaunch()
       app.exit(0)
-    }, UPDATE_INSTALL_QUIT_FALLBACK_MS).unref()
+    }, UPDATE_INSTALL_QUIT_FALLBACK_MS)
+    installFallback.unref()
   })
 }
 
@@ -531,7 +543,7 @@ const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
 /**
  * After the shutdown, the updater quits the app to install. Should it not (the
  * installer failed to start), relaunch the old build rather than leave a
- * window over services that have already shut down.
+ * window over services that have already shut down. Windows and Linux only.
  */
 const UPDATE_INSTALL_QUIT_FALLBACK_MS = 30_000
 
