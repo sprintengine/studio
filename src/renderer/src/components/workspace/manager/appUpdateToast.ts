@@ -19,10 +19,13 @@ import { updateAvailableNotice, updateReadyNotice } from '../../../utils/feedNot
 import { showToast, useToastStore } from '../../../store/toastStore'
 
 export const APP_UPDATE_TOAST_ID = 'app-update:ready'
+// How the last update went: its own toast, so it never replaces an offer the
+// start-up check made in the same breath.
+export const APP_UPDATE_OUTCOME_TOAST_ID = 'app-update:outcome'
 
 const APP_NAME = 'SprintEngine Studio'
 
-type Phase = 'available' | 'downloading' | 'ready' | 'installing' | 'refused' | 'outcome'
+type Phase = 'available' | 'downloading' | 'ready' | 'installing' | 'refused'
 
 // Which step the toast is showing, when it is showing one. Progress only ever
 // updates a toast the person is still looking at: dismissed, it stays gone.
@@ -235,9 +238,8 @@ export function showAppUpdateOutcomeToast(outcome: AppUpdateInstallOutcome): voi
     message: description,
     navigationTarget: { kind: 'settings', ref: 'general' },
   })
-  phase = 'outcome'
   showToast({
-    id: APP_UPDATE_TOAST_ID,
+    id: APP_UPDATE_OUTCOME_TOAST_ID,
     tone: outcome.kind === 'updated' ? 'good' : 'warn',
     title,
     description,
@@ -255,7 +257,12 @@ export function createAppUpdateToastDriver(): (state: AppUpdateState) => void {
       showAppUpdateAvailableToast(state)
     }
     if (state.status === 'downloading') showAppUpdateDownloadProgress(state)
-    if (state.status === 'downloaded' && last !== 'downloaded' && phase !== 'refused') showAppUpdateReadyToast(state)
+    // Not while an install is being asked for or was just refused: main puts a
+    // refused install back to `downloaded` before its answer reaches the
+    // toast, and that is not a fresh "ready".
+    if (state.status === 'downloaded' && last !== 'downloaded' && phase !== 'refused' && phase !== 'installing') {
+      showAppUpdateReadyToast(state)
+    }
     last = state.status
   }
 }

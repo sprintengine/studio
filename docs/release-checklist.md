@@ -400,7 +400,11 @@ For each of (a) to (h) also check:
 - Row (c) or (g) on a machine that also has a stray per-user copy under
   `%LOCALAPPDATA%\Programs\sprintengine-studio` (left by a nightly from before
   this change): the update removes that copy, its HKCU entry, and its per-user
-  shortcuts; the all-users shortcuts remain.
+  shortcuts; the all-users shortcuts remain. Repeat it through 0.6.0's
+  install at quit (Later on its ready toast, then quit 0.6.0): the Program
+  Files copy is the one updated, after one UAC prompt.
+- Later, then quit, on (e) and (f): no window and no prompt; the next start is
+  the candidate's successor, in the same folder, with "Updated to X".
 
 ## Failure And Rollback
 

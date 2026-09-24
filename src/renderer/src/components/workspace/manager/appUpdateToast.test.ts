@@ -12,6 +12,7 @@ vi.mock('../../../utils/diagnostics', () => ({
 }))
 
 const {
+  APP_UPDATE_OUTCOME_TOAST_ID,
   APP_UPDATE_TOAST_ID,
   createAppUpdateToastDriver,
   resetAppUpdateToastForTests,
@@ -231,17 +232,38 @@ test('a restart main refuses turns into a warning that says why, and can be pres
   assert.equal(installs, 2)
 })
 
-test('the start after an update says how it went', () => {
+test('the start after an update says how it went, beside any offer', () => {
+  const outcome = () => useToastStore.getState().toasts.find((entry) => entry.id === APP_UPDATE_OUTCOME_TOAST_ID)
+  createAppUpdateToastDriver()(state({ status: 'available', updateVersion: '0.8.0' }))
   showAppUpdateOutcomeToast({ kind: 'updated', version: '0.7.0', fromVersion: '0.6.0', message: null })
-  assert.equal(toast()?.tone, 'good')
-  assert.equal(toast()?.title, 'Updated to SprintEngine Studio 0.7.0')
+  assert.equal(outcome()?.tone, 'good')
+  assert.equal(outcome()?.title, 'Updated to SprintEngine Studio 0.7.0')
+  assert.equal(toast()?.title, 'SprintEngine Studio 0.8.0 is available', 'the offer is still there')
   showAppUpdateOutcomeToast({
     kind: 'failed',
     version: '0.7.0',
     fromVersion: '0.6.0',
     message: 'The installer did not finish, so SprintEngine Studio is still on 0.6.0.',
   })
-  assert.equal(toast()?.tone, 'warn')
-  assert.equal(toast()?.title, 'Update to 0.7.0 did not install')
-  assert.equal(toast()?.description, 'The installer did not finish, so SprintEngine Studio is still on 0.6.0.')
+  assert.equal(outcome()?.tone, 'warn')
+  assert.equal(outcome()?.title, 'Update to 0.7.0 did not install')
+  assert.equal(outcome()?.description, 'The installer did not finish, so SprintEngine Studio is still on 0.6.0.')
+})
+
+test('a refused install going back to downloaded is not announced as ready again', async () => {
+  answer = () => Promise.resolve({ ok: false, state: {} as AppUpdateState, message: 'Declined.' })
+  const drive = createAppUpdateToastDriver()
+  drive(state({ status: 'downloaded', updateVersion: '0.7.0', downloaded: true }))
+  press('restart')
+  // Main's state pushes arrive before its answer does.
+  drive(state({ status: 'installing', updateVersion: '0.7.0', downloaded: true }))
+  drive(state({ status: 'downloaded', updateVersion: '0.7.0', downloaded: true, errorMessage: 'Declined.' }))
+  assert.equal(toast()?.title, 'Installing update')
+  await settle()
+  assert.equal(toast()?.title, 'Update not installed')
+  assert.equal(
+    diagnostics.published.filter(({ title }) => title === 'SprintEngine Studio 0.7.0 is ready').length,
+    1,
+    'one bell row for the ready update, not one per refusal',
+  )
 })

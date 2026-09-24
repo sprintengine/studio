@@ -89,9 +89,16 @@
     ; 1. The folder the app named. NSIS takes /D= only as the last argument and
     ;    unquoted, which is how the app passes it; GetDParameter (multiUser.nsh)
     ;    reads it back from the full command line so a path with spaces survives.
+    ;    The app names itself too (--wait-for-pid), and that is carried into an
+    ;    elevated relaunch below.
     !insertmacro GetDParameter $R0
     ${If} $R0 != ""
       StrCpy $updateTargetDir $R0
+      ${StdUtils.GetParameter} $R1 "wait-for-pid" ""
+      IntOp $R1 $R1 + 0
+      ${If} $R1 > 0
+        StrCpy $updateLauncherPid $R1
+      ${EndIf}
     ${Else}
       ; 2. An older build passes no folder, but it is the process that started
       ;    this installer (electron-updater spawns it from the app's main
@@ -117,12 +124,16 @@
       ${EndIf}
     ${EndIf}
 
-    ; 3. Neither: the registry. A per-user installation first, as stock
-    ;    setInstallModePerUser does, then an all-users one.
+    ; 3. Neither: the registry. An older build's install at quit lands here
+    ;    (the app is gone by the time the installer has checked its own CRC).
+    ;    An all-users installation first: it is the one the all-users
+    ;    shortcuts start, and a per-user one beside it is the stray copy an
+    ;    earlier one-click update left, which the all-users update removes.
+    ;    Then a per-user installation, as stock setInstallModePerUser does.
     ${If} $updateTargetDir == ""
-      ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+      ReadRegStr $R0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
       ${If} $R0 == ""
-        ReadRegStr $R0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
+        ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
       ${EndIf}
       StrCpy $updateTargetDir $R0
     ${EndIf}
@@ -147,15 +158,20 @@
 
   ; An all-users installation needs an administrator. This build's app asks for
   ; that itself before it quits (so a refusal leaves it running), and starts the
-  ; installer already elevated; an older build, or an install at quit, starts it
-  ; as the user, and the installer relaunches itself elevated here, before the
-  ; one-instance mutex exists, so the elevated copy can take it.
+  ; installer already elevated. An older build (0.6.0 and earlier, on Restart
+  ; to update or at quit) starts it as the user, and the installer relaunches
+  ; itself elevated here, before the one-instance mutex exists, so the elevated
+  ; copy can take it.
   !macro updateElevateIfNeeded
     ${If} $updateTargetPerMachine == "1"
     ${AndIfNot} ${UAC_IsAdmin}
       ${StdUtils.TestParameter} $R0 "update-elevated"
       ${If} $R0 == "true"
-        ; Already relaunched once and still not elevated: stop, not loop.
+        ; Already relaunched once and still not elevated: stop, not loop, and
+        ; bring back the version that is installed if the app asked for that.
+        ${If} ${isForceRun}
+          Exec '"$updateTargetDir\${APP_EXECUTABLE_FILENAME}"'
+        ${EndIf}
         SetErrorLevel 740
         Quit
       ${EndIf}
@@ -182,7 +198,7 @@
         ; app is single-instance).
         ${If} ${isForceRun}
           ${If} $updateLauncherPid > 0
-            !insertmacro updateWaitForExit $updateLauncherPid 30000
+            !insertmacro updateWaitForExit $updateLauncherPid 60000
           ${EndIf}
           Exec '"$updateTargetDir\${APP_EXECUTABLE_FILENAME}"'
         ${EndIf}
@@ -225,9 +241,15 @@
 
   !macro customInstall
     ; An all-users update also runs the uninstaller of a per-user installation
-    ; (installSection.nsh, when $installMode is "all"), and that uninstall keeps
-    ; its shortcuts because this installation's exe exists. They point at the
-    ; copy just removed, so they go too; the all-users shortcuts stay.
+    ; (installSection.nsh, when $installMode is "all"). That uninstall normally
+    ; removes its own shortcuts already: it is started without --keep-shortcuts,
+    ; because the all-users exe was moved away by the first uninstall
+    ; (installUtil.nsh uninstallOldVersion tests ${FileExists} "$appExe"). The
+    ; deletes below cover an older per-user uninstaller that kept them anyway;
+    ; a shortcut left pointing at the removed copy would start nothing. The
+    ; all-users shortcuts are untouched. (That uninstaller also clears the
+    ; app's AppUserModelID jump list, which the all-users copy shares; the
+    ; jump list refills as the app is used.)
     ${If} $updateTargetPerMachine == "1"
     ${AndIf} $updateStrayPerUserDir != ""
       SetShellVarContext current

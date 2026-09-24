@@ -59,6 +59,8 @@ export type UpdateInstallPlatform = {
   hideAppWindows(): void
   quitApp(): void
   relaunchApp(): void
+  /** Run once as the app quits, with its exit code (Electron's `quit` event). */
+  onAppQuit(handler: (exitCode: number) => void): void
 }
 
 type UpdateServiceOptions = {
@@ -224,6 +226,9 @@ function defaultInstallPlatform(): UpdateInstallPlatform {
       app.relaunch()
       app.exit(0)
     },
+    onAppQuit: (handler) => {
+      app.once('quit', (_event: unknown, exitCode: number) => handler(exitCode))
+    },
   }
 }
 
@@ -257,9 +262,11 @@ export class SprintEngineUpdateService {
   private installing: Promise<AppUpdateCheckResult> | null = null
   /** Where this Windows installation is, once asked; null on other platforms. */
   private windowsTarget: Promise<WindowsInstallTarget | null> | null = null
+  /** The same, once known: the quit handler cannot wait for a promise. */
+  private resolvedWindowsTarget: WindowsInstallTarget | null = null
   /** The download-progress marks already logged for the download under way. */
   private loggedProgressMarks = new Set<number>()
-  private quitNoteRegistered = false
+  private installAtQuitRegistered = false
 
   constructor({
     writeDiagnosticLog,
@@ -331,11 +338,8 @@ export class SprintEngineUpdateService {
       // token this service never sees, and a channel switch could not stop it.
       autoUpdater.autoDownload = false
       applyUpdaterChannel(autoUpdater, this.track, getAppVersion())
-      const target = await this.resolveWindowsTarget()
-      // An update that needs an administrator does not install at quit: the
-      // UAC prompt would come up after the app had gone, with nothing on
-      // screen to say what it is for. Restart to update asks instead.
-      autoUpdater.autoInstallOnAppQuit = !target?.requiresAdmin
+      await this.resolveWindowsTarget()
+      autoUpdater.autoInstallOnAppQuit = this.electronUpdaterInstallsAtQuit()
       if (typeof autoUpdater.on === 'function') {
         this.registerAutoUpdaterEvents(autoUpdater)
       }
@@ -345,12 +349,25 @@ export class SprintEngineUpdateService {
     return this.updaterLoading
   }
 
+  /**
+   * Whether electron-updater's own install-at-quit is on. Never on Windows:
+   * electron-updater would start the installer without the installation
+   * folder (it cannot pass a folder with a space in it unquoted), so the
+   * update would go wherever the registry points rather than into the running
+   * installation. This service starts that installer itself instead
+   * (`registerInstallAtQuit`). On macOS and Linux it stays electron-updater's.
+   */
+  private electronUpdaterInstallsAtQuit(): boolean {
+    return this.platform.platform !== 'win32'
+  }
+
   /** Windows only: where the running app is installed, asked once. */
   private resolveWindowsTarget(): Promise<WindowsInstallTarget | null> {
     if (this.platform.platform !== 'win32' || !isAppPackaged()) return Promise.resolve(null)
     this.windowsTarget ??= this.platform
       .resolveWindowsTarget()
       .then((target) => {
+        this.resolvedWindowsTarget = target
         this.logStep('info', 'Installation found', `SprintEngine Studio runs from ${target.installDir}.`, target)
         if (target.requiresAdmin !== this.state.installRequiresAdmin) {
           this.updateState({ installRequiresAdmin: target.requiresAdmin })
@@ -769,23 +786,50 @@ export class SprintEngineUpdateService {
   }
 
   /**
-   * An update that installs at quit (Later, then quitting) leaves the same note
-   * as Restart to update, so the next start can say how it went. It is written
-   * on `quit`, where electron-updater starts that install, and only when it will.
+   * Later, then quitting: the downloaded update installs as the app exits,
+   * silently, and the next start says how it went. On macOS and Linux that is
+   * electron-updater's own quit handler, and this only leaves the note. On
+   * Windows this starts the installer itself, into the running installation
+   * (`/D=`), as Restart to update does, but silent and without restarting the
+   * app. An installation that needs an administrator does not install at
+   * quit: the UAC prompt would come up after the app had gone, with nothing on
+   * screen to say what it was for. Restart to update asks instead, and the
+   * ready toast says so.
    */
-  private registerQuitNote(autoUpdater: AppUpdater): void {
-    if (this.quitNoteRegistered || typeof app.once !== 'function') return
-    this.quitNoteRegistered = true
-    app.once('quit', (_event: unknown, exitCode: number) => {
-      if (this.installing || !this.state.downloaded || !autoUpdater.autoInstallOnAppQuit || exitCode !== 0) return
-      this.writeInstallNote({
+  private registerInstallAtQuit(autoUpdater: AppUpdater): void {
+    if (this.installAtQuitRegistered) return
+    this.installAtQuitRegistered = true
+    this.platform.onAppQuit((exitCode) => {
+      if (this.installing || !this.state.downloaded || exitCode !== 0) return
+      const note: UpdateInstallNote = {
         fromVersion: getAppVersion(),
         toVersion: this.state.updateVersion ?? '',
         startedAt: new Date().toISOString(),
         platform: this.platform.platform,
         installDir: null,
         requiresAdmin: false,
-      })
+      }
+      if (this.platform.platform !== 'win32') {
+        if (autoUpdater.autoInstallOnAppQuit) this.writeInstallNote(note)
+        return
+      }
+      const installerPath = downloadedInstallerPath(autoUpdater)
+      const target = this.resolvedWindowsTarget
+      if (!installerPath || !target || target.requiresAdmin) return
+      let args: string[]
+      try {
+        args = nsisUpdateArgs({
+          installDir: target.installDir,
+          silent: true,
+          forceRun: false,
+          waitForPid: this.platform.pid,
+        })
+      } catch {
+        return
+      }
+      this.writeInstallNote({ ...note, installDir: target.installDir })
+      // The spawn itself is synchronous: the process is about to go.
+      void this.platform.spawnInstaller(installerPath, args).catch(() => undefined)
     })
   }
 
@@ -849,8 +893,8 @@ export class SprintEngineUpdateService {
       }
       // electron-updater emits this only after the file's sha512 matched the
       // feed and, on Windows, its signature was checked against the publisher.
-      autoUpdater.autoInstallOnAppQuit = !this.state.installRequiresAdmin
-      this.registerQuitNote(autoUpdater)
+      autoUpdater.autoInstallOnAppQuit = this.electronUpdaterInstallsAtQuit()
+      this.registerInstallAtQuit(autoUpdater)
       this.logStep(
         'info',
         'Update downloaded',

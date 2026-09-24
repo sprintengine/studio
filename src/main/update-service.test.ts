@@ -124,6 +124,7 @@ function autoStore() {
 
 // Every step of the install path, in the order it happened.
 let steps: string[] = []
+let quitHandlers: Array<(exitCode: number) => void> = []
 let diagnostics: Array<{ level: string; title: string }> = []
 
 /** A machine the install path runs on, recording what it was asked to do. */
@@ -149,6 +150,9 @@ function fakePlatform(overrides: Partial<UpdateInstallPlatform> = {}): Partial<U
     hideAppWindows: () => steps.push('hide windows'),
     quitApp: () => steps.push('quit'),
     relaunchApp: () => steps.push('relaunch'),
+    onAppQuit: (handler) => {
+      quitHandlers.push(handler)
+    },
     ...overrides,
   }
 }
@@ -191,6 +195,7 @@ async function settle(): Promise<void> {
 
 beforeEach(() => {
   steps = []
+  quitHandlers = []
   diagnostics = []
   hoisted.app.version = '0.5.2'
   hoisted.app.packaged = true
@@ -590,7 +595,7 @@ async function windowsReady(options: { target?: WindowsTarget; platform?: Partia
 
 test('Windows, per user: the app starts the installer into its own folder, after the shutdown, and quits', async () => {
   const { s, installNotes } = await windowsReady()
-  assert.equal(hoisted.updater.autoInstallOnAppQuit, true, 'a per-user update still installs at quit')
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'electron-updater never installs at quit on Windows')
   const result = await s.quitAndInstall()
   assert.equal(result.ok, true)
   assert.deepEqual(steps, [
@@ -608,6 +613,8 @@ test('Windows, per user: the app starts the installer into its own folder, after
   ])
   assert.deepEqual(hoisted.updater.installs, [], 'electron-updater does not start a second installer')
   assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'nor does its install at quit')
+  quitHandlers.forEach((handler) => handler(0))
+  assert.equal(steps.filter((step) => step.startsWith('spawn')).length, 1, 'the quit after it starts no second one')
   assert.deepEqual(installNotes.written[0], {
     fromVersion: '0.5.2',
     toVersion: '0.7.0',
@@ -728,4 +735,29 @@ test('the start after an update reports how it went, once', () => {
   assert.equal(s.dismissInstallOutcome().installOutcome, null)
   // Consumed: a second service (a second start) hears nothing.
   assert.equal(service(memoryStore(), { installNotes: installNotes as never }).getState().installOutcome, null)
+})
+
+test('Windows, per user: Later then quit installs silently into the running installation', async () => {
+  const { installNotes } = await windowsReady()
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'not electron-updater, which cannot pass the folder')
+  assert.equal(quitHandlers.length, 1)
+  quitHandlers[0]?.(0)
+  assert.deepEqual(steps, ['note', `spawn ${INSTALLER} --updated /S --wait-for-pid=4242 /D=${WIN_PER_USER}`])
+  assert.equal(installNotes.written[0]?.installDir, WIN_PER_USER)
+  // A quit with an error code installs nothing.
+  steps = []
+  const other = await windowsReady()
+  steps = []
+  quitHandlers.at(-1)?.(1)
+  assert.deepEqual(steps, [])
+  assert.equal(other.installNotes.written.length, 0)
+})
+
+test('Windows, all users: Later then quit installs nothing, rather than raise UAC after the app has gone', async () => {
+  const { installNotes } = await windowsReady({
+    target: { installDir: WIN_PROGRAM_FILES, perMachine: true, requiresAdmin: true },
+  })
+  quitHandlers.forEach((handler) => handler(0))
+  assert.deepEqual(steps, [])
+  assert.equal(installNotes.written.length, 0)
 })
