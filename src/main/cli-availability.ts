@@ -88,6 +88,15 @@ export function invalidateCliAvailability(cli?: AgentCli): void {
   }
 }
 
+// Drop cached availability for everything on one machine: a WSL helper saw a
+// PATH directory change there (a CLI installed or removed from a terminal).
+export function invalidateCliAvailabilityOnHost(hostId: ExecutionHostId): void {
+  const suffix = `${KEY_SEP}${hostId}`
+  for (const key of [...cache.keys()]) {
+    if (key.endsWith(suffix)) cache.delete(key)
+  }
+}
+
 // Test seam: reset module state between cases.
 export function clearCliAvailabilityCache(): void {
   cache.clear()

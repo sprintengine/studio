@@ -809,7 +809,7 @@ test('mcp-config-service', async () => {
     await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
     await aForgottenServerLeavesTheConfig(service, temp)
     await theRetiredSprintEngineServerIsForgottenByTheStudioSync(service, temp)
-    await theStudioGatewayUsesAWslInteropExecutableAndIsOptional(service, temp)
+    await theStudioGatewayInWslIsTheHelpersAndIsOptional(service, temp)
   }
 
   /**
@@ -961,7 +961,11 @@ test('mcp-config-service', async () => {
       { workspaceRoot: root, settings: { syncEnabled: true, servers: {} }, clients: ['claude-code'] },
       {
         mcpConfigService: service,
-        studioGateway: () => ({ command: process.execPath, bridgeScriptPath: '/app/bridge.mjs', userDataDir: '/data' }),
+        studioGateway: () => ({
+          command: process.execPath,
+          args: ['/app/bridge.mjs'],
+          env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: '/data' },
+        }),
       },
     )
     assert.equal(result.ok, true, result.ok ? '' : result.message)
@@ -981,7 +985,10 @@ test('mcp-config-service', async () => {
     assert.equal(claudeSettings.enabledMcpjsonServers.includes(STUDIO_MCP_SERVER_ID), true)
   }
 
-  async function theStudioGatewayUsesAWslInteropExecutableAndIsOptional(
+  // A CLI in WSL starts the gateway as a Linux process: the pinned Node, the
+  // bridge the helper installed, and the helper's own discovery directory. No
+  // Windows program is involved, so nothing has to cross through interop.
+  async function theStudioGatewayInWslIsTheHelpersAndIsOptional(
     service: ReturnType<typeof createMcpConfigService>,
     temp: string,
   ): Promise<void> {
@@ -997,25 +1004,22 @@ test('mcp-config-service', async () => {
       {
         mcpConfigService: service,
         studioGateway: () => ({
-          command: 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe',
-          bridgeScriptPath: 'C:\\Program Files\\SprintEngine Studio\\resources\\mcp-stdio-bridge.mjs',
-          userDataDir: 'C:\\Users\\dev\\AppData\\Roaming\\sprintengine-studio',
+          command: '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node',
+          args: ['/home/dev/.local/share/sprintengine-studio/0.4.0/automation/mcp-stdio-bridge.mjs'],
+          env: { SPRINTENGINE_USER_DATA_DIR: '/run/user/1000/sprintengine/abc123def456' },
         }),
       },
     )
     assert.equal(result.ok, true, result.ok ? '' : result.message)
     const config = await readFile(join(root, '.codex', 'config.toml'), 'utf8')
     assert.ok(
-      config.includes('command = "/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe"'),
-      'the WSL shell can execute the Windows-hosted bridge runtime',
+      config.includes('command = "/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node"'),
+      'the CLI starts the pinned Linux Node, not a Windows program',
     )
-    const forwarded = (/"WSLENV" = "([^"]*)"/u.exec(config)?.[1] ?? '').split(':')
-    for (const name of ['ELECTRON_RUN_AS_NODE', 'SPRINTENGINE_USER_DATA_DIR', 'SPRINTENGINE_AGENT_CLI']) {
-      assert.ok(
-        forwarded.includes(name),
-        `interop forwards ${name}, so the binary runs as the bridge instead of opening the app`,
-      )
-    }
+    assert.ok(config.includes('/0.4.0/automation/mcp-stdio-bridge.mjs'), 'on the bridge the helper installed')
+    assert.ok(config.includes('"SPRINTENGINE_USER_DATA_DIR" = "/run/user/1000/sprintengine/abc123def456"'), config)
+    assert.ok(config.includes('"SPRINTENGINE_AGENT_CLI" = "codex"'), 'the connect frame can still name its CLI')
+    assert.doesNotMatch(config, /WSLENV/u, 'nothing crosses through interop')
     assert.doesNotMatch(config, /required = true/u, 'the Studio gateway is optional')
   }
 

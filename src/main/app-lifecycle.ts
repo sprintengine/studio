@@ -23,6 +23,7 @@ import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { readCliVersionAdvisories } from './cli-version-advisory-service'
+import { hostRegistry } from './hosts/host-registry'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
@@ -432,6 +433,11 @@ export function registerAppLifecycle({
       await automationService?.shutdown()
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
+      // Each WSL helper is told to shut down (it would also go on its own when
+      // this process's end closes its stdin).
+      await hostRegistry()
+        .dispose()
+        .catch(() => undefined)
       // In the same leg as the terminal service, and after it: the last frames
       // it ingests can still file a captured pull request, and this is what
       // gets that write to disk and stops the watch timers.

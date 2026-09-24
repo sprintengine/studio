@@ -7,65 +7,50 @@ import { test } from 'vitest'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { createAgentStateService } from './agent-state-service'
-import type { RunOutcome } from './process-run'
+import type { HostAgentIntegration, HostHome } from './hosts/execution-host'
 import { createWslHomeProbe } from './wsl-home'
 
-const UBUNTU_OUTPUT = [
-  'Welcome to Ubuntu',
-  'SPRINTENGINE_WSL_HOME=\\\\wsl.localhost\\Ubuntu\\home\\dev',
-  'SPRINTENGINE_WSL_ROOT=\\\\wsl.localhost\\Ubuntu\\',
-  '',
-].join('\r\n')
-
-function ok(stdout: string): RunOutcome {
-  return { code: 0, stdout, stderr: '', timedOut: false }
-}
-
-test('the WSL home is asked in the named distribution, by a login shell on stdin, and kept a while', async () => {
-  const runs: Array<{ distro: string | null; script: string }> = []
-  let now = 0
+test('the WSL home comes from the distribution host, as UNC paths, the default resolved to its name', async () => {
+  const asked: string[] = []
   const probe = createWslHomeProbe({
-    run: async (distro, script) => {
-      runs.push({ distro, script })
-      return ok(UBUNTU_OUTPUT.replaceAll('Ubuntu', distro ?? 'Ubuntu'))
-    },
+    hostFor: (distro) => ({
+      homeDir: async (): Promise<HostHome> => {
+        asked.push(distro)
+        return {
+          host: '/home/dev',
+          native: `\\\\wsl.localhost\\${distro}\\home\\dev`,
+          env: { CLAUDE_CONFIG_DIR: `\\\\wsl.localhost\\${distro}\\home\\dev\\.claude-work` },
+        }
+      },
+    }),
     resolveDefaultDistro: async () => 'Ubuntu',
-    now: () => now,
   })
-  assert.equal((await probe())?.home, '\\\\wsl.localhost\\Ubuntu\\home\\dev')
+  assert.deepEqual(await probe(), {
+    home: '\\\\wsl.localhost\\Ubuntu\\home\\dev',
+    root: '\\\\wsl.localhost\\Ubuntu',
+    env: { CLAUDE_CONFIG_DIR: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude-work' },
+  })
   assert.equal((await probe('Debian'))?.home, '\\\\wsl.localhost\\Debian\\home\\dev')
-  assert.equal((await probe('Ubuntu'))?.home, '\\\\wsl.localhost\\Ubuntu\\home\\dev')
-  assert.deepEqual(
-    runs.map((run) => run.distro),
-    ['Ubuntu', 'Debian'],
-    'the default is resolved to its name, and each distribution is asked once',
-  )
-  assert.match(runs[0].script, /^exec bash -l <</u)
-  assert.match(runs[0].script, /wslpath -w/u)
-  now += 61_000
-  await probe()
-  assert.equal(runs.length, 3, 'asked again once the answer is a minute old')
+  assert.deepEqual(asked, ['Ubuntu', 'Debian'])
 })
 
-test('a failed WSL home probe is not kept', async () => {
-  let answer: RunOutcome = { code: 1, stdout: '', stderr: 'wsl: error', timedOut: false }
-  let runs = 0
-  const probe = createWslHomeProbe({
-    run: async () => {
-      runs += 1
-      return answer
-    },
+test('no default distribution, or a host that cannot answer, is no home', async () => {
+  const none = createWslHomeProbe({
+    hostFor: () => ({ homeDir: async () => assert.fail('nothing to ask') }),
     resolveDefaultDistro: async () => null,
   })
-  assert.equal(await probe(), null)
-  answer = ok(UBUNTU_OUTPUT)
-  assert.equal((await probe())?.home, '\\\\wsl.localhost\\Ubuntu\\home\\dev')
-  assert.equal(runs, 2)
+  assert.equal(await none(), null)
+  const failing = createWslHomeProbe({
+    hostFor: () => ({ homeDir: async () => null }),
+    resolveDefaultDistro: async () => 'Ubuntu',
+  })
+  assert.equal(await failing(), null)
 })
 
-// Kimi's hook config is user-global. Run through WSL, the Kimi that reads it is
-// a Linux process, so the file belongs in the distribution's home. A temp dir
-// stands in for `\\wsl.localhost\Ubuntu\home\dev`.
+// Kimi's hook config is user-global. Run in WSL, the Kimi that reads it is a
+// Linux process, so the file belongs in the distribution's home, and its hook
+// runs the helper's Node and reports to the helper's socket. A temp dir stands
+// in for `\\wsl.localhost\Ubuntu\home\dev`.
 test('a WSL launch installs a user-scoped hook into the Linux home, a native one into the Windows home', async () => {
   const manifest = JSON.parse(
     await readFile(join(process.cwd(), 'resources', 'plugins', 'kimi-code', 'plugin.json'), 'utf8'),
@@ -76,34 +61,40 @@ test('a WSL launch installs a user-scoped hook into the Linux home, a native one
   const userData = await mkdtemp(join(tmpdir(), 'se-kimi-ud-'))
   const reporter = join(userData, 'agent-state.mjs')
   await writeFile(reporter, '// reporter\n', 'utf8')
-  let wslHomeAnswer: string | null = null
-  const asked: string[] = []
   const service = createAgentStateService({
     resolveUserDataDir: () => userData,
     resolveAgentStateSpec: (cli) => (cli === 'kimi-code' ? manifest.agentStateSpec : null),
     resolveReporterScriptPath: () => reporter,
     resolveReporterTemplatePath: () => null,
     resolveHomeDir: () => windowsHome,
-    resolveHostNodeCommand: () => 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe',
-    resolveWslHomeDir: async (root) => {
-      asked.push(root)
-      return wslHomeAnswer
-    },
     onFrame: () => {},
   })
 
-  // The distribution could not be asked: nothing is written anywhere.
-  await service.installForWorkspace(workspace, 'kimi-code', { pathStyle: 'wsl' })
-  assert.deepEqual(asked, [workspace])
+  // The helper was not up: nothing is written anywhere.
+  await service.installForWorkspace(workspace, 'kimi-code', { pathStyle: 'wsl', hostId: 'wsl:Ubuntu' })
   assert.equal(existsSync(join(wslHome, '.kimi-code', 'config.toml')), false)
   assert.equal(existsSync(join(windowsHome, '.kimi-code', 'config.toml')), false)
 
-  // Next launch it answers: the config and the reporter copy land in Linux.
-  wslHomeAnswer = wslHome
-  await service.installForWorkspace(workspace, 'kimi-code', { pathStyle: 'wsl' })
+  // With the helper: the config and the reporter copy land in the Linux home.
+  const node = '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node'
+  const integration: HostAgentIntegration = {
+    agentStateSocketPath: '/run/user/1000/sprintengine/abc123def456/agent.sock',
+    commandRuntime: {
+      executable: node,
+      toCommandPath: (nativePath) => nativePath.replace(wslHome, '/home/dev').split('\\').join('/'),
+    },
+    pluginDirs: [],
+    statusLineScriptPath: null,
+    studioMcpEntry: { command: node, args: [], env: {} },
+    home: { host: '/home/dev', native: wslHome },
+  }
+  await service.installForWorkspace(workspace, 'kimi-code', { pathStyle: 'wsl', hostId: 'wsl:Ubuntu', integration })
   const config = await readFile(join(wslHome, '.kimi-code', 'config.toml'), 'utf8')
   assert.ok(config.includes('event = "Stop"'), config)
-  assert.ok(config.includes('SprintEngine Studio.exe'), 'the hook calls back through interop, as for any WSL hook')
+  assert.ok(config.includes(node), 'the hook runs the pinned Linux Node')
+  assert.ok(config.includes('/home/dev/.sprintengine/hooks/agent-state.mjs'), 'on the Linux path of the home copy')
+  assert.ok(config.includes('/run/user/1000/sprintengine/abc123def456/agent.sock'), 'reporting to the helper')
+  assert.ok(!config.includes('.exe'), 'no Windows program')
   assert.equal(existsSync(join(wslHome, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
   assert.equal(existsSync(join(windowsHome, '.kimi-code', 'config.toml')), false)
 

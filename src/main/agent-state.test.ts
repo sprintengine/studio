@@ -1044,17 +1044,20 @@ test('agent-state', async () => {
       '\\\\.\\pipe\\sprintengine-agent-state-abc',
     )
     assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\sprintengine-agent-state-abc"'), winCmd)
+    // Another host's runtime (a WSL distribution's pinned Node) runs in a POSIX
+    // shell there: every argument is single-quoted, and the script is named as
+    // that host names it.
     const wslCmd = buildAgentStateReporterCommand(
       'C:/work/app/.sprintengine/hooks/agent-state.mjs',
-      '\\\\.\\pipe\\sprintengine-agent-state-abc',
+      '/run/user/1000/sprintengine/abc123def456/agent.sock',
       {
-        executable: '/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe',
-        env: { ELECTRON_RUN_AS_NODE: '1' },
+        executable: '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node',
+        toCommandPath: (nativePath) => nativePath.replace('C:/', '/mnt/c/'),
       },
     )
     assert.equal(
       wslCmd,
-      'env ELECTRON_RUN_AS_NODE=\'1\' \'/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe\' "C:/work/app/.sprintengine/hooks/agent-state.mjs" --socket "\\\\.\\pipe\\sprintengine-agent-state-abc"',
+      "env '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node' '/mnt/c/work/app/.sprintengine/hooks/agent-state.mjs' --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'",
     )
 
     // --- settings-json install / uninstall round-trip (claude spec) ---------

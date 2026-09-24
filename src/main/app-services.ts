@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, ipcMain, powerMonitor } from 'electron'
+import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { hostname } from 'os'
@@ -12,8 +12,12 @@ import {
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
-import { primeDefaultWslDistro, resolveWslDistroForPath } from './hosts/wsl-distro'
-import { probeWslHome } from './wsl-home'
+import { primeDefaultWslDistro } from './hosts/wsl-distro'
+import { configureWslHelpers } from './hosts/wsl-helper-runtime'
+import { cliTakesLaunchPlugins } from './agent-launch-render'
+import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
+import { invalidateCliAvailabilityOnHost } from './cli-availability'
+import { wslHostId } from '../shared/execution-host'
 import {
   appLaunchPluginsActive,
   launchCarriesAppPluginsFor,
@@ -83,7 +87,7 @@ import {
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
 import { createAgentLaunchSettingsStore } from './launch-settings-store'
-import { createHostRegistry, installHostRegistry } from './hosts/host-registry'
+import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/host-registry'
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
@@ -211,7 +215,33 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `pluginDirsForLaunch` asks the same three things), the agent-state
   // installer, the skill installer and the MCP sync can never disagree — a
   // disagreement is either a doubled registration or a session with none.
-  const launchCarriesAppPlugins = (cli: string): boolean => launchCarriesAppPluginsFor(cli, agentIntegrationPluginDirs)
+  //
+  // Asked with the launch's machine. A WSL distribution carries the copy its
+  // helper wrote inside it, once the helper is up; the launch builder reads the
+  // same host (`pluginDirsForLaunch`), so the two agree there too.
+  const launchCarriesAppPlugins = (cli: string, hostId?: string | null): boolean => {
+    const host = hostRegistry().get(hostId)
+    if (host.kind === 'wsl') {
+      return cliTakesLaunchPlugins(cli) && (host.agentIntegration()?.pluginDirs.length ?? 0) > 0
+    }
+    return launchCarriesAppPluginsFor(cli, agentIntegrationPluginDirs)
+  }
+  // The app's MCP gateway as a stdio server on the machine a CLI runs on: this
+  // app's own binary run as Node here, and inside a WSL distribution the
+  // pinned Node and the bridge the helper installed, which finds the helper's
+  // socket through the discovery file in the helper's directory. Null (no
+  // gateway written) for a WSL machine whose helper is not up.
+  const studioGatewayFor = (
+    hostId?: string | null,
+  ): { command: string; args: string[]; env: Record<string, string> } | null => {
+    const host = hostRegistry().get(hostId)
+    if (host.kind === 'wsl') return host.agentIntegration()?.studioMcpEntry ?? null
+    return {
+      command: process.execPath,
+      args: [resolveStudioMcpBridgeScriptPath()],
+      env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
+    }
+  }
   // Bundled skills arrive in the `studio-skills` directory of that same copy.
   setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
   const listAgentStateSpecs = () =>
@@ -230,11 +260,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
-    resolveHostNodeCommand: () => process.execPath,
-    // A CLI run through WSL reads its user-global hook config (Kimi's) from the
-    // Linux home of the distribution the workspace runs in.
-    resolveWslHomeDir: async (workspaceRoot, distro) =>
-      (await probeWslHome(distro || (await resolveWslDistroForPath(workspaceRoot))))?.home ?? null,
     // A CLI that takes the app's plugin directories at launch gets this same
     // reporter for the session, so nothing is written into the workspace. Both
     // halves must hold: a manifest that declares the flag, and a materialised
@@ -249,6 +274,35 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
+  // WSL machines: each distribution's helper relays its agents' hook frames,
+  // their MCP connections and PATH changes back here (hosts/wsl-helper-*.ts).
+  // Configured on every platform because it costs nothing; only Windows ever
+  // starts a helper.
+  configureWslHelpers({
+    appVersion: app.getVersion(),
+    userDataDir: app.getPath('userData'),
+    resources: () => {
+      const helperDir = getBundledResourceDir('wsl-helper')
+      const hooksDir = getBundledResourceDir('hooks')
+      const automationDir = getBundledResourceDir('automation')
+      return helperDir && hooksDir && automationDir ? { helperDir, hooksDir, automationDir } : null
+    },
+    pluginSources: () => ({
+      templateRoot: getBundledStudioPluginRoot(),
+      reporterSourcePath: getBundledAgentStateReporterPath(),
+      statusLineSourcePath: getBundledStatusLineForwarderPath(),
+    }),
+    automationSocketPath: () => resolveAutomationSocketPath(app.getPath('userData')),
+    ingestAgentStateLine: (line) => agentStateService.ingestLine(line),
+    onPathsChanged: (distro) => invalidateCliAvailabilityOnHost(wslHostId(distro)),
+    // Chromium's network stack, so the one-time Node.js download honours the
+    // system proxy the way the rest of the app's requests do.
+    fetch: (url, init) => net.fetch(url, init),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', title: 'WSL helper', message, source: 'terminal' })
     },
   })
 
@@ -345,11 +399,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         },
         {
           mcpConfigService,
-          studioGateway: () => ({
-            command: process.execPath,
-            bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-            userDataDir: app.getPath('userData'),
-          }),
+          studioGateway: () => studioGatewayFor(null),
         },
       )
       return result.ok ? { ok: true } : result
@@ -552,15 +602,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             // from that plugin's own `.mcp.json`; pinning it into the repository
             // as well would be a second copy of the server, and one a plain
             // terminal's `claude` in that checkout would load too.
-            studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
+            studioGatewayDeliveredAtLaunch:
+              input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0], input.hostId),
           },
           {
             mcpConfigService,
-            studioGateway: () => ({
-              command: process.execPath,
-              bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-              userDataDir: app.getPath('userData'),
-            }),
+            studioGateway: () => studioGatewayFor(input.hostId),
             // Once per server per run: the same config is synced on every
             // WSL launch, and the same sentence each time is noise.
             warn: (message) => {
@@ -1417,6 +1464,22 @@ function getBundledStudioPluginRoot(): string | null {
     join(app.getAppPath(), 'resources', ...relative),
     join(__dirname, '..', '..', 'resources', ...relative),
     join(__dirname, '..', '..', '..', 'resources', ...relative),
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+// A directory the build ships under resources (`wsl-helper`, `hooks`,
+// `automation`), with the same packaged and dev lookups as the ones above.
+function getBundledResourceDir(name: string): string | null {
+  if (app.isPackaged) {
+    const packaged = join(process.resourcesPath, name)
+    return existsSync(packaged) ? packaged : null
+  }
+  const candidates = [
+    join(process.cwd(), 'resources', name),
+    join(app.getAppPath(), 'resources', name),
+    join(__dirname, '..', '..', 'resources', name),
+    join(__dirname, '..', '..', '..', 'resources', name),
   ]
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }

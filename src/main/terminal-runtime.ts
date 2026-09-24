@@ -39,9 +39,11 @@ import {
   type ObservedCheckout,
 } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
-import { distroOfHostId, normalizeExecutionHostId } from '../shared/execution-host'
+import { normalizeExecutionHostId } from '../shared/execution-host'
 import { hostRegistry } from './hosts/host-registry'
+import type { HostAgentIntegration, HostLaunchTarget, HostProcessRef } from './hosts/execution-host'
 import {
+  agentIdentityEnv,
   cleanupHostContextFile,
   cleanupTerminalStartupScript,
   applyAgentIdentityEnv,
@@ -107,12 +109,7 @@ import {
   type TerminalAttachTransport,
   type TerminalRemoteHost,
 } from './terminal-remote-attach'
-import {
-  killCliSessionSurvivors,
-  probeSessionSubtrees,
-  type SessionProbeTarget,
-  type SubtreeProbeDeps,
-} from './terminal-subtree-probe'
+import type { SubtreeLiveReason, SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import {
@@ -149,6 +146,9 @@ type TerminalRuntimeOptions = {
     clients: AgentCli[]
     pruneUnlistedServers?: boolean
     executionPathStyle?: TerminalPathStyle
+    // The machine the CLI runs on: it decides the gateway entry (this app's
+    // own binary here, the pinned Node and the helper's bridge in WSL).
+    hostId?: string
   }): Promise<{ ok: true } | { ok: false; message: string }>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
@@ -178,7 +178,7 @@ type TerminalRuntimeOptions = {
   prepareAgentStateHook?(
     workspaceRoot: string,
     cli: string,
-    execution?: { pathStyle?: TerminalPathStyle; wslDistro?: string | null },
+    execution?: { pathStyle?: TerminalPathStyle; hostId?: string; integration?: HostAgentIntegration | null },
   ): Promise<void>
   // Durable freeze-the-view: per-terminal snapshot sidecars on disk, so a
   // suspended terminal reopens painted-and-paused after an app restart. Absent
@@ -1059,7 +1059,7 @@ export function suspendTerminal(sessionId: string): void {
   // child that survives the pty's SIGHUP breaks the first half invisibly.
   // Verify by argv and SIGKILL survivors (resume uses the CLI's own
   // `--resume` token, which needs no live process).
-  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId, { host: survivorHost(session) })
+  killSessionSurvivors(session)
   void buildReplaySnapshot(snapshotSource, snapshotCols, snapshotRows).then((snapshot) => {
     // Only attach if this exact session is still the suspended one (not disposed,
     // resumed, or replaced) — otherwise a stale snapshot could shadow live output.
@@ -1359,23 +1359,46 @@ function disposeTerminal(sessionId: string): void {
   // dispose has deleted the session record, so a survivor is a permanent leak
   // (15 idle Opus agents in the 2026-07-26 incident). Verify by argv and
   // SIGKILL survivors; a clean exit makes this a no-op.
-  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId, { host: survivorHost(session) })
+  killSessionSurvivors(session)
+  releaseSessionHost(session)
 }
 
-// Where a session's processes live, for the survivor kill: on Windows a native
-// session's are found through CIM, a WSL session's inside its distribution.
-function survivorHost(session: TerminalSession): {
-  pathStyle?: TerminalSession['pathStyle']
-  cwd?: string
-  startupScriptPath?: string
-  wslDistro?: string | null
-} {
-  return {
-    pathStyle: session.pathStyle,
-    cwd: session.cwd,
-    startupScriptPath: session.startupScriptPath,
-    wslDistro: distroOfHostId(session.hostId),
-  }
+// The session's machine ends what it left running: `ps` by `--session-id` on
+// macOS and Linux, CIM on Windows, and inside the distribution for WSL, where
+// killing `wsl.exe` on the Windows side does not reach the Linux processes.
+// There the helper also ends the session shell's whole subtree (found through
+// its pid file), so a plain WSL terminal that carries no CLI session id still
+// leaves nothing behind.
+function killSessionSurvivors(session: TerminalSession): void {
+  const host = hostRegistry().get(session.hostId)
+  if (!session.cliSessionId && host.kind !== 'wsl') return
+  // A suspended WSL session had its survivors ended when it was suspended.
+  // Closing it later must not start a stopped helper (and wake the VM) to look
+  // again for what is already gone.
+  if (host.kind === 'wsl' && session.suspended) return
+  void host
+    .killSessionSurvivors(session.cliSessionId ?? '', { startupScriptPath: session.startupScriptPath })
+    .catch(() => [])
+}
+
+// A session holds its machine while its pty lives: for WSL that keeps the
+// helper running, and the last release lets it stop a while later so the VM
+// can idle. Keyed per pty, so a relaunch under the same session id never has
+// its hold dropped by the old pty's late exit.
+let nextHostLease = 1
+
+function retainSessionHost(session: TerminalSession): void {
+  if (session.hostLease) return
+  session.hostLease = `${session.sessionId}#${nextHostLease}`
+  nextHostLease += 1
+  hostRegistry().get(session.hostId).retainSession(session.hostLease)
+}
+
+function releaseSessionHost(session: TerminalSession): void {
+  const lease = session.hostLease
+  if (!lease) return
+  session.hostLease = undefined
+  hostRegistry().get(session.hostId).releaseSession(lease)
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1826,33 +1849,37 @@ async function buildReapGuardHolds(
   deps: { subtree?: SubtreeProbeDeps },
 ): Promise<Map<string, string>> {
   const holds = new Map<string, string>()
-  const subtreeTargets: SessionProbeTarget[] = []
+  // Grouped by machine, one read per machine: `ps` on macOS and Linux, CIM for
+  // native Windows, and the helper's /proc read for each WSL distribution,
+  // whose pty pid is only `wsl.exe` (the helper finds the session shell from
+  // the pid file its startup script wrote).
+  const byHost = new Map<string, HostProcessRef[]>()
+  const probed: string[] = []
   for (const sessionId of targetSessionIds) {
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed || !isTerminalProcessAlive(session)) continue
     const pid = session.process.pid
-    // The path style says how the subtree is read: `ps` on macOS and Linux, CIM
-    // for a native Windows session, and inside the distribution for a WSL one,
-    // whose pty pid is only `wsl.exe` (see probeSessionSubtrees).
-    if (typeof pid === 'number' && pid > 0) {
-      subtreeTargets.push({
-        sessionId,
-        rootPid: pid,
-        pathStyle: session.pathStyle,
-        cwd: session.cwd,
-        startupScriptPath: session.startupScriptPath,
-        // The session's host names its distribution; the cwd only guesses.
-        wslDistro: distroOfHostId(session.hostId),
-      })
-    }
+    if (typeof pid !== 'number' || pid <= 0) continue
+    const hostId = hostRegistry().get(session.hostId).id
+    const refs = byHost.get(hostId) ?? []
+    refs.push({ sessionId, rootPid: pid, startupScriptPath: session.startupScriptPath })
+    byHost.set(hostId, refs)
+    probed.push(sessionId)
   }
-  if (subtreeTargets.length > 0) {
-    const verdicts = await probeSessionSubtrees(subtreeTargets, deps.subtree)
-    for (const target of subtreeTargets) {
-      const reason = verdicts.get(target.sessionId)
-      if (reason === undefined) holds.set(target.sessionId, 'subtree_undetermined')
-      else if (reason !== null) holds.set(target.sessionId, `live_subtree_${reason}`)
-    }
+  const verdicts = new Map<string, SubtreeLiveReason | null>()
+  await Promise.all(
+    [...byHost].map(async ([hostId, refs]) => {
+      const answer = await hostRegistry()
+        .get(hostId)
+        .probeSubtrees(refs, deps.subtree)
+        .catch(() => new Map<string, SubtreeLiveReason | null>())
+      for (const [sessionId, reason] of answer) verdicts.set(sessionId, reason)
+    }),
+  )
+  for (const sessionId of probed) {
+    const reason = verdicts.get(sessionId)
+    if (reason === undefined) holds.set(sessionId, 'subtree_undetermined')
+    else if (reason !== null) holds.set(sessionId, `live_subtree_${reason}`)
   }
   return holds
 }
@@ -2750,6 +2777,9 @@ function attachTerminalSession(
   initialInput: string | undefined,
 ): void {
   terminals.set(sessionId, terminalSession)
+  // Only a live pty holds its machine; a placeholder rehydrated from a sidecar
+  // has no process and holds nothing.
+  if (typeof terminalSession.process.pid === 'number') retainSessionHost(terminalSession)
   // The agent's own changelist, made and made ACTIVE at launch (decision of
   // record): edits that bypass the reporter hook — a Bash `sed`, a formatter on
   // save — are then adopted into the launching agent's list rather than into
@@ -2798,6 +2828,7 @@ function attachTerminalSession(
   })
 
   terminalSession.process.onExit((event) => {
+    releaseSessionHost(terminalSession)
     // Freeze-the-view: a suspend-kill is NOT a real exit. Finalize the suspended
     // state and keep the session + painted scrollback; do not mark the session
     // exited or fire `terminal:exit` (which would unmount the view). Resume
@@ -3047,10 +3078,36 @@ async function spawnTerminalFromIpc(
     folder: cwd,
   })
   const executionPathStyle: TerminalPathStyle = host.pathStyle
-  const hostWslDistro = distroOfHostId(host.id)
   const launchCliRuntimes: typeof cliRuntimes = shellOnly
     ? cliRuntimes
     : { ...cliRuntimes, [agentCli]: host.cliRuntime(agentCli, cliRuntimes?.[agentCli]) }
+
+  // A WSL machine needs its helper before anything is launched there: the
+  // agent's hooks, status line and MCP bridge all report through it. An agent
+  // launch waits for it (installing it on first use) and fails with the reason
+  // when it cannot start; there is no other way for that agent to report. A
+  // plain terminal does not need it to run, so it only starts it.
+  if (shellOnly) {
+    void host.prepare().catch(() => undefined)
+  } else {
+    try {
+      await host.prepare()
+    } catch (error) {
+      const message = getErrorMessage(error)
+      logMainPerfEvent('TerminalRuntime', 'host-prepare-failed', { sessionId, hostId: host.id, message })
+      return { ok: false, sessionId, message, exitCode: 1 } satisfies TerminalSpawnResult
+    }
+  }
+  const hostIntegration = shellOnly ? null : host.agentIntegration()
+  const baseLaunchTarget = host.launchTarget()
+  const launchTarget: HostLaunchTarget =
+    baseLaunchTarget.kind === 'wsl' && !shellOnly
+      ? {
+          ...baseLaunchTarget,
+          integration: hostIntegration,
+          identity: agentIdentityEnv({ workspaceId, agentId, agentName, cli: agentCli }),
+        }
+      : baseLaunchTarget
 
   disposeTerminal(sessionId)
   logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
@@ -3102,6 +3159,7 @@ async function spawnTerminalFromIpc(
         settings: mcpSettings ?? { syncEnabled: false, servers: {} },
         clients: [agentCli],
         executionPathStyle,
+        hostId: host.id,
         // A connector launch (connectorLaunch set, paired with the
         // single-server connectorMcpSettings) writes an isolated worktree
         // config that must contain only the connector — prune any MCP server
@@ -3231,7 +3289,7 @@ async function spawnTerminalFromIpc(
       managed,
       reapExempt,
     } = shellOnly
-      ? getPlainShellLaunchConfig(workingDirectory, sessionId, host.launchTarget())
+      ? getPlainShellLaunchConfig(workingDirectory, sessionId, launchTarget)
       : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
@@ -3248,7 +3306,7 @@ async function spawnTerminalFromIpc(
           cliAuthToken,
           cliReasoning,
           resolvedBinaryPath,
-          host.launchTarget(),
+          launchTarget,
         )
     // Install the authoritative-agent-state reporter into the workspace before
     // launching a supported agent, so its lifecycle hooks report phase the
@@ -3257,7 +3315,8 @@ async function spawnTerminalFromIpc(
     if (!shellOnly && agentStateSupportsCli(cli)) {
       await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, {
         pathStyle: executionPathStyle,
-        wslDistro: hostWslDistro,
+        hostId: host.id,
+        integration: hostIntegration,
       })
     }
 

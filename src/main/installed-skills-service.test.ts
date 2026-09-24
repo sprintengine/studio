@@ -6,7 +6,7 @@ import { join, posix, win32 } from 'node:path'
 import { afterEach, test } from 'vitest'
 import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
 import { claudeReceiptRoots, createInstalledSkillsService, samePath, wslToHost } from './installed-skills-service'
-import { parseWslProbe, type WslHome } from './wsl-home'
+import type { WslHome } from './wsl-home'
 
 const temporary: string[] = []
 afterEach(async () => {
@@ -304,20 +304,6 @@ test('paths a CLI wrote inside WSL open through the drive or the distribution ro
     '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude\\plugins\\x',
   )
   assert.equal(wslToHost('C:\\Users\\dev\\project', root, win32), 'C:\\Users\\dev\\project')
-})
-
-test('the WSL probe ignores login-shell noise and Windows line endings', () => {
-  assert.deepEqual(
-    parseWslProbe(
-      'Welcome to Ubuntu\r\nSPRINTENGINE_WSL_HOME=\\\\wsl.localhost\\Ubuntu\\home\\dev\r\nSPRINTENGINE_WSL_ROOT=\\\\wsl.localhost\\Ubuntu\\\r\nSPRINTENGINE_WSL_CLAUDE_CONFIG_DIR=\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude-work\r\n',
-    ),
-    {
-      home: '\\\\wsl.localhost\\Ubuntu\\home\\dev',
-      root: '\\\\wsl.localhost\\Ubuntu\\',
-      env: { CLAUDE_CONFIG_DIR: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude-work' },
-    },
-  )
-  assert.equal(parseWslProbe('wsl: no distribution installed\r\n'), null)
 })
 
 test('a Claude Code session inside WSL lists the WSL home, not the Windows profile', async () => {

@@ -159,29 +159,49 @@ test('agent-state-service', async () => {
     // The same workspace can switch from a native Windows launch to WSL. The
     // execution style is part of the install key, so the second launch heals
     // the command instead of reusing a Windows-only `node C:/...` invocation.
+    // In WSL the hook is the helper's: the pinned Linux Node, the workspace's
+    // script as Linux names it, and the helper's Unix socket. Nothing is a
+    // Windows program, so nothing needs interop or WSLENV.
     const wslRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-wsl-'))
+    const wslWarnings: string[] = []
     const wslSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
       resolveAgentStateSpec: resolveSpec,
       resolveReporterScriptPath: () => reporterSrc,
       resolveReporterTemplatePath: () => null,
-      resolveHostNodeCommand: () => 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe',
       onFrame: () => {},
+      logDiagnostic: (diagnostic) => wslWarnings.push(diagnostic.details ?? diagnostic.message),
     })
     await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'windows' })
     let wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
     assert.match(wslConfig, /command = "node /u, 'native launch initially uses the CLI-visible Node runtime')
-    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'wsl' })
+    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'wsl', hostId: 'wsl:Ubuntu', integration: null })
+    assert.match(wslConfig, /command = "node /u, 'without the helper nothing is written for WSL')
+    assert.ok(wslWarnings.some((line) => line.includes('WSL helper was not running')))
+    const node = '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node'
+    await wslSvc.installForWorkspace(wslRoot, 'codex', {
+      pathStyle: 'wsl',
+      hostId: 'wsl:Ubuntu',
+      integration: {
+        agentStateSocketPath: '/run/user/1000/sprintengine/abc123def456/agent.sock',
+        commandRuntime: {
+          executable: node,
+          toCommandPath: (nativePath) => nativePath.replace(wslRoot, '/home/dev/repo').split('\\').join('/'),
+        },
+        pluginDirs: [],
+        statusLineScriptPath: null,
+        studioMcpEntry: { command: node, args: [], env: {} },
+        home: { host: '/home/dev', native: wslRoot },
+      },
+    })
     wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
-    assert.ok(wslConfig.includes("ELECTRON_RUN_AS_NODE='1'"), 'WSL command starts the host runtime as Node')
     assert.ok(
-      (/WSLENV='([^']*)'/u.exec(wslConfig)?.[1] ?? '').split(':').includes('ELECTRON_RUN_AS_NODE'),
-      'WSL command forwards ELECTRON_RUN_AS_NODE through interop, or the binary opens the app and takes focus',
+      wslConfig.includes(
+        `env '${node}' '/home/dev/repo/.sprintengine/hooks/agent-state.mjs' --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'`,
+      ),
+      `the WSL hook runs the pinned Node on the Linux path and reports to the helper: ${wslConfig}`,
     )
-    assert.ok(
-      wslConfig.includes('/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe'),
-      'WSL command names the host executable through its Linux-visible path',
-    )
+    assert.doesNotMatch(wslConfig, /WSLENV|ELECTRON_RUN_AS_NODE|\/mnt\//u, 'nothing crosses back into Windows')
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'), 'codex reporter hook not installed')
     // …and is itself install-once.

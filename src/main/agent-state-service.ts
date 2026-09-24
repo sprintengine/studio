@@ -7,9 +7,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
 import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
-import { AGENT_IDENTITY_ENV_KEYS } from '../shared/studio-env'
-import { toWslPath } from '../shared/host-paths'
-import { wslInteropEnv } from './wsl-interop'
+import type { HostAgentIntegration } from './hosts/execution-host'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -17,7 +15,8 @@ import { wslInteropEnv } from './wsl-interop'
 // Owns a dedicated local socket the per-workspace reporter hook writes
 // newline-delimited JSON frames to, validates each frame, and hands the valid
 // ones to `onFrame` (the terminal runtime, which resolves the session and
-// updates its phase). Also owns installing the reporter at launch — serialized
+// updates its phase). A WSL distribution's frames arrive through its helper
+// instead (`ingestLine`) and are held to exactly the same validation. Also owns installing the reporter at launch — serialized
 // per TARGET FILE (several CLIs can share one settings file) and run once per
 // CLI per scope root and execution style per app run, so concurrent agent
 // launches never race a config's read-modify-write and switching between native
@@ -58,26 +57,15 @@ export type AgentStateServiceOptions = {
   // Home directory a user-scoped registration resolves against. Injected so
   // tests never write the real home; production omits it (os.homedir()).
   resolveHomeDir?: () => string
-  // The Linux home of the distribution a WSL launch in `workspaceRoot` runs
-  // in, as a path this process can write (`\\wsl.localhost\<distro>\home\…`).
-  // A user-scoped registration for a CLI run through WSL is read by that CLI
-  // from its Linux home, so it is written there, not into the Windows profile.
-  // Null when the distribution cannot be asked; the install is then skipped and
-  // retried on the next launch rather than written where nothing reads it.
-  // The Linux home of the distribution a WSL launch runs in, as a UNC path.
-  // `distro` is the launch host's; absent, the workspace's folder decides.
-  resolveWslHomeDir?: (workspaceRoot: string, distro?: string | null) => Promise<string | null>
-  // WSL hooks run in a Linux shell but must use the Windows-hosted runtime so
-  // they can reach the app's named pipe. The executable itself is rendered as
-  // a /mnt/<drive> path; its script and pipe arguments remain Windows-native.
-  resolveHostNodeCommand?: () => string
   // Whether this CLI is handed the app's own plugin directories at launch
   // (`--plugin-dir`), which carry this very reporter and its event set. True ⇒
   // install nothing into the workspace: the launch flag already registers it
   // for that session, a second registration would fire the reporter twice for
   // every event, and the person's repository keeps none of it. Absent ⇒ nothing
   // is launch-injected, which is the behaviour from before the flag existed.
-  resolveLaunchInjectsPlugins?: (cli: string) => boolean
+  // Asked with the launch's machine: a WSL launch carries the copy inside its
+  // distribution only once the helper has written it there.
+  resolveLaunchInjectsPlugins?: (cli: string, hostId?: string) => boolean
   // Every loaded CLI's agentStateSpec. Read only when a launch-injected CLI
   // tidies the registration an earlier build wrote into the workspace: the
   // shared reporter script there must survive while another CLI's registration
@@ -178,6 +166,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     socket.on('error', () => sockets.delete(socket))
   }
 
+  // One frame line, from this machine's socket or relayed by a WSL helper.
   function handleLine(line: string): void {
     let raw: unknown
     try {
@@ -218,10 +207,14 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   // agent state. Serialized + run once per (cli, workspace, execution style)
   // per app run, and strictly best-effort: a failure is logged and swallowed
   // so it can never block or break the launch that awaits it.
+  //
+  // A launch on another host (WSL) passes that host's `integration`: its hooks
+  // run the host's own Node on the host's paths and report to the helper's
+  // socket, and a user-scoped registration goes into the host's home.
   async function installForWorkspace(
     workspaceRoot: string,
     cli: string,
-    execution: { pathStyle?: TerminalPathStyle; wslDistro?: string | null } = {},
+    execution: { pathStyle?: TerminalPathStyle; hostId?: string; integration?: HostAgentIntegration | null } = {},
   ): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
@@ -237,7 +230,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // window, before the copy landed) installed into still holds that
     // registration, which would now fire beside the launch's own for every
     // event and stay in the person's repository. It is taken out instead.
-    if (options.resolveLaunchInjectsPlugins?.(cli)) {
+    if (options.resolveLaunchInjectsPlugins?.(cli, execution.hostId)) {
       await tidyWorkspaceRegistration(root, spec)
       return
     }
@@ -248,22 +241,23 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // that would be byte-identical anyway.
     const pathStyle = execution.pathStyle ?? (process.platform === 'win32' ? 'windows' : 'posix')
     const userScoped = spec.registration.scope === 'user'
-    let homeDir = options.resolveHomeDir?.()
-    if (userScoped && pathStyle === 'wsl' && options.resolveWslHomeDir) {
-      const wslHome = await options.resolveWslHomeDir(root, execution.wslDistro).catch(() => null)
-      if (!wslHome) {
-        warn(
-          'Agent-state hook not installed',
-          `Could not find the WSL home for ${cli}, whose hook configuration lives there. It is tried again on the next launch.`,
-        )
-        return
-      }
-      homeDir = wslHome
+    const integration = pathStyle === 'wsl' ? execution.integration : null
+    if (pathStyle === 'wsl' && !integration) {
+      // The launch waits for the helper before it gets here; without it there
+      // is no socket in the distribution to point a hook at.
+      warn(
+        'Agent-state hook not installed',
+        `The WSL helper was not running when ${cli} launched, so its hook could not be written. It is tried again on the next launch.`,
+      )
+      return
     }
+    // The CLI reads its user-global config, and Claude its user settings (for
+    // the status line it wraps), from the home of the machine it runs on.
+    const homeDir = integration ? integration.home.native : options.resolveHomeDir?.()
     // A user-scoped key names the home it wrote to: a CLI run natively and the
     // same CLI run through WSL keep separate user configurations.
     const keyRoot = userScoped ? `user:${homeDir ?? ''}` : root
-    const key = `${cli}::${keyRoot}::${pathStyle}`
+    const key = `${cli}::${keyRoot}::${pathStyle}::${execution.hostId ?? ''}`
     if (installed.has(key)) return
 
     // Serialization is keyed by the TARGET FILE, not the CLI: claude-code, zai
@@ -287,20 +281,9 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
       }
       const result = await installAgentStateReporter(workspaceRoot, spec, {
         sourceScriptPath,
-        socketPath: getSocketPath(),
+        socketPath: integration ? integration.agentStateSocketPath : getSocketPath(),
         statusLineScriptPath: options.resolveStatusLineScriptPath?.() ?? null,
-        ...(pathStyle === 'wsl' && options.resolveHostNodeCommand
-          ? {
-              commandRuntime: {
-                executable: toWslPath(options.resolveHostNodeCommand()),
-                // The reporter reads the agent's id and socket from its env,
-                // and the WSL launch shared them into the Linux session, so
-                // they are named for the crossing back out as well.
-                env: wslInteropEnv({ ELECTRON_RUN_AS_NODE: '1' }, AGENT_IDENTITY_ENV_KEYS),
-                wslInterop: true,
-              },
-            }
-          : {}),
+        ...(integration ? { commandRuntime: integration.commandRuntime } : {}),
         ...(homeDir ? { homeDir } : {}),
       })
       if (result.ok) {
@@ -353,6 +336,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     initialize,
     shutdown,
     getSocketPath,
+    ingestLine: handleLine,
     installForWorkspace,
     isRunning: () => server !== null,
   }

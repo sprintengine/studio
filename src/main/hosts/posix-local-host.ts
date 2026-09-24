@@ -11,7 +11,12 @@ import type { CliRuntimeSettings } from '../../shared/electron-api'
 import { executionHostLabel, LOCAL_HOST_ID, type ExecutionHostSummary } from '../../shared/execution-host'
 import { detectCliBatch } from '../cli-runtime-install'
 import { runSpawnDescriptor } from '../process-run'
-import { killCliSessionSurvivors, probeSubtreesForLiveWork, type SubtreeLiveReason } from '../terminal-subtree-probe'
+import {
+  killCliSessionSurvivors,
+  probeSubtreesForLiveWork,
+  type SubtreeLiveReason,
+  type SubtreeProbeDeps,
+} from '../terminal-subtree-probe'
 import type { ExecutionHost, HostProcessRef } from './execution-host'
 
 /** The CLI runtime with only what a launch reads: this machine's command, and the models. */
@@ -41,12 +46,16 @@ export function createPosixLocalHost(platform: NodeJS.Platform = process.platfor
       const home = homedir()
       return { host: home, native: home }
     },
+    prepare: async () => undefined,
+    retainSession: () => undefined,
+    releaseSession: () => undefined,
+    agentIntegration: () => null,
     launchTarget: () => ({ kind: 'posix' }),
     cliRuntime: (_cli, runtime) => localCliRuntime(runtime),
-    async probeSubtrees(refs: readonly HostProcessRef[]) {
+    async probeSubtrees(refs: readonly HostProcessRef[], deps?: SubtreeProbeDeps) {
       const verdicts = await probeSubtreesForLiveWork(
         refs.map((ref) => ref.rootPid),
-        { platform },
+        { platform, ...deps },
       )
       const result = new Map<string, SubtreeLiveReason | null>()
       for (const ref of refs) {

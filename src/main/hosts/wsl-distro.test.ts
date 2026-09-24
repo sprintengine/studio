@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -121,10 +121,29 @@ test('the pid file is keyed by the startup script and written by the shell it na
   const tmp = mkdtempSync(join(tmpdir(), 'se-wsl-pid-'))
   try {
     // Run the line with the directory pointed into the temp dir: the shell's
-    // own pid lands in the file, from a subshell as well.
+    // own pid lands in the file, from a subshell as well, followed by the
+    // shell's start time where there is a /proc to read it from (Linux, and so
+    // every WSL distribution; macOS has none and writes the pid alone).
     const line = wslSessionPidFileCommand('sess-1').replaceAll('/tmp/sprintengine-studio-$(id -u)', tmp)
-    const pid = execFileSync('sh', ['-c', `${line}; echo $$`], { encoding: 'utf8' }).trim()
-    assert.equal(readFileSync(join(tmp, 'sessions', 'sess-1.pid'), 'utf8').trim(), pid)
+    const hasProc = existsSync('/proc/self/stat')
+    for (const shell of ['sh', ...(existsSync('/bin/dash') ? ['/bin/dash'] : [])]) {
+      const printed = execFileSync(
+        shell,
+        ['-c', `${line}; echo $$; ${hasProc ? `sed 's/.*) //' /proc/$$/stat | cut -d' ' -f20` : 'echo'}`],
+        { encoding: 'utf8' },
+      )
+      const [pid, started] = printed.split('\n')
+      const [writtenPid, writtenStarted] = readFileSync(join(tmp, 'sessions', 'sess-1.pid'), 'utf8')
+        .trim()
+        .split(' ')
+      assert.equal(writtenPid, pid, `${shell}: the shell's own pid`)
+      if (hasProc) {
+        assert.match(writtenStarted ?? '', /^\d+$/u, `${shell}: a start time`)
+        assert.equal(writtenStarted, started, `${shell}: the shell's own start time, not the subshell's`)
+      } else {
+        assert.equal(writtenStarted, undefined, `${shell}: no start time without /proc`)
+      }
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }

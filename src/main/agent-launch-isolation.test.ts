@@ -332,7 +332,11 @@ test('a launch that carries the gateway pins nothing, but still writes the serve
         return { ok: true as const, targets: [], issues: [] }
       },
     },
-    studioGateway: () => ({ command: '/bin/studio', bridgeScriptPath: '/bin/bridge.mjs', userDataDir: '/tmp/u' }),
+    studioGateway: () => ({
+      command: '/bin/studio',
+      args: ['/bin/bridge.mjs'],
+      env: { SPRINTENGINE_USER_DATA_DIR: '/tmp/u' },
+    }),
   }
 
   await syncStudioMcpConfig(

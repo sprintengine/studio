@@ -33,7 +33,6 @@ import { withoutInheritedSessionEnv } from './inherited-session-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
-import { withWslSharedEnv } from './wsl-interop'
 import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './hosts/wsl-distro'
 import type { HostLaunchTarget } from './hosts/execution-host'
 
@@ -117,7 +116,7 @@ export function getTerminalEnv(): Record<string, string> {
 // Claude-family CLI, which cannot bake one. The bridge inherits the session's
 // env either way, so the CLI travels here, the same road the workspace and
 // agent ids already take.
-function agentIdentityEnv(input: {
+export function agentIdentityEnv(input: {
   workspaceId?: string
   agentId?: string
   agentName?: string
@@ -167,22 +166,23 @@ export function setLaunchPluginDirsResolver(resolver: (() => string[]) | null): 
 /**
  * This launch's plugin directories, in the path style the launched shell reads.
  *
- * The directories are native paths belonging to the app; a WSL launch runs a
- * Linux shell that cannot open `C:\...`, so they are converted exactly as every
- * other host path crossing that boundary is.
+ * On this machine they are the copy app-services materialised under userData.
+ * A WSL launch gets the copy its helper wrote inside the distribution, with
+ * Linux paths substituted into it (the pinned Node, the helper's bridge and
+ * socket): converting this machine's directory would not convert the paths
+ * inside its files, and a Linux `claude` would run `node "C:/…"` for every
+ * hook. Until the helper has written it, a WSL launch passes none, and the
+ * workspace installer (which asks the same host) carries agent state instead.
+ *
+ * Native Windows is still left on the workspace install, and the predicate in
+ * app-services agrees, so the two can never each think the other registers the
+ * hook.
  */
-function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl'): string[] {
-  // Windows is deliberately left on the workspace install for now, BOTH native
-  // and through WSL, and the skip predicate in app-services agrees with this so
-  // the two can never each think the other is registering the hook.
-  //
-  // WSL is the reason: the copy is materialised once with absolute paths
-  // substituted into it — the hook command, the node binary that runs the MCP
-  // bridge, the bridge itself — and those are Windows paths. Converting the
-  // DIRECTORY for the flag does not convert the paths inside the files, so a
-  // Linux `claude` would run `node "C:/Users/…/agent-state.mjs"` and report
-  // MODULE_NOT_FOUND for every event. Native Windows would work, but one
-  // platform answering two ways is how the double registration gets back in.
+function pluginDirsForLaunch(cli: AgentCli, target: HostLaunchTarget): string[] {
+  if (target.kind === 'wsl') {
+    const dirs = target.integration?.pluginDirs ?? []
+    return dirs.length > 0 && cliTakesLaunchPlugins(cli) ? [...dirs] : []
+  }
   let dirs: string[]
   try {
     dirs = launchPluginDirsResolver?.() ?? []
@@ -190,8 +190,7 @@ function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl')
     return []
   }
   if (!launchCarriesAppPluginsFor(cli, dirs)) return []
-  if (target === 'posix') return dirs
-  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : wslToWindowsPath(dir)))
+  return target.kind === 'posix' ? dirs : dirs.map((dir) => wslToWindowsPath(dir))
 }
 
 /**
@@ -219,9 +218,25 @@ export function setLaunchStatusLineScriptResolver(resolver: (() => string) | nul
 function launchSettingsForLaunch(
   cli: AgentCli,
   cwd: string,
-  target: 'posix' | 'windows' | 'wsl',
+  target: HostLaunchTarget,
 ): Record<string, unknown> | undefined {
   if (pluginDirsForLaunch(cli, target).length === 0) return undefined
+  if (target.kind === 'wsl') {
+    // The forwarder, socket, Node and home are the distribution's own. The
+    // status line it wraps is the person's Linux one, run by Linux Node.
+    const integration = target.integration
+    if (!integration?.statusLineScriptPath) return undefined
+    const statusLine = buildLaunchStatusLineSetting({
+      workspaceRoot: cwd,
+      scriptPath: integration.statusLineScriptPath,
+      socketPath: integration.agentStateSocketPath,
+      homeDir: integration.home.native,
+      // The person's Linux CLAUDE_CONFIG_DIR, as this process opens it.
+      env: { ...integration.home.env },
+      runtime: integration.commandRuntime,
+    })
+    return statusLine ? { statusLine } : undefined
+  }
   let scriptPath: string
   try {
     scriptPath = launchStatusLineScriptResolver?.() ?? ''
@@ -1260,6 +1275,7 @@ function buildWslShellScript(
     wslPidFileLine(scriptPath),
     buildUserShellStartup(),
     wslHostEnvExports(host),
+    wslIdentityExports(host),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
@@ -1274,8 +1290,8 @@ function buildWslShellScript(
       cliReasoning,
       undefined,
       hostContext,
-      pluginDirsForLaunch(cli, 'wsl'),
-      launchSettingsForLaunch(cli, cwd, 'wsl'),
+      pluginDirsForLaunch(cli, host),
+      launchSettingsForLaunch(cli, cwd, host),
     ),
     wslShellExec(host),
   ]
@@ -1303,6 +1319,25 @@ function defaultLaunchTarget(): HostLaunchTarget {
 function wslHostEnvExports(host: WslLaunchTarget): string {
   return Object.entries(host.env)
     .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+    .map(([key, value]) => `export ${key}=${quotePosix(value)}`)
+    .join('; ')
+}
+
+/**
+ * The agent's identity as `export` lines: which workspace and agent this is,
+ * the CLI, and the helper's socket in this distribution, which the hooks, the
+ * status line and OpenCode's plugin report to. The socket is always the
+ * helper's (the identity handed in names this machine's own, which Linux
+ * cannot open), and is left out when the helper is not up.
+ */
+function wslIdentityExports(host: WslLaunchTarget): string {
+  const identity: Record<string, string> = { ...host.identity }
+  delete identity.SPRINTENGINE_AGENT_STATE_SOCKET
+  if (identity.SPRINTENGINE_AGENT_ID && host.integration) {
+    identity.SPRINTENGINE_AGENT_STATE_SOCKET = host.integration.agentStateSocketPath
+  }
+  return Object.entries(identity)
+    .filter(([key, value]) => (AGENT_IDENTITY_ENV_KEYS as readonly string[]).includes(key) && value !== '')
     .map(([key, value]) => `export ${key}=${quotePosix(value)}`)
     .join('; ')
 }
@@ -1424,8 +1459,8 @@ export function getShellLaunchConfig(
         debugMode,
         cliReasoning,
         windowsHostContext,
-        pluginDirsForLaunch(cli, 'windows'),
-        launchSettingsForLaunch(cli, cwd, 'windows'),
+        pluginDirsForLaunch(cli, launchHost),
+        launchSettingsForLaunch(cli, cwd, launchHost),
       ),
     )
 
@@ -1471,13 +1506,10 @@ export function getShellLaunchConfig(
     return {
       command: 'wsl.exe',
       args: wslStartupArgs(cwd, startupScriptPath, launchHost.distro),
-      // The session's identity is applied to this env at spawn, on the Windows
-      // side of `wsl.exe`, and Windows variables reach the Linux shell only when
-      // `WSLENV` names them. Without this the agent's hooks run with no agent id
-      // or socket and report nothing. A hook calling back out to the
-      // Windows-hosted runtime names them again for that crossing (see the
-      // agent-state service's WSL command runtime).
-      env: withWslSharedEnv(getTerminalEnv(), AGENT_IDENTITY_ENV_KEYS),
+      // The agent's identity and the helper's socket travel in the startup
+      // script as `export` lines (see `wslIdentityExports`), not through this
+      // env: a Windows variable reaches Linux only when `WSLENV` names it.
+      env: getTerminalEnv(),
       pathStyle: 'wsl',
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
@@ -1501,8 +1533,8 @@ export function getShellLaunchConfig(
       cliReasoning,
       resolvedBinaryPath,
       hostContextRenderInputs(hostContext, null, []),
-      pluginDirsForLaunch(cli, 'posix'),
-      launchSettingsForLaunch(cli, cwd, 'posix'),
+      pluginDirsForLaunch(cli, launchHost),
+      launchSettingsForLaunch(cli, cwd, launchHost),
     ),
     buildInteractiveShellExec(shellPath, shellName),
   ]

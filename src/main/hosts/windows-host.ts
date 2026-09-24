@@ -12,7 +12,12 @@ import { executionHostLabel, LOCAL_HOST_ID, type ExecutionHostSummary } from '..
 import { wslToWindowsPath } from '../../shared/host-paths'
 import { detectCliBatch } from '../cli-runtime-install'
 import { runSpawnDescriptor } from '../process-run'
-import { killCliSessionSurvivors, probeWindowsSubtrees, type SubtreeLiveReason } from '../terminal-subtree-probe'
+import {
+  killCliSessionSurvivors,
+  probeWindowsSubtrees,
+  type SubtreeLiveReason,
+  type SubtreeProbeDeps,
+} from '../terminal-subtree-probe'
 import type { ExecutionHost, HostProcessRef } from './execution-host'
 import { localCliRuntime } from './posix-local-host'
 
@@ -38,10 +43,17 @@ export function createWindowsHost(): ExecutionHost {
       const home = homedir()
       return { host: home, native: home }
     },
+    prepare: async () => undefined,
+    retainSession: () => undefined,
+    releaseSession: () => undefined,
+    agentIntegration: () => null,
     launchTarget: () => ({ kind: 'windows' }),
     cliRuntime: (_cli, runtime) => localCliRuntime(runtime),
-    async probeSubtrees(refs: readonly HostProcessRef[]) {
-      const verdicts = await probeWindowsSubtrees(refs.map((ref) => ref.rootPid))
+    async probeSubtrees(refs: readonly HostProcessRef[], deps?: SubtreeProbeDeps) {
+      const verdicts = await probeWindowsSubtrees(
+        refs.map((ref) => ref.rootPid),
+        deps,
+      )
       const result = new Map<string, SubtreeLiveReason | null>()
       for (const ref of refs) {
         if (verdicts.has(ref.rootPid)) result.set(ref.sessionId, verdicts.get(ref.rootPid) ?? null)
