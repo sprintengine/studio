@@ -98,7 +98,12 @@ import {
   type TerminalAttachTransport,
   type TerminalRemoteHost,
 } from './terminal-remote-attach'
-import { killCliSessionSurvivors, probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
+import {
+  killCliSessionSurvivors,
+  probeSessionSubtrees,
+  type SessionProbeTarget,
+  type SubtreeProbeDeps,
+} from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer, type TerminalOutputSink } from './terminal-output-buffer'
@@ -855,7 +860,7 @@ export function suspendTerminal(sessionId: string): void {
   // child that survives the pty's SIGHUP breaks the first half invisibly.
   // Verify by argv and SIGKILL survivors (resume uses the CLI's own
   // `--resume` token, which needs no live process).
-  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId)
+  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId, { host: survivorHost(session) })
   void buildReplaySnapshot(snapshotSource, snapshotCols, snapshotRows).then((snapshot) => {
     // Only attach if this exact session is still the suspended one (not disposed,
     // resumed, or replaced) — otherwise a stale snapshot could shadow live output.
@@ -1109,7 +1114,17 @@ function disposeTerminal(sessionId: string): void {
   // dispose has deleted the session record, so a survivor is a permanent leak
   // (15 idle Opus agents in the 2026-07-26 incident). Verify by argv and
   // SIGKILL survivors; a clean exit makes this a no-op.
-  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId)
+  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId, { host: survivorHost(session) })
+}
+
+// Where a session's processes live, for the survivor kill: on Windows a native
+// session's are found through CIM, a WSL session's inside its distribution.
+function survivorHost(session: TerminalSession): {
+  pathStyle?: TerminalSession['pathStyle']
+  cwd?: string
+  startupScriptPath?: string
+} {
+  return { pathStyle: session.pathStyle, cwd: session.cwd, startupScriptPath: session.startupScriptPath }
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1560,20 +1575,28 @@ async function buildReapGuardHolds(
   deps: { subtree?: SubtreeProbeDeps },
 ): Promise<Map<string, string>> {
   const holds = new Map<string, string>()
-  const subtreeTargets: { sessionId: string; pid: number }[] = []
+  const subtreeTargets: SessionProbeTarget[] = []
   for (const sessionId of targetSessionIds) {
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed || !isTerminalProcessAlive(session)) continue
     const pid = session.process.pid
-    if (typeof pid === 'number' && pid > 0) subtreeTargets.push({ sessionId, pid })
+    // The path style says how the subtree is read: `ps` on macOS and Linux, CIM
+    // for a native Windows session, and inside the distribution for a WSL one,
+    // whose pty pid is only `wsl.exe` (see probeSessionSubtrees).
+    if (typeof pid === 'number' && pid > 0) {
+      subtreeTargets.push({
+        sessionId,
+        rootPid: pid,
+        pathStyle: session.pathStyle,
+        cwd: session.cwd,
+        startupScriptPath: session.startupScriptPath,
+      })
+    }
   }
   if (subtreeTargets.length > 0) {
-    const verdicts = await probeSubtreesForLiveWork(
-      subtreeTargets.map((target) => target.pid),
-      deps.subtree,
-    )
+    const verdicts = await probeSessionSubtrees(subtreeTargets, deps.subtree)
     for (const target of subtreeTargets) {
-      const reason = verdicts.get(target.pid)
+      const reason = verdicts.get(target.sessionId)
       if (reason === undefined) holds.set(target.sessionId, 'subtree_undetermined')
       else if (reason !== null) holds.set(target.sessionId, `live_subtree_${reason}`)
     }
