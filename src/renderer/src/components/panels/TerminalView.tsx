@@ -26,6 +26,7 @@ import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
+import { createSessionAckReporter } from '../../utils/terminalOutputAck'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
@@ -556,8 +557,13 @@ export default function TerminalView({
       `CLI: ${initialContext.cli}${initialContext.agent?.cliModel ? ` · ${initialContext.agent.cliModel}` : ''}`,
       `Workspace path: ${folderReadyPath ?? initialContext.savedFolderPath ?? 'default app path'}`,
     ].join('\n')
+    // Flow control: tell main what this pane has parsed, so a burst the pane
+    // cannot keep up with pauses the pty instead of queueing ahead of the
+    // person's own keystroke echo.
+    const ackReporter = createSessionAckReporter(sessionId)
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onConsumed: ackReporter.ack,
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
@@ -1278,6 +1284,7 @@ export default function TerminalView({
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
+      ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
       studioTerminalRef.current = null
       // Last: it unbinds the theme, disposes the web-links addon and disposes

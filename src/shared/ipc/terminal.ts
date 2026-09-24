@@ -265,6 +265,27 @@ export type TerminalSessionSnapshot = {
   replayLimitBytes?: number
 }
 
+/**
+ * One changed session on `terminal:sessions-delta`: its snapshot, with the two
+ * lists present only when they moved since the session was last broadcast. An
+ * absent list means "unchanged — keep the one you have", never "empty".
+ */
+export type TerminalSessionDeltaEntry = Omit<TerminalSessionSnapshot, 'fileChanges' | 'pullRequests'> & {
+  fileChanges?: SessionFileChange[]
+  pullRequests?: BranchPullRequest[]
+}
+
+/**
+ * What changed among the sessions since the last broadcast: the sessions that
+ * changed, and the ids of those that are gone. The full list is
+ * `terminal:list`, which a window reads once when it subscribes and on its
+ * recovery poll.
+ */
+export type TerminalSessionsDelta = {
+  upserts: TerminalSessionDeltaEntry[]
+  removed: string[]
+}
+
 // One process row from Electron's app.getAppMetrics() plus throttled child
 // process tree sampling. `kind` maps Electron's process type and known spawned
 // child categories to the roles operators reason about: 'main' (Browser),

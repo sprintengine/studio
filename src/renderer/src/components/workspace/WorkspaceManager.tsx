@@ -33,7 +33,7 @@ import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   deriveWorkspaceWorkingSince,
-  getTerminalSessionsSignature,
+  type TerminalSessionsChange,
   refreshTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
@@ -605,7 +605,6 @@ export default function WorkspaceManager() {
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
-  const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reportedUserMessageRef = useRef<Map<string, number>>(new Map())
   const reportedTurnEndRef = useRef<Map<string, number>>(new Map())
@@ -1838,14 +1837,18 @@ export default function WorkspaceManager() {
   useEffect(() => {
     let disposed = false
 
-    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
+    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[], change: TerminalSessionsChange) => {
       if (disposed) return
+      // The per-session bookkeeping below only has to look at what changed:
+      // every one of these folds is a running maximum or an already-offered
+      // check, so a session that did not move has nothing new to say.
+      const changed = change.upserted
 
       // Persist "last typed" recency from lastInputAt, not lastOutputAt: opening a
       // workspace replays scrollback / triggers a TUI repaint, and counting that
       // output made every reopened workspace jump to "now". Only genuine input moves it.
       const lastInputByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastInputAt !== 'number') continue
         const current = lastInputByWorkspace.get(session.workspaceId)
@@ -1867,7 +1870,7 @@ export default function WorkspaceManager() {
       // and a message answers "did the person say something here", which is
       // the event they mean when they expect a chat to move.
       const userMessageByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         const at = session.lastPrompt?.at
         if (typeof at !== 'number') continue
@@ -1887,7 +1890,7 @@ export default function WorkspaceManager() {
       // each session carries, so a parked chat still knows when its agent
       // stopped after the session is gone (owner, 2026-09-05).
       const turnEndByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastTurnEndedAt !== 'number') continue
         const current = turnEndByWorkspace.get(session.workspaceId)
@@ -1910,7 +1913,7 @@ export default function WorkspaceManager() {
       // prompt that yields no usable title (an app-injected skill drop, pure
       // filler), leaving the next prompt to try. So this only has to avoid
       // re-offering a prompt it already offered.
-      for (const session of sessions) {
+      for (const session of changed) {
         const prompt = session.lastPrompt
         if (!prompt || typeof session.workspaceId !== 'string') continue
         const offered = titledPromptAtRef.current.get(session.sessionId)
@@ -1960,9 +1963,9 @@ export default function WorkspaceManager() {
         useWorkspaceStore.getState().removeAgent(retired.workspaceId, retired.agentId)
       }
 
-      const signature = getTerminalSessionsSignature(sessions)
-      if (signature === terminalSessionsSignatureRef.current) return
-      terminalSessionsSignatureRef.current = signature
+      // The store has already signed every session it applied; nothing rendered
+      // moved unless it says so.
+      if (!change.semanticChanged) return
       setTerminalSessions(sessions)
     }
 
@@ -3939,7 +3942,7 @@ export default function WorkspaceManager() {
   // Pause = freeze-the-view suspend: kill the agent PTY to free memory but keep
   // the painted scrollback and the resume flags, so reopening relaunches the CLI
   // with --resume. Unlike stopSession we do NOT reset launch flags or prune the
-  // session — the suspend broadcast (terminal:sessions-changed) flips it to
+  // session — the suspend broadcast (terminal:sessions-delta) flips it to
   // suspended (processAlive=false), which drops it out of the working-sessions
   // list on its own.
   const pauseSession = (item: SessionItem) => {

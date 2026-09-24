@@ -34,7 +34,7 @@ import {
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
-  useTerminalSessions,
+  useWorkspaceTerminalSessions,
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
@@ -341,7 +341,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       window.removeEventListener('focus', check)
     }
   }, [worktreeGitRoot])
-  const terminalSessions = useTerminalSessions()
+  // This workspace's sessions only: an agent moving in another workspace
+  // must not rebuild every tab here.
+  const terminalSessions = useWorkspaceTerminalSessions(workspaceId)
   // Which terminals a paired phone is watching, for the tab's remote mark.
   const remoteAttachedSessions = useRemoteAttachedSessions()
   const now = useRelativeNow()

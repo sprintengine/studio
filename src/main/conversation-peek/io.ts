@@ -6,7 +6,7 @@ import { nativeImage, shell } from 'electron'
 
 import { locateClaudeTranscript } from './locate'
 import { createConversationPeekService } from './service'
-import type { ConversationPeekService, ConversationPeekSessionState } from './service'
+import type { ConversationPeekDependencies, ConversationPeekService } from './service'
 import { peekImageThumbnail } from './thumbnail'
 import { readTranscriptPeek } from './transcript'
 import type { PeekImagePayload } from './transcript'
@@ -21,7 +21,7 @@ import type { PeekImagePayload } from './transcript'
 const PEEK_IMAGE_DIR = 'sprintengine-conversation-peek'
 
 export function createConversationPeek(
-  readSessionState: (sessionId: string) => ConversationPeekSessionState | null,
+  readSessionState: ConversationPeekDependencies['readSessionState'],
 ): ConversationPeekService {
   return createConversationPeekService({
     readSessionState,

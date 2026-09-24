@@ -9,7 +9,11 @@ import { Badge, GhostButton, StatusDot } from '../ui'
 import { Select } from '../ui/Select'
 import { Table } from '../ui/Table'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
-import { getLiveTerminalSessionsSnapshot, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import {
+  getLiveTerminalSessionsSnapshot,
+  refreshTerminalSessions,
+  useTerminalSessions,
+} from '../../hooks/useTerminalSessions'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
   aggregateDiagnostics,
@@ -320,6 +324,10 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     let cancelled = false
     const poll = () => {
       const ipcSnapshot = window.api.diagnosticsGetIpcStats?.()
+      // The sessions broadcast carries only what changed, and output timing and
+      // retained bytes are not a change worth a broadcast; this panel is where
+      // they are read, so it asks for the full list on its own clock.
+      void refreshTerminalSessions().catch(() => {})
       window.api
         .diagnosticsGetProcessMetrics()
         .then((snapshot) => {

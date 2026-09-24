@@ -376,6 +376,7 @@ import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
   TerminalSessionSnapshot,
+  TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
   WorkspaceRegistryHydrateResult,
@@ -1195,14 +1196,19 @@ export type ElectronApi = {
   // the idle reaper never pauses live agent terminals. Clamped/validated in main.
   setTerminalKeepRecentAliveCount: (count: number) => Promise<void>
   // Toggle the per-terminal user lock: while set, the reaper never suspends or
-  // disposes this session. Broadcasts a sessions-changed snapshot so the lock
+  // disposes this session. Broadcasts a sessions delta so the lock
   // state stays in sync across views.
   setTerminalReapExempt: (sessionId: string, exempt: boolean) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
-  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
+  // What changed among the sessions — the changed ones and the ids of the gone
+  // ones, never the whole list (`terminalList` is that).
+  onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void) => () => void
+  // Flow control: tell main the pane has parsed `units` UTF-16 units of the
+  // session's live output, so it can pause the pty while a pane falls behind.
+  terminalAck: (sessionId: string, units: number) => void
   // The conversation peek: what has actually been said in a chat the person is
   // hovering rather than looking at — the first message, everything since, and
   // what they attached to the first. `source` says which of the three shapes the
@@ -1213,7 +1219,7 @@ export type ElectronApi = {
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
   // than ~60s. The pull requests themselves arrive as a fresh
-  // `terminal:sessions-changed` carrying the session's `pullRequests`, never as
+  // `terminal:sessions-delta` carrying the session's `pullRequests`, never as
   // a return value, so one path owns the fact. The boolean says only whether
   // there was anything to ask about — false for a session main cannot name, or
   // one whose checkout has not resolved yet — so a caller that asks once per

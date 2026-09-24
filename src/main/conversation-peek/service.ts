@@ -110,7 +110,9 @@ export type ConversationPeekSessionState = {
 
 export type ConversationPeekDependencies = {
   /** The live session's peek inputs, or null when no such session exists. */
-  readSessionState(sessionId: string): ConversationPeekSessionState | null
+  readSessionState(
+    sessionId: string,
+  ): ConversationPeekSessionState | null | Promise<ConversationPeekSessionState | null>
   /** Streams and parses a transcript. Null for anything unreadable — never throws. */
   readTranscript(transcriptPath: string): Promise<TranscriptPeek | null>
   /**
@@ -164,7 +166,7 @@ export function createConversationPeekService(deps: ConversationPeekDependencies
       if (typeof sessionId !== 'string' || !sessionId) {
         return { sessionId: '', source: 'unknown', first: null, since: [], images: [] }
       }
-      const state = deps.readSessionState(sessionId)
+      const state = await deps.readSessionState(sessionId)
       // No state for this id — killed rather than quit (no sidecar written), or
       // parked past the sidecar TTL. `unknown`, never `none`: we know nothing
       // about this chat's messages, which is not the same as knowing its

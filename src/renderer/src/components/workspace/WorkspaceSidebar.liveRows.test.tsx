@@ -70,7 +70,7 @@ test('WorkspaceSidebar.liveRows', async () => {
       session('s1', 'w1', true),
       session('s2', 'w2', false),
     ],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     // This suite settles more microtask rounds than its siblings (the terminal
     // list, then the membership effect, then the sweep), which is long enough
     // for a lazily mounted nav entry to open its own subscription.

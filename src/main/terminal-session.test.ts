@@ -30,6 +30,7 @@ import {
 import { MAX_AGENT_PROMPT_LENGTH } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
+import { TerminalReplayBuffer } from './terminal-replay-buffer'
 import {
   TERMINAL_RECENT_HISTORY_WINDOW_MS,
   TERMINAL_RECENT_REPLAY_BYTES,
@@ -554,7 +555,7 @@ test('terminal-session', async () => {
       appendTerminalOutput(session, chunk, Date.now())
     }
 
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
     assert.equal(materializeTerminalReplay(session).length, TERMINAL_RECENT_REPLAY_BYTES)
   }
@@ -570,7 +571,7 @@ test('terminal-session', async () => {
 
     const replay = materializeTerminalReplay(session)
     assert.equal(getTerminalSnapshot(session).historyTier, 'standard')
-    assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_STANDARD_REPLAY_BYTES)
     assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
   }
 
@@ -582,7 +583,7 @@ test('terminal-session', async () => {
     appendTerminalOutput(session, 'i'.repeat(TERMINAL_RECENT_REPLAY_BYTES), coldAt)
 
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
   }
 
   function assertColdSingleLargeChunkIsTrimmedNotDropped(): void {
@@ -593,7 +594,7 @@ test('terminal-session', async () => {
 
     const replay = materializeTerminalReplay(session)
     assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
-    assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_STANDARD_REPLAY_BYTES)
     assert.equal(replay, 'x'.repeat(TERMINAL_STANDARD_REPLAY_BYTES))
   }
 
@@ -642,7 +643,7 @@ test('terminal-session', async () => {
       }
     }
 
-    assert.equal(session.replayTruncated, true, 'the buffer really did evict')
+    assert.equal(session.output.truncated, true, 'the buffer really did evict')
     const replay = materializeTerminalReplay(session)
     assert.equal(replay.charCodeAt(0), 0x1b, 'the replay opens on an escape sequence, not the tail of one')
     assert.equal(
@@ -657,7 +658,7 @@ test('terminal-session', async () => {
   function assertUncutReplayIsHandedBackByteForByte(): void {
     const session = createSession({ startedAt: Date.now() })
     appendTerminalOutput(session, 'Welcome to the agent\nReady\n', Date.now())
-    assert.equal(session.replayTruncated, undefined, 'nothing was cut')
+    assert.equal(session.output.truncated, false, 'nothing was cut')
     assert.equal(
       materializeTerminalReplay(session),
       'Welcome to the agent\nReady\n',
@@ -672,7 +673,7 @@ test('terminal-session', async () => {
     appendTerminalOutput(session, 'n'.repeat(TERMINAL_RECENT_REPLAY_BYTES), Date.now())
 
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
   }
 
   function assertVisibilityRecordingUpdatesRecency(): void {
@@ -775,11 +776,7 @@ test('terminal-session', async () => {
       isDisposed: false,
       idleTimer: input.idleTimer,
       activity: createInitialTerminalActivity(input.startedAt),
-      outputChunks: [],
-      outputChunkBytes: [],
-      outputChunkStart: 0,
-      outputBytes: 0,
-      outputLength: 0,
+      output: new TerminalReplayBuffer(),
       kind: 'agent',
       workspaceId: 'workspace_1',
       agentId: 'developer-1',

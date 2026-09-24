@@ -138,7 +138,7 @@ export const gitApi = {
     ipcRenderer.invoke('git:changelists:move-paths', repoRoot, id, paths),
   // Main's own writes to a repository's lists (an agent launching, editing or
   // exiting). One channel for every repository, filtered in the renderer on the
-  // root, exactly as `terminal:sessions-changed` is one channel for every
+  // root, exactly as `terminal:sessions-delta` is one channel for every
   // session: a per-repository channel would need a subscription per open
   // checkout and a teardown nobody would get right.
   onGitChangelistsChanged: (cb: (event: { repoRoot: string }) => void): (() => void) => {

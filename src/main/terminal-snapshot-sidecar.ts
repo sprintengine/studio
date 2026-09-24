@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
-import { mkdir, rename, rm, writeFile } from 'fs/promises'
+import { readdirSync, rmSync, statSync } from 'fs'
+import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
 import type {
@@ -22,7 +22,7 @@ import type {
 //
 // - Written at suspend time (serialized snapshot) and at app quit (raw retained
 //   pty stream — cheap byte dump; the snapshot is rebuilt lazily on rehydrate).
-// - Read on the first terminal-status lookup after restart to materialize a
+// - Read (asynchronously) on the first terminal-status lookup after restart to materialize a
 //   suspended placeholder session, so the existing pause/replay/resume flow
 //   fires with zero renderer changes.
 // - Removed by disposeTerminal (dispose means gone — never rehydrated) and by
@@ -95,7 +95,10 @@ export type TerminalSnapshotSidecar = {
 }
 
 export type TerminalSnapshotSidecarStore = {
-  read(sessionId: string): TerminalSnapshotSidecar | null
+  // Off the main thread: a sidecar is up to a few megabytes of JSON, and it is
+  // read while a person waits for a reopened workspace to paint. A write still
+  // queued is answered from memory.
+  read(sessionId: string): Promise<TerminalSnapshotSidecar | null>
   // Queue the write. It lands on disk off the main thread — a sidecar is up
   // to a few megabytes and used to be a synchronous write on the suspend,
   // self-exit and quit paths — but it is readable through `read` at once,
@@ -138,6 +141,31 @@ export function createTerminalSnapshotSidecarStore(options: {
   // session land in order and a remove runs after the write it follows.
   const pending = new Map<string, TerminalSnapshotSidecar>()
   const chains = new Map<string, Promise<void>>()
+  // Moves on every write and remove, so a read in flight can tell it raced one.
+  const generations = new Map<string, number>()
+  const bumpGeneration = (sessionId: string): void => {
+    generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1)
+  }
+
+  const parseSidecar = (sessionId: string, raw: string): TerminalSnapshotSidecar | null => {
+    try {
+      const parsed = JSON.parse(raw) as Partial<TerminalSnapshotSidecar>
+      if (
+        parsed.version !== 1 ||
+        parsed.sessionId !== sessionId ||
+        typeof parsed.savedAt !== 'number' ||
+        typeof parsed.cols !== 'number' ||
+        typeof parsed.rows !== 'number' ||
+        (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
+      ) {
+        throw new Error('malformed_terminal_snapshot_sidecar')
+      }
+      return parsed as TerminalSnapshotSidecar
+    } catch (error) {
+      warn('Terminal snapshot sidecar parse failed', error)
+      return null
+    }
+  }
 
   function chain(sessionId: string, task: () => Promise<void>, title: string): void {
     const next = (chains.get(sessionId) ?? Promise.resolve()).then(task).catch((error) => warn(title, error))
@@ -148,40 +176,33 @@ export function createTerminalSnapshotSidecarStore(options: {
   }
 
   return {
-    read(sessionId: string): TerminalSnapshotSidecar | null {
+    async read(sessionId: string): Promise<TerminalSnapshotSidecar | null> {
       if (!isSafeSessionId(sessionId)) return null
-      const queued = pending.get(sessionId)
-      if (queued) return queued
-      let raw: string
-      try {
-        raw = readFileSync(sidecarPath(sessionId), 'utf8')
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException | undefined)?.code
-        if (code !== 'ENOENT') warn('Terminal snapshot sidecar read failed', error)
-        return null
-      }
-      try {
-        const parsed = JSON.parse(raw) as Partial<TerminalSnapshotSidecar>
-        if (
-          parsed.version !== 1 ||
-          parsed.sessionId !== sessionId ||
-          typeof parsed.savedAt !== 'number' ||
-          typeof parsed.cols !== 'number' ||
-          typeof parsed.rows !== 'number' ||
-          (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
-        ) {
-          throw new Error('malformed_terminal_snapshot_sidecar')
+      // A write or a remove that lands while the file is being read makes what
+      // was read stale — a dispose must not be undone by a read it raced — so
+      // the read starts over and answers from the newer state.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const queued = pending.get(sessionId)
+        if (queued) return queued
+        const generation = generations.get(sessionId) ?? 0
+        let raw: string | null
+        try {
+          raw = await readFile(sidecarPath(sessionId), 'utf8')
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException | undefined)?.code
+          if (code !== 'ENOENT') warn('Terminal snapshot sidecar read failed', error)
+          raw = null
         }
-        return parsed as TerminalSnapshotSidecar
-      } catch (error) {
-        warn('Terminal snapshot sidecar parse failed', error)
-        return null
+        if ((generations.get(sessionId) ?? 0) !== generation) continue
+        return raw === null ? null : parseSidecar(sessionId, raw)
       }
+      return pending.get(sessionId) ?? null
     },
     write(sidecar: TerminalSnapshotSidecar): void {
       if (!isSafeSessionId(sidecar.sessionId)) return
       if (!sidecar.snapshot && !sidecar.rawReplay) return
       const { sessionId } = sidecar
+      bumpGeneration(sessionId)
       pending.set(sessionId, sidecar)
       chain(
         sessionId,
@@ -200,6 +221,7 @@ export function createTerminalSnapshotSidecarStore(options: {
     },
     remove(sessionId: string): void {
       if (!isSafeSessionId(sessionId)) return
+      bumpGeneration(sessionId)
       pending.delete(sessionId)
       // Gone at once for a reader, and gone again after any write in flight,
       // so a queued sidecar cannot resurrect what dispose just removed.
