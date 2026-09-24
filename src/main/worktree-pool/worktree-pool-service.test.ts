@@ -224,6 +224,10 @@ test('a clean return keeps the agent branch, detaches, unlocks and refreshes to 
   await git(leased.path, 'add', '.')
   await git(leased.path, 'commit', '-q', '-m', 'feature')
   const agentCommit = await git(leased.path, 'rev-parse', 'HEAD')
+  // The managed MCP config an agent launch writes is not the agent's work.
+  await writeFile(join(leased.path, '.mcp.json'), '{}\n')
+  await mkdir(join(leased.path, '.codex'), { recursive: true })
+  await writeFile(join(leased.path, '.codex', 'config.toml'), '\n')
   const moved = await pushToOrigin('upstream.txt', 'new upstream\n')
 
   assert.equal(await harness.service.release(leased.leaseId), true)

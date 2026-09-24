@@ -15,7 +15,7 @@ import {
 import { comparablePath } from '../../shared/host-paths'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
-import { seedWorktreeIncludedFiles } from '../git'
+import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from '../git'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import {
@@ -877,6 +877,11 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // `.worktreeinclude` names ignored files (an `.env`) the tree needs; they
       // survive the reset, but the checkout's copy may have changed since.
       await seedWorktreeIncludedFiles(pool.record.repoRoot, slot.path).catch(() => null)
+      // An agent launch writes the app's managed MCP config (`.mcp.json`,
+      // `.codex/config.toml`) into the worktree it runs in. Untracked, those
+      // would make every return read as dirty and hold the slot; excluded, they
+      // are ignored files like any other and are left in place by `clean -fd`.
+      await excludeMcpConfigFromWorktree(slot.path).catch(() => {})
       await withPool(pool, async () => {
         slot.baseRef = base.ref
         slot.baseSha = target
