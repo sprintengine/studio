@@ -38,6 +38,7 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
+import { WorktreePoolSettingsSection } from './WorktreePoolSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import {
@@ -2027,6 +2028,7 @@ export default function SettingsPanel({
               </SettingCard>
             </section>
           ) : null}
+          <WorktreePoolSettingsSection />
           {/* The MCP gateway every Studio-launched agent receives. It was a rail
               row of the Plugins door until the source-tabs ruling (2026-09-05):
               a catalogue is a list of things you can add, and this is a

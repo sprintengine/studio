@@ -39,6 +39,7 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
+import { useWorktreePoolHeldNotices } from '../../hooks/useWorktreePoolHeldNotices'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import type {
   AgentCli,
@@ -758,6 +759,8 @@ export default function WorkspaceManager() {
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   // Reclaims agent worktrees that are clean and merged; one window runs it.
   useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
+  // A pooled worktree that came back with work in it is held, and said so once.
+  useWorktreePoolHeldNotices(isPrimaryWorkspaceWindow)
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
