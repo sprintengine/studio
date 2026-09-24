@@ -29,6 +29,7 @@ import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
+import { withoutInheritedSessionEnv } from './inherited-session-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { toWslPath, withWslSharedEnv } from './wsl-interop'
@@ -58,8 +59,14 @@ export type ShellLaunchConfig = {
 }
 
 export function getTerminalEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  // Without the markers of a Claude Code session the app itself may have been
+  // started from: inherited, they make every `claude` this app launches (or a
+  // person types into a plain terminal) a nested session that saves no
+  // transcript and cannot be resumed. See inherited-session-env.ts.
+  const env = withoutInheritedSessionEnv(
+    Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
   )
 
   delete env.ELECTRON_RUN_AS_NODE
