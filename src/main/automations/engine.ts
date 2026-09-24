@@ -99,7 +99,18 @@ export type AutomationsEngineOptions = {
   runAutomation: AutomationRunExecutor
   now?: () => number
   createRunId?: (input: { workspaceRoot: string; automationId: string; dueAt: string }) => string
+  // The cadence for work that has no due time of its own: polling triggers, a
+  // workspace snapshot that could not be read, a run dropped because the last
+  // one was still going. Schedules do not wait for it (see
+  // `nextAutomationsWakeDelayMs`).
   pollIntervalMs?: number
+  // The longest the scheduler sleeps with nothing due (DEFAULT_MAX_SLEEP_MS).
+  maxSleepMs?: number
+  // Injected so the arming is testable without real time.
+  timers?: {
+    setTimeout(handler: () => void, ms: number): unknown
+    clearTimeout(handle: unknown): void
+  }
   onEvaluation?: (result: AutomationsEngineEvaluationResult) => void
   /**
    * Run-lifecycle event sink. `definition` is the automation the event belongs
@@ -174,6 +185,65 @@ type PendingAgentRun = {
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 
+// The scheduler sleeps until the next thing it knows is due. This caps that
+// sleep, for what it cannot know about: a definition edited by hand on disk, a
+// project folder added with automations already in it. Writes through the app
+// wake the scheduler at once (`wake`), and so does waking from sleep — which
+// matters, because a timer armed before a sleep counts only the time the
+// machine was awake, so a schedule due during the nap would otherwise fire
+// late by however long the nap was.
+const DEFAULT_MAX_SLEEP_MS = 15 * 60_000
+
+// The earliest a wake is re-armed. A due time a hair in the future must not
+// become a tight loop of zero-length timers.
+const MIN_WAKE_DELAY_MS = 1_000
+
+export type AutomationsWakeInput = {
+  now: number
+  // The last evaluation's result, or null when it failed outright.
+  result: AutomationsEngineEvaluationResult | null
+  // Whether that evaluation polled any trigger provider. Polling triggers have
+  // no due time; they are asked on the poll cadence.
+  polledTriggers: boolean
+  // Wall-clock deadlines of pending agent runs (their max-duration sweep).
+  pendingRunDeadlines: number[]
+  pollIntervalMs: number
+  maxSleepMs: number
+}
+
+/**
+ * How long the automations scheduler may sleep after an evaluation.
+ *
+ * It used to tick every sixty seconds whether or not anything existed to run,
+ * and every tick re-read every project's automations from disk. Now it wakes
+ * for the soonest of: the next scheduled run, the next pending run's
+ * max-duration deadline, the poll cadence when something needs polling (or the
+ * evaluation could not finish), and the max-sleep cap. A machine with no
+ * automations wakes four times an hour instead of sixty.
+ */
+export function nextAutomationsWakeDelayMs(input: AutomationsWakeInput): number {
+  let delay = input.maxSleepMs
+  const needsPolling =
+    input.result === null ||
+    input.polledTriggers ||
+    input.result.droppedInFlight.length > 0 ||
+    input.result.problems.some((problem) => problem.code === 'workspace_snapshot_failed')
+  if (needsPolling) delay = Math.min(delay, input.pollIntervalMs)
+
+  const dueTimes = [
+    ...(input.result?.scheduled ?? []).map((entry) => Date.parse(entry.nextRunAt)),
+    ...input.pendingRunDeadlines,
+  ]
+  for (const dueAt of dueTimes) {
+    if (!Number.isFinite(dueAt)) continue
+    // Something already due that this evaluation did not fire is not a reason
+    // to spin: the poll cadence is the retry, exactly as it was before.
+    const until = dueAt - input.now
+    delay = Math.min(delay, until > 0 ? until : input.pollIntervalMs)
+  }
+  return Math.max(MIN_WAKE_DELAY_MS, Math.ceil(delay))
+}
+
 // A turn end is not the same as being done: a Stop hook in the user's own repo
 // settings can continue the turn, an agent can end its turn to ask a question,
 // plan mode ends a turn, and ESC ends a turn. Finalizing is destructive (opens a
@@ -216,7 +286,13 @@ export class AutomationsEngine {
   // signal-scan TOCTOU: only the first caller finalizes; a concurrent caller
   // gets the in-progress/terminal run back instead of double-opening a PR.
   private readonly finalizingRuns = new Set<string>()
-  private timer: ReturnType<typeof setInterval> | null = null
+  private readonly maxSleepMs: number
+  private readonly timers: { setTimeout(handler: () => void, ms: number): unknown; clearTimeout(handle: unknown): void }
+  private timer: unknown = null
+  // Set by an evaluation that asked a trigger provider to poll.
+  private polledTriggers = false
+  private timerLoopActive = false
+  private evaluateAgain = false
   private started = false
   private startupEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
   private timerEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
@@ -232,6 +308,11 @@ export class AutomationsEngine {
     this.now = options.now ?? Date.now
     this.createRunId = options.createRunId ?? (() => `automation-run-${randomUUID()}`)
     this.pollIntervalMs = Math.max(1_000, Math.floor(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS))
+    this.maxSleepMs = Math.max(1_000, Math.floor(options.maxSleepMs ?? DEFAULT_MAX_SLEEP_MS))
+    this.timers = options.timers ?? {
+      setTimeout: (handler, ms) => setTimeout(handler, ms),
+      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    }
     this.onEvaluation = options.onEvaluation
     this.onRunEvent = options.onRunEvent
     this.openRunPullRequest = options.openRunPullRequest
@@ -249,13 +330,73 @@ export class AutomationsEngine {
 
     const startup = this.handleStartup()
     void startup
-      .catch(() => undefined)
-      .finally(() => {
-        if (!this.started || this.timer) return
-        this.timer = setInterval(() => {
-          void this.tick()
-        }, this.pollIntervalMs)
+      .catch(() => null)
+      .then((result) => {
+        if (!this.started || this.timer !== null) return
+        this.armWake(result)
       })
+  }
+
+  /**
+   * Evaluate now and re-arm from what that finds. For anything that may have
+   * moved a due time the sleeping timer does not know about: a definition
+   * written through the app, and a wake from sleep.
+   */
+  wake(): void {
+    if (!this.started) return
+    this.clearWake()
+    void this.runTimerEvaluation()
+  }
+
+  private clearWake(): void {
+    if (this.timer === null) return
+    this.timers.clearTimeout(this.timer)
+    this.timer = null
+  }
+
+  private armWake(result: AutomationsEngineEvaluationResult | null): void {
+    this.clearWake()
+    if (!this.started) return
+    const now = this.now()
+    const delay = nextAutomationsWakeDelayMs({
+      now,
+      result,
+      polledTriggers: this.polledTriggers,
+      pendingRunDeadlines: [...this.pendingAgentRuns.values()].map(
+        (pending) => pending.startedAtMs + this.maxAgentRunMs,
+      ),
+      pollIntervalMs: this.pollIntervalMs,
+      maxSleepMs: this.maxSleepMs,
+    })
+    this.timer = this.timers.setTimeout(() => {
+      this.timer = null
+      void this.runTimerEvaluation()
+    }, delay)
+  }
+
+  // One timer evaluation, joined if one is already running, then re-armed. A
+  // wake that lands mid-evaluation asks for one more pass: the evaluation in
+  // flight may have read the definitions before the write that caused it.
+  private async runTimerEvaluation(): Promise<void> {
+    if (this.timerLoopActive) {
+      this.evaluateAgain = true
+      return
+    }
+    this.timerLoopActive = true
+    let result: AutomationsEngineEvaluationResult | null = null
+    try {
+      do {
+        this.evaluateAgain = false
+        try {
+          result = await (this.timerEvaluation ?? this.tick())
+        } catch {
+          result = null
+        }
+      } while (this.evaluateAgain && this.started)
+    } finally {
+      this.timerLoopActive = false
+    }
+    if (this.started) this.armWake(result)
   }
 
   stop(): void {
@@ -265,12 +406,9 @@ export class AutomationsEngine {
     // armed finalize at its post-transcript-read check; only a finalize that has
     // already entered finalizeRun still runs to completion.
     for (const pending of this.pendingAgentRuns.values()) this.disarmTurnEnd(pending)
-    if (!this.started && !this.timer) return
+    if (!this.started && this.timer === null) return
     this.started = false
-    if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
-    }
+    this.clearWake()
   }
 
   isRunning(): boolean {
@@ -857,6 +995,7 @@ export class AutomationsEngine {
     }
     const pollContext = createTriggerPollContext()
     const triggerProvidersByKind = new Map(this.getTriggerProviders().map((provider) => [provider.kind, provider]))
+    this.polledTriggers = false
 
     for (const projectFolder of projectFolders) {
       await this.evaluateProject(projectFolder, mode, now, pollContext, triggerProvidersByKind, result)
@@ -1053,6 +1192,10 @@ export class AutomationsEngine {
     const workspaceRoot = projectFolder.folderPath
     if (definition.status !== 'enabled') return
     if (definition.trigger.kind !== 'schedule') {
+      // Anything a provider can poll has no due time, so its cadence is what
+      // wakes the scheduler. A push-only trigger (a webhook) is delivered, not
+      // polled, and keeps nobody awake.
+      if (triggerProvidersByKind.get(definition.trigger.kind)?.poll) this.polledTriggers = true
       await evaluatePollingTriggerDefinition({
         store,
         state,

@@ -17,6 +17,8 @@ import { createTerminalSurfaceOscLinkHandler, type TerminalSurfaceOscLinkCallbac
 import { terminalSurfaceLinkRoots, type TerminalLinkRoots, type TerminalSurface } from './terminalSurfaces'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
 import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState } from './terminalWebglRenderer'
+import type { WebglBudgetLease } from './terminalWebglBudget'
+import { readTerminalWebglPresence, terminalWebglBudget, watchTerminalPresence } from './terminalWebglPresence'
 
 /**
  * One place constructs a terminal.
@@ -115,8 +117,10 @@ export type StudioTerminal = {
    */
   loadSearch: () => TerminalSearchHandle
   /**
-   * Loads the WebGL renderer, and arms the fallback that keeps a lost GPU
-   * context from blanking the pane.
+   * Enrols the pane in the window's WebGL budget, which loads the WebGL
+   * renderer while the pane is on screen, gives the context back when its
+   * layer goes cold, and re-acquires one after a context loss — with the
+   * fallback that keeps a lost context from blanking the pane in between.
    *
    * **Call it immediately after `term.open()`.** Split out for the same reason
    * the addon itself checks `terminal.element`: loaded against an unopened
@@ -190,24 +194,71 @@ export function createStudioTerminal({
   // `terminalOsc52Clipboard.ts` for why read is refused and how, twice.
   oscDisposables.push(attachTerminalOsc52Clipboard({ terminal }))
 
+  // WebGL is not loaded at mount any more: the window's budget hands a context
+  // to this terminal while it is on screen, takes it back when its layer goes
+  // cold or another on-screen terminal needs it, and re-acquires after a
+  // context loss (terminalWebglBudget.ts). In between, xterm's DOM renderer
+  // paints — which, for a pane nobody can see, is painting nothing.
   let webglRenderer: WebglRendererHandle | null = null
-  const loadWebglRenderer = (): void => {
-    if (webglRenderer) return
-    webglRenderer = attachWebglRenderer({
+  let webglLease: WebglBudgetLease | null = null
+  let unwatchPresence: (() => void) | null = null
+  let webglState: WebglRendererState = 'not-loaded'
+  let releasingForBudget = false
+  // Which renderer a pane ended up on decides how to read every terminal
+  // timing number, so it is recorded rather than silently absorbed — a
+  // machine that always falls back is a machine whose profiles mean
+  // something different.
+  const recordRendererState = (state: WebglRendererState, error?: unknown): void => {
+    webglState = state
+    logPerfEvent('terminal', 'terminal-renderer', {
+      surface: surface.kind,
+      state,
+      ...(error === undefined ? {} : { error: String(error) }),
+    })
+  }
+  const attachWebgl = (): WebglRendererHandle =>
+    attachWebglRenderer({
       terminal,
       createAddon: () => new WebglAddon(),
-      // Which renderer a pane ended up on decides how to read every terminal
-      // timing number, so it is recorded rather than silently absorbed — a
-      // machine that always falls back is a machine whose profiles mean
-      // something different.
       onStateChange: (state, error) => {
-        logPerfEvent('terminal', 'terminal-renderer', {
-          surface: surface.kind,
-          state,
-          ...(error === undefined ? {} : { error: String(error) }),
-        })
+        if (state === 'disposed' && releasingForBudget) {
+          recordRendererState('released')
+          return
+        }
+        recordRendererState(state, error)
+        if (state === 'context-lost') webglLease?.contextLost()
       },
     })
+  const loadWebglRenderer = (): void => {
+    if (webglRenderer || webglLease) return
+    const element = terminal.element
+    if (!element) {
+      // Records the ordering bug exactly as before; see terminalWebglRenderer.ts.
+      webglRenderer = attachWebgl()
+      return
+    }
+    webglLease = terminalWebglBudget.join({
+      presence: () => readTerminalWebglPresence(terminal.element),
+      attach: () => {
+        webglRenderer = attachWebgl()
+        const state = webglRenderer.state()
+        if (state === 'webgl') return 'webgl'
+        // A driver can fire the loss while the addon is still registering; the
+        // loss handler has already scheduled the retry.
+        return state === 'context-lost' ? 'lost' : 'unavailable'
+      },
+      detach: () => {
+        releasingForBudget = true
+        try {
+          webglRenderer?.dispose()
+        } finally {
+          releasingForBudget = false
+          webglRenderer = null
+        }
+      },
+    })
+    unwatchPresence = watchTerminalPresence(element, () => webglLease?.update())
+    webglLease.update()
   }
 
   let searchAddon: SearchAddon | null = null
@@ -235,11 +286,17 @@ export function createStudioTerminal({
     loadWebLinks,
     loadSearch,
     loadWebglRenderer,
-    webglRendererState: () => webglRenderer?.state() ?? 'not-loaded',
+    webglRendererState: () => webglState,
     dispose: () => {
+      unwatchPresence?.()
+      unwatchPresence = null
       // Before the terminal: the addon's disposal reaches back into the
       // terminal's render service to put the DOM renderer back.
       webglRenderer?.dispose()
+      // Then out of the budget, which hands the context this pane just freed
+      // to an on-screen pane that was turned away.
+      webglLease?.dispose()
+      webglLease = null
       webLinksAddon?.dispose()
       searchAddon?.dispose()
       for (const disposable of oscDisposables) disposable.dispose()

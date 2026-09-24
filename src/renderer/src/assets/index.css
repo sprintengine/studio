@@ -2279,6 +2279,22 @@ samp,
   .lifecycle-spin {
     animation: none;
   }
+  /* The pulse's at-rest frame is its full-size, full-opacity dot, so dropping
+   * the animation leaves the live color doing the talking. */
+  .status-dot-pulse {
+    animation: none;
+  }
+}
+
+/* The three infinite "something is working" motions above hold still while the
+ * window is hidden or in the background (data-window-active, stamped by
+ * utils/windowActivity.ts). They exist to catch the eye of someone looking at
+ * the window; with nobody looking, every frame they ask for is a compositor
+ * wakeup spent on nothing — and on the glass material, a full-window re-blend.
+ * Paused rather than removed, so each resumes from the frame it stopped on
+ * instead of snapping. */
+:root[data-window-active='false'] :is(.status-dot-pulse, .agent-working-dot, .lifecycle-spin) {
+  animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: no-preference) {

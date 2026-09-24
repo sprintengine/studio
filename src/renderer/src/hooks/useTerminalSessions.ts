@@ -3,7 +3,7 @@ import {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
   getTerminalSessionsSnapshot,
-  refreshTerminalSessions,
+  reconcileTerminalSessions,
   subscribeLiveTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
   subscribeTerminalSessions,
@@ -12,7 +12,7 @@ import {
 export {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
-  refreshTerminalSessions,
+  reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 }
 

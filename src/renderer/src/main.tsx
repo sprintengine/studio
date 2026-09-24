@@ -14,6 +14,7 @@ import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
 import { setTerminalRepaintPauseReporter } from './utils/terminalRepaintPause'
+import { bindWindowActivityAttribute } from './utils/windowActivity'
 
 // Boot measurement. `timeOrigin` is this document's navigation start,
 // so the pair below brackets everything that happens before a line of app code
@@ -40,6 +41,10 @@ bindElectronClipboardPasteBridge()
 // reporter here keeps that module dependency-free and keeps the perf events in
 // the one rollup the diagnostics panel reads.
 setTerminalRepaintPauseReporter(logPerfEvent)
+
+// `data-window-active` on the root: the ambient "something is working" motion
+// (index.css) pauses while this window is hidden or in the background.
+bindWindowActivityAttribute()
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {
