@@ -1871,48 +1871,64 @@
     "tinted": {
       "wash": {
         "$type": "number",
-        "$value": 0.06,
-        "$description": "How much of the accent the tinted window material's canvas gradient carries at its lit corner; the gradient eases back to plain bg.app across the window.",
+        "$value": 0.02,
+        "$description": "How much of the foreground ink the tinted window material's ambient wash carries at its heart, in the top-left corner where the rail and the title band meet; it feathers to plain bg.app over a large part of the window.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The tinted window material's canvas only (owner ruling 2026-09-24): an opaque, static gradient painted once on the window ground \u2014 color-mix(accent.primary at tinted.wash, bg.app) at the top-left corner, easing to bg.app by the middle of the window and back to half the wash at the far corner. It sits under the window chrome (rail, sidebar strip, title band), never under a card. Dark mode carries a little more because a near-black ground swallows a faint wash.",
-            "doNotUse": "Any card, panel, row, or control ground, and any surface that says something \u2014 the wash is ground, not signal. Never animated.",
+            "use": "The tinted window material's ground only (owner rulings 2026-09-24): one static, heavily feathered radial wash of text.primary over bg.app, painted once on the window ground under the chrome (rail, sidebar strip, title band). Its colour is the ink of what sits on it \u2014 the rail's glyphs and the chrome's text \u2014 so it reads as a hint of that colour rather than a glow, and it falls off on a smooth curve with no visible edge. At its heart it stays below the step between bg.app and the cards, so a card still reads as raised above the chrome rather than sunk into it.",
+            "doNotUse": "Any card, panel, row or control ground, a wash worn by a single control, and any surface that says something \u2014 the wash is ground, not signal. Never the accent (that is tinted.brand, behind the accent half of the wordmark only). Never animated.",
             "modes": {
-              "light": 0.06,
-              "dark": 0.09
+              "light": 0.02,
+              "dark": 0.014
             }
           }
         }
       },
-      "bleed": {
+      "brand": {
         "$type": "number",
-        "$value": 0.2,
-        "$description": "How much of the accent the tinted material's glow carries at its brightest \u2014 the soft colour bleed around the brand mark and the rail's buttons.",
+        "$value": 0.05,
+        "$description": "How much of the accent the brand wordmark's feathered wash carries at its heart, behind \"engine\", under the tinted material.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The tinted window material's glow: one static radial gradient of accent.primary reaching tinted.bleed-reach past the brand wordmark and every rail button alike, at tinted.bleed in a ring at the element's edge and at half that under its centre, so the glyph or letter there keeps its contrast. Dark mode glows more because the same share of accent reads weaker against near-black.",
-            "doNotUse": "Marking state. Every rail button wears the same glow whether or not it is selected \u2014 selection stays the neutral bg.selected fill \u2014 and nothing outside the window chrome glows.",
+            "use": "The accent half of the tinted window material's wash behind the brand wordmark, and nothing else: a soft ellipse of accent.primary behind \"engine\", at tinted.brand at its centre and feathered to nothing at tinted.brand-reach past the mark. The colour follows the letters it sits behind, which is the only place the material spends the accent.",
+            "doNotUse": "A rail button, any other control, or marking state \u2014 a wash per control reads as a tile or a halo behind it. Never animated.",
             "modes": {
-              "light": 0.2,
-              "dark": 0.28
+              "light": 0.05,
+              "dark": 0.06
             }
           }
         }
       },
-      "bleed-reach": {
-        "$type": "dimension",
-        "$value": "18px",
-        "$description": "How far the tinted material's glow reaches past the brand mark and the rail's buttons into the chrome around them.",
+      "brand-ink": {
+        "$type": "number",
+        "$value": 0.025,
+        "$description": "How much of the foreground ink the brand wordmark's feathered wash carries at its heart, behind \"sprint\", under the tinted material.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The outset of the tinted glow's gradient on every side of the element, paired with tinted.bleed. Short enough that neighbouring rail buttons' glows merge into one soft column rather than a row of separate halos.",
+            "use": "The ink half of the tinted window material's wash behind the brand wordmark: a soft ellipse of text.primary behind \"sprint\", paired with tinted.brand behind \"engine\". Smaller than tinted.brand because the foreground sits much further from bg.app than the accent does, so the same share of it would lift the ground several times as much; at this share the two halves read as one faint strength.",
+            "doNotUse": "A rail button, any other control, or marking state \u2014 a wash per control reads as a tile or a halo behind it. Never animated.",
+            "modes": {
+              "light": 0.025,
+              "dark": 0.025
+            }
+          }
+        }
+      },
+      "brand-reach": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": "How far the brand wordmark's feathered wash reaches past the mark along the brand row.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "surface",
+            "use": "The horizontal outset of the wordmark's wash under the tinted material, paired with tinted.brand; the wash reaches four tenths of it above and below the mark, so it stays inside the 36px brand row and has faded to nothing before any edge.",
             "doNotUse": "Any shadow \u2014 elevation comes from the sem.shadow set.",
             "modes": {
-              "light": "18px",
-              "dark": "22px"
+              "light": "24px",
+              "dark": "24px"
             }
           }
         }
@@ -1922,11 +1938,11 @@
       "behind": {
         "$type": "number",
         "$value": -1,
-        "$description": "Decoration painted behind its own element's content: a glow or wash pseudo-element inside the element's isolated stacking context.",
+        "$description": "Decoration painted behind its own element's content: a wash pseudo-element inside the element's isolated stacking context.",
         "$extensions": {
           "com.sprintengine": {
             "role": "layering",
-            "use": "A `::before` or `::after` that decorates the ground under its own element (the tinted material's bleed) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further.",
+            "use": "A `::before` or `::after` that decorates the ground under its own element (the tinted material's wash behind the brand wordmark) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further.",
             "doNotUse": "Pushing a real surface under another one, or anything outside an isolated stacking context: without the isolation it slips behind the element's ancestors' backgrounds and vanishes."
           }
         }

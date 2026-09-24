@@ -1227,8 +1227,8 @@ export default function SettingsPanel({
                 label="Window material"
                 help={
                   isMac
-                    ? 'Glass frosts the sidebar and title bar. Tinted paints them with a soft glow of the accent.'
-                    : 'Tinted paints the sidebar and title bar with a soft glow of the accent.'
+                    ? 'Glass frosts the sidebar and title bar. Tinted gives them a faint wash of colour.'
+                    : 'Tinted gives the sidebar and title bar a faint wash of colour.'
                 }
               >
                 {/* A value choice, so the kit's segmented control: one tab stop,

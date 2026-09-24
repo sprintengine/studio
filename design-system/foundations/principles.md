@@ -22,10 +22,10 @@ has, so it is spent on almost nothing:
   genuinely live process.
 - Everything else earns its weight from the neutral ink and surface ramps.
 - One carve-out that is not a signal at all: the **tinted window material**
-  mixes a few percent of `accent.primary` into the window's ground and lets it
-  glow faintly around the brand mark and the rail's buttons (owner ruling
-  2026-09-24). That is the material the chrome is made of, uniform and
-  stateless, not the accent spent on anything — see "Window material" below.
+  lays a barely perceptible wash of `accent.primary` behind the accent half of
+  the brand wordmark, and nowhere else (owner rulings 2026-09-24). That is the
+  material the chrome is made of, following the colour of the letters it sits
+  behind, not the accent spent on anything — see "Window material" below.
 
 If a surface needs a second accent, it is missing hierarchy, not color. Status
 hues (`status.*`) are not accents: never a button background, section border,
@@ -718,33 +718,52 @@ whichever ground is chosen, so a material is only ever seen in the chrome.
   the OS has no vibrancy.
 - **Tinted** — the default on Windows and Linux, and an option on macOS for
   anyone who would rather not have glass (owner ruling 2026-09-24). An opaque
-  window with two static paints on it:
-  - *The wash.* One gradient on the window ground: `accent.primary` mixed into
-    `bg.app` at `tinted.wash` in the top-left corner, where the rail and the
-    brand row meet, easing to plain `bg.app` through the middle of the window
-    and returning at half strength in the far corner.
-  - *The bleed.* The brand wordmark and every rail button sit in a soft glow
-    of `accent.primary` that leaks `tinted.bleed-reach` into the chrome around
-    them: strongest (`tinted.bleed`) in a ring at the element's edge, half that
-    under its centre, nothing past the reach. A glow drawn only outside the
-    box leaves an unlit hole in the shape of the button, which reads as a
-    filled tile — so the glow runs under the element, weakly.
+  window with a hint of colour on its ground — read as a tint of the chrome,
+  never as a glow:
+  - *The ambient wash.* One very large, heavily feathered radial wash on the
+    window ground, centred on the top-left corner where the rail and the title
+    band meet: `text.primary` over `bg.app` at `tinted.wash` at its heart,
+    fading to plain `bg.app` across a large part of the window. Its colour is
+    the ink of what stands on it — the rail's glyphs and the chrome's text —
+    so on a dark theme it is a faint lift of the foreground, and on a light one
+    a faint shade of it.
+  - *The wordmark's wash.* The one thing in the chrome that is two colours
+    gets a wash in both: `text.primary` behind "sprint" at `tinted.brand-ink`
+    and `accent.primary` behind "engine" at `tinted.brand`, overlapping across
+    the join and feathered to nothing `tinted.brand-reach` past the mark
+    (four tenths of that above and below, so it stays inside the brand row).
+    The ink half carries the smaller share because the foreground is much
+    further from the ground than the accent: at one share for both, "sprint"
+    sat in a grey smudge and "engine" in almost nothing. This is the only
+    place the material spends the accent.
 - **Solid** — the plain opaque `bg.app` ground, with neither.
 
 The rules that keep Tinted honest:
 
-- **Ground, not signal.** The bleed is the same on every rail button whether or
-  not it is selected. Selection stays the neutral `bg.selected` fill; an accent
-  glow that marked the current section would be the accent spent on state,
-  which this system does not do.
+- **Ambient, never per control** (owner ruling 2026-09-24). No rail button,
+  and no other control, wears a glow, a halo or a tile of its own; each looks
+  exactly as it does on Solid, in its own box. A glow per rail button was
+  tried first and read as a square with a coloured halo round every one of
+  them. Selection stays the neutral `bg.selected` fill.
+- **The colour follows what it sits behind.** The foreground under the
+  foreground, the accent only under the accent. A wash of a colour that
+  nothing on it is drawn in reads as a light shining on the chrome.
+- **No edge anywhere.** Every wash falls off on a smooth curve (a raised
+  cosine, many stops) rather than a few linear stops, so there is no ring, rim
+  or band at any stop and nothing is clipped at a box's edge: each wash has
+  reached zero before its own box ends. The strengths are small enough that the
+  ground moves by about one 8-bit step per tens of pixels, which is also why it
+  does not band at 125% or 150% display scaling.
 - **Static.** No `backdrop-filter`, no animation, no per-frame blending. The
-  gradient and the glow are rasterised once and repaint only when the window
-  resizes, which is why this is the material for machines with no vibrancy.
-- **Contrast holds.** At most a tenth of the accent reaches the ground under
-  chrome text, which moves `bg.app` by a fraction of a luminance step. Under a
-  glowing element's centre the glow carries half its strength, which keeps the
-  wordmark's accent half and the rail glyphs above AA on their ground in both
-  modes.
+  washes are rasterised once and repaint only when the window resizes, which is
+  why this is the material for machines with no vibrancy.
+- **The cards stay raised.** At its heart the ambient wash lifts `bg.app` by
+  less than the step between the ground and the cards, so on a dark theme a
+  card still reads as standing above the chrome rather than sunk into it.
+- **Contrast holds.** The ambient wash moves `bg.app` by one or two hundredths
+  of the foreground at its strongest, and the wordmark's wash by a few
+  hundredths of its own inks, both far below what would take the chrome's text
+  or the rail's glyphs out of AA on their ground in either mode.
 - **The chrome's fills tint, they do not cover.** On both glass and tinted the
   canvas layers go see-through and the ground is painted once, so a hovered or
   selected row in the rail is a translucent step over the ground rather than an
