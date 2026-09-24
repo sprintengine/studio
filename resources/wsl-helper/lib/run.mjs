@@ -78,7 +78,8 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
     const err = []
     let outBytes = 0
     let errBytes = 0
-    let truncated = false
+    let outTruncated = false
+    let errTruncated = false
     let timedOut = false
     let settled = false
     const timer =
@@ -93,18 +94,18 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
             }
           }, timeoutMs)
     child.stdout.on('data', (chunk) => {
-      if (truncated) return
+      if (outTruncated) return
       if (outBytes + chunk.length > MAX_OUTPUT_BYTES) {
-        truncated = true
+        outTruncated = true
         return
       }
       outBytes += chunk.length
       out.push(chunk)
     })
     child.stderr.on('data', (chunk) => {
-      if (truncated) return
+      if (errTruncated) return
       if (errBytes + chunk.length > MAX_OUTPUT_BYTES) {
-        truncated = true
+        errTruncated = true
         return
       }
       errBytes += chunk.length
@@ -126,7 +127,7 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
         stdout: Buffer.concat(out).toString('utf8'),
         stderr: Buffer.concat(err).toString('utf8'),
         timedOut,
-        ...(truncated ? { truncated: true } : {}),
+        ...(outTruncated || errTruncated ? { truncated: true } : {}),
       })
     child.on('close', finish)
     // Something the program started (a daemon a `--version` spawns) can hold

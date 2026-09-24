@@ -104,6 +104,8 @@ export function loginShell(uid, passwd = () => readFileSync('/etc/passwd', 'utf8
   return '/bin/bash'
 }
 
+const TIMED_OUT = Symbol('timed out')
+
 // Settles on the deadline whatever the shell does: something a profile
 // starts in a session of its own can hold the output pipe open long after
 // the shell itself is gone, and nothing may wait on that.
@@ -136,7 +138,7 @@ function dump(shell, flags, timeoutMs) {
       child.stdout.destroy()
       resolve(value)
     }
-    const timer = setTimeout(() => finish(null), timeoutMs)
+    const timer = setTimeout(() => finish(TIMED_OUT), timeoutMs)
     child.stdout.on('data', (chunk) => {
       size += chunk.length
       if (size <= 4 * 1024 * 1024) chunks.push(chunk)
@@ -156,7 +158,7 @@ function dump(shell, flags, timeoutMs) {
  * version managers set PATH up), else a plain login shell, else the helper's
  * own environment. Always has a PATH.
  */
-export async function captureLoginEnv({ uid, baseEnv = process.env, timeoutMs = 15_000, shell } = {}) {
+export async function captureLoginEnv({ uid, baseEnv = process.env, timeoutMs = 8_000, shell } = {}) {
   const chosen = shell ?? loginShell(uid)
   const name = chosen.split('/').at(-1) ?? ''
   // `-i` loads the interactive rc files (`.bashrc`, `.zshrc`), which is where a
@@ -170,6 +172,9 @@ export async function captureLoginEnv({ uid, baseEnv = process.env, timeoutMs = 
     : [['-l', '-c']]
   for (const flags of attempts) {
     const env = await dump(chosen, flags, timeoutMs)
+    // A shell that hangs would hang again: one deadline is all it gets, so
+    // the first request after a start never waits more than that.
+    if (env === TIMED_OUT) break
     if (env && env.PATH) return env
   }
   const fallback = {}

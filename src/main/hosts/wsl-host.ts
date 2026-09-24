@@ -112,6 +112,7 @@ type HelperRunOutcome = RunOutcome & { truncated?: boolean }
 const ANSWER_SLACK_MS = 10_000
 const SNAPSHOT_TIMEOUT_MS = 20_000
 const DETECT_TIMEOUT_MS = 60_000
+const HOME_TIMEOUT_MS = 45_000
 
 function failedRun(error: unknown): RunOutcome {
   return {
@@ -148,7 +149,11 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   let preparing: Promise<void> | null = null
 
   async function readHome(): Promise<HostHome> {
-    const answer = await helper.request<{ home: string; env?: Record<string, string> }>('home')
+    // The first `home` after a start waits on the login-shell read, which has
+    // its own deadline inside the helper; this one is longer than that.
+    const answer = await helper.request<{ home: string; env?: Record<string, string> }>('home', undefined, {
+      timeoutMs: HOME_TIMEOUT_MS,
+    })
     const env: Record<string, string> = {}
     for (const [name, value] of Object.entries(answer.env ?? {})) {
       if (typeof value === 'string' && value.startsWith('/')) env[name] = toNativePath(value)

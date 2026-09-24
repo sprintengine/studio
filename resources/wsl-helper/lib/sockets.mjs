@@ -98,8 +98,10 @@ export async function listenPrivate(path, onConnection, options = {}) {
     process.umask(previous)
   }
   chmodSync(temporary, 0o600)
+  // Read before the rename, so a helper renaming its own socket into place at
+  // the same moment can never be taken for this one.
+  server.socketInode = statSync(temporary).ino
   renameSync(temporary, path)
-  server.socketInode = statSync(path).ino
   return server
 }
 

@@ -127,6 +127,9 @@ type Running = {
 // A helper that ran this long before it died counts as a fresh first crash,
 // not one more in a row.
 const HEALTHY_RUN_MS = 5 * 60_000
+// A helper that keeps dying as soon as it starts is not restarted on its own
+// past this many times in a row; the next launch reports it instead.
+const MAX_AUTO_RESTARTS = 5
 
 function backoffMs(failures: number): number {
   return failures <= 0 ? 0 : Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (failures - 1))
@@ -311,7 +314,15 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       // Sessions still run there, and their hooks and MCP bridges need the
       // helper's sockets: start it again, after the backoff, rather than
       // waiting for something to ask.
-      if (sessions.size > 0) {
+      if (crashes >= MAX_AUTO_RESTARTS) {
+        fatal = {
+          error: new WslSetupError(
+            `Couldn't set up WSL: the helper for ${deps.distro} stopped ${crashes} times in a row.`,
+            { fatal: true, code: 'start' },
+          ),
+          at: now(),
+        }
+      } else if (sessions.size > 0) {
         const retry = setTimeout(() => {
           if (sessions.size > 0 && state === 'stopped') void start().catch(() => undefined)
         }, backoffMs(crashes))
