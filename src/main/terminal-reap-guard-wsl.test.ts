@@ -72,6 +72,8 @@ test('an idle WSL agent is suspended once its distribution says it is at rest, a
         return { verdicts: answer }
       },
       'proc.killSession': () => ({ killed: [] }),
+      'session.write': () => ({ paths: [] }),
+      'session.remove': () => ({}),
     })
     const registryModule = await import('./hosts/host-registry')
     registryModule.installHostRegistry(

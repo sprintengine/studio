@@ -192,15 +192,36 @@ function connectFrameBody() {
   })
 }
 
+// Inside a WSL distribution the socket is the app's helper, which opens a
+// channel to the app only for a bridge started by one of the app's own live
+// launches: that launch's token, inherited from the CLI, goes first. A bridge
+// started any other way has none and is told so, rather than being dropped
+// without a word.
+const CHANNEL_TOKEN_ENV = 'SPRINTENGINE_MCP_CHANNEL_TOKEN'
+
+function channelAuthLine(info) {
+  if (info.channelAuth !== 'launch-token') return ''
+  const token = studioEnv(CHANNEL_TOKEN_ENV).trim()
+  if (!token) {
+    fail(
+      `This MCP bridge was not started by a SprintEngine Studio launch (${CHANNEL_TOKEN_ENV} is not set), ` +
+        'so the app will not accept it. Start the agent from SprintEngine Studio.',
+    )
+  }
+  return `${JSON.stringify({ t: 'auth', token })}\n`
+}
+
 function runLocal(infoPathArg) {
   const infoPath = resolveInfoPath(infoPathArg)
   const info = readServerInfo(infoPath)
+  const authLine = channelAuthLine(info)
 
   const socket = connect(info.socketPath)
   let connected = false
 
   socket.on('connect', () => {
     connected = true
+    if (authLine) socket.write(authLine)
     // Advisory attribution only: the gateway's trust boundary remains the local
     // OS user/socket. This frame is deliberately sent before stdin piping, and
     // the server serializes frames per connection so initialize cannot overtake it.

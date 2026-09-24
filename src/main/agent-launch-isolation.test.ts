@@ -267,6 +267,65 @@ test("another CLI's launch-time install leaves out the directory Claude now gets
   }
 })
 
+test("whether a launch carries the bundled skills is asked of the launch's machine, with what it said then", async () => {
+  // On Windows this PC's launches never carry the plugin directory; a WSL
+  // distribution's do once its helper wrote the copy. The installer must ask
+  // about the machine the agent runs on, or a WSL Claude gets the skill twice.
+  const { workspace } = await scratch('skills-machine')
+  const plugins = [nativeSkillPlugin('claude-code', 'claude', '.claude'), nativeSkillPlugin('codex', 'codex', '.codex')]
+  setDefaultSkillManager(createBuiltinSkillManager({ sourceRoot: STUDIO_SKILLS_SOURCE, listPlugins: () => plugins }))
+  const asked: Array<{ cli: string; hostId: string | null | undefined; integration: unknown }> = []
+  setLaunchDeliversBundledSkillsResolver((cli, hostId, integration) => {
+    asked.push({ cli, hostId, integration })
+    return cli === 'claude-code' && hostId === 'wsl:Ubuntu' && integration !== null
+  })
+  const integration = { pluginDirs: ['/home/dev/.local/share/sprintengine-studio/0.4.0/plugin-x/studio-skills'] }
+  try {
+    assert.deepEqual(
+      await ensureSkillInstalled(workspace, 'debug', {
+        cli: 'claude-code',
+        hostId: 'wsl:Ubuntu',
+        integration: integration as never,
+      }),
+      { ok: true, status: 'delivered-at-launch' },
+    )
+    assert.deepEqual(asked[0], { cli: 'claude-code', hostId: 'wsl:Ubuntu', integration })
+    assert.deepEqual(await readdir(workspace), [], 'the WSL launch carries it: nothing is copied')
+
+    // The same CLI on this PC: its launch carries nothing, so the skill is copied.
+    assert.equal((await ensureSkillInstalled(workspace, 'debug', { cli: 'claude-code', hostId: 'local' })).ok, true)
+    assert.equal(existsSync(join(workspace, '.claude', 'skills', 'debug', 'SKILL.md')), true)
+
+    // A Codex launch on the WSL machine leaves out `.claude`, which that
+    // machine's Claude launches carry, asking with the same machine.
+    const other = (await scratch('skills-machine-codex')).workspace
+    assert.equal(
+      (
+        await ensureSkillInstalled(other, 'debug', {
+          cli: 'codex',
+          hostId: 'wsl:Ubuntu',
+          integration: integration as never,
+        })
+      ).ok,
+      true,
+    )
+    assert.equal(existsSync(join(other, '.codex', 'skills', 'debug', 'SKILL.md')), true)
+    assert.equal(existsSync(join(other, '.claude')), false)
+    assert.ok(asked.some((entry) => entry.cli === 'claude-code' && entry.hostId === 'wsl:Ubuntu'))
+
+    // A helper that was not up when the launch was prepared: no copy there.
+    const third = (await scratch('skills-machine-down')).workspace
+    assert.equal(
+      (await ensureSkillInstalled(third, 'debug', { cli: 'claude-code', hostId: 'wsl:Ubuntu', integration: null }))
+        .status,
+      'installed',
+    )
+  } finally {
+    setLaunchDeliversBundledSkillsResolver(null)
+    setDefaultSkillManager(null)
+  }
+})
+
 // ── MCP gateway ─────────────────────────────────────────────────────────────
 
 const MANAGED_GATEWAY = {

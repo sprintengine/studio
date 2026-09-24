@@ -20,7 +20,7 @@
 // names its script (the pid was reused), gets no verdict: undetermined, which
 // main holds. Nothing here ever reads as "safe to reap" on a failed read.
 
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const BUSY_CPU_PERCENT = 15
@@ -272,4 +272,41 @@ export function survivorPids({ procRoot = '/proc', pidDir, cliSessionId, key, ui
   pids.delete(selfPid)
   pids.delete(1)
   return [...pids]
+}
+
+/**
+ * Ends every session this profile's pid files still name: each shell that is
+ * still the one that wrote its file, and everything under it. For the app
+ * quitting, and for a first start after a main that is gone left sessions
+ * running. A pid the kernel has since given to something else is not touched
+ * (see `sessionRoot`). Each pid file is removed. Returns the pids signalled.
+ */
+export function endAllSessions({ procRoot = '/proc', pidDir, uid, selfPid, kill = process.kill }) {
+  const dir = pidDir ? trustedPidDir(pidDir, uid) : null
+  if (!dir) return []
+  let names = []
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return []
+  }
+  const killed = []
+  for (const name of names) {
+    const match = /^(.+)\.pid$/u.exec(name)
+    if (!match || !PID_KEY.test(match[1])) continue
+    for (const pid of survivorPids({ procRoot, pidDir: dir, cliSessionId: '', key: match[1], uid, selfPid })) {
+      try {
+        kill(pid, 'SIGKILL')
+        killed.push(pid)
+      } catch {
+        // Gone already.
+      }
+    }
+    try {
+      rmSync(join(dir, name), { force: true })
+    } catch {
+      // Removed by someone else.
+    }
+  }
+  return killed
 }

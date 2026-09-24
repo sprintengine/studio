@@ -53,6 +53,11 @@ import { runGitCommand } from './git-run'
  *   once, for the changes no watcher can see: a working-tree edit nobody
  *   reported, a filesystem whose watch events do not arrive (network mounts).
  *
+ * A repository inside a WSL distribution is watched from inside it: a watch
+ * Windows places on a `\\wsl.localhost` path is accepted but hears nothing,
+ * so the caller's `watch` hands those directories to the distribution's
+ * helper (git-repo-watch-ipc.ts), whose events arrive here the same way.
+ *
  * Our own reads cannot wake it: they run with `GIT_OPTIONAL_LOCKS=0`
  * (git-run.ts), so `git status` never rewrites the index it is watching.
  */
@@ -129,11 +134,16 @@ export function classifyGitDirEntry(filename: string | null, isCommonDir: boolea
   return null
 }
 
-type WatchFn = (
+/** The part of `fs.FSWatcher` this module uses, so a watch run elsewhere (a WSL helper's) can stand in. */
+export type GitDirWatcher = Pick<FSWatcher, 'close'> & {
+  on?(event: 'error', listener: (error: Error) => void): unknown
+}
+
+export type WatchFn = (
   path: string,
   options: { recursive: boolean },
   listener: (event: string, filename: string | null) => void,
-) => FSWatcher
+) => GitDirWatcher
 
 type CheckoutRecord = {
   key: string
@@ -142,7 +152,7 @@ type CheckoutRecord = {
   resolving: Promise<void> | null
 }
 
-type DirWatch = { watcher: FSWatcher | null; users: number; recursive: boolean }
+type DirWatch = { watcher: GitDirWatcher | null; users: number; recursive: boolean }
 
 /** Folders of the common dir that can come and go while a checkout is watched. */
 const LATE_COMMON_DIRS = new Set(['worktrees', 'reftable'])
@@ -277,7 +287,7 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     )
   }
 
-  const closeQuietly = (watcher: FSWatcher | null): void => {
+  const closeQuietly = (watcher: GitDirWatcher | null): void => {
     try {
       watcher?.close()
     } catch {
@@ -286,9 +296,9 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
   }
 
   /** A watcher on `dir`, or null when it is not there (no `worktrees/` yet) or not watchable. */
-  const openWatcher = (dir: string, recursive: boolean): FSWatcher | null => {
+  const openWatcher = (dir: string, recursive: boolean): GitDirWatcher | null => {
     const key = dirKey(dir)
-    let watcher: FSWatcher
+    let watcher: GitDirWatcher
     try {
       watcher = watch(dir, { recursive }, (_event, filename) => onDirEvent(dir, filename))
     } catch {

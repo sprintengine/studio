@@ -53,7 +53,7 @@ const ROWS: Row[] = [
     windows: null,
     windowsInUbuntu: null,
     distro: 'Ubuntu',
-    comparable: '//wsl$/Ubuntu/home/dev/repo',
+    comparable: '//wsl.localhost/ubuntu/home/dev/repo',
   },
   {
     input: '\\\\wsl.localhost\\Debian\\home\\dev',
@@ -61,7 +61,7 @@ const ROWS: Row[] = [
     windows: null,
     windowsInUbuntu: null,
     distro: 'Debian',
-    comparable: '//wsl.localhost/Debian/home/dev',
+    comparable: '//wsl.localhost/debian/home/dev',
   },
   {
     input: '\\\\WSL.LOCALHOST\\Ubuntu-24.04',
@@ -69,7 +69,7 @@ const ROWS: Row[] = [
     windows: null,
     windowsInUbuntu: null,
     distro: 'Ubuntu-24.04',
-    comparable: '//WSL.LOCALHOST/Ubuntu-24.04',
+    comparable: '//wsl.localhost/ubuntu-24.04',
   },
   {
     input: '//wsl.localhost/Ubuntu/home/dev/repo',
@@ -77,7 +77,7 @@ const ROWS: Row[] = [
     windows: null,
     windowsInUbuntu: null,
     distro: 'Ubuntu',
-    comparable: '//wsl.localhost/Ubuntu/home/dev/repo',
+    comparable: '//wsl.localhost/ubuntu/home/dev/repo',
   },
   {
     input: '/mnt/c/Users/dev/repo',
@@ -155,6 +155,17 @@ test('the separator of a Windows result can be forward', () => {
 test('drive letters compare without regard to case, Linux paths with it', () => {
   assert.equal(comparablePath('C:\\Users\\Dev'), comparablePath('/mnt/c/users/dev/'))
   assert.notEqual(comparablePath('/home/Dev'), comparablePath('/home/dev'))
+})
+
+test("a distribution's two share names, in any case, are one folder; the Linux path after them is not folded", () => {
+  // A workspace stored under `\\wsl$\` against git's `//wsl.localhost/` answer.
+  assert.equal(
+    comparablePath('\\\\wsl$\\Ubuntu\\home\\dev\\repo\\'),
+    comparablePath('//wsl.localhost/Ubuntu/home/dev/repo'),
+  )
+  assert.equal(comparablePath('\\\\WSL.LOCALHOST\\UBUNTU\\home\\dev'), comparablePath('\\\\wsl$\\ubuntu\\home\\dev'))
+  assert.notEqual(comparablePath('\\\\wsl$\\Ubuntu\\home\\Dev'), comparablePath('\\\\wsl$\\Ubuntu\\home\\dev'))
+  assert.notEqual(comparablePath('\\\\wsl$\\Ubuntu\\home\\dev'), comparablePath('\\\\wsl$\\Debian\\home\\dev'))
 })
 
 test('which paths Windows opens as they are', () => {

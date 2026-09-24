@@ -47,6 +47,46 @@ export type ProcModule = {
     uid?: number
     selfPid: number
   }): number[]
+  endAllSessions(options: {
+    procRoot: string
+    pidDir: string | null
+    uid?: number
+    selfPid: number
+    kill?: (pid: number, signal: string) => void
+  }): number[]
+}
+
+export type SessionsModule = {
+  MAX_SESSION_WRITE_BYTES: number
+  ensureSessionDir(options: { home: string; uid?: number; profile: string }): string
+  writeSessionFiles(dir: string, files: unknown): string[]
+  removeSessionEntries(dir: string, names: unknown): void
+  clearSessionDir(dir: string): void
+}
+
+/** The slice of a `net.Socket` the relay uses, for a stand-in. */
+export type RelaySocketLike = {
+  on(event: string, listener: (...args: never[]) => void): unknown
+  off(event: string, listener: (...args: never[]) => void): unknown
+  pause(): unknown
+  resume(): unknown
+  write(chunk: Buffer): unknown
+  end(): unknown
+  destroy(): unknown
+  setTimeout(ms: number, callback: () => void): unknown
+  readableEnded: boolean
+}
+
+export type RelayModule = {
+  MAX_AGENT_STATE_BYTES_PER_CONNECTION: number
+  parseAuthLine(line: string): string | null
+  relayAgentStateConnection(socket: RelaySocketLike, send: (line: string) => void): void
+  createMcpMux(send: (frame: Record<string, unknown>) => void): {
+    accept(socket: RelaySocketLike): void
+    handleFromMain(frame: Record<string, unknown>): void
+    size(): number
+    closeAll(): void
+  }
 }
 
 export type LoginEnvModule = {
@@ -67,11 +107,13 @@ export type FilesModule = {
 
 export type RunModule = {
   checkRunRequest(request: Record<string, unknown>): string | null
+  decodeStdin(stdinB64: unknown): Buffer | null | undefined
   runArgv(request: {
     argv: string[]
     cwd?: string
     env?: Record<string, string>
     timeoutMs: number | null
+    stdin?: Buffer
   }): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }>
 }
 

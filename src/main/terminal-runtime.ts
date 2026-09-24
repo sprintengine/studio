@@ -39,8 +39,10 @@ import {
   type ObservedCheckout,
 } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
-import { normalizeExecutionHostId } from '../shared/execution-host'
+import { normalizeExecutionHostId, wslHostId } from '../shared/execution-host'
+import { isWindowsPath, wslToWindowsPath } from '../shared/host-paths'
 import { hostRegistry } from './hosts/host-registry'
+import { resolveWslDistroForPath } from './hosts/wsl-distro'
 import type { HostAgentIntegration, HostLaunchTarget, HostProcessRef } from './hosts/execution-host'
 import {
   agentIdentityEnv,
@@ -149,6 +151,11 @@ type TerminalRuntimeOptions = {
     // The machine the CLI runs on: it decides the gateway entry (this app's
     // own binary here, the pinned Node and the helper's bridge in WSL).
     hostId?: string
+    // What that machine's `agentIntegration()` said when this launch was
+    // prepared. The sync answers from it rather than asking again, so a
+    // helper restarting mid-launch cannot make the gateway entry and the
+    // launch disagree.
+    integration?: HostAgentIntegration | null
   }): Promise<{ ok: true } | { ok: false; message: string }>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
@@ -156,8 +163,15 @@ type TerminalRuntimeOptions = {
   // real skill. Best-effort: the caller swallows failures and falls back to the
   // always-present inline directive. `cli` is the agent about to launch: a
   // bundled skill its launch carries in the app's own plugin directory is not
-  // copied into the workspace at all (see `ensureSkillInstalled`).
-  ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string, cli?: string): Promise<void>
+  // copied into the workspace at all (see `ensureSkillInstalled`). `launch` is
+  // the machine the agent runs on and what it said when the launch was
+  // prepared, which is what decides whether its launch carries the skill.
+  ensureBuiltinSkillInstalled?(
+    workspaceRoot: string,
+    skillId: string,
+    cli?: string,
+    launch?: { hostId: string; integration: HostAgentIntegration | null },
+  ): Promise<void>
   // Keeps the generated managed MCP config (`.mcp.json` / `.codex/config.toml`)
   // out of a connector chat's worktree git by appending them to the worktree's
   // info/exclude. Invoked at a connector spawn (connectorLaunch set) after the
@@ -1324,6 +1338,7 @@ function disposeTerminal(sessionId: string): void {
   snapshotSidecars?.remove(sessionId)
   cleanupTerminalStartupScript(session.startupScriptPath)
   cleanupHostContextFile(session.hostContextPath)
+  discardHostLaunchFiles(session)
   terminalOutput.flush(sessionId, 'dispose')
   // Say so rather than leaving remote viewers on a stream that will never speak
   // again: dispose means gone, and a resume respawns under this same id, which
@@ -1396,10 +1411,24 @@ function retainSessionHost(session: TerminalSession): void {
 }
 
 function releaseSessionHost(session: TerminalSession): void {
+  // The launch is over: a bridge it started, or anything that copied its
+  // token, can no longer open an MCP channel on its machine.
+  if (session.channelToken) {
+    hostRegistry().get(session.hostId).revokeChannelToken?.(session.channelToken)
+    session.channelToken = undefined
+  }
   const lease = session.hostLease
   if (!lease) return
   session.hostLease = undefined
   hostRegistry().get(session.hostId).releaseSession(lease)
+}
+
+// A launch's files on another machine (WSL: the startup script and the
+// host-context file inside the distribution), removed there. The local
+// cleanups beside each call leave such paths alone.
+function discardHostLaunchFiles(session: TerminalSession): void {
+  if (session.pathStyle !== 'wsl') return
+  hostRegistry().get(session.hostId).discardLaunchFiles?.([session.startupScriptPath, session.hostContextPath])
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1959,6 +1988,35 @@ async function disposeAllTerminals(): Promise<void> {
     }
   })
   await Promise.all(sessions.map((session) => waitForTerminalExit(session, 500)))
+  // A WSL terminal's pty is the Windows `wsl.exe`; ending it does not reach
+  // the Linux processes under it, so each machine's helper ends what its
+  // sessions left running (by pid file and `--session-id`), with no grace:
+  // the ptys were just waited on. A suspended session's were ended when it
+  // was suspended. Bounded, so a wedged helper cannot hold the quit; the
+  // helper's own shutdown, which follows, ends every session it knows of too.
+  const survivorKills = sessions.flatMap((session) => {
+    const host = hostRegistry().get(session.hostId)
+    if (host.kind !== 'wsl' || session.suspended) return []
+    return [
+      host
+        .killSessionSurvivors(session.cliSessionId ?? '', {
+          startupScriptPath: session.startupScriptPath,
+          quitting: true,
+        })
+        .catch(() => []),
+    ]
+  })
+  if (survivorKills.length > 0) {
+    let quitTimer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      Promise.allSettled(survivorKills),
+      new Promise<void>((resolve) => {
+        quitTimer = setTimeout(resolve, 5_000)
+        quitTimer.unref?.()
+      }),
+    ])
+    if (quitTimer) clearTimeout(quitTimer)
+  }
   await Promise.allSettled([...pendingAgentListenerRecords])
 
   for (const session of sessions) {
@@ -2852,6 +2910,7 @@ function attachTerminalSession(
     }
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     cleanupHostContextFile(terminalSession.hostContextPath)
+    discardHostLaunchFiles(terminalSession)
     terminalOutput.flush(sessionId, 'exit')
     if (terminals.get(sessionId) === terminalSession) terminalOutput.forgetSession(sessionId)
     // Durable freeze-the-view, self-exit path: an agent whose pty ends on its own
@@ -3073,24 +3132,29 @@ async function spawnTerminalFromIpc(
   // one. Everything below asks it rather than the platform: the path style the
   // CLI's hooks and MCP config are written in, the command the CLI runs as
   // there, and the shape of the startup script.
-  const host = hostRegistry().resolve({
+  let host = hostRegistry().resolve({
     bound: existingSession?.hostId,
     requested: requestedHostId ?? (workspaceId ? resolveWorkspaceHostId?.(workspaceId) : null),
     folder: cwd,
   })
+  // A plain terminal in a folder Windows cannot name (a bare Linux path) opens
+  // in the default distribution, as it always has, and so is that machine's.
+  if (shellOnly && host.kind === 'windows' && cwd && !isWindowsPath(wslToWindowsPath(cwd))) {
+    const distro = await resolveWslDistroForPath(cwd).catch(() => null)
+    if (distro) host = hostRegistry().get(wslHostId(distro))
+  }
   const executionPathStyle: TerminalPathStyle = host.pathStyle
   const launchCliRuntimes: typeof cliRuntimes = shellOnly
     ? cliRuntimes
     : { ...cliRuntimes, [agentCli]: host.cliRuntime(agentCli, cliRuntimes?.[agentCli]) }
 
-  // A WSL machine needs its helper before anything is launched there: the
-  // agent's hooks, status line and MCP bridge all report through it. An agent
-  // launch waits for it (installing it on first use) and fails with the reason
-  // when it cannot start; there is no other way for that agent to report. A
-  // plain terminal does not need it to run, so it only starts it.
-  if (shellOnly) {
-    void host.prepare().catch(() => undefined)
-  } else {
+  // A WSL machine needs its helper before anything is launched there: it
+  // writes the startup script inside the distribution (nothing is run through
+  // a `/mnt/<drive>` mount), and an agent's hooks, status line and MCP bridge
+  // all report through it. Every launch there, a plain terminal's too, waits
+  // for it (installing it on first use) and fails with the reason when it
+  // cannot start. The local hosts are always ready.
+  if (!shellOnly || host.kind === 'wsl') {
     try {
       await host.prepare()
     } catch (error) {
@@ -3122,6 +3186,7 @@ async function spawnTerminalFromIpc(
   })
 
   const workingDirectory = cwd || process.cwd()
+  let channelToken: string | undefined
   try {
     // Resolve the agent's binary before this launch touches anything, and
     // refuse the spawn when the CLI is definitively absent. Both halves
@@ -3161,6 +3226,7 @@ async function spawnTerminalFromIpc(
         clients: [agentCli],
         executionPathStyle,
         hostId: host.id,
+        integration: hostIntegration,
         // A connector launch (connectorLaunch set, paired with the
         // single-server connectorMcpSettings) writes an isolated worktree
         // config that must contain only the connector — prune any MCP server
@@ -3207,7 +3273,10 @@ async function spawnTerminalFromIpc(
     // rather than blocking the spawn.
     if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
       try {
-        await ensureBuiltinSkillInstalled(workingDirectory, 'debug', agentCli)
+        await ensureBuiltinSkillInstalled(workingDirectory, 'debug', agentCli, {
+          hostId: host.id,
+          integration: hostIntegration,
+        })
       } catch (error) {
         logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
           sessionId,
@@ -3225,7 +3294,10 @@ async function spawnTerminalFromIpc(
     // failure is logged and never blocks the spawn.
     if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
       try {
-        await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId, agentCli)
+        await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId, agentCli, {
+          hostId: host.id,
+          integration: hostIntegration,
+        })
       } catch (error) {
         logMainPerfEvent('TerminalRuntime', 'spawn-skill-install-failed', {
           sessionId,
@@ -3278,6 +3350,11 @@ async function spawnTerminalFromIpc(
       })
       if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
     }
+    // A WSL agent's MCP bridge opens its channel with this launch's token,
+    // which the startup script exports; the session revokes it when it ends.
+    channelToken = !shellOnly && launchTarget.kind === 'wsl' ? host.issueChannelToken?.() : undefined
+    const launchFor: HostLaunchTarget =
+      channelToken && launchTarget.kind === 'wsl' ? { ...launchTarget, channelToken } : launchTarget
     const {
       command,
       args,
@@ -3287,10 +3364,11 @@ async function spawnTerminalFromIpc(
       env,
       startupScriptPath,
       hostContextPath,
+      hostFiles,
       managed,
       reapExempt,
     } = shellOnly
-      ? getPlainShellLaunchConfig(workingDirectory, sessionId, launchTarget)
+      ? getPlainShellLaunchConfig(workingDirectory, sessionId, launchFor)
       : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
@@ -3307,8 +3385,19 @@ async function spawnTerminalFromIpc(
           cliAuthToken,
           cliReasoning,
           resolvedBinaryPath,
-          launchTarget,
+          launchFor,
         )
+    // A WSL launch's startup script (and host-context file) are written inside
+    // the distribution by its helper, and the terminal runs them from there.
+    if (hostFiles && hostFiles.length > 0) {
+      const label = host.summary().label
+      if (!host.writeLaunchFiles) throw new Error(`${label} cannot take this terminal's startup script.`)
+      try {
+        await host.writeLaunchFiles(hostFiles)
+      } catch (error) {
+        throw new Error(`Couldn't write this terminal's startup script into ${label}: ${getErrorMessage(error)}`)
+      }
+    }
     // Install the authoritative-agent-state reporter into the workspace before
     // launching a supported agent, so its lifecycle hooks report phase the
     // moment it starts. Awaited so the hooks exist when the CLI reads its
@@ -3379,12 +3468,14 @@ async function spawnTerminalFromIpc(
       lastVisibleAt: visible ? startedAt : null,
       startupScriptPath,
       hostContextPath,
+      ...(channelToken ? { channelToken } : {}),
     }
 
     attachTerminalSession(sessionId, terminalSession, initialInput)
 
     return { ok: true, sessionId } satisfies TerminalSpawnResult
   } catch (error) {
+    if (channelToken) host.revokeChannelToken?.(channelToken)
     const message = getTerminalErrorMessage(error)
     retainFailedTerminalSession({
       sessionId,

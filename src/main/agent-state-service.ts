@@ -64,8 +64,10 @@ export type AgentStateServiceOptions = {
   // every event, and the person's repository keeps none of it. Absent ⇒ nothing
   // is launch-injected, which is the behaviour from before the flag existed.
   // Asked with the launch's machine: a WSL launch carries the copy inside its
-  // distribution only once the helper has written it there.
-  resolveLaunchInjectsPlugins?: (cli: string, hostId?: string) => boolean
+  // distribution only once the helper has written it there. `integration` is
+  // what that machine said when the launch prepared it, so this answer and the
+  // launch's own flags come from one reading.
+  resolveLaunchInjectsPlugins?: (cli: string, hostId?: string, integration?: HostAgentIntegration | null) => boolean
   // Every loaded CLI's agentStateSpec. Read only when a launch-injected CLI
   // tidies the registration an earlier build wrote into the workspace: the
   // shared reporter script there must survive while another CLI's registration
@@ -230,7 +232,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // window, before the copy landed) installed into still holds that
     // registration, which would now fire beside the launch's own for every
     // event and stay in the person's repository. It is taken out instead.
-    if (options.resolveLaunchInjectsPlugins?.(cli, execution.hostId)) {
+    if (options.resolveLaunchInjectsPlugins?.(cli, execution.hostId, execution.integration)) {
       await tidyWorkspaceRegistration(root, spec)
       return
     }

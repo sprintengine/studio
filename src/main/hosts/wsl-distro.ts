@@ -89,7 +89,7 @@ export type WslListRunner = () => Promise<string | null>
 async function runWslList(): Promise<string | null> {
   const outcome = await runSpawnDescriptor(
     { file: 'wsl.exe', args: ['--list', '--verbose'] },
-    { timeoutMs: LIST_TIMEOUT_MS, decodeStdout: decodeWslOutput },
+    { timeoutMs: LIST_TIMEOUT_MS, decodeStdout: decodeWslOutput, decodeStderr: decodeWslOutput },
   )
   return outcome.code === 0 && !outcome.timedOut ? outcome.stdout : null
 }
@@ -265,12 +265,18 @@ export type WslScriptRunner = (
   options: { timeoutMs: number | null },
 ) => Promise<RunOutcome>
 
-/** Runs a script in a distribution through `wsl.exe`, with a deadline. */
+/**
+ * Runs a script in a distribution through `wsl.exe`, with a deadline. What
+ * the script prints is UTF-8, but a failure of `wsl.exe` itself (no such
+ * distribution, WSL not installed) is printed as UTF-16LE; both streams are
+ * decoded for either.
+ */
 export const runWslScript: WslScriptRunner = (distro, script, options) =>
-  runSpawnDescriptor(
-    wslScriptDescriptor(distro, script),
-    options.timeoutMs === null ? {} : { timeoutMs: options.timeoutMs },
-  )
+  runSpawnDescriptor(wslScriptDescriptor(distro, script), {
+    decodeStdout: decodeWslOutput,
+    decodeStderr: decodeWslOutput,
+    ...(options.timeoutMs === null ? {} : { timeoutMs: options.timeoutMs }),
+  })
 
 // ── Session root pids ───────────────────────────────────────────────────────
 //
@@ -281,10 +287,10 @@ export const runWslScript: WslScriptRunner = (distro, script, options) =>
 // child. A probe reads that file to find the subtree to inspect.
 //
 // The file is named after the startup script, which is unique per launch, so
-// a relaunch never reads a pid from the session it replaced.
-
-/** The per-user directory the pid files live in, as a `sh` word. */
-export const WSL_SESSION_PID_DIR = '/tmp/sprintengine-studio-$(id -u)/sessions'
+// a relaunch never reads a pid from the session it replaced. It goes into the
+// directory the helper made for it beside its sockets (`pidDir` in its hello:
+// under `$XDG_RUNTIME_DIR`, or a `/tmp` directory it checked is its own), never
+// a shared one another user could have created first.
 
 /** The pid-file key for a launch, from its startup script's file name. */
 export function wslSessionPidKey(startupScriptPath: string | undefined): string | null {
@@ -297,13 +303,21 @@ export function wslSessionPidKey(startupScriptPath: string | undefined): string 
  * The startup-script line that records the shell's pid. One line, so it can be
  * joined into the `; `-separated script, and silent on failure: a session that
  * could not write its pid is held by the reaper, never broken.
+ *
+ * The directory is written into only while it is a real directory (not a
+ * link) that this user owns; it is not created here, because creating it
+ * inside a parent someone else controls is exactly what the check is for.
  */
-export function wslSessionPidFileCommand(key: string): string {
-  const dir = WSL_SESSION_PID_DIR
+export function wslSessionPidFileCommand(pidDir: string, key: string): string {
+  if (!/^[A-Za-z0-9._-]+$/u.test(key)) return ''
+  const dir = `'${pidDir.replace(/'/g, `'"'"'`)}'`
   // The pid and its start time (field 22 of /proc/<pid>/stat, counted after
   // the command name). The script's last line `exec`s the terminal's shell,
   // which keeps the pid but replaces the command line, so the start time is
   // what tells this shell from a later process that was handed the same pid.
   const started = `$(sed 's/.*) //' /proc/$$/stat 2>/dev/null | cut -d' ' -f20)`
-  return `(umask 077 && mkdir -p "${dir}" && printf '%s %s\\n' "$$" "${started}" > "${dir}/${key}.pid") 2>/dev/null`
+  return (
+    `(d=${dir}; umask 077 && [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && ` +
+    `printf '%s %s\\n' "$$" "${started}" > "$d/${key}.pid") 2>/dev/null`
+  )
 }

@@ -29,7 +29,7 @@
 // helper that dies on its own is started again by the next thing that needs
 // it, after a backoff that grows with each crash in a row.
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import type { Duplex, Readable, Writable } from 'node:stream'
 
 import { decodeWslOutput } from './wsl-distro'
@@ -37,7 +37,7 @@ import { WslSetupError } from './wsl-setup-error'
 import { NEEDS_INSTALL_EXIT, parseNeedReport, type NeedReport } from './wsl-install'
 
 /** Must equal `PROTOCOL_VERSION` in `resources/wsl-helper/lib/frames.mjs`. */
-export const WSL_HELPER_PROTOCOL = 1
+export const WSL_HELPER_PROTOCOL = 2
 
 export type WslHelperInfo = {
   uid: number
@@ -51,7 +51,10 @@ export type WslHelperInfo = {
   mcpSocket: string
   /** The Linux directory the MCP bridge reads its discovery file from. */
   userDataDir: string
+  /** Where each session's startup script records its shell's pid; private to this user. */
   pidDir: string
+  /** Where each launch's startup script and host-context file are written; private to this user. */
+  sessionDir: string
 }
 
 export type HelperProcess = {
@@ -170,6 +173,9 @@ export function classifyWslFailure(text: string, code: number | null): WslSetupE
   })
 }
 
+/** A directory the helper watches for main; `close` stops it. */
+export type WslDirWatch = { close(): void }
+
 export type WslHelperClient = {
   readonly distro: string
   state(): WslHelperState
@@ -179,8 +185,28 @@ export type WslHelperClient = {
   lastError(): WslSetupError | null
   start(): Promise<WslHelperInfo>
   request<T>(method: string, params?: unknown, options?: { timeoutMs?: number | null }): Promise<T>
+  /**
+   * `request`, but only while the helper runs: a stopped helper is not started
+   * for it, and the answer is null. For tidying that can wait.
+   */
+  requestIfRunning<T>(method: string, params?: unknown): Promise<T | null>
   retain(sessionId: string): void
   release(sessionId: string): void
+  /**
+   * A new token for one launch's MCP bridge. Only a channel that opens with a
+   * token issued here, and not yet revoked, is connected to the automation
+   * server. Revoke it when the launch's session ends.
+   */
+  issueChannelToken(): string
+  revokeChannelToken(token: string): void
+  /**
+   * Watches a Linux directory inside the distribution. Registered with the
+   * running helper, and again with each helper started after it; a watch never
+   * starts the helper itself. `onError` is called once when the directory
+   * cannot be watched, after which the watch is dead.
+   */
+  watch(path: string, recursive: boolean, listener: (filename: string | null) => void, onError: () => void): WslDirWatch
+  /** Stops the helper for good: the app is quitting, so every session it launched there is ended too. */
   shutdown(): Promise<void>
 }
 
@@ -204,6 +230,23 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
   const sessions = new Set<string>()
   const channels = new Map<number, Duplex>()
   let idleTimer: ReturnType<typeof setTimeout> | null = null
+  // Held as digests, so a lookup never compares a guess with a real token.
+  const channelTokens = new Set<string>()
+  // The channels each token opened, so revoking a token also ends them.
+  const channelsByToken = new Map<string, Set<number>>()
+  // Whether this client has had a helper up before: the first one is told to
+  // end what an earlier main left running in the distribution.
+  let startedBefore = false
+  type WatchEntry = {
+    path: string
+    recursive: boolean
+    listener: (filename: string | null) => void
+    onError: () => void
+    remote: number | null
+    closed: boolean
+  }
+  const watches = new Set<WatchEntry>()
+  const watchesByRemote = new Map<number, WatchEntry>()
 
   function write(frame: unknown): void {
     const target = running?.process.stdin
@@ -237,11 +280,16 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
     socket.destroy()
   }
 
-  function handleChannel(frame: { ch?: unknown; op?: unknown; b64?: unknown }): void {
+  function handleChannel(frame: { ch?: unknown; op?: unknown; b64?: unknown; token?: unknown }): void {
     const id = frame.ch
     if (typeof id !== 'number' || !Number.isInteger(id)) return
     if (frame.op === 'open') {
-      if (channels.has(id) || channels.size >= MAX_CHANNELS) {
+      // The automation server can start a shell on this PC; only a bridge
+      // started by one of this app's own live launches is connected to it.
+      const digest = typeof frame.token === 'string' ? tokenDigest(frame.token) : ''
+      const authorised = digest !== '' && channelTokens.has(digest)
+      if (!authorised || channels.has(id) || channels.size >= MAX_CHANNELS) {
+        if (!authorised) log(`Refused an MCP channel from the WSL helper for ${deps.distro}: no valid launch token.`)
         write({ t: 'ch', ch: id, op: 'close' })
         return
       }
@@ -253,6 +301,10 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
         return
       }
       channels.set(id, socket)
+      const opened = channelsByToken.get(digest) ?? new Set<number>()
+      opened.add(id)
+      channelsByToken.set(digest, opened)
+      socket.on('close', () => opened.delete(id))
       socket.on('data', (chunk: Buffer) => write({ t: 'ch', ch: id, op: 'data', b64: chunk.toString('base64') }))
       // Half-closes cross in both directions, so replies already in flight
       // still arrive after one side has finished writing.
@@ -288,6 +340,12 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
         deps.onEvent({ event: 'agentState', line: frame.line })
       } else if (frame.event === 'pathsChanged') {
         deps.onEvent({ event: 'pathsChanged' })
+      } else if (frame.event === 'watch' && typeof frame.id === 'number') {
+        const entry = watchesByRemote.get(frame.id)
+        if (entry && !entry.closed) entry.listener(typeof frame.filename === 'string' ? frame.filename : null)
+      } else if (frame.event === 'watchError' && typeof frame.id === 'number') {
+        const entry = watchesByRemote.get(frame.id)
+        if (entry) failWatch(entry)
       }
     } else if (frame.t === 'ch') {
       handleChannel(frame)
@@ -307,6 +365,10 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       pending.delete(id)
     }
     for (const id of [...channels.keys()]) closeChannel(id, false)
+    // The helper's watches went with it; each is registered again with the
+    // next helper that starts.
+    watchesByRemote.clear()
+    for (const entry of watches) entry.remote = null
     if (!wasIntentional) {
       crashes = now() - entry.startedAt > HEALTHY_RUN_MS ? 1 : crashes + 1
       lastCrashAt = now()
@@ -430,7 +492,13 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
           }, helloTimeoutMs)
           helloTimer.unref?.()
           child.stdin.write(
-            `${JSON.stringify({ t: 'hello', protocol: WSL_HELPER_PROTOCOL, appVersion: deps.appVersion, profile: deps.profile })}\n`,
+            `${JSON.stringify({
+              t: 'hello',
+              protocol: WSL_HELPER_PROTOCOL,
+              appVersion: deps.appVersion,
+              profile: deps.profile,
+              endOrphans: !startedBefore,
+            })}\n`,
           )
           return
         }
@@ -570,9 +638,11 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
         running = entry
         state = 'ready'
         fatal = null
+        startedBefore = true
         // Deliberately not reset: `crashes` counts exits in a row, and a helper
         // that starts and then dies again at once should back off further.
         armIdle()
+        for (const watch of watches) registerWatch(watch)
         return entry.info
       } catch (error) {
         const setupError =
@@ -648,14 +718,54 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
     })
   }
 
-  async function stop(): Promise<void> {
+  async function requestIfRunning<T>(method: string, params?: unknown): Promise<T | null> {
+    if (state !== 'ready' || !running) return null
+    return request<T>(method, params)
+  }
+
+  function failWatch(entry: WatchEntry): void {
+    if (entry.closed) return
+    entry.closed = true
+    watches.delete(entry)
+    if (entry.remote !== null) watchesByRemote.delete(entry.remote)
+    entry.remote = null
+    entry.onError()
+  }
+
+  // Registers a watch with the helper that runs now, if one does. A helper
+  // that stops takes its watches with it, and the next one to start is given
+  // them again (`startFresh`).
+  function registerWatch(entry: WatchEntry): void {
+    const at = running
+    if (state !== 'ready' || !at || entry.closed || entry.remote !== null) return
+    void request<{ id: number }>('watch.add', { path: entry.path, recursive: entry.recursive }).then(
+      (answer) => {
+        if (running !== at) return
+        if (entry.closed) {
+          void requestIfRunning('watch.remove', { id: answer.id }).catch(() => undefined)
+          return
+        }
+        entry.remote = answer.id
+        watchesByRemote.set(answer.id, entry)
+      },
+      () => {
+        // Only a refusal from the helper that registered it is the watch's
+        // failure; a helper that stopped meanwhile is registered with again.
+        if (running === at) failWatch(entry)
+      },
+    )
+  }
+
+  // `endSessions` is for the app quitting: the helper then also ends every
+  // session the app launched in the distribution. An idle stop leaves them.
+  async function stop(options: { endSessions: boolean } = { endSessions: false }): Promise<void> {
     const entry = running
     if (!entry) return
     state = 'stopping'
     entry.intentional = true
     clearIdle()
     try {
-      entry.process.stdin.write(`${JSON.stringify({ t: 'shutdown' })}\n`)
+      entry.process.stdin.write(`${JSON.stringify({ t: 'shutdown', endSessions: options.endSessions })}\n`)
       entry.process.stdin.end()
     } catch {
       // The pipe is already gone, which ends the helper too.
@@ -688,12 +798,50 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       if (!sessions.delete(sessionId)) return
       armIdle()
     },
+    requestIfRunning,
+    issueChannelToken() {
+      const token = randomBytes(32).toString('base64url')
+      channelTokens.add(tokenDigest(token))
+      return token
+    },
+    revokeChannelToken(token) {
+      const digest = tokenDigest(token)
+      channelTokens.delete(digest)
+      // The session is over: what its bridge (or anything that took its
+      // token) still has open is ended too, not left to run on.
+      for (const id of channelsByToken.get(digest) ?? []) closeChannel(id, true)
+      channelsByToken.delete(digest)
+    },
+    watch(path, recursive, listener, onError) {
+      const entry: WatchEntry = { path, recursive, listener, onError, remote: null, closed: false }
+      watches.add(entry)
+      registerWatch(entry)
+      return {
+        close() {
+          if (entry.closed) return
+          entry.closed = true
+          watches.delete(entry)
+          const remote = entry.remote
+          entry.remote = null
+          if (remote !== null) {
+            watchesByRemote.delete(remote)
+            void requestIfRunning('watch.remove', { id: remote }).catch(() => undefined)
+          }
+        },
+      }
+    },
     async shutdown() {
       sessions.clear()
+      channelTokens.clear()
+      channelsByToken.clear()
       await starting?.catch(() => undefined)
-      await stop()
+      await stop({ endSessions: true })
     },
   }
+}
+
+function tokenDigest(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 /** A short random id for a staging directory. */
