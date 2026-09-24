@@ -276,6 +276,8 @@ export type GitWorktreeCreateInput = {
   branchName: string
   baseRef: string
   copyIncludedFiles?: boolean
+  /** The machine whose git makes it (a WSL machine's); absent resolves from the folder. */
+  hostId?: string
 }
 
 export type GitWorktreeRemoveInput = {

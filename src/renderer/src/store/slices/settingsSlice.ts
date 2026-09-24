@@ -1,4 +1,6 @@
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
+import type { ExecutionHostId, ExecutionHostSettings } from '../../../../shared/execution-host'
+import { normalizeAgentLaunchHosts } from '../../../../shared/launch-settings'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
@@ -432,12 +434,12 @@ function normalizeCliRuntimes(
   const result: AppSettings['cliRuntimes'] = {}
   for (const [id, runtime] of Object.entries(merged)) {
     const models = normalizeUserModelList(runtime.models)
-    if (models) {
-      result[id] = { ...runtime, models }
-    } else {
-      const { models: _dropped, ...rest } = runtime
-      result[id] = rest
-    }
+    const { models: _dropped, ...rest } = runtime
+    // The per-CLI "run through WSL" switch is gone (a WSL distribution is a
+    // machine of its own now); a copy persisted before that must not ride
+    // back to main on the next write.
+    delete (rest as Record<string, unknown>).useWsl
+    result[id] = models ? { ...rest, models } : rest
   }
   return result
 }
@@ -659,12 +661,12 @@ export function normalizeTerminalKeepRecentAlive(value: unknown): number {
 
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
-    codex: { command: 'codex', useWsl: false },
+    codex: { command: 'codex' },
     'claude-code': {
       command: 'claude',
-      useWsl: false,
     },
   },
+  hosts: {},
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
   lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
@@ -724,6 +726,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   return {
     ...defaults,
     cliRuntimes: normalizeCliRuntimes(settings?.cliRuntimes, defaults),
+    hosts: normalizeAgentLaunchHosts(settings?.hosts),
     cliModelCatalog: normalizeCliModelCatalogs(settings?.cliModelCatalog),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
@@ -933,6 +936,7 @@ export interface SettingsSliceActions {
   openModalSurface: (surfaceId: string, options?: { workspaceId?: string }) => void
   closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setHostSettings: (hostId: ExecutionHostId, settings: ExecutionHostSettings | null) => void
   // Record (or clear) what one CLI reported about its own models. Replaces that
   // CLI's entry wholesale — a model the CLI no longer lists is gone from the
   // discovered layer — and never touches `cliRuntimes[cli].models`.
@@ -1246,9 +1250,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         const defaults = defaultAppSettings()
         state.appSettings.cliRuntimes ??= defaults.cliRuntimes
         // Unknown plugin ids default to a blank command so a row the user only
-        // toggles WSL on does not pin the command to the plugin id; a blank
+        // adds a model to does not pin the command to the plugin id; a blank
         // command resolves to the plugin manifest binary at launch.
-        const fallback = defaults.cliRuntimes[cli] ?? { command: '', useWsl: false }
+        const fallback = defaults.cliRuntimes[cli] ?? { command: '' }
         const next = {
           ...fallback,
           ...state.appSettings.cliRuntimes[cli],
@@ -1259,6 +1263,18 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         runtime = { ...next, ...(next.models ? { models: [...next.models] } : {}) }
       })
       if (runtime) launchSettingsClient.update({ cliRuntimes: { [cli]: runtime } })
+    },
+
+    // One machine's settings (Settings ▸ Machines), replaced whole; `null`
+    // forgets them. Main's answer replaces this copy, like every setter here.
+    setHostSettings: (hostId, settings) => {
+      set((state) => {
+        const hosts = { ...state.appSettings.hosts }
+        if (settings) hosts[hostId] = settings
+        else delete hosts[hostId]
+        state.appSettings.hosts = hosts
+      })
+      launchSettingsClient.update({ hosts: { [hostId]: settings } })
     },
 
     setCliModelCatalog: (cli, catalog) =>

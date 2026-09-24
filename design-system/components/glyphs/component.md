@@ -375,6 +375,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
 | `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
 | `RemoteMachineGlyph` | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
+| `WslMachineGlyph` | A WSL distribution on this computer, which is a machine of its own ("WSL: Ubuntu"): a terminal window with a prompt, because the distribution is reached as a shell. It is not remote — it sits beside `RemoteMachineGlyph` in the New chat machine dropdown and must not be mistaken for it — and it is not a Device identity mark, because it names no hardware. Stroke 1.4. `glyphs/wsl-machine.svg` |
 
 ### Settings rail (24-grid, one per category)
 
@@ -384,7 +385,8 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 `GithubSettingsIcon` (branch),
 `TrackersSettingsIcon` (tagged file), `KnowledgeGraphSettingsIcon` (node
 triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
-`ModulesSettingsIcon` (2 × 2 grid), `MobileSettingsIcon` (phone),
+`ModulesSettingsIcon` (2 × 2 grid), `MachinesSettingsIcon` (a screen with a
+prompt; Windows only), `MobileSettingsIcon` (phone),
 `RemoteSettingsIcon` (two linked machines).
 All at `iconStroke` so the rail reads as one set.
 

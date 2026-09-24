@@ -235,9 +235,9 @@ test('a probe that never settles is abandoned at the guard; the service never th
   assert.ok(broken.entries.every((entry) => entry.catalog === null))
 })
 
-test("the probe gets the detected path and runs with the CLI runtime's WSL switch", async () => {
+test('the probe gets the detected path and runs on the machine the CLI runtime names', async () => {
   const h = harness()
-  const seen: Array<{ binary: string; useWsl: boolean; args: string[] }> = []
+  const seen: Array<{ binary: string; hostId?: string; args: string[] }> = []
   h.deps.probes = {
     codex: {
       source: 'argv-probe',
@@ -248,11 +248,14 @@ test("the probe gets the detected path and runs with the CLI runtime's WSL switc
     },
   }
   h.deps.runArgv = async (input) => {
-    seen.push({ binary: input.binary, useWsl: input.useWsl, args: input.args })
+    seen.push({ binary: input.binary, hostId: input.hostId, args: input.args })
     return { code: 0, stdout: '', stderr: '', timedOut: false }
   }
-  await discoverCliModels({ clis: ['codex'], cliRuntimes: { codex: { command: 'codex', useWsl: true } } }, h.deps)
-  assert.deepEqual(seen, [{ binary: '/Users/dev/.local/bin/codex', useWsl: true, args: ['debug', 'models'] }])
+  await discoverCliModels(
+    { clis: ['codex'], cliRuntimes: { codex: { command: 'codex', hostId: 'wsl:Ubuntu' } } },
+    h.deps,
+  )
+  assert.deepEqual(seen, [{ binary: '/Users/dev/.local/bin/codex', hostId: 'wsl:Ubuntu', args: ['debug', 'models'] }])
 })
 
 test('two overlapping passes share one probe of a CLI', async () => {

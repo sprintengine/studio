@@ -39,6 +39,8 @@ import {
   type ObservedCheckout,
 } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
+import { distroOfHostId, normalizeExecutionHostId } from '../shared/execution-host'
+import { hostRegistry } from './hosts/host-registry'
 import {
   cleanupHostContextFile,
   cleanupTerminalStartupScript,
@@ -162,6 +164,11 @@ type TerminalRuntimeOptions = {
   // per-spawn MCP sync writes those files. Best-effort: the caller swallows
   // failures so an exclude write never blocks a launch. Absent in tests (no-op).
   excludeWorktreeMcpConfig?(worktreePath: string): Promise<void>
+  // The machine a workspace runs on, from main's workspace registry. Asked
+  // when a spawn names no host of its own, so every door into a terminal —
+  // the agent tab, a plain terminal, the Git panel's diff shell, a module's
+  // agent — lands on its workspace's machine without each carrying it.
+  resolveWorkspaceHostId?(workspaceId: string): string | null
   // Installs the authoritative-agent-state reporter hook into the workspace
   // before a supported agent (Claude Code / Codex) launches, so the agent's
   // lifecycle hooks report its true phase over the agent-state socket. The
@@ -171,7 +178,7 @@ type TerminalRuntimeOptions = {
   prepareAgentStateHook?(
     workspaceRoot: string,
     cli: string,
-    execution?: { pathStyle?: TerminalPathStyle },
+    execution?: { pathStyle?: TerminalPathStyle; wslDistro?: string | null },
   ): Promise<void>
   // Durable freeze-the-view: per-terminal snapshot sidecars on disk, so a
   // suspended terminal reopens painted-and-paused after an app restart. Absent
@@ -302,6 +309,7 @@ let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
+let resolveWorkspaceHostId: TerminalRuntimeOptions['resolveWorkspaceHostId']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
@@ -362,6 +370,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
+  resolveWorkspaceHostId = options.resolveWorkspaceHostId
   snapshotSidecars = options.snapshotSidecars
   agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
@@ -1083,6 +1092,35 @@ export function suspendTerminal(sessionId: string): void {
   })
 }
 
+// A settled agent drops what it holds in memory. An agent whose pty ended on
+// its own is settled, but its tab stays open on its last screen and the agent
+// control plane can still read what it printed, synchronously. So, as suspend
+// does, render that screen once and let the raw stream behind it go: every
+// reveal, reattach and remote attach already prefers `replaySnapshot`, and
+// `readTerminalOutput` / `readTerminalOutputSince` answer from it once the
+// stream is released. Until the render lands the raw stream serves every read,
+// and a failed render keeps it as the fallback.
+//
+// The sidecar written on exit keeps its raw dump; a restart renders it, and the
+// quit path rewrites it from this snapshot if the app is still running then.
+function settleExitedAgentScreen(session: TerminalSession, source: string): void {
+  if (session.kind !== 'agent') return
+  // The size the CLI drew for: the last applied resize, else the size the pty
+  // was spawned at. An agent launched in the background may never have been
+  // fitted, and a render at a default 80 columns would garble its layout.
+  const cols = session.appliedCols ?? session.process.cols ?? 80
+  const rows = session.appliedRows ?? session.process.rows ?? 24
+  void buildReplaySnapshot(source, cols, rows).then((snapshot) => {
+    if (!snapshot) return
+    // Only onto this exact exited session: a respawn under the same id is a new
+    // record, and a dispose has already released everything.
+    if (terminals.get(session.sessionId) !== session || session.isDisposed) return
+    if (isTerminalProcessAlive(session) || session.replaySnapshot) return
+    session.replaySnapshot = snapshot
+    releaseTerminalOutput(session)
+  })
+}
+
 // A frozen view is at rest by construction — the same stamp
 // `createSuspendedPlaceholderSession` puts on the restart-rehydration path,
 // applied to the in-process suspend so the two agree.
@@ -1140,6 +1178,7 @@ function writeTerminalSnapshotSidecar(
     terminalId: session.terminalId,
     cli: session.cli,
     cliSessionId: session.cliSessionId,
+    ...(session.hostId ? { hostId: session.hostId } : {}),
     cwd: session.cwd,
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
@@ -1197,6 +1236,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     terminalId: sidecar.terminalId,
     cli: sidecar.cli,
     cliSessionId: sidecar.cliSessionId,
+    hostId: normalizeExecutionHostId(sidecar.hostId) ?? undefined,
     cwd: sidecar.cwd,
     executionMode: sidecar.executionMode,
     worktreeId: sidecar.worktreeId,
@@ -1266,7 +1306,10 @@ async function resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload
     }
     disposeTerminal(payload.sessionId)
   }
-  return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId })
+  // The host too: a resumed CLI's conversation lives in the home of the
+  // machine it ran on, whatever the payload now asks for.
+  const hostId = existing?.hostId ?? payload.hostId
+  return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId, ...(hostId ? { hostId } : {}) })
 }
 
 function disposeTerminal(sessionId: string): void {
@@ -1325,8 +1368,14 @@ function survivorHost(session: TerminalSession): {
   pathStyle?: TerminalSession['pathStyle']
   cwd?: string
   startupScriptPath?: string
+  wslDistro?: string | null
 } {
-  return { pathStyle: session.pathStyle, cwd: session.cwd, startupScriptPath: session.startupScriptPath }
+  return {
+    pathStyle: session.pathStyle,
+    cwd: session.cwd,
+    startupScriptPath: session.startupScriptPath,
+    wslDistro: distroOfHostId(session.hostId),
+  }
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1792,6 +1841,8 @@ async function buildReapGuardHolds(
         pathStyle: session.pathStyle,
         cwd: session.cwd,
         startupScriptPath: session.startupScriptPath,
+        // The session's host names its distribution; the cwd only guesses.
+        wslDistro: distroOfHostId(session.hostId),
       })
     }
   }
@@ -2789,12 +2840,14 @@ function attachTerminalSession(
     // repainted. Only a pty that died on its own gets a snapshot: still in the map,
     // not disposed.
     if (terminals.get(sessionId) === terminalSession && !terminalSession.isDisposed) {
+      const rawReplay = terminalSession.replaySnapshot ? undefined : materializeTerminalReplay(terminalSession)
       writeTerminalSnapshotSidecar(terminalSession, {
         snapshot: terminalSession.replaySnapshot,
-        rawReplay: terminalSession.replaySnapshot ? undefined : materializeTerminalReplay(terminalSession),
+        rawReplay,
         cols: terminalSession.appliedCols ?? 80,
         rows: terminalSession.appliedRows ?? 24,
       })
+      if (rawReplay) settleExitedAgentScreen(terminalSession, rawReplay)
     }
     terminalDiagnostics.clear(sessionId)
     // Lifecycle stamp: the pty exit OWNS the terminal phase (it carries the
@@ -2875,6 +2928,7 @@ async function spawnTerminalFromIpc(
     cliSessionId,
     kind,
     workspaceId,
+    hostId: requestedHostId,
     agentId,
     agentName,
     terminalId,
@@ -2982,8 +3036,21 @@ async function spawnTerminalFromIpc(
   // Non-null on every path that reads it: a fresh agent spawn with no CLI
   // returned above, and shell-only spawns never reach an agent-CLI consumer.
   const agentCli = cli as AgentCli
-  const executionPathStyle: TerminalPathStyle =
-    process.platform === 'win32' ? (cliRuntimes?.[agentCli]?.useWsl === true ? 'wsl' : 'windows') : 'posix'
+  // The machine this runs on: the session's own when it is being relaunched,
+  // else the workspace's, else the distribution the folder lives in, else this
+  // one. Everything below asks it rather than the platform: the path style the
+  // CLI's hooks and MCP config are written in, the command the CLI runs as
+  // there, and the shape of the startup script.
+  const host = hostRegistry().resolve({
+    bound: existingSession?.hostId,
+    requested: requestedHostId ?? (workspaceId ? resolveWorkspaceHostId?.(workspaceId) : null),
+    folder: cwd,
+  })
+  const executionPathStyle: TerminalPathStyle = host.pathStyle
+  const hostWslDistro = distroOfHostId(host.id)
+  const launchCliRuntimes: typeof cliRuntimes = shellOnly
+    ? cliRuntimes
+    : { ...cliRuntimes, [agentCli]: host.cliRuntime(agentCli, cliRuntimes?.[agentCli]) }
 
   disposeTerminal(sessionId)
   logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
@@ -3011,7 +3078,7 @@ async function spawnTerminalFromIpc(
       const preflight = await preflightAgentCliLaunch(
         {
           cli: agentCli,
-          cliRuntimes,
+          cliRuntimes: launchCliRuntimes,
           platform: agentCliPreflightOverrides.platform,
           shell: agentCliPreflightOverrides.shell,
         },
@@ -3164,14 +3231,14 @@ async function spawnTerminalFromIpc(
       managed,
       reapExempt,
     } = shellOnly
-      ? getPlainShellLaunchConfig(workingDirectory, sessionId)
+      ? getPlainShellLaunchConfig(workingDirectory, sessionId, host.launchTarget())
       : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
           resume,
           agentCli,
           initialPrompt,
-          cliRuntimes,
+          launchCliRuntimes,
           cliPermissionPreset,
           cliModel,
           memoryRootPath,
@@ -3181,13 +3248,17 @@ async function spawnTerminalFromIpc(
           cliAuthToken,
           cliReasoning,
           resolvedBinaryPath,
+          host.launchTarget(),
         )
     // Install the authoritative-agent-state reporter into the workspace before
     // launching a supported agent, so its lifecycle hooks report phase the
     // moment it starts. Awaited so the hooks exist when the CLI reads its
     // settings; best-effort inside (never throws), so it cannot fail a launch.
     if (!shellOnly && agentStateSupportsCli(cli)) {
-      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, { pathStyle: executionPathStyle })
+      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, {
+        pathStyle: executionPathStyle,
+        wslDistro: hostWslDistro,
+      })
     }
 
     const initialSize = getTerminalSize(cols, rows)
@@ -3223,6 +3294,7 @@ async function spawnTerminalFromIpc(
       output: new TerminalReplayBuffer(),
       kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
       pathStyle,
+      hostId: host.id,
       workspaceId,
       agentId,
       agentName,
@@ -3287,8 +3359,8 @@ async function spawnTerminalFromIpc(
 function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
-  // A paused session let go of its raw stream once its screen was rendered;
-  // the rendered screen and its scrollback carry the same text.
+  // A paused or exited agent let go of its raw stream once its screen was
+  // rendered; the rendered screen and its scrollback carry the same text.
   if (session.replaySnapshot && session.output.retainedBytes === 0) return session.replaySnapshot
   return materializeTerminalReplay(session)
 }
@@ -3297,6 +3369,21 @@ function readTerminalOutputSince(sessionId: string, cursor: number): { text: str
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
   const read = readSessionOutputSince(session, cursor)
+  // A paused or exited agent let go of its stream once its screen was
+  // rendered. A reader that had not yet seen the end of that stream is handed
+  // the rendered screen, which carries the same text, instead of nothing: a
+  // pattern wait started after the release still sees what the agent printed.
+  // The screen can repeat text that reader already had: which part it missed
+  // cannot be told once the stream is gone, and a repeat is the lesser error
+  // for a reader looking for the agent's last words.
+  if (
+    read.text === '' &&
+    (cursor === 0 || cursor < read.cursor) &&
+    session.replaySnapshot &&
+    session.output.retainedBytes === 0
+  ) {
+    return { text: session.replaySnapshot, cursor: read.cursor }
+  }
   return { text: read.text, cursor: read.cursor }
 }
 

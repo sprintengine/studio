@@ -43,7 +43,7 @@ export function registerWorktreePoolIpc(ipcMain: IpcMain, pool: WorktreePoolServ
       repoRoot: input.repoRoot,
       name: input.name,
       owner: { agentId: optionalId(input.owner?.agentId), workspaceId: optionalId(input.owner?.workspaceId) },
-      runtime: input.runtime === 'wsl' ? 'wsl' : 'native',
+      hostId: typeof input.hostId === 'string' && input.hostId ? input.hostId : null,
     })
   })
 

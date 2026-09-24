@@ -89,8 +89,8 @@ test("a pass main starts itself runs with the mirrored per-CLI overrides; a wind
     },
     getWindows: () => [],
     mainCliRuntimes: () => ({
-      codex: { command: '/opt/codex/bin/codex', useWsl: false },
-      'claude-code': { useWsl: true },
+      codex: { command: '/opt/codex/bin/codex' },
+      'claude-code': { command: '', hostId: 'wsl:Ubuntu' as const },
     }),
   }
   await discoverAndBroadcastCliModels({ clis: ['codex'] }, deps)

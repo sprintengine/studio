@@ -16,14 +16,15 @@ test('cli-runtime-install', async () => {
   const NOT_FOUND_CODE = 3
 
   function main(): void {
-    // resolveInstallPlatform: WSL only when on Windows with the override on.
-    assert.equal(resolveInstallPlatform('darwin', false), 'darwin')
-    assert.equal(resolveInstallPlatform('linux', false), 'linux')
-    assert.equal(resolveInstallPlatform('win32', false), 'win32')
-    assert.equal(resolveInstallPlatform('win32', true), 'wsl')
-    assert.equal(resolveInstallPlatform('darwin', true), 'darwin')
+    // resolveInstallPlatform: WSL only on Windows, for a WSL machine.
+    assert.equal(resolveInstallPlatform('darwin', 'local'), 'darwin')
+    assert.equal(resolveInstallPlatform('linux', undefined), 'linux')
+    assert.equal(resolveInstallPlatform('win32', 'local'), 'win32')
+    assert.equal(resolveInstallPlatform('win32', 'wsl:Ubuntu'), 'wsl')
+    assert.equal(resolveInstallPlatform('win32', 'wsl:not a distro'), 'win32')
+    assert.equal(resolveInstallPlatform('darwin', 'wsl:Ubuntu'), 'darwin')
     // Unknown POSIX-like platforms fall back to linux.
-    assert.equal(resolveInstallPlatform('freebsd' as NodeJS.Platform, false), 'linux')
+    assert.equal(resolveInstallPlatform('freebsd' as NodeJS.Platform, null), 'linux')
 
     // POSIX probe runs through a login bash and guards on `command -v`.
     const posixProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'linux' })

@@ -62,7 +62,7 @@ test('agentCliShelfInstall', async () => {
         installed: false,
         version: null,
         resolvedPath: null,
-        useWsl: false,
+        hostId: 'local',
         error: null,
       }
     },
@@ -255,7 +255,7 @@ test('agentCliShelfInstall', async () => {
     })
 
     run('the resolved binary path is persisted for launches, like Settings does', () => {
-      assert.deepEqual(setRuntimeCalls, [['cursor', { command: '/usr/local/bin/cursor-agent', useWsl: false }]])
+      assert.deepEqual(setRuntimeCalls, [['cursor', { command: '/usr/local/bin/cursor-agent' }]])
     })
 
     act(() => root.unmount())

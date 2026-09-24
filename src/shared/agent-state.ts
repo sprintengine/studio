@@ -126,6 +126,10 @@ export type AgentState = {
   // Codex, which mints its own id) resume the right conversation. For Claude it
   // coincides with the terminal key. Persisted so resume survives a restart.
   harnessSessionId?: string
+  // The machine the agent's CLI ran on (`local`, or `wsl:<distro>`), learned
+  // from its session. A resume goes back there whatever the workspace says
+  // now: the CLI's transcript lives in that machine's home.
+  hostId?: import('./execution-host').ExecutionHostId
   cliStartRequested?: boolean
   cliRestartNonce?: number
   cliHasLaunched?: boolean

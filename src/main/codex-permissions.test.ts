@@ -53,7 +53,7 @@ for (const preset of Object.keys(permissionArgs) as CliPermissionPreset[]) {
         resume,
         'C:\\work dir',
         input.initialPrompt,
-        { command: '', useWsl: false },
+        { command: '' },
         preset,
       )
       assert.deepEqual(scriptArgs(windows), ['-C', 'C:\\work dir', ...rendered.argv.slice(1)])
@@ -70,7 +70,7 @@ test('Windows YOLO preserves quoted prompts, host context and reasoning through 
     false,
     'C:\\work dir',
     prompt,
-    { command: 'C:\\agent bin\\codex.exe', useWsl: false },
+    { command: 'C:\\agent bin\\codex.exe' },
     'bypass',
     'gpt-5.6-sol',
     false,
@@ -109,7 +109,7 @@ test.skipIf(process.platform !== 'win32')(
         false,
         directory,
         prompt,
-        { command: shim, useWsl: false },
+        { command: shim },
         'bypass',
         undefined,
         false,

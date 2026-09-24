@@ -17,17 +17,38 @@
  */
 import type { McpServerConfig, McpSettings } from './agent-state'
 import { normalizeCliPermissionPreset, type CliPermissionPreset } from './cli-permission-preset'
+import {
+  normalizeExecutionHostId,
+  normalizeExecutionHostSettings,
+  type ExecutionHostId,
+  type ExecutionHostSettings,
+} from './execution-host'
 
-const AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION = 1
+// 2: the per-CLI "run through WSL" switch left the CLI runtime, and each
+// machine this computer offers (a WSL distribution) got settings of its own in
+// `hosts`. There are no released installs, so a version-1 record is read
+// through the same normalizer rather than migrated: its runtimes keep their
+// commands and models, and the switch is dropped.
+const AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION = 2
+const READABLE_SCHEMA_VERSIONS: readonly number[] = [1, AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION]
 
+/**
+ * A CLI's settings that hold on every machine: its models, and its command on
+ * THIS machine (the local host). A WSL distribution keeps its own commands in
+ * `hosts[id].cliCommands`.
+ */
 export type AgentLaunchCliRuntimeSettings = {
   command: string
-  useWsl: boolean
   models?: string[]
 }
 
 export type AgentLaunchSettings = {
   cliRuntimes: Record<string, AgentLaunchCliRuntimeSettings>
+  /**
+   * Per-machine settings, keyed by host id (`wsl:<distro>`). The local machine
+   * has no entry in normal use: its commands live on `cliRuntimes`.
+   */
+  hosts: Partial<Record<ExecutionHostId, ExecutionHostSettings>>
   mcp: McpSettings
   projectKnowledgeRoots: Record<string, string | null>
   /**
@@ -62,6 +83,7 @@ export type AgentLaunchSettingsRecord = {
  *
  * - `cliRuntimes`: per CLI, an entry replaces that CLI's runtime whole and
  *   `null` removes it. CLIs the patch does not name are untouched.
+ * - `hosts`: the same, per machine.
  * - `mcp.syncEnabled` sets the switch; `mcp.servers` upserts per server id,
  *   `null` removing that server.
  * - `projectKnowledgeRoots`: per project root, a string sets it and `null`
@@ -71,6 +93,8 @@ export type AgentLaunchSettingsRecord = {
  */
 export type AgentLaunchSettingsPatch = {
   cliRuntimes?: Record<string, AgentLaunchCliRuntimeSettings | null>
+  /** Per host id, an entry replaces that host's settings whole and `null` removes them. */
+  hosts?: Partial<Record<ExecutionHostId, ExecutionHostSettings | null>>
   mcp?: {
     syncEnabled?: boolean
     servers?: Record<string, McpServerConfig | null>
@@ -169,6 +193,7 @@ export function effectiveAgentLaunchSettings(settings: AgentLaunchSettings): Eff
 export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   return {
     cliRuntimes: {},
+    hosts: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: null,
@@ -186,11 +211,20 @@ function normalizeCliRuntime(value: unknown): AgentLaunchCliRuntimeSettings | nu
   if (!isPlainObject(value) || typeof value.command !== 'string') return null
   return {
     command: value.command,
-    useWsl: value.useWsl === true,
     ...(Array.isArray(value.models)
       ? { models: value.models.filter((model): model is string => typeof model === 'string') }
       : {}),
   }
+}
+
+export function normalizeAgentLaunchHosts(value: unknown): AgentLaunchSettings['hosts'] {
+  const hosts: AgentLaunchSettings['hosts'] = {}
+  if (!isPlainObject(value)) return hosts
+  for (const [rawId, entry] of Object.entries(value)) {
+    const id = normalizeExecutionHostId(rawId)
+    if (id && isPlainObject(entry)) hosts[id] = normalizeExecutionHostSettings(entry)
+  }
+  return hosts
 }
 
 function normalizeLastSelectedCli(value: unknown): string | null {
@@ -236,6 +270,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
   }
   return {
     cliRuntimes,
+    hosts: normalizeAgentLaunchHosts(raw.hosts),
     mcp,
     projectKnowledgeRoots,
     lastSelectedCli: normalizeLastSelectedCli(raw.lastSelectedCli),
@@ -263,6 +298,16 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
       if (runtime) cliRuntimes[cli] = runtime
     }
     patch.cliRuntimes = cliRuntimes
+  }
+  if (isPlainObject(raw.hosts)) {
+    const hosts: NonNullable<AgentLaunchSettingsPatch['hosts']> = {}
+    for (const [rawId, value] of Object.entries(raw.hosts)) {
+      const id = normalizeExecutionHostId(rawId)
+      if (!id) continue
+      if (value === null) hosts[id] = null
+      else if (isPlainObject(value)) hosts[id] = normalizeExecutionHostSettings(value)
+    }
+    patch.hosts = hosts
   }
   if (isPlainObject(raw.mcp)) {
     const mcp: NonNullable<AgentLaunchSettingsPatch['mcp']> = {}
@@ -305,12 +350,19 @@ export function applyAgentLaunchSettingsPatch(
   const next: AgentLaunchSettings = {
     ...settings,
     cliRuntimes: { ...settings.cliRuntimes },
+    hosts: { ...settings.hosts },
     mcp: { ...settings.mcp, servers: { ...settings.mcp.servers } },
     projectKnowledgeRoots: { ...settings.projectKnowledgeRoots },
   }
   for (const [cli, runtime] of Object.entries(patch.cliRuntimes ?? {})) {
     if (runtime === null) delete next.cliRuntimes[cli]
     else next.cliRuntimes[cli] = runtime
+  }
+  for (const [id, host] of Object.entries(patch.hosts ?? {}) as Array<
+    [ExecutionHostId, ExecutionHostSettings | null]
+  >) {
+    if (host === null) delete next.hosts[id]
+    else next.hosts[id] = host
   }
   if (patch.mcp?.syncEnabled !== undefined) next.mcp.syncEnabled = patch.mcp.syncEnabled
   for (const [id, server] of Object.entries(patch.mcp?.servers ?? {})) {
@@ -337,7 +389,7 @@ export function applyAgentLaunchSettingsPatch(
  */
 export function parseAgentLaunchSettingsRecord(raw: unknown): AgentLaunchSettingsRecord | null {
   if (!isPlainObject(raw)) return null
-  if (raw.schemaVersion !== AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION) return null
+  if (typeof raw.schemaVersion !== 'number' || !READABLE_SCHEMA_VERSIONS.includes(raw.schemaVersion)) return null
   const revision = raw.revision
   if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 1) return null
   const rawWrite = isPlainObject(raw.lastWrite) ? raw.lastWrite : null

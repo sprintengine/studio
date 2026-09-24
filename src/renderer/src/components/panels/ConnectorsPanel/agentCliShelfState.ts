@@ -51,10 +51,11 @@ export type AgentCliShelfRowState = {
 }
 
 // The platform named in "Not available on …", from the same target resolution
-// the installer uses: WSL is a logical target on Windows, not a platform.
-export function agentCliPlatformLabel(platform: string, useWsl: boolean): string {
+// the installer uses: a WSL machine is a logical target on Windows, not a
+// platform.
+export function agentCliPlatformLabel(platform: string, hostKind?: 'posix' | 'windows' | 'wsl'): string {
   if (platform === 'darwin') return 'macOS'
-  if (platform === 'win32') return useWsl ? 'WSL' : 'Windows'
+  if (platform === 'win32') return hostKind === 'wsl' ? 'WSL' : 'Windows'
   return 'Linux'
 }
 
@@ -70,7 +71,8 @@ export function agentCliShelfRowState(input: {
   availabilityStatus: CliProbeStatus
   installMethods: CliInstallMethodsLoad
   platform: string
-  useWsl: boolean
+  /** The machine the row describes; absent is this machine. */
+  hostKind?: 'posix' | 'windows' | 'wsl'
 }): AgentCliShelfRowState {
   if (input.catalogStatus === 'loading') {
     return { tone: 'neutral', version: null, words: 'Checking…', provider: null, present: true, action: 'none' }
@@ -113,7 +115,7 @@ export function agentCliShelfRowState(input: {
     return {
       tone: 'neutral',
       version: null,
-      words: `Not available on ${agentCliPlatformLabel(input.platform, input.useWsl)}`,
+      words: `Not available on ${agentCliPlatformLabel(input.platform, input.hostKind)}`,
       provider: null,
       present: false,
       action: 'none',

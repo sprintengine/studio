@@ -95,8 +95,24 @@ test('NewAgentPanel', async () => {
     },
   })
 
+  // This computer's machines (Settings ▸ Machines). Empty reads as one
+  // machine, which is every platform but a Windows with WSL turned on.
+  let hostsAnswer: { hosts: Array<Record<string, unknown>>; wsl: unknown } = { hosts: [], wsl: null }
+  const detectCalls: unknown[] = []
+
   ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
     platform: 'darwin',
+    hostsList: async () => hostsAnswer,
+    onHostsChanged: () => () => {},
+    pluginsDetectAvailability: async (input: unknown) => {
+      detectCalls.push(input)
+      return {
+        ok: true,
+        availability: {
+          'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/bin/claude', version: '1' },
+        },
+      }
+    },
     getGitRepoRoot: async () => '/proj',
     fleetListConnections: async () => fleetConnections,
     fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
@@ -1328,6 +1344,99 @@ test('NewAgentPanel', async () => {
           'choosing This device forgets the remote',
         )
         fresh.unmount()
+      },
+    )
+
+    await check(
+      "on Windows this computer's machines lead the dropdown, a pick rides the launch, and a WSL folder picks its distribution",
+      async () => {
+        seedStore()
+        resetRememberedMachineForTests()
+        fleetConnections = []
+        hostsAnswer = {
+          hosts: [
+            { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+            {
+              id: 'wsl:Ubuntu',
+              kind: 'wsl',
+              label: 'WSL: Ubuntu',
+              pathStyle: 'wsl',
+              state: 'ready',
+              isDefaultDistro: true,
+              enabled: true,
+            },
+            { id: 'wsl:Debian', kind: 'wsl', label: 'WSL: Debian', pathStyle: 'wsl', state: 'stopped', enabled: true },
+          ],
+          wsl: { available: true },
+        }
+        try {
+          const view = await render({
+            folderPath: 'C:\\Users\\dev\\repo',
+            projectOptions: [{ path: 'C:\\Users\\dev\\repo', label: 'repo' }],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(
+            machineTrigger(view)?.textContent?.trim(),
+            'This PC (Windows)',
+            'a Windows folder starts on This PC, with no remote paired at all',
+          )
+          const menu = await openMachineMenu(view)
+          const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map((row) =>
+            (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
+          )
+          assert.deepEqual(rows.slice(0, 3), ['This PC (Windows)', 'WSL: Ubuntu', 'WSL: Debian'])
+          assert.match(
+            menu.querySelector('[data-machine-host="wsl:Ubuntu"]')?.textContent ?? '',
+            /default$/u,
+            'the default distribution is marked',
+          )
+          await click(buttonWithText(menu, 'WSL: Debian'))
+          await settle()
+          assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Debian')
+          assert.ok(detectCalls.some((call) => JSON.stringify(call).includes('"hostId":"wsl:Debian"')))
+          const start = [...view.container.querySelectorAll('button')].find(
+            (button) => button.getAttribute('aria-label') === 'Start agent',
+          )
+          await act(async () => {
+            start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+          })
+          assert.equal(view.launches.at(-1)?.hostId, 'wsl:Debian', 'the machine rides the launch')
+          view.unmount()
+
+          // Debian is then turned off: the remembered pick no longer counts.
+          const offered = hostsAnswer.hosts
+          hostsAnswer = { ...hostsAnswer, hosts: offered.filter((host) => host.id !== 'wsl:Debian') }
+          const afterOff = await render({
+            folderPath: 'C:\\Users\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(
+            machineTrigger(afterOff)?.textContent?.trim(),
+            'This PC (Windows)',
+            'a machine no longer offered',
+          )
+          afterOff.unmount()
+          hostsAnswer = { ...hostsAnswer, hosts: offered }
+
+          const inDistro = await render({
+            folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(machineTrigger(inDistro)?.textContent?.trim(), 'WSL: Ubuntu', 'the folder names its machine')
+          const distroMenu = await openMachineMenu(inDistro)
+          const debian = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-host="wsl:Debian"]')][0]
+          assert.equal(debian?.disabled, true, 'another distribution cannot take a folder inside this one')
+          assert.match(debian?.textContent ?? '', /inside WSL: Ubuntu/u)
+          inDistro.unmount()
+        } finally {
+          hostsAnswer = { hosts: [], wsl: null }
+          resetRememberedMachineForTests()
+        }
       },
     )
 

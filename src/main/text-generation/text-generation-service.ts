@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import type { CliDetectResult } from '../../shared/electron-api'
+import { LOCAL_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import {
   CHAT_TITLE_OUTPUT_SCHEMA,
   buildChatTitlePrompt,
@@ -44,7 +45,7 @@ import {
 import { runCommand, type RunCommand } from './run-command'
 
 export type TextGenerationServiceDeps = {
-  detect?: (cli: string, runtime?: { command?: string; useWsl?: boolean }) => Promise<CliDetectResult>
+  detect?: (cli: string, runtime?: { command?: string; hostId?: ExecutionHostId }) => Promise<CliDetectResult>
   run?: RunCommand
   env?: () => Record<string, string>
   /** Where scratch directories are made. Defaults to the OS temp dir. */
@@ -128,13 +129,16 @@ async function prepareBackend(
 // title never pays for a fresh login-shell probe when a spawn moments ago
 // already answered. Errored probes are absent from the map, which reads here
 // as "could not be probed" — never as "not installed".
-async function cachedDetect(cli: string, runtime?: { command?: string; useWsl?: boolean }): Promise<CliDetectResult> {
+async function cachedDetect(
+  cli: string,
+  runtime?: { command?: string; hostId?: ExecutionHostId },
+): Promise<CliDetectResult> {
   const base = {
     cli,
     binary: runtime?.command?.trim() || cli,
     version: null,
     resolvedPath: null,
-    useWsl: runtime?.useWsl ?? false,
+    hostId: runtime?.hostId ?? LOCAL_HOST_ID,
   }
   const entry = listPluginRegistryEntries().find((candidate) => candidate.id === cli)
   if (!entry) return { ...base, installed: false, error: `No plugin manifest found for "${cli}".` }

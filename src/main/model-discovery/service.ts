@@ -20,6 +20,7 @@ import { dirname, join } from 'path'
 import { app } from 'electron'
 
 import type { AgentCliAvailabilityMap, CliRuntimeSettings } from '../../shared/electron-api'
+import type { ExecutionHostId } from '../../shared/execution-host'
 import type { DiscoveredCliModel, DiscoveredCliModelCatalog } from '../../shared/cli-model-catalog'
 import type {
   CliModelDiscoveryEntry,
@@ -55,7 +56,12 @@ export type CliModelDiscoveryDeps = {
   listClis?: () => RegisteredCli[]
   probes?: Readonly<Record<string, CliModelProbe>>
   detect?: (clis: RegisteredCli[], cliRuntimes: CliRuntimes) => Promise<AgentCliAvailabilityMap>
-  runArgv?: (input: { binary: string; args: string[]; useWsl: boolean; timeoutMs: number }) => Promise<ArgvRunOutcome>
+  runArgv?: (input: {
+    binary: string
+    args: string[]
+    hostId?: ExecutionHostId
+    timeoutMs: number
+  }) => Promise<ArgvRunOutcome>
   cache?: ModelDiscoveryCache
   now?: () => number
   timeoutMs?: number
@@ -186,7 +192,7 @@ function describeError(error: unknown, displayName: string): string {
 }
 
 function runProbe(probe: CliModelProbe, context: Parameters<CliModelProbe['run']>[0]): Promise<ProbeOutcome> {
-  const key = [context.cli, context.binary, context.useWsl ? '1' : '0'].join('\u0000')
+  const key = [context.cli, context.binary, context.hostId ?? 'local'].join('\u0000')
   const existing = inFlight.get(key)
   if (existing) return existing
   let guard: ReturnType<typeof setTimeout> | undefined
@@ -283,16 +289,16 @@ export async function discoverCliModels(
       }
 
       const runtime: Partial<CliRuntimeSettings> | undefined = cliRuntimes[cli.id]
-      const useWsl = runtime?.useWsl ?? false
+      const hostId = runtime?.hostId
       const command = typeof runtime?.command === 'string' ? runtime.command.trim() : ''
       const binary = detected.resolvedPath?.trim() || command || cli.binary
       const outcome = await runProbe(probe, {
         cli: cli.id,
         displayName: cli.displayName,
         binary,
-        useWsl,
+        ...(hostId ? { hostId } : {}),
         timeoutMs,
-        runArgv: (args) => runArgv({ binary, args, useWsl, timeoutMs }),
+        runArgv: (args) => runArgv({ binary, args, ...(hostId ? { hostId } : {}), timeoutMs }),
       })
       if (!outcome.ok) return { cli: cli.id, catalog: null, error: outcome.error }
       // Every probe lists at least one model when it works, and the picker reads

@@ -1,4 +1,7 @@
 import type { IpcMain } from 'electron'
+import { isWslHostId } from '../../shared/execution-host'
+import { withGitHost } from '../git-run'
+import { hostRegistry } from '../hosts/host-registry'
 import { writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
@@ -91,8 +94,15 @@ export type GitIpcPaths = {
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
-  ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
+  // `hostId` names the machine whose git answers, for a caller that knows it
+  // before any workspace does (a New chat on a WSL machine, see withGitHost).
+  const scopedHost = (hostId: unknown) =>
+    isWslHostId(typeof hostId === 'string' ? hostId : null) ? hostRegistry().get(hostId as string) : null
+
+  ipcMain.handle('git:get-repo-root', async (_, folderPath: string, hostId?: unknown) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () =>
+      withGitHost(scopedHost(hostId), () => getGitRepoRoot(folderPath)),
+    )
   })
 
   ipcMain.handle('git:get-workspace-change-summary', async (_, checkoutPath: string) => {
@@ -376,7 +386,7 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
   })
 
   ipcMain.handle('git:worktree:create', async (_, input) => {
-    return createGitWorktree(input)
+    return withGitHost(scopedHost(input?.hostId), () => createGitWorktree(input))
   })
 
   ipcMain.handle('git:worktree:remove', async (_, input) => {

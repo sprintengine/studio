@@ -83,6 +83,25 @@ export function RemoteMachineGlyph({ className }: IconProps) {
   )
 }
 
+// A WSL distribution on this computer: a machine of its own that is reached as
+// a shell, so its mark is a terminal window with a prompt in it. Drawn to
+// RemoteMachineGlyph's discipline (16-grid, stroke 1.4, rx 1.4) so the two sit
+// side by side in the New chat machine dropdown as one set.
+export function WslMachineGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="2.6" width="12" height="10.8" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M4.9 6.2 6.9 8l-2 1.8M8.6 10.1h2.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 // ── Device identity ───────────────────────────────────────────────────────
 //
 // Spec: design-system/components/glyphs/component.md → "Device identity".
@@ -619,6 +638,23 @@ export function MobileSettingsIcon({ className }: IconProps) {
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="7" y="3" width="10" height="18" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
       <path d="M11 17.5h2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// A screen with a prompt in it: the Machines tab is about the machines on THIS
+// computer that run a workspace's shells (this PC, and its WSL distributions).
+export function MachinesSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="14" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path
+        d="m7 9 3 2.5L7 14M12.5 14H17M9 21h6"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

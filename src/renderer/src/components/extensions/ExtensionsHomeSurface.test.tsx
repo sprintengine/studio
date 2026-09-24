@@ -564,7 +564,7 @@ test('ExtensionsHomeSurface', async () => {
         appSettings: {
           ...state.appSettings,
           lastSelectedCli: 'claude-code',
-          cliRuntimes: { 'claude-code': { command: 'claude', useWsl: false, models: [MODEL] } },
+          cliRuntimes: { 'claude-code': { command: 'claude', models: [MODEL] } },
           lastAgentSpawnPermissionPreset: 'manual' as const,
         },
       }))
@@ -1247,7 +1247,7 @@ test('ExtensionsHomeSurface', async () => {
         pluginCatalogStatus: 'idle' as never,
         appSettings: {
           ...state.appSettings,
-          cliRuntimes: { 'claude-code': { command: 'claude', useWsl: false, models: [MODEL] } },
+          cliRuntimes: { 'claude-code': { command: 'claude', models: [MODEL] } },
         },
         cards: FEED,
         cardFeedStatus: 'ready' as const,

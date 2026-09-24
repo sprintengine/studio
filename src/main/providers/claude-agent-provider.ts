@@ -14,6 +14,7 @@
 // import on first use.
 import { spawn } from 'child_process'
 import { asRecord } from '../../shared/records'
+import { isWslHostId } from '../../shared/execution-host'
 
 import type {
   Options,
@@ -336,8 +337,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // session, so the conversation continues rather than restarting.
     if (state.query && !childHonorsPreset(state)) disposeChild(state)
     if (state.query) return
-    if (state.cliRuntimes?.['claude-code']?.useWsl) {
-      throw new Error('Claude conversation agents are not supported for WSL-configured CLI runtimes yet.')
+    if (isWslHostId(state.cliRuntimes?.['claude-code']?.hostId)) {
+      throw new Error('Claude conversation agents are not supported on a WSL machine yet.')
     }
     const executablePath = await resolveExecutable(state.cliRuntimes)
     const sdkQuery = await loadQuery()

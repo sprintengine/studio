@@ -185,6 +185,7 @@ import type {
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
 import type { VersionControlProviderProbe } from './version-control'
+import type { ExecutionHostId, HostHomeResult, HostsListResult } from './execution-host'
 // Re-exported because the probe shape is part of this IPC contract: the
 // version-control settings sections read it straight off the api surface.
 export type {
@@ -902,6 +903,16 @@ export type ElectronApi = {
   launchSettingsMigrate: (settings: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
   /** Every change to main's launch settings, as the new record. Returns the unsubscribe. */
   onLaunchSettingsChanged: (cb: (record: AgentLaunchSettingsRecord) => void) => () => void
+  /**
+   * The machines this computer offers: this one, then (on Windows) its WSL
+   * distributions — every one with `all`, the enabled ones otherwise.
+   * `refresh` asks WSL again rather than answering from what it last said.
+   */
+  hostsList: (options?: { refresh?: boolean; all?: boolean }) => Promise<HostsListResult>
+  /** A WSL machine's home, as the UNC path the folder picker opens at. */
+  hostsHome: (hostId: ExecutionHostId) => Promise<HostHomeResult>
+  /** The machine list may read differently now; ask again. Returns the unsubscribe. */
+  onHostsChanged: (cb: () => void) => () => void
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard
@@ -950,7 +961,7 @@ export type ElectronApi = {
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
-  getGitRepoRoot: (folderPath: string) => Promise<string | null>
+  getGitRepoRoot: (folderPath: string, hostId?: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   /**
    * Which of `relativePaths` the ignore rules cover — one `check-ignore` per

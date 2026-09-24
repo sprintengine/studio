@@ -9,17 +9,19 @@ import { cliProviderStateWords, type CliProviderState } from './cliProviderState
 // "Ready" alone would be a weaker line than the surface can carry — which
 // binary a provider resolved to is the fact a user comes to this list for, and
 // it is invisible everywhere else. So the resolved path rides the line as its
-// identifier, and a WSL launch (a different runtime, same binary name) is named
-// rather than left to be inferred from the platform.
+// identifier, and a CLI on another machine of this computer (a WSL
+// distribution: a different runtime, same binary name) names that machine
+// rather than leaving it to be inferred from the platform.
 export function CliProviderStateLine({
   state,
   binary,
-  useWsl = false,
+  machineLabel,
   probeError,
 }: {
   state: CliProviderState
   binary: string
-  useWsl?: boolean
+  /** The machine the CLI was found on, when it is not this one ("WSL: Ubuntu"). */
+  machineLabel?: string | null
   probeError?: string | null
 }): JSX.Element {
   const words = cliProviderStateWords(state, { binary, probeError })
@@ -32,7 +34,7 @@ export function CliProviderStateLine({
           <ProviderStateId>{state.resolvedPath}</ProviderStateId>
         </>
       ) : null}
-      {state.installed && useWsl ? ' · through WSL' : null}
+      {state.installed && machineLabel ? ` · ${machineLabel}` : null}
     </>
   )
 }

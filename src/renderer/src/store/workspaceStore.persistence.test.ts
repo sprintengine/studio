@@ -978,7 +978,7 @@ test('workspaceStore.persistence', async () => {
           ...settingsEnvelope.state,
           appSettings: {
             ...persistedAppSettings,
-            cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+            cliRuntimes: { codex: { command: 'codex', models: ['o4-mini'] } },
             cliModelCatalog,
           },
         },

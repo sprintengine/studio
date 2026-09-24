@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { selectedEntry, stripEntriesFrom } from './branchSteps'
+import { isWindowVisible, onWindowVisibilityChange } from '../../utils/windowActivity'
 import type { BranchStepDiff, BranchStepSelection, BranchStepsSnapshot } from '../../../../shared/electron-api'
 
 /**
@@ -44,8 +45,17 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
       return
     }
     let cancelled = false
+    // A read skipped while the window could not be seen runs when it is shown
+    // again, so a ref that moved in the meantime is not missed until the next
+    // change. The window-activity signal, not `document.hidden`, which macOS
+    // leaves false for a minimized window.
+    let missed = false
     const read = async (): Promise<void> => {
-      if (document.hidden) return
+      if (!isWindowVisible()) {
+        missed = true
+        return
+      }
+      missed = false
       try {
         const next = await window.api.getBranchSteps(repoRoot)
         if (!cancelled) setSnapshot(next)
@@ -61,9 +71,13 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
             if (change.kinds.includes('refs')) void read()
           })
         : null
+    const stopVisibility = onWindowVisibilityChange((visible) => {
+      if (visible && missed) void read()
+    })
     return () => {
       cancelled = true
       stopWatching?.()
+      stopVisibility()
     }
   }, [repoRoot, enabled, revision])
 

@@ -84,8 +84,9 @@ export type LayoutTemplate = {
 type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 
 export type CliRuntimeSettings = {
+  // The command on THIS machine. A WSL machine keeps its own commands in the
+  // launch settings' `hosts` (Settings ▸ Machines).
   command: string
-  useWsl: boolean
   // User-added model ids for this CLI, merged with the plugin manifest's seed
   // options in pickers. Mirrors the shared electron-api type.
   models?: string[]
@@ -262,6 +263,18 @@ export type NewChatAgentChoice = { kind: 'general' } | { kind: 'terminal' } | { 
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  /**
+   * Per-machine settings for the machines this computer offers besides itself
+   * (the WSL distributions on Windows), keyed by host id: whether each is a
+   * machine for new chats, its own CLI commands, environment and shell. A read
+   * model of main's launch settings, like `cliRuntimes`.
+   */
+  hosts?: Partial<
+    Record<
+      import('../../../shared/execution-host').ExecutionHostId,
+      import('../../../shared/execution-host').ExecutionHostSettings
+    >
+  >
   /**
    * What each agent CLI last reported about its own models, keyed by plugin id.
    * A sibling of `cliRuntimes[id].models`, never the same store: that list is
@@ -722,6 +735,11 @@ export type Workspace = {
   // it, so the row keeps its provenance even after its fleet pane closes.
   // Absent for every local workspace — local is the unmarked default.
   remoteOrigin?: WorkspaceRemoteOrigin | null
+  // The machine on this computer the workspace runs on (shared/execution-host):
+  // absent or `local` is this machine; `wsl:<distro>` is a WSL distribution,
+  // where its agents, terminals and git all run. Set when the workspace is
+  // created and never changed after — a chat does not move machines.
+  hostId?: import('../../../shared/execution-host').ExecutionHostId | null
   worktree?: WorkspaceWorktree | null
   templateId: string
   layoutModel: IJsonModel

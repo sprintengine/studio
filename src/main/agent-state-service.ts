@@ -64,7 +64,9 @@ export type AgentStateServiceOptions = {
   // from its Linux home, so it is written there, not into the Windows profile.
   // Null when the distribution cannot be asked; the install is then skipped and
   // retried on the next launch rather than written where nothing reads it.
-  resolveWslHomeDir?: (workspaceRoot: string) => Promise<string | null>
+  // The Linux home of the distribution a WSL launch runs in, as a UNC path.
+  // `distro` is the launch host's; absent, the workspace's folder decides.
+  resolveWslHomeDir?: (workspaceRoot: string, distro?: string | null) => Promise<string | null>
   // WSL hooks run in a Linux shell but must use the Windows-hosted runtime so
   // they can reach the app's named pipe. The executable itself is rendered as
   // a /mnt/<drive> path; its script and pipe arguments remain Windows-native.
@@ -219,7 +221,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   async function installForWorkspace(
     workspaceRoot: string,
     cli: string,
-    execution: { pathStyle?: TerminalPathStyle } = {},
+    execution: { pathStyle?: TerminalPathStyle; wslDistro?: string | null } = {},
   ): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
@@ -248,7 +250,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     const userScoped = spec.registration.scope === 'user'
     let homeDir = options.resolveHomeDir?.()
     if (userScoped && pathStyle === 'wsl' && options.resolveWslHomeDir) {
-      const wslHome = await options.resolveWslHomeDir(root).catch(() => null)
+      const wslHome = await options.resolveWslHomeDir(root, execution.wslDistro).catch(() => null)
       if (!wslHome) {
         warn(
           'Agent-state hook not installed',

@@ -2,6 +2,7 @@
 // ../electron-api.ts re-exports everything here.
 
 import type { AgentLaunchRecord } from '../agent-launch'
+import type { ExecutionHostId } from '../execution-host'
 import type { BranchPullRequest } from '../git/pull-request'
 import type { ObservedCheckout } from '../observed-checkout'
 import type { AgentExecutionMode, CliPermissionPreset } from './agent-runtime'
@@ -32,6 +33,11 @@ export type AgentSessionMetadata = Omit<AgentSessionIdentity, 'sessionId'> & {
 export type TerminalSpawnMetadata = {
   kind?: TerminalKind
   workspaceId?: string
+  // The machine this terminal runs on: the workspace's (`local`, or a WSL
+  // distribution on Windows). Absent resolves from the folder — a folder
+  // inside a distribution runs there — and otherwise this machine. A session
+  // already bound to a host keeps it on resume whatever this says.
+  hostId?: ExecutionHostId
   agentId?: string
   // The agent's session id within its CLI/harness, used as the resume token.
   // Distinct from the terminal-tracking `sessionId`; supplied on resume so the
@@ -161,6 +167,9 @@ export type TerminalSessionSnapshot = {
   processAlive: boolean
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on. Absent on sessions from before hosts
+  // existed, which ran on this machine or, for a `wsl` path style, in WSL.
+  hostId?: ExecutionHostId
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata. The session-manager label for agent

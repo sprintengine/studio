@@ -7,10 +7,55 @@ import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { AGENT_IDENTITY_ENV_KEYS, studioEnvEntry } from '../shared/studio-env'
-import { toWslPath } from '../shared/host-paths'
+import { isWindowsPath, toWslPath } from '../shared/host-paths'
 import { wslInteropEnv } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
+
+// A command Linux can only start through interop: a Windows program or script.
+const WINDOWS_ONLY_COMMAND = /\.(?:exe|cmd|bat|ps1|com)$/iu
+
+function hostArg(value: string): string {
+  return isWindowsPath(value) ? toWslPath(value) : value
+}
+
+/**
+ * The person's own MCP servers as a CLI running in WSL has to be told about
+ * them. Their settings were written on this PC, so a stdio server's `command`
+ * and `args` may name `C:\…` or `\\wsl.localhost\…` paths, which a Linux process
+ * cannot open; each such path becomes the path in the distribution
+ * (`/mnt/c/…`, `/home/…`). Anything that is not a Windows path — a bare
+ * `npx`, a flag, a URL — is left exactly as written.
+ *
+ * A server whose command is a Windows program (`.exe`, `.cmd`, …) can only
+ * start through interop, which a distribution may have turned off; it is still
+ * written, and a warning says why it may not start.
+ */
+export function mcpServersForWsl(servers: Record<string, McpServerConfig>): {
+  servers: Record<string, McpServerConfig>
+  warnings: string[]
+} {
+  const out: Record<string, McpServerConfig> = {}
+  const warnings: string[] = []
+  for (const [id, server] of Object.entries(servers)) {
+    if (server.transport !== 'stdio' || !server.command) {
+      out[id] = server
+      continue
+    }
+    if (WINDOWS_ONLY_COMMAND.test(server.command.trim())) {
+      warnings.push(
+        `MCP server "${server.name || id}" runs a Windows program (${server.command}). A CLI in WSL can only start it ` +
+          'through WSL interop; if the server does not start there, install a Linux build of it in the distribution.',
+      )
+    }
+    out[id] = {
+      ...server,
+      command: hostArg(server.command),
+      ...(server.args ? { args: server.args.map(hostArg) } : {}),
+    }
+  }
+  return { servers: out, warnings }
+}
 
 /**
  * Write a launch's MCP configuration, with the app's own gateway server pinned
@@ -38,9 +83,18 @@ export async function syncStudioMcpConfig(
       bridgeScriptPath: string
       userDataDir: string
     }
+    // Where a warning about the person's own servers goes (a Windows program
+    // handed to a CLI in WSL). Best-effort; the launch never waits on it.
+    warn?: (message: string) => void
   },
 ): Promise<StudioMcpSyncResult> {
-  const { studioGatewayDeliveredAtLaunch, ...syncInput } = input
+  const { studioGatewayDeliveredAtLaunch, ...rawSyncInput } = input
+  let syncInput = rawSyncInput
+  if (rawSyncInput.executionPathStyle === 'wsl') {
+    const translated = mcpServersForWsl(rawSyncInput.settings.servers)
+    for (const warning of translated.warnings) deps.warn?.(warning)
+    syncInput = { ...rawSyncInput, settings: { ...rawSyncInput.settings, servers: translated.servers } }
+  }
   if (studioGatewayDeliveredAtLaunch) {
     if (syncInput.settings.syncEnabled && Object.keys(syncInput.settings.servers).length > 0) {
       const result = await deps.mcpConfigService.sync(syncInput)

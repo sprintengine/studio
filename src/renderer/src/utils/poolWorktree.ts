@@ -1,6 +1,4 @@
 import type { WorktreePoolDepsState, WorktreePoolLeaseOwner } from '../../../shared/electron-api'
-import { useWorkspaceStore } from '../store/workspaceStore'
-import type { AgentCli } from '../types/workspace'
 import { publishDiagnosticSync } from './diagnostics'
 import { agentWorktreePaths } from './workspaceWorktree'
 
@@ -11,8 +9,8 @@ import { agentWorktreePaths } from './workspaceWorktree'
  * The pool (main's worktree-pool) keeps a few worktrees per repository checked
  * out at the default branch with their dependencies installed; a lease puts one
  * on `agent/<slug>` in a few git calls. Anything that stops a lease — the pool
- * is off, nothing is warm yet, the agent runs in WSL, another Studio holds the
- * pool — falls through to the create path every worktree agent used before,
+ * is off, nothing is warm yet, the agent runs on a WSL machine, another Studio
+ * holds the pool — falls through to the create path every worktree agent used before,
  * so asking for a worktree never fails because of the pool.
  */
 
@@ -25,13 +23,6 @@ export type AgentWorktree = {
   baseRef: string
   pooled: boolean
   elapsedMs: number
-}
-
-/** The platform a CLI's agents run on: WSL when the person turned that on for it (Windows only). */
-export function poolRuntimeFor(cli: AgentCli | null | undefined): 'native' | 'wsl' {
-  if (!cli) return 'native'
-  const runtime = useWorkspaceStore.getState().appSettings.cliRuntimes?.[cli]
-  return runtime?.useWsl ? 'wsl' : 'native'
 }
 
 function depsBanner(depsState: WorktreePoolDepsState, installCommand: string | null, path: string): void {
@@ -48,7 +39,12 @@ export async function leaseOrCreateAgentWorktree(input: {
   repoRoot: string
   name: string
   owner: WorktreePoolLeaseOwner
-  runtime: 'native' | 'wsl'
+  /**
+   * The machine the agent runs on (the workspace's, or the one New chat picked).
+   * The pool serves this machine's own git only; a WSL machine is declined and
+   * its worktree is made by that machine's git, as before.
+   */
+  hostId: string | null
 }): Promise<{ ok: true; worktree: AgentWorktree } | { ok: false; message: string }> {
   const started = performance.now()
   const paths = agentWorktreePaths(input.repoRoot, input.name)
@@ -56,7 +52,7 @@ export async function leaseOrCreateAgentWorktree(input: {
 
   if (typeof window.api.leasePoolWorktree === 'function') {
     const leased = await window.api
-      .leasePoolWorktree({ repoRoot: input.repoRoot, name: input.name, owner: input.owner, runtime: input.runtime })
+      .leasePoolWorktree({ repoRoot: input.repoRoot, name: input.name, owner: input.owner, hostId: input.hostId })
       .catch(() => null)
     if (leased?.ok) {
       const elapsedMs = Math.round(performance.now() - started)
@@ -84,6 +80,7 @@ export async function leaseOrCreateAgentWorktree(input: {
     branchName: paths.branchName,
     baseRef: 'HEAD',
     copyIncludedFiles: true,
+    ...(input.hostId ? { hostId: input.hostId } : {}),
   })
   if (!created.ok) return { ok: false, message: created.message }
   const elapsedMs = Math.round(performance.now() - started)

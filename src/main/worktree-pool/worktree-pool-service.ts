@@ -13,6 +13,7 @@ import {
   type WorktreePoolSnapshot,
 } from '../../shared/ipc/worktree-pool'
 import { comparablePath } from '../../shared/host-paths'
+import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, normalizeExecutionHostId } from '../../shared/execution-host'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
 import { seedWorktreeIncludedFiles } from '../git'
@@ -28,7 +29,7 @@ import {
 } from './deps'
 import {
   acquireInstanceLock,
-  filesystemHostOf,
+  isNetworkSharePath,
   heartbeatInstanceLock,
   normalizePoolSettings,
   POOL_RECORD_VERSION,
@@ -176,6 +177,8 @@ export type WorktreePoolServiceDeps = {
   now?: () => number
   instanceId?: string
   platform?: string
+  /** The WSL machine an open workspace pins a folder to, if any (Windows only). */
+  hostForPath?: (path: string) => string | null
   arch?: string
   lockDeps?: InstanceLockDeps
   measureSize?: (path: string) => Promise<number | null>
@@ -329,6 +332,28 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     return pending
   }
 
+  /**
+   * Why a repository's worktree cannot come from a pool on this machine, or
+   * null when it can. The host is settled the way a launch settles it
+   * (shared/execution-host.ts): the machine the caller named, the distribution
+   * a `\\\\wsl.localhost\\…` folder lives in, the machine an open WSL workspace
+   * pins the folder to. Any WSL machine is declined — its worktrees are made by
+   * its own git (`withGitHost`), and pools there are a later phase — and so is
+   * a network share.
+   */
+  function poolHostFor(repoRoot: string, named: string | null | undefined): string | null {
+    const candidates = [
+      normalizeExecutionHostId(named),
+      hostIdForFolder(repoRoot),
+      normalizeExecutionHostId(deps.hostForPath?.(repoRoot) ?? null),
+    ]
+    if (candidates.some((hostId) => isWslHostId(hostId))) {
+      return 'Worktrees on a WSL machine are made by that machine’s git; it has no pool yet.'
+    }
+    if (isNetworkSharePath(repoRoot)) return 'Repositories on a network share do not have a worktree pool.'
+    return null
+  }
+
   function runtimeFor(record: PoolRecord): PoolRuntime {
     let pool = pools.get(record.poolId)
     if (!pool) {
@@ -353,8 +378,9 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     await load()
     const repo = await resolveRepo(repoRoot)
     if (!repo) return null
-    const fsHost = filesystemHostOf(repo.repoRoot)
-    const poolId = poolIdFor(repo.commonDir, fsHost, platform)
+    // Only this machine's own git keeps pools today (see `poolHostFor`).
+    const hostId = LOCAL_HOST_ID
+    const poolId = poolIdFor(repo.commonDir, hostId)
     const existing = pools.get(poolId)
     if (existing) return existing
     if (!create) return null
@@ -363,8 +389,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       poolId,
       repoRoot: repo.repoRoot,
       commonDir: repo.commonDir,
-      fsHost,
-      platform,
+      hostId,
       disabled: false,
       defaultRef: null,
       lastFetchAt: null,
@@ -431,8 +456,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       poolId: record.poolId,
       repoRoot: record.repoRoot,
       containerPath: pool.containerPath,
-      fsHost: record.fsHost,
-      platform: record.platform,
+      hostId: record.hostId,
       disabled: record.disabled,
       heldByOtherInstance: pool.instance === 'foreign',
       defaultRef: record.defaultRef,
@@ -535,9 +559,6 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
   async function lease(input: WorktreePoolLeaseInput): Promise<WorktreePoolLeaseResult> {
     const started = now()
     if (stopped) return { ok: false, reason: 'disabled', message: 'The worktree pool is shutting down.' }
-    if (input.runtime !== 'native') {
-      return { ok: false, reason: 'unsupported', message: 'Agents running in WSL do not lease pooled worktrees yet.' }
-    }
     const current = await getSettings()
     if (!current.enabled) return { ok: false, reason: 'disabled', message: 'The worktree pool is turned off.' }
     const slug = slugifyWorktreeName(input.name)
@@ -545,13 +566,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       return { ok: false, reason: 'error', message: `"${input.name}" does not reduce to a usable branch name.` }
     const repo = await resolveRepo(input.repoRoot)
     if (!repo) return { ok: false, reason: 'not-a-repo', message: 'Not a git repository with a main checkout.' }
-    if (filesystemHostOf(repo.repoRoot) !== 'local') {
-      return {
-        ok: false,
-        reason: 'unsupported',
-        message: 'Repositories on a WSL or network filesystem do not have a worktree pool yet.',
-      }
-    }
+    const unsupported = poolHostFor(repo.repoRoot, input.hostId)
+    if (unsupported) return { ok: false, reason: 'unsupported', message: unsupported }
     const pool = await poolFor(repo.repoRoot, true)
     if (!pool) return { ok: false, reason: 'not-a-repo', message: 'Not a git repository.' }
     if (!(await ready(pool))) {
@@ -1695,9 +1711,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     const create = input.kind === 'warm-up'
     const pool = await poolFor(input.repoRoot, create)
     if (!pool) return { ok: false, message: 'This repository has no worktree pool.' }
-    if (filesystemHostOf(pool.record.repoRoot) !== 'local') {
-      return { ok: false, message: 'Repositories on a WSL or network filesystem do not have a pool yet.' }
-    }
+    const unsupported = poolHostFor(pool.record.repoRoot, null)
+    if (unsupported) return { ok: false, message: unsupported }
     if (!(await ready(pool))) return { ok: false, message: 'Another Studio is using this pool.' }
     switch (input.kind) {
       case 'warm-up': {

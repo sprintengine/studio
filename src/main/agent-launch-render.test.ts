@@ -230,20 +230,22 @@ test('agent-launch-render', async () => {
 
   function testResolveCliRuntimeSettings(): void {
     assert.deepEqual(
-      resolveCliRuntimeSettings('claude-code', { 'claude-code': { command: '/opt/claude/bin/claude', useWsl: true } }),
-      { command: '/opt/claude/bin/claude', useWsl: true },
-      'claude-code launch reads its plugin-id command/WSL override',
+      resolveCliRuntimeSettings('claude-code', {
+        'claude-code': { command: ' /opt/claude/bin/claude ', hostId: 'wsl:Ubuntu' },
+      }),
+      { command: '/opt/claude/bin/claude', hostId: 'wsl:Ubuntu' },
+      'claude-code launch reads its plugin-id command override and the machine it is for',
     )
     assert.deepEqual(
       resolveCliRuntimeSettings('claude-code', {
-        'claude-code': { command: '', useWsl: false },
+        'claude-code': { command: '' },
       }),
-      { command: '', useWsl: false },
+      { command: '' },
       'a blank claude-code command means manifest binary at render',
     )
     assert.deepEqual(
       resolveCliRuntimeSettings('codex', undefined),
-      { command: '', useWsl: false },
+      { command: '' },
       'no override resolves to a blank command (manifest binary at render)',
     )
   }
@@ -499,7 +501,7 @@ test('agent-launch-render', async () => {
     const out = renderAgentLaunchArgv({
       cli: 'claude-code',
       sessionId: 'sid_5',
-      cliRuntime: { command: '/opt/claude/bin/claude', useWsl: false },
+      cliRuntime: { command: '/opt/claude/bin/claude' },
     })
     assert.deepEqual(out.argv, ['/opt/claude/bin/claude', '--session-id', 'sid_5'])
     assert.equal(out.binary, '/opt/claude/bin/claude')
@@ -725,7 +727,7 @@ test('agent-launch-render', async () => {
     const claudeOverride = renderAgentLaunchArgv({
       cli: 'claude-code',
       sessionId: 'sid_win',
-      cliRuntime: { command: 'C:/tools/claude.exe', useWsl: false },
+      cliRuntime: { command: 'C:/tools/claude.exe' },
     })
     assert.equal(claudeOverride.argv[0], 'C:/tools/claude.exe')
     assert.equal(claudeOverride.binary, 'C:/tools/claude.exe')
@@ -797,7 +799,7 @@ test('agent-launch-render', async () => {
       renderAgentLaunchArgv({
         cli: 'claude-code',
         sessionId: 'sid_both',
-        cliRuntime: { command: 'claude', useWsl: false },
+        cliRuntime: { command: 'claude' },
         resolvedBinaryPath: '/opt/homebrew/bin/claude',
       }).binary,
       '/opt/homebrew/bin/claude',
@@ -953,7 +955,7 @@ test('agent-launch-render', async () => {
   // caught even when the shared renderer itself is correct.
   function testCodexLegacyWindowsReasoning(): void {
     const cwd = 'C:/work/repo'
-    const runtime = { command: '', useWsl: false }
+    const runtime = { command: '' }
     const script = (reasoning?: string): string[] =>
       decodeWindowsScriptArgs(
         buildCodexLegacyNativeAgentLaunchPowerShellScript(
@@ -1035,7 +1037,7 @@ test('agent-launch-render', async () => {
   function testCodexLegacyWindowsDebugInjection(): void {
     const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
     const cwd = 'C:/work/repo'
-    const runtime = { command: '', useWsl: false }
+    const runtime = { command: '' }
     const prompt = 'investigate the crash'
 
     for (const preset of presets) {
@@ -1218,7 +1220,7 @@ test('agent-launch-render', async () => {
     // The runtime override is what actually gets executed, so it is what shows.
     const overridden = renderAgentLaunchPreview({
       cli: 'claude-code',
-      cliRuntime: { command: '/opt/homebrew/bin/claude', useWsl: false },
+      cliRuntime: { command: '/opt/homebrew/bin/claude' },
     })
     assert.equal(overridden.binary, '/opt/homebrew/bin/claude', 'the receipt names the binary that will run')
   }

@@ -7,7 +7,7 @@ import { listFolderOpenTargetAvailability, resolveFolderOpenLauncherHere } from 
 // dead time instead of after it.
 //
 // Why running them early is not just cosmetic: `detectAgentCliAvailability`
-// caches per `(cli, command, useWsl)`, so the renderer's first
+// caches per `(cli, command, machine)`, so the renderer's first
 // `refreshCliAvailability` after hydration reads this pass's result instead of
 // probing every registered CLI a second time. A CLI carrying a custom
 // command override keys differently and does re-probe — correct, since a

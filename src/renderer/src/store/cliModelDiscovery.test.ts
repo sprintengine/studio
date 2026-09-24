@@ -48,7 +48,7 @@ function fakeApi(answer: (input?: CliModelDiscoveryInput) => Promise<CliModelDis
   }
 }
 
-const RUNTIMES = { codex: { command: 'codex', useWsl: false } } as unknown as AppSettings['cliRuntimes']
+const RUNTIMES = { codex: { command: 'codex' } } as unknown as AppSettings['cliRuntimes']
 
 test('a pushed catalog is stored; a skipped or failed entry changes nothing', () => {
   const store = fakeStore({ cliRuntimes: RUNTIMES })

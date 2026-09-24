@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, test } from 'vitest'
 
 import { cleanupAgentWorktrees } from '../agent-worktree-cleanup'
 import type { ToolRunner } from './deps'
-import { acquireInstanceLock, createPoolStore, filesystemHostOf, poolIdFor, type PoolRecord } from './pool-store'
+import { acquireInstanceLock, createPoolStore, isNetworkSharePath, poolIdFor, type PoolRecord } from './pool-store'
 import { parseSlotStatus } from './slot-git'
 import { createWorktreePoolService, worktreePoolOwnerIndex, type OwnerIndex } from './worktree-pool-service'
 
@@ -55,6 +55,7 @@ function makeService(
     install?: ToolRunner
     now?: () => number
     instanceId?: string
+    hostForPath?: (path: string) => string | null
   } = {},
 ) {
   const installs: Array<{ cwd: string; command: string }> = []
@@ -78,6 +79,7 @@ function makeService(
     fetchFreshMs: 0,
     now: options.now,
     instanceId: options.instanceId,
+    hostForPath: options.hostForPath,
   })
   const settle = async (): Promise<void> => {
     for (let round = 0; round < 4; round += 1) await service.tendAll()
@@ -173,13 +175,11 @@ test('a pool warms to its target, installs once, and leases two slots to two age
       repoRoot: repo,
       name: 'alpha',
       owner: { agentId: 'agent-a', workspaceId: 'ws' },
-      runtime: 'native',
     }),
     harness.service.lease({
       repoRoot: repo,
       name: 'beta',
       owner: { agentId: 'agent-b', workspaceId: 'ws' },
-      runtime: 'native',
     }),
   ])
   assert.ok(a.ok && b.ok)
@@ -195,17 +195,17 @@ test('a pool warms to its target, installs once, and leases two slots to two age
     repoRoot: repo,
     name: 'gamma',
     owner: { agentId: 'agent-c', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.equal(third.ok, false)
   assert.equal(!third.ok && third.reason, 'no-warm-slot')
 
-  // WSL agents never get a native slot.
+  // An agent on a WSL machine never gets a slot this machine's git made:
+  // its worktree is made by its own git, on the old path.
   const wsl = await harness.service.lease({
     repoRoot: repo,
     name: 'delta',
     owner: { agentId: 'agent-d', workspaceId: 'ws' },
-    runtime: 'wsl',
+    hostId: 'wsl:Ubuntu',
   })
   assert.equal(!wsl.ok && wsl.reason, 'unsupported')
 })
@@ -217,7 +217,6 @@ test('a clean return keeps the agent branch, detaches, unlocks and refreshes to 
     repoRoot: repo,
     name: 'feature',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   await writeFile(join(leased.path, 'feature.txt'), 'done\n')
@@ -265,7 +264,6 @@ test('a dirty return is held, locked and untouched; only an explicit action move
     repoRoot: repo,
     name: 'dirty',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   await writeFile(join(leased.path, 'notes.md'), 'not committed\n')
@@ -313,7 +311,6 @@ test('stash and discard are the only ways a held tree loses its changes, and kee
       repoRoot: repo,
       name,
       owner: { agentId: `agent-${name}`, workspaceId: 'ws' },
-      runtime: 'native',
     })
   const stashMe = await lease('stash-me')
   const discardMe = await lease('discard-me')
@@ -371,7 +368,6 @@ test('returns are postponed while anything runs in the slot, or a merge is in pr
     repoRoot: repo,
     name: 'busy',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(busy.ok)
   harness.live.push(join(busy.path, 'src'))
@@ -386,7 +382,6 @@ test('returns are postponed while anything runs in the slot, or a merge is in pr
     repoRoot: repo,
     name: 'merging',
     owner: { agentId: 'agent-2', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(merging.ok)
   const gitDir = await git(merging.path, 'rev-parse', '--absolute-git-dir')
@@ -404,7 +399,6 @@ test('a detached HEAD holding commits no ref reaches gets a branch before the sl
     repoRoot: repo,
     name: 'wander',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   await git(leased.path, 'switch', '-q', '--detach')
@@ -427,7 +421,6 @@ test('a stale index.lock is cleared on return; a fresh one postpones it', async 
     repoRoot: repo,
     name: 'locked',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   const gitDir = await git(leased.path, 'rev-parse', '--absolute-git-dir')
@@ -466,7 +459,6 @@ test('an idle slot someone edited is held, never reset, and never leased', async
     repoRoot: repo,
     name: 'next',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   assert.notEqual(leased.slotId, first.id)
@@ -497,7 +489,6 @@ test('a lease during a refresh never gets the refreshing slot', async () => {
     repoRoot: repo,
     name: 'one',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   await harness.settle()
@@ -506,7 +497,6 @@ test('a lease during a refresh never gets the refreshing slot', async () => {
     repoRoot: repo,
     name: 'other',
     owner: { agentId: 'agent-0', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(other.ok)
   await harness.service.updateSettings({ warmTarget: 1 })
@@ -519,7 +509,6 @@ test('a lease during a refresh never gets the refreshing slot', async () => {
     repoRoot: repo,
     name: 'two',
     owner: { agentId: 'agent-2', workspaceId: 'ws' },
-    runtime: 'native',
   })
   // It may get a freshly created replacement, never the slot being installed.
   if (during.ok) assert.notEqual(during.slotId, leased.slotId)
@@ -576,7 +565,6 @@ test('dependencies reinstall only when the fingerprint moves, and a failed insta
     repoRoot: repo,
     name: 'anyway',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   assert.equal(leased.depsState, 'failed', 'the caller shows a banner and the agent still gets the slot')
@@ -593,13 +581,11 @@ test('the owner sweep returns a lease only once its owner is confirmed gone', as
     repoRoot: repo,
     name: 'swept',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   const pendingLease = await harness.service.lease({
     repoRoot: repo,
     name: 'pending',
     owner: { agentId: null, workspaceId: null },
-    runtime: 'native',
   })
   assert.ok(agentLease.ok && pendingLease.ok)
   await harness.service.sweepOwners()
@@ -726,7 +712,6 @@ test('a second Studio holding the container gets no slots; a dead holder is take
     repoRoot: repo,
     name: 'x',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.equal(!refused.ok && refused.reason, 'other-instance')
 
@@ -741,7 +726,6 @@ test('the agent worktree cleanup never removes a pool slot, leased or not', asyn
     repoRoot: repo,
     name: 'merged-already',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   // Unlock by hand: even then, the cleanup asks the pool.
@@ -782,7 +766,6 @@ test('evicting and idle rules never touch leased or held slots', async () => {
     repoRoot: repo,
     name: 'stay',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   const [, , third] = (await snapshot(harness)).slots.filter((slot) => slot.id !== leased.slotId)
@@ -800,16 +783,14 @@ test('evicting and idle rules never touch leased or held slots', async () => {
 })
 
 test('pool keys and slot status parsing', () => {
-  assert.equal(filesystemHostOf('\\\\wsl.localhost\\Ubuntu\\home\\dev\\app'), 'wsl:ubuntu')
-  assert.equal(filesystemHostOf('//wsl$/Debian/home/dev/app'), 'wsl:debian')
-  assert.equal(filesystemHostOf('\\\\build-box\\share\\app'), 'unc:build-box')
-  assert.equal(filesystemHostOf('C:\\Users\\dev\\app'), 'local')
-  assert.equal(filesystemHostOf('/Users/dev/app'), 'local')
+  assert.equal(isNetworkSharePath('\\\\build-box\\share\\app'), true)
+  assert.equal(isNetworkSharePath('\\\\wsl.localhost\\Ubuntu\\home\\dev\\app'), false)
+  assert.equal(isNetworkSharePath('C:\\Users\\dev\\app'), false)
+  assert.equal(isNetworkSharePath('/Users/dev/app'), false)
   const common = 'C:/Users/dev/app/.git'
-  assert.notEqual(poolIdFor(common, 'local', 'win32'), poolIdFor(common, 'local', 'linux'))
-  assert.notEqual(poolIdFor(common, 'local', 'win32'), poolIdFor(common, 'wsl:ubuntu', 'win32'))
+  assert.notEqual(poolIdFor(common, 'local'), poolIdFor(common, 'wsl:Ubuntu'))
   // One repository spelled two ways on Windows is one pool.
-  assert.equal(poolIdFor('C:\\Users\\dev\\app\\.git', 'local', 'win32'), poolIdFor(common, 'local', 'win32'))
+  assert.equal(poolIdFor('C:\\Users\\dev\\app\\.git', 'local'), poolIdFor(common, 'local'))
 
   const oid = 'a'.repeat(40)
   const detachedClean = `# branch.oid ${oid}\0# branch.head (detached)\0`
@@ -850,7 +831,6 @@ test('an interrupted create is removed, a postponed return retries, and recovery
     repoRoot: repo,
     name: 'later',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   harness.live.push(leased.path)
@@ -933,7 +913,6 @@ test('review fixes: a live holder keeps its lock however old, and a lost lock st
     repoRoot: repo,
     name: 'x',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.equal(!refused.ok && refused.reason, 'other-instance')
 })
@@ -956,7 +935,6 @@ test('review fixes: a worktree merely named like a slot is never adopted, and a 
     repoRoot: repo,
     name: 'claimed',
     owner: { agentId: null, workspaceId: null },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   assert.equal(leased.slotId, slot.id)
@@ -973,7 +951,6 @@ test('review fixes: per-agent config is removed on return, and ignored files in 
     repoRoot: repo,
     name: 'connector',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   await writeFile(join(leased.path, '.mcp.json'), '{"secret":"token"}\n')
@@ -1004,7 +981,6 @@ test('second review: the shared exclude is left alone, an ignored file where a d
     repoRoot: repo,
     name: 'shape',
     owner: { agentId: 'agent-1', workspaceId: 'ws' },
-    runtime: 'native',
   })
   assert.ok(leased.ok)
   // The app's own MCP config, untracked and NOT excluded, still returns clean.
@@ -1038,4 +1014,17 @@ test('second review: the shared exclude is left alone, an ignored file where a d
   assert.equal(kept.ok, true)
   const gitDir = await git(leased.path, 'rev-parse', '--absolute-git-dir')
   assert.equal(await exists(join(gitDir, 'sprintengine-pool-slot')), false)
+})
+
+test('a repository an open WSL workspace pins to its machine gets no slot and no pool', async () => {
+  const harness = makeService({ hostForPath: (path) => (path.startsWith(repo) ? 'wsl:Ubuntu' : null) })
+  const refused = await harness.service.lease({
+    repoRoot: repo,
+    name: 'pinned',
+    owner: { agentId: 'agent-1', workspaceId: 'ws' },
+  })
+  assert.equal(!refused.ok && refused.reason, 'unsupported')
+  const warm = await harness.service.action({ kind: 'warm-up', repoRoot: repo })
+  assert.equal(warm.ok, false)
+  assert.equal(await exists(container), false, 'nothing was created for it')
 })

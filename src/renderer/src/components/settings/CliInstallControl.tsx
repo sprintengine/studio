@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { CliDetectResult, CliInstallMethodInfo, CliInstallResult } from '../../../../shared/electron-api'
+import { LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
 
 export type CliInstallControlProps = {
@@ -8,7 +9,9 @@ export type CliInstallControlProps = {
   displayName: string
   binary: string
   command: string
-  useWsl: boolean
+  // The machine to detect and install on (Settings ▸ Machines binds a WSL
+  // distribution here). Absent is this machine.
+  hostId?: ExecutionHostId
   // Called after a successful install so the parent can persist the resolved
   // binary path (e.g. into cliRuntimes) and refresh any catalogs.
   onInstalled?: (result: CliInstallResult) => void
@@ -63,14 +66,14 @@ function preferredMethodId(methods: CliInstallMethodInfo[]): string {
 
 // Detect-and-install control for a single agent CLI. Reused by the onboarding
 // "Set up an agent CLI" step and the Settings → Agents per-CLI rows. Detection
-// and install run in the main process against the same command/WSL mode the
+// and install run in the main process against the same command and machine the
 // agent will launch with; install output streams live into the log.
 export function CliInstallControl({
   cli,
   displayName,
   binary,
   command,
-  useWsl,
+  hostId,
   onInstalled,
   showName = true,
   showStatus = true,
@@ -100,12 +103,12 @@ export function CliInstallControl({
   const runDetect = useCallback(async () => {
     setDetecting(true)
     try {
-      const result = await window.api.cliDetect(cli, { command, useWsl })
+      const result = await window.api.cliDetect(cli, { command, ...(hostId ? { hostId } : {}) })
       if (mountedRef.current) setDetect(result)
     } finally {
       if (mountedRef.current) setDetecting(false)
     }
-  }, [cli, command, useWsl])
+  }, [cli, command, hostId])
 
   // Re-detect whenever the CLI or its command/WSL override changes. A host-driven
   // control never probes: the host already holds the availability answer it
@@ -123,7 +126,7 @@ export function CliInstallControl({
     setExpanded(true)
     setInstallError(null)
     setMethods(null)
-    const available = await window.api.cliInstallMethods(cli, { command, useWsl })
+    const available = await window.api.cliInstallMethods(cli, { command, ...(hostId ? { hostId } : {}) })
     if (!mountedRef.current) return
     setMethods(available)
     const preferred =
@@ -131,7 +134,7 @@ export function CliInstallControl({
       available.find((method) => method.available) ??
       available[0]
     setSelectedMethodId(preferred?.id ?? '')
-  }, [cli, command, useWsl])
+  }, [cli, command, hostId])
 
   // The methods list, loaded once and kept: host-driven mode needs it to answer
   // "install the recommended one" the moment the row's button is pressed, and
@@ -145,12 +148,12 @@ export function CliInstallControl({
   useEffect(() => {
     methodsRef.current = null
     methodsInFlightRef.current = null
-  }, [cli, command, useWsl])
+  }, [cli, command, hostId])
 
   const loadMethods = useCallback(async (): Promise<CliInstallMethodInfo[]> => {
     if (methodsRef.current) return methodsRef.current
     if (methodsInFlightRef.current) return methodsInFlightRef.current
-    const request = window.api.cliInstallMethods(cli, { command, useWsl })
+    const request = window.api.cliInstallMethods(cli, { command, ...(hostId ? { hostId } : {}) })
     methodsInFlightRef.current = request
     const available = await request.finally(() => {
       if (methodsInFlightRef.current === request) methodsInFlightRef.current = null
@@ -162,7 +165,7 @@ export function CliInstallControl({
       setSelectedMethodId((current) => current || preferredMethodId(available))
     }
     return available
-  }, [cli, command, useWsl])
+  }, [cli, command, hostId])
 
   // Host-driven rows show the method picker as soon as the disclosure can render
   // it, so opening the chevron does not sit on "Loading install options…".
@@ -217,7 +220,10 @@ export function CliInstallControl({
       if (mountedRef.current) setLog((prev) => prev + chunk)
     })
     try {
-      const result = await window.api.cliInstall({ cli, methodId: chosen.id }, { command, useWsl })
+      const result = await window.api.cliInstall(
+        { cli, methodId: chosen.id },
+        { command, ...(hostId ? { hostId } : {}) },
+      )
       if (!mountedRef.current) return
       if (result.installed) {
         setDetect({
@@ -226,7 +232,7 @@ export function CliInstallControl({
           installed: true,
           version: result.version,
           resolvedPath: result.resolvedPath,
-          useWsl,
+          hostId: hostId ?? LOCAL_HOST_ID,
           error: null,
         })
         setExpanded(false)
@@ -245,7 +251,7 @@ export function CliInstallControl({
         setRunningMethodLabel(null)
       }
     }
-  }, [cli, binary, command, displayName, useWsl, hostDriven, loadMethods, methods, selectedMethodId, onInstalled])
+  }, [cli, binary, command, displayName, hostId, hostDriven, loadMethods, methods, selectedMethodId, onInstalled])
 
   // The host's Install button is the only one in host-driven mode, so the request
   // to install arrives as a prop — including on the very mount the press causes,

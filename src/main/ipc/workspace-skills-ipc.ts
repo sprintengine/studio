@@ -24,8 +24,9 @@ export function registerWorkspaceSkillsIpc(
   const installed = createInstalledSkillsService({
     listPlugins: listPluginRegistryEntries,
     trashItem: (path) => shell.trashItem(path),
-    // The default distribution's home, cached for a minute across the app.
-    ...(process.platform === 'win32' ? { probeWsl: () => probeWslHome() } : {}),
+    // The machine's distribution's home (else the default's), cached for a
+    // minute across the app.
+    ...(process.platform === 'win32' ? { probeWsl: (distro?: string | null) => probeWslHome(distro) } : {}),
   })
   ipcMain.handle('skills:list-installed', (_, input: InstalledSkillsInput) => installed.list(input))
   ipcMain.handle('skills:remove-installed', (_, input: InstalledSkillRemoveInput) => installed.remove(input))

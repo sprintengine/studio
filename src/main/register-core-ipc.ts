@@ -48,6 +48,7 @@ import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerLaunchSettingsIpc } from './ipc/launch-settings-ipc'
+import { registerHostsIpc } from './ipc/hosts-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
@@ -144,6 +145,7 @@ export function registerCoreIpc(
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
+  registerHostsIpc(ipcMain, { hosts: services.hosts })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)
   registerGitIpc(

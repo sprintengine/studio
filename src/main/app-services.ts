@@ -12,7 +12,7 @@ import {
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
-import { primeDefaultWslDistro, resolveWslDistroForPath } from './wsl-host'
+import { primeDefaultWslDistro, resolveWslDistroForPath } from './hosts/wsl-distro'
 import { probeWslHome } from './wsl-home'
 import {
   appLaunchPluginsActive,
@@ -83,6 +83,10 @@ import {
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
 import { createAgentLaunchSettingsStore } from './launch-settings-store'
+import { createHostRegistry, installHostRegistry } from './hosts/host-registry'
+import { isWslHostId } from '../shared/execution-host'
+import { comparablePath } from '../shared/host-paths'
+import { installGitHostResolver } from './git-run'
 import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
@@ -235,8 +239,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveHostNodeCommand: () => process.execPath,
     // A CLI run through WSL reads its user-global hook config (Kimi's) from the
     // Linux home of the distribution the workspace runs in.
-    resolveWslHomeDir: async (workspaceRoot) =>
-      (await probeWslHome(await resolveWslDistroForPath(workspaceRoot)))?.home ?? null,
+    resolveWslHomeDir: async (workspaceRoot, distro) =>
+      (await probeWslHome(distro || (await resolveWslDistroForPath(workspaceRoot))))?.home ?? null,
     // A CLI that takes the app's plugin directories at launch gets this same
     // reporter for the session, so nothing is written into the workspace. Both
     // halves must hold: a manifest that declares the flag, and a materialised
@@ -419,8 +423,35 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   // A model-discovery pass main starts itself (boot, after an install) probes
-  // with the same per-CLI command and WSL overrides a launch would use.
+  // with the same per-CLI command overrides a launch would use.
   setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
+
+  // The machines this computer offers (shared/execution-host.ts): this one,
+  // and on Windows each WSL distribution. One registry, installed for the whole
+  // process, so a launch, the reaper and the git runner resolve a host against
+  // the same per-machine settings. A change to those settings tells every
+  // window its machine list may read differently.
+  const mcpWslWarningsSeen = new Set<string>()
+  const hosts = createHostRegistry({ readHostSettings: () => agentLaunchSettings.get().hosts })
+  installHostRegistry(hosts)
+  let lastHostSettings = JSON.stringify(agentLaunchSettings.get().hosts)
+  agentLaunchSettings.subscribe((record) => {
+    const next = JSON.stringify(record.settings.hosts)
+    if (next === lastHostSettings) return
+    lastHostSettings = next
+    hosts.notifyChanged()
+  })
+  // Git for a repository on a WSL machine runs in that distribution: a folder
+  // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that
+  // machine holds. Everything else keeps this machine's git.
+  // macOS and Linux have one machine, so their git never asks.
+  installGitHostResolver((cwd) => {
+    if (process.platform !== 'win32') return null
+    const byFolder = hosts.resolve({ folder: cwd })
+    if (byFolder.kind === 'wsl') return byFolder
+    const owner = findWorkspaceHostForPath(cwd)
+    return owner ? hosts.get(owner) : null
+  })
 
   // The Automations module (and its app front door) registers on the module
   // kernel AFTER app services are constructed; index.ts injects the resolver once
@@ -536,6 +567,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
               userDataDir: app.getPath('userData'),
             }),
+            // Once per server per run: the same config is synced on every
+            // WSL launch, and the same sentence each time is noise.
+            warn: (message) => {
+              if (mcpWslWarningsSeen.has(message)) return
+              mcpWslWarningsSeen.add(message)
+              void writeDiagnosticLog({
+                level: 'warning',
+                title: 'MCP server may not start in WSL',
+                message,
+                source: 'terminal',
+              })
+            },
           },
         ),
       ),
@@ -565,6 +608,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Connector launch: keep the generated managed MCP config out of the
     // connector chat's worktree git (`.mcp.json` / `.codex/config.toml`).
     excludeWorktreeMcpConfig: (worktreePath) => excludeMcpConfigFromWorktree(worktreePath),
+    resolveWorkspaceHostId: (workspaceId) => {
+      const hostId = workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.find((workspace) => workspace.id === workspaceId)?.hostId
+      return typeof hostId === 'string' ? hostId : null
+    },
     prepareAgentStateHook: (workspaceRoot, cli, execution) =>
       agentStateService.installForWorkspace(workspaceRoot, cli, execution),
   })
@@ -695,6 +744,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     registry: workspaceRegistry,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
+  // The WSL machine of the open workspace whose folder holds `path`, for the
+  // git runner: a WSL workspace whose folder sits on a Windows drive still runs
+  // its git in the distribution, where its agents run theirs.
+  function findWorkspaceHostForPath(path: string): string | null {
+    const target = comparablePath(path)
+    for (const workspace of workspaceSyncService.getSnapshot().state.workspaces) {
+      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
+      const folder = comparablePath(workspace.folderPath)
+      if (target === folder || target.startsWith(`${folder}/`)) return workspace.hostId
+    }
+    return null
+  }
+
   // The pool of warm agent worktrees (worktree-pool/). It reads the registry
   // to learn when a slot's owner is gone, the live terminals to never recycle
   // a slot something runs in, and the power state to keep its background
@@ -709,6 +771,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         ),
       ),
     ownerIndex: () => worktreePoolOwnerIndex(workspaceSyncService.getSnapshot().state.workspaces),
+    // The machine an open workspace pins a folder to (a WSL workspace on a
+    // Windows-drive folder): the pool only serves this machine's own git.
+    hostForPath: (path) => findWorkspaceHostForPath(path),
     shouldDefer: () => powerActivity.isOnBattery() || powerActivity.isSuspended(),
     onChange: broadcastWorktreePoolChanged,
   })
@@ -1116,20 +1181,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // manager uses, then create through the shared git helper. Mirrors
           // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
           // the repo's worktree-include set into the isolated tree).
-          createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
+          createAgentWorktree: async ({ workspaceRoot, name, baseRef, host }) => {
             const paths = agentWorktreePaths(workspaceRoot, name)
             if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
             // A warm pool slot when one is ready: it sits at the default
             // branch, so only a launch that names no other base can take one.
-            // The agent does not exist yet; its id is bound once it does. On
-            // Windows a launched CLI may run in WSL, which no native slot suits,
-            // so those launches keep creating their own.
-            if (!baseRef?.trim() && process.platform !== 'win32') {
+            // The agent does not exist yet; its id is bound once it does. A
+            // launch on a WSL machine (named, or the workspace's) is declined
+            // by the pool and creates its own with that machine's git.
+            if (!baseRef?.trim()) {
               const leased = await worktreePool.lease({
                 repoRoot: workspaceRoot,
                 name,
                 owner: { agentId: null, workspaceId: null },
-                runtime: 'native',
+                hostId: host ?? null,
               })
               if (leased.ok) return { worktreePath: leased.path, branch: leased.branch, leaseId: leased.leaseId }
             }
@@ -1333,6 +1398,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     entitlements: sprintengineAuth.entitlements,
     skillsService,
     agentLaunchSettings,
+    hosts,
     conversationPeek,
     terminalRuntime,
     agentChangelistFeed,

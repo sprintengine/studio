@@ -34,7 +34,8 @@ import type { LaunchContributionPathStyle } from '../shared/modules/launch-contr
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
 import { withWslSharedEnv } from './wsl-interop'
-import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './wsl-host'
+import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './hosts/wsl-distro'
+import type { HostLaunchTarget } from './hosts/execution-host'
 
 export type ShellLaunchConfig = {
   command: string
@@ -1016,12 +1017,12 @@ function wslPidFileLine(scriptPath: string): string {
 }
 
 /**
- * `wsl.exe` arguments that run a startup script in the distribution `cwd`
- * belongs to: the one a `\\wsl.localhost\<distro>\…` folder names, else the
- * default distribution. Exported for its test.
+ * `wsl.exe` arguments that run a startup script in the host's distribution,
+ * else the one `cwd` belongs to (a `\\wsl.localhost\<distro>\…` folder),
+ * else the default distribution. Exported for its test.
  */
-export function wslStartupArgs(cwd: string, startupScriptPath: string): string[] {
-  return [...wslDistroArgs(wslDistroForPath(cwd)), '-e', 'bash', '-li', toWslPath(startupScriptPath)]
+export function wslStartupArgs(cwd: string, startupScriptPath: string, distro?: string | null): string[] {
+  return [...wslDistroArgs(distro || wslDistroForPath(cwd)), '-e', 'bash', '-li', toWslPath(startupScriptPath)]
 }
 
 export function cleanupTerminalStartupScript(scriptPath: string | undefined): void {
@@ -1244,6 +1245,7 @@ function buildWslShellScript(
   providerLaunchEnv?: Record<string, string>,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
+  host: WslLaunchTarget = DEFAULT_WSL_TARGET,
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
   const merged = collectLaunchContributionMerge({
@@ -1257,6 +1259,7 @@ function buildWslShellScript(
   return [
     wslPidFileLine(scriptPath),
     buildUserShellStartup(),
+    wslHostEnvExports(host),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
@@ -1274,10 +1277,44 @@ function buildWslShellScript(
       pluginDirsForLaunch(cli, 'wsl'),
       launchSettingsForLaunch(cli, cwd, 'wsl'),
     ),
-    'exec bash -li',
+    wslShellExec(host),
   ]
     .filter(Boolean)
     .join('; ')
+}
+
+type WslLaunchTarget = Extract<HostLaunchTarget, { kind: 'wsl' }>
+
+const DEFAULT_WSL_TARGET: WslLaunchTarget = { kind: 'wsl', distro: null, env: {} }
+
+/**
+ * The launch target a caller that named no host gets: this machine, as the
+ * platform runs it. Only the host registry ever hands out a WSL target.
+ */
+function defaultLaunchTarget(): HostLaunchTarget {
+  return process.platform === 'win32' ? { kind: 'windows' } : { kind: 'posix' }
+}
+
+/**
+ * The machine's own environment (Settings ▸ Machines), exported before the
+ * launch's own bootstrap so a provider's endpoint or a module's variable still
+ * wins over a machine-wide default of the same name.
+ */
+function wslHostEnvExports(host: WslLaunchTarget): string {
+  return Object.entries(host.env)
+    .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+    .map(([key, value]) => `export ${key}=${quotePosix(value)}`)
+    .join('; ')
+}
+
+/**
+ * What a WSL terminal ends in once its CLI exits (or at once, for a plain
+ * terminal): the machine's configured shell, else a login bash. The script's
+ * `exec` keeps the pid its pid file recorded, so the reaper still reads the
+ * right subtree whatever shell this is.
+ */
+function wslShellExec(host: WslLaunchTarget): string {
+  return `exec ${host.shell?.trim() || 'bash -li'}`
 }
 
 export function getShellLaunchConfig(
@@ -1299,12 +1336,14 @@ export function getShellLaunchConfig(
   // AgentLaunchRenderInput.resolvedBinaryPath. Undefined leaves the launch on
   // the manifest binary name (Windows/WSL, or an undecided probe).
   resolvedBinaryPath?: string,
+  // The machine this runs on (its host's `launchTarget()`). Absent is this
+  // machine as the platform runs it, which is all macOS and Linux ever have.
+  launchHost: HostLaunchTarget = defaultLaunchTarget(),
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
-  const contributionPathStyle: LaunchContributionPathStyle =
-    process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : 'posix'
+  const contributionPathStyle: LaunchContributionPathStyle = launchHost.kind
   const merged = collectLaunchContributionMerge({
     cwd: contributionPathStyle === 'windows' ? wslToWindowsPath(cwd) : cwd,
     sessionId,
@@ -1350,14 +1389,13 @@ export function getShellLaunchConfig(
     debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
-    ...hostContextRenderInputs(
-      hostContext,
-      process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : null,
-      [cwd, memoryRootPath],
-    ),
+    ...hostContextRenderInputs(hostContext, launchHost.kind === 'posix' ? null : launchHost.kind, [
+      cwd,
+      memoryRootPath,
+    ]),
   })
 
-  if (process.platform === 'win32' && !cliRuntime.useWsl) {
+  if (launchHost.kind === 'windows') {
     const windowsCwd = wslToWindowsPath(cwd)
     const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, memoryRootPath])
     const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [
@@ -1367,7 +1405,8 @@ export function getShellLaunchConfig(
     ])
     if (!isWindowsPath(windowsCwd)) {
       throw new Error(
-        `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`,
+        `Workspace path "${cwd}" is not available as a Windows path, so ${cli} cannot run on This PC. ` +
+          'Run this workspace on its WSL machine instead.',
       )
     }
     const startupScriptPath = createTerminalStartupScript(
@@ -1408,7 +1447,7 @@ export function getShellLaunchConfig(
     }
   }
 
-  if (process.platform === 'win32') {
+  if (launchHost.kind === 'wsl') {
     const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', (scriptPath) =>
       buildWslShellScript(
         scriptPath,
@@ -1426,11 +1465,12 @@ export function getShellLaunchConfig(
         providerLaunchEnv,
         cliReasoning,
         hostContextRenderInputs(hostContext, 'wsl', [cwd, memoryRootPath]),
+        launchHost,
       ),
     )
     return {
       command: 'wsl.exe',
-      args: wslStartupArgs(cwd, startupScriptPath),
+      args: wslStartupArgs(cwd, startupScriptPath, launchHost.distro),
       // The session's identity is applied to this env at spawn, on the Windows
       // side of `wsl.exe`, and Windows variables reach the Linux shell only when
       // `WSLENV` names them. Without this the agent's hooks run with no agent id
@@ -1488,13 +1528,21 @@ export function getShellLaunchConfig(
   }
 }
 
-export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-terminal'): ShellLaunchConfig {
+export function getPlainShellLaunchConfig(
+  cwd: string,
+  sessionId = 'plain-terminal',
+  // The machine the terminal opens on; see getShellLaunchConfig.
+  launchHost: HostLaunchTarget = defaultLaunchTarget(),
+): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
-  if (process.platform === 'win32') {
+  if (launchHost.kind !== 'posix') {
     const windowsCwd = wslToWindowsPath(cwd)
 
-    if (isWindowsPath(windowsCwd)) {
+    // This PC opens PowerShell in any folder Windows can name. One it cannot
+    // (a bare Linux path) still opens in the default distribution, as a
+    // terminal there always has.
+    if (launchHost.kind === 'windows' && isWindowsPath(windowsCwd)) {
       const merged = collectLaunchContributionMerge({
         cwd: windowsCwd,
         sessionId,
@@ -1511,6 +1559,7 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
       }
     }
 
+    const wslHost = launchHost.kind === 'wsl' ? launchHost : DEFAULT_WSL_TARGET
     const merged = collectLaunchContributionMerge({
       cwd,
       sessionId,
@@ -1521,9 +1570,10 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
       [
         wslPidFileLine(scriptPath),
         buildUserShellStartup(),
+        wslHostEnvExports(wslHost),
         `cd ${quotePosix(toWslPath(cwd))}`,
         buildLaunchShellBootstrap(merged),
-        'exec bash -li',
+        wslShellExec(wslHost),
       ]
         .filter(Boolean)
         .join('; '),
@@ -1531,7 +1581,7 @@ export function getPlainShellLaunchConfig(cwd: string, sessionId = 'plain-termin
 
     return {
       command: 'wsl.exe',
-      args: wslStartupArgs(cwd, startupScriptPath),
+      args: wslStartupArgs(cwd, startupScriptPath, wslHost.distro),
       pathStyle: 'wsl',
       startupScriptPath,
       ...launchSessionTags(merged),

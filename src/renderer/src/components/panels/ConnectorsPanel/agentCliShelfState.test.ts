@@ -47,7 +47,6 @@ test('agentCliShelfState', async () => {
       availabilityStatus: 'ready',
       installMethods: unknownMethods,
       platform: 'darwin',
-      useWsl: false,
       ...overrides,
     })
   }
@@ -112,7 +111,7 @@ test('agentCliShelfState', async () => {
       'Not available on Windows',
     )
     assert.equal(
-      state({ availability: absent, installMethods: noMethods, platform: 'win32', useWsl: true }).words,
+      state({ availability: absent, installMethods: noMethods, platform: 'win32', hostKind: 'wsl' }).words,
       'Not available on WSL',
     )
     assert.equal(
@@ -138,7 +137,9 @@ test('agentCliShelfState', async () => {
     assert.equal(probing.action, 'none')
   }
 
-  assert.equal(agentCliPlatformLabel('darwin', false), 'macOS')
+  assert.equal(agentCliPlatformLabel('darwin'), 'macOS')
+  assert.equal(agentCliPlatformLabel('win32', 'windows'), 'Windows')
+  assert.equal(agentCliPlatformLabel('win32', 'wsl'), 'WSL')
 
   console.log('agent-cli shelf state model passed')
 

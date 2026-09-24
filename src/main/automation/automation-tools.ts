@@ -59,6 +59,7 @@ import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '.
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
+import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
@@ -141,6 +142,8 @@ export type AutomationBackends = {
     name: string
     /** The ref the worktree branches from; the checkout's HEAD when absent. */
     baseRef?: string
+    /** The machine the launch runs on, when it names one. */
+    host?: ExecutionHostId
   }): Promise<{ worktreePath: string; branch: string; leaseId?: string } | { error: string }>
   /**
    * Name the agent a pooled worktree (one handed out with a `leaseId`) now
@@ -496,6 +499,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     worktreeRequested: boolean
     worktreeName?: string
     worktreeBaseRef?: string
+    host?: ExecutionHostId
   }): Promise<
     | {
         workspace: Workspace
@@ -521,6 +525,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         workspaceRoot: resolved.root,
         name: derivedName,
         ...(plan.worktreeBaseRef ? { baseRef: plan.worktreeBaseRef } : {}),
+        ...(plan.host ? { host: plan.host } : {}),
       })
       if ('error' in created) {
         return failure(
@@ -546,6 +551,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       permissionPreset: plan.permissionPreset,
       connectorId: plan.connectorId,
       worktreePath,
+      ...(plan.host ? { host: plan.host } : {}),
     })
     if (!launched.ok) {
       if (worktreeLeaseId) await backends.releaseAgentWorktree?.(worktreeLeaseId).catch(() => {})
@@ -806,6 +812,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         },
         name: { type: 'string', description: 'Agent display name.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
+        host: {
+          type: 'string',
+          description:
+            'The machine on this computer to run on: "local", or "wsl:<distribution>" for a WSL distribution on ' +
+            "Windows. Defaults to the workspace's machine, then the distribution its folder lives in, then local. " +
+            'Only Windows has machines other than "local".',
+        },
         cliModel: {
           type: 'string',
           description:
@@ -849,17 +862,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId'])
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId', 'host'])
       if (invalid) return invalid
 
       const options = resolveLaunchOptions(args)
       if ('content' in options) return options
+
+      const host = args.host === undefined ? undefined : normalizeExecutionHostId(args.host)
+      if (host === null) {
+        return failure('invalid_arguments', '"host" must be "local" or "wsl:<distribution>".')
+      }
 
       if (!findWorkspace(workspaceId)) {
         return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       }
 
       const launched = await launchConfiguredAgent({
+        ...(host ? { host } : {}),
         workspaceId,
         cli: optionalString(args.cli),
         name: optionalString(args.name),

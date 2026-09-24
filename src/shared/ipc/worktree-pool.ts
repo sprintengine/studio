@@ -93,10 +93,12 @@ export type WorktreePoolSnapshot = {
   repoRoot: string
   /** Where the slots live: `<repo-parent>/.sprintengine-worktrees/<repo>`. */
   containerPath: string
-  /** The filesystem the repo is on: `local`, `wsl:<distro>`, `unc:<server>`. */
-  fsHost: string
-  /** The platform the slots' dependencies are built for. */
-  platform: string
+  /**
+   * The execution host the slots belong to (shared/execution-host.ts): their
+   * git runs there and their dependencies are built for it. Only `local` has
+   * pools today.
+   */
+  hostId: string
   /** Turned off for this repository in the Worktree manager. */
   disabled: boolean
   /** Another Studio holds this pool; this one creates worktrees fresh. */
@@ -112,8 +114,12 @@ export type WorktreePoolLeaseInput = {
   /** The name the branch and slug are derived from: `agent/<slug>`. */
   name: string
   owner: WorktreePoolLeaseOwner
-  /** The platform the agent runs on. Only native agents lease today. */
-  runtime: 'native' | 'wsl'
+  /**
+   * The machine the agent runs on, when the caller knows it. The pool resolves
+   * it as the launch does (named, else the folder's distribution, else an open
+   * WSL workspace's) and serves only this machine itself.
+   */
+  hostId?: string | null
 }
 
 export type WorktreePoolLeaseResult =

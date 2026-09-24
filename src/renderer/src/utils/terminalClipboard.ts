@@ -43,10 +43,10 @@ const CLAUDE_CODE_BINARY_CLIS = new Set(['claude-code', 'zai', 'kimi-claude'])
  */
 export function claudeImagePasteKey(
   cli: string | undefined,
-  useWsl: boolean | undefined,
+  inWsl: boolean | undefined,
   platform: string = window.api.platform,
 ): string | null {
-  if (platform !== 'win32' || useWsl || !cli || !CLAUDE_CODE_BINARY_CLIS.has(cli)) return null
+  if (platform !== 'win32' || inWsl || !cli || !CLAUDE_CODE_BINARY_CLIS.has(cli)) return null
   return 'v'
 }
 

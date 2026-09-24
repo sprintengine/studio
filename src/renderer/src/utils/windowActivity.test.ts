@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { bindWindowActivityAttribute, createWindowActivity, type WindowActivityState } from './windowActivity'
+import {
+  bindWindowActivityAttribute,
+  createWindowActivity,
+  isWindowVisible,
+  onWindowVisibilityChange,
+  type WindowActivityState,
+} from './windowActivity'
 
 function fakeWindow() {
   const docListeners = new Set<() => void>()
@@ -117,4 +123,45 @@ test("main's minimize / lock signal hides the window even when the page still sa
   assert.equal(activity.get().visible, true)
   activity.dispose()
   assert.equal(push, null, 'unsubscribed on dispose')
+})
+
+test('paused work hears only visibility changes, including the ones only main can see', () => {
+  const fake = fakeWindow()
+  let push: ((hidden: boolean) => void) | null = null
+  const activity = createWindowActivity(fake.doc, fake.win, (listener) => {
+    push = listener
+    return () => {
+      push = null
+    }
+  })
+  const seen: boolean[] = []
+  const unbind = onWindowVisibilityChange((visible) => seen.push(visible), activity)
+  assert.equal(isWindowVisible(activity), true)
+
+  // Clicking into another app leaves the window on screen: nothing to resume or pause.
+  fake.env.focused = false
+  fake.fire('blur')
+  fake.runDeferred()
+  fake.env.focused = true
+  fake.fire('focus')
+  assert.deepEqual(seen, [], 'focus changes alone are not reported')
+
+  // macOS minimize: the page still says visible; main says hidden.
+  push!(true)
+  assert.equal(fake.doc.visibilityState, 'visible')
+  assert.equal(isWindowVisible(activity), false, 'a minimized window is not visible, whatever the page says')
+  assert.deepEqual(seen, [false])
+  push!(false)
+  assert.deepEqual(seen, [false, true])
+
+  // The page's own signal still counts.
+  fake.env.visibilityState = 'hidden'
+  fake.fire('visibilitychange')
+  assert.deepEqual(seen, [false, true, false])
+
+  unbind()
+  fake.env.visibilityState = 'visible'
+  fake.fire('visibilitychange')
+  assert.deepEqual(seen, [false, true, false], 'unbound')
+  activity.dispose()
 })

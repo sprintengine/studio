@@ -21,6 +21,7 @@
  *   a window opened an hour later projects exactly the sessions still running.
  */
 import type { AgentCli, McpSettings, CliPermissionPreset } from './electron-api'
+import type { ExecutionHostId } from './execution-host'
 
 export type AgentLaunchRequest = {
   workspaceId: string
@@ -62,6 +63,12 @@ export type AgentLaunchRequest = {
    * workspace the user is standing in is the wrong kind.
    */
   anyWorkspaceMode?: boolean
+  /**
+   * The machine to run on. Absent takes the workspace's machine, then the
+   * distribution its folder lives in, then this machine. Only Windows offers
+   * a choice (`wsl:<distro>`); anywhere else every launch runs locally.
+   */
+  host?: ExecutionHostId
 }
 
 export type AgentDisposeRequest = {
@@ -92,6 +99,8 @@ export type AgentLaunchRecord = {
    * cwd instead of falling back to the workspace root.
    */
   worktreePath?: string
+  /** The machine main launched on, so the agent resumes on the same one. */
+  hostId?: ExecutionHostId
 }
 
 export type AgentLaunchResult =

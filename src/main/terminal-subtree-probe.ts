@@ -29,7 +29,7 @@ import { execFile } from 'node:child_process'
 import type { TerminalPathStyle } from '../shared/ipc/terminal'
 import { runSpawnDescriptor, type RunOutcome } from './process-run'
 import { killProcessTree } from './process-tree-kill'
-import { resolveWslDistroForPath, runWslScript, WSL_SESSION_PID_DIR, wslSessionPidKey } from './wsl-host'
+import { resolveWslDistroForPath, runWslScript, WSL_SESSION_PID_DIR, wslSessionPidKey } from './hosts/wsl-distro'
 
 // A subtree process above this CPU share counts as "doing work" → keep alive.
 // High enough to ignore idle MCP/helper jitter, low enough to catch a build.
@@ -543,6 +543,9 @@ export type SessionProbeTarget = {
   cwd?: string
   // The WSL session's startup script, whose name keys its pid file.
   startupScriptPath?: string
+  // The distribution a WSL session runs in, from its host. Absent is read
+  // from the cwd (a `\\wsl.localhost\<distro>\…` folder) or the default.
+  wslDistro?: string | null
 }
 
 /**
@@ -599,7 +602,7 @@ export async function probeSessionSubtrees(
         for (const target of wsl) {
           const key = wslSessionPidKey(target.startupScriptPath)
           if (!key) continue // no pid file to read: undetermined
-          const distro = (await resolveDistro(target.cwd).catch(() => null)) ?? ''
+          const distro = (target.wslDistro || (await resolveDistro(target.cwd).catch(() => null))) ?? ''
           const group = byDistro.get(distro) ?? []
           group.push({ sessionId: target.sessionId, key })
           byDistro.set(distro, group)
@@ -682,7 +685,13 @@ export function buildWindowsSurvivorQueryScript(cliSessionId: string): string {
   ].join('\n')
 }
 
-export type HostSurvivorTarget = { pathStyle?: TerminalPathStyle; cwd?: string; startupScriptPath?: string }
+export type HostSurvivorTarget = {
+  pathStyle?: TerminalPathStyle
+  cwd?: string
+  startupScriptPath?: string
+  // The distribution a WSL session runs in, from its host; see SessionProbeTarget.
+  wslDistro?: string | null
+}
 
 async function killWslSurvivors(
   cliSessionId: string,
@@ -691,7 +700,7 @@ async function killWslSurvivors(
 ): Promise<number[]> {
   const resolveDistro = deps.resolveWslDistro ?? ((cwd: string | undefined) => resolveWslDistroForPath(cwd))
   const run = deps.runWslScript ?? runWslScript
-  const distro = await resolveDistro(host.cwd).catch(() => null)
+  const distro = host.wslDistro || (await resolveDistro(host.cwd).catch(() => null))
   const outcome = await run(
     distro,
     buildWslSurvivorKillScript(cliSessionId, wslSessionPidKey(host.startupScriptPath)),

@@ -26,7 +26,7 @@ import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
  * recovery).
  */
 
-export const POOL_RECORD_VERSION = 1
+export const POOL_RECORD_VERSION = 2
 
 export type SlotOp = {
   kind: 'create' | 'lease' | 'return' | 'refresh' | 'install' | 'evict' | 'held-action'
@@ -85,8 +85,8 @@ export type PoolRecord = {
   poolId: string
   repoRoot: string
   commonDir: string
-  fsHost: string
-  platform: string
+  /** The execution host (shared/execution-host.ts) whose git and toolchain the slots belong to. */
+  hostId: string
   disabled: boolean
   defaultRef: string | null
   lastFetchAt: number | null
@@ -98,26 +98,24 @@ export type PoolRecord = {
 }
 
 /**
- * The filesystem a repository lives on, as far as a pool cares: two pools on
- * the same repository but different hosts would hand one platform's installed
- * dependencies (native binaries included) to the other.
+ * A folder on a network share (`\\\\server\\share\\…`) that is not a WSL
+ * distribution: its git is slow and its locks unreliable, and the pool keeps
+ * no slots there.
  */
-export function filesystemHostOf(repoRoot: string): string {
-  const distro = distroOfUncPath(repoRoot)
-  if (distro) return `wsl:${distro.toLowerCase()}`
-  const unc = /^[\\/]{2}([^\\/]+)[\\/]/u.exec(repoRoot)
-  if (unc) return `unc:${unc[1].toLowerCase()}`
-  return 'local'
+export function isNetworkSharePath(repoRoot: string): boolean {
+  return /^[\\/]{2}[^\\/]+[\\/]/u.test(repoRoot) && distroOfUncPath(repoRoot) === null
 }
 
 /**
- * One pool per (repository, filesystem host, runtime platform). The repository
- * is its git common dir, so every checkout of one repository shares a pool and
- * two clones never do.
+ * One pool per (repository, execution host). The repository is its git common
+ * dir, so every checkout of one repository shares a pool and two clones never
+ * do; the host is the machine whose git makes the slots and whose toolchain
+ * installs into them (`local`, or `wsl:<distro>` on Windows), so a Windows
+ * pool and a WSL pool never share a slot or its native dependencies.
  */
-export function poolIdFor(commonDir: string, fsHost: string, platform: string): string {
+export function poolIdFor(commonDir: string, hostId: string): string {
   return createHash('sha256')
-    .update(`${comparablePath(commonDir)}\0${fsHost}\0${platform}`)
+    .update(`${comparablePath(commonDir)}\0${hostId}`)
     .digest('hex')
     .slice(0, 16)
 }
@@ -219,8 +217,7 @@ export function parsePoolRecord(text: string): PoolRecord | null {
     poolId,
     repoRoot,
     commonDir,
-    fsHost: str(value.fsHost) ?? 'local',
-    platform: str(value.platform) ?? process.platform,
+    hostId: str(value.hostId) ?? 'local',
     disabled: value.disabled === true,
     defaultRef: str(value.defaultRef),
     lastFetchAt: num(value.lastFetchAt),

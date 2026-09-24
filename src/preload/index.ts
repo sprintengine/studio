@@ -35,6 +35,7 @@ import { pluginsApi } from './api/plugins'
 import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { launchSettingsApi } from './api/launch-settings'
+import { hostsApi } from './api/hosts'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { terminalApi } from './api/terminal'
@@ -78,6 +79,7 @@ const api = {
   ...mobileBridgeApi,
   ...filesystemApi,
   ...launchSettingsApi,
+  ...hostsApi,
   ...gitApi,
   ...worktreePoolApi,
   ...marketplaceApi,

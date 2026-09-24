@@ -38,6 +38,8 @@ test('terminal-runtime', async () => {
 
   type MockPtyProcess = {
     pid: number
+    cols?: number
+    rows?: number
     write(data: string): void
     resize(cols: number, rows: number): void
     kill(): void
@@ -79,6 +81,9 @@ test('terminal-runtime', async () => {
         }
       }
       const process = createMockPtyProcess()
+      // The size the pty was spawned at, as node-pty reports it.
+      if (typeof options.cols === 'number') process.cols = options.cols
+      if (typeof options.rows === 'number') process.rows = options.rows
       mockPty.spawnCalls.push({ command, args, options, process })
       return process
     },
@@ -154,6 +159,7 @@ test('terminal-runtime', async () => {
       await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
       await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
       await assertSuspendReleasesRawStreamButKeepsFrozenScreen(runtimeModule)
+      await assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(runtimeModule)
       await assertSessionsBroadcastCarriesOnlyWhatChanged(runtimeModule)
       await assertRevealSendsOnlyWhatThePaneMissed(runtimeModule)
       await assertFlowControlPausesThePtyWhileThePaneFallsBehind(runtimeModule)
@@ -206,7 +212,7 @@ test('terminal-runtime', async () => {
           installed: detect.installed,
           version: detect.installed ? '2.0.0' : null,
           resolvedPath: detect.resolvedPath ?? null,
-          useWsl: false,
+          hostId: 'local',
           error: null,
         }),
         // Each case is its own question; never serve another case's cached verdict.
@@ -2015,6 +2021,123 @@ test('terminal-runtime', async () => {
       assert.equal(runtime2.readTerminalOutput('session-release'), undefined)
     } finally {
       await runtime2.shutdown()
+    }
+  }
+
+  // A settled agent drops what it holds. An agent whose CLI exits on its own is
+  // settled, but its tab reopens on its last screen and the agent control plane
+  // reads what it printed synchronously — so the screen is rendered once and the
+  // raw stream behind it goes, exactly as on suspend. A plain shell keeps its
+  // stream: painted-pause is an agent promise.
+  async function assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(
+    runtimeModule: RuntimeModule,
+  ): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-exit-release-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const listed = (sessionId: string) =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId)
+    const spawn = async (sessionId: string, kind: 'agent' | 'terminal'): Promise<MockPtyProcess> => {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId,
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind,
+        shellOnly: kind === 'terminal',
+        workspaceId: 'ws-exit-release',
+        agentId: sessionId,
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(spawned, `expected a pty for ${sessionId}`)
+      return spawned
+    }
+
+    try {
+      const pty = await spawn('session-exit-release', 'agent')
+      for (let line = 0; line < 2_000; line += 1)
+        pty.emitData(`\x1b[38;2;120;120;200mscrollback line ${line} ─╮\x1b[0m\r\n`)
+      await delay(20)
+      // A reader that has seen everything up to here, and nothing after.
+      const midCursor = runtime.readTerminalOutputSince('session-exit-release', 0)?.cursor ?? 0
+      assert.ok(midCursor > 0)
+      // Laid out by cursor position for the 120 columns it was spawned at, and
+      // never resized: the screen must be rendered at that width, not at 80.
+      pty.emitData('\x1b[30;1Hleft edge\x1b[30;100Hfar right\r\n')
+      pty.emitData('the final screen of the finished run\r\n')
+      await delay(20)
+      assert.ok((listed('session-exit-release')?.retainedOutputBytes ?? 0) > 100_000, 'a live agent retains its stream')
+
+      const shell = await spawn('session-exit-shell', 'terminal')
+      shell.emitData('$ echo still here\r\n')
+      await delay(20)
+
+      pty.emitExit({ exitCode: 0 })
+      shell.emitExit({ exitCode: 0 })
+      const start = Date.now()
+      while ((listed('session-exit-release')?.retainedOutputBytes ?? 0) > 0) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the exited agent to release its stream')
+        await delay(20)
+      }
+      assert.equal(listed('session-exit-release')?.processAlive, false)
+      assert.equal(listed('session-exit-release')?.outputBufferLength, 0, 'the raw stream is released')
+
+      // The module-facing reads still answer, synchronously, from the screen.
+      assert.ok(
+        runtime.readTerminalOutput('session-exit-release')?.includes('the final screen of the finished run'),
+        'the agent control plane still reads what the exited agent printed',
+      )
+      assert.ok(
+        runtime
+          .readTerminalOutputSince('session-exit-release', 0)
+          ?.text.includes('the final screen of the finished run'),
+        'a read from the start is served from the rendered screen',
+      )
+      assert.ok(
+        runtime
+          .readTerminalOutputSince('session-exit-release', midCursor)
+          ?.text.includes('the final screen of the finished run'),
+        'a reader that had not reached the end is handed the screen rather than nothing',
+      )
+      const end = runtime.readTerminalOutputSince('session-exit-release', midCursor)?.cursor ?? 0
+      assert.equal(
+        runtime.readTerminalOutputSince('session-exit-release', end)?.text,
+        '',
+        'a reader that had seen the end gets nothing new',
+      )
+
+      // Reopening the tab paints the final screen and its scrollback, and spawns nothing.
+      const spawnsBefore = mockPty.spawnCalls.length
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-exit-release', true, sender)
+      const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-exit-release')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('the final screen of the finished run'),
+        'revealing the exited agent repaints its final screen',
+      )
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('scrollback line 1990'),
+        'and the scrollback above it',
+      )
+      assert.equal(mockPty.spawnCalls.length, spawnsBefore, 'without starting the CLI')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('left edge\x1b[90Cfar right'),
+        'rendered at the width the agent drew for, never a default 80 columns',
+      )
+
+      assert.ok((listed('session-exit-shell')?.retainedOutputBytes ?? 0) > 0, 'an exited plain shell keeps its stream')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
 
