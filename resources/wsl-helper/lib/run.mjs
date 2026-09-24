@@ -35,6 +35,13 @@ export function killAllChildren() {
   liveGroups.clear()
 }
 
+/** A request's `stdinB64` as bytes: undefined when absent, null when it is not base64 text. */
+export function decodeStdin(stdinB64) {
+  if (stdinB64 === undefined) return undefined
+  if (typeof stdinB64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/u.test(stdinB64)) return null
+  return Buffer.from(stdinB64, 'base64')
+}
+
 /** Validates a run request's shape; returns an error message or null. */
 export function checkRunRequest({ argv, cwd, timeoutMs, env }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((arg) => typeof arg !== 'string')) {
@@ -55,18 +62,19 @@ export function checkRunRequest({ argv, cwd, timeoutMs, env }) {
 }
 
 /**
- * Runs `argv` in `cwd` with `env`, stdin closed. `timeoutMs` null means no
- * deadline: a git write runs the repository's hooks, and killing one part-way
- * leaves a lock file behind.
+ * Runs `argv` in `cwd` with `env`. `stdin` (a Buffer) is written to the child
+ * and closed; without it stdin is closed from the start. `timeoutMs` null means
+ * no deadline: a git write runs the repository's hooks, and killing one
+ * part-way leaves a lock file behind.
  */
-export function runArgv({ argv, cwd, env, timeoutMs }) {
+export function runArgv({ argv, cwd, env, timeoutMs, stdin }) {
   return new Promise((resolve) => {
     let child
     try {
       child = spawn(argv[0], argv.slice(1), {
         cwd: cwd ?? process.env.HOME ?? '/',
         env,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         detached: true,
       })
     } catch (error) {
@@ -74,6 +82,12 @@ export function runArgv({ argv, cwd, env, timeoutMs }) {
       return
     }
     liveGroups.add(child.pid)
+    if (stdin && child.stdin) {
+      // A child that exits before reading everything (`git apply` refusing a
+      // patch) closes the pipe; that is its answer, not an error of ours.
+      child.stdin.on('error', () => {})
+      child.stdin.end(stdin)
+    }
     const out = []
     const err = []
     let outBytes = 0

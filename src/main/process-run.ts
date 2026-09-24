@@ -32,6 +32,9 @@ export type RunOptions = {
   // Turns the collected stdout bytes into text. `wsl.exe` prints its own
   // messages as UTF-16LE, which the default UTF-8 decode turns into noise.
   decodeStdout?: (bytes: Buffer) => string
+  // The same for stderr, where `wsl.exe` writes its errors ("no distribution
+  // with the supplied name"). `onData` still sees each chunk as UTF-8.
+  decodeStderr?: (bytes: Buffer) => string
   // Working directory for the started process. Left unset, the child inherits
   // this process's, which is fine for every Windows-side executable; a WSL
   // probe sets the Linux side's own with `--cd` instead.
@@ -46,7 +49,7 @@ export type RunOptions = {
 const PIPE_DRAIN_GRACE_MS = 2_000
 
 export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = {}): Promise<RunOutcome> {
-  const { onData, env = process.env, timeoutMs, timedOutCode = 1, decodeStdout, cwd } = options
+  const { onData, env = process.env, timeoutMs, timedOutCode = 1, decodeStdout, decodeStderr, cwd } = options
   return new Promise((resolve) => {
     const child = spawn(desc.file, desc.args, {
       env,
@@ -55,7 +58,7 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
       ...(cwd ? { cwd } : {}),
     })
     const stdoutChunks: Buffer[] = []
-    let stderr = ''
+    const stderrChunks: Buffer[] = []
     let timedOut = false
     let settled = false
     let drainTimer: ReturnType<typeof setTimeout> | null = null
@@ -71,6 +74,10 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
       const bytes = Buffer.concat(stdoutChunks)
       return decodeStdout ? decodeStdout(bytes) : bytes.toString('utf8')
     }
+    const stderrText = (): string => {
+      const bytes = Buffer.concat(stderrChunks)
+      return decodeStderr ? decodeStderr(bytes) : bytes.toString('utf8')
+    }
     const settle = (outcome: RunOutcome) => {
       if (settled) return
       settled = true
@@ -82,7 +89,7 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
       settle({
         code: timedOutCode,
         stdout: '',
-        stderr: `${stderr}\nprocess timed out after ${timeoutMs}ms`,
+        stderr: `${stderrText()}\nprocess timed out after ${timeoutMs}ms`,
         timedOut: true,
       })
     if (desc.stdin !== undefined && child.stdin) {
@@ -96,15 +103,14 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
       onData?.(chunk.toString())
     })
     child.stderr?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString()
-      stderr += text
-      onData?.(text)
+      stderrChunks.push(chunk)
+      onData?.(chunk.toString())
     })
     child.on('error', (error) => {
       settle({
         code: 1,
         stdout: stdoutText(),
-        stderr: stderr + (error.message ?? String(error)),
+        stderr: stderrText() + (error.message ?? String(error)),
         timedOut: false,
         spawnFailed: true,
       })
@@ -115,7 +121,7 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
         return
       }
       drainTimer = setTimeout(
-        () => settle({ code: code ?? 1, stdout: stdoutText(), stderr, timedOut: false }),
+        () => settle({ code: code ?? 1, stdout: stdoutText(), stderr: stderrText(), timedOut: false }),
         PIPE_DRAIN_GRACE_MS,
       )
     })
@@ -124,7 +130,7 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
         settleTimedOut()
         return
       }
-      settle({ code: code ?? 1, stdout: stdoutText(), stderr, timedOut: false })
+      settle({ code: code ?? 1, stdout: stdoutText(), stderr: stderrText(), timedOut: false })
     })
   })
 }

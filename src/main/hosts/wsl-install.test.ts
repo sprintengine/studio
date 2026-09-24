@@ -5,7 +5,16 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test } from 'vitest'
@@ -230,6 +239,46 @@ test.skipIf(!HAS_TAR)(
     )
   },
 )
+
+test.skipIf(!HAS_TAR)('a tree set aside while in use is kept until nothing runs from its old path', () => {
+  // A stand-in /proc (macOS has none): one process running the helper of the
+  // installed 0.4.0, by the path it was started from.
+  const base = join(home, WSL_DATA_REL)
+  const fakeProc = join(temp, 'fake-proc')
+  const running = join(fakeProc, '4242')
+  mkdirSync(running, { recursive: true })
+  writeFileSync(join(running, 'cmdline'), `node\0${base}/0.4.0/wsl-helper/helper.mjs\0`)
+  const commit = (digest: string) => {
+    const id = `t${Math.random().toString(16).slice(2, 10)}`
+    assert.ok(sh(buildStageScript(id)).stdout.includes(STAGED_MARKER))
+    assert.equal(untar(tarArgs('app', id), payload().tarGz), 0)
+    const script = buildCommitScript({ kind: 'app', stageId: id, digest, appVersion: '0.4.0' })
+    assert.ok(script.includes('/proc/[0-9]*/cmdline'))
+    const result = sh(script.replace('/proc/[0-9]*/cmdline', `${fakeProc}/[0-9]*/cmdline`))
+    assert.ok(result.stdout.includes(COMMITTED_MARKER), `${result.stdout}${result.stderr}`)
+  }
+  const setAside = () => readdirSync(base).filter((name) => name.startsWith('0.4.0.old-'))
+
+  // Whatever an earlier case left, set aside or not, goes first.
+  for (const name of setAside()) rmSync(join(base, name), { recursive: true, force: true })
+  rmSync(join(base, '0.4.0'), { recursive: true, force: true })
+  commit('a1'.repeat(32))
+  assert.deepEqual(setAside(), [], 'nothing was there to set aside')
+  // The same version with another payload (a dev build), while the helper
+  // runs from it: the tree it runs from is set aside, not deleted.
+  commit('b2'.repeat(32))
+  assert.equal(setAside().length, 1, `set aside while the old helper still runs from it: ${readdirSync(base)}`)
+  assert.ok(existsSync(join(base, setAside()[0], 'wsl-helper', 'helper.mjs')), 'whole')
+  // Another commit while it still runs: kept, because its processes name the
+  // old path and not the set-aside one.
+  commit('b2'.repeat(32))
+  assert.equal(setAside().length, 1, 'still kept')
+  // Nothing runs from it any more: the next commit prunes it.
+  rmSync(running, { recursive: true, force: true })
+  commit('b2'.repeat(32))
+  assert.deepEqual(setAside(), [])
+  assert.ok(existsSync(join(base, '0.4.0', 'wsl-helper', 'helper.mjs')), 'the current tree stays')
+})
 
 test.skipIf(!existsSync('/proc/self/cmdline'))('pruning skips a runtime a running process still uses', async () => {
   const live = join(home, WSL_DATA_REL, 'runtime', 'node-v2.0.0')

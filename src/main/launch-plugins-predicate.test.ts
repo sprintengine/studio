@@ -71,7 +71,16 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
   setLaunchPluginDirsResolver(() => PLUGIN_DIRS)
   const cwd = join(temp, 'workspace-launch')
   mkdirSync(cwd, { recursive: true })
-  const targets = [{ kind: 'windows' }, { kind: 'wsl', distro: 'Ubuntu', env: {} }] as const
+  const targets = [
+    { kind: 'windows' },
+    {
+      kind: 'wsl',
+      distro: 'Ubuntu',
+      env: {},
+      sessionDir: '/home/dev/.local/share/sprintengine-studio/sessions/abc123def456',
+      pidDir: '/run/user/1000/sprintengine/abc123def456/sessions',
+    },
+  ] as const
   for (const target of targets) {
     let config: ReturnType<typeof getShellLaunchConfig> | undefined
     try {
@@ -101,11 +110,14 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
       if (target.kind === 'windows' && /not available as a Windows path/u.test(String(error))) continue
       throw error
     }
+    // A WSL launch's script is handed to its helper to write inside the
+    // distribution; any other is a file here.
+    const hostScript = config.hostFiles?.find((file) => file.path === config.startupScriptPath)?.content
     try {
-      const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
+      const script = hostScript ?? readFileSync(config.startupScriptPath ?? '', 'utf8')
       assert.doesNotMatch(script, /--plugin-dir/u, `host=${target.kind}`)
     } finally {
-      cleanupTerminalStartupScript(config.startupScriptPath)
+      if (!hostScript) cleanupTerminalStartupScript(config.startupScriptPath)
     }
   }
   setLaunchPluginDirsResolver(null)

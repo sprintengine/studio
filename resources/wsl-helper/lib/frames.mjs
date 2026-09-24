@@ -9,7 +9,7 @@
 // one.
 
 /** Bumped whenever a frame's meaning changes. Main refuses any other value. */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /**
  * A line decoder with a size cap. `onLine` gets each complete line without its

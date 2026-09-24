@@ -118,7 +118,7 @@ function flagName(arg: string): string {
 }
 
 /** The subcommand and its arguments, past any global options (`-c k=v`, `-C dir`). */
-function splitSubcommand(args: readonly string[]): { subcommand: string | null; rest: readonly string[] } {
+export function splitSubcommand(args: readonly string[]): { subcommand: string | null; rest: readonly string[] } {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === '-c' || arg === '-C') {
@@ -207,6 +207,11 @@ export type GitRunOptions = {
   timeoutMs?: number | null
   /** Overrides the classification, for a subcommand the classifier cannot see into. */
   kind?: GitCommandKind
+  /**
+   * Bytes for git's stdin (`apply -`, `check-ignore --stdin`), written whole
+   * and then closed. Left out, stdin is untouched.
+   */
+  stdin?: string
 }
 
 type ExecGitResult = { stdout: string; stderr: string }
@@ -269,8 +274,13 @@ async function execGitOnHost(
   envOverrides: NodeJS.ProcessEnv | undefined,
   kind: GitCommandKind,
   timeoutMs: number | null,
+  stdin: string | undefined,
 ): Promise<ExecGitResult> {
-  const outcome = await host.runGit(cwd, args, { timeoutMs, env: gitEnvDelta(envOverrides, kind) })
+  const outcome = await host.runGit(cwd, args, {
+    timeoutMs,
+    env: gitEnvDelta(envOverrides, kind),
+    ...(stdin !== undefined ? { stdin } : {}),
+  })
   if (outcome.code === 0 && !outcome.timedOut && !outcome.spawnFailed) {
     return { stdout: outcome.stdout, stderr: outcome.stderr }
   }
@@ -302,7 +312,9 @@ function execGit(
   gitSpawnCounter[kind] += 1
 
   const host = gitHostScope.getStore() ?? gitHostResolver?.(cwd) ?? null
-  if (host && host.kind === 'wsl') return execGitOnHost(host, cwd, args, envOverrides, kind, timeoutMs)
+  if (host && host.kind === 'wsl') {
+    return execGitOnHost(host, cwd, args, envOverrides, kind, timeoutMs, options.stdin)
+  }
 
   return new Promise((resolvePromise, reject) => {
     let timedOut = false
@@ -340,6 +352,12 @@ function execGit(
         timedOut = true
         killProcessTree(child, { processGroup: grouped })
       }, timeoutMs)
+    }
+    if (options.stdin !== undefined) {
+      // git can exit before it has read everything (`apply` refusing a patch);
+      // the EPIPE that follows is not the failure and must not go unhandled.
+      child.stdin?.on('error', () => {})
+      child.stdin?.end(options.stdin)
     }
   })
 }

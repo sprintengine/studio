@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -117,14 +117,18 @@ test('the pid file is keyed by the startup script and written by the shell it na
     ),
     'sess-1-1700000000000',
   )
+  assert.equal(wslSessionPidKey('/home/dev/.local/share/sprintengine-studio/sessions/p1/sess-2-17.sh'), 'sess-2-17')
   assert.equal(wslSessionPidKey(undefined), null)
   const tmp = mkdtempSync(join(tmpdir(), 'se-wsl-pid-'))
   try {
-    // Run the line with the directory pointed into the temp dir: the shell's
+    // The helper made the directory, private, before any launch: the shell's
     // own pid lands in the file, from a subshell as well, followed by the
     // shell's start time where there is a /proc to read it from (Linux, and so
-    // every WSL distribution; macOS has none and writes the pid alone).
-    const line = wslSessionPidFileCommand('sess-1').replaceAll('/tmp/sprintengine-studio-$(id -u)', tmp)
+    // every WSL distribution; macOS has none and writes the pid alone). A path
+    // with a quote and a space in it crosses intact.
+    const dir = join(tmp, "it's pids")
+    mkdirSync(dir, { mode: 0o700 })
+    const line = wslSessionPidFileCommand(dir, 'sess-1')
     const hasProc = existsSync('/proc/self/stat')
     for (const shell of ['sh', ...(existsSync('/bin/dash') ? ['/bin/dash'] : [])]) {
       const printed = execFileSync(
@@ -133,9 +137,7 @@ test('the pid file is keyed by the startup script and written by the shell it na
         { encoding: 'utf8' },
       )
       const [pid, started] = printed.split('\n')
-      const [writtenPid, writtenStarted] = readFileSync(join(tmp, 'sessions', 'sess-1.pid'), 'utf8')
-        .trim()
-        .split(' ')
+      const [writtenPid, writtenStarted] = readFileSync(join(dir, 'sess-1.pid'), 'utf8').trim().split(' ')
       assert.equal(writtenPid, pid, `${shell}: the shell's own pid`)
       if (hasProc) {
         assert.match(writtenStarted ?? '', /^\d+$/u, `${shell}: a start time`)
@@ -144,6 +146,30 @@ test('the pid file is keyed by the startup script and written by the shell it na
         assert.equal(writtenStarted, undefined, `${shell}: no start time without /proc`)
       }
     }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('the pid file is never written through a link, into a missing directory, or under an odd key', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'se-wsl-pid-refuse-'))
+  try {
+    const real = join(tmp, 'real')
+    mkdirSync(real, { mode: 0o700 })
+    // Someone else's directory, planted where the pid directory should be,
+    // reads here as a link to one: nothing is written through it.
+    const link = join(tmp, 'link')
+    symlinkSync(real, link)
+    const missing = join(tmp, 'missing')
+    for (const shell of ['sh', ...(existsSync('/bin/dash') ? ['/bin/dash'] : [])]) {
+      execFileSync(shell, [
+        '-c',
+        `${wslSessionPidFileCommand(link, 'k1')}; ${wslSessionPidFileCommand(missing, 'k2')}; true`,
+      ])
+      assert.equal(existsSync(join(real, 'k1.pid')), false, `${shell}: not through a link`)
+      assert.equal(existsSync(missing), false, `${shell}: the directory is not created`)
+    }
+    assert.equal(wslSessionPidFileCommand(real, '../escape'), '', 'a key that is not a plain name writes nothing')
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }

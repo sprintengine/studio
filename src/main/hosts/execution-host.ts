@@ -60,7 +60,31 @@ export type HostLaunchTarget =
        * the identity travels in the script, like every other launch variable.
        */
       identity?: Record<string, string>
+      /**
+       * The helper's private directory for launch files, as Linux names it. The
+       * startup script and the host-context file are written there (through
+       * the helper) and run from there, never through a `/mnt/<drive>` mount.
+       * Absent while the helper is not up; a WSL launch cannot start then.
+       */
+      sessionDir?: string
+      /** The helper's private directory the startup script records its shell's pid in. */
+      pidDir?: string
+      /** This launch's MCP channel token, exported by the startup script (`MCP_CHANNEL_TOKEN_ENV`). */
+      channelToken?: string
     }
+
+/** A file a launch needs on its host, written there before the terminal starts. */
+export type HostLaunchFile = {
+  /** The absolute path as the host names it; inside the launch target's `sessionDir`. */
+  path: string
+  content: string
+}
+
+/** A directory watch on a host, shaped like the part of `fs.FSWatcher` its users need. */
+export type HostDirWatcher = {
+  close(): void
+  on(event: 'error', listener: (error: Error) => void): unknown
+}
 
 /**
  * How an agent on a host that is not this machine reports back. Every path is
@@ -78,8 +102,11 @@ export type HostAgentIntegration = {
   pluginDirs: string[]
   /** The status-line forwarder inside that copy, or null. */
   statusLineScriptPath: string | null
-  /** The app's MCP gateway as a stdio server a CLI there starts. */
-  studioMcpEntry: { command: string; args: string[]; env: Record<string, string> }
+  /**
+   * The app's MCP gateway as a stdio server a CLI there starts. `envVarNames`
+   * are variables the CLI must pass on to it from its own environment.
+   */
+  studioMcpEntry: { command: string; args: string[]; env: Record<string, string>; envVarNames?: string[] }
   /** The host's home, for a user-scoped hook registration and the status line's settings. */
   home: HostHome
 }
@@ -146,6 +173,32 @@ export interface ExecutionHost {
   /** Which startup script shape a launch here writes, and what goes in it. */
   launchTarget(): HostLaunchTarget
   /**
+   * Writes a launch's files on the host before its terminal starts. Only a host
+   * whose launch target names a `sessionDir` (WSL, through its helper) has
+   * this; the local hosts' builders write their own files. Rejects with the
+   * reason when the files could not be written.
+   */
+  writeLaunchFiles?(files: readonly HostLaunchFile[]): Promise<void>
+  /**
+   * Removes launch files by the paths `writeLaunchFiles` wrote. Best-effort,
+   * and never starts anything: a stopped helper's files go when the app next
+   * starts it.
+   */
+  discardLaunchFiles?(paths: ReadonlyArray<string | undefined>): void
+  /**
+   * A token for one launch's MCP bridge (WSL): only a channel that opens with
+   * a live launch's token reaches the automation server. Revoked when that
+   * launch's session ends.
+   */
+  issueChannelToken?(): string
+  revokeChannelToken?(token: string): void
+  /**
+   * Watches a directory on the host, for hosts where a watch placed from this
+   * machine hears nothing (a `\\wsl.localhost` path). `listener` gets the
+   * changed entry's name, or null when the host could not say.
+   */
+  watchDir?(nativePath: string, recursive: boolean, listener: (filename: string | null) => void): HostDirWatcher
+  /**
    * A CLI's runtime on this host: this host's own command override and its id.
    * The local host keeps the command the CLI runtime already carries.
    */
@@ -165,9 +218,14 @@ export interface ExecutionHost {
   /**
    * Ends what a suspended or closed session left running: every process
    * carrying `--session-id <cliSessionId>`, and on WSL the session shell's
-   * whole subtree. (Helper: `proc.killSession`.)
+   * whole subtree. (Helper: `proc.killSession`.) `quitting` is the app's own
+   * shutdown: no grace (the ptys were already waited on), and nothing is
+   * started to do it.
    */
-  killSessionSurvivors(cliSessionId: string, ref?: { startupScriptPath?: string }): Promise<number[]>
+  killSessionSurvivors(
+    cliSessionId: string,
+    ref?: { startupScriptPath?: string; quitting?: boolean },
+  ): Promise<number[]>
 
   // ── Tooling ────────────────────────────────────────────────────────────────
 
@@ -178,15 +236,17 @@ export interface ExecutionHost {
   /**
    * Runs git in a repository on this host: `cwd` is native, and so are the
    * paths in what comes back. `timeoutMs` null is no deadline (a write runs
-   * the repository's hooks). `env` is exported for git itself. The app's git
-   * runner (`git-run.ts`) owns the kind, deadline and environment rules and
-   * calls this only for a repository whose host is not this machine; local
-   * git stays on its own `execFile` path. (Helper: `git`.)
+   * the repository's hooks). `env` is exported for git itself, and `stdin`,
+   * when given, is written to git's stdin and closed (`apply -`,
+   * `check-ignore --stdin`). The app's git runner (`git-run.ts`) owns the
+   * kind, deadline and environment rules and calls this only for a repository
+   * whose host is not this machine; local git stays on its own `execFile`
+   * path. (Helper: `git`.)
    */
   runGit(
     cwd: string,
     args: readonly string[],
-    options: { timeoutMs: number | null; env: Record<string, string> },
+    options: { timeoutMs: number | null; env: Record<string, string>; stdin?: string },
   ): Promise<RunOutcome>
 
   /** Stops whatever the host keeps running for itself: the WSL helper. */
