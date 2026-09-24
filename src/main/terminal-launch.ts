@@ -1055,10 +1055,17 @@ function requireWslSessionDir(host: WslLaunchTarget): string {
   )
 }
 
-/** The WSL startup script's first line: record this shell's Linux pid in the helper's private directory. */
+/**
+ * The WSL startup script's first commands: record this shell's Linux pid in
+ * the helper's private directory, then delete the script. The script is one
+ * line, which bash has read whole before running any of it, and it holds the
+ * launch's secrets (a provider key, the MCP channel token); once read it is
+ * not left on disk for anything else running as this user to find.
+ */
 function wslPidFileLine(scriptPath: string, host: WslLaunchTarget): string {
   const key = wslSessionPidKey(scriptPath)
-  return key && host.pidDir ? wslSessionPidFileCommand(host.pidDir, key) : ''
+  const pid = key && host.pidDir ? wslSessionPidFileCommand(host.pidDir, key) : ''
+  return [pid, `rm -f -- ${quotePosix(scriptPath)}`].filter(Boolean).join('; ')
 }
 
 /**

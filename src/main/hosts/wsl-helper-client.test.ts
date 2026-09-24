@@ -421,6 +421,16 @@ test('an MCP channel without a live launch token never reaches the automation se
   fake.send({ t: 'ch', ch: 5, op: 'open', token: live })
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(connects, 1, 'a live token opens')
+  // The session ends: its token goes, and so does every channel it opened.
+  client.revokeChannelToken(live)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.ok(
+    fake.written.some((line) => {
+      const frame = JSON.parse(line) as Frame
+      return frame.t === 'ch' && frame.op === 'close' && frame.ch === 5
+    }),
+    'the open channel is closed on revoke',
+  )
   await client.shutdown()
 })
 

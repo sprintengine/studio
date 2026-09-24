@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test, vi } from 'vitest'
@@ -494,6 +494,33 @@ test('a plain terminal on a WSL machine opens in its distribution with its shell
   const script = scriptOf(config)
   assert.ok(script.includes("export A='1'"), script)
   assert.ok(script.trimEnd().endsWith('exec bash -li'), 'no configured shell: a login bash, as always')
+})
+
+test('a WSL startup script, run by a real bash, records its pid, deletes itself, and still runs to the end', () => {
+  const cwd = join(temp, 'workspace-selfdelete')
+  const sessionDir = join(temp, 'sessions-real')
+  const pidDir = join(temp, 'pids-real')
+  mkdirSync(cwd, { recursive: true })
+  mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
+  mkdirSync(pidDir, { recursive: true, mode: 0o700 })
+  const marker = join(temp, 'ran-to-the-end')
+  const config = getPlainShellLaunchConfig(cwd, 'plain-real', {
+    kind: 'wsl',
+    distro: 'Ubuntu',
+    // A long export, so the one line is well past any single read bash makes.
+    env: { PADDING: 'x'.repeat(200_000) },
+    shell: `sh -c 'touch "${marker}"'`,
+    sessionDir,
+    pidDir,
+  })
+  const script = scriptOf(config)
+  const path = config.startupScriptPath ?? ''
+  writeFileSync(path, script, { mode: 0o600 })
+  execFileSync('bash', [path], { cwd, env: { PATH: process.env.PATH, HOME: temp } })
+  assert.equal(existsSync(path), false, 'the script, and the secrets in it, are gone once read')
+  assert.equal(existsSync(marker), true, 'everything after the delete still ran')
+  const key = wslSessionPidKey(path) ?? ''
+  assert.ok(existsSync(join(pidDir, `${key}.pid`)), 'the pid was recorded first')
 })
 
 test("the person's own MCP servers are handed to a CLI in WSL with Linux paths", () => {

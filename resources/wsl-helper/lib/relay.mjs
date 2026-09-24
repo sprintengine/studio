@@ -19,10 +19,16 @@
 // `mcp.sock` is `{"t":"auth","token":"…"}`. The helper passes the token on in
 // the channel's `open`, and main checks it against the tokens of launches that
 // are still running before it connects anything. A connection whose first
-// line is not an auth line is dropped here without reaching main at all. Owning
-// the socket file is not enough: with `[interop] enabled=false` nothing else in
-// the distribution can reach Windows, and a process the app did not launch
-// must not gain that through this socket.
+// line is not an auth line is dropped here without reaching main at all, and
+// revoking a token also closes the channels it opened. Owning the socket file
+// is not enough: with `[interop] enabled=false` nothing else in the
+// distribution can reach Windows.
+//
+// What this raises is the bar, not a wall. The token lives in the agent's
+// environment, so the agent's own children have it, and anything running as
+// the same user that reads `/proc/<pid>/environ` can take it while the
+// session lives. The startup script deletes itself once read, so the token is
+// not also left on disk.
 
 import { createLineDecoder } from './frames.mjs'
 
