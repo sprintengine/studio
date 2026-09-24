@@ -205,11 +205,8 @@ test('NewAgentPanel', async () => {
     const { useWorkspaceStore } = await import('../../../store/workspaceStore')
     const { projectHue } = await import('../../../utils/projectColor')
     const { useToastStore } = await import('../../../store/toastStore')
-    const {
-      __resetCliPermissionPresetsForTest,
-      storedCliPermissionPreset,
-      resolveCliPermissionPreset,
-    } = await import('../../ui/cliPermissionPresets')
+    const { __resetCliPermissionPresetsForTest, storedCliPermissionPreset, resolveCliPermissionPreset } =
+      await import('../../ui/cliPermissionPresets')
 
     let failures = 0
     // Every mounted harness, so a check that throws before its own unmount
