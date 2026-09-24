@@ -174,38 +174,18 @@ export function bindWindowActivityAttribute(
 }
 
 /**
- * True while this window can be seen. Going hidden is reported only after it
- * has stayed hidden for `hideGraceMs`, so a glance at another app that happens
- * to cover the window does not flip anything; becoming visible is reported at
- * once.
+ * True while this window can be seen, following it both ways at once: a
+ * window reads false the moment it is minimized or hidden, and true the moment
+ * it is back. (There is no grace period; WorkspaceManager, the one caller,
+ * explains why it wants none.)
  */
-export function useWindowPageVisible(hideGraceMs = 0, activity: WindowActivity = windowActivity()): boolean {
+export function useWindowPageVisible(activity: WindowActivity = windowActivity()): boolean {
   const [visible, setVisible] = useState(() => activity.get().visible)
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const clear = (): void => {
-      if (timer === null) return
-      clearTimeout(timer)
-      timer = null
-    }
-    const apply = (state: WindowActivityState): void => {
-      clear()
-      if (state.visible || hideGraceMs <= 0) {
-        setVisible(state.visible)
-        return
-      }
-      timer = setTimeout(() => {
-        timer = null
-        if (!activity.get().visible) setVisible(false)
-      }, hideGraceMs)
-    }
+    const apply = (state: WindowActivityState): void => setVisible(state.visible)
     apply(activity.get())
-    const unsubscribe = activity.subscribe(apply)
-    return () => {
-      clear()
-      unsubscribe()
-    }
-  }, [activity, hideGraceMs])
+    return activity.subscribe(apply)
+  }, [activity])
   return visible
 }
 
