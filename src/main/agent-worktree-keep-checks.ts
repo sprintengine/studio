@@ -129,9 +129,9 @@ export async function hiddenEditPaths(
 
 /**
  * Ignored folders that only ever hold what a command rebuilds: installed
- * dependencies, build and test output, tool caches. Anything ignored inside one
- * of these (at any depth, so a monorepo package's `dist/` counts too) goes with
- * the worktree; anything ignored elsewhere keeps it.
+ * dependencies, build and test output, tool caches. A folder with one of these
+ * names that git ignores as a whole (at any depth, so a monorepo package's
+ * `dist/` counts too) goes with the worktree; anything else ignored keeps it.
  */
 const REBUILDABLE_DIRS = new Set([
   'node_modules',
@@ -162,11 +162,13 @@ function isRebuildable(path: string): boolean {
   const directory = path.endsWith('/')
   const segments = path.split('/').filter(Boolean)
   const last = segments.at(-1) ?? ''
-  if (!directory && DISPOSABLE_FILES.has(last)) return true
-  if (!directory && last.endsWith('.tsbuildinfo')) return true
-  // A folder is judged by every segment, a file by the folders it sits in.
-  const folders = directory ? segments : segments.slice(0, -1)
-  return folders.some((segment) => REBUILDABLE_DIRS.has(segment))
+  if (!directory) return DISPOSABLE_FILES.has(last) || last.endsWith('.tsbuildinfo')
+  // `--ignored=matching` names a folder only when the folder itself is
+  // ignored as a whole (`packages/a/dist/`). A file is named on its own when
+  // its folder is NOT ignored, so a file under `build/` proves that `build/` is
+  // a source folder (a tracked `build/entitlements.plist` beside an ignored
+  // `build/dev.p12`), and the folder's name says nothing about the file.
+  return REBUILDABLE_DIRS.has(last)
 }
 
 /** The repository's `.worktreeinclude` entries, the way worktree creation reads them. */
@@ -202,9 +204,9 @@ const MAX_COMPARED_BYTES = 256 * 1024 * 1024
 /**
  * Whether everything at `rel` in the worktree is byte-for-byte what the
  * source checkout has at the same path. Only the worktree side is walked:
- * something the source has and the worktree lacks loses nothing. Rebuildable
- * folders inside are skipped, as they would be at the top level. Past the
- * budget the answer is "not the same", which keeps the worktree.
+ * something the source has and the worktree lacks loses nothing. Everything
+ * inside is compared, whatever its folder is called. Past the budget the
+ * answer is "not the same", which keeps the worktree.
  */
 async function sameAsSource(
   sourceRoot: string,
@@ -230,7 +232,10 @@ async function sameAsSource(
     if (info.isDirectory()) {
       if (!sourceInfo.isDirectory()) return false
       for (const name of await readdir(target)) {
-        if (REBUILDABLE_DIRS.has(name) || DISPOSABLE_FILES.has(name)) continue
+        // Only `.DS_Store`-style litter is skipped. A folder named `build` or
+        // `node_modules` inside a copied folder is part of the copy, and an
+        // edit in it is as much an edit as any other.
+        if (DISPOSABLE_FILES.has(name)) continue
         if (!(await walk(join(source, name), join(target, name)))) return false
       }
       return true
@@ -280,7 +285,15 @@ export async function ignoredPathsAtRisk(
   worktreePath: string,
   runGit: RunGit,
 ): Promise<{ ok: true; paths: string[] } | { ok: false; message: string }> {
-  const status = await runGit(worktreePath, ['status', '--ignored=matching', '--porcelain=v1', '-z'])
+  // `--untracked-files=normal` explicitly: a `status.showUntrackedFiles=no` in
+  // the person's config makes git refuse `--ignored=matching` outright.
+  const status = await runGit(worktreePath, [
+    'status',
+    '--ignored=matching',
+    '--untracked-files=normal',
+    '--porcelain=v1',
+    '-z',
+  ])
   if (!status.ok) return { ok: false, message: status.message ?? 'git status --ignored failed' }
   const ignored = status.stdout
     .split('\0')

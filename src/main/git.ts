@@ -528,6 +528,34 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
   return toWorktreeResult(result, result)
 }
 
+/**
+ * Lift an agent in-use lock from a worktree, at a person's request. For a lock
+ * nothing will lift by itself: another profile's (one since deleted, or whose
+ * user-data folder moved), or one placed before a profile was named. A lock a
+ * person placed by hand is not the app's to lift, and is refused.
+ */
+export async function unlockAgentGitWorktree(
+  repoRoot: string,
+  worktreePath: string,
+): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(repoRoot)
+  if (!root.ok) return root
+  const listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (!listed.ok) return listed
+  const worktree = listed.data.worktrees.find(
+    (candidate) => normalizeComparablePath(candidate.path) === normalizeComparablePath(worktreePath),
+  )
+  if (!worktree?.locked) return { ok: false, message: `Worktree is not locked: ${worktreePath}` }
+  if (!worktree.agentLock) {
+    return {
+      ok: false,
+      message: 'This lock was not placed by SprintEngine Studio. Unlock it with git worktree unlock.',
+    }
+  }
+  const result = await unlockWorktree(root.data, worktree.path)
+  return toWorktreeResult(result, result)
+}
+
 export async function getGitFileBase(repoRoot: string, filePath: string): Promise<GitFileBaseResult> {
   const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath)
   if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {

@@ -447,6 +447,29 @@ export default function WorktreeManager({
     })
   }
 
+  // Another profile's agent lock is lifted only here, on a person's word: that
+  // profile may be running an agent in it right now, or may be long gone.
+  const handleUnlockAgentLock = async (row: WorktreeRow) => {
+    const confirmed = await dialog.confirm({
+      title: 'Release the agent lock?',
+      body: (
+        <>
+          Worktree <span className="font-mono">{branchLabel(row)}</span> is locked by an agent in another SprintEngine
+          Studio profile. Release it only if that profile no longer uses it: once released, this profile may remove it.
+        </>
+      ),
+      confirmLabel: 'Release lock',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runWorktreeAction('Releasing agent lock', async () => {
+      const result = await window.api.unlockAgentGitWorktree(repoRoot, row.path)
+      setMessage(messageFromResult(result, 'Released the agent lock.'))
+      if (!result.ok) return
+      await refreshWorktrees()
+    })
+  }
+
   // The same sweep the app runs unattended (useAgentWorktreeCleanup), run now.
   const handleCleanup = async () => {
     await runWorktreeAction('Cleaning up merged agent worktrees', async () => {
@@ -681,6 +704,16 @@ export default function WorktreeManager({
                             disabled: formDisabled || !canUsePath,
                           },
                           { kind: 'separator', id: 'sep' },
+                          ...(row.listedEntry?.agentLock === 'other-profile'
+                            ? [
+                                {
+                                  id: 'unlock',
+                                  label: 'Release agent lock…',
+                                  onSelect: () => void handleUnlockAgentLock(row),
+                                  disabled: formDisabled,
+                                },
+                              ]
+                            : []),
                           {
                             id: 'remove',
                             label: 'Remove worktree',

@@ -18,7 +18,9 @@ import { agentWorktreeCleanupPlan, entriesRemovedBy } from '../utils/agentWorktr
 // protected path matches however it is spelled (symlinks resolved, case folded
 // on macOS and Windows); and ignored files that may be work (an edited `.env`,
 // notes in an ignored folder) and edits hidden with `--skip-worktree` or
-// `--assume-unchanged` keep a worktree (agent-worktree-cleanup.ts). Set this to
+// `--assume-unchanged` keep a worktree (agent-worktree-cleanup.ts). Unattended,
+// it takes only worktrees this profile locked (`ownedOnly`): an unlocked one may
+// belong to another profile on an older build. Set this to
 // false to leave the Worktree manager's "Clean up merged agent worktrees"
 // action, which a person runs and reads the report of, as the only way in.
 const UNATTENDED_SWEEPS_ENABLED = true
@@ -42,7 +44,7 @@ export async function sweepAgentWorktrees(): Promise<void> {
       // repositories can take a while, and a worktree created during it must be
       // protected by the records as they are when its repository is listed.
       const { protectedPaths } = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
-      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths })
+      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths, ownedOnly: true })
       // Re-read the store: it may have moved while main was working.
       const store = useWorkspaceStore.getState()
       for (const [workspaceId, entryId] of entriesRemovedBy(store.workspaces, report)) {

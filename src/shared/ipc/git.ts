@@ -317,7 +317,8 @@ export type GitCheckoutChange = {
  * Why the cleanup kept an agent worktree, or that it removed it. `recent`: git
  * touched it within the last hour; `ignored-files`: ignored files that are not
  * rebuildable output or unchanged copies; `hidden-edits`: tracked files hidden
- * from `git status` by `--assume-unchanged` or `--skip-worktree`.
+ * from `git status` by `--assume-unchanged` or `--skip-worktree`;
+ * `not-owned`: an unattended sweep met a worktree this profile never locked.
  */
 export type AgentWorktreeCleanupVerdict =
   | 'removed'
@@ -329,6 +330,7 @@ export type AgentWorktreeCleanupVerdict =
   | 'recent'
   | 'ignored-files'
   | 'hidden-edits'
+  | 'not-owned'
   | 'no-default-branch'
   | 'error'
 
@@ -349,6 +351,12 @@ export type AgentWorktreeCleanupInput = {
   protectedPaths: string[]
   /** Report what would happen without removing anything. */
   dryRun?: boolean
+  /**
+   * Take only worktrees this profile locked and has since released. The
+   * unattended sweep sets it; a person's cleanup from the Worktree manager,
+   * whose report they read, does not.
+   */
+  ownedOnly?: boolean
 }
 
 export type AgentWorktreeCleanupReport = {

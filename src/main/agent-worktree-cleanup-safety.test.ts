@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, appendFile, cp, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, test } from 'vitest'
 
 import { cleanupAgentWorktrees, type AgentWorktreeCleanupDeps } from './agent-worktree-cleanup'
 import { agentWorktreeLockReason, setAgentWorktreeLockProfile } from './agent-worktree-lock'
-import { createGitWorktree, pruneGitWorktrees, removeGitWorktree } from './git'
+import { createGitWorktree, pruneGitWorktrees, removeGitWorktree, unlockAgentGitWorktree } from './git'
 import { runGitCommand } from './git-run'
 import { listGitWorktrees } from './git-worktree-list'
 
@@ -188,6 +188,94 @@ test('ignored files that may be work keep the worktree; rebuildable ones and unc
     assert.ok(await exists(kept), `${kept} is kept`)
   }
   assert.equal(await exists(join(notes, 'scratch', 'plan.md')), true)
+})
+
+test('an ignored file inside a source folder named like build output keeps the worktree', async () => {
+  // A tracked build/ (entitlements beside a signing key) and a nested
+  // ignored folder under it: neither is build output, whatever the name.
+  await appendFile(join(repo, '.git', 'info', 'exclude'), '*.p12\nsecrets/\n')
+  const signing = await addWorktree('signing')
+  await mkdir(join(signing, 'build', 'secrets'), { recursive: true })
+  await writeFile(join(signing, 'build', 'dev.p12'), 'key\n')
+  await writeFile(join(signing, 'build', 'secrets', 'prod.key'), 'key\n')
+  const entry = await verdictOf(signing)
+  assert.equal(entry?.verdict, 'ignored-files')
+  assert.equal(entry?.changedPaths, 2)
+
+  // A package's own ignored dist/, reported as a whole folder, is still output.
+  const packageDist = await addWorktree('package-dist')
+  await mkdir(join(packageDist, 'packages', 'ui', 'dist'), { recursive: true })
+  await writeFile(join(packageDist, 'packages', 'ui', 'dist', 'index.js'), 'built\n')
+  assert.equal((await verdictOf(packageDist))?.verdict, 'removed')
+})
+
+test('an edit anywhere inside a copied .worktreeinclude folder keeps the worktree', async () => {
+  await writeFile(join(repo, '.worktreeinclude'), '.env\nlocal-config\n')
+  await appendFile(join(repo, '.git', 'info', 'exclude'), 'local-config/\n')
+  await mkdir(join(repo, 'local-config', 'build'), { recursive: true })
+  await writeFile(join(repo, 'local-config', 'build', 'key.json'), '{"k":1}\n')
+  try {
+    const unchanged = await addWorktree('include-unchanged')
+    await cp(join(repo, 'local-config'), join(unchanged, 'local-config'), { recursive: true })
+    assert.equal((await verdictOf(unchanged))?.verdict, 'removed')
+
+    const edited = await addWorktree('include-edited')
+    await cp(join(repo, 'local-config'), join(edited, 'local-config'), { recursive: true })
+    await writeFile(join(edited, 'local-config', 'build', 'key.json'), '{"k":2}\n')
+    assert.equal((await verdictOf(edited))?.verdict, 'ignored-files')
+  } finally {
+    await writeFile(join(repo, '.worktreeinclude'), '.env\n')
+  }
+})
+
+test('status.showUntrackedFiles=no in the person’s config does not stop the ignored-file check', async () => {
+  const quietStatus = await addWorktree('quiet-status')
+  await git(repo, 'config', 'status.showUntrackedFiles', 'no')
+  try {
+    assert.equal((await verdictOf(quietStatus))?.verdict, 'removed')
+  } finally {
+    await git(repo, 'config', '--unset', 'status.showUntrackedFiles')
+  }
+})
+
+test('unattended, only a worktree this profile locked is taken; one it uses unlocked is locked', async () => {
+  setAgentWorktreeLockProfile('/Users/dev/profile-a')
+  const unlocked = await addWorktree('legacy-unlocked')
+  const owned = await addWorktree('owned')
+  await git(repo, 'worktree', 'lock', '--reason', agentWorktreeLockReason('agent-o'), owned)
+  const inUse = await addWorktree('legacy-in-use')
+
+  const report = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [inUse], ownedOnly: true }, quiet)
+  const byPath = new Map(report.entries.map((entry) => [entry.path, entry.verdict]))
+  assert.equal(byPath.get(unlocked), 'not-owned', 'maybe an older build in another profile: left to a person')
+  assert.ok(await exists(unlocked))
+  assert.equal(byPath.get(owned), 'removed')
+  assert.equal(byPath.get(inUse), 'in-use')
+  const listed = await listGitWorktrees(repo)
+  const adopted = listed.ok ? listed.data.worktrees.find((worktree) => worktree.path === inUse) : undefined
+  assert.equal(adopted?.agentLock, 'this-profile', 'a worktree this profile uses is locked for it')
+
+  // The Worktree manager's own cleanup still judges the unlocked one.
+  const manual = await cleanupAgentWorktrees({ repoRoot: repo, protectedPaths: [inUse] }, quiet)
+  assert.equal(manual.entries.find((entry) => entry.path === unlocked)?.verdict, 'removed')
+})
+
+test('a person can release another profile’s agent lock, never a lock placed by hand', async () => {
+  setAgentWorktreeLockProfile('/Users/dev/profile-b')
+  const orphaned = await addWorktree('orphaned-lock')
+  await git(repo, 'worktree', 'lock', '--reason', agentWorktreeLockReason('agent-gone'), orphaned)
+  const byHand = await addWorktree('hand-lock')
+  await git(repo, 'worktree', 'lock', '--reason', 'keep this', byHand)
+  setAgentWorktreeLockProfile('/Users/dev/profile-a')
+
+  const released = await unlockAgentGitWorktree(repo, orphaned)
+  assert.ok(released.ok, released.ok ? '' : released.message)
+  const refused = await unlockAgentGitWorktree(repo, byHand)
+  assert.equal(refused.ok, false)
+  const listed = await listGitWorktrees(repo)
+  assert.ok(listed.ok)
+  assert.equal(listed.data.worktrees.find((worktree) => worktree.path === orphaned)?.locked, false)
+  assert.equal(listed.data.worktrees.find((worktree) => worktree.path === byHand)?.lockedReason, 'keep this')
 })
 
 test('edits hidden by --skip-worktree or --assume-unchanged keep the worktree', async () => {

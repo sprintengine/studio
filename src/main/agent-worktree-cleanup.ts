@@ -8,7 +8,7 @@ import type { GitCommandResult, GitWorktreeEntry } from './git'
 import { normalizeComparablePath, pathExists, runGitCommand } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import { resolveRepoRoot } from './git-worktree-validation'
-import { relockWorktree } from './agent-worktree-lock'
+import { lockAgentWorktree, relockWorktree } from './agent-worktree-lock'
 import {
   adminDirWrittenAt,
   hiddenEditPaths,
@@ -45,7 +45,11 @@ import {
  *    and listing the repository. A lock this profile placed is released here
  *    once the path is no longer protected (it is unlocked right before the
  *    removal, and locked again if the removal does not go through). Another
- *    profile's lock, or one a person placed, keeps the worktree.
+ *    profile's lock, or one a person placed, keeps the worktree. An unattended
+ *    sweep (`ownedOnly`) goes further and takes nothing this profile did not
+ *    lock: an unlocked agent worktree may belong to another profile on an
+ *    older build, so only a person's cleanup from the Worktree manager decides
+ *    on it. One this profile uses and finds unlocked, it locks.
  * 4. **It is registered and present.** A missing or prunable one is reported
  *    and left for `worktree prune`, which the person runs.
  * 5. **Git has not touched it for an hour.** Its admin directory
@@ -210,6 +214,12 @@ export async function cleanupAgentWorktrees(
     // workspace opened on a parent folder) does not use it.
     const worktreeSpellings = await pathSpellings(worktree.path)
     if (protectedSpellings.some((spellings) => insideAny(spellings, worktreeSpellings))) {
+      // A worktree this profile uses that carries no lock (made before
+      // creation locked them, or its lock failed) is locked now, so that it is
+      // protected from other profiles and can be released like any other.
+      if (!worktree.locked && !dryRun) {
+        await lockAgentWorktree(root, worktree.path, worktree.branch ?? 'adopted', runGit)
+      }
       record({ ...base, verdict: 'in-use' })
       continue
     }
@@ -218,6 +228,14 @@ export async function cleanupAgentWorktrees(
     const ownLock = worktree.locked && worktree.agentLock === 'this-profile'
     if (worktree.locked && !ownLock) {
       record({ ...base, verdict: 'locked', detail: worktree.lockedReason ?? undefined })
+      continue
+    }
+    // Unattended, only a worktree this profile locked and released is taken.
+    // An unlocked one may belong to another profile running an older build, or
+    // to anything outside the app, and nothing on disk says which: it is left
+    // for a person to judge from the Worktree manager's cleanup report.
+    if (input.ownedOnly === true && !ownLock) {
+      record({ ...base, verdict: 'not-owned', detail: 'not locked by this profile; left to a manual cleanup' })
       continue
     }
     if (worktree.prunable || !(await exists(worktree.path))) {
@@ -323,7 +341,7 @@ export function cleanupAgentWorktreesOnce(
   input: AgentWorktreeCleanupInput,
   deps: AgentWorktreeCleanupDeps = {},
 ): Promise<AgentWorktreeCleanupReport> {
-  const key = `${normalizeComparablePath(input.repoRoot)}\0${input.dryRun === true}`
+  const key = `${normalizeComparablePath(input.repoRoot)}\0${input.dryRun === true}\0${input.ownedOnly === true}`
   const existing = inFlight.get(key)
   if (existing) return existing
   const run = cleanupAgentWorktrees(input, deps).finally(() => inFlight.delete(key))

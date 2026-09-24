@@ -56,6 +56,7 @@ import {
   pullGitBranchWithStash,
   pruneGitWorktrees,
   removeGitWorktree,
+  unlockAgentGitWorktree,
   resolveGitConflict,
   pushGitBranch,
   revertGitPaths,
@@ -399,6 +400,13 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
     return pruneGitWorktrees(repoRoot)
   })
 
+  ipcMain.handle('git:worktree:unlock-agent', async (_, repoRoot: string, worktreePath: string) => {
+    if (typeof repoRoot !== 'string' || typeof worktreePath !== 'string') {
+      return { ok: false, message: 'A repository and a worktree path are required.' }
+    }
+    return unlockAgentGitWorktree(repoRoot, worktreePath)
+  })
+
   // Agent worktree cleanup (agent-worktree-cleanup.ts): the renderer names the
   // paths its records still use; main adds every live terminal's directory.
   ipcMain.handle('git:worktree:cleanup-agents', async (_, input: AgentWorktreeCleanupInput) => {
@@ -414,7 +422,12 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
       { repoRoot: input.repoRoot, dryRun: input.dryRun === true },
       () =>
         cleanupAgentWorktreesOnce(
-          { repoRoot: input.repoRoot, protectedPaths, dryRun: input.dryRun === true },
+          {
+            repoRoot: input.repoRoot,
+            protectedPaths,
+            dryRun: input.dryRun === true,
+            ownedOnly: input.ownedOnly === true,
+          },
           { livePaths: paths.livePaths },
         ),
     )
