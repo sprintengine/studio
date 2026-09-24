@@ -22,15 +22,6 @@ export type {
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
-import type {
-  WorktreePoolActionInput,
-  WorktreePoolActionResult,
-  WorktreePoolLeaseInput,
-  WorktreePoolLeaseOwner,
-  WorktreePoolLeaseResult,
-  WorktreePoolSettings,
-  WorktreePoolSnapshot,
-} from './ipc/worktree-pool'
 export type { BuildStamp } from './build-stamp'
 import type {
   InstalledSkillsInput,
@@ -426,7 +417,6 @@ export type * from './ipc/agent-config'
 export type * from './ipc/skills'
 export type * from './ipc/terminal'
 export type * from './ipc/git'
-export type * from './ipc/worktree-pool'
 export type * from './ipc/diagnostics'
 export type * from './ipc/window'
 export type * from './ipc/account'
@@ -1054,21 +1044,6 @@ export type ElectronApi = {
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
-  /**
-   * The pool of warm agent worktrees (main's worktree-pool). A lease hands out
-   * a warm slot on `agent/<slug>` in a few git calls, or declines with a reason,
-   * and the caller then creates a worktree the old way.
-   */
-  leasePoolWorktree: (input: WorktreePoolLeaseInput) => Promise<WorktreePoolLeaseResult>
-  /** Name the owner of a lease taken before the owner existed. */
-  bindPoolWorktree: (leaseId: string, owner: WorktreePoolLeaseOwner) => Promise<boolean>
-  /** Hand a lease back (its launch failed). Work left in it is held, never reset. */
-  releasePoolWorktree: (leaseId: string) => Promise<boolean>
-  worktreePoolAction: (input: WorktreePoolActionInput) => Promise<WorktreePoolActionResult>
-  getWorktreePoolSnapshot: (repoRoot: string) => Promise<WorktreePoolSnapshot | null>
-  onWorktreePoolChanged: (cb: (snapshot: WorktreePoolSnapshot) => void) => () => void
-  getWorktreePoolSettings: () => Promise<WorktreePoolSettings>
-  setWorktreePoolSettings: (patch: Partial<WorktreePoolSettings>) => Promise<WorktreePoolSettings>
   /**
    * This repository's changelists, pruned against `git status` before they are
    * answered (git-commit-window T6). Every call below answers with the whole
