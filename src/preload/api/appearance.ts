@@ -3,7 +3,7 @@ import type { ColorScheme, ElectronApi, WindowMaterial } from '../../shared/elec
 
 type AppearanceIpcRenderer = {
   invoke(channel: 'appearance:set-color-scheme', scheme: ColorScheme): Promise<void>
-  invoke(channel: 'appearance:set-window-material', material: WindowMaterial): Promise<void>
+  invoke(channel: 'appearance:set-window-material', material: WindowMaterial, canvasColor?: string): Promise<void>
   invoke(channel: 'app:set-background-mode', enabled: boolean): Promise<void>
   invoke(channel: 'app:set-telemetry-enabled', enabled: boolean): Promise<void>
 }
@@ -11,8 +11,8 @@ type AppearanceIpcRenderer = {
 function createAppearanceApi(renderer: AppearanceIpcRenderer) {
   return {
     setColorScheme: (scheme: ColorScheme): Promise<void> => renderer.invoke('appearance:set-color-scheme', scheme),
-    setWindowMaterial: (material: WindowMaterial): Promise<void> =>
-      renderer.invoke('appearance:set-window-material', material),
+    setWindowMaterial: (material: WindowMaterial, canvasColor?: string): Promise<void> =>
+      renderer.invoke('appearance:set-window-material', material, canvasColor),
     // Not an appearance setting, but the same one-way push contract: the
     // renderer owns the preference, main keeps a copy it can read with no
     // window open.

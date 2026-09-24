@@ -269,7 +269,7 @@ async function installComponent(
   try {
     switch (component.kind) {
       case 'mcp':
-        return installMcpComponent(component, input, services.mcpConfigService, installed)
+        return await installMcpComponent(component, input, services.mcpConfigService, installed)
       case 'skills':
         return await installSkillComponent(component, input, installed)
       case 'module':
@@ -292,14 +292,15 @@ async function installComponent(
   }
 }
 
-function installMcpComponent(
+async function installMcpComponent(
   component: Extract<ResolvedComponent, { kind: 'mcp' }>,
   input: MarketplacePluginInstallInput,
   service: McpConfigService,
   installed: MarketplacePluginInstalledComponent[],
-):
+): Promise<
   | { ok: true; installed: MarketplacePluginInstalledComponent; mcpSettings: McpSettings }
-  | { ok: false; result: MarketplacePluginInstallResult } {
+  | { ok: false; result: MarketplacePluginInstallResult }
+> {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) {
     return componentFailure('mcp', 'Workspace root is required to install MCP components.', installed)
@@ -317,7 +318,7 @@ function installMcpComponent(
       ? input.mcpClients
       : (component.servers.flatMap((server) => server.clients) as McpClientTarget[]),
   )
-  const result = service.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
+  const result = await service.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
   if (!result.ok) {
     return componentFailure('mcp', result.message, installed, mcpIssuesToMarketplaceIssues(result.issues))
   }

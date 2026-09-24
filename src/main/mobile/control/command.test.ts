@@ -1031,7 +1031,9 @@ test('command', async () => {
     })
 
     try {
-      await import('../../index')
+      // The app proper, which is what registers the IPC handlers; the entry
+      // (index.ts) only takes the single-instance lock and loads it.
+      await import('../../app-main')
     } finally {
       restoreModules()
     }

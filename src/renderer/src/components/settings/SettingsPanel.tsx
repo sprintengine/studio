@@ -6,6 +6,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
+import { effectiveWindowMaterial, type WindowMaterial } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
@@ -873,6 +874,7 @@ export default function SettingsPanel({
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const appearanceWindowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
+  const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
@@ -1459,22 +1461,31 @@ export default function SettingsPanel({
                   onChange={setChatListView}
                 />
               </SettingsRow>
-              {window.api.platform === 'darwin' ? (
-                <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">
-                  {/* A value choice, so the kit's segmented control: one tab stop,
-                      arrow keys, and a neutral selected segment — not an
-                      aria-pressed pair painted with the accent. */}
-                  <SegmentedControl<'solid' | 'glass'>
-                    ariaLabel="Window material"
-                    items={[
-                      { value: 'solid', label: 'Solid' },
-                      { value: 'glass', label: 'Glass' },
-                    ]}
-                    value={appearanceWindowMaterial}
-                    onChange={setAppearanceWindowMaterial}
-                  />
-                </SettingsRow>
-              ) : null}
+              <SettingsRow
+                label="Window material"
+                help={
+                  isMac
+                    ? 'Glass frosts the sidebar and title bar. Tinted paints them with a soft glow of the accent.'
+                    : 'Tinted paints the sidebar and title bar with a soft glow of the accent.'
+                }
+              >
+                {/* A value choice, so the kit's segmented control: one tab stop,
+                    arrow keys, and a neutral selected segment — not an
+                    aria-pressed pair painted with the accent. Glass needs the
+                    OS's vibrancy, so it is offered on macOS only, and the value
+                    shown is the material the window actually wears (a stored
+                    glass reads as tinted elsewhere). */}
+                <SegmentedControl<WindowMaterial>
+                  ariaLabel="Window material"
+                  items={[
+                    ...(isMac ? [{ value: 'glass' as const, label: 'Glass' }] : []),
+                    { value: 'tinted', label: 'Tinted' },
+                    { value: 'solid', label: 'Solid' },
+                  ]}
+                  value={effectiveWindowMaterial(appearanceWindowMaterial, window.api.platform)}
+                  onChange={setAppearanceWindowMaterial}
+                />
+              </SettingsRow>
             </SettingCard>
           </section>
         </div>
