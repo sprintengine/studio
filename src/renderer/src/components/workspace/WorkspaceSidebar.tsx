@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
-import { useSidebarGitSummaries } from './useSidebarGitSummaries'
+import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
@@ -344,6 +344,29 @@ function WorkspaceSidebar({
     return [...paths].map((path) => ({ id: path, checkoutPath: path }))
   }, [liveWorkspaces, sessionsByWorkspaceId])
   const gitSummaries = useSidebarGitSummaries(gitSummaryEntries)
+  // Each row's own slice of those summaries: the checkouts its sessions sit
+  // on, which is all its lines read. A slice keeps its identity while what it
+  // draws is unchanged, so a sweep that moved one checkout's numbers
+  // re-renders the rows on that checkout and not every row in the list.
+  const rowGitSummariesRef = useRef(new Map<WorkspaceId, RowGitSummaries>())
+  const rowGitSummaries = useMemo(() => {
+    const previous = rowGitSummariesRef.current
+    const next = new Map<WorkspaceId, RowGitSummaries>()
+    for (const workspace of workspaces) {
+      const sessions = sessionsByWorkspaceId.get(workspace.id)
+      if (!sessions?.length) continue
+      const slice: RowGitSummaries = {}
+      for (const path of checkoutPathsOf(workspace, sessions)) {
+        const summary = gitSummaries[path]
+        if (summary) slice[path] = summary
+      }
+      if (Object.keys(slice).length === 0) continue
+      const prior = previous.get(workspace.id)
+      next.set(workspace.id, prior && summariesEqual(prior, slice) ? prior : slice)
+    }
+    rowGitSummariesRef.current = next
+    return next
+  }, [workspaces, sessionsByWorkspaceId, gitSummaries])
   // The unseen-completion mark (the green row, `doneRowClass`). Session-only: the
   // store's recency slice persists when a workspace was last TYPED into, not
   // when it was last looked at, so "seen" has no honest home there yet and a
@@ -1586,6 +1609,18 @@ function WorkspaceSidebar({
   // another, or a tick of the sidebar's clock re-renders the rows it touches
   // and not the whole list. The handlers ride one object that never changes
   // identity (`rowHandlers`).
+  //
+  // The flat stream's options carry a project line built afresh on every
+  // render. A row keeps the options object it was last handed while what it
+  // says is the same, so an equal copy is not a new prop.
+  const rowOptionsRef = useRef(new Map<string, WorkspaceRowOptions>())
+  const stableRowOptions = (rowKey: string, options: WorkspaceRowOptions | undefined) => {
+    if (!options?.flatProject) return options
+    const prior = rowOptionsRef.current.get(rowKey)
+    if (prior && rowOptionsEqual(prior, options)) return prior
+    rowOptionsRef.current.set(rowKey, options)
+    return options
+  }
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: WorkspaceRowOptions) => {
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
     return (
@@ -1593,7 +1628,7 @@ function WorkspaceSidebar({
         key={rowKey}
         workspace={workspace}
         fKey={fKey}
-        options={options}
+        options={stableRowOptions(rowKey, options)}
         // When a door-routed full-page surface owns the card region (epic
         // 1704), no workspace row is "current" — the door row carries the
         // selection, so a highlighted project row here would be a second,
@@ -1611,7 +1646,7 @@ function WorkspaceSidebar({
         rowConversation={remoteConversationByWorkspace.get(workspace.id) ?? null}
         liveSessions={sessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
         peekSessions={peekSessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
-        gitSummaries={gitSummaries}
+        gitSummaries={rowGitSummaries.get(workspace.id) ?? NO_GIT_SUMMARIES}
         rowConversationPullRequests={conversationPullRequests[workspace.id]}
         moduleOverrides={moduleOverrides}
         isRovingTarget={rovingKey === rowKey}
@@ -1777,7 +1812,7 @@ function WorkspaceSidebar({
               hidden={!snoozeExpanded}
             >
               {snoozeExpanded
-                ? snoozedRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { snoozed: true }))
+                ? snoozedRows.map((workspace) => renderWorkspaceRow(workspace, group.key, SNOOZED_ROW))
                 : null}
             </div>
           </>
@@ -1798,7 +1833,7 @@ function WorkspaceSidebar({
               hidden={!settledExpanded}
             >
               {settledExpanded
-                ? settledRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { settled: true }))
+                ? settledRows.map((workspace) => renderWorkspaceRow(workspace, group.key, SETTLED_ROW))
                 : null}
             </div>
           </>
@@ -2324,9 +2359,7 @@ function WorkspaceSidebar({
               </RowButton>
               <div id="ws-starred-body" hidden={starredCollapsed}>
                 {!starredCollapsed
-                  ? starredWorkspaces.map((workspace) =>
-                      renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' }),
-                    )
+                  ? starredWorkspaces.map((workspace) => renderWorkspaceRow(workspace, keyOf(workspace), STARRED_ROW))
                   : null}
               </div>
             </section>
@@ -2634,6 +2667,34 @@ type WorkspaceRowOptions = {
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
 
+// A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar
+// render was a new prop for a memoized row, which re-rendered it every time.
+const SNOOZED_ROW: WorkspaceRowOptions = { snoozed: true }
+const SETTLED_ROW: WorkspaceRowOptions = { settled: true }
+const STARRED_ROW: WorkspaceRowOptions = { keyPrefix: 'starred-' }
+
+function rowOptionsEqual(left: WorkspaceRowOptions, right: WorkspaceRowOptions): boolean {
+  const a = left.flatProject
+  const b = right.flatProject
+  return (
+    left.keyPrefix === right.keyPrefix &&
+    left.remoteMachine === right.remoteMachine &&
+    left.settled === right.settled &&
+    left.snoozed === right.snoozed &&
+    (a === b ||
+      (a !== undefined &&
+        b !== undefined &&
+        a.name === b.name &&
+        a.folderPath === b.folderPath &&
+        a.color === b.color &&
+        a.unfiled === b.unfiled &&
+        a.openPullRequests === b.openPullRequests))
+  )
+}
+
+type RowGitSummaries = ReturnType<typeof useSidebarGitSummaries>
+const NO_GIT_SUMMARIES: RowGitSummaries = {}
+
 /** What a row does, held in one object whose identity never changes. */
 type WorkspaceRowHandlers = {
   setContextMenu: (menu: { workspaceId: WorkspaceId; x: number; y: number } | null) => void
@@ -2678,7 +2739,8 @@ type WorkspaceRowProps = {
   rowConversation: RemoteConversation | null
   liveSessions: TerminalSessionSnapshot[]
   peekSessions: TerminalSessionSnapshot[]
-  gitSummaries: ReturnType<typeof useSidebarGitSummaries>
+  /** Only this row's checkouts, so a sweep that moved another row's numbers leaves this one alone. */
+  gitSummaries: RowGitSummaries
   rowConversationPullRequests: ConversationPullRequests[string] | undefined
   moduleOverrides: ReturnType<typeof useWorkspaceStore.getState>['appSettings']['modules']
   isRovingTarget: boolean
