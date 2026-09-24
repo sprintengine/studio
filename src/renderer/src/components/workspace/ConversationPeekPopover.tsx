@@ -79,7 +79,7 @@ export function ConversationPeekPopover({
   // off `identities[0]` each render: that list is sorted by last activity, so a
   // SIBLING agent producing output re-sorts it and the open card silently
   // becomes a different agent's — under a pointer that has not moved, and with
-  // a fresh transcript read behind it. The list is still the source of the
+  // a fresh read behind it. The list is still the source of the
   // choice; it is only the moment of choosing that is pinned.
   const [openedOn, setOpenedOn] = useState<string | null>(null)
   // Read through a ref so the reveal handlers below can capture the CURRENT
@@ -220,7 +220,7 @@ export function ConversationPeekPopover({
           surfaceClassName="conversation-peek-surface w-[340px]"
         >
           {/* The card keeps itself open while the pointer rests on it — that is
-              what makes the copy button and the attachment chips reachable
+              what makes the copy button and the file links reachable
               across the gap from the row. */}
           <div ref={cardRef} onMouseEnter={keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
@@ -231,7 +231,6 @@ export function ConversationPeekPopover({
                 now={now}
                 copied={copied}
                 onCopySession={copy}
-                onOpenAttachment={hover.openAttachment}
                 onOpenDiff={onOpenDiff}
               />
             </React.Suspense>

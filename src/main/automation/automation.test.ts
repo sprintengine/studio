@@ -238,7 +238,14 @@ test('automation', async () => {
         resolveBridgeScriptPath: () => BRIDGE_SCRIPT,
         resolveGatewayTools: () => [],
       })
-      const started = await service.initialize()
+      // Nothing to wait for in a host that never starts the gateway.
+      await service.whenGatewayReady()
+      // Boot starts the gateway without awaiting it; a launch waits on
+      // `whenGatewayReady`, and by then the socket is listening.
+      const initializing = service.initialize()
+      await service.whenGatewayReady()
+      assert.equal(service.getStatus().running, true, 'the gateway is listening once a launch may proceed')
+      const started = await initializing
       assert.equal(started.enabled, true)
       assert.equal(started.running, true)
       assert.equal(existsSync(join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)), true)
@@ -2713,6 +2720,7 @@ test('automation', async () => {
           },
         })
       }
+      await store.flush()
       const path = join(dir, STUDIO_GATEWAY_AUDIT_FILENAME)
       assert.equal(existsSync(path), true)
       assert.equal(existsSync(`${path}.1`), true, 'bounded log rotates before unbounded growth')

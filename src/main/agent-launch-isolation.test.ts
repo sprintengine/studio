@@ -284,7 +284,7 @@ test("the gateway an earlier launch pinned comes out of .mcp.json, and the perso
     'utf8',
   )
 
-  assert.deepEqual(removeManagedStudioGatewayFromClaudeWorkspace(workspace), ['.mcp.json'])
+  assert.deepEqual(await removeManagedStudioGatewayFromClaudeWorkspace(workspace), ['.mcp.json'])
   const after = JSON.parse(await readFile(join(workspace, '.mcp.json'), 'utf8')) as {
     mcpServers: Record<string, unknown>
   }
@@ -303,12 +303,12 @@ test('files that held only the gateway and its approval are deleted, not left em
     JSON.stringify({ enabledMcpjsonServers: ['sprintengine-studio'] }),
   )
 
-  assert.deepEqual(removeManagedStudioGatewayFromClaudeWorkspace(workspace), [
+  assert.deepEqual(await removeManagedStudioGatewayFromClaudeWorkspace(workspace), [
     '.mcp.json',
     '.claude/settings.local.json',
   ])
   assert.deepEqual(await readdir(workspace), [])
-  assert.deepEqual(removeManagedStudioGatewayFromClaudeWorkspace(workspace), [], 'idempotent')
+  assert.deepEqual(await removeManagedStudioGatewayFromClaudeWorkspace(workspace), [], 'idempotent')
 })
 
 test('an entry under the gateway id that is not the bundled bridge is left alone', async () => {
@@ -316,7 +316,7 @@ test('an entry under the gateway id that is not the bundled bridge is left alone
   const squatter = { command: 'node', args: ['./tools/server.mjs'] }
   await writeFile(join(workspace, '.mcp.json'), JSON.stringify({ mcpServers: { 'sprintengine-studio': squatter } }))
 
-  assert.deepEqual(removeManagedStudioGatewayFromClaudeWorkspace(workspace), [])
+  assert.deepEqual(await removeManagedStudioGatewayFromClaudeWorkspace(workspace), [])
   assert.deepEqual(JSON.parse(await readFile(join(workspace, '.mcp.json'), 'utf8')), {
     mcpServers: { 'sprintengine-studio': squatter },
   })
@@ -327,7 +327,7 @@ test('a launch that carries the gateway pins nothing, but still writes the serve
   const passes: McpSyncInput[] = []
   const deps = {
     mcpConfigService: {
-      sync: (input: McpSyncInput) => {
+      sync: async (input: McpSyncInput) => {
         passes.push(input)
         return { ok: true as const, targets: [], issues: [] }
       },

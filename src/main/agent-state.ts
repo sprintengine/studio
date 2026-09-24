@@ -8,7 +8,7 @@ import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/obser
 import { isRecord } from '../shared/records'
 import { parsePullRequestUrl } from '../shared/git/pr-url'
 import type { ChangelistEdit } from '../shared/git/changelists'
-import { resolveClaudeConfigDir } from './conversation-peek/locate'
+import { resolveClaudeConfigDir } from './claude-config-dir'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)

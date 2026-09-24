@@ -7,9 +7,9 @@ import { listFolderOpenTargetAvailability, resolveFolderOpenLauncherHere } from 
 // dead time instead of after it.
 //
 // Why running them early is not just cosmetic: `detectAgentCliAvailability`
-// caches per `(cli, command, useWsl)` for 60s, so the renderer's first
+// caches per `(cli, command, useWsl)`, so the renderer's first
 // `refreshCliAvailability` after hydration reads this pass's result instead of
-// spawning a second login shell per registered CLI. A CLI carrying a custom
+// probing every registered CLI a second time. A CLI carrying a custom
 // command override keys differently and does re-probe — correct, since a
 // different command has to actually be probed.
 type BootDiscoveryLegId = 'cli' | 'editors' | 'updates'
@@ -22,7 +22,8 @@ type Leg = {
 
 // Declaration order is DISPLAY order, not run order: the legs run concurrently,
 // and the status line names the first of these that has not resolved yet. The
-// CLI leg spawns a login shell per registered CLI and dominates the wall clock,
+// CLI leg asks a login shell for its PATH and runs every installed CLI's
+// `--version`, and dominates the wall clock,
 // so in practice this reads "Finding your agents…" for most of the boot — which
 // is the honest thing to say while that is what is happening.
 const LEGS: readonly Leg[] = [

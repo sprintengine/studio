@@ -92,6 +92,13 @@ type RegisterAppLifecycleOptions = {
   }
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
+  /**
+   * Opens the gate on the boot jobs nothing on screen needs (the plugin-home
+   * copy, the git probe, the first plugin install into open workspaces).
+   * Called once the main window reveals, so they never compete with the
+   * renderer's first load.
+   */
+  startDeferredBootJobs?: () => void
 }
 
 // How long after boot CLI detection settles the first model discovery pass
@@ -114,6 +121,7 @@ export function registerAppLifecycle({
   handleAuthCallback,
   backgroundMode,
   checkPluginSourceUpdates,
+  startDeferredBootJobs,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
@@ -151,13 +159,10 @@ export function registerAppLifecycle({
     backgroundPresence.onWindowOpened()
   }
 
+  // The single-instance lock itself is taken by the entry (index.ts), before any
+  // service is built, so a second launch exits without paying for the service
+  // graph. This process holds it, and hears every later launch here.
   if (!allowMultipleInstances) {
-    const singleInstanceLock = app.requestSingleInstanceLock()
-    if (!singleInstanceLock) {
-      app.quit()
-      return
-    }
-
     app.on('second-instance', (_, argv) => {
       // A hook or bridge script that reached the binary without
       // ELECTRON_RUN_AS_NODE is not a person asking for the app. Raising the
@@ -214,7 +219,18 @@ export function registerAppLifecycle({
 
     Menu.setApplicationMenu(createAppMenu())
     // Always-on: one local SprintEngine Studio MCP gateway per app instance.
-    await automationService?.initialize()
+    // Started here and NOT awaited: it runs alongside the renderer's load
+    // rather than in front of the plate. Every agent launch waits for it
+    // instead (`whenAgentLaunchReady` in app-services.ts), so no agent can start
+    // before the listener its MCP config points at exists.
+    void automationService?.initialize().catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Studio MCP gateway did not start',
+        message: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined)
+    })
 
     // The plate goes up BEFORE the main window is created: from here until the
     // reveal there is always something on screen. A nightly build opens on its
@@ -233,6 +249,7 @@ export function registerAppLifecycle({
         closeSplashWindow()
         revealMainWindow(mainWindow)
         markStartup('main.reveal')
+        startBootJobsAfterReveal()
       },
     })
     // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
@@ -316,28 +333,35 @@ export function registerAppLifecycle({
     })
     hostedFeedPoller.start()
 
-    // One-shot cleanup of the retired checkpoint machinery
-    // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
-    // awaited and deliberately after the window exists: it walks repos with
-    // `git update-ref -d`, and a cleanup that cannot finish must never be
-    // something a launch waits on. With no checkpoint index on disk it returns
-    // immediately, which is every machine that never ran those builds.
-    // MIGRATION — remove this call and src/main/checkpoint-sweep.ts one release
-    // after it ships (target: 2026-10).
-    void sweepRetiredCheckpoints(app.getPath('userData'))
-      .then((result) => {
-        if (result.refsDeleted > 0 || result.indexRemoved) {
-          void writeDiagnosticLog({
-            level: 'info',
-            source: 'workspace',
-            title: 'Retired checkpoint refs swept',
-            message: `Removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`,
-          }).catch(() => undefined)
-        }
-      })
-      .catch(() => {
-        // The index survives a failure, so the next launch tries again.
-      })
+    // Work that only has to happen at some point after launch, started once
+    // the window is on screen so none of it competes with the renderer's first
+    // load. The reveal fires once (a renderer that never signals is revealed by
+    // the boot-reveal timeout), so this runs once.
+    function startBootJobsAfterReveal(): void {
+      startDeferredBootJobs?.()
+      // One-shot cleanup of the retired checkpoint machinery
+      // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
+      // awaited and deliberately after the window exists: it walks repos with
+      // `git update-ref -d`, and a cleanup that cannot finish must never be
+      // something a launch waits on. With no checkpoint index on disk it returns
+      // immediately, which is every machine that never ran those builds.
+      // MIGRATION — remove this call and src/main/checkpoint-sweep.ts one release
+      // after it ships (target: 2026-10).
+      void sweepRetiredCheckpoints(app.getPath('userData'))
+        .then((result) => {
+          if (result.refsDeleted > 0 || result.indexRemoved) {
+            void writeDiagnosticLog({
+              level: 'info',
+              source: 'workspace',
+              title: 'Retired checkpoint refs swept',
+              message: `Removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`,
+            }).catch(() => undefined)
+          }
+        })
+        .catch(() => {
+          // The index survives a failure, so the next launch tries again.
+        })
+    }
 
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.
