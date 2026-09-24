@@ -17,8 +17,8 @@ import { test } from 'vitest'
 test('ConversationPeekCard', async () => {
   // QA for the conversation peek's card — the presentational half of the hover
   // surface both anchors share. What matters here is what the card SAYS: which of
-  // the four runtime shapes it is in, what it does with one message versus forty,
-  // that the files and the images are real controls, and that the things the
+  // the three runtime shapes it is in, what it does with one message versus forty,
+  // that the files are real controls, and that the things the
   // design cut (a footer, a keyboard hint, a message count, the agent list, the two
   // section headings) stayed cut.
   //
@@ -75,17 +75,15 @@ test('ConversationPeekCard', async () => {
     id: 'm1',
     text: 'Right now we store the first five or six words from the prompt as the title.',
     at: NOW - 3 * HOUR,
-    attachments: [],
     truncatedChars: 0,
     ...over,
   })
 
   const peek = (over: Partial<ConversationPeek> = {}): ConversationPeek => ({
     sessionId: AGENT.sessionId,
-    source: 'transcript',
+    source: 'live',
     first: message(),
     since: [],
-    images: [],
     ...over,
   })
 
@@ -96,7 +94,6 @@ test('ConversationPeekCard', async () => {
       peek?: ConversationPeek | null
       loading?: boolean
       copied?: boolean
-      onOpenAttachment?: ((attachmentId: string) => void) | undefined
       onOpenDiff?: ((path: string | null) => void) | undefined
     } = {},
   ): string {
@@ -112,7 +109,6 @@ test('ConversationPeekCard', async () => {
         now={NOW}
         copied={over.copied ?? false}
         onCopySession={() => {}}
-        onOpenAttachment={'onOpenAttachment' in over ? over.onOpenAttachment : () => {}}
         onOpenDiff={'onOpenDiff' in over ? over.onOpenDiff : () => {}}
       />,
     )
@@ -365,40 +361,6 @@ test('ConversationPeekCard', async () => {
     assert.deepEqual(splitChangedPath('thing.ts'), { name: 'thing.ts', folder: '' })
   })
 
-  // --- Every image in the chat, in one strip (mockup frame 3) ----------------
-  const image = (index: number) => ({
-    kind: 'image' as const,
-    id: `img${index}`,
-    label: `shot-${index}.png`,
-    thumbnailDataUrl: 'data:image/png;base64,AA',
-  })
-
-  run('the strip draws every image the conversation carries, whichever message it came from', () => {
-    const markup = card({ peek: peek({ images: [image(0), image(1), image(2)] }) })
-    assert.match(markup, /aria-label="Images in this conversation"/, 'named as a group')
-    assert.match(markup, /<button[^>]*aria-label="Open shot-0\.png"/, 'a real control with a real name')
-    assert.match(markup, /<button[^>]*aria-label="Open shot-2\.png"/, 'including the newest')
-    assert.match(markup, /data:image\/png;base64,AA/, 'and the thumbnail it was given')
-  })
-
-  run('past six thumbnails the rest are counted, never wrapped onto a second row', () => {
-    const markup = card({
-      peek: peek({ images: Array.from({ length: 8 }, (_, index) => image(index)) }),
-    })
-    assert.match(markup, /\+2/, 'the remainder is counted')
-    assert.equal(markup.includes('shot-7.png'), false, 'and the seventh thumbnail is not drawn')
-  })
-
-  run('a conversation with no images draws no strip', () => {
-    assert.equal(card().includes('Images in this conversation'), false)
-  })
-
-  run('with no opener in the preload the thumbnails render inert rather than lying', () => {
-    const markup = card({ onOpenAttachment: undefined, peek: peek({ images: [image(0)] }) })
-    assert.match(markup, /shot-0\.png/, 'the image is still named')
-    assert.match(markup, /disabled=""/, 'but nothing pretends to open it')
-  })
-
   // --- One thread, first message first (mockup frame 1) ----------------------
   run('the first message is row one of the thread, with its age — not a quote under a heading', () => {
     const markup = card({
@@ -450,38 +412,19 @@ test('ConversationPeekCard', async () => {
     assert.equal(short.includes('--faded'), false, 'a thread that fits is not faded')
   })
 
-  run('a later message carries a count on its row, never a strip of thumbnails', () => {
-    const markup = card({
-      peek: peek({
-        since: [
-          message({
-            id: 'm2',
-            text: 'This is the card I mean —',
-            attachments: [{ kind: 'image', id: 'a2', label: 'card.png' }],
-          }),
-        ],
-      }),
-    })
-    assert.match(markup, /aria-label="1 attachment"/, 'the row counts what it carries')
-    assert.equal(markup.includes('Open card.png'), false, 'and opens nothing from a one-line row')
-  })
-
-  // --- The four shapes a runtime can put the card in -------------------------
-  run('a live peek says, quietly, that its messages start at this app’s launch', () => {
-    const markup = card({ peek: peek({ source: 'live' }) })
-    assert.match(markup, /Since this app launched/, 'the shape is stated')
-    assert.match(markup, /no transcript/, 'and why')
+  // --- The three shapes a runtime can put the card in ------------------------
+  run('a live peek says, quietly, that these are the prompts this app captured', () => {
+    const markup = card()
+    assert.match(markup, /Prompts this app captured/, 'the shape is stated')
+    assert.match(markup, /before it was watching/, 'and what it cannot hold')
     assert.equal(/<h[1-6]/.test(markup), false, 'one small line, never a heading')
-  })
-
-  run('a transcript peek says nothing about where its messages came from', () => {
-    assert.equal(card().includes('Since this app launched'), false, 'no note where none is needed')
+    assert.equal(/transcript|since this app launched/i.test(markup), false, 'no claim about transcripts or launch')
   })
 
   run('a live peek with nothing yet says what it cannot see, rather than looking empty', () => {
-    const markup = card({ peek: peek({ source: 'live', first: null }) })
-    assert.match(markup, /Nothing sent since this app launched/, 'says what it is missing')
-    assert.match(markup, /no transcript/, 'and why')
+    const markup = card({ peek: peek({ first: null }) })
+    assert.match(markup, /No prompts captured yet/, 'says what it is missing')
+    assert.match(markup, /before this app was watching/, 'and why it may be missing')
   })
 
   run('an identity-only peek says the runtime reports nothing, and still earns its place', () => {
@@ -494,8 +437,8 @@ test('ConversationPeekCard', async () => {
   run('a chat we hold no record of blames our records, not the runtime', () => {
     // The distinction this asserts is the one that made the `none` arm move to
     // last: `none` is a claim about the RUNTIME. Saying it for a chat main simply
-    // has no state for — killed rather than quit, or parked past the sidecar TTL
-    // — tells someone their Claude Code chat cannot report messages, which is
+    // has no state for — no live session, no parked snapshot, no captured
+    // prompts — tells someone their Claude Code chat cannot report messages, which is
     // false and reads as unfixable.
     const markup = card({ peek: peek({ source: 'unknown', first: null }) })
     assert.match(markup, /No record of this chat/, 'says whose gap it is')
@@ -503,24 +446,13 @@ test('ConversationPeekCard', async () => {
     assert.match(markup, /claude-opus-5/, 'the identity still stands')
   })
 
-  run('a chat nobody has spoken in says nothing at all', () => {
-    // No prose for an empty chat: the composer under the card is the whole
-    // story, and a line explaining that a chat with no messages has no messages
-    // only adds furniture.
-    const markup = card({ peek: peek({ first: null }) })
-    assert.equal(markup.includes('No messages yet'), false, 'the never-prompted state stays quiet')
-    assert.match(markup, /claude-opus-5/, 'the identity still stands')
-  })
-
   run('an empty chat on a capable runtime is never told its runtime is broken', () => {
-    for (const source of ['transcript', 'live'] as const) {
-      const markup = card({ peek: peek({ source, first: null, since: [] }) })
-      assert.equal(
-        markup.includes('doesn’t report its messages'),
-        false,
-        `a ${source} peek with nothing yet is an empty chat, not a limited runtime`,
-      )
-    }
+    const markup = card({ peek: peek({ first: null, since: [] }) })
+    assert.equal(
+      markup.includes('doesn’t report its messages'),
+      false,
+      'a live peek with nothing yet is an empty chat, not a limited runtime',
+    )
   })
 
   run('a peek that never arrived says the conversation is not readable, and keeps the identity', () => {

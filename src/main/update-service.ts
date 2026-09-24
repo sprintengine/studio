@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron'
-import { autoUpdater, CancellationToken } from 'electron-updater'
+import type { AppUpdater, CancellationToken } from 'electron-updater'
 import type {
   AppUpdateChannelSetting,
   AppUpdateCheckResult,
@@ -37,6 +37,27 @@ type DownloadProgressLike = {
 // checked against it at build time. See src/shared/releases-repo.ts.
 import { RELEASES_URL } from '../shared/releases-repo'
 
+type UpdaterModule = { autoUpdater: AppUpdater; CancellationToken: typeof CancellationToken }
+
+let updaterModule: Promise<UpdaterModule> | null = null
+
+/**
+ * electron-updater, loaded the first time something asks for it. Requiring it
+ * costs tens of milliseconds, and at module scope that was paid on the path to
+ * `ready` by every launch — dev builds included, which never check at all. The
+ * first check runs after the window is up, so that is where the cost now lands.
+ */
+function loadUpdaterModule(): Promise<UpdaterModule> {
+  updaterModule ??= Promise.resolve().then(() => {
+    // `require`, not `import()`: the package is CommonJS and defines
+    // `autoUpdater` with a getter, which an ES import exposes only on
+    // `default` — the named binding would come back undefined.
+    const loaded = require('electron-updater') as typeof import('electron-updater')
+    return { autoUpdater: loaded.autoUpdater, CancellationToken: loaded.CancellationToken }
+  })
+  return updaterModule
+}
+
 function getAppVersion(): string {
   return typeof app.getVersion === 'function' ? app.getVersion() : '0.0.0'
 }
@@ -59,7 +80,7 @@ function isAppPackaged(): boolean {
  * above the latest stable (0.5.2) until the next promotion, and without the
  * downgrade it would be offered nothing at all.
  */
-function applyUpdaterChannel(track: AppUpdateTrack, version: string): void {
+function applyUpdaterChannel(autoUpdater: AppUpdater, track: AppUpdateTrack, version: string): void {
   autoUpdater.allowPrerelease = track === 'nightly'
   autoUpdater.channel = track === 'nightly' ? 'nightly' : 'latest'
   autoUpdater.allowDowngrade = track === 'stable' && channelForVersion(version) === 'nightly'
@@ -114,6 +135,9 @@ export class SprintEngineUpdateService {
     settled: Promise<void>
     settle: () => void
   } | null = null
+  /** The loaded and configured updater; null until the first check or download needs it. */
+  private updater: UpdaterModule | null = null
+  private updaterLoading: Promise<UpdaterModule> | null = null
 
   constructor({ writeDiagnosticLog, channelStore }: UpdateServiceOptions) {
     this.writeDiagnosticLog = writeDiagnosticLog
@@ -135,17 +159,31 @@ export class SprintEngineUpdateService {
       errorMessage: null,
       lastCheckedAt: null,
     }
+  }
 
-    // Updates do download on their own, but checkForUpdates starts them rather
-    // than electron-updater: a download it started itself would carry a
-    // cancellation token this service never sees, and a channel switch could
-    // not stop it.
-    autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = true
-    applyUpdaterChannel(this.track, appVersion)
-    if (typeof autoUpdater.on === 'function') {
-      this.registerAutoUpdaterEvents()
-    }
+  /**
+   * The updater, loaded and configured on first use. Everything the
+   * constructor used to set on it is set here instead, from the service's
+   * state at that moment, so a channel chosen before the first check is the
+   * one the first check follows.
+   */
+  private loadUpdater(): Promise<UpdaterModule> {
+    this.updaterLoading ??= loadUpdaterModule().then((loaded) => {
+      const { autoUpdater } = loaded
+      // Updates do download on their own, but checkForUpdates starts them
+      // rather than electron-updater: a download it started itself would carry
+      // a cancellation token this service never sees, and a channel switch
+      // could not stop it.
+      autoUpdater.autoDownload = false
+      autoUpdater.autoInstallOnAppQuit = true
+      applyUpdaterChannel(autoUpdater, this.track, getAppVersion())
+      if (typeof autoUpdater.on === 'function') {
+        this.registerAutoUpdaterEvents(autoUpdater)
+      }
+      this.updater = loaded
+      return loaded
+    })
+    return this.updaterLoading
   }
 
   getState(): AppUpdateState {
@@ -169,8 +207,13 @@ export class SprintEngineUpdateService {
   async setChannel(track: AppUpdateTrack): Promise<AppUpdateCheckResult> {
     this.channelStore?.set(track)
     this.track = track
-    applyUpdaterChannel(track, getAppVersion())
-    if (this.state.downloaded) autoUpdater.autoInstallOnAppQuit = false
+    // An updater not loaded yet picks the new track up when it loads; nothing
+    // can have been downloaded or started without it.
+    const updater = this.updater?.autoUpdater
+    if (updater) {
+      applyUpdaterChannel(updater, track, getAppVersion())
+      if (this.state.downloaded) updater.autoInstallOnAppQuit = false
+    }
     // A download still running is the old channel's too. Left alone it would
     // finish after the reset below and mark itself ready to install at quit.
     if (this.download) {
@@ -221,6 +264,7 @@ export class SprintEngineUpdateService {
     })
 
     try {
+      const { autoUpdater } = await this.loadUpdater()
       const result = await autoUpdater.checkForUpdates()
       // Found one: fetch it in the background straight away, so the next thing
       // the person hears is that it is ready, not that it is waiting on them.
@@ -263,10 +307,12 @@ export class SprintEngineUpdateService {
     // electron-updater's one download slot until it settles; a call made
     // before then would be handed that dying promise instead of a download
     // of its own.
+    const updater = await this.loadUpdater()
     while (this.download?.stale) await this.download.settled
     // electron-updater hands a second call the download already running, so
     // only the call that starts one owns its token.
-    const download = this.download ?? this.beginDownload()
+    const download = this.download ?? this.beginDownload(updater)
+    const { autoUpdater } = updater
     try {
       this.updateState({ status: 'downloading', errorMessage: null })
       await autoUpdater.downloadUpdate(download.token)
@@ -288,18 +334,21 @@ export class SprintEngineUpdateService {
     }
   }
 
-  private beginDownload(): NonNullable<SprintEngineUpdateService['download']> {
+  private beginDownload(updater: UpdaterModule): NonNullable<SprintEngineUpdateService['download']> {
     let settle: () => void = () => undefined
     const settled = new Promise<void>((resolve) => {
       settle = resolve
     })
-    const download = { token: new CancellationToken(), stale: false, settled, settle }
+    const download = { token: new updater.CancellationToken(), stale: false, settled, settle }
     this.download = download
     return download
   }
 
   quitAndInstall(): AppUpdateCheckResult {
-    if (!this.state.downloaded) {
+    const autoUpdater = this.updater?.autoUpdater
+    // `downloaded` is only ever set by the loaded updater's own event, so the
+    // second half is belt and braces.
+    if (!this.state.downloaded || !autoUpdater) {
       return { ok: false, state: this.getState(), message: 'No downloaded update is ready to install.' }
     }
     // Silent, then relaunch. On Windows the first argument runs the NSIS
@@ -318,7 +367,7 @@ export class SprintEngineUpdateService {
     return { opened: true, url }
   }
 
-  private registerAutoUpdaterEvents(): void {
+  private registerAutoUpdaterEvents(autoUpdater: AppUpdater): void {
     autoUpdater.on('checking-for-update', () => {
       this.updateState({ status: 'checking', errorMessage: null, lastCheckedAt: new Date().toISOString() })
     })

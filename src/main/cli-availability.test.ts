@@ -86,6 +86,30 @@ test('re-probes once the cache entry expires', async () => {
   assert.equal(probes, 2)
 })
 
+// Focus and visibility refresh the pickers, so a minute-long answer re-ran
+// every CLI's `--version` for a person switching windows about once a minute.
+// Off Windows the default holds for well past that.
+test.skipIf(process.platform === 'win32')('the default cache outlives a window switch by minutes', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  let clock = 1000
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => clock,
+  }
+  await detectAgentCliAvailability(undefined, deps)
+  clock += 10 * 60_000
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 1, 'still cached ten minutes later')
+  clock += 30 * 60_000
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 2, 'and not held for ever')
+})
+
 test('force bypasses the cache', async () => {
   clearCliAvailabilityCache()
   let probes = 0

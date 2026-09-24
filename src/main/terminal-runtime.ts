@@ -17,8 +17,8 @@ import type {
   AgentSessionExitListener,
   LiveAgentExecution,
 } from '../shared/agent-runtime'
-import { clearConversationPeekCaches } from './conversation-peek/caches'
 import { appendLivePeekPrompt, type ConversationPeekSessionState } from './conversation-peek/service'
+import type { AgentPromptStore } from './agent-prompt-store'
 import {
   agentStateSpecReportsPrompts,
   applyBackgroundWork,
@@ -26,6 +26,7 @@ import {
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
   isAtRestAgentPhase,
+  keepsTurnEnd,
   resolveAgentStateEvent,
   selectAgentStateTarget,
   type AgentStateFrame,
@@ -71,11 +72,14 @@ import {
   getTerminalLastSeenAt,
   getTerminalSize,
   getTerminalSnapshot,
+  getTerminalSnapshotBase,
   getTerminalIdleTimeoutMs,
   isTerminalProcessAlive,
   isTerminalSessionStale,
   listSessionFileChanges,
+  listSessionPullRequests,
   materializeTerminalReplay,
+  readTerminalOutputSince as readSessionOutputSince,
   parseSessionContextUsage,
   parseSessionFileChanges,
   parseSessionPrompts,
@@ -84,10 +88,13 @@ import {
   recordSessionStatusLine,
   recordTerminalInput,
   recordTerminalVisibility,
+  releaseSettledTerminalSession,
+  releaseTerminalOutput,
   transitionTerminalActivity,
   type TerminalSession,
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
+import { TerminalReplayBuffer } from './terminal-replay-buffer'
 import {
   splitTerminalAttachFrame,
   TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
@@ -106,7 +113,13 @@ import {
 } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
-import { createTerminalOutputBuffer, type TerminalOutputSink } from './terminal-output-buffer'
+import {
+  createTerminalOutputBuffer,
+  TERMINAL_FLOW_HIGH_WATERMARK,
+  TERMINAL_FLOW_LOW_WATERMARK,
+  TERMINAL_FLOW_STALL_RESUME_MS,
+  type TerminalOutputSink,
+} from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import {
   explainSessionReapDecision,
@@ -120,6 +133,7 @@ import {
 import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 import type { ChangelistEdit } from '../shared/git/changelists'
+import type { TerminalSessionDeltaEntry, TerminalSessionsDelta } from '../shared/ipc/terminal'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -164,6 +178,10 @@ type TerminalRuntimeOptions = {
   // when unwired (tests): suspend/quit skip persistence and rehydration never
   // finds anything — in-process behavior is unchanged.
   snapshotSidecars?: TerminalSnapshotSidecarStore
+  // Where an agent's captured prompts outlive its session, the app and the
+  // sidecar sweep, for the conversation peek. Absent in tests: prompts then
+  // live on the session (and its sidecar) only, as they always did.
+  agentPrompts?: AgentPromptStore
   // Persists reaper decisions to the daily diagnostics JSONL: every reap
   // action, plus rate-limited "parked past threshold by gate X" skips. The
   // in-memory ring buffer (terminal-reap-log) dies with the process; the
@@ -227,16 +245,17 @@ type TerminalIpcHandlers = {
   setIdleSuspendThresholdMs(value: unknown): void
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
+  ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void
 }
 
 type TerminalRuntime = {
   commandService: MobileControlCommandService
   ipcHandlers: TerminalIpcHandlers
-  // The conversation peek's read of a session (transcript path + the prompts
-  // seen since launch). Exposed as a plain reader rather than an IPC handler so
-  // the peek service can be assembled outside the runtime and unit-tested
-  // without one.
-  readConversationPeekSessionState(sessionId: string): ConversationPeekSessionState | null
+  // The conversation peek's read of a session: whether its runtime reports
+  // prompts, and the prompts captured for it. Exposed as a plain reader rather
+  // than an IPC handler so the peek service can be assembled outside the
+  // runtime and unit-tested without one.
+  readConversationPeekSessionState(sessionId: string): Promise<ConversationPeekSessionState | null>
   shutdown(): Promise<void>
   getLiveAgentExecutionIds(): LiveAgentExecution[]
   resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
@@ -254,6 +273,11 @@ type TerminalRuntime = {
   // prefers the serialized screen snapshot: this is the raw stream, because a
   // caller matching a pattern needs the text the agent printed.
   readTerminalOutput(sessionId: string): string | undefined
+  // Only what the session printed after `cursor` (the cursor an earlier call
+  // returned; 0 for "everything retained"). For a poller: the agent control
+  // plane's pattern wait asks this every 100 ms, and joining a multi-megabyte
+  // scrollback each time was the whole cost of a wait.
+  readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined
   // Watch-and-type access for remote transports. The tailnet
   // listener's terminal WebSocket is its only caller today; it is a port, not a
   // capability grant — the transport still has to prove a scoped device.
@@ -279,6 +303,7 @@ let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInsta
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
+let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
@@ -294,19 +319,6 @@ let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 function agentStateSupportsCli(cli: string | undefined): cli is string {
   if (!cli) return false
   return Boolean(getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec)
-}
-
-// Whether this runtime keeps a Claude-family transcript under `~/.claude`, read
-// from the resolving plugin's declared `skillIntegration.harnessId`. The
-// conversation peek asks before it derives a transcript path for a session, so
-// it never invents a Claude-shaped path for a CLI that writes none.
-function isClaudeHarnessCli(cli: string | undefined): boolean {
-  if (!cli) return false
-  try {
-    return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
-  } catch {
-    return false
-  }
 }
 
 // The resolving plugin's agentStateSpec for a live session, consulted per
@@ -351,6 +363,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
+  agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   onAgentLaunched = options.onAgentLaunched
@@ -359,6 +372,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   remoteTerminalViewers.clear()
+  remoteTerminalSinkLists.clear()
   logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
@@ -376,6 +390,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     registerAgentPhaseListener,
     ingestAgentStateFrame,
     readTerminalOutput,
+    readTerminalOutputSince,
     remoteHost: terminalRemoteHost,
     subscribeSessionsChanged(listener) {
       terminalSessionsChangedListeners.add(listener)
@@ -403,6 +418,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       setIdleSuspendThresholdMs: setIdleSuspendThresholdMs,
       setKeepRecentTerminalsAlive: setKeepRecentTerminalsAlive,
       setTerminalReapExempt: setTerminalReapExempt,
+      ackTerminalOutput,
     },
   }
 }
@@ -459,14 +475,30 @@ type RemoteTerminalViewer = {
   scope: TerminalAttachScope
   /** Set when this viewer's bytes were dropped; the next batch repaints it from the replay. */
   desynced: boolean
+  /** Built once at attach rather than per output chunk. */
+  sink?: TerminalOutputSink
 }
 
 const remoteTerminalViewers = new Map<string, Map<string, RemoteTerminalViewer>>()
+// The sinks per session, rebuilt only when a viewer attaches or detaches: this
+// is asked once per pty chunk, and the answer is almost always "none".
+const remoteTerminalSinkLists = new Map<string, readonly TerminalOutputSink[]>()
+const NO_REMOTE_SINKS: readonly TerminalOutputSink[] = []
 
-function remoteTerminalSinks(sessionId: string): TerminalOutputSink[] {
+function remoteTerminalSinks(sessionId: string): readonly TerminalOutputSink[] {
+  return remoteTerminalSinkLists.get(sessionId) ?? NO_REMOTE_SINKS
+}
+
+function refreshRemoteTerminalSinks(sessionId: string): void {
   const viewers = remoteTerminalViewers.get(sessionId)
-  if (!viewers) return []
-  return [...viewers.values()].map((viewer) => remoteTerminalSink(sessionId, viewer))
+  if (!viewers || viewers.size === 0) {
+    remoteTerminalSinkLists.delete(sessionId)
+    return
+  }
+  remoteTerminalSinkLists.set(
+    sessionId,
+    [...viewers.values()].map((viewer) => (viewer.sink ??= remoteTerminalSink(sessionId, viewer))),
+  )
 }
 
 function remoteTerminalSink(sessionId: string, viewer: RemoteTerminalViewer): TerminalOutputSink {
@@ -516,6 +548,7 @@ function endRemoteTerminalViewers(sessionId: string, reason: string): void {
   const viewers = remoteTerminalViewers.get(sessionId)
   if (!viewers) return
   remoteTerminalViewers.delete(sessionId)
+  refreshRemoteTerminalSinks(sessionId)
   for (const viewer of viewers.values()) {
     terminalOutput.discard(sessionId, viewer.transport.viewerId)
     if (viewer.transport.isOpen()) viewer.transport.send({ type: 'ended', reason })
@@ -547,6 +580,7 @@ function attachRemoteTerminalViewer(input: {
   const viewers = remoteTerminalViewers.get(input.sessionId) ?? new Map<string, RemoteTerminalViewer>()
   remoteTerminalViewers.set(input.sessionId, viewers)
   viewers.set(input.transport.viewerId, viewer)
+  refreshRemoteTerminalSinks(input.sessionId)
 
   // Replay-then-live, registered in the SAME synchronous step as the snapshot
   // is taken: no output can land in between, so the viewer sees every byte
@@ -561,6 +595,7 @@ function attachRemoteTerminalViewer(input: {
     current.delete(input.transport.viewerId)
     terminalOutput.discard(input.sessionId, input.transport.viewerId)
     if (current.size === 0) remoteTerminalViewers.delete(input.sessionId)
+    refreshRemoteTerminalSinks(input.sessionId)
   }
 
   const requireControl = (verb: string): { ok: false; code: string; message: string } | null =>
@@ -613,7 +648,40 @@ const terminalOutput = createTerminalOutputBuffer({
     terminalDiagnostics.recordDataBatch(session, cause, chunkCount, byteCount)
   },
   resolveExtraSinks: remoteTerminalSinks,
+  flowControl: {
+    highWatermark: TERMINAL_FLOW_HIGH_WATERMARK,
+    lowWatermark: TERMINAL_FLOW_LOW_WATERMARK,
+    stallResumeMs: TERMINAL_FLOW_STALL_RESUME_MS,
+    pause: (session) => {
+      if (!isTerminalProcessAlive(session)) return
+      try {
+        session.process.pause()
+      } catch {
+        // A pty that died between the check and the call has nothing to pause.
+      }
+    },
+    resume: (session) => {
+      if (!isTerminalProcessAlive(session)) return
+      try {
+        session.process.resume()
+      } catch {
+        // Same race as pause: a dead pty has nothing to resume.
+      }
+    },
+  },
 })
+
+/**
+ * The renderer parsed `units` of a session's output (xterm's write callback).
+ * Only the window the session is routed to may speak for its pane: another
+ * window's late ack is about a pane that no longer receives this stream.
+ */
+function ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return
+  if (sender && session.sender !== sender) return
+  terminalOutput.ack(sessionId, units)
+}
 
 /**
  * The event sink for a main-process spawn. A live window streams output to the
@@ -648,7 +716,43 @@ export const TERMINAL_SESSIONS_BROADCAST_COALESCE_MS = 16
 let pendingSessionsBroadcast: ReturnType<typeof setTimeout> | null = null
 const terminalSessionsChangedListeners = new Set<() => void>()
 
-function broadcastTerminalSessionsChanged(): void {
+/**
+ * What the next broadcast carries. It used to be a full snapshot of every
+ * session — file ledgers of up to 500 entries each included — structured-cloned
+ * into every window on every change to any one of them. Now it names the
+ * sessions that changed and the ones that went away, and nothing else.
+ *
+ * An exited session is not special-cased: it is sent when it changes (its exit
+ * is a change) and never again because some other session moved.
+ */
+const dirtySessionIds = new Set<string>()
+const removedSessionIds = new Set<string>()
+// Per session OBJECT (a resume is a new object under the same id, and must send
+// its lists afresh): the ledger version and pull request list last broadcast,
+// so a delta carries a list only when that list moved.
+const broadcastListState = new WeakMap<TerminalSession, { fileChangesVersion: number; pullRequestsKey: string }>()
+
+/**
+ * Note that `session` changed WITHOUT scheduling a broadcast. For state no
+ * window needs promptly — the phase churn between two tool calls, a keystroke's
+ * `lastInputAt` — that used to reach the windows only because the NEXT
+ * broadcast re-sent every session. It still does: it rides whichever broadcast
+ * goes out next.
+ */
+function markTerminalSessionChanged(session: TerminalSession): void {
+  if (terminals.get(session.sessionId) !== session) return
+  dirtySessionIds.add(session.sessionId)
+}
+
+function noteTerminalSessionRemoved(sessionId: string): void {
+  dirtySessionIds.delete(sessionId)
+  removedSessionIds.add(sessionId)
+  broadcastTerminalSessionsChanged(null)
+}
+
+/** `session` changed in a way a window renders; tell them, coalesced. `null` only schedules. */
+function broadcastTerminalSessionsChanged(session: TerminalSession | null): void {
+  if (session) markTerminalSessionChanged(session)
   if (pendingSessionsBroadcast) return
   pendingSessionsBroadcast = setTimeout(() => {
     pendingSessionsBroadcast = null
@@ -694,9 +798,25 @@ export function notePullRequestRecordChanged(affectsSession: (session: TerminalS
   for (const session of terminals.values()) {
     if (session.isDisposed) continue
     if (!affectsSession(session)) continue
-    broadcastTerminalSessionsChanged()
-    return
+    broadcastTerminalSessionsChanged(session)
   }
+}
+
+/**
+ * One changed session as the broadcast carries it: the snapshot without its two
+ * lists, plus each list only if it moved since this session last went out. The
+ * renderer keeps the list it has when one is absent (terminalSessionsStore).
+ */
+function buildTerminalSessionDeltaEntry(session: TerminalSession): TerminalSessionDeltaEntry {
+  const entry: TerminalSessionDeltaEntry = getTerminalSnapshotBase(session)
+  const sent = broadcastListState.get(session)
+  const fileChangesVersion = session.fileChangesVersion ?? 0
+  if (!sent || sent.fileChangesVersion !== fileChangesVersion) entry.fileChanges = listSessionFileChanges(session)
+  const pullRequests = listSessionPullRequests(session)
+  const pullRequestsKey = pullRequests.length > 0 ? JSON.stringify(pullRequests) : ''
+  if (!sent || sent.pullRequestsKey !== pullRequestsKey) entry.pullRequests = pullRequests
+  broadcastListState.set(session, { fileChangesVersion, pullRequestsKey })
+  return entry
 }
 
 /** Send now whatever is pending — the quit path, and tests that read the wire synchronously. */
@@ -705,11 +825,27 @@ function flushTerminalSessionsBroadcast(): void {
     clearTimeout(pendingSessionsBroadcast)
     pendingSessionsBroadcast = null
   }
-  const snapshots = [...terminals.values()].filter((session) => !session.isDisposed).map(getTerminalSnapshot)
+  const upserts: TerminalSessionDeltaEntry[] = []
+  for (const sessionId of dirtySessionIds) {
+    const session = terminals.get(sessionId)
+    if (!session || session.isDisposed) continue
+    upserts.push(buildTerminalSessionDeltaEntry(session))
+  }
+  // An id removed and re-added inside one window (a resume disposes and
+  // respawns under the same id) is an update, not a removal.
+  const removed = [...removedSessionIds].filter((sessionId) => {
+    const session = terminals.get(sessionId)
+    return !session || session.isDisposed
+  })
+  dirtySessionIds.clear()
+  removedSessionIds.clear()
 
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send('terminal:sessions-changed', snapshots)
+  if (upserts.length > 0 || removed.length > 0) {
+    const delta: TerminalSessionsDelta = { upserts, removed }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('terminal:sessions-delta', delta)
+      }
     }
   }
   // Main-process listeners hear the same beat the windows do: the tailnet
@@ -737,9 +873,12 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
   // While a terminal is hidden the agent keeps running and we keep appending to
   // the retained replay buffer, but we stop forwarding output to its (frozen)
   // renderer xterm (see terminal-output-buffer flush gate). On becoming visible
-  // again the xterm is stale, so re-send the retained window and let the renderer
-  // reset + replay to resync. This is the cold-layer reveal path; warm/active
-  // layers never go hidden so they never pay this.
+  // again the xterm is behind by exactly what arrived while it was hidden, so
+  // that is what it is sent (see revealCatchUp); only when that is no longer
+  // all retained does the pane reset and replay the whole window. This is the
+  // cold-layer reveal path; warm/active layers never go hidden so they never
+  // pay this.
+  const wasVisible = session.visible
   const becameVisible = visible && session.visible === false
   // A suspended session's reveal must be IDEMPOTENT, not edge-triggered: a
   // renderer window reload or a TerminalView remount that never delivered its
@@ -756,26 +895,76 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
     terminalOutput.flush(sessionId, 'visibility')
   }
   recordTerminalVisibility(session, visible)
+  // A pane going hidden or coming back has nothing in flight worth waiting on:
+  // a hidden one receives nothing, and a revealed one is about to be caught up.
+  if (visible !== wasVisible) terminalOutput.resetRendererFlow(sessionId)
   if (shouldReplay) {
-    // A suspended session prefers its faithful screen snapshot (alt-screen TUIs
-    // don't reconstruct from the raw stream); live sessions have none and fall
-    // back to the retained scrollback.
-    const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
-    if (replay) {
-      sendTerminalEvent(session.sender, `terminal:replay:${sessionId}`, replay)
-      logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
+    const catchUp = becameVisible ? revealCatchUp(session) : null
+    if (catchUp !== null) {
+      if (catchUp) sendTerminalEvent(session.sender, `terminal:data:${sessionId}`, catchUp)
+      noteRendererCaughtUp(session)
+      logMainPerfEvent('TerminalRuntime', 'terminal-reveal-catch-up-sent', {
         sessionId,
         workspaceId: session.workspaceId,
         agentId: session.agentId,
         terminalId: session.terminalId,
         kind: session.kind,
-        replayChars: replay.length,
-        replayBytes: Buffer.byteLength(replay, 'utf8'),
-        cause: 'revisible',
+        catchUpChars: catchUp.length,
       })
+    } else {
+      // A suspended session prefers its faithful screen snapshot (alt-screen TUIs
+      // don't reconstruct from the raw stream); live sessions have none and fall
+      // back to the retained scrollback.
+      const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
+      noteRendererCaughtUp(session)
+      if (replay) {
+        sendTerminalEvent(session.sender, `terminal:replay:${sessionId}`, replay)
+        logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
+          sessionId,
+          workspaceId: session.workspaceId,
+          agentId: session.agentId,
+          terminalId: session.terminalId,
+          kind: session.kind,
+          replayChars: replay.length,
+          cause: 'revisible',
+        })
+      }
     }
   }
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(session)
+}
+
+/**
+ * What a live pane that is being revealed missed while it was hidden — the
+ * output past the last byte it was sent — or null when it has to be repainted
+ * from the whole retained window instead.
+ *
+ * The reveal used to resend all of it, up to 2.5 MB, and the pane reset and
+ * re-parsed every byte: several megabytes of allocation and structured clone
+ * in main and a visible stall in the renderer on every tab switch, to redraw a
+ * screen that was already right up to the moment it was hidden. The pane's
+ * xterm is the same instance it was then, still holding everything before that
+ * point, so appending the rest leaves it exactly where a pane that was never
+ * hidden would be.
+ *
+ * Null (repaint in full) whenever that reasoning does not hold:
+ *   - a suspended session, or one showing its frozen snapshot: there is no live
+ *     stream to continue, and the snapshot is a different thing from it;
+ *   - the pane is in a different window from the one that was sent the bytes
+ *     (the session was adopted by another window since);
+ *   - nothing was ever sent to it, or what it missed has already been cut from
+ *     the head of the retained window.
+ */
+function revealCatchUp(session: TerminalSession): string | null {
+  if (session.suspended || session.replaySnapshot) return null
+  if (session.rendererDeliveredOffset === undefined || session.rendererDeliveredTo !== session.sender) return null
+  return session.output.readFrom(session.rendererDeliveredOffset)
+}
+
+/** The pane now holds everything the session has produced, by replay or by catch-up. */
+function noteRendererCaughtUp(session: TerminalSession): void {
+  session.rendererDeliveredOffset = session.output.endOffset
+  session.rendererDeliveredTo = session.sender
 }
 
 // How long after a pty resize to treat incoming output as a repaint (alt-screen
@@ -835,6 +1024,7 @@ export function suspendTerminal(sessionId: string): void {
   // Capture any pending output before the process dies, but keep the buffer so
   // the scrollback can be replayed for the painted view.
   terminalOutput.flush(sessionId, 'dispose')
+  terminalOutput.forgetSession(sessionId)
   // The local view stays painted and resumes on a keystroke; a remote viewer
   // has no such affordance, so end its stream with the reason instead of
   // leaving it watching a pty that has been killed.
@@ -871,7 +1061,14 @@ export function suspendTerminal(sessionId: string): void {
     // fails) and sets `isDisposed`, keeping this safe against a stale shadow.
     const current = terminals.get(sessionId)
     if (current === session && (session.suspending || session.suspended) && !session.isDisposed) {
-      if (snapshot) session.replaySnapshot = snapshot
+      if (snapshot) {
+        session.replaySnapshot = snapshot
+        // The frozen screen is what a paused pane reopens on — every reveal,
+        // reattach and remote attach prefers it — so the raw stream it was
+        // rendered from is now megabytes nobody will read. Only on success: a
+        // failed render leaves the raw replay as the painted view's fallback.
+        releaseTerminalOutput(session)
+      }
       // Durable freeze-the-view: give the snapshot a disk lifecycle so this
       // terminal reopens painted-and-paused after an app restart too. A failed
       // render (timeout, serialize error) persists the raw stream instead so
@@ -957,10 +1154,9 @@ function writeTerminalSnapshotSidecar(
     // The context reading rides the same sidecar and for the same reason: a
     // parked chat that says nothing about how full it is looks like a fresh one.
     ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
-    // The prompts, for the same reason again, and most of all for a runtime
-    // this app keeps no readable transcript of: a parked Codex chat with no
-    // prompts here has nothing whatsoever to show, and its card says so about a
-    // chat named after its own first message.
+    // The prompts, for the same reason again: they are the peek's only source,
+    // and a parked chat with none here has nothing to show until its agent's
+    // prompt store is read.
     ...(session.peekPrompts?.length ? { prompts: session.peekPrompts } : {}),
     lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
@@ -981,7 +1177,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
   sender?: WebContents,
 ): Promise<TerminalSession | undefined> {
   if (!snapshotSidecars) return undefined
-  const sidecar = snapshotSidecars.read(sessionId)
+  const sidecar = await snapshotSidecars.read(sessionId)
   if (!sidecar) return undefined
   let snapshot = sidecar.snapshot
   if (!snapshot && sidecar.rawReplay) {
@@ -1024,7 +1220,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     savedAt: sidecar.savedAt,
     snapshotSource: sidecar.snapshot ? 'sidecar-snapshot' : snapshot ? 'rendered-raw' : 'raw-fallback',
   })
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(session)
   return session
 }
 
@@ -1102,7 +1298,13 @@ function disposeTerminal(sessionId: string): void {
     { broadcast: false },
   )
   terminals.delete(sessionId)
-  broadcastTerminalSessionsChanged()
+  terminalOutput.forgetSession(sessionId)
+  noteTerminalSessionRemoved(sessionId)
+  // Settled: nothing this session held for a view is wanted again. Released
+  // here rather than left to the collector, because the pty's exit handler and
+  // any git resolution still in flight keep the session object reachable for a
+  // while after this, and with it megabytes of stream and painted screen.
+  releaseSettledTerminalSession(session)
 
   try {
     session.process.kill()
@@ -1200,7 +1402,7 @@ export function setTerminalReapExempt(sessionId: string, exempt: boolean): void 
     kind: session.kind,
     reapExempt: next,
   })
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(session)
 }
 
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
@@ -1631,11 +1833,9 @@ export function listTerminalRoots(): TerminalRootInfo[] {
 
 async function shutdownTerminalRuntime(): Promise<void> {
   stopStaleTerminalSweep()
-  // The peek's caches hold parsed transcripts and, with them, retained image
-  // bytes for up to eight sessions. They belong to no session, so nothing in
-  // the teardown below would ever drop them.
-  clearConversationPeekCaches()
   await disposeAllTerminals()
+  // A prompt that arrived just before quit is still being written.
+  await agentPrompts?.flush()
 }
 
 async function disposeAllTerminals(): Promise<void> {
@@ -1691,9 +1891,12 @@ async function disposeAllTerminals(): Promise<void> {
         { broadcast: false },
       )
       terminals.delete(session.sessionId)
+      terminalOutput.forgetSession(session.sessionId)
+      releaseSettledTerminalSession(session)
+      removedSessionIds.add(session.sessionId)
     }
   }
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(null)
 }
 
 function getLiveAgentExecutionIds(): LiveAgentExecution[] {
@@ -1768,10 +1971,35 @@ function scheduleTerminalIdleTransition(session: TerminalSession): void {
   // deleted (decision of record 2026-08-31).
   if (session.kind === 'agent') return
 
+  session.idleDeadline = Date.now() + getTerminalIdleTimeoutMs(session)
+  armTerminalIdleTimer(session, getTerminalIdleTimeoutMs(session))
+}
+
+/**
+ * Push a plain terminal's idle deadline out on output, WITHOUT touching the
+ * timer. Output used to clear and re-arm it for every chunk; now the deadline
+ * moves and a timer that fires early simply re-arms for what is left.
+ */
+function extendTerminalIdleDeadline(session: TerminalSession): void {
+  if (session.kind === 'agent') return
+  if (!session.idleTimer) {
+    scheduleTerminalIdleTransition(session)
+    return
+  }
+  session.idleDeadline = Date.now() + getTerminalIdleTimeoutMs(session)
+}
+
+function armTerminalIdleTimer(session: TerminalSession, delayMs: number): void {
   session.idleTimer = setTimeout(() => {
     session.idleTimer = undefined
+    if (!isTerminalProcessAlive(session)) return
+    const remaining = (session.idleDeadline ?? 0) - Date.now()
+    if (remaining > 0) {
+      armTerminalIdleTimer(session, remaining)
+      return
+    }
     setTerminalActivity(session, { kind: 'idle', since: Date.now() })
-  }, getTerminalIdleTimeoutMs(session))
+  }, delayMs)
 }
 
 function setTerminalActivity(
@@ -1785,7 +2013,7 @@ function setTerminalActivity(
 
   terminalDiagnostics.recordActivityTransition(session, previousActivity, session.activity)
   if (options.broadcast !== false && terminals.get(session.sessionId) === session) {
-    broadcastTerminalSessionsChanged()
+    broadcastTerminalSessionsChanged(session)
   }
   return true
 }
@@ -1860,7 +2088,7 @@ function runAgentStallCheck(session: TerminalSession): void {
   // stalled bridges to idle activity; suppress its broadcast and emit once.
   const derived = deriveActivityFromPhase('stalled', session.agentState.since)
   if (derived) setTerminalActivity(session, derived, { broadcast: false })
-  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+  if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged(session)
 }
 
 // Observed checkout: record where the session's hooks say it IS.
@@ -1934,7 +2162,7 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
         // Unanswerable: the observation stays unresolved, and that IS the
         // news — without a broadcast the renderer would keep showing the
         // checkout the session just left.
-        if (live) broadcastTerminalSessionsChanged()
+        if (live) broadcastTerminalSessionsChanged(session)
         return
       }
       if (!cached) rememberObservedCheckout(target.cwd, facts, Date.now())
@@ -1952,7 +2180,7 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
       }
       if (sameObservedCheckout(current, next)) return
       session.observedCheckout = next
-      if (live) broadcastTerminalSessionsChanged()
+      if (live) broadcastTerminalSessionsChanged(session)
     })
     .catch((error) => {
       logMainPerfEvent('TerminalRuntime', 'observed-checkout-resolve-failed', {
@@ -1960,90 +2188,116 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
         cwd: target.cwd,
         error: error instanceof Error ? error.message : String(error),
       })
-      if (!session.isDisposed && terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+      if (!session.isDisposed && terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged(session)
     })
 }
 
 /**
- * Append a prompt to the session's bounded live list (terminal-session.ts,
- * `peekPrompts`). In memory only: nothing here is written to the snapshot, the
- * sidecar or the registry, which is the whole reason the conversation peek has
- * a `live` source rather than a stored history.
+ * Append a prompt to the session's bounded list (terminal-session.ts,
+ * `peekPrompts`) and, for an agent, to its durable prompt store. The store is
+ * written behind the session: the in-memory list answers a hover at once, and
+ * the next restart reads the file.
  */
 function rememberSessionPrompt(session: TerminalSession, text: string, at: number): void {
   session.peekPrompts = appendLivePeekPrompt(session.peekPrompts, text, at)
+  const owner = promptOwnerFor(session)
+  const store = agentPrompts
+  if (!owner || !store) return
+  // The first prompt a session sees after a restart must not replace the
+  // agent's stored history with a list of one: the session's list, this prompt
+  // included, is folded into the store once, and later prompts append behind
+  // that fold.
+  const first = !session.peekPromptsReinflated
+  const reinflated = reinflateSessionPrompts(session)
+  if (first) return
+  void reinflated.then(() => store.append(owner, { text, at }))
+}
+
+/** The agent a session's prompts are stored under, or null for a session that is not one. */
+function promptOwnerFor(
+  session: Pick<TerminalSession, 'kind' | 'workspaceId' | 'agentId' | 'cli' | 'sessionId'>,
+): { workspaceId: string; agentId: string; cli?: string; sessionId: string } | null {
+  if (session.kind !== 'agent' || !session.workspaceId || !session.agentId) return null
+  return {
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    ...(session.cli ? { cli: session.cli } : {}),
+    sessionId: session.sessionId,
+  }
 }
 
 /**
- * What the conversation peek needs to answer for `sessionId`, or null when no
- * live session owns that id. A disposed session answers null rather than an
- * empty peek: the card belongs to a row whose chat is gone.
+ * Bring an agent session's prompt list and its agent's stored list into line,
+ * once per session: what the store kept from earlier runs comes back onto the
+ * session, and anything the session holds that the store lacks (a prompt that
+ * arrived before this ran, or a list an older build kept only in the sidecar)
+ * goes into it. Later prompts append to both as they arrive.
  */
-function readConversationPeekSessionState(sessionId: string): ConversationPeekSessionState | null {
-  const session = terminals.get(sessionId)
-  if (session && !session.isDisposed) return peekStateForSession(session)
-  // No live session. A chat parked across an app restart still has a snapshot
-  // sidecar carrying the facts the peek needs — the CLI, its session id, the
-  // directory it was launched in, and the prompts it was sent — so the card it
-  // is most wanted for is exactly the one we can still answer.
-  return peekStateForSidecar(sessionId)
-}
-
-function peekStateForSession(session: TerminalSession): ConversationPeekSessionState {
-  // `worktreePath` before `cwd`: an agent running in a worktree was LAUNCHED
-  // there, and that is the directory its CLI encoded into the folder its
-  // transcript lives in. `observedCheckout` is deliberately not consulted — it
-  // is where the hooks last saw the session, which follows a `cd` while the
-  // transcript's folder does not.
-  const launchCwd = session.worktreePath ?? session.cwd
-  // A session that has never fired a hook has no captured `cliSessionId` — and
-  // that is precisely the parked, just-restarted chat the derivation exists for.
-  // For a CLI that resumes on the id WE mint and pass at launch (Claude's
-  // `--session-id`), our terminal key IS its session id, so the transcript can
-  // still be found. A CLI that mints its own (Codex) gets nothing, which is
-  // correct: guessing there would name someone else's file.
-  const cliSessionId =
-    session.cliSessionId ?? (cliResumesWithCallerSessionId(session.cli) ? session.sessionId : undefined)
-  return {
-    ...(session.transcriptPath === undefined ? {} : { transcriptPath: session.transcriptPath }),
-    ...(cliSessionId === undefined ? {} : { cliSessionId }),
-    ...(launchCwd === undefined ? {} : { launchCwd }),
-    claudeHarness: isClaudeHarnessCli(session.cli),
-    reportsMessages: cliReportsMessages(session.cli),
-    prompts: session.peekPrompts ?? [],
+function reinflateSessionPrompts(session: TerminalSession): Promise<void> {
+  if (session.peekPromptsReinflated) return session.peekPromptsReinflated
+  const owner = promptOwnerFor(session)
+  const store = agentPrompts
+  if (!owner || !store) {
+    session.peekPromptsReinflated = Promise.resolve()
+    return session.peekPromptsReinflated
   }
-}
-
-function peekStateForSidecar(sessionId: string): ConversationPeekSessionState | null {
-  // Absent in tests and in a runtime built without durable freeze-the-view;
-  // a parked chat then simply has no card, as before.
-  const sidecar = snapshotSidecars?.read(sessionId)
-  if (!sidecar || sidecar.kind !== 'agent') return null
-  const launchCwd = sidecar.worktreePath ?? sidecar.cwd
-  const cliSessionId =
-    sidecar.cliSessionId ?? (cliResumesWithCallerSessionId(sidecar.cli) ? sidecar.sessionId : undefined)
-  return {
-    ...(cliSessionId === undefined ? {} : { cliSessionId }),
-    ...(launchCwd === undefined ? {} : { launchCwd }),
-    claudeHarness: isClaudeHarnessCli(sidecar.cli),
-    reportsMessages: cliReportsMessages(sidecar.cli),
-    // The prompts the sidecar kept. This is the whole answer for a parked chat
-    // on a runtime whose transcript this app cannot read — and the reason they
-    // are written at all.
-    prompts: parseSessionPrompts(sidecar.prompts) ?? [],
-  }
+  session.peekPromptsReinflated = (async () => {
+    const merged = await store.merge(owner, session.peekPrompts ?? [])
+    // A prompt that arrived while the store was being read is on the session
+    // but not in `merged`; it stays on the session here, and its own
+    // `rememberSessionPrompt` appends it to the store once this settles.
+    const seen = new Set(merged.map((prompt) => `${prompt.at}\0${prompt.text}`))
+    let next = merged
+    for (const prompt of session.peekPrompts ?? []) {
+      if (seen.has(`${prompt.at}\0${prompt.text}`)) continue
+      next = appendLivePeekPrompt(next, prompt.text, prompt.at)
+    }
+    if (next.length > 0) session.peekPrompts = next
+  })().catch(() => undefined)
+  return session.peekPromptsReinflated
 }
 
 /**
- * Whether this CLI reports the person's messages at all — it keeps a Claude
- * transcript, or its manifest declares the hook event that carries a prompt.
- * The peek needs it to tell "nothing said yet" from "cannot say": OpenCode and
- * Muse answer false, and only they should make the card say the runtime does
- * not report its messages.
+ * What the conversation peek needs to answer for `sessionId`, or null when
+ * nothing at all is known about it: no live session, no sidecar, and no agent
+ * whose stored prompts name it.
+ */
+async function readConversationPeekSessionState(sessionId: string): Promise<ConversationPeekSessionState | null> {
+  const session = terminals.get(sessionId)
+  if (session && !session.isDisposed) {
+    await reinflateSessionPrompts(session)
+    return { reportsMessages: cliReportsMessages(session.cli), prompts: session.peekPrompts ?? [] }
+  }
+  // No live session. A chat parked across an app restart may still have a
+  // snapshot sidecar naming its agent and CLI; its prompts come from the
+  // agent's store first and from what an older build wrote into the sidecar
+  // otherwise.
+  const sidecar = await snapshotSidecars?.read(sessionId)
+  if (sidecar && sidecar.kind === 'agent') {
+    const stored =
+      sidecar.workspaceId && sidecar.agentId
+        ? await agentPrompts?.read({ workspaceId: sidecar.workspaceId, agentId: sidecar.agentId })
+        : null
+    return {
+      reportsMessages: cliReportsMessages(sidecar.cli),
+      prompts: stored ?? parseSessionPrompts(sidecar.prompts) ?? [],
+    }
+  }
+  // Nor a sidecar — killed rather than quit, or swept at 30 days. The agent's
+  // store still knows which sessions were its own.
+  const found = await agentPrompts?.findBySessionId(sessionId)
+  if (found) return { reportsMessages: cliReportsMessages(found.cli), prompts: found.prompts }
+  return null
+}
+
+/**
+ * Whether this CLI reports the person's messages at all — its manifest declares
+ * the hook event that carries a prompt. The peek needs it to tell "nothing said
+ * yet" from "cannot say": OpenCode and Muse answer false, and only they should
+ * make the card say the runtime does not report its messages.
  */
 function cliReportsMessages(cli: string | undefined): boolean {
   if (!cli) return false
-  if (isClaudeHarnessCli(cli)) return true
   const spec = getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec ?? null
   return agentStateSpecReportsPrompts(spec)
 }
@@ -2061,6 +2315,12 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const resolved = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
 
   if (!isTerminalProcessAlive(session)) return
+  // Much of what a frame changes is deliberately not broadcast on its own (the
+  // thinking ↔ tool_use churn below), but it is still state a window reads, and
+  // it used to reach them with whichever broadcast came next, because every
+  // broadcast carried every session. It still does: this session rides the
+  // next one.
+  markTerminalSessionChanged(session)
 
   // What the agent just edited, folded into the session's ledger ahead of BOTH
   // guards below. An edit is order-independent by construction — the counts are
@@ -2164,7 +2424,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // and this is the only place they would be.
   const publishLedgerChange = (): void => {
     if ((ledgerChanged || contextUsageChanged) && terminals.get(session.sessionId) === session) {
-      broadcastTerminalSessionsChanged()
+      broadcastTerminalSessionsChanged(session)
     }
   }
 
@@ -2209,6 +2469,26 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const backgroundWorkChanged = session.backgroundWork !== previousBackgroundWork
   const resolution = holdTurnEndForBackgroundWork(resolved, session.backgroundWork)
 
+  // A finished turn stays finished against a frame that is not new work: a
+  // background stop that closed nothing (Claude Code's own post-turn helper)
+  // or a straggler of the turn that just ended. See `keepsTurnEnd`.
+  if (
+    keepsTurnEnd({
+      spec: agentStateSpecForSession(session),
+      event: frame.event,
+      resolution,
+      outstandingBefore: previousBackgroundWork,
+      current: session.agentState ?? null,
+      lastTurnEndedAt: session.lastTurnEndedAt,
+      frameTs: frame.ts,
+    })
+  ) {
+    // Neither kind moves the background count (a stop that closed nothing
+    // clamps at zero), so only a ledger change carried alongside is news.
+    publishLedgerChange()
+    return
+  }
+
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
   // The moment the turn ended, kept apart from `activity` (owner, 2026-09-05):
@@ -2232,19 +2512,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const promptChanged = Boolean(frame.prompt) && frame.prompt !== session.lastPrompt?.text
   if (frame.prompt) {
     session.lastPrompt = { text: frame.prompt, at: frame.ts }
-    // The same prompt also joins the session's bounded live list, which is the
-    // conversation peek's only source for a runtime that reports no transcript.
-    // Appended here rather than derived from `lastPrompt` later, which keeps only
-    // the newest: the card shows the whole thread. The list rides the snapshot
-    // sidecar from here, so it survives a restart along with the painted screen.
+    // The same prompt also joins the session's bounded list, which is the
+    // conversation peek's only source. Appended here rather than derived from
+    // `lastPrompt` later, which keeps only the newest: the card shows the whole
+    // thread. The list is written to the agent's prompt store from here, so it
+    // outlives the session, the app and the sidecar sweep.
     rememberSessionPrompt(session, frame.prompt, frame.ts)
   }
-
-  // The CLI's transcript rides a turn end only, and the path can change across a
-  // resume (a new session id means a new file), so the latest one wins. Kept on
-  // the session for the conversation peek, which reads it on a hover — long
-  // after this frame — and treats it as the untrusted path it is.
-  if (frame.transcriptPath) session.transcriptPath = frame.transcriptPath
 
   // Self-scheduled wakeup bookkeeping: a schedule frame arms the reap hold, a
   // stop frame disarms it, and a session-start frame (phase `starting`, however
@@ -2310,7 +2584,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
       backgroundWorkChanged) &&
     terminals.get(session.sessionId) === session
   ) {
-    broadcastTerminalSessionsChanged()
+    broadcastTerminalSessionsChanged(session)
   }
 
   notifyAgentPhaseListeners(session, frame, resolution, previousPhase ?? null)
@@ -2398,7 +2672,7 @@ function retainFailedTerminalSession(input: {
   })
   terminals.set(input.sessionId, session)
   terminalDiagnostics.recordActivityTransition(session, { kind: 'working', since: at }, session.activity)
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(session)
   return session
 }
 
@@ -2441,7 +2715,7 @@ function attachTerminalSession(
   // Arms for the spawn-stamped `starting` phase, so an agent whose hooks never
   // report converts to `stalled` (and becomes reclaimable) instead of parking.
   scheduleAgentStallCheck(terminalSession)
-  broadcastTerminalSessionsChanged()
+  broadcastTerminalSessionsChanged(terminalSession)
 
   terminalSession.process.onData((data) => {
     if (!terminalSession.isReady) {
@@ -2454,7 +2728,7 @@ function attachTerminalSession(
     // flip to "working" — otherwise revealing a workspace makes its idle agents
     // look active and reorders the sidebar.
     const isRepaint = now < (terminalSession.repaintGraceUntil ?? 0)
-    appendTerminalOutput(terminalSession, data, now, !isRepaint)
+    const bytes = appendTerminalOutput(terminalSession, data, now, !isRepaint)
     if (!isRepaint) {
       // For AGENTS the hooks are the sole driver of activity in both
       // directions: output must not flip to "working" here, or the
@@ -2467,9 +2741,9 @@ function attachTerminalSession(
       if (terminalSession.kind !== 'agent' && terminalSession.activity.kind !== 'working') {
         setTerminalActivity(terminalSession, { kind: 'working', since: terminalSession.lastOutputAt ?? now })
       }
-      scheduleTerminalIdleTransition(terminalSession)
+      extendTerminalIdleDeadline(terminalSession)
     }
-    terminalOutput.send(terminalSession, data)
+    terminalOutput.send(terminalSession, data, bytes)
   })
 
   terminalSession.process.onExit((event) => {
@@ -2489,13 +2763,14 @@ function attachTerminalSession(
       // restart would answer differently for the same parked chat.
       terminalSession.backgroundWork = 0
       if (terminals.get(sessionId) === terminalSession) {
-        broadcastTerminalSessionsChanged()
+        broadcastTerminalSessionsChanged(terminalSession)
       }
       return
     }
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     cleanupHostContextFile(terminalSession.hostContextPath)
     terminalOutput.flush(sessionId, 'exit')
+    if (terminals.get(sessionId) === terminalSession) terminalOutput.forgetSession(sessionId)
     // Durable freeze-the-view, self-exit path: an agent whose pty ends on its own
     // (an automation run finishing, a CLI crashing) was never suspended and never
     // saw app quit, so before this it wrote NO sidecar at all — the common case,
@@ -2561,7 +2836,7 @@ function attachTerminalSession(
       }
     }
     if (terminals.get(sessionId) === terminalSession) {
-      broadcastTerminalSessionsChanged()
+      broadcastTerminalSessionsChanged(terminalSession)
     }
     if (!terminalSession.isDisposed) {
       sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, event.exitCode)
@@ -2653,6 +2928,12 @@ async function spawnTerminalFromIpc(
     }
     // Prefer a suspended session's faithful screen snapshot over the raw stream.
     const replay = existingSession.replaySnapshot ?? materializeTerminalReplay(existingSession)
+    // The replay already holds whatever was queued for the old pane and not yet
+    // sent; sending that batch after it would print its tail twice. And the new
+    // pane starts with nothing in flight.
+    terminalOutput.discardRenderer(sessionId)
+    terminalOutput.resetRendererFlow(sessionId)
+    noteRendererCaughtUp(existingSession)
     if (replay) {
       sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
       logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
@@ -2662,13 +2943,12 @@ async function spawnTerminalFromIpc(
         terminalId: terminalId ?? existingSession.terminalId,
         kind: kind ?? existingSession.kind,
         replayChars: replay.length,
-        replayBytes: Buffer.byteLength(replay, 'utf8'),
       })
     }
     if (existingSession.hasExited) {
       sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)
     }
-    broadcastTerminalSessionsChanged()
+    broadcastTerminalSessionsChanged(existingSession)
     return { ok: true, sessionId } satisfies TerminalSpawnResult
   }
 
@@ -2940,11 +3220,7 @@ async function spawnTerminalFromIpc(
       agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
       lastTurnEndedAt: takeResumeTurnEnd(sessionId),
       observedCheckout: takeResumeObservedCheckout(sessionId),
-      outputChunks: [],
-      outputChunkBytes: [],
-      outputChunkStart: 0,
-      outputBytes: 0,
-      outputLength: 0,
+      output: new TerminalReplayBuffer(),
       kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
       pathStyle,
       workspaceId,
@@ -3011,7 +3287,17 @@ async function spawnTerminalFromIpc(
 function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
+  // A paused session let go of its raw stream once its screen was rendered;
+  // the rendered screen and its scrollback carry the same text.
+  if (session.replaySnapshot && session.output.retainedBytes === 0) return session.replaySnapshot
   return materializeTerminalReplay(session)
+}
+
+function readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return undefined
+  const read = readSessionOutputSince(session, cursor)
+  return { text: read.text, cursor: read.cursor }
 }
 
 function writeTerminalInput(sessionId: string, data: string): void {
@@ -3021,6 +3307,9 @@ function writeTerminalInput(sessionId: string, data: string): void {
 
   try {
     recordTerminalInput(session, startedAt)
+    // `lastInputAt` is not worth a broadcast of its own per keystroke; it goes
+    // out with the next one, as it always has.
+    markTerminalSessionChanged(session)
     session.process.write(data)
     terminalDiagnostics.recordInputWrite(session, Buffer.byteLength(data), Date.now() - startedAt, true)
   } catch (error) {

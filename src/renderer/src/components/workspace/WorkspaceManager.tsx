@@ -33,11 +33,12 @@ import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   deriveWorkspaceWorkingSince,
-  getTerminalSessionsSignature,
-  refreshTerminalSessions,
+  type TerminalSessionsChange,
+  reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import type {
   AgentCli,
@@ -105,17 +106,19 @@ import {
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
-import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
+import { useWindowPageVisible, windowActivity } from '../../utils/windowActivity'
+import { startTerminalSessionRecovery } from '../../hooks/terminalSessionRecovery'
 import {
   TERMINAL_FOCUS_RETRY_DELAYS_MS,
   focusRequestWouldInterrupt,
   requestTerminalFocus,
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
+import { useStableCallback } from '../../hooks/useStableCallback'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
@@ -305,7 +308,6 @@ function newChatFolderLabel(path: string): string {
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
-const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
@@ -605,7 +607,6 @@ export default function WorkspaceManager() {
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
-  const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
   const reportedUserMessageRef = useRef<Map<string, number>>(new Map())
   const reportedTurnEndRef = useRef<Map<string, number>>(new Map())
@@ -754,6 +755,8 @@ export default function WorkspaceManager() {
   ).length
   const settingsOpen = settingsOverlayOpen
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
+  // Reclaims agent worktrees that are clean and merged; one window runs it.
+  useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -1634,18 +1637,26 @@ export default function WorkspaceManager() {
     }
   }, [windowActiveWorkspaceId])
 
-  // Drive per-terminal paint visibility from the layer state. Active + warm
-  // layers paint live (so flicking between the recently-used pool is instant);
-  // cold layers (mounted but beyond the warm set — the workspaces you forgot
-  // about) stop painting. The agent PTY keeps running and is supervised either
-  // way: `visible` only gates whether main forwards output to the renderer's
-  // xterm, so this trades nothing but wasted off-screen rendering. On reveal,
-  // main re-sends the retained replay and the terminal resyncs. Only sessions
-  // routed to THIS window are touched; a workspace lives in exactly one window,
-  // so windows never fight over a session's visibility.
+  // Drive per-terminal paint visibility from what can actually be seen: the
+  // active layer of a window that is itself visible. Warm and cold layers are
+  // not fed — a warm layer is `visibility: hidden`, which xterm does not notice,
+  // so it used to parse and paint every byte its agents printed behind the
+  // active one. A hidden window (minimized, hidden, locked screen, or reported
+  // hidden by the page) feeds nothing at all, from the moment it is hidden.
+  //
+  // Both are cheap to undo because a reveal sends the pane only the bytes it
+  // missed, as live data, with no reset. That is also why there is no grace
+  // period before a hidden window stops being fed: a quick glance away costs a
+  // few KB on return, whereas a pane still marked visible is one main waits on
+  // for acknowledgements, and a hidden page may parse too rarely to give them —
+  // holding the agent's pty back. Marked hidden, the pane is never waited on and
+  // the agent runs at full speed while main keeps its output.
+  //
+  // Only sessions routed to THIS window are touched; a workspace lives in
+  // exactly one window, so windows never fight over a session's visibility.
+  const windowShowsTerminals = useWindowPageVisible()
   useEffect(() => {
-    const paintingWorkspaceIds = new Set<string>(warmHiddenWorkspaceIdSet)
-    if (windowActiveWorkspaceId) paintingWorkspaceIds.add(windowActiveWorkspaceId)
+    const paintingWorkspaceId = windowShowsTerminals ? windowActiveWorkspaceId : null
 
     const applied = appliedTerminalVisibilityRef.current
     const liveSessionIds = new Set<string>()
@@ -1653,7 +1664,7 @@ export default function WorkspaceManager() {
       const workspaceId = session.workspaceId
       if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
       liveSessionIds.add(session.sessionId)
-      const shouldPaint = paintingWorkspaceIds.has(workspaceId)
+      const shouldPaint = workspaceId === paintingWorkspaceId
       if (applied.get(session.sessionId) === shouldPaint) continue
       applied.set(session.sessionId, shouldPaint)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
@@ -1663,7 +1674,7 @@ export default function WorkspaceManager() {
     for (const sessionId of [...applied.keys()]) {
       if (!liveSessionIds.has(sessionId)) applied.delete(sessionId)
     }
-  }, [terminalSessions, warmHiddenWorkspaceIdSet, windowActiveWorkspaceId, visibleWorkspaceIdSet])
+  }, [terminalSessions, windowShowsTerminals, windowActiveWorkspaceId, visibleWorkspaceIdSet])
 
   useEffect(() => {
     const now = Date.now()
@@ -1838,14 +1849,18 @@ export default function WorkspaceManager() {
   useEffect(() => {
     let disposed = false
 
-    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[]) => {
+    const applyTerminalSessions = (sessions: TerminalSessionSnapshot[], change: TerminalSessionsChange) => {
       if (disposed) return
+      // The per-session bookkeeping below only has to look at what changed:
+      // every one of these folds is a running maximum or an already-offered
+      // check, so a session that did not move has nothing new to say.
+      const changed = change.upserted
 
       // Persist "last typed" recency from lastInputAt, not lastOutputAt: opening a
       // workspace replays scrollback / triggers a TUI repaint, and counting that
       // output made every reopened workspace jump to "now". Only genuine input moves it.
       const lastInputByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastInputAt !== 'number') continue
         const current = lastInputByWorkspace.get(session.workspaceId)
@@ -1867,7 +1882,7 @@ export default function WorkspaceManager() {
       // and a message answers "did the person say something here", which is
       // the event they mean when they expect a chat to move.
       const userMessageByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         const at = session.lastPrompt?.at
         if (typeof at !== 'number') continue
@@ -1887,7 +1902,7 @@ export default function WorkspaceManager() {
       // each session carries, so a parked chat still knows when its agent
       // stopped after the session is gone (owner, 2026-09-05).
       const turnEndByWorkspace = new Map<string, number>()
-      for (const session of sessions) {
+      for (const session of changed) {
         if (typeof session.workspaceId !== 'string') continue
         if (typeof session.lastTurnEndedAt !== 'number') continue
         const current = turnEndByWorkspace.get(session.workspaceId)
@@ -1910,7 +1925,7 @@ export default function WorkspaceManager() {
       // prompt that yields no usable title (an app-injected skill drop, pure
       // filler), leaving the next prompt to try. So this only has to avoid
       // re-offering a prompt it already offered.
-      for (const session of sessions) {
+      for (const session of changed) {
         const prompt = session.lastPrompt
         if (!prompt || typeof session.workspaceId !== 'string') continue
         const offered = titledPromptAtRef.current.get(session.sessionId)
@@ -1960,21 +1975,26 @@ export default function WorkspaceManager() {
         useWorkspaceStore.getState().removeAgent(retired.workspaceId, retired.agentId)
       }
 
-      const signature = getTerminalSessionsSignature(sessions)
-      if (signature === terminalSessionsSignatureRef.current) return
-      terminalSessionsSignatureRef.current = signature
+      // The store has already signed every session it applied; nothing rendered
+      // moved unless it says so.
+      if (!change.semanticChanged) return
       setTerminalSessions(sessions)
     }
 
     const unsubscribe = subscribeLiveTerminalSessionSnapshots(applyTerminalSessions)
-    const interval = window.setInterval(() => {
-      void refreshTerminalSessions().catch(() => {})
-    }, TERMINAL_SESSION_RECOVERY_POLL_MS)
+    // Polls only after a missed push (terminalSessionRecovery.ts).
+    const stopRecovery = startTerminalSessionRecovery({
+      reconcile: reconcileTerminalSessions,
+      subscribeReturn: (listener) =>
+        windowActivity().subscribe((state) => {
+          if (state.visible) listener()
+        }),
+    })
 
     return () => {
       disposed = true
       unsubscribe()
-      window.clearInterval(interval)
+      stopRecovery()
     }
   }, [
     recordWorkspaceTerminalActivity,
@@ -2120,9 +2140,16 @@ export default function WorkspaceManager() {
       string,
       { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
     > = {}
+    // The persisted keystroke clock is read off the store, not the projection:
+    // the projection deliberately ignores it so typing does not re-render the
+    // manager. It is only the fallback for a workspace with no live session,
+    // and a live session's broadcast is what re-runs this memo.
+    const liveWorkspaceById = new Map(
+      useWorkspaceStore.getState().workspaces.map((workspace) => [workspace.id, workspace] as const),
+    )
     for (const workspace of workspaces) {
-      const persistedLastInputAt =
-        typeof workspace.lastTerminalActivityAt === 'number' ? workspace.lastTerminalActivityAt : null
+      const lastTerminalActivityAt = liveWorkspaceById.get(workspace.id)?.lastTerminalActivityAt
+      const persistedLastInputAt = typeof lastTerminalActivityAt === 'number' ? lastTerminalActivityAt : null
       const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastInputAt)
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
       const persistedTurnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
@@ -3335,7 +3362,10 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.sidebar.toggle') {
-        beginSidebarTransition()
+        // Collapsing snaps (the rail is display:none, not a narrowed width), so
+        // the terminals beside it fit once at the new size straight away. A
+        // width that does glide is caught by its own transition events
+        // (utils/layoutTransition.ts).
         setSidebarCollapsed(!sidebarCollapsed)
         return true
       }
@@ -3735,9 +3765,6 @@ export default function WorkspaceManager() {
     void window.api.updateAppMenuAccelerators(updates).catch(() => {})
   }, [keybindingSettings])
 
-  // New chat opens on the General agent — the only agent a plain spawn has.
-  const composerInitialSelection: AgentComposerSelection = { kind: 'general' }
-
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every spawn-picker host (the launcher, the tab strip's "+");
   // fresh chats are the New Chat panel's job.
@@ -3766,34 +3793,57 @@ export default function WorkspaceManager() {
   // hand-spawned terminal in that strip as one of its own.
   const canOpenNewAgentTab = Boolean(windowActiveWorkspaceId) && activeWorkspace?.mode === 'standard'
 
-  const openNewAgentTab = (hostTabsetId?: string) => {
-    if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
-    // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
-    // name the agent will take. The strip whose "+" was clicked is the host —
-    // a new tab in that panel, not a split beside it.
-    const taken = Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
-    addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken), hostTabsetId)
-  }
+  // The spawn paths close over most of this component and are rebuilt every
+  // render. The two layout props below reach them through this ref, so their
+  // identity changes only with what they render, which is what lets
+  // `React.memo(WorkspaceLayout)` skip the active layer on an unrelated render.
+  const runComposerSpawnRef = useRef(runComposerSpawn)
+  runComposerSpawnRef.current = runComposerSpawn
+
+  const openNewAgentTab = useCallback(
+    (hostTabsetId?: string) => {
+      if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
+      // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
+      // name the agent will take. The strip whose "+" was clicked is the host —
+      // a new tab in that panel, not a split beside it. The names come off the
+      // store: the manager's projection does not move for an agent change.
+      const agents =
+        useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)?.agents ??
+        {}
+      const taken = Object.values(agents).map((agent) => agent.name)
+      addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken), hostTabsetId)
+    },
+    [canOpenNewAgentTab, windowActiveWorkspaceId],
+  )
 
   // The launch surface, rendered inside that tab. It creates nothing: a confirm
   // plus the typed prompt comes back here, and the spawn retypes `tabId` in
   // place so the terminal lands exactly where the surface was.
-  const renderNewAgentPanel = (tabId: string, agentName?: string) => (
-    <React.Suspense fallback={null}>
-      <NewAgentPanel
-        workspaceId={windowActiveWorkspaceId ?? ''}
-        conversationAvailable={conversationSpawnAvailable}
-        onRequestConversationCatalog={requestConversationCatalog}
-        initialSelection={composerInitialSelection}
-        permissionPreset={agentSpawnPermissionPreset}
-        debugMode={agentSpawnDebugMode}
-        onChangeDebugMode={setAgentSpawnDebugMode}
-        onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt, agentName })}
-        onClose={() => {
-          if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
-        }}
-      />
-    </React.Suspense>
+  const renderNewAgentPanel = useCallback(
+    (tabId: string, agentName?: string) => (
+      <React.Suspense fallback={null}>
+        <NewAgentPanel
+          workspaceId={windowActiveWorkspaceId ?? ''}
+          conversationAvailable={conversationSpawnAvailable}
+          onRequestConversationCatalog={requestConversationCatalog}
+          initialSelection={COMPOSER_INITIAL_SELECTION}
+          permissionPreset={agentSpawnPermissionPreset}
+          debugMode={agentSpawnDebugMode}
+          onChangeDebugMode={setAgentSpawnDebugMode}
+          onLaunch={({ prompt, ...confirm }) => runComposerSpawnRef.current(confirm, { tabId, prompt, agentName })}
+          onClose={() => {
+            if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
+          }}
+        />
+      </React.Suspense>
+    ),
+    [
+      windowActiveWorkspaceId,
+      conversationSpawnAvailable,
+      requestConversationCatalog,
+      agentSpawnPermissionPreset,
+      agentSpawnDebugMode,
+    ],
   )
 
   const startLogin = async () => {
@@ -3939,7 +3989,7 @@ export default function WorkspaceManager() {
   // Pause = freeze-the-view suspend: kill the agent PTY to free memory but keep
   // the painted scrollback and the resume flags, so reopening relaunches the CLI
   // with --resume. Unlike stopSession we do NOT reset launch flags or prune the
-  // session — the suspend broadcast (terminal:sessions-changed) flips it to
+  // session — the suspend broadcast (terminal:sessions-delta) flips it to
   // suspended (processAlive=false), which drops it out of the working-sessions
   // list on its own.
   const pauseSession = (item: SessionItem) => {
@@ -3973,6 +4023,83 @@ export default function WorkspaceManager() {
       y: rect.bottom + 4,
     })
   }
+
+  // ── The sidebar's props, held still ─────────────────────────────
+  // WorkspaceSidebar is memoized, and every row in it re-renders when it
+  // does, so nothing handed to it may be rebuilt on a render that changed
+  // nothing it shows. Handlers go through `useStableCallback`; the two slots
+  // are memoized on what they render.
+  const sidebarToggle = useStableCallback(() => runCommand('workspace.sidebar.toggle'))
+  const sidebarNavigateBack = useStableCallback(() => runCommand('workspace.history.back'))
+  const sidebarNavigateForward = useStableCallback(() => runCommand('workspace.history.forward'))
+  const sidebarOpenSearch = useStableCallback(() => runCommand('commandPalette.open'))
+  const sidebarNewChat = useStableCallback(() => openNewChatPanel())
+  const sidebarNewChatInFolder = useStableCallback((folderPath: string) => openNewChatPanel(folderPath))
+  const sidebarShowMenu = useStableCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, label: (typeof MENU_BAR_ITEMS)[number]) =>
+      void handleShowMenubarMenu(event, label),
+  )
+  const sidebarSelectWorkspace = useStableCallback((id: WorkspaceId) => {
+    // Park explicitly: selecting the very workspace New chat sits over
+    // changes no workspace id, and the id-keyed park would not fire.
+    setNewChatPanelState(null)
+    setActiveWorkspaceForWindow(workspaceWindowId, id)
+    setSidebarSection('home')
+  })
+  const sidebarMoveToNewWindow = useStableCallback(
+    (id: WorkspaceId, placement: Parameters<typeof moveWorkspaceToNewWindow>[1]) =>
+      void moveWorkspaceToNewWindow(id, placement),
+  )
+  const sidebarMoveToMainWindow = useStableCallback(moveWorkspaceToPrimaryWindow)
+  const sidebarCloseWorkspace = useStableCallback(closeWorkspaceById)
+  const sidebarForgetFolder = useStableCallback(handleForgetFolder)
+  const sidebarRevealFolder = useStableCallback(handleRevealFolder)
+  const sidebarOpenRemoteSession = useStableCallback(openRemoteSession)
+  const isFullScreen = windowState.isFullScreen
+  const sidebarChromeSlot = useMemo(
+    () => (
+      <SidebarChrome
+        isMac={window.api.platform === 'darwin'}
+        isFullScreen={isFullScreen}
+        onToggleSidebar={sidebarToggle}
+        onNavigateBack={sidebarNavigateBack}
+        onNavigateForward={sidebarNavigateForward}
+        onOpenSearch={sidebarOpenSearch}
+        // The brand row's wordmark is the New chat button, so it routes to the
+        // same panel as the rail's New chat row below it — one action, two
+        // affordances, never two behaviours.
+        onNewChat={sidebarNewChat}
+        menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+        onShowMenu={sidebarShowMenu}
+      />
+    ),
+    [
+      isFullScreen,
+      sidebarToggle,
+      sidebarNavigateBack,
+      sidebarNavigateForward,
+      sidebarOpenSearch,
+      sidebarNewChat,
+      sidebarShowMenu,
+    ],
+  )
+  const contextRailSurfaceKey = activeGlobalSurfaceEntry?.id ?? null
+  const sidebarContextRail = useMemo(
+    () =>
+      // Drill-in replaces the rail (item 1993): while a door with a rail is
+      // open, that rail renders in this column and the workspaces rail steps
+      // aside. The column carries navigation only — the way OUT is the door's
+      // bar chevron, beside the door's name.
+      contextRailSurfaceKey !== null ? (
+        <ContextRailColumn
+          surfaceKey={contextRailSurfaceKey}
+          ariaLabel={`${surfaceLabel} rail`}
+          active={contextRailActive}
+          railRef={setSurfaceRailEl}
+        />
+      ) : undefined,
+    [contextRailSurfaceKey, surfaceLabel, contextRailActive],
+  )
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
@@ -4019,36 +4146,8 @@ export default function WorkspaceManager() {
           workspaceWindowId={workspaceWindowId}
           isDetachedWindow={!isPrimaryWorkspaceWindow}
           sidebarCollapsed={sidebarCollapsed}
-          chromeSlot={
-            <SidebarChrome
-              isMac={window.api.platform === 'darwin'}
-              isFullScreen={windowState.isFullScreen}
-              onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
-              onNavigateBack={() => runCommand('workspace.history.back')}
-              onNavigateForward={() => runCommand('workspace.history.forward')}
-              onOpenSearch={() => runCommand('commandPalette.open')}
-              // The brand row's wordmark is the New chat button, so it routes to the
-              // same panel as the rail's New chat row below it — one action, two
-              // affordances, never two behaviours.
-              onNewChat={() => openNewChatPanel()}
-              menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
-              onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
-            />
-          }
-          contextRail={
-            // Drill-in replaces the rail (item 1993): while a door with a rail is
-            // open, that rail renders in this column and the workspaces rail steps
-            // aside. The column carries navigation only — the way OUT is the door's
-            // bar chevron, beside the door's name.
-            activeGlobalSurfaceEntry ? (
-              <ContextRailColumn
-                surfaceKey={activeGlobalSurfaceEntry.id}
-                ariaLabel={`${surfaceLabel} rail`}
-                active={contextRailActive}
-                railRef={setSurfaceRailEl}
-              />
-            ) : undefined
-          }
+          chromeSlot={sidebarChromeSlot}
+          contextRail={sidebarContextRail}
           // Only a surface that brought a rail takes the column over.
           contextRailActive={contextRailActive}
           activityByWorkspaceId={activityByWorkspaceId}
@@ -4056,21 +4155,15 @@ export default function WorkspaceManager() {
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
-          onOpenRemoteSession={openRemoteSession}
-          onSelectWorkspace={(id) => {
-            // Park explicitly: selecting the very workspace New chat sits over
-            // changes no workspace id, and the id-keyed park would not fire.
-            setNewChatPanelState(null)
-            setActiveWorkspaceForWindow(workspaceWindowId, id)
-            setSidebarSection('home')
-          }}
-          onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
-          onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
-          onCloseWorkspace={closeWorkspaceById}
-          onForgetFolder={handleForgetFolder}
-          onNewChat={() => openNewChatPanel()}
-          onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
-          onRevealFolder={handleRevealFolder}
+          onOpenRemoteSession={sidebarOpenRemoteSession}
+          onSelectWorkspace={sidebarSelectWorkspace}
+          onMoveWorkspaceToNewWindow={sidebarMoveToNewWindow}
+          onMoveWorkspaceToMainWindow={sidebarMoveToMainWindow}
+          onCloseWorkspace={sidebarCloseWorkspace}
+          onForgetFolder={sidebarForgetFolder}
+          onNewChat={sidebarNewChat}
+          onNewChatInFolder={sidebarNewChatInFolder}
+          onRevealFolder={sidebarRevealFolder}
           onSetSidebarCollapsed={setSidebarCollapsed}
           sidebarWidth={sidebarWidth}
           onSetSidebarWidth={setSidebarWidth}
@@ -4211,6 +4304,9 @@ export default function WorkspaceManager() {
                         return (
                           <div
                             key={workspaceId}
+                            // Read by the terminals' WebGL budget: a cold layer gives
+                            // its GPU contexts back (terminalWebglPresence.ts).
+                            data-layer-state={active ? 'active' : cold ? 'cold' : 'warm'}
                             className={`absolute inset-0 ${active ? 'z-10 visible' : 'z-0 invisible'}`}
                             style={{
                               pointerEvents: active ? 'auto' : 'none',
@@ -4442,6 +4538,10 @@ export default function WorkspaceManager() {
     </div>
   )
 }
+
+// New chat opens on the General agent, the only agent a plain spawn has. A
+// module constant, so the launch surface's props hold still between renders.
+const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
   try {

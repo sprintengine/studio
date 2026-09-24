@@ -32,9 +32,63 @@ import type {
   GitWorktreeListSnapshot,
   GitWorktreeOperationResult,
   GitWorktreeRemoveInput,
+  GitCheckoutChange,
+  AgentWorktreeCleanupInput,
+  AgentWorktreeCleanupReport,
 } from '../../shared/electron-api'
 
+// One subscription to main's `git:checkout-changed` per window, fanned out
+// here by checkout; main is asked to watch a checkout while at least one
+// listener in this window wants it. Keys are spelled the way main spells them
+// (git-repo-watch.ts `checkoutKey`).
+type CheckoutChangeListener = (change: GitCheckoutChange) => void
+const checkoutListeners = new Map<string, Set<CheckoutChangeListener>>()
+let checkoutChannelInstalled = false
+
+function gitCheckoutKey(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/u, '')
+}
+
+function installCheckoutChannel(): void {
+  if (checkoutChannelInstalled) return
+  checkoutChannelInstalled = true
+  ipcRenderer.on('git:checkout-changed', (_: IpcRendererEvent, changes: GitCheckoutChange[]) => {
+    for (const change of changes) {
+      for (const listener of checkoutListeners.get(change.checkoutKey) ?? []) {
+        try {
+          listener(change)
+        } catch (error) {
+          console.warn('[git] checkout change listener threw', error)
+        }
+      }
+    }
+  })
+}
+
 export const gitApi = {
+  watchGitCheckout: (checkoutPath: string, cb: CheckoutChangeListener): (() => void) => {
+    installCheckoutChannel()
+    const key = gitCheckoutKey(checkoutPath)
+    let listeners = checkoutListeners.get(key)
+    if (!listeners) {
+      listeners = new Set()
+      checkoutListeners.set(key, listeners)
+      void ipcRenderer.invoke('git:checkout-watch-retain', key).catch(() => {})
+    }
+    listeners.add(cb)
+    let active = true
+    return () => {
+      if (!active) return
+      active = false
+      const current = checkoutListeners.get(key)
+      if (!current) return
+      current.delete(cb)
+      if (current.size === 0) {
+        checkoutListeners.delete(key)
+        void ipcRenderer.invoke('git:checkout-watch-release', key).catch(() => {})
+      }
+    }
+  },
   getGitRepoRoot: (folderPath: string): Promise<string | null> => ipcRenderer.invoke('git:get-repo-root', folderPath),
   getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> => ipcRenderer.invoke('git:get-status', repoRoot),
   checkIgnored: (repoRoot: string, relativePaths: string[]): Promise<string[]> =>
@@ -117,6 +171,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:worktree:remove', input),
   pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:prune', repoRoot),
+  cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput): Promise<AgentWorktreeCleanupReport> =>
+    ipcRenderer.invoke('git:worktree:cleanup-agents', input),
   // Changelists and patches (git-commit-window T6). Every changelist call
   // answers with the whole reconciled set, so the panel re-renders from one
   // value instead of patching its own copy.
@@ -138,7 +194,7 @@ export const gitApi = {
     ipcRenderer.invoke('git:changelists:move-paths', repoRoot, id, paths),
   // Main's own writes to a repository's lists (an agent launching, editing or
   // exiting). One channel for every repository, filtered in the renderer on the
-  // root, exactly as `terminal:sessions-changed` is one channel for every
+  // root, exactly as `terminal:sessions-delta` is one channel for every
   // session: a per-repository channel would need a subscription per open
   // checkout and a teardown nobody would get right.
   onGitChangelistsChanged: (cb: (event: { repoRoot: string }) => void): (() => void) => {
@@ -158,6 +214,8 @@ export const gitApi = {
   cloneGitHubRepo: (input: GitHubCloneInput): Promise<GitHubCloneResult> => ipcRenderer.invoke('github:clone', input),
 } satisfies Pick<
   ElectronApi,
+  | 'watchGitCheckout'
+  | 'cleanupAgentWorktrees'
   | 'getGitRepoRoot'
   | 'getGitStatus'
   | 'checkIgnored'

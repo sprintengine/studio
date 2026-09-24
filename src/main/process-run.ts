@@ -17,7 +17,9 @@ export type SpawnDescriptor = { file: string; args: string[]; stdin?: string }
 // `timedOut` is carried alongside the exit code because a killed process
 // reports whatever code the caller maps a timeout to, while a caller that must
 // distinguish "no answer" from "a real answer" reads this flag instead.
-export type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean }
+// `spawnFailed` is set when the process never started at all, so its "output"
+// is the error message and must not be read as anything the process printed.
+export type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean; spawnFailed?: boolean }
 
 export type RunOptions = {
   onData?: (chunk: string) => void
@@ -99,7 +101,13 @@ export function runSpawnDescriptor(desc: SpawnDescriptor, options: RunOptions = 
       onData?.(text)
     })
     child.on('error', (error) => {
-      settle({ code: 1, stdout: stdoutText(), stderr: stderr + (error.message ?? String(error)), timedOut: false })
+      settle({
+        code: 1,
+        stdout: stdoutText(),
+        stderr: stderr + (error.message ?? String(error)),
+        timedOut: false,
+        spawnFailed: true,
+      })
     })
     child.on('exit', (code) => {
       if (timedOut) {

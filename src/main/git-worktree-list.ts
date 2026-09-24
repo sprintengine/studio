@@ -66,8 +66,17 @@ function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
   return worktrees
 }
 
-export async function listGitWorktrees(repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
-  const root = await resolveRepoRoot(repoRoot)
+/**
+ * `resolvedRoot` says the caller already holds git's own answer for the root
+ * (it just resolved it), so the listing does not spend a process asking again.
+ */
+export async function listGitWorktrees(
+  repoRoot: string,
+  options: { resolvedRoot?: boolean } = {},
+): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
+  const root: GitWorktreeOperationResult<string> = options.resolvedRoot
+    ? { ok: true, data: repoRoot, message: null }
+    : await resolveRepoRoot(repoRoot)
   if (!root.ok) return root
 
   const result = await runGitCommand(root.data, ['worktree', 'list', '--porcelain', '-z'])

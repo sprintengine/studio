@@ -7,7 +7,11 @@ import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLin
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
-import { pullRequestsForRow, useConversationPullRequests } from './useConversationPullRequests'
+import {
+  pullRequestsForRow,
+  useConversationPullRequests,
+  type ConversationPullRequests,
+} from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
@@ -52,6 +56,7 @@ import {
 } from '../../utils/modelRegistry'
 import { dataTransferHasTabDrag, readTabDragPayload, type TabDragPayload } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
+import { useStableCallback } from '../../hooks/useStableCallback'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
 import {
   attachedConversations,
@@ -228,7 +233,7 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
   return clientOutside || screenOutside
 }
 
-export default function WorkspaceSidebar({
+function WorkspaceSidebar({
   workspaces,
   activeWorkspaceId,
   workspaceWindowId,
@@ -1453,8 +1458,12 @@ export default function WorkspaceSidebar({
         addTabAsNewColumn(workspace.id, spec)
       } else {
         // Destination is unmounted; mutate persisted JSON so the new tab is
-        // present when the layout next mounts.
-        const nextLayout = appendTabAsNewColumnInJson(workspace.layoutModel, spec)
+        // present when the layout next mounts. The store's layout, not the
+        // row's: rows render from a projection that ignores layout changes.
+        const currentLayout =
+          useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspace.id)?.layoutModel ??
+          workspace.layoutModel
+        const nextLayout = appendTabAsNewColumnInJson(currentLayout, spec)
         updateLayout(workspace.id, nextLayout)
       }
 
@@ -1499,778 +1508,118 @@ export default function WorkspaceSidebar({
     [extractTabIntoNewWorkspace],
   )
 
-  const renderWorkspaceRow = (
-    workspace: Workspace,
-    fKey: string,
-    options?: {
-      keyPrefix?: string
-      /** The band's rows lead with the machine glyph; its tooltip is where the machine is named. */
-      remoteMachine?: string
-      /** A row in its folder's Settled shelf: title and the hover actions, nothing that asks for a look. */
-      settled?: boolean
-      /** A row in its folder's Snoozed shelf: the same compact row, wearing the countdown to its wake. */
-      snoozed?: boolean
-      /**
-       * The row is in the flat stream (all-chats-view), where there is no
-       * folder header above it: it grows a line for the project it belongs to,
-       * and that line takes the row's clock and its hover actions. Null in the
-       * tree, where the header says the project once for all its chats.
-       */
-      flatProject?: FlatProjectLine
-    },
-  ) => {
-    // When a door-routed full-page surface owns the card region (epic 1704), no
-    // workspace row is "current" — the door row carries the selection, so a
-    // highlighted project row here would be a second, conflicting selected state.
-    const active = !globalSurfaceActive && workspace.id === activeWorkspaceId
-    const flatProject = options?.flatProject ?? null
-    // The machine a chat born over there runs on, read off its own provenance
-    // rather than passed down: the row no longer comes from a band that knew,
-    // and the stamp rides the workspace whether or not a pane is open.
-    const rowMachineName = options?.remoteMachine ?? workspace.remoteOrigin?.machineName ?? null
-    const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
-    const tone = activityTone(activity)
-    const recency = terminalRecencyByWorkspaceId[workspace.id]
-    // A row whose module ships a run-glyph provider carries that lifecycle
-    // glyph in the status slot instead of the dot + recency idiom: the run
-    // state (spinner / needs input / paused / failed / done) is the signal such
-    // a workspace wants. Recency still drives ordering and survives in the
-    // glyph's tooltip.
-    const runGlyph = deriveWorkspaceRunGlyph(workspace)
-    const runGlyphRecencyAgo =
-      runGlyph && typeof recency?.lastInputAt === 'number' ? formatRelativeMsAgo(recency.lastInputAt, now) : null
-    const runGlyphLabel = runGlyph
-      ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
-      : null
-    const idleRecencyText = typeof recency?.idleSince === 'number' ? formatRelativeMs(recency.idleSince, now) : ''
-    // The countdown a sleeping row wears in the shelf, and the mark a woken one
-    // wears in the active list until it is opened. Mutually exclusive by
-    // construction: `workspaceWokeAt` is null while the row is still asleep.
-    const asleepUntil = options?.snoozed ? (workspace.snoozedUntil ?? null) : null
-    const wokeAt = wokeAtOf(workspace)
-    const showRecencyText =
-      !runGlyph &&
-      activity === 'idle' &&
-      !!recency &&
-      !recency.hasRunning &&
-      !!idleRecencyText &&
-      // The wake countdown and the Woke mark each take this seat when they
-      // apply: two numbers in one 44px slot is a row saying nothing twice.
-      !options?.snoozed &&
-      wokeAt === null
-    // The row that wants you: it wears the gold treatment instead of a dot.
-    const needsAttention = activity === 'needs-input'
-    // The row that finished while you were away: the same treatment in green,
-    // held until you open it. Gold outranks it when both apply.
-    // A sleeping row never wears the green "finished while you were away" wash,
-    // and never pulses. The mark is a request for attention, and this row's
-    // person has just declined to give it; a chat whose terminals are suspended
-    // is not finishing anything anyway. The wash is waiting for them when the
-    // row wakes, which is when it is news again.
-    const unseenDone = !needsAttention && !options?.snoozed && unseenDoneIds.has(workspace.id)
-    const folderMissing = workspace.folderMissing === true
-    const starred = isStarred(workspace.highlight)
-    // "Hot": at least one resident (live-PTY) agent — instant to switch into.
-    // Said in words for a screen reader, and since 2026-09-09 it is also what
-    // lights the row: an agent alive in a chat is what makes it a place you can
-    // work, whatever its clock says (owner).
-    const resident = residentWorkspaceIds.has(workspace.id)
-    // How loudly this row is drawn — weight for the rows with an agent in them,
-    // the row you are in, and the rows asking for you; muted ink for the rest.
-    // No clock: the row's idle label reports time, and weight reports use.
-    const emphasis = workspaceRowEmphasis({
-      resident,
-      selected: active,
-      working: activity === 'working',
-      wantsYou: needsAttention || unseenDone,
-    })
-    const highlighted = hasHighlightOverride(workspace.highlight)
-    const dropMark =
-      dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id ? dropIndicator.position : null
-    const isTabDropTarget = tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
+  // Everything a row can do, as callbacks whose identity never changes: each
+  // runs the latest closure, so a row that skipped a render still acts on the
+  // sidebar's current state (the drag in flight, the rename being typed).
+  const stableSetContextMenu = useStableCallback(setContextMenu)
+  const stableHandleClose = useStableCallback(handleClose)
+  const stableSetWorkspaceSnoozed = useStableCallback(setWorkspaceSnoozed)
+  const stableSetWorkspaceSettled = useStableCallback(setWorkspaceSettled)
+  const stableSettleWorkspaceById = useStableCallback(settleWorkspaceById)
+  const stableOpenPaneTab = useStableCallback(openPaneTab)
+  const stableSetRovingKey = useStableCallback(setRovingKey)
+  const stableHandleTreeRowKeyDown = useStableCallback(handleTreeRowKeyDown)
+  const stableHandleRowDragStart = useStableCallback(handleRowDragStart)
+  const stableHandleRowDragOver = useStableCallback(handleRowDragOver)
+  const stableHandleRowDrop = useStableCallback(handleRowDrop)
+  const stableHandleDragEnd = useStableCallback(handleDragEnd)
+  const stableHandleTabDragOverRow = useStableCallback(handleTabDragOverRow)
+  const stableHandleTabDragLeaveRow = useStableCallback(handleTabDragLeaveRow)
+  const stableHandleTabDropOnRow = useStableCallback(handleTabDropOnRow)
+  const stableOnSelectWorkspace = useStableCallback(onSelectWorkspace)
+  const stableStartRename = useStableCallback(startRename)
+  const stableCommitRename = useStableCallback(commitRename)
+  const stableSetRenameValue = useStableCallback(setRenameValue)
+  const stableSetRenamingId = useStableCallback(setRenamingId)
+  const rowHandlers = useMemo<WorkspaceRowHandlers>(
+    () => ({
+      setContextMenu: stableSetContextMenu,
+      handleClose: stableHandleClose,
+      setWorkspaceSnoozed: stableSetWorkspaceSnoozed,
+      setWorkspaceSettled: stableSetWorkspaceSettled,
+      settleWorkspaceById: stableSettleWorkspaceById,
+      openPaneTab: stableOpenPaneTab,
+      setRovingKey: stableSetRovingKey,
+      handleTreeRowKeyDown: stableHandleTreeRowKeyDown,
+      handleRowDragStart: stableHandleRowDragStart,
+      handleRowDragOver: stableHandleRowDragOver,
+      handleRowDrop: stableHandleRowDrop,
+      handleDragEnd: stableHandleDragEnd,
+      handleTabDragOverRow: stableHandleTabDragOverRow,
+      handleTabDragLeaveRow: stableHandleTabDragLeaveRow,
+      handleTabDropOnRow: stableHandleTabDropOnRow,
+      onSelectWorkspace: stableOnSelectWorkspace,
+      startRename: stableStartRename,
+      commitRename: stableCommitRename,
+      setRenameValue: stableSetRenameValue,
+      setRenamingId: stableSetRenamingId,
+      renameInputRef,
+    }),
+    // Every entry is stable by construction; the list is here for the linter.
+    [
+      stableSetContextMenu,
+      stableHandleClose,
+      stableSetWorkspaceSnoozed,
+      stableSetWorkspaceSettled,
+      stableSettleWorkspaceById,
+      stableOpenPaneTab,
+      stableSetRovingKey,
+      stableHandleTreeRowKeyDown,
+      stableHandleRowDragStart,
+      stableHandleRowDragOver,
+      stableHandleRowDrop,
+      stableHandleDragEnd,
+      stableHandleTabDragOverRow,
+      stableHandleTabDragLeaveRow,
+      stableHandleTabDropOnRow,
+      stableOnSelectWorkspace,
+      stableStartRename,
+      stableCommitRename,
+      stableSetRenameValue,
+      stableSetRenamingId,
+    ],
+  )
+
+  // Each row is its own memoized component (`WorkspaceRow`, below). It is
+  // handed the values that are about ITS workspace, picked out of the
+  // sidebar's maps here, so a change to one row's activity, a drag over
+  // another, or a tick of the sidebar's clock re-renders the rows it touches
+  // and not the whole list. The handlers ride one object that never changes
+  // identity (`rowHandlers`).
+  const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: WorkspaceRowOptions) => {
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
-    // The row's lines (sidebar-lists-every-terminal): one per open terminal —
-    // the local live sessions AND the fleet panes the layout mounts from
-    // other machines.
-    // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
-    // no open terminal is the one-liner it always was — title only, with idle
-    // recency keeping its old seat in the line-1 status cluster. Its branch and
-    // ±lines are not facts about a chat that is not running; they are the
-    // checkout's current state, which a parked chat has no claim on. So the
-    // lines, and everything on them, are gated on liveness: no terminal, no
-    // line. (The poll above already asks about live rows only; the gate here
-    // keeps the render honest even mid-transition.)
-    // A remote-born row is titled with the CHAT, never with an agent standing
-    // in it (owner, 2026-09-13). `remoteConversationTitle` also rescues the
-    // rows already stored under the old `${agentName} · ${chatName}` rule, so
-    // the fix reaches chats that exist rather than only the next one opened.
-    const rowTitle = remoteConversationTitle(workspace)
-    // The conversation this row is, over on its machine — present only for a
-    // remote-born row whose machine has answered a browse.
-    const rowConversation = remoteConversationByWorkspace.get(workspace.id) ?? null
-    // A remote chat with agents standing in it is live whatever this window is
-    // holding: `rowHasOpenTerminals` asks about panes HERE, and a person who
-    // closed the pane did not stop the chat. The browse saying the agents are
-    // there is the better answer, and without this the row went silent the
-    // moment its pane closed even though the machine was still working.
-    const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId) || rowConversation !== null
-    // A settled row is the one-liner by construction: rest is the point, and
-    // a checkout's branch and ±lines are not facts about a chat at rest.
-    const rowLines =
-      rowIsLive && !options?.settled && !options?.snoozed
-        ? rowConversation
-          ? // A remote chat draws the agents standing in IT, not the one pane this
-            // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
-            // see the session this workspace attached, so a chat running three
-            // agents over there drew one nameless, activity-free line here while
-            // the very same chat, unopened, drew three live ones in the band
-            // beside it — opening a chat made it say less. The browse already read
-            // all three; these are the band's own lines, which is what makes an
-            // open remote row and a local multi-agent row read alike.
-            { lines: rowConversation.agents.map(lineOfRemoteRow), overflow: 0 }
-          : terminalLinesOf({
-              workspace,
-              sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
-              fleetPanes: fleetPanesOf(workspace),
-              summaries: gitSummaries,
-            })
-        : { lines: [], overflow: 0 }
-    // A band row names its machine on the title glyph, so its lines do not
-    // say it again; a local row that holds a remote pane still marks it there.
-    if (rowMachineName) for (const line of rowLines.lines) line.machineName = null
-    // The one thing a parked row still gets to say (orchestrator ruling
-    // 2026-09-07). The gate above is about the checkout's live state, which a
-    // chat with nothing running has no claim on; a worktree workspace's branch
-    // is not that. The workspace IS the worktree, cut onto a branch the app
-    // minted for it, and it stays that whether or not a terminal is up — the
-    // same durable fact its header no longer says now that the row files under
-    // the project it came from. So: the branch chip, alone, and no ± diff,
-    // which would be live state again.
-    const parkedWorktreeBranch = rowIsLive ? null : workspace.worktree?.branch?.trim() || null
-    // What this chat holds once nothing is running in it. A row WITH lines
-    // draws its marks on those lines, where they belong to the agent that
-    // opened them; this is only ever the fallback for a row with none
-    // (`pullRequestsForRow`), and it spans every agent the chat ever had —
-    // "in the sidebar, we should just see all the pull requests that are
-    // related to a particular conversation" (owner, 2026-09-10).
-    //
-    // Merged ones included, deliberately. The mark is this chat's record and it
-    // keeps holding a merged pull request; the DIFF is the separate live
-    // reading, and it empties itself once the branch lands.
-    const parkedPullRequests = pullRequestsForRow({
-      hasLiveLines: rowLines.lines.length > 0,
-      conversation: conversationPullRequests[workspace.id],
-    })
-    // The second line exists for either fact now. A parked chat with a pull
-    // request but no worktree branch used to have no line at all, which is
-    // exactly the row the owner could not read anything off.
-    const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
-    const metaHasSubstance = rowLines.lines.length > 0 || parkedLine
-
-    // The row's status seat: run glyph / working dots + elapsed / tone dot /
-    // idle recency, with the hover-revealed row actions layered over it.
-    //
-    // Owner ruling 2026-09-04: this used to live on line 1, where its
-    // permanently reserved 44px plus its gap cost every title a fifth of the
-    // sidebar's content column. It now rides line 2's trailing edge whenever
-    // there IS a line 2, so the title claims the full width the way list-row
-    // says it should; a row with no meta to show keeps the seat exactly where
-    // it was, and stays exactly the height it was.
-    const rowActionsOverlay = (
-      <>
-        {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
-            (group-focus-within) so they are reachable and never a focus trap
-            on an invisible control. The seat's min-w is the width they reserve
-            (list-row's `data-actions` rule), so revealing never reflows — and
-            reserving it here rather than on line 1 is the whole point of the
-            move. */}
-        <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-          <Tooltip content="More actions">
-            <IconButton
-              onClick={(event) => {
-                event.stopPropagation()
-                setContextMenu({
-                  workspaceId: workspace.id,
-                  x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                  y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                })
-              }}
-              tone="quiet"
-              aria-label="Workspace actions"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
-                <circle cx="3.5" cy="8" r="1.2" />
-                <circle cx="8" cy="8" r="1.2" />
-                <circle cx="12.5" cy="8" r="1.2" />
-              </svg>
-            </IconButton>
-          </Tooltip>
-          {/* The one-click seat is rest, not removal (settled-chats,
-              2026-09-07). It used to be the ✕, which terminates the row's
-              terminals and removes the chat — the irreversible gesture in the
-              cheapest place on the row, and against this epic's own thesis
-              that a chat comes to rest instead of vanishing. Close keeps its
-              entry in `···`, where a gesture that cannot be taken back
-              belongs; Settle, the one you make fifty times a day and can undo
-              with the next click, takes the seat.
-
-              Neutral ink, deliberately: green already means "an agent
-              finished while you were away — come look" on this exact surface
-              (`doneRowClass` washes the whole row in --tone-good-faint), so a
-              green tick would be the opposite instruction in the same hue six
-              pixels away — the mistake the green ring was struck down for
-              (owner ruling 2026-09-05). The tick's SHAPE says done; it does
-              not need the tone to say it.
-
-              A settled row gets the undo arrow rather than a second tick: the
-              action there is "put this back", and a tick would still be
-              saying "done" about the state you are leaving.
-
-              A row born on a paired machine keeps the ✕: the Remote band has
-              no Settled shelf, so it has nothing to settle into — the same
-              rule the menu's Settle entry follows. */}
-          {workspace.remoteOrigin ? (
-            <Tooltip content="Close workspace">
-              <IconButton
-                onClick={(event) => {
-                  event.stopPropagation()
-                  handleClose(workspace.id)
-                }}
-                tone="quiet"
-                aria-label={`Close ${workspace.name}`}
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </IconButton>
-            </Tooltip>
-          ) : options?.snoozed ? (
-            /* The one-click seat on a sleeping row is Wake. Settle is wrong
-               here — the row is not asking to be called finished, it is
-               waiting on a clock — and the undo arrow the Settled shelf uses
-               would be saying "put this back" about a state the row is going
-               to leave on its own anyway. The alarm-bell shape says the clock
-               is what you are cancelling. */
-            <Tooltip content="Wake now">
-              <IconButton
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setWorkspaceSnoozed(workspace.id, null)
-                }}
-                tone="quiet"
-                aria-label={`Wake ${workspace.name}`}
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <circle cx="8" cy="9" r="4.6" stroke="currentColor" strokeWidth="1.4" />
-                  <path
-                    d="M8 6.6V9l1.6 1.1"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M2.6 4.2 4.7 2.5M13.4 4.2l-2.1-1.7"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </IconButton>
-            </Tooltip>
-          ) : options?.settled ? (
-            <Tooltip content="Un-settle">
-              <IconButton
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setWorkspaceSettled(workspace.id, false)
-                }}
-                tone="quiet"
-                aria-label={`Un-settle ${workspace.name}`}
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <path
-                    d="M6.2 3.3L3 6l3.2 2.7"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M3 6h6.4a3.3 3.3 0 0 1 0 6.6H7.2"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </IconButton>
-            </Tooltip>
-          ) : (
-            <Tooltip content="Settle">
-              <IconButton
-                onClick={(event) => {
-                  event.stopPropagation()
-                  settleWorkspaceById(workspace.id)
-                }}
-                tone="quiet"
-                aria-label={`Settle ${workspace.name}`}
-              >
-                {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
-                    brought onto the 16-grid at its 1.4 stroke and inset to the
-                    12×12 live area. */}
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <path
-                    d="M3.75 8.5L6.5 11.25L12.25 5.25"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </IconButton>
-            </Tooltip>
-          )}
-        </span>
-      </>
-    )
-    const statusSeat = options?.settled ? (
-      // A settled row keeps the seat for its hover actions and nothing else:
-      // no dot, no glyph, no idle clock — the shelf already says it is resting.
-      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
-        {rowActionsOverlay}
-      </span>
-    ) : (
-      <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
-        <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-          {runGlyph && runGlyphLabel ? (
-            <RowTooltip content={runGlyphLabel}>
-              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-            </RowTooltip>
-          ) : null}
-          {/* Active work earns the three-dot working marker; the other
-              attention states keep the tone dot. */}
-          {/* An attention row renders NO dot: the row's own gold surface is the
-              mark, and status-dot's spec calls a dot beside something already
-              saying the same thing a reject-on-sight. Working and failed keep
-              their marks — neither tints the row. */}
-          {!runGlyph && tone && !needsAttention ? (
-            activity === 'working' ? (
-              <>
-                <AgentWorkingDots label={activityLabel(activity)} />
-                {/* How long the turn has been running. The workspace-level
-                    activity above decides WHETHER work is in flight (hooks are
-                    the authority on that); the terminal snapshot only supplies
-                    the timestamp, and a turn without one simply shows the dots
-                    alone. */}
-                {typeof recency?.workingSince === 'number' ? <WorkingElapsed since={recency.workingSince} /> : null}
-              </>
-            ) : (
-              <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
-            )
-          ) : null}
-          {/* A sleeping row says when it comes back — the one thing it is for.
-              Same seat, same type step and the same muted ink as the idle
-              clock it stands in for, because it is the same kind of reading. */}
-          {asleepUntil !== null ? (
-            <RowTooltip
-              content={`Wakes ${relativeFromNow(asleepUntil, now)} (${new Date(asleepUntil).toLocaleString()})`}
-            >
-              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
-                <span aria-hidden="true">{snoozeWakeLabel(asleepUntil, now)}</span>
-                <span className="sr-only">Wakes in {snoozeWakeLabel(asleepUntil, now)}</span>
-              </span>
-            </RowTooltip>
-          ) : null}
-          {/* A row that came back. The list's order is static, so nothing about
-              its position says it returned; this is the whole of the signal,
-              and opening the row spends it. Muted, not gold: gold on this
-              surface means "the agent is waiting on you", which a woken row is
-              not necessarily doing. */}
-          {wokeAt !== null ? (
-            <RowTooltip content={`Woke ${formatRelativeMsAgo(wokeAt, now) || 'just now'}`}>
-              <span className="text-meta text-[color:var(--text-subtle)]">Woke</span>
-            </RowTooltip>
-          ) : null}
-          {showRecencyText ? (
-            <RowTooltip
-              content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
-            >
-              <span
-                className={`text-meta tabular-nums ${
-                  emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
-                }`}
-              >
-                <span aria-hidden="true">{idleRecencyText}</span>
-                <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
-              </span>
-            </RowTooltip>
-          ) : null}
-        </span>
-        {rowActionsOverlay}
-      </span>
-    )
-
-    // The row's conversation peek (2026-09-07). The row says what the chat is
-    // CALLED; the card says what was actually asked — the message that started
-    // it, everything sent since, and the model and session behind it. Null when
-    // there is no session id worth asking about: nothing to read, and a card
-    // that only restated the row's own title is the noise this replaced.
-    //
-    // Note the map: every session main knows about, running or not, and then
-    // the row's own agent records. Whether the PROCESS is alive is not the
-    // question — whether there is an id to ask about is.
-    // One identity per agent (2026-09-09): the card opens from the agent line
-    // the pointer is on, and a chat with a single agent opens from its row.
-    const peekIdentities = rowConversationPeekIdentities({
-      workspace,
-      sessions: peekSessionsByWorkspaceId.get(workspace.id) ?? [],
-      status: peekStatusOf(activity, idleRecencyText),
-      now,
-    })
-    const hasPeek = peekIdentities.length > 0
-    // The whole row is the peek's hover target (owner ruling 2026-09-07), which
-    // costs the title its own tooltip. `TruncatedText` opens one the moment a
-    // title is clipped, and with the card opening from the same row that would
-    // be a second surface over the first — saying the same name the card's
-    // header is already saying in full. So where there IS a peek the title
-    // truncates plainly and the card carries the name.
-    //
-    // Only where there is one. A row with no agent session opens no card, and
-    // dropping the tooltip there too would leave a long chat name with no way
-    // to be read at all — so that row keeps `TruncatedText` exactly as it was.
-    // `TruncatedText` itself is untouched; this is only how the row uses it.
-    const titleClusterClass = `flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`
-    const titleClass = `min-w-0 flex-1 ${
-      // Weight ONLY, and for every row anyone is using — the row you are in,
-      // the ones working, the ones that want you, and anything touched inside
-      // the hour. The ink lift stays selection's channel, not weight's: the
-      // selected row is the one that also brightens (its row class carries
-      // `--text-strong`), so a bold row never reads as the row you are in
-      // (design-system/patterns/selection.html). It is also what keeps the
-      // mark honest on an attention row, where a second ink would cancel the
-      // warn colour the row is wearing.
-      emphasis === 'active' ? 'font-semibold' : ''
-    } ${
-      // The background tier, and deliberately a step below list-row's Rest:
-      // `text.muted` still read as foreground on this near-black rail, so a
-      // chat nobody is using sits at `text.subtle` and lifts to `text.default`
-      // on hover — reaching for one is never reading dim text. Selection's own
-      // ink lift never reaches here: a selected row is `active`.
-      emphasis === 'quiet' ? 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-default)]' : ''
-    }`
-    const titleClusterContent = (
-      <>
-        {/* Where the row runs, when it is not here. In the flat stream the
-            project line above already carries this mark beside the folder
-            icon, so the title does not say it twice. */}
-        {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
-        {starred ? (
-          <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred" />
-        ) : null}
-        {(() => {
-          const RowMark = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)?.RowMark
-          return RowMark ? <RowMark /> : null
-        })()}
-        {hasPeek ? (
-          <span className={`${titleClass} truncate`}>{rowTitle}</span>
-        ) : (
-          <TruncatedText as="span" text={rowTitle} className={titleClass} />
-        )}
-        {resident ? <span className="sr-only"> (agents resident)</span> : null}
-        {/* The gold surface is the visible mark; this is the same meaning
-            in words, since no state may be carried by colour alone. */}
-        {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
-        {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
-        {options?.settled ? <span className="sr-only"> (settled)</span> : null}
-        {options?.snoozed ? <span className="sr-only"> (snoozed)</span> : null}
-      </>
-    )
-    const titleCluster = hasPeek ? (
-      <ConversationPeekPopover
-        identities={peekIdentities}
-        now={now}
-        className={titleClusterClass}
-        onOpenDiff={(path, agentId) =>
-          openPaneTab(workspace.id, {
-            kind: 'diff',
-            diff: {
-              focusPath: path,
-              focusKind: path ? 'unstaged' : null,
-              // The card is one agent's conversation, so "open the diff" is
-              // that agent's changelist — named outright rather than left to
-              // the workspace's last-active default, which answers a different
-              // question and could answer it with a different agent.
-              ...(agentId ? { changelistId: changelistOwnerId(agentId) } : {}),
-            },
-          })
-        }
-      >
-        {titleClusterContent}
-      </ConversationPeekPopover>
-    ) : (
-      <span className={titleClusterClass}>{titleClusterContent}</span>
-    )
-
-    const rowElement = (
-      <div
-        data-row-key={rowKey}
-        // Roving tabindex: exactly one treeitem is in the tab order at a time,
-        // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
-        tabIndex={rovingKey === rowKey ? 0 : -1}
-        onFocus={() => setRovingKey(rowKey)}
-        onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
-        // Drag-to-reorder is the tree's: it rewrites the stored order of a
-        // folder's chats, and the flat stream is ordered by the clock, so a
-        // drag there would move a row you cannot see moving. Dropping a
-        // TERMINAL onto a chat is untouched — that is not about order.
-        draggable={!renamingId && !flatProject}
-        onDragStart={(event) => {
-          if (flatProject) return
-          handleRowDragStart(event, workspace, fKey)
-        }}
-        onDragOver={(event) => {
-          if (dataTransferHasTabDrag(event.dataTransfer)) {
-            handleTabDragOverRow(event, workspace)
-            return
-          }
-          if (flatProject) return
-          handleRowDragOver(event, workspace, fKey)
-        }}
-        onDragLeave={() => handleTabDragLeaveRow(workspace.id)}
-        onDrop={(event) => {
-          if (dataTransferHasTabDrag(event.dataTransfer)) {
-            handleTabDropOnRow(event, workspace)
-            return
-          }
-          if (flatProject) return
-          handleRowDrop(event, workspace, fKey)
-        }}
-        onDragEnd={handleDragEnd}
-        onClick={() => {
-          if (renamingId) return
-          onSelectWorkspace(workspace.id)
-        }}
-        onDoubleClick={(event) => {
-          event.stopPropagation()
-          startRename(workspace)
-        }}
-        onMouseDown={(event) => {
-          if (event.button === 1) {
-            event.preventDefault()
-            handleClose(workspace.id)
-          }
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
-        }}
-        // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below); the flat stream has no folder header to sit under, so its rows give the indent back and start on the column's own 16px edge, where New chat starts
-        // Two-line row (remote-sessions-ux): a column now — line 1 is the title
-        // + status cluster, line 2 the meta (heads · provenance · branch ·
-        // diff). min-h keeps a metaless row exactly the height it always was.
-        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pr-1.5 text-heading ${
-          flatProject ? 'pl-1.5' : 'pl-[26px]'
-        } ${FOCUS_RING_CLASS} ${
-          needsAttention
-            ? attentionRowClass(active)
-            : unseenDone
-              ? doneRowClass(active)
-              : active
-                ? activeRowClass(workspace)
-                : highlighted
-                  ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
-                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
-        } ${folderMissing ? 'opacity-70' : ''}`}
-        role="treeitem"
-        aria-current={active ? 'true' : undefined}
-      >
-        {/* The flat stream's top line (all-chats-view): the project this chat
-            belongs to, and the clock — or what the agent is doing — at the
-            trailing edge. It is the one line that is the same shape on every
-            row, which is what lets the eye find the clock without reading the
-            row; in the tree the folder header says the project instead and the
-            clock rides whichever line the row happens to end on.
-
-            A folder glyph, not the project's logo: the logo belongs to the one
-            header that names the project (reversed 2026-09-02 for
-            exactly this — a project's mark once per chat is repetition), and
-            this line is a row's filing, not a heading. */}
-        {flatProject ? (
-          <ProjectLine
-            project={flatProject}
-            // A chat born on a paired machine wears the green glyph here too:
-            // in this view it IS an ordinary row of its project, so the mark
-            // beside the folder icon is the only thing saying where it runs.
-            machineName={rowMachineName}
-            dim={emphasis === 'quiet'}
-          >
-            {statusSeat}
-          </ProjectLine>
-        ) : null}
-        <AttentionPulse active={needsAttention} resetKey={workspace.id} />
-        <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
-        {dropMark === 'before' ? (
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
-          />
-        ) : null}
-        {dropMark === 'after' ? (
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
-          />
-        ) : null}
-        {isTabDropTarget ? (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-md ring-2 ring-[color:var(--accent-primary)] ring-offset-0"
-          />
-        ) : null}
-
-        <div className="flex min-w-0 items-center gap-2">
-          {/* No identity slot on the row. Owner, 2026-09-02: the project's
-            discovered logo belongs to the FOLDER header that names the project,
-            not repeated once per chat beneath it, and the terminal glyph the
-            logo-less rows fell back to said nothing a row of chats needs said.
-            So the row opens on its title again, as it did before project logos'
-            ruling C, and the whole slot — logo and glyph — moved up to the
-            header (`FolderIdentityIcon`). Mode identity still reads from the
-            row accent and the trailing run glyph. */}
-          {renamingId === workspace.id ? (
-            // The kit's field, spliced into a row that has already decided its
-            // height: `size="none"` spends no ramp step, so the inset and the
-            // row's own type step stay here as layout. `variant="default"` is
-            // the right ground — `--bg-field` IS `--bg-surface-raised` on an
-            // opaque window — and brings the border, the radius, the hover edge
-            // lift and the one focus ring with it.
-            <Input
-              ref={renameInputRef}
-              size="none"
-              fullWidth={false}
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              onBlur={commitRename}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') commitRename()
-                if (event.key === 'Escape') setRenamingId(null)
-                event.stopPropagation()
-              }}
-              className="min-w-0 flex-1 px-1.5 py-0 text-heading"
-            />
-          ) : (
-            titleCluster
-          )}
-
-          {folderMissing ? (
-            <svg
-              className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-              viewBox="0 0 16 16"
-              fill="none"
-              aria-label="Folder missing"
-            >
-              <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-              <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          ) : null}
-
-          {/* A provider-derived run lifecycle is the ROW's state, not a terminal's, so
-            when the LINES carry the seats it keeps line 1's trailing edge —
-            a terminal's seat has no room for it. The parked worktree line
-            below carries the row's own `statusSeat`, which already draws this
-            glyph, so the condition is the lines and not `metaHasSubstance`:
-            the two diverged the moment a lineless row could have a line 2,
-            and asking the wrong one drew the glyph twice on any row whose
-            module hands it one. */}
-          {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
-            <RowTooltip content={runGlyphLabel}>
-              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-            </RowTooltip>
-          ) : null}
-          {/* A lineless row has no line to carry the seat, so it keeps it
-            here — the one-liner it always was. Never in the flat stream,
-            where the project line above already took it. */}
-          {metaHasSubstance || flatProject ? null : statusSeat}
-        </div>
-        {parkedLine ? (
-          // The same line container a terminal's line uses, so a parked
-          // worktree row is exactly as tall as a live one and its seat sits
-          // where every other seat sits.
-          <div
-            className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
-              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
-            }`}
-          >
-            {parkedWorktreeBranch ? (
-              <BranchChip
-                branch={parkedWorktreeBranch}
-                worktree
-                cwd={workspace.folderPath ?? null}
-                dim={emphasis === 'quiet'}
-              />
-            ) : null}
-            {/* After the branch, where a live line puts it, so the two rows
-                read the same way. No ±lines beside it: a parked row's diff is
-                the checkout's present state and not anything this chat did
-                (the-diff-an-agent-made, decision 9) — the pull request is the
-                one fact that is still this conversation's. */}
-            <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
-            {flatProject ? null : statusSeat}
-          </div>
-        ) : null}
-        {rowLines.lines.map((line, index) => {
-          // An agent line's ±count is that agent's own work, so pressing it
-          // opens that agent's changelist. The agent id comes from the row's
-          // sessions rather than from the line, because a line is a drawing of
-          // a terminal and the diff is a fact about the agent inside it.
-          const lineAgentId =
-            line.kind === 'agent'
-              ? ((peekSessionsByWorkspaceId.get(workspace.id) ?? []).find((session) => session.sessionId === line.key)
-                  ?.agentId ?? null)
-              : null
-          return (
-            <TerminalLineView
-              key={line.key}
-              line={line}
-              now={now}
-              seatOverlay={index === 0 && !flatProject ? rowActionsOverlay : undefined}
-              disambiguate={rowLines.lines.length > 1}
-              dim={emphasis === 'quiet'}
-              rowOwnsStatus={flatProject !== null}
-              onOpenDiff={
-                lineAgentId
-                  ? () =>
-                      openPaneTab(workspace.id, {
-                        kind: 'diff',
-                        diff: {
-                          focusPath: null,
-                          focusKind: null,
-                          changelistId: changelistOwnerId(lineAgentId),
-                        },
-                      })
-                  : undefined
-              }
-            />
-          )
-        })}
-        {rowLines.overflow > 0 ? (
-          <div
-            className={`flex h-5 items-center text-micro ${
-              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
-            }`}
-          >
-            +{rowLines.overflow} more {rowLines.overflow === 1 ? 'terminal' : 'terminals'}
-          </div>
-        ) : null}
-      </div>
-    )
-    // The card is this row's hover surface where it has one, so the row's own
-    // readings stop opening tooltips underneath it (`RowTooltip`).
     return (
-      <RowTooltipsSuppressed.Provider key={rowKey} value={hasPeek}>
-        {rowElement}
-      </RowTooltipsSuppressed.Provider>
+      <WorkspaceRow
+        key={rowKey}
+        workspace={workspace}
+        fKey={fKey}
+        options={options}
+        // When a door-routed full-page surface owns the card region (epic
+        // 1704), no workspace row is "current" — the door row carries the
+        // selection, so a highlighted project row here would be a second,
+        // conflicting selected state.
+        active={!globalSurfaceActive && workspace.id === activeWorkspaceId}
+        activity={activityByWorkspaceId[workspace.id] ?? 'idle'}
+        recency={terminalRecencyByWorkspaceId[workspace.id]}
+        wokeAt={wokeAtOf(workspace)}
+        unseenDoneMark={unseenDoneIds.has(workspace.id)}
+        resident={residentWorkspaceIds.has(workspace.id)}
+        dropMark={
+          dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id ? dropIndicator.position : null
+        }
+        isTabDropTarget={tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id}
+        rowConversation={remoteConversationByWorkspace.get(workspace.id) ?? null}
+        liveSessions={sessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
+        peekSessions={peekSessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
+        gitSummaries={gitSummaries}
+        rowConversationPullRequests={conversationPullRequests[workspace.id]}
+        moduleOverrides={moduleOverrides}
+        isRovingTarget={rovingKey === rowKey}
+        anyRenaming={renamingId !== null}
+        renaming={renamingId === workspace.id}
+        renameValue={renamingId === workspace.id ? renameValue : ''}
+        handlers={rowHandlers}
+      />
     )
   }
 
@@ -3265,3 +2614,871 @@ export default function WorkspaceSidebar({
     </aside>
   )
 }
+
+type WorkspaceRowOptions = {
+  keyPrefix?: string
+  /** The band's rows lead with the machine glyph; its tooltip is where the machine is named. */
+  remoteMachine?: string
+  /** A row in its folder's Settled shelf: title and the hover actions, nothing that asks for a look. */
+  settled?: boolean
+  /** A row in its folder's Snoozed shelf: the same compact row, wearing the countdown to its wake. */
+  snoozed?: boolean
+  /**
+   * The row is in the flat stream (all-chats-view), where there is no
+   * folder header above it: it grows a line for the project it belongs to,
+   * and that line takes the row's clock and its hover actions. Null in the
+   * tree, where the header says the project once for all its chats.
+   */
+  flatProject?: FlatProjectLine
+}
+
+const NO_SESSIONS: TerminalSessionSnapshot[] = []
+
+/** What a row does, held in one object whose identity never changes. */
+type WorkspaceRowHandlers = {
+  setContextMenu: (menu: { workspaceId: WorkspaceId; x: number; y: number } | null) => void
+  handleClose: (workspaceId: WorkspaceId) => void
+  setWorkspaceSnoozed: (workspaceId: WorkspaceId, until: number | null) => void
+  setWorkspaceSettled: (workspaceId: WorkspaceId, settled: boolean) => void
+  settleWorkspaceById: (workspaceId: WorkspaceId) => void
+  openPaneTab: ReturnType<typeof useWorkspaceStore.getState>['openPaneTab']
+  setRovingKey: (key: string) => void
+  handleTreeRowKeyDown: (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    workspaceId: WorkspaceId | null,
+    open?: () => void,
+  ) => void
+  handleRowDragStart: (event: React.DragEvent, workspace: Workspace, fKey: string) => void
+  handleRowDragOver: (event: React.DragEvent, workspace: Workspace, fKey: string) => void
+  handleRowDrop: (event: React.DragEvent, workspace: Workspace, fKey: string) => void
+  handleDragEnd: (event: React.DragEvent) => void
+  handleTabDragOverRow: (event: React.DragEvent, workspace: Workspace) => void
+  handleTabDragLeaveRow: (workspaceId: WorkspaceId) => void
+  handleTabDropOnRow: (event: React.DragEvent, workspace: Workspace) => void
+  onSelectWorkspace: (workspaceId: WorkspaceId) => void
+  startRename: (workspace: Workspace) => void
+  commitRename: () => void
+  setRenameValue: (value: string) => void
+  setRenamingId: (workspaceId: WorkspaceId | null) => void
+  renameInputRef: React.RefObject<HTMLInputElement | null>
+}
+
+type WorkspaceRowProps = {
+  workspace: Workspace
+  fKey: string
+  options?: WorkspaceRowOptions
+  active: boolean
+  activity: Activity
+  recency: TerminalRecency | undefined
+  wokeAt: number | null
+  unseenDoneMark: boolean
+  resident: boolean
+  dropMark: 'before' | 'after' | null
+  isTabDropTarget: boolean
+  rowConversation: RemoteConversation | null
+  liveSessions: TerminalSessionSnapshot[]
+  peekSessions: TerminalSessionSnapshot[]
+  gitSummaries: ReturnType<typeof useSidebarGitSummaries>
+  rowConversationPullRequests: ConversationPullRequests[string] | undefined
+  moduleOverrides: ReturnType<typeof useWorkspaceStore.getState>['appSettings']['modules']
+  isRovingTarget: boolean
+  anyRenaming: boolean
+  renaming: boolean
+  renameValue: string
+  handlers: WorkspaceRowHandlers
+}
+
+/**
+ * One chat's row. Memoized: it re-renders when something about THIS row
+ * changes, not whenever the sidebar does. Its clock is its own
+ * (`useRelativeNow`), so the idle and wake labels advance without the list
+ * above them re-rendering.
+ */
+const WorkspaceRow = React.memo(function WorkspaceRow({
+  workspace,
+  fKey,
+  options,
+  active,
+  activity,
+  recency,
+  wokeAt,
+  unseenDoneMark,
+  resident,
+  dropMark,
+  isTabDropTarget,
+  rowConversation,
+  liveSessions,
+  peekSessions,
+  gitSummaries,
+  rowConversationPullRequests,
+  moduleOverrides,
+  isRovingTarget,
+  anyRenaming,
+  renaming,
+  renameValue,
+  handlers,
+}: WorkspaceRowProps) {
+  const {
+    setContextMenu,
+    handleClose,
+    setWorkspaceSnoozed,
+    setWorkspaceSettled,
+    settleWorkspaceById,
+    openPaneTab,
+    setRovingKey,
+    handleTreeRowKeyDown,
+    handleRowDragStart,
+    handleRowDragOver,
+    handleRowDrop,
+    handleDragEnd,
+    handleTabDragOverRow,
+    handleTabDragLeaveRow,
+    handleTabDropOnRow,
+    onSelectWorkspace,
+    startRename,
+    commitRename,
+    setRenameValue,
+    setRenamingId,
+    renameInputRef,
+  } = handlers
+  const now = useRelativeNow()
+  const flatProject = options?.flatProject ?? null
+  // The machine a chat born over there runs on, read off its own provenance
+  // rather than passed down: the row no longer comes from a band that knew,
+  // and the stamp rides the workspace whether or not a pane is open.
+  const rowMachineName = options?.remoteMachine ?? workspace.remoteOrigin?.machineName ?? null
+  const tone = activityTone(activity)
+  // A row whose module ships a run-glyph provider carries that lifecycle
+  // glyph in the status slot instead of the dot + recency idiom: the run
+  // state (spinner / needs input / paused / failed / done) is the signal such
+  // a workspace wants. Recency still drives ordering and survives in the
+  // glyph's tooltip.
+  const runGlyph = deriveWorkspaceRunGlyph(workspace)
+  const runGlyphRecencyAgo =
+    runGlyph && typeof recency?.lastInputAt === 'number' ? formatRelativeMsAgo(recency.lastInputAt, now) : null
+  const runGlyphLabel = runGlyph
+    ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
+    : null
+  const idleRecencyText = typeof recency?.idleSince === 'number' ? formatRelativeMs(recency.idleSince, now) : ''
+  // The countdown a sleeping row wears in the shelf, and the mark a woken one
+  // wears in the active list until it is opened. Mutually exclusive by
+  // construction: `workspaceWokeAt` is null while the row is still asleep.
+  const asleepUntil = options?.snoozed ? (workspace.snoozedUntil ?? null) : null
+  const showRecencyText =
+    !runGlyph &&
+    activity === 'idle' &&
+    !!recency &&
+    !recency.hasRunning &&
+    !!idleRecencyText &&
+    // The wake countdown and the Woke mark each take this seat when they
+    // apply: two numbers in one 44px slot is a row saying nothing twice.
+    !options?.snoozed &&
+    wokeAt === null
+  // The row that wants you: it wears the gold treatment instead of a dot.
+  const needsAttention = activity === 'needs-input'
+  // The row that finished while you were away: the same treatment in green,
+  // held until you open it. Gold outranks it when both apply.
+  // A sleeping row never wears the green "finished while you were away" wash,
+  // and never pulses. The mark is a request for attention, and this row's
+  // person has just declined to give it; a chat whose terminals are suspended
+  // is not finishing anything anyway. The wash is waiting for them when the
+  // row wakes, which is when it is news again.
+  const unseenDone = !needsAttention && !options?.snoozed && unseenDoneMark
+  const folderMissing = workspace.folderMissing === true
+  const starred = isStarred(workspace.highlight)
+  // "Hot": at least one resident (live-PTY) agent — instant to switch into.
+  // Said in words for a screen reader, and since 2026-09-09 it is also what
+  // lights the row: an agent alive in a chat is what makes it a place you can
+  // work, whatever its clock says (owner).
+  // How loudly this row is drawn — weight for the rows with an agent in them,
+  // the row you are in, and the rows asking for you; muted ink for the rest.
+  // No clock: the row's idle label reports time, and weight reports use.
+  const emphasis = workspaceRowEmphasis({
+    resident,
+    selected: active,
+    working: activity === 'working',
+    wantsYou: needsAttention || unseenDone,
+  })
+  const highlighted = hasHighlightOverride(workspace.highlight)
+  const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
+  // The row's lines (sidebar-lists-every-terminal): one per open terminal —
+  // the local live sessions AND the fleet panes the layout mounts from
+  // other machines.
+  // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
+  // no open terminal is the one-liner it always was — title only, with idle
+  // recency keeping its old seat in the line-1 status cluster. Its branch and
+  // ±lines are not facts about a chat that is not running; they are the
+  // checkout's current state, which a parked chat has no claim on. So the
+  // lines, and everything on them, are gated on liveness: no terminal, no
+  // line. (The poll above already asks about live rows only; the gate here
+  // keeps the render honest even mid-transition.)
+  // A remote-born row is titled with the CHAT, never with an agent standing
+  // in it (owner, 2026-09-13). `remoteConversationTitle` also rescues the
+  // rows already stored under the old `${agentName} · ${chatName}` rule, so
+  // the fix reaches chats that exist rather than only the next one opened.
+  const rowTitle = remoteConversationTitle(workspace)
+  // The conversation this row is, over on its machine — present only for a
+  // remote-born row whose machine has answered a browse.
+  // A remote chat with agents standing in it is live whatever this window is
+  // holding: `rowHasOpenTerminals` asks about panes HERE, and a person who
+  // closed the pane did not stop the chat. The browse saying the agents are
+  // there is the better answer, and without this the row went silent the
+  // moment its pane closed even though the machine was still working.
+  const rowIsLive = liveSessions.length > 0 || fleetPanesOf(workspace).length > 0 || rowConversation !== null
+  // A settled row is the one-liner by construction: rest is the point, and
+  // a checkout's branch and ±lines are not facts about a chat at rest.
+  const rowLines =
+    rowIsLive && !options?.settled && !options?.snoozed
+      ? rowConversation
+        ? // A remote chat draws the agents standing in IT, not the one pane this
+          // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
+          // see the session this workspace attached, so a chat running three
+          // agents over there drew one nameless, activity-free line here while
+          // the very same chat, unopened, drew three live ones in the band
+          // beside it — opening a chat made it say less. The browse already read
+          // all three; these are the band's own lines, which is what makes an
+          // open remote row and a local multi-agent row read alike.
+          { lines: rowConversation.agents.map(lineOfRemoteRow), overflow: 0 }
+        : terminalLinesOf({
+            workspace,
+            sessions: liveSessions,
+            fleetPanes: fleetPanesOf(workspace),
+            summaries: gitSummaries,
+          })
+      : { lines: [], overflow: 0 }
+  // A band row names its machine on the title glyph, so its lines do not
+  // say it again; a local row that holds a remote pane still marks it there.
+  if (rowMachineName) for (const line of rowLines.lines) line.machineName = null
+  // The one thing a parked row still gets to say (orchestrator ruling
+  // 2026-09-07). The gate above is about the checkout's live state, which a
+  // chat with nothing running has no claim on; a worktree workspace's branch
+  // is not that. The workspace IS the worktree, cut onto a branch the app
+  // minted for it, and it stays that whether or not a terminal is up — the
+  // same durable fact its header no longer says now that the row files under
+  // the project it came from. So: the branch chip, alone, and no ± diff,
+  // which would be live state again.
+  const parkedWorktreeBranch = rowIsLive ? null : workspace.worktree?.branch?.trim() || null
+  // What this chat holds once nothing is running in it. A row WITH lines
+  // draws its marks on those lines, where they belong to the agent that
+  // opened them; this is only ever the fallback for a row with none
+  // (`pullRequestsForRow`), and it spans every agent the chat ever had —
+  // "in the sidebar, we should just see all the pull requests that are
+  // related to a particular conversation" (owner, 2026-09-10).
+  //
+  // Merged ones included, deliberately. The mark is this chat's record and it
+  // keeps holding a merged pull request; the DIFF is the separate live
+  // reading, and it empties itself once the branch lands.
+  const parkedPullRequests = pullRequestsForRow({
+    hasLiveLines: rowLines.lines.length > 0,
+    conversation: rowConversationPullRequests,
+  })
+  // The second line exists for either fact now. A parked chat with a pull
+  // request but no worktree branch used to have no line at all, which is
+  // exactly the row the owner could not read anything off.
+  const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
+  const metaHasSubstance = rowLines.lines.length > 0 || parkedLine
+
+  // The row's status seat: run glyph / working dots + elapsed / tone dot /
+  // idle recency, with the hover-revealed row actions layered over it.
+  //
+  // Owner ruling 2026-09-04: this used to live on line 1, where its
+  // permanently reserved 44px plus its gap cost every title a fifth of the
+  // sidebar's content column. It now rides line 2's trailing edge whenever
+  // there IS a line 2, so the title claims the full width the way list-row
+  // says it should; a row with no meta to show keeps the seat exactly where
+  // it was, and stays exactly the height it was.
+  const rowActionsOverlay = (
+    <>
+      {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
+          (group-focus-within) so they are reachable and never a focus trap
+          on an invisible control. The seat's min-w is the width they reserve
+          (list-row's `data-actions` rule), so revealing never reflows — and
+          reserving it here rather than on line 1 is the whole point of the
+          move. */}
+      <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <Tooltip content="More actions">
+          <IconButton
+            onClick={(event) => {
+              event.stopPropagation()
+              setContextMenu({
+                workspaceId: workspace.id,
+                x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+              })
+            }}
+            tone="quiet"
+            aria-label="Workspace actions"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+              <circle cx="3.5" cy="8" r="1.2" />
+              <circle cx="8" cy="8" r="1.2" />
+              <circle cx="12.5" cy="8" r="1.2" />
+            </svg>
+          </IconButton>
+        </Tooltip>
+        {/* The one-click seat is rest, not removal (settled-chats,
+            2026-09-07). It used to be the ✕, which terminates the row's
+            terminals and removes the chat — the irreversible gesture in the
+            cheapest place on the row, and against this epic's own thesis
+            that a chat comes to rest instead of vanishing. Close keeps its
+            entry in `···`, where a gesture that cannot be taken back
+            belongs; Settle, the one you make fifty times a day and can undo
+            with the next click, takes the seat.
+
+            Neutral ink, deliberately: green already means "an agent
+            finished while you were away — come look" on this exact surface
+            (`doneRowClass` washes the whole row in --tone-good-faint), so a
+            green tick would be the opposite instruction in the same hue six
+            pixels away — the mistake the green ring was struck down for
+            (owner ruling 2026-09-05). The tick's SHAPE says done; it does
+            not need the tone to say it.
+
+            A settled row gets the undo arrow rather than a second tick: the
+            action there is "put this back", and a tick would still be
+            saying "done" about the state you are leaving.
+
+            A row born on a paired machine keeps the ✕: the Remote band has
+            no Settled shelf, so it has nothing to settle into — the same
+            rule the menu's Settle entry follows. */}
+        {workspace.remoteOrigin ? (
+          <Tooltip content="Close workspace">
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                handleClose(workspace.id)
+              }}
+              tone="quiet"
+              aria-label={`Close ${workspace.name}`}
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </IconButton>
+          </Tooltip>
+        ) : options?.snoozed ? (
+          /* The one-click seat on a sleeping row is Wake. Settle is wrong
+             here — the row is not asking to be called finished, it is
+             waiting on a clock — and the undo arrow the Settled shelf uses
+             would be saying "put this back" about a state the row is going
+             to leave on its own anyway. The alarm-bell shape says the clock
+             is what you are cancelling. */
+          <Tooltip content="Wake now">
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                setWorkspaceSnoozed(workspace.id, null)
+              }}
+              tone="quiet"
+              aria-label={`Wake ${workspace.name}`}
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <circle cx="8" cy="9" r="4.6" stroke="currentColor" strokeWidth="1.4" />
+                <path
+                  d="M8 6.6V9l1.6 1.1"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M2.6 4.2 4.7 2.5M13.4 4.2l-2.1-1.7"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </IconButton>
+          </Tooltip>
+        ) : options?.settled ? (
+          <Tooltip content="Un-settle">
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                setWorkspaceSettled(workspace.id, false)
+              }}
+              tone="quiet"
+              aria-label={`Un-settle ${workspace.name}`}
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path
+                  d="M6.2 3.3L3 6l3.2 2.7"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M3 6h6.4a3.3 3.3 0 0 1 0 6.6H7.2"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Tooltip content="Settle">
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                settleWorkspaceById(workspace.id)
+              }}
+              tone="quiet"
+              aria-label={`Settle ${workspace.name}`}
+            >
+              {/* `CheckIcon`'s geometry (24-grid, M5 12.5L10 17L19 7.5)
+                  brought onto the 16-grid at its 1.4 stroke and inset to the
+                  12×12 live area. */}
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path
+                  d="M3.75 8.5L6.5 11.25L12.25 5.25"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </IconButton>
+          </Tooltip>
+        )}
+      </span>
+    </>
+  )
+  const statusSeat = options?.settled ? (
+    // A settled row keeps the seat for its hover actions and nothing else:
+    // no dot, no glyph, no idle clock — the shelf already says it is resting.
+    <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+      {rowActionsOverlay}
+    </span>
+  ) : (
+    <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
+      <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+        {runGlyph && runGlyphLabel ? (
+          <RowTooltip content={runGlyphLabel}>
+            <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+          </RowTooltip>
+        ) : null}
+        {/* Active work earns the three-dot working marker; the other
+            attention states keep the tone dot. */}
+        {/* An attention row renders NO dot: the row's own gold surface is the
+            mark, and status-dot's spec calls a dot beside something already
+            saying the same thing a reject-on-sight. Working and failed keep
+            their marks — neither tints the row. */}
+        {!runGlyph && tone && !needsAttention ? (
+          activity === 'working' ? (
+            <>
+              <AgentWorkingDots label={activityLabel(activity)} />
+              {/* How long the turn has been running. The workspace-level
+                  activity above decides WHETHER work is in flight (hooks are
+                  the authority on that); the terminal snapshot only supplies
+                  the timestamp, and a turn without one simply shows the dots
+                  alone. */}
+              {typeof recency?.workingSince === 'number' ? <WorkingElapsed since={recency.workingSince} /> : null}
+            </>
+          ) : (
+            <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
+          )
+        ) : null}
+        {/* A sleeping row says when it comes back — the one thing it is for.
+            Same seat, same type step and the same muted ink as the idle
+            clock it stands in for, because it is the same kind of reading. */}
+        {asleepUntil !== null ? (
+          <RowTooltip
+            content={`Wakes ${relativeFromNow(asleepUntil, now)} (${new Date(asleepUntil).toLocaleString()})`}
+          >
+            <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+              <span aria-hidden="true">{snoozeWakeLabel(asleepUntil, now)}</span>
+              <span className="sr-only">Wakes in {snoozeWakeLabel(asleepUntil, now)}</span>
+            </span>
+          </RowTooltip>
+        ) : null}
+        {/* A row that came back. The list's order is static, so nothing about
+            its position says it returned; this is the whole of the signal,
+            and opening the row spends it. Muted, not gold: gold on this
+            surface means "the agent is waiting on you", which a woken row is
+            not necessarily doing. */}
+        {wokeAt !== null ? (
+          <RowTooltip content={`Woke ${formatRelativeMsAgo(wokeAt, now) || 'just now'}`}>
+            <span className="text-meta text-[color:var(--text-subtle)]">Woke</span>
+          </RowTooltip>
+        ) : null}
+        {showRecencyText ? (
+          <RowTooltip
+            content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
+          >
+            <span
+              className={`text-meta tabular-nums ${
+                emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+              }`}
+            >
+              <span aria-hidden="true">{idleRecencyText}</span>
+              <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
+            </span>
+          </RowTooltip>
+        ) : null}
+      </span>
+      {rowActionsOverlay}
+    </span>
+  )
+
+  // The row's conversation peek (2026-09-07). The row says what the chat is
+  // CALLED; the card says what was actually asked — the message that started
+  // it, everything sent since, and the model and session behind it. Null when
+  // there is no session id worth asking about: nothing to read, and a card
+  // that only restated the row's own title is the noise this replaced.
+  //
+  // Note the map: every session main knows about, running or not, and then
+  // the row's own agent records. Whether the PROCESS is alive is not the
+  // question — whether there is an id to ask about is.
+  // One identity per agent (2026-09-09): the card opens from the agent line
+  // the pointer is on, and a chat with a single agent opens from its row.
+  const peekIdentities = rowConversationPeekIdentities({
+    workspace,
+    sessions: peekSessions,
+    status: peekStatusOf(activity, idleRecencyText),
+    now,
+  })
+  const hasPeek = peekIdentities.length > 0
+  // The whole row is the peek's hover target (owner ruling 2026-09-07), which
+  // costs the title its own tooltip. `TruncatedText` opens one the moment a
+  // title is clipped, and with the card opening from the same row that would
+  // be a second surface over the first — saying the same name the card's
+  // header is already saying in full. So where there IS a peek the title
+  // truncates plainly and the card carries the name.
+  //
+  // Only where there is one. A row with no agent session opens no card, and
+  // dropping the tooltip there too would leave a long chat name with no way
+  // to be read at all — so that row keeps `TruncatedText` exactly as it was.
+  // `TruncatedText` itself is untouched; this is only how the row uses it.
+  const titleClusterClass = `flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`
+  const titleClass = `min-w-0 flex-1 ${
+    // Weight ONLY, and for every row anyone is using — the row you are in,
+    // the ones working, the ones that want you, and anything touched inside
+    // the hour. The ink lift stays selection's channel, not weight's: the
+    // selected row is the one that also brightens (its row class carries
+    // `--text-strong`), so a bold row never reads as the row you are in
+    // (design-system/patterns/selection.html). It is also what keeps the
+    // mark honest on an attention row, where a second ink would cancel the
+    // warn colour the row is wearing.
+    emphasis === 'active' ? 'font-semibold' : ''
+  } ${
+    // The background tier, and deliberately a step below list-row's Rest:
+    // `text.muted` still read as foreground on this near-black rail, so a
+    // chat nobody is using sits at `text.subtle` and lifts to `text.default`
+    // on hover — reaching for one is never reading dim text. Selection's own
+    // ink lift never reaches here: a selected row is `active`.
+    emphasis === 'quiet' ? 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-default)]' : ''
+  }`
+  const titleClusterContent = (
+    <>
+      {/* Where the row runs, when it is not here. In the flat stream the
+          project line above already carries this mark beside the folder
+          icon, so the title does not say it twice. */}
+      {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
+      {starred ? <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred" /> : null}
+      {(() => {
+        const RowMark = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)?.RowMark
+        return RowMark ? <RowMark /> : null
+      })()}
+      {hasPeek ? (
+        <span className={`${titleClass} truncate`}>{rowTitle}</span>
+      ) : (
+        <TruncatedText as="span" text={rowTitle} className={titleClass} />
+      )}
+      {resident ? <span className="sr-only"> (agents resident)</span> : null}
+      {/* The gold surface is the visible mark; this is the same meaning
+          in words, since no state may be carried by colour alone. */}
+      {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
+      {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
+      {options?.settled ? <span className="sr-only"> (settled)</span> : null}
+      {options?.snoozed ? <span className="sr-only"> (snoozed)</span> : null}
+    </>
+  )
+  const titleCluster = hasPeek ? (
+    <ConversationPeekPopover
+      identities={peekIdentities}
+      now={now}
+      className={titleClusterClass}
+      onOpenDiff={(path, agentId) =>
+        openPaneTab(workspace.id, {
+          kind: 'diff',
+          diff: {
+            focusPath: path,
+            focusKind: path ? 'unstaged' : null,
+            // The card is one agent's conversation, so "open the diff" is
+            // that agent's changelist — named outright rather than left to
+            // the workspace's last-active default, which answers a different
+            // question and could answer it with a different agent.
+            ...(agentId ? { changelistId: changelistOwnerId(agentId) } : {}),
+          },
+        })
+      }
+    >
+      {titleClusterContent}
+    </ConversationPeekPopover>
+  ) : (
+    <span className={titleClusterClass}>{titleClusterContent}</span>
+  )
+
+  const rowElement = (
+    <div
+      data-row-key={rowKey}
+      // Roving tabindex: exactly one treeitem is in the tab order at a time,
+      // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
+      tabIndex={isRovingTarget ? 0 : -1}
+      onFocus={() => setRovingKey(rowKey)}
+      onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
+      // Drag-to-reorder is the tree's: it rewrites the stored order of a
+      // folder's chats, and the flat stream is ordered by the clock, so a
+      // drag there would move a row you cannot see moving. Dropping a
+      // TERMINAL onto a chat is untouched — that is not about order.
+      draggable={!anyRenaming && !flatProject}
+      onDragStart={(event) => {
+        if (flatProject) return
+        handleRowDragStart(event, workspace, fKey)
+      }}
+      onDragOver={(event) => {
+        if (dataTransferHasTabDrag(event.dataTransfer)) {
+          handleTabDragOverRow(event, workspace)
+          return
+        }
+        if (flatProject) return
+        handleRowDragOver(event, workspace, fKey)
+      }}
+      onDragLeave={() => handleTabDragLeaveRow(workspace.id)}
+      onDrop={(event) => {
+        if (dataTransferHasTabDrag(event.dataTransfer)) {
+          handleTabDropOnRow(event, workspace)
+          return
+        }
+        if (flatProject) return
+        handleRowDrop(event, workspace, fKey)
+      }}
+      onDragEnd={handleDragEnd}
+      onClick={() => {
+        if (anyRenaming) return
+        onSelectWorkspace(workspace.id)
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation()
+        startRename(workspace)
+      }}
+      onMouseDown={(event) => {
+        if (event.button === 1) {
+          event.preventDefault()
+          handleClose(workspace.id)
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
+      }}
+      // design-tokens-allow: alignment — 26px inset after the 4px highlight rail puts the row title on the sidebar's 36px content column (see the layout note below); the flat stream has no folder header to sit under, so its rows give the indent back and start on the column's own 16px edge, where New chat starts
+      // Two-line row (remote-sessions-ux): a column now — line 1 is the title
+      // + status cluster, line 2 the meta (heads · provenance · branch ·
+      // diff). min-h keeps a metaless row exactly the height it always was.
+      className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pr-1.5 text-heading ${
+        flatProject ? 'pl-1.5' : 'pl-[26px]'
+      } ${FOCUS_RING_CLASS} ${
+        needsAttention
+          ? attentionRowClass(active)
+          : unseenDone
+            ? doneRowClass(active)
+            : active
+              ? activeRowClass(workspace)
+              : highlighted
+                ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
+                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+      } ${folderMissing ? 'opacity-70' : ''}`}
+      role="treeitem"
+      aria-current={active ? 'true' : undefined}
+    >
+      {/* The flat stream's top line (all-chats-view): the project this chat
+          belongs to, and the clock — or what the agent is doing — at the
+          trailing edge. It is the one line that is the same shape on every
+          row, which is what lets the eye find the clock without reading the
+          row; in the tree the folder header says the project instead and the
+          clock rides whichever line the row happens to end on.
+
+          A folder glyph, not the project's logo: the logo belongs to the one
+          header that names the project (reversed 2026-09-02 for
+          exactly this — a project's mark once per chat is repetition), and
+          this line is a row's filing, not a heading. */}
+      {flatProject ? (
+        <ProjectLine
+          project={flatProject}
+          // A chat born on a paired machine wears the green glyph here too:
+          // in this view it IS an ordinary row of its project, so the mark
+          // beside the folder icon is the only thing saying where it runs.
+          machineName={rowMachineName}
+          dim={emphasis === 'quiet'}
+        >
+          {statusSeat}
+        </ProjectLine>
+      ) : null}
+      <AttentionPulse active={needsAttention} resetKey={workspace.id} />
+      <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
+      {dropMark === 'before' ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+        />
+      ) : null}
+      {dropMark === 'after' ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+        />
+      ) : null}
+      {isTabDropTarget ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-md ring-2 ring-[color:var(--accent-primary)] ring-offset-0"
+        />
+      ) : null}
+
+      <div className="flex min-w-0 items-center gap-2">
+        {/* No identity slot on the row. Owner, 2026-09-02: the project's
+          discovered logo belongs to the FOLDER header that names the project,
+          not repeated once per chat beneath it, and the terminal glyph the
+          logo-less rows fell back to said nothing a row of chats needs said.
+          So the row opens on its title again, as it did before project logos'
+          ruling C, and the whole slot — logo and glyph — moved up to the
+          header (`FolderIdentityIcon`). Mode identity still reads from the
+          row accent and the trailing run glyph. */}
+        {renaming ? (
+          // The kit's field, spliced into a row that has already decided its
+          // height: `size="none"` spends no ramp step, so the inset and the
+          // row's own type step stay here as layout. `variant="default"` is
+          // the right ground — `--bg-field` IS `--bg-surface-raised` on an
+          // opaque window — and brings the border, the radius, the hover edge
+          // lift and the one focus ring with it.
+          <Input
+            ref={renameInputRef}
+            size="none"
+            fullWidth={false}
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onBlur={commitRename}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitRename()
+              if (event.key === 'Escape') setRenamingId(null)
+              event.stopPropagation()
+            }}
+            className="min-w-0 flex-1 px-1.5 py-0 text-heading"
+          />
+        ) : (
+          titleCluster
+        )}
+
+        {folderMissing ? (
+          <svg
+            className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-label="Folder missing"
+          >
+            <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        ) : null}
+
+        {/* A provider-derived run lifecycle is the ROW's state, not a terminal's, so
+          when the LINES carry the seats it keeps line 1's trailing edge —
+          a terminal's seat has no room for it. The parked worktree line
+          below carries the row's own `statusSeat`, which already draws this
+          glyph, so the condition is the lines and not `metaHasSubstance`:
+          the two diverged the moment a lineless row could have a line 2,
+          and asking the wrong one drew the glyph twice on any row whose
+          module hands it one. */}
+        {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
+          <RowTooltip content={runGlyphLabel}>
+            <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+          </RowTooltip>
+        ) : null}
+        {/* A lineless row has no line to carry the seat, so it keeps it
+          here — the one-liner it always was. Never in the flat stream,
+          where the project line above already took it. */}
+        {metaHasSubstance || flatProject ? null : statusSeat}
+      </div>
+      {parkedLine ? (
+        // The same line container a terminal's line uses, so a parked
+        // worktree row is exactly as tall as a live one and its seat sits
+        // where every other seat sits.
+        <div
+          className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
+            emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+          }`}
+        >
+          {parkedWorktreeBranch ? (
+            <BranchChip
+              branch={parkedWorktreeBranch}
+              worktree
+              cwd={workspace.folderPath ?? null}
+              dim={emphasis === 'quiet'}
+            />
+          ) : null}
+          {/* After the branch, where a live line puts it, so the two rows
+              read the same way. No ±lines beside it: a parked row's diff is
+              the checkout's present state and not anything this chat did
+              (the-diff-an-agent-made, decision 9) — the pull request is the
+              one fact that is still this conversation's. */}
+          <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
+          {flatProject ? null : statusSeat}
+        </div>
+      ) : null}
+      {rowLines.lines.map((line, index) => {
+        // An agent line's ±count is that agent's own work, so pressing it
+        // opens that agent's changelist. The agent id comes from the row's
+        // sessions rather than from the line, because a line is a drawing of
+        // a terminal and the diff is a fact about the agent inside it.
+        const lineAgentId =
+          line.kind === 'agent'
+            ? (peekSessions.find((session) => session.sessionId === line.key)?.agentId ?? null)
+            : null
+        return (
+          <TerminalLineView
+            key={line.key}
+            line={line}
+            now={now}
+            seatOverlay={index === 0 && !flatProject ? rowActionsOverlay : undefined}
+            disambiguate={rowLines.lines.length > 1}
+            dim={emphasis === 'quiet'}
+            rowOwnsStatus={flatProject !== null}
+            onOpenDiff={
+              lineAgentId
+                ? () =>
+                    openPaneTab(workspace.id, {
+                      kind: 'diff',
+                      diff: {
+                        focusPath: null,
+                        focusKind: null,
+                        changelistId: changelistOwnerId(lineAgentId),
+                      },
+                    })
+                : undefined
+            }
+          />
+        )
+      })}
+      {rowLines.overflow > 0 ? (
+        <div
+          className={`flex h-5 items-center text-micro ${
+            emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+          }`}
+        >
+          +{rowLines.overflow} more {rowLines.overflow === 1 ? 'terminal' : 'terminals'}
+        </div>
+      ) : null}
+    </div>
+  )
+  // The card is this row's hover surface where it has one, so the row's own
+  // readings stop opening tooltips underneath it (`RowTooltip`).
+  return <RowTooltipsSuppressed.Provider value={hasPeek}>{rowElement}</RowTooltipsSuppressed.Provider>
+})
+
+// Memoized: the manager re-renders on every store write it projects, and the
+// sidebar only needs to follow when one of its own props moved. Its rows are
+// memoized again underneath (`WorkspaceRow`).
+export default React.memo(WorkspaceSidebar)

@@ -5,7 +5,8 @@ import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-s
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
-import type { BranchStepSelection } from '../../shared/electron-api'
+import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
+import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
 import { checkIgnoredPaths } from '../git-ignore'
 import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
 import type { GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
@@ -83,6 +84,8 @@ export type GitIpcPaths = {
    *  feed uses (`git:changelists-changed`), so the renderer has one subscription
    *  for both kinds of writer. */
   onChangelistsChanged?: (repoRoot: string) => void
+  /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
+  livePaths?: () => string[]
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
@@ -380,6 +383,27 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
 
   ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
     return pruneGitWorktrees(repoRoot)
+  })
+
+  // Agent worktree cleanup (agent-worktree-cleanup.ts): the renderer names the
+  // paths its records still use; main adds every live terminal's directory.
+  ipcMain.handle('git:worktree:cleanup-agents', async (_, input: AgentWorktreeCleanupInput) => {
+    if (!input || typeof input.repoRoot !== 'string' || !isRepoRoot(input.repoRoot)) {
+      return { repoRoot: String(input?.repoRoot ?? ''), defaultRef: null, entries: [], dryRun: true }
+    }
+    const protectedPaths = Array.isArray(input.protectedPaths)
+      ? input.protectedPaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
+      : []
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'worktree-cleanup-agents',
+      { repoRoot: input.repoRoot, dryRun: input.dryRun === true },
+      () =>
+        cleanupAgentWorktreesOnce(
+          { repoRoot: input.repoRoot, protectedPaths, dryRun: input.dryRun === true },
+          { livePaths: paths.livePaths },
+        ),
+    )
   })
 
   // --- Changelists and patches (git-commit-window T6) ------------------------

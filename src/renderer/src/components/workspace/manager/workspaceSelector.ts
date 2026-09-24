@@ -2,6 +2,7 @@
 // equality check that keeps it from re-rendering on fields it never reads.
 
 import type { Workspace } from '../../../types/workspace'
+import { workspaceLastUserMessageAt } from '../../../utils/workspaceRecency'
 
 export type WorkspaceManagerWorkspaceCacheEntry = {
   source: Workspace
@@ -18,7 +19,12 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     left.folderPath === right.folderPath &&
     left.folderMissing === right.folderMissing &&
     left.templateId === right.templateId &&
-    left.layoutModel === right.layoutModel &&
+    // Not the layout itself: a tab click, a splitter drag and every tab
+    // selection write a new layoutModel, and nothing the manager or the
+    // sidebar renders reads more of it than which fleet panes it holds.
+    // Anything that needs the whole layout reads the store at the moment it
+    // acts (the sidebar's cross-workspace drop, the terminal kill paths).
+    layoutFleetSignature(left) === layoutFleetSignature(right) &&
     left.worktreeState === right.worktreeState &&
     left.memory === right.memory &&
     left.editorState === right.editorState &&
@@ -26,9 +32,13 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     left.moduleState === right.moduleState &&
     left.highlight === right.highlight &&
     left.createdAt === right.createdAt &&
-    left.lastTerminalActivityAt === right.lastTerminalActivityAt &&
     // The sidebar's ordering key: without it a chat kept its old place until
-    // some unrelated field moved the projection along.
+    // some unrelated field moved the projection along. The key, not the raw
+    // keystroke clock: `lastTerminalActivityAt` advances on terminal input,
+    // and it only orders the rows that have never been messaged, for which it
+    // is the fallback. A spoken-in chat's keystrokes no longer re-render the
+    // manager and the whole sidebar.
+    workspaceLastUserMessageAt(left) === workspaceLastUserMessageAt(right) &&
     left.lastUserMessageAt === right.lastUserMessageAt &&
     left.lastTurnEndedAt === right.lastTurnEndedAt &&
     // Rest (settled-chats, 2026-09-07): a Settle or Un-settle changes only
@@ -43,6 +53,37 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     // until an unrelated field moved.
     left.paneState === right.paneState
   )
+}
+
+// Keyed by layout object: a layout is written whole and never mutated, so a
+// signature computed once holds for as long as that object lives.
+const fleetSignatureByLayout = new WeakMap<object, string>()
+
+/**
+ * The part of a layout the sidebar renders: its fleet panes (the machine
+ * names on the row, and which workspace a remote session is attached to), in
+ * layout order. A layout change that leaves these alone is invisible to every
+ * consumer of this projection.
+ */
+export function layoutFleetSignature(workspace: Pick<Workspace, 'layoutModel'>): string {
+  const model = workspace.layoutModel as { layout?: unknown; borders?: unknown } | undefined
+  if (!model || typeof model !== 'object') return ''
+  const cached = fleetSignatureByLayout.get(model)
+  if (cached !== undefined) return cached
+  const parts: string[] = []
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return
+    const record = node as { type?: unknown; component?: unknown; id?: unknown; config?: unknown; children?: unknown }
+    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+      parts.push(JSON.stringify([record.id ?? null, record.config ?? null]))
+    }
+    if (Array.isArray(record.children)) for (const child of record.children) walk(child)
+  }
+  walk(model.layout)
+  if (Array.isArray(model.borders)) for (const border of model.borders) walk(border)
+  const signature = parts.join('\n')
+  fleetSignatureByLayout.set(model, signature)
+  return signature
 }
 
 export function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] {

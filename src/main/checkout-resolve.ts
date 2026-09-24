@@ -2,15 +2,19 @@
  * Resolve an observed cwd into the checkout that contains it.
  *
  * The cwd comes from an agent's lifecycle hooks — it says where the session
- * IS, not what kind of checkout that is. Git answers the second question:
+ * IS, not what kind of checkout that is. Git answers the second question, in
+ * one `rev-parse` (it is asked at every agent turn end, so each extra process
+ * start is paid many times a minute across a fleet):
  *
- *   - `rev-parse --show-toplevel`        → the work tree root (realpath-resolved)
- *   - `rev-parse --git-common-dir` vs
- *     `rev-parse --absolute-git-dir`      → a linked worktree has its own git
+ *   - `--show-toplevel`                   → the work tree root (realpath-resolved)
+ *   - `--git-common-dir` vs
+ *     `--absolute-git-dir`                → a linked worktree has its own git
  *                                           dir apart from the common one
  *   - the common dir's parent             → the PRIMARY checkout the worktree
  *                                           belongs to (`<root>/.git` ⇒ root)
- *   - `symbolic-ref --short HEAD`         → the branch (null when detached)
+ *   - the git dir's HEAD file             → the branch (null when detached)
+ *
+ * A directory already answered is not asked again until its HEAD file changes.
  *
  * Three outcomes, kept distinct because a consumer renders them differently:
  *   1. a checkout (facts, `gitRoot` set) — primary or linked worktree;
@@ -21,8 +25,8 @@
  *      caller leaves the observation unresolved and falls back to launch
  *      intent rather than reading "folder" into a tooling failure.
  */
-import { realpath } from 'fs/promises'
-import { basename, dirname, isAbsolute, resolve } from 'path'
+import { readFile, realpath, stat } from 'fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { pathExists, runGitCommand } from './git-utils'
 import { isWindowsPath, isWslDriveMountPath, wslToWindowsPath } from '../shared/host-paths'
@@ -128,24 +132,64 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
   // read as a linked worktree.
   const cwd = await realpath(hostCwd).catch(() => hostCwd)
 
-  const top = await runGitCommand(cwd, ['rev-parse', '--show-toplevel'], CLEAN_GIT_ENV)
-  if (!top.ok) return saysNotARepo(top.stderr, top.message) ? NOT_A_CHECKOUT : null
-  const gitRoot = firstLine(top.stdout)
-  if (!gitRoot) return NOT_A_CHECKOUT
-
-  const own = await runGitCommand(cwd, ['rev-parse', '--absolute-git-dir'], CLEAN_GIT_ENV)
-  const ownGitDir = own.ok ? firstLine(own.stdout) : ''
-
-  // Prefer git's own absolute answer (git ≥ 2.31); an older git echoes the
-  // unknown `--path-format` flag instead (see parseCommonGitDir), in which
-  // case ask again without it and resolve the relative answer against cwd.
-  let commonGitDir = ''
-  const absolute = await runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], CLEAN_GIT_ENV)
-  commonGitDir = absolute.ok ? (parseCommonGitDir(absolute.stdout, cwd) ?? '') : ''
-  if (!commonGitDir) {
-    const relative = await runGitCommand(cwd, ['rev-parse', '--git-common-dir'], CLEAN_GIT_ENV)
-    if (relative.ok) commonGitDir = parseCommonGitDir(relative.stdout, cwd) ?? ''
+  // The answer only moves when HEAD does (a checkout, a branch switch, a
+  // detach): the toplevel and both git dirs are fixed for the life of a
+  // checkout. So a directory already answered is re-asked only when its HEAD
+  // file's identity changed, which on a turn end that touched no branch is one
+  // stat and no git at all.
+  const remembered = checkoutMemo.get(cwd)
+  if (remembered) {
+    const headIdentity = await readHeadIdentity(remembered.headPath)
+    if (headIdentity !== null && headIdentity === remembered.headIdentity) {
+      rememberCheckout(cwd, remembered)
+      return remembered.facts
+    }
   }
+
+  const answer = await readCheckoutFacts(cwd)
+  if (answer && answer.headPath) {
+    const headIdentity = await readHeadIdentity(answer.headPath)
+    if (headIdentity !== null) rememberCheckout(cwd, { facts: answer.facts, headPath: answer.headPath, headIdentity })
+  } else {
+    checkoutMemo.delete(cwd)
+  }
+  return answer?.facts ?? null
+}
+
+/**
+ * Everything but the branch in ONE git call. The flags answer in the order
+ * they are given, one per line:
+ *
+ *   1. the work tree root (git's realpath of it)
+ *   2. this checkout's own git dir
+ *   3. the common git dir — absolute on git ≥ 2.31; an older git echoes the
+ *      unknown `--path-format` flag as a line of its own first (see
+ *      parseCommonGitDir) and then answers relative to the cwd.
+ *
+ * The branch is read from the HEAD file rather than from a second git: that
+ * file is what we stat to know whether to ask again, and it says `ref:
+ * refs/heads/<name>` on a branch (unborn included) and a bare object id when
+ * detached. Only an unrecognisable HEAD (a reftable repository keeps a
+ * placeholder there) falls back to asking git.
+ */
+async function readCheckoutFacts(
+  cwd: string,
+): Promise<{ facts: ResolvedCheckoutFacts; headPath: string | null } | null> {
+  const parsed = await runGitCommand(
+    cwd,
+    ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
+    CLEAN_GIT_ENV,
+  )
+  if (!parsed.ok) return saysNotARepo(parsed.stderr, parsed.message) ? { facts: NOT_A_CHECKOUT, headPath: null } : null
+  const lines = parsed.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  // An old git echoes the unknown flag first; drop it and keep reading.
+  const echoed = lines[0]?.startsWith('--') ?? false
+  const [gitRoot = '', ownGitDir = '', commonAnswer = ''] = echoed ? lines.slice(1) : lines
+  if (!gitRoot) return { facts: NOT_A_CHECKOUT, headPath: null }
+  const commonGitDir = (echoed ? parseCommonGitDir(commonAnswer, cwd) : commonAnswer) ?? ''
 
   const isLinkedWorktree = Boolean(ownGitDir && commonGitDir && resolve(ownGitDir) !== resolve(commonGitDir))
   // The primary checkout owns the common git dir as `<root>/.git`; anything
@@ -154,8 +198,63 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
   const repoRoot =
     commonGitDir && basename(commonGitDir) === '.git' ? dirname(commonGitDir) : isLinkedWorktree ? null : gitRoot
 
-  const head = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], CLEAN_GIT_ENV)
-  const branch = head.ok ? firstLine(head.stdout) || null : null
+  const headPath = ownGitDir ? join(ownGitDir, 'HEAD') : null
+  let branch = headPath ? branchFromHeadFile(await readFile(headPath, 'utf8').catch(() => null)) : undefined
+  if (branch === undefined) {
+    const head = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], CLEAN_GIT_ENV)
+    branch = head.ok ? firstLine(head.stdout) || null : null
+  }
 
-  return { gitRoot, repoRoot, branch, isLinkedWorktree }
+  return { facts: { gitRoot, repoRoot, branch, isLinkedWorktree }, headPath }
+}
+
+/**
+ * The branch a HEAD file names: the name on a branch, null when detached, and
+ * undefined when the file cannot be read or says something this does not
+ * recognise, which sends the caller to git. Exported for its unit test.
+ */
+export function branchFromHeadFile(content: string | null): string | null | undefined {
+  if (content === null) return undefined
+  const text = content.trim()
+  const ref = text.match(/^ref:\s*refs\/heads\/(.+)$/)
+  if (ref) return ref[1] === '.invalid' ? undefined : ref[1]
+  if (/^[0-9a-f]{40,64}$/i.test(text)) return null
+  return undefined
+}
+
+type CheckoutMemoEntry = { facts: ResolvedCheckoutFacts; headPath: string; headIdentity: string }
+
+// Bounded like the runtime's own cache: one entry per directory an agent has
+// been observed in, oldest dropped first.
+const CHECKOUT_MEMO_LIMIT = 128
+const checkoutMemo = new Map<string, CheckoutMemoEntry>()
+
+function rememberCheckout(cwd: string, entry: CheckoutMemoEntry): void {
+  checkoutMemo.delete(cwd)
+  checkoutMemo.set(cwd, entry)
+  while (checkoutMemo.size > CHECKOUT_MEMO_LIMIT) {
+    const oldest = checkoutMemo.keys().next().value
+    if (oldest === undefined) break
+    checkoutMemo.delete(oldest)
+  }
+}
+
+/**
+ * HEAD's identity on disk: inode, size and nanosecond mtime. Git rewrites HEAD
+ * through a lock file and a rename, so every switch lands a new inode even
+ * where the clock's granularity would hide the mtime moving. Null when the
+ * file cannot be read, which forces a fresh answer.
+ */
+async function readHeadIdentity(headPath: string): Promise<string | null> {
+  try {
+    const info = await stat(headPath, { bigint: true })
+    return `${info.ino}:${info.size}:${info.mtimeNs}`
+  } catch {
+    return null
+  }
+}
+
+/** Forgets every remembered answer. For tests. */
+export function clearCheckoutResolveMemo(): void {
+  checkoutMemo.clear()
 }

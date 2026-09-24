@@ -9,12 +9,7 @@ import type {
   AgentLaunchSettingsSnapshot,
   AgentLaunchSettingsWriteAck,
 } from './launch-settings'
-export type {
-  ConversationPeek,
-  ConversationPeekAttachment,
-  ConversationPeekMessage,
-  ConversationPeekSource,
-} from './conversation-peek'
+export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -297,6 +292,9 @@ import type {
   GitWorktreeRemoveInput,
   RevFileResult,
   WorkspaceChangeSummary,
+  GitCheckoutChange,
+  AgentWorktreeCleanupInput,
+  AgentWorktreeCleanupReport,
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
@@ -376,6 +374,7 @@ import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
   TerminalSessionSnapshot,
+  TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
   WorkspaceRegistryHydrateResult,
@@ -395,7 +394,6 @@ import type {
   OpenAuxWindowInput,
   OpenAuxWindowResult,
   OpenExternalResult,
-  SplashProgress,
   WindowPlacement,
   WindowState,
 } from './ipc/window'
@@ -446,6 +444,8 @@ export type ElectronApi = {
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
+  /** Main's word on whether this window is minimized, hidden or behind a locked screen. */
+  onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The
@@ -550,12 +550,12 @@ export type ElectronApi = {
   canvasWorkerReady: (report: CanvasWorkerReport) => void
   onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
   canvasWorkerRespond: (response: CanvasWorkerResponse) => void
-  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
-  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
-  // window when its first frame is on screen, and is what closes the splash and
-  // reveals the main window (main also holds a hard timeout, so a renderer that
-  // never gets there cannot strand a hidden main window).
-  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  // Splash boot handshake. `notifyBootComplete` is sent once by the primary
+  // workspace window when its first frame is on screen, and is what closes the
+  // splash and reveals the main window (main also holds a hard timeout, so a
+  // renderer that never gets there cannot strand a hidden main window). The
+  // plate's own progress subscription is not here: the plate loads a preload of
+  // its own (`src/preload/splash.ts`).
   notifyBootComplete: () => void
   // Boot measurement, off unless asked for. The flag is resolved in
   // preload from the same environment main reads, so the renderer never reports
@@ -919,7 +919,16 @@ export type ElectronApi = {
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   listFolderOpenTargets: () => Promise<FolderOpenTargetAvailability[]>
   openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
-  watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
+  /**
+   * Watch a directory tree. Events under `.git/`, `node_modules/`,
+   * `.sprintengine/` and build output are dropped in main unless
+   * `includeIgnored` is set; a burst arrives as one event naming its paths.
+   */
+  watchPath: (
+    path: string,
+    cb: (event: FileWatchEvent) => void,
+    options?: { includeIgnored?: boolean },
+  ) => Promise<() => Promise<void>>
   openDir: (options?: { defaultPath?: string }) => Promise<string | null>
   /** Creates `~/.sprintengine/skills` if needed and returns its absolute path. */
   ensureDefaultUserSkillsDir: () => Promise<string>
@@ -949,6 +958,15 @@ export type ElectronApi = {
    * only the renderer holds the workspace's worktree record.
    */
   getWorkspaceChangeSummary: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
+  /**
+   * Be told when a checkout's git readings go stale, instead of polling for it.
+   * Main watches the checkout's git directory while any listener in any window
+   * wants it, holds changes while no window is focused, and sends a slow
+   * fallback. Returns the unsubscribe.
+   */
+  watchGitCheckout: (checkoutPath: string, cb: (change: GitCheckoutChange) => void) => () => void
+  /** Remove agent worktrees that are clean and merged; report (and keep) the rest. */
+  cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput) => Promise<AgentWorktreeCleanupReport>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip
@@ -1195,25 +1213,29 @@ export type ElectronApi = {
   // the idle reaper never pauses live agent terminals. Clamped/validated in main.
   setTerminalKeepRecentAliveCount: (count: number) => Promise<void>
   // Toggle the per-terminal user lock: while set, the reaper never suspends or
-  // disposes this session. Broadcasts a sessions-changed snapshot so the lock
+  // disposes this session. Broadcasts a sessions delta so the lock
   // state stays in sync across views.
   setTerminalReapExempt: (sessionId: string, exempt: boolean) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
-  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
-  // The conversation peek: what has actually been said in a chat the person is
-  // hovering rather than looking at — the first message, everything since, and
-  // what they attached to the first. `source` says which of the three shapes the
-  // answer is in (the CLI's transcript, the prompts seen since launch, or
-  // neither), because the card is required to say so rather than look broken.
-  // See `shared/conversation-peek.ts`.
+  // What changed among the sessions — the changed ones and the ids of the gone
+  // ones, never the whole list (`terminalList` is that).
+  onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void) => () => void
+  // Flow control: tell main the pane has parsed `units` UTF-16 units of the
+  // session's live output, so it can pause the pty while a pane falls behind.
+  terminalAck: (sessionId: string, units: number) => void
+  // The conversation peek: what has been said in a chat the person is hovering
+  // rather than looking at — the first message and everything since, from the
+  // prompts this app captured. `source` says whether there is an answer, a
+  // runtime that reports nothing, or no record at all, because the card is
+  // required to say so rather than look broken. See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
   // than ~60s. The pull requests themselves arrive as a fresh
-  // `terminal:sessions-changed` carrying the session's `pullRequests`, never as
+  // `terminal:sessions-delta` carrying the session's `pullRequests`, never as
   // a return value, so one path owns the fact. The boolean says only whether
   // there was anything to ask about — false for a session main cannot name, or
   // one whose checkout has not resolved yet — so a caller that asks once per
@@ -1228,11 +1250,6 @@ export type ElectronApi = {
   listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
   /** Which conversations' lists moved; the ids only, never the lists. */
   onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
-  // Open an attachment the peek just handed out: an image goes to the OS image
-  // viewer, a file is revealed in the file manager. Takes the attachment's id,
-  // never a path — main resolves it against the peek it produced, so a renderer
-  // cannot name a file of its own.
-  openConversationPeekAttachment: (sessionId: string, attachmentId: string) => Promise<void>
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).

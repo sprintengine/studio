@@ -252,7 +252,11 @@ export default function CommandPalette({
   // panel takes the field's arrows and Enter first and names its active row.
   const skillsPanelRef = useRef<InstalledSkillsPanelHandle>(null)
   const [skillsActiveOptionId, setSkillsActiveOptionId] = useState<string | undefined>(undefined)
-  const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
+  // One selector per action, never the whole store: destructuring
+  // `useWorkspaceStore()` subscribed the open palette to every store write.
+  const setActiveWorkspaceForWindow = useWorkspaceStore((state) => state.setActiveWorkspaceForWindow)
+  const setActiveFile = useWorkspaceStore((state) => state.setActiveFile)
+  const openExtensionsSurface = useWorkspaceStore((state) => state.openExtensionsSurface)
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)

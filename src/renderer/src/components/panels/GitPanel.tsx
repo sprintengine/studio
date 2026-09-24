@@ -106,7 +106,6 @@ const OPERATION_LABELS: Record<GitRepoOperation, string> = {
   revert: 'Revert',
 }
 
-const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 const GIT_GRAPH_PAGE_SIZE = 200
 const STANDARD_BASE_BRANCHES = ['main', 'master', 'develop', 'trunk']
 
@@ -667,16 +666,22 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     void refreshGraph(!cachedGraph)
   }, [repoRoot, refreshBranches, refreshStashes, refreshGraph])
 
+  // Refreshed when main says the checkout's git files moved, not on a timer
+  // (git-repo-watch.ts). Status has its own subscription inside useGitStatus;
+  // what this pane adds — branches, stashes, the graph and the worktree list —
+  // can only change when a ref does, so a change that touched only the index
+  // costs nothing here. The graph's whole-history count used to run every ten
+  // seconds on an idle repository.
+  const refreshRefsRef = useRef<() => void>(() => {})
+  refreshRefsRef.current = () => {
+    void Promise.all([refreshBranches(), refreshStashes(), refreshGraph(false), refreshWorktreeScopes()])
+  }
   useEffect(() => {
-    if (!repoRoot) return
-
-    const interval = window.setInterval(() => {
-      if (document.hidden) return
-      void refreshAll(false)
-    }, GIT_PANEL_AUTO_REFRESH_MS)
-
-    return () => window.clearInterval(interval)
-  }, [refreshAll, repoRoot])
+    if (!repoRoot || typeof window.api.watchGitCheckout !== 'function') return
+    return window.api.watchGitCheckout(repoRoot, (change) => {
+      if (change.kinds.includes('refs')) refreshRefsRef.current()
+    })
+  }, [repoRoot])
 
   const statusEntries = useMemo(() => Object.values(status?.files ?? {}), [status])
   const conflictEntries = useMemo(

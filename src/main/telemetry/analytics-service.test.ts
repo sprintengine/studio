@@ -269,6 +269,40 @@ test('analytics-service', async () => {
       )
     })
 
+    // the flush timer lives only while the buffer has something in it
+    await withUserData(async (dir) => {
+      let armed = 0
+      let cleared = 0
+      let status = 200
+      const service = createAnalyticsService(
+        deps(dir, {
+          fetchImpl: stubFetch([], () => status),
+          timers: {
+            setInterval: () => {
+              armed += 1
+              return `handle-${armed}`
+            },
+            clearInterval: () => (cleared += 1),
+          },
+        }),
+      )
+      assert.equal(armed, 0, 'nothing recorded: no timer')
+      service.record('app.boot')
+      service.record('app.boot')
+      assert.equal(armed, 1, 'the first event arms it once')
+      await service.flush()
+      assert.equal(cleared, 1, 'the drain that empties the buffer disarms it')
+
+      status = 503
+      service.record('app.boot')
+      assert.equal(armed, 2, 'the next event arms it again')
+      await service.flush()
+      assert.equal(cleared, 1, 'a failed send keeps it armed: that is the retry')
+      status = 200
+      await service.flush()
+      assert.equal(cleared, 2)
+    })
+
     // shutdown stops the timer, makes a last attempt, and closes the gate
     await withUserData(async (dir) => {
       const captures: Capture[] = []

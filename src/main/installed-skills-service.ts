@@ -13,7 +13,7 @@ import type {
 import { parseSkillFrontmatter } from '../shared/skills'
 import { skillsDirFromTemplate } from '../shared/harness-map'
 import { parseCodexConfigTables } from './mcp-config-readers/codex'
-import { resolveClaudeConfigDir } from './conversation-peek/locate'
+import { resolveClaudeConfigDir } from './claude-config-dir'
 import { isWslDriveMountPath, wslToWindowsPath } from '../shared/host-paths'
 import type { WslHome } from './wsl-home'
 

@@ -45,42 +45,42 @@ test('terminal-snapshot-sidecar', async () => {
     }
   }
 
-  function assertWriteReadRoundTrip(): void {
+  async function assertWriteReadRoundTrip(): Promise<void> {
     const { store } = makeStore()
     const sidecar = sampleSidecar()
     store.write(sidecar)
-    assert.deepEqual(store.read('session-abc'), sidecar, 'write/read must round-trip verbatim')
+    assert.deepEqual(await store.read('session-abc'), sidecar, 'write/read must round-trip verbatim')
   }
 
-  function assertMissingReadsNull(): void {
+  async function assertMissingReadsNull(): Promise<void> {
     const { store } = makeStore()
-    assert.equal(store.read('session-missing'), null, 'a missing sidecar reads as null, not an error')
+    assert.equal(await store.read('session-missing'), null, 'a missing sidecar reads as null, not an error')
   }
 
-  function assertMalformedReadsNull(): void {
+  async function assertMalformedReadsNull(): Promise<void> {
     const { store, dir } = makeStore()
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'session-bad.json'), 'not json at all')
-    assert.equal(store.read('session-bad'), null, 'unparseable sidecar reads as null')
+    assert.equal(await store.read('session-bad'), null, 'unparseable sidecar reads as null')
 
     // A parseable file whose sessionId does not match its file name is rejected:
     // the id is the durable key and a mismatch means a copied/tampered file.
     store.write(sampleSidecar({ sessionId: 'session-other' }))
     writeFileSync(join(dir, 'session-mismatch.json'), JSON.stringify(sampleSidecar({ sessionId: 'session-other' })))
-    assert.equal(store.read('session-mismatch'), null, 'sessionId/file-name mismatch reads as null')
+    assert.equal(await store.read('session-mismatch'), null, 'sessionId/file-name mismatch reads as null')
 
     writeFileSync(
       join(dir, 'session-empty.json'),
       JSON.stringify({ version: 1, sessionId: 'session-empty', savedAt: 1, cols: 80, rows: 24, kind: 'agent' }),
     )
     assert.equal(
-      store.read('session-empty'),
+      await store.read('session-empty'),
       null,
       'a sidecar with neither snapshot nor rawReplay is useless and reads as null',
     )
   }
 
-  function assertUnsafeSessionIdsAreInert(): void {
+  async function assertUnsafeSessionIdsAreInert(): Promise<void> {
     const { store, dir } = makeStore()
     store.write(sampleSidecar({ sessionId: '../evil' }))
     store.write(sampleSidecar({ sessionId: 'a/b' }))
@@ -92,15 +92,15 @@ test('terminal-snapshot-sidecar', async () => {
       // dir never created — exactly what we want
     }
     assert.deepEqual(entries, [], 'path-unsafe session ids must never produce files')
-    assert.equal(store.read('../evil'), null)
+    assert.equal(await store.read('../evil'), null)
     store.remove('../evil')
   }
 
-  function assertRemoveDeletes(): void {
+  async function assertRemoveDeletes(): Promise<void> {
     const { store } = makeStore()
     store.write(sampleSidecar())
     store.remove('session-abc')
-    assert.equal(store.read('session-abc'), null, 'remove must delete the sidecar')
+    assert.equal(await store.read('session-abc'), null, 'remove must delete the sidecar')
     store.remove('session-abc')
   }
 
@@ -115,11 +115,11 @@ test('terminal-snapshot-sidecar', async () => {
 
     const removed = store.sweepExpired()
     assert.deepEqual(removed, ['session-stale.json'], 'only the past-TTL sidecar sweeps')
-    assert.equal(store.read('session-stale'), null)
-    assert.ok(store.read('session-fresh'), 'fresh sidecars survive the sweep')
+    assert.equal(await store.read('session-stale'), null)
+    assert.ok(await store.read('session-fresh'), 'fresh sidecars survive the sweep')
   }
 
-  function assertSweepWithoutDirIsSilent(): void {
+  async function assertSweepWithoutDirIsSilent(): Promise<void> {
     const { store } = makeStore()
     assert.deepEqual(store.sweepExpired(), [], 'sweeping a never-created dir is a silent no-op')
   }
@@ -138,7 +138,7 @@ test('terminal-snapshot-sidecar', async () => {
     // Compare with JSON round-trip semantics: undefined-valued keys are dropped
     // by serialization, which is exactly what the disk copy should contain.
     assert.deepEqual(
-      store.read('session-raw'),
+      await store.read('session-raw'),
       JSON.parse(JSON.stringify(sidecar)),
       'quit-path raw-replay sidecars round-trip too',
     )
@@ -150,27 +150,41 @@ test('terminal-snapshot-sidecar', async () => {
     // before and after the flush.
     store.write(sampleSidecar({ sessionId: 'session-order', cols: 80 }))
     store.write(sampleSidecar({ sessionId: 'session-order', cols: 200 }))
-    assert.equal(store.read('session-order')?.cols, 200, 'the queued newest write is readable at once')
+    assert.equal((await store.read('session-order'))?.cols, 200, 'the queued newest write is readable at once')
     await store.flush()
-    assert.equal(store.read('session-order')?.cols, 200, 'and it is what landed on disk')
+    assert.equal((await store.read('session-order'))?.cols, 200, 'and it is what landed on disk')
     // A remove after a queued write wins: nothing resurrects the sidecar.
     store.write(sampleSidecar({ sessionId: 'session-gone' }))
     store.remove('session-gone')
-    assert.equal(store.read('session-gone'), null, 'removed at once')
+    assert.equal(await store.read('session-gone'), null, 'removed at once')
     await store.flush()
-    assert.equal(store.read('session-gone'), null, 'and the queued write did not bring it back')
+    assert.equal(await store.read('session-gone'), null, 'and the queued write did not bring it back')
+  }
+
+  // The read is asynchronous now (it was a readFileSync on the main thread,
+  // of a file up to a few megabytes, while a person waited for a reopened
+  // workspace to paint). A dispose that removes the sidecar while a read of it
+  // is in flight must win: the read must not hand back what dispose deleted.
+  async function assertReadRacingRemoveAnswersNull(): Promise<void> {
+    const { store } = makeStore()
+    store.write(sampleSidecar({ sessionId: 'session-race' }))
+    await store.flush()
+    const reading = store.read('session-race')
+    store.remove('session-race')
+    assert.equal(await reading, null, 'a read that raced a remove answers as the remove left things')
   }
 
   async function main(): Promise<void> {
-    assertWriteReadRoundTrip()
-    assertMissingReadsNull()
-    assertMalformedReadsNull()
-    assertUnsafeSessionIdsAreInert()
-    assertRemoveDeletes()
+    await assertWriteReadRoundTrip()
+    await assertMissingReadsNull()
+    await assertMalformedReadsNull()
+    await assertUnsafeSessionIdsAreInert()
+    await assertRemoveDeletes()
     await assertSweepExpiredRemovesOnlyOldSidecars()
-    assertSweepWithoutDirIsSilent()
+    await assertSweepWithoutDirIsSilent()
     await assertRawReplayRoundTrip()
     await assertQueuedWritesLandInOrderAndRemoveWins()
+    await assertReadRacingRemoveAnswersNull()
     console.log('terminal-snapshot-sidecar tests passed')
   }
 

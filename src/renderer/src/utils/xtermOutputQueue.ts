@@ -15,10 +15,24 @@ import {
 const MAX_TERMINAL_WRITE_CHARS = 32 * 1024
 const MAX_QUEUED_TERMINAL_CHARS = TERMINAL_RECENT_REPLAY_BYTES
 const TERMINAL_WRITE_FRAME_BUDGET_MS = 8
+// How long a scheduled drain waits for an animation frame before draining
+// without one (see `scheduleDrain`).
+const DRAIN_WITHOUT_FRAME_MS = 250
+// RIS: full terminal reset, as an escape sequence so it is parsed in order
+// with the replay it precedes.
+const FULL_RESET = '\x1bc'
 const TERMINAL_THROTTLE_MESSAGE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
 type TerminalOutputQueueOptions = {
   recordWrite: (data: string, elapsedMs: number) => void
+  /**
+   * Flow control: `units` of live output are finished with — parsed by xterm,
+   * or dropped by this queue — and main may count them as no longer in flight
+   * (see terminal-output-buffer.ts in main). Every unit enqueued is reported
+   * exactly once, including on clear and dispose, so a pane can never leave the
+   * pty waiting on output it will not parse.
+   */
+  onConsumed?: (units: number) => void
 }
 
 type XtermOutputQueue = ReturnType<typeof createXtermOutputQueue>
@@ -96,12 +110,23 @@ export function splitReplayIntoChunks(data: string, maxChars: number): string[] 
   return chunks
 }
 
-export function createXtermOutputQueue(term: Terminal, { recordWrite }: TerminalOutputQueueOptions) {
+export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed }: TerminalOutputQueueOptions) {
   const queue: string[] = []
   let scheduled = false
   let writing = false
   let disposed = false
   let queuedChars = 0
+  // Live output enqueued and not yet reported as consumed. A counter rather
+  // than a mark per chunk: chunks are split and trimmed on their way through,
+  // and what main needs is the amount, which the counter keeps exact while
+  // never reporting more than was enqueued.
+  let unreported = 0
+  const consume = (units: number) => {
+    const reported = Math.min(units, unreported)
+    if (reported <= 0) return
+    unreported -= reported
+    onConsumed?.(reported)
+  }
 
   // Modal repaint pause. While a covering dialog is open we keep accepting PTY
   // data into the SAME FIFO and simply stop draining it, so the pause cannot
@@ -168,6 +193,7 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     // Banner chars are added, not carried over from the payload, so the drop
     // count compares payload with payload.
     droppedChars += Math.max(payloadCharsBefore - retainedChars, 0)
+    consume(Math.max(payloadCharsBefore - retainedChars, 0))
   }
 
   const takeChunk = (): string | null => {
@@ -185,10 +211,33 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     return head
   }
 
+  // A drain waits for the next animation frame, so a burst lands as one paint.
+  // It must not wait for a frame that never comes: a window whose compositor
+  // has stopped producing frames (a locked screen with the display asleep, a
+  // background-throttled page) would otherwise hold every byte here until the
+  // cap above started discarding the oldest. The fallback timer drains without
+  // a frame; xterm parses now and paints when frames return. Whichever fires
+  // first runs the drain and the other finds nothing to do.
+  let drainGeneration = 0
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+  const clearFallback = () => {
+    if (fallbackTimer === null) return
+    clearTimeout(fallbackTimer)
+    fallbackTimer = null
+  }
   const scheduleDrain = () => {
     if (scheduled || writing || disposed || paused) return
     scheduled = true
-    window.requestAnimationFrame(drain)
+    drainGeneration += 1
+    const generation = drainGeneration
+    const run = () => {
+      if (generation !== drainGeneration || !scheduled) return
+      clearFallback()
+      drain()
+    }
+    clearFallback()
+    fallbackTimer = setTimeout(run, DRAIN_WITHOUT_FRAME_MS)
+    window.requestAnimationFrame(run)
   }
 
   const drain = () => {
@@ -208,6 +257,8 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       term.write(data, () => {
         writing = false
         recordWrite(data, performance.now() - writeStartedAt)
+        // The throttle banner is this queue's own text, not output main sent.
+        if (data !== TERMINAL_THROTTLE_MESSAGE) consume(data.length)
 
         if (disposed) return
         // A pause that lands mid-drain stops here. The write already in flight
@@ -232,6 +283,11 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     if (disposed || nextPaused === paused) return
     paused = nextPaused
     if (paused) {
+      // A dialog is covering the pane and nothing will be parsed until it
+      // closes. That must not stall the pty behind it — the agent keeps running
+      // — so what is queued counts as taken; this queue's own bound decides
+      // what survives the pause.
+      consume(unreported)
       pauseStartedAt = performance.now()
       heldChunks = 0
       heldChars = 0
@@ -266,6 +322,9 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       if (paused) {
         heldChunks += 1
         heldChars += data.length
+        onConsumed?.(data.length)
+      } else {
+        unreported += data.length
       }
       trimQueue()
       // A no-op while paused; the resume handler is what restarts the drain.
@@ -279,11 +338,14 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       // carries.
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
     },
     dispose: () => {
       disposed = true
+      clearFallback()
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
       // Unsubscribing here is what keeps a terminal disposed DURING a pause
       // from leaking: without it the store retains this closure — and the whole
       // buffered queue with it — for the life of the window.
@@ -481,8 +543,16 @@ export function createXtermReplayGate(
       // output so the window is applied exactly once (no duplicated pre-hide
       // content). An initial attach (awaitingReplay) writes onto an empty xterm
       // and must NOT reset.
-      if (!awaitingReplay && revealedOnce) {
-        term.reset()
+      //
+      // The reset rides the first replay chunk as RIS (`ESC c`, which xterm
+      // handles by running the same `reset()`), rather than being called here.
+      // Called here, it painted: the chunk is written on the next animation
+      // frame, so every reveal showed one frame of an empty terminal before the
+      // content came back — a flash on every workspace switch. Inside the write
+      // it is parsed together with the content, and the next paint shows the
+      // result.
+      const resync = !awaitingReplay && revealedOnce
+      if (resync) {
         outputQueue.clear()
         liveBuffer.length = 0
       }
@@ -496,6 +566,7 @@ export function createXtermReplayGate(
       writeCount = 0
       maxWriteMs = 0
       replayChunks = splitReplayIntoChunks(data, MAX_TERMINAL_WRITE_CHARS)
+      if (resync) replayChunks[0] = FULL_RESET + (replayChunks[0] ?? '')
       replayIndex = 0
       emitState('replaying', false)
       scheduleDrain()
