@@ -10,8 +10,8 @@ import type { Workspace } from '../../types/workspace'
 // (sidebar-lists-every-terminal), where every line on one checkout reads one
 // entry.
 //
-// Deliberately a slow, visible-only poll rather than a watcher fleet, shaped
-// by its adversarial review:
+// Read when main reports a checkout changed (see the note on the absent sweep
+// timer below), never on a clock, and shaped by its adversarial review:
 // - fetches are keyed by CHECKOUT — the workspace's worktree when it has one,
 //   its folder otherwise — because that is what the answer depends on. Two
 //   chats sharing a checkout genuinely have the same branch reading, so main
@@ -22,8 +22,8 @@ import type { Workspace } from '../../types/workspace'
 //   (epic decision 7); the bug it once caused — ten rows on `sprintengine` all
 //   reading `+246 −94` — cannot return, because rows on DIFFERENT checkouts
 //   never share and a shared checkout genuinely is one answer;
-// - one sweep at a time: a sweep hung on a spun-down volume delays the next
-//   tick instead of stacking subprocesses under it;
+// - one sweep at a time: a sweep hung on a spun-down volume holds the changes
+//   that arrive meanwhile instead of stacking subprocesses under it;
 // - results MERGE over what is known (ids no longer present are pruned), so
 //   one failed read never collapses a row that was showing facts;
 // - an unchanged sweep commits nothing, so the sidebar does not re-render
@@ -40,16 +40,18 @@ import type { Workspace } from '../../types/workspace'
 // is swept at once, because the membership change re-runs the effect.
 
 /**
- * Thirty seconds, down from sixty (owner, 2026-09-10): a branch that had just
- * been merged went on reading as unmerged for most of a minute, which is long
- * enough to go and look somewhere else to find out.
- *
- * This number and `CHECKOUT_SUMMARY_HOLD_MS` in `workspace-change-summary.ts`
- * are ONE decision and must move together. The hold has to stay under the
- * sweep, or every other sweep is answered from a cache the sweep was run to
- * refresh and the extra ticks buy nothing but wake-ups.
+ * There is no sweep timer. The rows used to re-read every checkout every
+ * thirty seconds (down from sixty, owner 2026-09-10, because a branch that had
+ * just been merged went on reading as unmerged for most of a minute), which on
+ * ten agent worktrees was hundreds of git processes a minute with nothing
+ * happening. A row is now re-read when main reports its checkout changed
+ * (`watchGitCheckout`, git-repo-watch.ts): a commit, a stage, a fetch that
+ * moved the trunk, a merge, or an agent's turn ending there. That is sooner
+ * than thirty seconds for every one of those, and never otherwise. Main drops
+ * its held reading of a checkout before telling us, so the re-read is fresh
+ * whatever `CHECKOUT_SUMMARY_HOLD_MS` says.
  */
-const REFRESH_MS = 30_000
+const CHANGE_GATHER_MS = 250
 const CONCURRENCY = 4
 
 /**
@@ -171,11 +173,22 @@ export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Re
     let cancelled = false
     let inFlight = false
     const entries = sweepEntriesFrom(membership)
-    async function sweep(): Promise<void> {
-      if (cancelled || inFlight || document.hidden) return
+    // Checkouts main said went stale that have not been re-read yet: while a
+    // sweep is running, or while the window is hidden. Null means "all".
+    let dirty: Set<string> | null = null
+    let followUp: number | null = null
+    async function sweep(only: Set<string> | null = null): Promise<void> {
+      if (cancelled) return
+      if (inFlight || document.hidden) {
+        // Remembered, not dropped: it runs when the sweep ahead of it ends or
+        // the window is shown again.
+        dirty = dirty ?? new Set()
+        for (const entry of entries) if (only === null || only.has(entry.checkoutPath)) dirty.add(entry.checkoutPath)
+        return
+      }
       inFlight = true
       try {
-        const queue = [...entries]
+        const queue = only ? entries.filter((entry) => only.has(entry.checkoutPath)) : [...entries]
         const fetched = new Map<string, WorkspaceChangeSummary>()
         await Promise.all(
           Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
@@ -203,18 +216,44 @@ export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Re
         })
       } finally {
         inFlight = false
+        drainDirty()
       }
+    }
+    function drainDirty(): void {
+      if (cancelled || !dirty || dirty.size === 0 || document.hidden) return
+      const next = dirty
+      dirty = null
+      void sweep(next)
     }
 
     void sweep()
-    const timer = window.setInterval(() => void sweep(), REFRESH_MS)
+    // Re-read a checkout when main says its git files moved or an agent's turn
+    // ended in it, and nothing else: main holds those while the app is in the
+    // background and sends its own slow fallback. Changes arriving together
+    // (a commit touches the index and a ref) are gathered into one sweep.
+    const checkouts = [...new Set(entries.map((entry) => entry.checkoutPath))]
+    const stops =
+      typeof window.api.watchGitCheckout === 'function'
+        ? checkouts.map((checkoutPath) =>
+            window.api.watchGitCheckout(checkoutPath, () => {
+              dirty = dirty ?? new Set()
+              dirty.add(checkoutPath)
+              if (followUp !== null) return
+              followUp = window.setTimeout(() => {
+                followUp = null
+                drainDirty()
+              }, CHANGE_GATHER_MS)
+            }),
+          )
+        : []
     const onVisible = (): void => {
-      if (!document.hidden) void sweep()
+      if (!document.hidden) drainDirty()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (followUp !== null) window.clearTimeout(followUp)
+      for (const stop of stops) stop()
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [membership])

@@ -45,6 +45,27 @@ export function normalizeWorkspaceWorktreeState(
   }
 }
 
+/**
+ * Hand back every worktree entry an agent held: `assigned` → `available`, no
+ * owner. Mutates the draft it is given; called from inside a store `set`.
+ */
+export function releaseWorktreeEntriesOwnedBy(
+  workspace: { worktreeState?: WorkspaceWorktreeState | null },
+  agentId: string,
+  now: number = Date.now(),
+): number {
+  let released = 0
+  for (const entry of Object.values(workspace.worktreeState?.entries ?? {})) {
+    if (entry.ownerAgentId !== agentId) continue
+    entry.ownerAgentId = null
+    if (entry.status === 'assigned') entry.status = 'available'
+    entry.updatedAt = now
+    released += 1
+  }
+  if (released > 0 && workspace.worktreeState) workspace.worktreeState.updatedAt = now
+  return released
+}
+
 interface WorktreesSliceState {}
 
 interface WorktreesSliceActions {

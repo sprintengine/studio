@@ -1,5 +1,6 @@
-import { appendFile, cp, mkdir, readFile, writeFile } from 'fs/promises'
+import { appendFile, mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
+import { cloneTree } from './clone-tree'
 import {
   getRelativeGitPath,
   isInsideRepo,
@@ -193,11 +194,6 @@ export type GitWorktreeRemoveInput = {
   force?: boolean
 }
 
-type GitWorktreeCopyIncludedInput = {
-  repoRoot: string
-  worktreePath: string
-}
-
 export type GitConflictFileContent = {
   path: string
   relativePath: string
@@ -216,34 +212,38 @@ export async function getGitRepoRoot(folderPath: string): Promise<string | null>
   }
 }
 
-async function copyGitWorktreeIncludedFiles(
-  input: GitWorktreeCopyIncludedInput,
+/**
+ * The branch-already-exists refusal from `worktree add -b`, reworded to name
+ * where that branch is checked out, which is what the person has to act on.
+ * Null for any other failure, which keeps git's own words.
+ */
+async function explainBranchConflict(
+  repoRoot: string,
+  branch: string,
+  addResult: GitCommandResult,
+): Promise<string | null> {
+  if (
+    !/already exists|already checked out|already used by worktree/i.test(
+      `${addResult.stderr}\n${addResult.message ?? ''}`,
+    )
+  ) {
+    return null
+  }
+  const worktrees = await listGitWorktrees(repoRoot, { resolvedRoot: true })
+  const holder = worktrees.ok ? worktrees.data.worktrees.find((worktree) => worktree.branch === branch) : undefined
+  if (!holder) return null
+  return `Branch "${branch}" is already checked out at ${holder.path}. Choose a different branch name or remove that worktree first.`
+}
+
+/**
+ * Copy the repository's `.worktreeinclude` set into a worktree this module has
+ * just created. `repoRoot` is already git's resolved root.
+ */
+async function seedWorktreeIncludedFiles(
+  repoRoot: string,
+  worktreePath: string,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
-  const root = await resolveRepoRoot(input.repoRoot)
-  if (!root.ok) return root
-
-  const worktreePath = input.worktreePath
-  const worktrees = await listGitWorktrees(root.data)
-  if (!worktrees.ok) return worktrees
-
-  const registeredWorktree = worktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
-  )
-  if (!registeredWorktree) {
-    return {
-      ok: false,
-      message: `Worktree is not registered for this repository: ${worktreePath}`,
-    }
-  }
-
-  if (!(await pathExists(worktreePath))) {
-    return {
-      ok: false,
-      message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
-    }
-  }
-
-  const includeFilePath = join(toFilesystemPath(root.data), '.worktreeinclude')
+  const includeFilePath = join(toFilesystemPath(repoRoot), '.worktreeinclude')
   const result: GitWorktreeCopyIncludedResult = {
     copied: [],
     skipped: [],
@@ -287,11 +287,11 @@ async function copyGitWorktreeIncludedFiles(
       continue
     }
 
-    const sourcePath = join(root.data, ...entry.split(/[\\/]+/))
+    const sourcePath = join(repoRoot, ...entry.split(/[\\/]+/))
     const destinationPath = join(worktreePath, ...entry.split(/[\\/]+/))
 
     if (
-      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`) ||
+      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(repoRoot)}/`) ||
       !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)
     ) {
       result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' })
@@ -306,11 +306,7 @@ async function copyGitWorktreeIncludedFiles(
     try {
       const destinationFsPath = toFilesystemPath(destinationPath)
       await mkdir(dirname(destinationFsPath), { recursive: true })
-      await cp(toFilesystemPath(sourcePath), destinationFsPath, {
-        recursive: true,
-        force: true,
-        errorOnExist: false,
-      })
+      await cloneTree(toFilesystemPath(sourcePath), destinationFsPath)
       result.copied.push(entry)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -325,6 +321,19 @@ async function copyGitWorktreeIncludedFiles(
   }
 }
 
+/**
+ * Cut a new worktree on a new branch.
+ *
+ * Five git processes, in order, and no more: resolve the repository root once,
+ * check the branch name and the base ref, `worktree add`, and one `worktree
+ * list` to report the entry the way git spells it. Every one is a process start
+ * on the launch path of a worktree agent, and on Windows or a network mount
+ * each costs far more than the ~20 ms it costs here.
+ *
+ * There is no listing BEFORE the add to look for the branch being checked out
+ * elsewhere: `worktree add -b` refuses an existing branch by itself, and only
+ * that failure pays for a listing, to name the worktree that holds it.
+ */
 export async function createGitWorktree(
   input: GitWorktreeCreateInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
@@ -347,17 +356,6 @@ export async function createGitWorktree(
     }
   }
 
-  const existingWorktrees = await listGitWorktrees(root.data)
-  if (!existingWorktrees.ok) return existingWorktrees
-
-  const matchingWorktree = existingWorktrees.data.worktrees.find((worktree) => worktree.branch === branch.data)
-  if (matchingWorktree) {
-    return {
-      ok: false,
-      message: `Branch "${branch.data}" is already checked out at ${matchingWorktree.path}. Choose a different branch name or remove that worktree first.`,
-    }
-  }
-
   await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
   const addResult = await runGitCommand(root.data, [
     'worktree',
@@ -371,21 +369,23 @@ export async function createGitWorktree(
   if (!addResult.ok) {
     return {
       ok: false,
-      message: addResult.message ?? 'Unable to create Git worktree.',
+      message:
+        (await explainBranchConflict(root.data, branch.data, addResult)) ??
+        addResult.message ??
+        'Unable to create Git worktree.',
       stdout: addResult.stdout,
       stderr: addResult.stderr,
     }
   }
 
   if (input.copyIncludedFiles) {
-    const copyResult = await copyGitWorktreeIncludedFiles({
-      repoRoot: root.data,
-      worktreePath: destination.data.destinationPath,
-    })
+    // Just created by the add above, so it is registered and on disk: the
+    // seeding skips the checks it runs for a worktree someone else named.
+    const copyResult = await seedWorktreeIncludedFiles(root.data, destination.data.destinationPath)
     if (!copyResult.ok) return copyResult
   }
 
-  const nextWorktrees = await listGitWorktrees(root.data)
+  const nextWorktrees = await listGitWorktrees(root.data, { resolvedRoot: true })
   if (!nextWorktrees.ok) return nextWorktrees
 
   const createdWorktree = nextWorktrees.data.worktrees.find(
@@ -417,7 +417,7 @@ export async function removeGitWorktree(
   if (!root.ok) return root
 
   const worktreePath = input.path
-  const worktrees = await listGitWorktrees(root.data)
+  const worktrees = await listGitWorktrees(root.data, { resolvedRoot: true })
   if (!worktrees.ok) return worktrees
 
   const registeredWorktree = worktrees.data.worktrees.find(

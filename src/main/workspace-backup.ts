@@ -1,11 +1,35 @@
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { WorkspaceBackupPayload, WorkspaceBackupReadResult } from '../shared/electron-api'
+import type { WorkspaceSyncState } from '../shared/workspace-sync'
 
 const BACKUP_FILE_NAME = 'workspace-backup.json'
 
+/** The registry fields the backup's registry envelope carries. */
+export type WorkspaceBackupRegistry = Pick<
+  WorkspaceSyncState,
+  'workspaces' | 'activeWorkspaceId' | 'workspaceWindows' | 'primaryWorkspaceWindowId'
+>
+
 export type WorkspaceBackupServiceDeps = {
   resolveUserDataDir: () => string
+  /**
+   * Main's registry. A window sends only the settings envelope it owns, and
+   * the registry half of the backup is taken from here, so the window never
+   * serializes a registry that is main's. Absent in tests of the file format.
+   */
+  readRegistry?: () => WorkspaceBackupRegistry
+}
+
+/**
+ * The payload a window sends: `{ settings }` with no registry. Anything else
+ * (an older build's `{ registry, settings }` pair, or a bare envelope) is
+ * written as it arrived.
+ */
+function settingsOnlyBackupData(data: unknown): { settings: unknown } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  if ('registry' in data || !('settings' in data)) return null
+  return data as { settings: unknown }
 }
 
 export class WorkspaceBackupService {
@@ -20,7 +44,11 @@ export class WorkspaceBackupService {
   async write(payload: WorkspaceBackupPayload): Promise<{ ok: boolean; message?: string }> {
     let serialized: string
     try {
-      serialized = JSON.stringify(payload)
+      const composed = this.withRegistry(payload)
+      // The backup mirrors a non-empty registry only; an intentionally empty
+      // one never replaces the last good copy.
+      if (composed === null) return { ok: true, message: 'registry_empty' }
+      serialized = JSON.stringify(composed)
     } catch (error) {
       return {
         ok: false,
@@ -52,6 +80,29 @@ export class WorkspaceBackupService {
     } finally {
       releaseCurrent()
     }
+  }
+
+  /**
+   * The payload with main's registry filled in as the registry envelope, in
+   * the `{ state, version }` shape the window's recovery path parses. Null
+   * when main's registry is empty.
+   */
+  private withRegistry(payload: WorkspaceBackupPayload): WorkspaceBackupPayload | null {
+    const settingsOnly = this.deps.readRegistry ? settingsOnlyBackupData(payload.data) : null
+    if (!settingsOnly || !this.deps.readRegistry) return payload
+    const registry = this.deps.readRegistry()
+    if (registry.workspaces.length === 0) return null
+    const registryEnvelope = JSON.stringify({
+      state: {
+        workspaces: registry.workspaces,
+        activeWorkspaceId: registry.activeWorkspaceId,
+        workspaceWindows: registry.workspaceWindows,
+        primaryWorkspaceWindowId: registry.primaryWorkspaceWindowId,
+        workspaceRegistryEmptyState: null,
+      },
+      version: payload.version,
+    })
+    return { ...payload, data: { registry: registryEnvelope, settings: settingsOnly.settings } }
   }
 
   async read(): Promise<WorkspaceBackupReadResult> {

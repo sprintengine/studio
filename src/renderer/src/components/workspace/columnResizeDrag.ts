@@ -34,6 +34,8 @@
 
 import type React from 'react'
 
+import { beginInteractiveLayoutResize } from '../../utils/layoutTransition'
+
 export type ColumnResizeDragOptions = {
   /**
    * The live pointer x, coalesced to at most one call per animation frame.
@@ -59,6 +61,9 @@ export function startColumnResizeDrag(
   let pendingX = event.clientX
   let frame: number | null = null
   let ended = false
+  // Terminals beside the column follow the drag at a throttled rate instead
+  // of resizing their pty on every frame, and fit once more when it ends.
+  const endInteractiveResize = beginInteractiveLayoutResize()
 
   // Above every tier of the one z ladder: the shield has to cover docked panes,
   // overlays and the guest alike for the length of the drag.
@@ -97,6 +102,8 @@ export function startColumnResizeDrag(
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
     onDragEnd()
+    // After the final width is committed, so the trailing fit reads it.
+    endInteractiveResize()
   }
   const onPointerEnd = (e: PointerEvent): void => {
     if (e.pointerId !== pointerId) return

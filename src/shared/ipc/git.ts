@@ -284,6 +284,51 @@ export type GitWorktreeRemoveInput = {
   force?: boolean
 }
 
+/**
+ * Which readings of a checkout went stale (main's git-repo-watch.ts):
+ * `worktree` — status and the row's diff; `refs` — the graph, branches,
+ * stashes and worktree list, which every checkout of a repository shares.
+ */
+export type GitCheckoutChangeKind = 'worktree' | 'refs'
+
+export type GitCheckoutChange = {
+  checkoutKey: string
+  kinds: GitCheckoutChangeKind[]
+  /** `gitdir`: a git file moved; `activity`: an agent's turn ended there; `fallback`: the slow sweep. */
+  reason: 'gitdir' | 'activity' | 'fallback'
+}
+
+/** Why the cleanup kept an agent worktree, or that it removed it. */
+export type AgentWorktreeCleanupVerdict =
+  'removed' | 'dirty' | 'unmerged' | 'in-use' | 'locked' | 'missing' | 'no-default-branch' | 'error'
+
+export type AgentWorktreeCleanupEntry = {
+  path: string
+  branch: string | null
+  verdict: AgentWorktreeCleanupVerdict
+  /** For `unmerged`: commits on the branch that the default branch does not have. */
+  uniqueCommits?: number
+  /** For `dirty`: how many paths `git status` reported. */
+  changedPaths?: number
+  detail?: string
+}
+
+export type AgentWorktreeCleanupInput = {
+  repoRoot: string
+  /** Paths the app still uses (a workspace's folder, a live agent's worktree). Never removed. */
+  protectedPaths: string[]
+  /** Report what would happen without removing anything. */
+  dryRun?: boolean
+}
+
+export type AgentWorktreeCleanupReport = {
+  repoRoot: string
+  /** The ref "merged" was measured against, e.g. `origin/main`. Null when none could be found. */
+  defaultRef: string | null
+  entries: AgentWorktreeCleanupEntry[]
+  dryRun: boolean
+}
+
 export type GitHubTokenStatus = {
   configured: boolean
   source: 'settings' | 'environment' | 'none'

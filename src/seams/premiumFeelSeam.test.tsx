@@ -1209,7 +1209,9 @@ test('premiumFeelSeam', async () => {
       )
       assert.match(
         manager,
-        /contextRail=\{[\s\S]{0,400}?activeGlobalSurfaceEntry \? \(\s*<ContextRailColumn/,
+        // The slot is memoized on the door's id (see WorkspaceManager's
+        // sidebar props), and handed to the sidebar as `contextRail`.
+        /const contextRailSurfaceKey = activeGlobalSurfaceEntry\?\.id \?\? null[\s\S]{0,800}?contextRailSurfaceKey !== null \? \(\s*<ContextRailColumn[\s\S]*contextRail=\{sidebarContextRail\}/,
         'and still renders the column into the sidebar, not beside it',
       )
 

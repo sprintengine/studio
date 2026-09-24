@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 
-// The current Git branch for a workspace folder, kept fresh enough for a header
-// label without a dedicated filesystem watcher. Branch switches are infrequent,
-// so we resolve the repo root once per folder and re-read the current branch on
-// window focus, tab visibility, and a gentle interval — cheap relative to the
-// status watcher in `useGitStatus`, which carries file changes, not the branch.
+// The current Git branch for a workspace folder, for a header label. The repo
+// root is resolved once per folder and the branch is re-read only when main
+// says the checkout's refs moved (`watchGitCheckout`, git-repo-watch.ts): a
+// branch switch rewrites HEAD, which main watches. There is no timer here; the
+// scheduler's own slow fallback covers a change its watcher missed, and it
+// holds changes while the app is in the background.
 export type GitBranchState = {
   // The current branch name, or null when detached, not yet loaded, or the
   // folder is not inside a Git repository.
@@ -13,14 +14,13 @@ export type GitBranchState = {
   isRepo: boolean
 }
 
-const GIT_BRANCH_REFRESH_MS = 20_000
-
 export function useGitBranch(folderPath: string | null): GitBranchState {
   const [state, setState] = useState<GitBranchState>({ branch: null, isRepo: false })
 
   useEffect(() => {
     let cancelled = false
     let repoRoot: string | null = null
+    let stopWatching: (() => void) | null = null
     setState({ branch: null, isRepo: false })
 
     if (
@@ -56,20 +56,15 @@ export function useGitBranch(folderPath: string | null): GitBranchState {
         return
       }
       await loadBranch()
+      if (cancelled || typeof window.api.watchGitCheckout !== 'function') return
+      stopWatching = window.api.watchGitCheckout(repoRoot, (change) => {
+        if (change.kinds.includes('refs')) void loadBranch()
+      })
     })()
-
-    const refresh = (): void => {
-      if (!document.hidden) void loadBranch()
-    }
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
-    const interval = window.setInterval(refresh, GIT_BRANCH_REFRESH_MS)
 
     return () => {
       cancelled = true
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refresh)
-      window.clearInterval(interval)
+      stopWatching?.()
     }
   }, [folderPath])
 

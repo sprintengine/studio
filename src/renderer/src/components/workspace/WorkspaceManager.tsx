@@ -38,6 +38,7 @@ import {
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import type {
   AgentCli,
@@ -105,7 +106,6 @@ import {
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
-import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
@@ -116,6 +116,7 @@ import {
   requestTerminalFocus,
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
+import { useStableCallback } from '../../hooks/useStableCallback'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
 import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
@@ -753,6 +754,8 @@ export default function WorkspaceManager() {
   ).length
   const settingsOpen = settingsOverlayOpen
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
+  // Reclaims agent worktrees that are clean and merged; one window runs it.
+  useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -2123,9 +2126,16 @@ export default function WorkspaceManager() {
       string,
       { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
     > = {}
+    // The persisted keystroke clock is read off the store, not the projection:
+    // the projection deliberately ignores it so typing does not re-render the
+    // manager. It is only the fallback for a workspace with no live session,
+    // and a live session's broadcast is what re-runs this memo.
+    const liveWorkspaceById = new Map(
+      useWorkspaceStore.getState().workspaces.map((workspace) => [workspace.id, workspace] as const),
+    )
     for (const workspace of workspaces) {
-      const persistedLastInputAt =
-        typeof workspace.lastTerminalActivityAt === 'number' ? workspace.lastTerminalActivityAt : null
+      const lastTerminalActivityAt = liveWorkspaceById.get(workspace.id)?.lastTerminalActivityAt
+      const persistedLastInputAt = typeof lastTerminalActivityAt === 'number' ? lastTerminalActivityAt : null
       const activity = deriveWorkspaceTerminalActivity(workspace.id, terminalSessions, persistedLastInputAt)
       const hasRunning = activity.kind === 'working' || activity.kind === 'failed'
       const persistedTurnEndedAt = typeof workspace.lastTurnEndedAt === 'number' ? workspace.lastTurnEndedAt : null
@@ -3338,7 +3348,10 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.sidebar.toggle') {
-        beginSidebarTransition()
+        // Collapsing snaps (the rail is display:none, not a narrowed width), so
+        // the terminals beside it fit once at the new size straight away. A
+        // width that does glide is caught by its own transition events
+        // (utils/layoutTransition.ts).
         setSidebarCollapsed(!sidebarCollapsed)
         return true
       }
@@ -3738,9 +3751,6 @@ export default function WorkspaceManager() {
     void window.api.updateAppMenuAccelerators(updates).catch(() => {})
   }, [keybindingSettings])
 
-  // New chat opens on the General agent — the only agent a plain spawn has.
-  const composerInitialSelection: AgentComposerSelection = { kind: 'general' }
-
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every spawn-picker host (the launcher, the tab strip's "+");
   // fresh chats are the New Chat panel's job.
@@ -3769,34 +3779,57 @@ export default function WorkspaceManager() {
   // hand-spawned terminal in that strip as one of its own.
   const canOpenNewAgentTab = Boolean(windowActiveWorkspaceId) && activeWorkspace?.mode === 'standard'
 
-  const openNewAgentTab = (hostTabsetId?: string) => {
-    if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
-    // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
-    // name the agent will take. The strip whose "+" was clicked is the host —
-    // a new tab in that panel, not a split beside it.
-    const taken = Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
-    addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken), hostTabsetId)
-  }
+  // The spawn paths close over most of this component and are rebuilt every
+  // render. The two layout props below reach them through this ref, so their
+  // identity changes only with what they render, which is what lets
+  // `React.memo(WorkspaceLayout)` skip the active layer on an unrelated render.
+  const runComposerSpawnRef = useRef(runComposerSpawn)
+  runComposerSpawnRef.current = runComposerSpawn
+
+  const openNewAgentTab = useCallback(
+    (hostTabsetId?: string) => {
+      if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
+      // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
+      // name the agent will take. The strip whose "+" was clicked is the host —
+      // a new tab in that panel, not a split beside it. The names come off the
+      // store: the manager's projection does not move for an agent change.
+      const agents =
+        useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)?.agents ??
+        {}
+      const taken = Object.values(agents).map((agent) => agent.name)
+      addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken), hostTabsetId)
+    },
+    [canOpenNewAgentTab, windowActiveWorkspaceId],
+  )
 
   // The launch surface, rendered inside that tab. It creates nothing: a confirm
   // plus the typed prompt comes back here, and the spawn retypes `tabId` in
   // place so the terminal lands exactly where the surface was.
-  const renderNewAgentPanel = (tabId: string, agentName?: string) => (
-    <React.Suspense fallback={null}>
-      <NewAgentPanel
-        workspaceId={windowActiveWorkspaceId ?? ''}
-        conversationAvailable={conversationSpawnAvailable}
-        onRequestConversationCatalog={requestConversationCatalog}
-        initialSelection={composerInitialSelection}
-        permissionPreset={agentSpawnPermissionPreset}
-        debugMode={agentSpawnDebugMode}
-        onChangeDebugMode={setAgentSpawnDebugMode}
-        onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt, agentName })}
-        onClose={() => {
-          if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
-        }}
-      />
-    </React.Suspense>
+  const renderNewAgentPanel = useCallback(
+    (tabId: string, agentName?: string) => (
+      <React.Suspense fallback={null}>
+        <NewAgentPanel
+          workspaceId={windowActiveWorkspaceId ?? ''}
+          conversationAvailable={conversationSpawnAvailable}
+          onRequestConversationCatalog={requestConversationCatalog}
+          initialSelection={COMPOSER_INITIAL_SELECTION}
+          permissionPreset={agentSpawnPermissionPreset}
+          debugMode={agentSpawnDebugMode}
+          onChangeDebugMode={setAgentSpawnDebugMode}
+          onLaunch={({ prompt, ...confirm }) => runComposerSpawnRef.current(confirm, { tabId, prompt, agentName })}
+          onClose={() => {
+            if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
+          }}
+        />
+      </React.Suspense>
+    ),
+    [
+      windowActiveWorkspaceId,
+      conversationSpawnAvailable,
+      requestConversationCatalog,
+      agentSpawnPermissionPreset,
+      agentSpawnDebugMode,
+    ],
   )
 
   const startLogin = async () => {
@@ -3977,6 +4010,83 @@ export default function WorkspaceManager() {
     })
   }
 
+  // ── The sidebar's props, held still ─────────────────────────────
+  // WorkspaceSidebar is memoized, and every row in it re-renders when it
+  // does, so nothing handed to it may be rebuilt on a render that changed
+  // nothing it shows. Handlers go through `useStableCallback`; the two slots
+  // are memoized on what they render.
+  const sidebarToggle = useStableCallback(() => runCommand('workspace.sidebar.toggle'))
+  const sidebarNavigateBack = useStableCallback(() => runCommand('workspace.history.back'))
+  const sidebarNavigateForward = useStableCallback(() => runCommand('workspace.history.forward'))
+  const sidebarOpenSearch = useStableCallback(() => runCommand('commandPalette.open'))
+  const sidebarNewChat = useStableCallback(() => openNewChatPanel())
+  const sidebarNewChatInFolder = useStableCallback((folderPath: string) => openNewChatPanel(folderPath))
+  const sidebarShowMenu = useStableCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, label: (typeof MENU_BAR_ITEMS)[number]) =>
+      void handleShowMenubarMenu(event, label),
+  )
+  const sidebarSelectWorkspace = useStableCallback((id: WorkspaceId) => {
+    // Park explicitly: selecting the very workspace New chat sits over
+    // changes no workspace id, and the id-keyed park would not fire.
+    setNewChatPanelState(null)
+    setActiveWorkspaceForWindow(workspaceWindowId, id)
+    setSidebarSection('home')
+  })
+  const sidebarMoveToNewWindow = useStableCallback(
+    (id: WorkspaceId, placement: Parameters<typeof moveWorkspaceToNewWindow>[1]) =>
+      void moveWorkspaceToNewWindow(id, placement),
+  )
+  const sidebarMoveToMainWindow = useStableCallback(moveWorkspaceToPrimaryWindow)
+  const sidebarCloseWorkspace = useStableCallback(closeWorkspaceById)
+  const sidebarForgetFolder = useStableCallback(handleForgetFolder)
+  const sidebarRevealFolder = useStableCallback(handleRevealFolder)
+  const sidebarOpenRemoteSession = useStableCallback(openRemoteSession)
+  const isFullScreen = windowState.isFullScreen
+  const sidebarChromeSlot = useMemo(
+    () => (
+      <SidebarChrome
+        isMac={window.api.platform === 'darwin'}
+        isFullScreen={isFullScreen}
+        onToggleSidebar={sidebarToggle}
+        onNavigateBack={sidebarNavigateBack}
+        onNavigateForward={sidebarNavigateForward}
+        onOpenSearch={sidebarOpenSearch}
+        // The brand row's wordmark is the New chat button, so it routes to the
+        // same panel as the rail's New chat row below it — one action, two
+        // affordances, never two behaviours.
+        onNewChat={sidebarNewChat}
+        menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+        onShowMenu={sidebarShowMenu}
+      />
+    ),
+    [
+      isFullScreen,
+      sidebarToggle,
+      sidebarNavigateBack,
+      sidebarNavigateForward,
+      sidebarOpenSearch,
+      sidebarNewChat,
+      sidebarShowMenu,
+    ],
+  )
+  const contextRailSurfaceKey = activeGlobalSurfaceEntry?.id ?? null
+  const sidebarContextRail = useMemo(
+    () =>
+      // Drill-in replaces the rail (item 1993): while a door with a rail is
+      // open, that rail renders in this column and the workspaces rail steps
+      // aside. The column carries navigation only — the way OUT is the door's
+      // bar chevron, beside the door's name.
+      contextRailSurfaceKey !== null ? (
+        <ContextRailColumn
+          surfaceKey={contextRailSurfaceKey}
+          ariaLabel={`${surfaceLabel} rail`}
+          active={contextRailActive}
+          railRef={setSurfaceRailEl}
+        />
+      ) : undefined,
+    [contextRailSurfaceKey, surfaceLabel, contextRailActive],
+  )
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
       {workspaceTypeSupervisors.map((supervisor) => (
@@ -4022,36 +4132,8 @@ export default function WorkspaceManager() {
           workspaceWindowId={workspaceWindowId}
           isDetachedWindow={!isPrimaryWorkspaceWindow}
           sidebarCollapsed={sidebarCollapsed}
-          chromeSlot={
-            <SidebarChrome
-              isMac={window.api.platform === 'darwin'}
-              isFullScreen={windowState.isFullScreen}
-              onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
-              onNavigateBack={() => runCommand('workspace.history.back')}
-              onNavigateForward={() => runCommand('workspace.history.forward')}
-              onOpenSearch={() => runCommand('commandPalette.open')}
-              // The brand row's wordmark is the New chat button, so it routes to the
-              // same panel as the rail's New chat row below it — one action, two
-              // affordances, never two behaviours.
-              onNewChat={() => openNewChatPanel()}
-              menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
-              onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
-            />
-          }
-          contextRail={
-            // Drill-in replaces the rail (item 1993): while a door with a rail is
-            // open, that rail renders in this column and the workspaces rail steps
-            // aside. The column carries navigation only — the way OUT is the door's
-            // bar chevron, beside the door's name.
-            activeGlobalSurfaceEntry ? (
-              <ContextRailColumn
-                surfaceKey={activeGlobalSurfaceEntry.id}
-                ariaLabel={`${surfaceLabel} rail`}
-                active={contextRailActive}
-                railRef={setSurfaceRailEl}
-              />
-            ) : undefined
-          }
+          chromeSlot={sidebarChromeSlot}
+          contextRail={sidebarContextRail}
           // Only a surface that brought a rail takes the column over.
           contextRailActive={contextRailActive}
           activityByWorkspaceId={activityByWorkspaceId}
@@ -4059,21 +4141,15 @@ export default function WorkspaceManager() {
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
-          onOpenRemoteSession={openRemoteSession}
-          onSelectWorkspace={(id) => {
-            // Park explicitly: selecting the very workspace New chat sits over
-            // changes no workspace id, and the id-keyed park would not fire.
-            setNewChatPanelState(null)
-            setActiveWorkspaceForWindow(workspaceWindowId, id)
-            setSidebarSection('home')
-          }}
-          onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
-          onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
-          onCloseWorkspace={closeWorkspaceById}
-          onForgetFolder={handleForgetFolder}
-          onNewChat={() => openNewChatPanel()}
-          onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}
-          onRevealFolder={handleRevealFolder}
+          onOpenRemoteSession={sidebarOpenRemoteSession}
+          onSelectWorkspace={sidebarSelectWorkspace}
+          onMoveWorkspaceToNewWindow={sidebarMoveToNewWindow}
+          onMoveWorkspaceToMainWindow={sidebarMoveToMainWindow}
+          onCloseWorkspace={sidebarCloseWorkspace}
+          onForgetFolder={sidebarForgetFolder}
+          onNewChat={sidebarNewChat}
+          onNewChatInFolder={sidebarNewChatInFolder}
+          onRevealFolder={sidebarRevealFolder}
           onSetSidebarCollapsed={setSidebarCollapsed}
           sidebarWidth={sidebarWidth}
           onSetSidebarWidth={setSidebarWidth}
@@ -4445,6 +4521,10 @@ export default function WorkspaceManager() {
     </div>
   )
 }
+
+// New chat opens on the General agent, the only agent a plain spawn has. A
+// module constant, so the launch surface's props hold still between renders.
+const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
   try {
