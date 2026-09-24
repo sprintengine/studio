@@ -1064,7 +1064,7 @@ export function dedupeScannedMcpServers(servers: readonly ScannedMcpServer[]): S
   const seen = new Set<string>()
   const out: ScannedMcpServer[] = []
   for (const server of servers) {
-    const key = `${server.declaredBy} ${server.id}`
+    const key = `${server.declaredBy}\0${server.id}`
     if (seen.has(key)) continue
     seen.add(key)
     out.push(server)
