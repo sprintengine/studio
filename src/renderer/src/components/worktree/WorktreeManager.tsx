@@ -115,6 +115,12 @@ function cleanupMeta(cleanup: CleanupFacts | null): string | null {
       return 'merged, will be cleaned up'
     case 'no-default-branch':
       return 'kept: no default branch to compare with'
+    case 'ignored-files':
+      return `kept: ignored files that may be work (${entry.detail ?? 'unlisted'})`
+    case 'hidden-edits':
+      return `kept: edits hidden from git status (${entry.detail ?? 'unlisted'})`
+    case 'recent':
+      return 'kept: used within the last hour'
     case 'error':
       return 'kept: could not be checked'
     default:
@@ -215,8 +221,17 @@ export default function WorktreeManager({
             head: worktree.head,
             isMain: samePath(worktree.path, repoRoot),
             missing: !exists,
-            locked: worktree.locked,
-            lockedReason: worktree.lockedReason,
+            // This profile's own agent in-use lock is the app's bookkeeping, not
+            // a lock the person placed: it is not shown, and removing the
+            // worktree here releases it (main's removeGitWorktree). Another
+            // profile's is shown for what it is.
+            locked: worktree.locked && worktree.agentLock !== 'this-profile',
+            lockedReason:
+              worktree.agentLock === 'other-profile'
+                ? 'In use by an agent in another SprintEngine Studio profile'
+                : worktree.agentLock === 'this-profile'
+                  ? null
+                  : worktree.lockedReason,
             prunable: worktree.prunable,
             prunableReason: worktree.prunableReason,
             dirtyCount,
@@ -442,12 +457,18 @@ export default function WorktreeManager({
         removeWorktreeEntry(ownerWorkspaceId, entryId)
       }
       const removed = report.entries.filter((entry) => entry.verdict === 'removed').length
-      const kept = report.entries.filter((entry) => entry.verdict === 'dirty' || entry.verdict === 'unmerged').length
+      const kept = report.entries.filter(
+        (entry) =>
+          entry.verdict === 'dirty' ||
+          entry.verdict === 'unmerged' ||
+          entry.verdict === 'ignored-files' ||
+          entry.verdict === 'hidden-edits',
+      ).length
       setMessage({
         tone: 'neutral',
         text:
           `${removed === 0 ? 'No agent worktree was ready to remove' : `Removed ${removed} merged agent worktree${removed === 1 ? '' : 's'}`}` +
-          (kept > 0 ? `; kept ${kept} with uncommitted or unmerged work.` : '.'),
+          (kept > 0 ? `; kept ${kept} holding work that is not on the default branch.` : '.'),
       })
       await refreshWorktrees()
       await onChanged()

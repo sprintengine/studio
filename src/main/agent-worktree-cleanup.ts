@@ -8,6 +8,14 @@ import type { GitCommandResult, GitWorktreeEntry } from './git'
 import { normalizeComparablePath, pathExists, runGitCommand } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import { resolveRepoRoot } from './git-worktree-validation'
+import { relockWorktree } from './agent-worktree-lock'
+import {
+  adminDirWrittenAt,
+  hiddenEditPaths,
+  ignoredPathsAtRisk,
+  insideAny,
+  pathSpellings,
+} from './agent-worktree-keep-checks'
 
 /**
  * Removes the agent worktrees nobody needs any more, and nothing else.
@@ -26,12 +34,26 @@ import { resolveRepoRoot } from './git-worktree-validation'
  *    finalize step) are never candidates.
  * 2. **Nothing uses it.** No path the caller protects — every workspace's
  *    folder and worktree, every agent still holding one — and no live terminal
- *    session sits in it.
- * 3. **It is registered, present and unlocked.** A missing or prunable one is
- *    reported and left for `worktree prune`, which the person runs; a locked
- *    one is locked on purpose.
- * 4. **It is clean.** `git status` reports nothing, untracked files included.
- * 5. **Its work is on the default branch** (`origin/HEAD`, else `origin/main`
+ *    session sits in it. Paths are compared with symlinks resolved on both
+ *    sides (git records a worktree's resolved path; the app records whatever
+ *    was opened), and case-folded on macOS and Windows. The caller's list is
+ *    read per repository, after the listing, so it is never older than what it
+ *    is checked against.
+ * 3. **No other owner has locked it.** Every agent worktree is locked as it is
+ *    created (agent-worktree-lock.ts), which is what protects it from another
+ *    Studio profile's sweep, and from this one's between reading its records
+ *    and listing the repository. A lock this profile placed is released here
+ *    once the path is no longer protected (it is unlocked right before the
+ *    removal, and locked again if the removal does not go through). Another
+ *    profile's lock, or one a person placed, keeps the worktree.
+ * 4. **It is registered and present.** A missing or prunable one is reported
+ *    and left for `worktree prune`, which the person runs.
+ * 5. **Git has not touched it for an hour.** Its admin directory
+ *    (`<common>/worktrees/<name>`) was last written more than an hour ago: a
+ *    new worktree is clean and has no commits, so without this it would
+ *    qualify the moment it exists, before any owner is recorded.
+ * 6. **It is clean.** `git status` reports nothing, untracked files included.
+ * 7. **Its work is on the default branch** (`origin/HEAD`, else `origin/main`
  *    or `origin/master`; with no remote, the local `main` or `master`). Either
  *    its HEAD has no commit the default branch lacks (a branch that never got
  *    a commit has none by definition), or — for a squash-merged branch, whose
@@ -39,12 +61,17 @@ import { resolveRepoRoot } from './git-worktree-validation'
  *    branch would produce the default branch's own tree, so its changes are
  *    already there (`changesAlreadyIn`). On a git too old for that test the
  *    ancestry rule alone decides, and a squash-merged branch is kept.
+ * 8. **Nothing git does not show would be lost.** No tracked file is hidden
+ *    from `status` by `--assume-unchanged` or `--skip-worktree`, and every
+ *    ignored file is either rebuildable output (dependencies, build output,
+ *    caches) or a `.worktreeinclude` copy still identical to the source
+ *    checkout's (agent-worktree-keep-checks.ts). An edited `.env`, notes in an
+ *    ignored folder, a `*.local` scratch file: each keeps the worktree.
  *
  * The removal itself is `git worktree remove` WITHOUT `--force`, so git checks
  * cleanliness again at the moment of removal: anything written between the
  * check above and the removal makes git refuse, and the sweep reports the
- * refusal. Ignored files (installed dependencies, a copied `.env`) go with the
- * worktree; they are reproducible or copies. The branch itself is kept.
+ * refusal. The branch itself is kept.
  *
  * Every decision is logged, removals and keeps alike.
  */
@@ -56,16 +83,26 @@ export type AgentWorktreeCleanupDeps = {
   exists?: (path: string) => Promise<boolean>
   /** Working directories of the live terminal sessions, which are never removed from under. */
   livePaths?: () => string[]
+  /** When git last wrote the worktree's admin directory, in ms since the epoch; null when unknown. */
+  lastWrittenAt?: (worktreePath: string) => Promise<number | null>
+  now?: () => number
   log?: (line: string) => void
 }
 
 const AGENT_BRANCH_PREFIX = 'agent/'
 const DEFAULT_REF_CANDIDATES = ['origin/main', 'origin/master', 'main', 'master']
+/** How long git must have left a worktree alone before the sweep may take it. */
+export const AGENT_WORKTREE_MIN_IDLE_MS = 60 * 60_000
 
 function isInside(child: string, parent: string): boolean {
   const a = normalizeComparablePath(child)
   const b = normalizeComparablePath(parent)
   return a === b || a.startsWith(`${b}/`)
+}
+
+function listed(paths: readonly string[]): string {
+  const shown = paths.slice(0, 3).join(', ')
+  return paths.length > 3 ? `${shown} and ${paths.length - 3} more` : shown
 }
 
 async function resolveDefaultRef(
@@ -146,7 +183,14 @@ export async function cleanupAgentWorktrees(
   if (candidates.length === 0) return empty(root)
 
   const defaultRef = await resolveDefaultRef(root, runGit)
-  const protectedPaths = [...input.protectedPaths, ...(deps.livePaths?.() ?? [])].filter(Boolean)
+  const lastWrittenAt = deps.lastWrittenAt ?? ((path: string) => adminDirWrittenAt(path, runGit))
+  const now = deps.now ?? Date.now
+  // Read after the listing, so a worktree listed above was either created
+  // before these were read (and is in them if it is used) or is too new to
+  // pass the idle rule. Each spelled with and without symlinks resolved.
+  const protectedSpellings = await Promise.all(
+    [...input.protectedPaths, ...(deps.livePaths?.() ?? [])].filter(Boolean).map((path) => pathSpellings(path)),
+  )
   const entries: AgentWorktreeCleanupEntry[] = []
   const record = (entry: AgentWorktreeCleanupEntry): void => {
     entries.push(entry)
@@ -164,16 +208,29 @@ export async function cleanupAgentWorktrees(
     const base = { path: worktree.path, branch: worktree.branch }
     // Something sits IN it. A protected path that merely contains it (a
     // workspace opened on a parent folder) does not use it.
-    if (protectedPaths.some((path) => isInside(path, worktree.path))) {
+    const worktreeSpellings = await pathSpellings(worktree.path)
+    if (protectedSpellings.some((spellings) => insideAny(spellings, worktreeSpellings))) {
       record({ ...base, verdict: 'in-use' })
       continue
     }
-    if (worktree.locked) {
+    // This profile's own in-use lock on a path its records no longer use is a
+    // released one; every other lock is somebody else's to lift.
+    const ownLock = worktree.locked && worktree.agentLock === 'this-profile'
+    if (worktree.locked && !ownLock) {
       record({ ...base, verdict: 'locked', detail: worktree.lockedReason ?? undefined })
       continue
     }
     if (worktree.prunable || !(await exists(worktree.path))) {
       record({ ...base, verdict: 'missing' })
+      continue
+    }
+    const writtenAt = await lastWrittenAt(worktree.path)
+    if (writtenAt === null) {
+      record({ ...base, verdict: 'error', detail: 'could not read when git last used it' })
+      continue
+    }
+    if (now() - writtenAt < AGENT_WORKTREE_MIN_IDLE_MS) {
+      record({ ...base, verdict: 'recent', detail: 'git used it within the last hour' })
       continue
     }
     const status = await runGit(worktree.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
@@ -204,13 +261,47 @@ export async function cleanupAgentWorktrees(
       record({ ...base, verdict: 'unmerged', uniqueCommits })
       continue
     }
+    // What `status` cannot see and `worktree remove` would still delete.
+    const hidden = await hiddenEditPaths(worktree.path, runGit)
+    if (!hidden.ok) {
+      record({ ...base, verdict: 'error', detail: hidden.message })
+      continue
+    }
+    if (hidden.paths.length > 0) {
+      record({ ...base, verdict: 'hidden-edits', changedPaths: hidden.paths.length, detail: listed(hidden.paths) })
+      continue
+    }
+    const ignored = await ignoredPathsAtRisk(root, worktree.path, runGit)
+    if (!ignored.ok) {
+      record({ ...base, verdict: 'error', detail: ignored.message })
+      continue
+    }
+    if (ignored.paths.length > 0) {
+      record({ ...base, verdict: 'ignored-files', changedPaths: ignored.paths.length, detail: listed(ignored.paths) })
+      continue
+    }
     const how = mergedByContent ? 'changes already on the default branch (squash-merged)' : undefined
     if (dryRun) {
       record({ ...base, verdict: 'removed', detail: how })
       continue
     }
+    // The checks above take a while on a big worktree: a terminal opened in it
+    // meanwhile is asked about once more, the last thing before it goes.
+    const liveNow = await Promise.all((deps.livePaths?.() ?? []).filter(Boolean).map((path) => pathSpellings(path)))
+    if (liveNow.some((spellings) => insideAny(spellings, worktreeSpellings))) {
+      record({ ...base, verdict: 'in-use' })
+      continue
+    }
+    if (ownLock) {
+      const unlocked = await runGit(root, ['worktree', 'unlock', worktree.path])
+      if (!unlocked.ok) {
+        record({ ...base, verdict: 'error', detail: unlocked.message ?? 'git worktree unlock failed' })
+        continue
+      }
+    }
     // No --force: git re-checks cleanliness itself at the moment of removal.
     const removed = await runGit(root, ['worktree', 'remove', worktree.path])
+    if (!removed.ok && ownLock) await relockWorktree(root, worktree.path, worktree.lockedReason, runGit)
     record(
       removed.ok
         ? { ...base, verdict: 'removed', detail: how }

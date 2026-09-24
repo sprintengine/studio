@@ -10,6 +10,7 @@ import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
 import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
+import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { checkIgnoredPaths } from '../git-ignore'
 import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
 import type { GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
@@ -92,6 +93,9 @@ export type GitIpcPaths = {
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
+  // The profile an agent worktree's in-use lock names, so this profile can tell
+  // its own locks from another dev build's (agent-worktree-lock.ts).
+  setAgentWorktreeLockProfile(paths.userDataDir)
   // `hostId` names the machine whose git answers, for a caller that knows it
   // before any workspace does (a New chat on a WSL machine, see withGitHost).
   const scopedHost = (hostId: unknown) =>
