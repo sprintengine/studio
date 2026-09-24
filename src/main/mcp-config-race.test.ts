@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 
-import type { PluginManifest } from '../shared/plugin-manifest'
+import type { PluginAgentStateSpec, PluginManifest } from '../shared/plugin-manifest'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
+import { installAgentStateReporter } from './agent-state'
 import { createMcpConfigService, type PluginLookup } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
@@ -241,4 +242,42 @@ test('a rewrite keeps the file’s permission bits and writes through a symlink'
   assert.equal((await stat(shared)).mode & 0o777, 0o600)
   const settings = JSON.parse(await readFile(shared, 'utf8'))
   assert.deepEqual(settings.enabledMcpjsonServers, [STUDIO_MCP_SERVER_ID], 'written through to the target')
+})
+
+test('the agent-state hook install and the MCP sync keep each other’s writes to one settings file', async () => {
+  const lookupPlugin = pluginLookup()
+  const resources = join(process.cwd(), 'resources')
+  const manifest = JSON.parse(await readFile(join(resources, 'plugins', 'claude-code', 'plugin.json'), 'utf8')) as {
+    agentStateSpec: PluginAgentStateSpec
+  }
+  for (let round = 0; round < ROUNDS / 2; round++) {
+    const { temp, root } = await freshWorkspace('sprintengine-mcp-race-hooks-')
+    await seedClaudeWorkspace(root)
+    const service = createMcpConfigService({
+      lookupPlugin,
+      homeDir: () => temp,
+      userDataDir: () => join(temp, 'user-data'),
+    })
+    const [synced, installed] = await Promise.all([
+      syncStudioMcpConfig(
+        { workspaceRoot: root, settings: noUserServers, clients: ['claude-code'] },
+        {
+          mcpConfigService: service,
+          studioGateway: () => ({ command: process.execPath, args: ['/new/bridge.js'], env: {} }),
+        },
+      ),
+      installAgentStateReporter(root, manifest.agentStateSpec, {
+        sourceScriptPath: join(resources, 'hooks', 'sprintengine-agent-state.mjs'),
+        socketPath: join(temp, 'agent-state.sock'),
+        homeDir: temp,
+        env: {},
+      }),
+    ])
+    assert.equal(synced.ok, true, synced.ok ? '' : synced.message)
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    const settings = JSON.parse(await readFile(join(root, '.claude', 'settings.local.json'), 'utf8'))
+    assert.deepEqual(settings.permissions, { allow: ['Bash(npm test)'] }, `round ${round}: permissions survive`)
+    assert.deepEqual(settings.enabledMcpjsonServers, [STUDIO_MCP_SERVER_ID], `round ${round}: the approval survives`)
+    assert.ok(settings.hooks && Object.keys(settings.hooks).length > 0, `round ${round}: the hooks survive`)
+  }
 })

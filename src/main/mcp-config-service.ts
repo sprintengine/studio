@@ -1,7 +1,8 @@
-import { randomUUID } from 'crypto'
-import { chmod, mkdir, readFile, realpath, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, readFile, rmdir, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
-import { basename, dirname, join, resolve } from 'path'
+import { dirname, join } from 'path'
+
+import { withConfigFileLock, writeFileAtomically } from './config-file-write'
 
 // Lazy electron so the module is importable from node-only test bundles.
 function loadElectron(): typeof import('electron') {
@@ -648,52 +649,8 @@ async function statOrNull(path: string): Promise<Awaited<ReturnType<typeof stat>
   }
 }
 
-// ── Writing a config file the person owns ──────────────────────────────────
-//
-// Every file this module writes is one the person (or the CLI itself) also
-// edits, and launches sync the same workspace concurrently: boot releases every
-// held launch together, and several agents may start in one checkout at once.
-// Two rules keep that from costing anyone their settings:
-//
-// 1. One read-modify-write per file at a time. Each sync reads a file, derives
-//    the next content from what it read and writes it back; interleaving two
-//    of those means the second writes over the first from a stale read. The
-//    lock is per resolved path and module-wide, so it also covers two service
-//    instances and `removeManagedStudioGatewayFromClaudeWorkspace`. A caller
-//    that holds two locks takes `.mcp.json` before `.claude/settings.local.json`,
-//    the only nesting there is, so no two callers can wait on each other.
-// 2. A write never truncates in place. The new bytes go to a temporary file in
-//    the same directory and are renamed over the old one, so a reader (another
-//    sync, or the CLI starting up) sees the old file or the new one, never an
-//    empty or half-written one.
-
-const configFileLocks = new Map<string, Promise<unknown>>()
-
-function configFileLockKey(path: string): string {
-  const absolute = resolve(path)
-  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
-}
-
-/**
- * Run `task` once every earlier task queued on the same file has settled. A
- * failed task does not poison the queue: the next one still runs.
- */
-async function withConfigFileLock<T>(path: string, task: () => Promise<T>): Promise<T> {
-  const key = configFileLockKey(path)
-  const previous = configFileLocks.get(key) ?? Promise.resolve()
-  const run = previous.then(task, task)
-  const settled = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  configFileLocks.set(key, settled)
-  try {
-    return await run
-  } finally {
-    // Only the last task in the queue clears the entry; a later one replaced it.
-    if (configFileLocks.get(key) === settled) configFileLocks.delete(key)
-  }
-}
+// Every write below goes through `withConfigFileLock` and `writeFileAtomically`
+// (config-file-write.ts): see there for why.
 
 /**
  * The file's JSON object, `{}` for a file with nothing in it, or null for
@@ -706,52 +663,6 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
     return isPlainRecord(parsed) ? parsed : null
   } catch {
     return null
-  }
-}
-
-/**
- * Replace `path` with `content` through a temporary file and a rename. A
- * symlinked config is written through to its target, so the link survives, and
- * an existing file keeps its permission bits.
- */
-async function writeFileAtomically(path: string, content: string): Promise<void> {
-  let target = path
-  let mode: number | undefined
-  try {
-    target = await realpath(path)
-    mode = (await stat(target)).mode & 0o7777
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw error
-  }
-  const temporary = join(dirname(target), `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`)
-  try {
-    await writeFile(temporary, content, { encoding: 'utf8', ...(mode === undefined ? {} : { mode }) })
-    // `mode` on writeFile is masked by the umask; set it exactly.
-    if (mode !== undefined) await chmod(temporary, mode)
-    await renameWithRetry(temporary, target)
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined)
-    throw error
-  }
-}
-
-/**
- * Windows refuses a rename over a file another process has open without
- * FILE_SHARE_DELETE (an editor, a scanner, the CLI reading its config) for
- * the moment it holds it. A few short retries ride that out; elsewhere the
- * rename either works or fails for good.
- */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await rename(from, to)
-      return
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code
-      const transient = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
-      if (process.platform !== 'win32' || !transient || attempt >= 4) throw error
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 25 * (attempt + 1)))
-    }
   }
 }
 
