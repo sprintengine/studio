@@ -171,7 +171,7 @@ test('poller', async () => {
       assert.equal(calls.length, 0, 'nothing ran while suspended')
       poller.wake()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
-      assert.deepEqual(calls, [], 'the instant of waking, when the network is usually still down, runs nothing')
+      assert.equal(calls.length, 0, 'the instant of waking, when the network is usually still down, runs nothing')
       const wokeAt = clock.now()
       await clock.advance(POLLER_WAKE_SETTLE_MS)
       const settled = wokeAt + POLLER_WAKE_SETTLE_MS
