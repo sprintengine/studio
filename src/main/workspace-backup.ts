@@ -19,6 +19,16 @@ export type WorkspaceBackupServiceDeps = {
    * serializes a registry that is main's. Absent in tests of the file format.
    */
   readRegistry?: () => WorkspaceBackupRegistry
+  /**
+   * The least time between two backups that serialize main's registry. A
+   * registry of a few hundred workspaces is a megabyte or more of JSON, and a
+   * window asks for a backup a second after any change to its workspace list,
+   * so a busy session would otherwise pay for that serialization every few
+   * seconds. A request inside the interval is held, the newest one wins, and
+   * it is written when the interval ends. Zero (the default) writes each one.
+   */
+  minRegistryIntervalMs?: number
+  now?: () => number
 }
 
 /**
@@ -34,14 +44,49 @@ function settingsOnlyBackupData(data: unknown): { settings: unknown } | null {
 
 export class WorkspaceBackupService {
   private inFlightWrite: Promise<void> = Promise.resolve()
+  private lastRegistryWriteAt = Number.NEGATIVE_INFINITY
+  private heldWrite: WorkspaceBackupPayload | null = null
+  private heldTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly deps: WorkspaceBackupServiceDeps) {}
+
+  /**
+   * Whether this write should wait for the registry interval, holding it as
+   * the one to write when the interval ends. Only a write that composes main's
+   * registry is held: an older build's full pair costs main nothing to write.
+   */
+  private holdForInterval(payload: WorkspaceBackupPayload): boolean {
+    const interval = this.deps.minRegistryIntervalMs ?? 0
+    if (interval <= 0 || !this.deps.readRegistry || !settingsOnlyBackupData(payload.data)) return false
+    const now = (this.deps.now ?? Date.now)()
+    const wait = this.lastRegistryWriteAt + interval - now
+    if (wait <= 0 && this.heldTimer === null) {
+      this.lastRegistryWriteAt = now
+      return false
+    }
+    this.heldWrite = payload
+    if (this.heldTimer === null) {
+      this.heldTimer = setTimeout(
+        () => {
+          this.heldTimer = null
+          const held = this.heldWrite
+          this.heldWrite = null
+          if (held) void this.write(held)
+        },
+        Math.max(wait, 0),
+      )
+      // A backup is not a reason to keep the app from quitting.
+      this.heldTimer.unref?.()
+    }
+    return true
+  }
 
   private get backupPath(): string {
     return join(this.deps.resolveUserDataDir(), BACKUP_FILE_NAME)
   }
 
   async write(payload: WorkspaceBackupPayload): Promise<{ ok: boolean; message?: string }> {
+    if (this.holdForInterval(payload)) return { ok: true, message: 'deferred' }
     let serialized: string
     try {
       const composed = this.withRegistry(payload)

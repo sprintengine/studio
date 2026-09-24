@@ -759,6 +759,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveUserDataDir: () => app.getPath('userData'),
     // Read at write time, so the registry built below is in place by then.
     readRegistry: () => workspaceRegistry.getState(),
+    // At most one registry serialization every ten seconds; the newest request
+    // inside the interval is written when it ends.
+    minRegistryIntervalMs: 10_000,
   })
   const logWorkspaceSyncDiagnostic = (diagnostic: {
     level: 'warning'

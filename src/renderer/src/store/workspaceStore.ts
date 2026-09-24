@@ -460,6 +460,33 @@ function scheduleBackupWrite(): void {
   }, BACKUP_WRITE_DEBOUNCE_MS)
 }
 
+// Workspace fields whose change alone does not refresh the backup: the
+// keystroke clock, written on terminal input. The next change that does
+// refresh it carries the clock along.
+const BACKUP_IGNORED_WORKSPACE_FIELDS: ReadonlySet<string> = new Set(['lastTerminalActivityAt'])
+
+/**
+ * Whether a new workspace list differs from the previous one in anything but
+ * the fields above. Cheap by construction: the store shares every workspace it
+ * did not touch, so only the changed ones have their top-level fields compared.
+ */
+export function workspacesChangedForBackup(previous: readonly Workspace[], next: readonly Workspace[]): boolean {
+  if (previous.length !== next.length) return true
+  for (let index = 0; index < next.length; index += 1) {
+    const before = previous[index] as Record<string, unknown> | undefined
+    const after = next[index] as unknown as Record<string, unknown>
+    if (before === after) continue
+    if (!before) return true
+    for (const key of Object.keys(after)) {
+      if (!BACKUP_IGNORED_WORKSPACE_FIELDS.has(key) && before[key] !== after[key]) return true
+    }
+    for (const key of Object.keys(before)) {
+      if (!(key in after)) return true
+    }
+  }
+  return false
+}
+
 // Two-key split persistence (T23). The custom storage adapter is the only
 // place workspace-registry and app-settings keys are read or written:
 //   sprintengine-workspaces   → read at hydration only. Main owns the
@@ -946,8 +973,15 @@ const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
 
     // A changed workspace list asks main for a fresh backup. Only a non-empty
     // one: the intentional empty case is honored locally but never promoted
-    // over the last-known-good copy.
-    if (previous && previous.workspaces !== next.workspaces && next.workspaces.length > 0) {
+    // over the last-known-good copy. And not for the keystroke clock alone,
+    // which moves on terminal input: each backup has main serialize the whole
+    // registry, and typing is not a change worth recovering.
+    if (
+      previous &&
+      previous.workspaces !== next.workspaces &&
+      next.workspaces.length > 0 &&
+      workspacesChangedForBackup(previous.workspaces, next.workspaces)
+    ) {
       scheduleBackupWrite()
     }
 
