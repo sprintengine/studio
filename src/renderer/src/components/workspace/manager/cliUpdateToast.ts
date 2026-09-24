@@ -2,7 +2,10 @@
 // it offers.
 
 import type { CliVersionAdvisory } from '../../../../../shared/electron-api'
+import { LOCAL_HOST_ID } from '../../../../../shared/execution-host'
+import { useNotificationStore } from '../../../store/notificationStore'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { cliUpdateKey } from '../../../utils/settingsUpdateBadges'
 import { cliUpdateNotice } from '../../../utils/feedNotifications'
 import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { useToastStore, showToast } from '../../../store/toastStore'
@@ -16,6 +19,11 @@ import { cliRuntimeForPlugin } from '../newWorkspace/cliRuntimeOptions'
 // It leaves after a minute (owner ruling 2026-09-18): a notice nobody asked
 // for should not sit in the corner until clicked, and the bell entry below
 // and the Settings row still say the same thing once it has gone.
+//
+// Leaving on its own is not a dismissal: the update's badges (the Settings
+// gear, Agents, This PC and the row — owner ruling 2026-09-25) stay until the
+// update is installed or the person presses the toast's Dismiss, which is them
+// saying "not now" to this version.
 export const CLI_UPDATE_TOAST_MS = 60_000
 
 export function showCliUpdateToast(advisory: CliVersionAdvisory): void {
@@ -33,19 +41,23 @@ export function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     navigationTarget: { kind: 'settings', ref: 'agents' },
   })
   const dismiss = (): void => useToastStore.getState().dismissToast(id)
+  const dismissUpdate = (): void => useNotificationStore.getState().dismissUpdate(cliUpdateKey(advisory))
   showToast({
     id,
     tone: 'neutral',
     cli: advisory.cli,
     title: notice.title,
     autoDismissMs: CLI_UPDATE_TOAST_MS,
+    onDismissPressed: dismissUpdate,
     actions: [
       {
         id: 'settings',
         label: 'Settings',
         run: () => {
           dismiss()
-          useWorkspaceStore.getState().openSettingsOverlay({ initialTab: 'agents' })
+          // The advisory is this machine's, so the Agents tab shows This PC even
+          // when it last showed a WSL distribution.
+          useWorkspaceStore.getState().openSettingsOverlay({ initialTab: 'agents', agentsMachine: LOCAL_HOST_ID })
         },
       },
       {
@@ -77,7 +89,7 @@ export async function runCliUpdateFromToast(cli: string, name: string, id: strin
         tone: 'warn',
         cli,
         title: `${name} did not update`,
-        description: `The update finished but the version is still ${before ?? 'the same'}. Settings › Agent CLIs has the command to run by hand.`,
+        description: `The update finished but the version is still ${before ?? 'the same'}. Settings › Agents has the command to run by hand.`,
       })
     } else {
       showToast({

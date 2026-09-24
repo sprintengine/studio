@@ -12,10 +12,19 @@
 // and, at the start after an update, "Updated to X" or "Update to X did not
 // install". The toast spec (design-system/components/toast) records the action
 // row's consumers; this is the second.
+//
+// Later, and the toast's own Dismiss, are also the person saying "not now" to
+// this version at this step, so they clear the update's badges on the Settings
+// gear and on General (owner ruling 2026-09-25). The step is part of what was
+// dismissed: waving off the offer does not wave off "ready to restart" when the
+// download lands later, which is news of its own. Dismissing the downloading
+// toast only hides it — the person asked for that download.
 
 import type { AppUpdateInstallOutcome, AppUpdateState } from '../../../../../shared/electron-api'
 import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { updateAvailableNotice, updateReadyNotice } from '../../../utils/feedNotifications'
+import { appUpdateKey, type AppUpdateStage } from '../../../utils/settingsUpdateBadges'
+import { useNotificationStore } from '../../../store/notificationStore'
 import { showToast, useToastStore } from '../../../store/toastStore'
 
 export const APP_UPDATE_TOAST_ID = 'app-update:ready'
@@ -35,6 +44,8 @@ let phase: Phase | null = null
 let installNeedsAdmin = false
 // An update is offered once per version per window, not on every hourly check.
 const offeredVersions = new Set<string>()
+// The version the ready toast is about, for a refused restart's Later.
+let readyVersion: string | null = null
 
 function toastIsShowing(): boolean {
   return useToastStore.getState().toasts.some((toast) => toast.id === APP_UPDATE_TOAST_ID)
@@ -43,6 +54,24 @@ function toastIsShowing(): boolean {
 function dismiss(): void {
   phase = null
   useToastStore.getState().dismissToast(APP_UPDATE_TOAST_ID)
+}
+
+/** Record "not now" for this version at this step: its Settings badges clear. */
+function dismissUpdate(version: string | null, stage: AppUpdateStage): () => void {
+  return () => useNotificationStore.getState().dismissUpdate(appUpdateKey(version, stage))
+}
+
+/** Later: "not now", and the toast goes. */
+function later(version: string | null, stage: AppUpdateStage) {
+  const notNow = dismissUpdate(version, stage)
+  return {
+    id: 'later',
+    label: 'Later',
+    run: () => {
+      notNow()
+      dismiss()
+    },
+  }
 }
 
 /** Resolves after the browser has painted what was just rendered. */
@@ -70,8 +99,9 @@ export function showAppUpdateAvailableToast(state: Pick<AppUpdateState, 'updateV
     title: notice.title,
     description: notice.description,
     autoDismissMs: false,
+    onDismissPressed: dismissUpdate(state.updateVersion, 'offer'),
     actions: [
-      { id: 'later', label: 'Later', run: dismiss },
+      later(state.updateVersion, 'offer'),
       {
         id: 'download',
         label: 'Download',
@@ -115,8 +145,9 @@ function showDownloadFailed(version: string | null, message: string): void {
     tone: 'warn',
     title: 'The update did not download',
     description: message,
+    onDismissPressed: dismissUpdate(version, 'offer'),
     actions: [
-      { id: 'later', label: 'Later', run: dismiss },
+      later(version, 'offer'),
       {
         id: 'download',
         label: 'Try again',
@@ -170,13 +201,15 @@ export function showAppUpdateReadyToast(state: Pick<AppUpdateState, 'updateVersi
     navigationTarget: { kind: 'settings', ref: 'general' },
   })
   phase = 'ready'
+  readyVersion = state.updateVersion
   showToast({
     id: APP_UPDATE_TOAST_ID,
     tone: 'good',
     title: notice.title,
     description: notice.description,
     autoDismissMs: false,
-    actions: [{ id: 'later', label: 'Later', run: dismiss }, restartAction(false)],
+    onDismissPressed: dismissUpdate(state.updateVersion, 'ready'),
+    actions: [later(state.updateVersion, 'ready'), restartAction(false)],
   })
 }
 
@@ -217,7 +250,8 @@ function showRestartRefused(message: string): void {
     tone: 'warn',
     title: 'Update not installed',
     description: message,
-    actions: [{ id: 'later', label: 'Later', run: dismiss }, restartAction(false)],
+    onDismissPressed: dismissUpdate(readyVersion, 'ready'),
+    actions: [later(readyVersion, 'ready'), restartAction(false)],
   })
 }
 
@@ -271,5 +305,6 @@ export function createAppUpdateToastDriver(): (state: AppUpdateState) => void {
 export function resetAppUpdateToastForTests(): void {
   phase = null
   installNeedsAdmin = false
+  readyVersion = null
   offeredVersions.clear()
 }

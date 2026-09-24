@@ -38,7 +38,7 @@ export type DiagnosticLogInput = {
   navigationTarget?: NotificationNavigationTarget
   /**
    * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
-   * design, plugins, skills, agent-clis), when the emitter
+   * design, plugins, skills), when the emitter
    * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
    * A string rather than the row type because this shape is shared with the
    * main process and persists to localStorage; unknown values fall back to the

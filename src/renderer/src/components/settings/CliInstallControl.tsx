@@ -33,8 +33,8 @@ export type CliInstallControlProps = {
   // row button is the only way in, and progress goes back up through
   // `onInstallStateChange` so the row can report it where the button already is.
   // Two identical Install buttons a few pixels apart is what this replaces, and
-  // it is opt-in precisely so Settings → Agents and the Agent CLIs canvas — both
-  // of which own no button of their own — keep the pair they render today.
+  // it is opt-in precisely so Settings → Agents — which owns no button of its
+  // own — keeps the pair it renders today.
   hostDriven?: boolean
   // "An install is wanted and has not started yet." The host raises it from its
   // own Install button and drops it when the progress it gets back says the

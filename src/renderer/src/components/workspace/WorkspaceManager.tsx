@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { hostIdForFolder, isWslHostId, type ExecutionHostId } from '../../../../shared/execution-host'
+import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
@@ -101,10 +101,7 @@ import WorkspaceSidebar from './WorkspaceSidebar'
 import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
 import { useRailBadges } from './useRailBadges'
 import { EXTENSIONS_HOME_SURFACE_ID, surfaceTakesSidebarColumn } from './extensionsDrawer'
-import {
-  dispatchExtensionsSurfaceTarget,
-  EXTENSIONS_DRAWER_VIEWS,
-} from './globalSurface/extensions/extensionsSurfaceTarget'
+import { dispatchExtensionsSurfaceTarget } from './globalSurface/extensions/extensionsSurfaceTarget'
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
@@ -211,6 +208,9 @@ import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabSco
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
+import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
+import { subscribeAppUpdateState } from '../../store/appUpdateStore'
+import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
@@ -918,8 +918,8 @@ export default function WorkspaceManager() {
   //
   // Extensions is the one section with a page of its own: choosing it also
   // opens the Extensions home in the card region (owner, 2026-09-05), while the
-  // column beside it becomes the drawer — Design, Plugins, Skills,
-  // Agent CLIs. Choosing it again from somewhere else reopens the home — the
+  // column beside it becomes the drawer — Design, Plugins, Skills. Choosing
+  // it again from somewhere else reopens the home — the
   // glyph's promise is the page.
   //
   // Leaving the open door FIRST and opening the home second, rather than
@@ -1538,6 +1538,12 @@ export default function WorkspaceManager() {
       useWorkspaceStore.getState().applyHostedCardFeedResult(result)
     })
   }, [])
+
+  // The app update state, held once for the window: the Settings badges and
+  // the General tab's version row read it from here.
+  useEffect(() => subscribeAppUpdateState(), [])
+  // The updates waiting in Settings, worn on the rail's gear.
+  const settingsUpdateBadges = useSettingsUpdateBadges()
 
   // The app update: one toast that follows it through its steps (offered,
   // downloading, ready, installing) and a bell row at each question, plus, at
@@ -2836,16 +2842,19 @@ export default function WorkspaceManager() {
       }
 
       if (result.surface) {
-        // `home` is the app's own surface and the rest are views of the
-        // Extensions door, which is exactly the split `CardSurfaceView` states.
-        if (result.surface.view === 'home') {
+        // Where each view lands, including the retired `agent-clis`
+        // (cardSurfaceRoute.ts).
+        const route = cardSurfaceRoute(result.surface.view)
+        if (route.kind === 'extensions-home') {
           openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID)
+        } else if (route.kind === 'settings-agents') {
+          openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB, agentsMachine: LOCAL_HOST_ID })
         } else {
           // Latch first, open second — the order every deep-link opener in this
           // file uses, so an already-open door and a cold one both land on the
           // row the card named.
           dispatchExtensionsSurfaceTarget({
-            view: EXTENSIONS_DRAWER_VIEWS[result.surface.view === 'agent-clis' ? 'agentClis' : result.surface.view],
+            view: route.view,
             ...(result.surface.installed ? { installed: true } : {}),
           })
           openGlobalSurface('extensions')
@@ -2996,6 +3005,7 @@ export default function WorkspaceManager() {
       closeModalSurface,
       openGlobalSurface,
       openNewChatPanel,
+      openSettingsOverlay,
       upsertMcpServer,
       windowActiveWorkspaceId,
       workspaceWindowId,
@@ -4250,6 +4260,7 @@ export default function WorkspaceManager() {
               logout={logout}
               openSettings={openSettings}
               settingsOpen={settingsOpen}
+              settingsBadge={settingsUpdateBadges.rail}
             />
           }
         />

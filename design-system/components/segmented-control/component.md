@@ -22,6 +22,7 @@ you picked the wrong control.
 |---|---|---|
 | Group | `.ds-segmented-control` | yes — `role="radiogroup"` with an accessible name; owns the border, radius, and overflow clip |
 | Segment | `.ds-segmented-control-segment` | 2–4 — real `<button>`s with `role="radio"` |
+| Count | the [badge](../badge/component.md) count species, inside a segment after its label | no — see "Badged segment" |
 
 The group owns everything structural. Segments are separated by a single
 internal `border.subtle` hairline on each segment after the first — never a
@@ -43,6 +44,16 @@ doubled border, never a gap.
   The square matches the `button --icon` items beside it in a
   [toolbar](../toolbar/component.md) band rather than standing a step taller.
   Every item must carry an icon.
+- **Badged segment** (owner ruling 2026-09-25) — a segment may carry the
+  badge component's count after its label, saying how much is waiting behind
+  that choice: the Agents switcher's "1 CLI update available" on the machine
+  that has it, and on no other. It trails the label inside the segment,
+  `space.xs` after it, rather than docking on the corner the way `--corner`
+  does, because the group clips its own edge to draw the rounded border and a
+  corner count would be cut in half. Not on `--icon-only`: the square has no
+  room beside the glyph. Nothing at zero. The count is news, not a second
+  selection state — the selected fill stays the only thing that says which
+  segment is chosen.
 - **No accent variant.** The selected segment is a *selection*, and selection
   is neutral: `bg.selected` with the label lifted to `text.primary`. An
   accent-filled segment would spend the one solid accent on a state display.
@@ -129,6 +140,11 @@ are separate steps.
   luminance step, not a hue.
 - Disabled segments stay in the DOM and visible: which options *exist* is
   information even when one is unavailable.
+- A badged segment names itself with the count in it ("This PC, 1 CLI update
+  available") as an explicit `aria-label`. The count is the badge's named live
+  region, so it keeps announcing a change on its own, and the explicit name
+  stops it from also landing in the segment's name-from-contents — the same
+  call a badged tab makes.
 - On `--icon-only`, the glyph is `aria-hidden` and the label moves to the
   segment's `aria-label`, so the accessible name is identical to the labelled
   variant's; the tooltip is the sighted user's version of that same string, and

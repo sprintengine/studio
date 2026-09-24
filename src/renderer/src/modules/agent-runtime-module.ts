@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { LOCAL_HOST_ID } from '../../../shared/execution-host'
 import type { RendererModule } from './renderer-host'
 import {
   agentBacklogOpenPorts,
@@ -13,7 +14,7 @@ import {
   dispatchExtensionsSurfaceTarget,
   EXTENSIONS_DRAWER_VIEWS,
 } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
-import { CliGlyph, McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
+import { McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
 import { PluginsGlyph } from '../components/workspace/surfaceGlyphs'
 
 // The Plugins surface (the Extensions door until doors→modals,
@@ -69,7 +70,15 @@ export const agentRuntimeRendererModule: RendererModule = {
               label: 'Open',
               run: async () => {
                 const { useWorkspaceStore } = await import('../store/workspaceStore')
-                useWorkspaceStore.getState().openSettingsOverlay({ initialTab: target.ref || 'agents' })
+                const tab = target.ref || 'agents'
+                // A CLI update and model news are this machine's (the version
+                // check and model discovery run here), so they land on This PC
+                // rather than on whichever machine the Agents tab last showed.
+                useWorkspaceStore
+                  .getState()
+                  .openSettingsOverlay(
+                    tab === 'agents' ? { initialTab: tab, agentsMachine: LOCAL_HOST_ID } : { initialTab: tab },
+                  )
               },
             },
           ]
@@ -155,11 +164,12 @@ export const agentRuntimeRendererModule: RendererModule = {
       onOpen: () => {
         consumePendingExtensionsSurfaceTarget()
       },
-      // Three rows in the Extensions drawer, not one (drawer ruling,
-      // 2026-09-05: Design · Plugins · Skills · Agent CLIs). Plugins,
-      // Skills and Agent CLIs are separate destinations to the operator even
-      // though one surface still renders all three, so each contributes its own
-      // row here rather than the shell learning this module's sections. Each
+      // Two rows in the Extensions drawer, not one (drawer ruling, 2026-09-05:
+      // Design · Plugins · Skills). Plugins and Skills are separate
+      // destinations to the operator even though one surface renders both, so
+      // each contributes its own row here rather than the shell learning this
+      // module's sections. Agent CLIs was a third until 2026-09-25 (owner
+      // ruling): they are listed per machine in Settings ▸ Agents. Each
       // opens by the deep-link latch the surface already drains, so the row and
       // a notification's Open arrive by exactly one route. The latch names the
       // view itself since the source-tabs ruling: `browse` used to stand in for
@@ -177,12 +187,6 @@ export const agentRuntimeRendererModule: RendererModule = {
           label: 'Skills',
           Icon: SkillsGlyph,
           open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills }),
-        },
-        {
-          id: EXTENSIONS_DRAWER_VIEWS.agentClis,
-          label: 'Agent CLIs',
-          Icon: CliGlyph,
-          open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.agentClis }),
         },
       ],
       Component: ExtensionsGlobalSurface,

@@ -40,6 +40,8 @@ import {
   normalizeAppSettings,
   type ChatListView,
   type DiffViewMode,
+  type SettingsOverlayOptions,
+  type SettingsOverlayState,
   type SidebarSection,
 } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
@@ -174,13 +176,10 @@ export interface WorkspaceStore
   setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
   // `activeModalSurface === 'settings'` is what says it is showing.
-  settingsOverlay: {
-    initialTab: string | null
-    checkForUpdatesRequestId: number | null
-  }
-  openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
+  settingsOverlay: SettingsOverlayState
+  openSettingsOverlay: (opts?: SettingsOverlayOptions) => void
   closeSettingsOverlay: () => void
-  // Opens the Extensions door on one of its three views, optionally on that
+  // Opens the Extensions door on one of its views, optionally on that
   // view's Installed tab (source-tabs ruling, 2026-09-05).
   openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // The door-routed full-page surface for this window (global-surfaces epic

@@ -1,4 +1,4 @@
-// The three catalogues, rendered: Plugins, Skills and Agent CLIs are the SAME
+// The catalogues, rendered: Plugins and Skills are the SAME
 // page (source-tabs ruling, 2026-09-05), so what this asserts is the sameness —
 // each view's title on the chrome row, Installed first in the tab row, one tab
 // per source after it, the plus with its two items, and one pager at the foot.
@@ -530,7 +530,7 @@ test('extensionsCatalogue', async () => {
     const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } =
       await import('../extensionsSurfaceTarget')
 
-    const openView = async (view: 'plugins' | 'skills' | 'agent-clis'): Promise<void> => {
+    const openView = async (view: 'plugins' | 'skills'): Promise<void> => {
       consumePendingExtensionsSurfaceTarget()
       await act(async () => {
         dispatchExtensionsSurfaceTarget({ view })
@@ -862,30 +862,22 @@ test('extensionsCatalogue', async () => {
       assert.equal(search?.getAttribute('aria-controls'), panel?.id)
     })
 
-    // ── Agent CLIs: the same shape, minus the plus ──────────────────────────────
+    // ── Agent CLIs left the door ────────────────────────────────────────────────
 
-    await openView('agent-clis')
-
-    await run('Agent CLIs is the same page with one source and no plus', () => {
-      assert.equal(title(), 'Agent CLIs')
-      assert.deepEqual(
-        tabNames(),
-        ['Installed', 'SprintEngine Studio'],
-        'a repository can hold no CLI, so listing every source would be tabs that can only read "none"',
-      )
-      assert.equal(
-        container.querySelector('button[aria-label="Add source"]'),
-        null,
-        'and the plus is withheld rather than offering a way in that leads nowhere',
-      )
-    })
-
-    await run("a conversation provider that shares a CLI's name is not an agent CLI row", () => {
-      const leaves = [...container.querySelectorAll('*')].filter(
-        (el) => el.children.length === 0 && (el.textContent ?? '').trim() === 'Claude Code',
-      )
-      assert.equal(leaves.length, 1, 'Claude Code is listed once: the terminal CLI, not the SDK provider beside it')
-      assert.ok(text().includes('Cursor'), 'a CLI the runtime catalogue knows is still listed')
+    await run('a link that still names the retired Agent CLIs view does not move the door', async () => {
+      // Settings ▸ Agents lists the CLIs now (owner ruling 2026-09-25). A stale
+      // target is ignored rather than landing on a view that is not there.
+      const before = title()
+      consumePendingExtensionsSurfaceTarget()
+      await act(async () => {
+        dispatchExtensionsSurfaceTarget({ view: 'agent-clis' } as unknown as Parameters<
+          typeof dispatchExtensionsSurfaceTarget
+        >[0])
+      })
+      await settle()
+      consumePendingExtensionsSurfaceTarget()
+      assert.equal(title(), before, 'the door stays on the view it was showing')
+      assert.equal(text().includes('Agent CLIs'), false, 'and nothing on it offers agent CLIs')
     })
 
     // ── The Installed tab ───────────────────────────────────────────────────────

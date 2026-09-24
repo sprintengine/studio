@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 
 import type { AppUpdateCheckResult, AppUpdateState } from '../../../../../shared/electron-api'
+import { useNotificationStore } from '../../../store/notificationStore'
 import { useToastStore } from '../../../store/toastStore'
 
 const diagnostics = vi.hoisted(() => ({ published: [] as Array<{ title: string; source: string }> }))
@@ -266,4 +267,33 @@ test('a refused install going back to downloaded is not announced as ready again
     1,
     'one bell row for the ready update, not one per refusal',
   )
+})
+
+// Later and Dismiss are "not now" for this version at this step, and clear its
+// Settings badges (owner ruling 2026-09-25); the downloading toast's Dismiss
+// only hides it.
+test('Later on the offer dismisses the offer; Later on ready dismisses ready', () => {
+  useNotificationStore.setState({ dismissedUpdates: [] })
+  const drive = createAppUpdateToastDriver()
+  drive(state({ status: 'available', updateVersion: '0.7.0' }))
+  press('later')
+  assert.deepEqual(useNotificationStore.getState().dismissedUpdates, ['app@0.7.0:offer'])
+
+  drive(state({ status: 'downloaded', downloaded: true, updateVersion: '0.7.0' }))
+  press('later')
+  assert.deepEqual(useNotificationStore.getState().dismissedUpdates, ['app@0.7.0:offer', 'app@0.7.0:ready'])
+})
+
+test('the toast’s Dismiss says "not now" at the question steps, and not while downloading', async () => {
+  useNotificationStore.setState({ dismissedUpdates: [] })
+  showAppUpdateReadyToast({ updateVersion: '0.7.0' })
+  toast()?.onDismissPressed?.()
+  assert.deepEqual(useNotificationStore.getState().dismissedUpdates, ['app@0.7.0:ready'])
+
+  useNotificationStore.setState({ dismissedUpdates: [] })
+  const drive = createAppUpdateToastDriver()
+  drive(state({ status: 'available', updateVersion: '0.8.0' }))
+  press('download')
+  await settle()
+  assert.equal(toast()?.onDismissPressed, undefined, 'the download the person asked for is not waved off')
 })

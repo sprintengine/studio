@@ -2241,7 +2241,7 @@ function WorkspaceSidebar({
          * blank rail. */}
         {contextRail}
         {/* The Extensions drawer (app shell, 2026-09-05): the ruled
-          product rows — Design, Plugins, Skills, Agent CLIs — followed by
+          product rows — Design, Plugins, Skills — followed by
           installed module doors. The app rail's Extensions glyph shows it in
           place of the tree, and it STAYS while the card region swaps: a door
           that is one of its rows renders its own rail beside its canvas rather

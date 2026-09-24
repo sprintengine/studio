@@ -18,7 +18,17 @@ vi.mock('../../store/workspaceStore', () => ({
 const { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } = await import('./AgentClisSection')
 
 // The panel holds the runs; so does this harness.
-function Section({ machine, availability }: { machine: AgentsMachine; availability: MachineCliAvailability | null }) {
+const NO_BADGES: ReadonlySet<string> = new Set()
+
+function Section({
+  machine,
+  availability,
+  updateBadgeClis = NO_BADGES,
+}: {
+  machine: AgentsMachine
+  availability: MachineCliAvailability | null
+  updateBadgeClis?: ReadonlySet<string>
+}) {
   const runs = useAgentCliRuns()
   return (
     <AgentClisSection
@@ -28,6 +38,7 @@ function Section({ machine, availability }: { machine: AgentsMachine; availabili
       showMachine
       now={2}
       runs={runs}
+      updateBadgeClis={updateBadgeClis}
     />
   )
 }
@@ -112,8 +123,14 @@ const ubuntuProbe: MachineCliAvailability = {
   checkedAt: 1,
 }
 
-async function renderSection(machine: AgentsMachine, availability: MachineCliAvailability | null): Promise<void> {
-  await act(async () => root.render(<Section machine={machine} availability={availability} />))
+async function renderSection(
+  machine: AgentsMachine,
+  availability: MachineCliAvailability | null,
+  updateBadgeClis?: ReadonlySet<string>,
+): Promise<void> {
+  await act(async () =>
+    root.render(<Section machine={machine} availability={availability} updateBadgeClis={updateBadgeClis} />),
+  )
 }
 
 function rowNames(): string[] {
@@ -242,6 +259,56 @@ test('a WSL machine still being asked reads as checking, not as missing', async 
 })
 
 // ---------------------------------------------------------------------------
+// CLI updates (owner ruling 2026-09-25)
+// ---------------------------------------------------------------------------
+
+function behindCodex(): void {
+  Object.assign(fixtures.state, {
+    checkCliVersions: true,
+    cliVersionAdvisories: {
+      codex: {
+        cli: 'codex',
+        status: 'behind_latest',
+        currentVersion: '0.40.0',
+        latestVersion: '0.41.0',
+        updateCommand: null,
+        checkedAt: '2026-09-25T00:00:00.000Z',
+      },
+    },
+  })
+}
+
+test('a CLI with a newer release wears its count beside its Update button', async () => {
+  behindCodex()
+  await renderSection(LOCAL, null, new Set(['codex']))
+  const codexRow = nameSpan('Codex').closest('li')!
+  const update = Array.from(codexRow.querySelectorAll('button')).find((button) => button.textContent === 'Update')
+  expect(update).toBeTruthy()
+  const badge = codexRow.querySelector('[role="status"][aria-label="Codex — update available: 0.41.0"]')
+  expect(badge?.textContent).toBe('1')
+  // Beside the button, not on the mark: the two share one wrapper.
+  expect(badge?.parentElement).toBe(update!.parentElement)
+  // Named, never colour alone — and only on the row that is behind.
+  const geminiRow = nameSpan('Gemini').closest('li')!
+  expect(geminiRow.querySelector('[role="status"]')).toBe(null)
+})
+
+test('a dismissed update keeps its Update button and loses only the badge', async () => {
+  behindCodex()
+  await renderSection(LOCAL, null, new Set())
+  const codexRow = nameSpan('Codex').closest('li')!
+  expect(Array.from(codexRow.querySelectorAll('button')).some((button) => button.textContent === 'Update')).toBe(true)
+  expect(codexRow.querySelector('[role="status"]')).toBe(null)
+})
+
+test('a WSL machine offers no Update and wears no update badge: the version check is this PC’s', async () => {
+  behindCodex()
+  await renderSection(UBUNTU, ubuntuProbe, new Set(['codex']))
+  expect(host.querySelector('[role="status"]')).toBe(null)
+  expect(Array.from(host.querySelectorAll('button')).some((button) => button.textContent === 'Update')).toBe(false)
+})
+
+// ---------------------------------------------------------------------------
 // The switcher
 // ---------------------------------------------------------------------------
 
@@ -264,4 +331,29 @@ test('two machines draw the segmented control, and a pick names the machine', as
   expect(options[0].getAttribute('aria-checked')).toBe('true')
   await act(async () => options[1].click())
   expect(picks).toEqual(['wsl:Ubuntu'])
+})
+
+test('the machine with a CLI update wears the count on its segment, and only that machine', async () => {
+  await act(async () =>
+    root.render(
+      <AgentsMachineSwitcher
+        machines={[LOCAL, UBUNTU]}
+        value="wsl:Ubuntu"
+        onChange={() => {}}
+        badges={{
+          local: {
+            count: 2,
+            tone: 'accent',
+            label: 'Agents: 2 CLI updates available',
+            detail: '2 CLI updates available',
+          },
+        }}
+      />,
+    ),
+  )
+  const options = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="radio"]'))
+  expect(options[0].getAttribute('aria-label')).toBe('This PC (Windows), 2 CLI updates available')
+  expect(options[0].querySelector('[role="status"]')?.textContent).toBe('2')
+  expect(options[1].getAttribute('aria-label')).toBe(null)
+  expect(options[1].querySelector('[role="status"]')).toBe(null)
 })

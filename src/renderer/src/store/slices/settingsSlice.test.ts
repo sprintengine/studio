@@ -361,6 +361,29 @@ test('settingsSlice', async () => {
   assert.equal(carrier.activeModalSurface, null, 'closing settings closes the modal')
   assert.deepEqual(carrier.settingsOverlay, { initialTab: null, checkForUpdatesRequestId: null })
 
+  // An opener that knows which machine its news is about (a CLI update is This
+  // PC's) names it, and each open is a new request so an Agents tab already
+  // showing another machine still moves. A plain open carries none.
+  // Re-read through the declared type: the deepEqual above narrowed it.
+  const overlay = (): SettingsOverlayState => carrier.settingsOverlay
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  const first = overlay().agentsMachineRequest
+  assert.equal(first?.hostId, 'local')
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  assert.ok(
+    (overlay().agentsMachineRequest?.requestId ?? 0) > (first?.requestId ?? 0),
+    'a second open is a second request',
+  )
+  slice.openSettingsOverlay({ initialTab: 'agents' })
+  assert.equal(overlay().agentsMachineRequest, undefined, 'a plain open names no machine')
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  slice.closeSettingsOverlay()
+  assert.deepEqual(
+    carrier.settingsOverlay,
+    { initialTab: null, checkForUpdatesRequestId: null },
+    'closing clears it with the rest of the request',
+  )
+
   // Where a diff opens (git-commit-window T3). The window is the out-of-the-box
   // answer, and the flip is a
   // plain setter, because the two band buttons that write it are the whole UI.

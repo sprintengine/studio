@@ -26,8 +26,7 @@ import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 //   Automations — the Automations surface takes the card region, with its own
 //                 list of automations in the sidebar column beside it.
 //   Extensions  — the sidebar becomes the Extensions drawer (Design, Plugins,
-//                 Skills, Agent CLIs) and the Extensions home takes the card
-//                 region.
+//                 Skills) and the Extensions home takes the card region.
 // Plugins left the rail: it is one of the things UNDER Extensions, and a
 // glyph of its own said it stood beside them. Automations stays because it is
 // what the product does rather than something added to it — and it is still

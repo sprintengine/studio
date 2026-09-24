@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 
-// The Extensions drawer (Extensions drawer ruling, 2026-09-05): FOUR built-in
-// rows in a fixed order — Design · Plugins · Skills · Agent CLIs — where the
-// last three are three views of the ONE `extensions` surface. This renders the
+// The Extensions drawer (Extensions drawer ruling, 2026-09-05): THREE built-in
+// rows in a fixed order — Design · Plugins · Skills — where the last two are two
+// views of the ONE `extensions` surface (Agent CLIs was a fourth until the owner
+// moved them to Settings ▸ Agents, 2026-09-25). This renders the
 // real drawer against the real module registry because the contract is the
 // WIRING: the ruling's order survives whatever `order` the modules declared, a
 // row opens a DOOR (Stage 2 — the rows stopped opening modals) latched to its
@@ -127,7 +128,7 @@ test('ExtensionsRail', async () => {
   registerDoorEntry('roadmap', 1, 'Roadmap')
 
   // ── The registry says what a view row IS ─────────────────────────────────────
-  // The shell holds the ORDER; the agent-runtime module holds what its three rows
+  // The shell holds the ORDER; the agent-runtime module holds what its two rows
   // are called, what they look like and how the surface lands on each.
   const extensions = getRendererHost().getGlobalSurface('extensions')
   assert.ok(extensions, 'the always-on core registers the extensions surface as a DOOR')
@@ -137,9 +138,8 @@ test('ExtensionsRail', async () => {
     [
       ['plugins', 'Plugins'],
       ['skills', 'Skills'],
-      ['agent-clis', 'Agent CLIs'],
     ],
-    'one surface, three drawer rows, each named by the module',
+    'one surface, two drawer rows, each named by the module',
   )
 
   // ── The drawer stays put ─────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ test('ExtensionsRail', async () => {
     'Automations takes the sidebar column (the default), because it is not a drawer row',
   )
 
-  // ── The four rows, in the ruled order ────────────────────────────────────────
+  // ── The three rows, in the ruled order ───────────────────────────────────────
   // Every module on, explicitly: the resolver filters nav entries by live
   // enablement, and a test store that has never been written to is not the same
   // thing as a machine with the modules turned on.
@@ -181,12 +181,12 @@ test('ExtensionsRail', async () => {
   )
   assert.equal(
     dom.window.document.querySelectorAll('[role="listitem"]').length,
-    4,
-    'the drawer starts with the ruling’s four rows — a nav entry without a surface is not a destination',
+    3,
+    'the drawer starts with the ruling’s three rows — a nav entry without a surface is not a destination',
   )
   assert.deepEqual(
     rowLabels(),
-    ['Design', 'Plugins', 'Skills', 'Agent CLIs'],
+    ['Design', 'Plugins', 'Skills'],
     'the ruling’s order survives whatever `order` the modules declared',
   )
   assert.ok(!rowLabels().includes('Automations'), 'Automations stands on the app rail, not in the drawer')
@@ -236,14 +236,14 @@ test('ExtensionsRail', async () => {
     null,
     'and its siblings do not — one open surface lights one row',
   )
-  assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), null)
+  assert.equal(row('Agent CLIs'), undefined, 'Agent CLIs is not a drawer row (Settings ▸ Agents lists them)')
 
   // Moving WITH THE SURFACE (a live deep-link, the same seam its own rail uses)
   // moves the selection, and never through nothing on the way.
   act(() => {
-    dispatchExtensionsSurfaceTarget({ view: 'agent-clis' })
+    dispatchExtensionsSurfaceTarget({ view: 'plugins' })
   })
-  assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), 'true', 'moving the surface moves the selection')
+  assert.equal(row('Plugins')?.getAttribute('aria-current'), 'true', 'moving the surface moves the selection')
   assert.equal(row('Skills')?.getAttribute('aria-current'), null)
   assert.ok(
     publishes.length > 0 && !publishes.slice(0, -1).includes(null),
@@ -333,7 +333,6 @@ test('ExtensionsRail', async () => {
     'and the skill notice counts on its own row, not on the one beside it',
   )
   assert.equal(badgeOf('Design'), null, 'a row with no news wears no count')
-  assert.equal(badgeOf('Agent CLIs'), null)
   assert.equal(squareCount(), 2, 'the square is the sum of its rows — the terminal crash counts nowhere')
 
   // Opening the SECTION does not read a row: the drawer is on screen and the
@@ -410,7 +409,9 @@ test('ExtensionsRail', async () => {
   // Collapsed, the count docks on the row's corner rather than trailing a label
   // the column no longer shows.
   act(() => {
-    useNotificationStore.getState().addNotification(notice('cli', { source: 'cli' }))
+    useNotificationStore
+      .getState()
+      .addNotification(notice('drift3', { source: 'marketplace', extensionsRow: 'plugins' }))
   })
   const collapsedHost = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(collapsedHost)
@@ -421,13 +422,13 @@ test('ExtensionsRail', async () => {
   // Collapsed, the count rides in the button's own name — the badge's live
   // region speaks only on change, and a person arriving at the row must still
   // hear the number — and the badge itself is decorative.
-  const collapsedButton = collapsedHost.querySelector('button[aria-label="Agent CLIs, 1 new"]')
+  const collapsedButton = collapsedHost.querySelector('button[aria-label="Plugins, 1 new"]')
   assert.ok(collapsedButton, 'the collapsed row is named with its count')
   // The glyph is hidden from AT too, so pick the hidden element that carries the number.
   const collapsedBadge = [...(collapsedButton?.querySelectorAll('[aria-hidden="true"]') ?? [])].find(
     (element) => element.textContent === '1',
   )
-  assert.ok(collapsedBadge, 'a CLI update counts on Agent CLIs, collapsed too')
+  assert.ok(collapsedBadge, 'a drift notice counts on Plugins, collapsed too')
   assert.ok(collapsedBadge?.className.includes('absolute'), 'docked on the corner, as the rail’s squares wear theirs')
   act(() => {
     collapsedRoot.unmount()
@@ -445,7 +446,7 @@ test('ExtensionsRail', async () => {
   render()
   assert.deepEqual(
     rowLabels(),
-    ['Plugins', 'Skills', 'Agent CLIs'],
+    ['Plugins', 'Skills'],
     'rows for modules that are off are absent rather than dead, and the rest keep their order',
   )
 

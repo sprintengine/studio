@@ -125,6 +125,19 @@ went — "Updated to SprintEngine Studio 0.7.0" (good) or "Update to 0.7.0 did
 not install" (warn, with the reason) — without buttons.
 These two are the only toasts in the system with buttons.
 
+**Dismissing an update is "not now" (owner ruling 2026-09-25).** Each outstanding
+update also wears a count on the Settings gear and inside Settings (the
+[badge](../badge/component.md) entry, "In Settings"). Later, and the dismiss
+button on either update toast, are the person saying "not now" to that version,
+so they clear its badges; the toast's producer hears the press
+(`onDismissPressed` in the kit's store) and records the dismissal. For the
+app update the dismissal names the step as well: waving off Found does not
+silence Ready when the download lands, which is news of its own; and closing
+the Downloading step only hides it, since the person asked for that download. The CLI
+toast's one-minute timer is **not** a dismissal — nobody pressed anything, and
+the badges stay until the update is installed or dismissed. Going to Settings
+from the toast is not one either: it is going to look.
+
 **The answer-in-place row, one consumer.** Owner ruling 2026-09-05: the
 incoming pair-request toast carries `.ds-toast-answer` — a six-digit
 `.ds-input`, then Decline (ghost) and Allow (primary) — with `.ds-toast-help`

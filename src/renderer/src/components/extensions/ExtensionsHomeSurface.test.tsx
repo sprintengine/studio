@@ -91,7 +91,7 @@ test('ExtensionsHomeSurface', async () => {
   /** A model id this machine "has", added the way Settings adds one. */
   const MODEL = 'claude-opus-5'
 
-  const RULED_ORDER = ['Design', 'Plugins', 'Skills', 'Agent CLIs']
+  const RULED_ORDER = ['Design', 'Plugins', 'Skills']
 
   function mount(element: React.ReactElement): { host: HTMLElement; unmount: () => void } {
     const host = dom.window.document.createElement('div')
@@ -121,7 +121,7 @@ test('ExtensionsHomeSurface', async () => {
   assert.deepEqual(
     tilesIn(home.host).map(nameOf),
     RULED_ORDER,
-    'the home is the ruling’s four parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
+    'the home is the ruling’s three parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
   )
 
   // Each tile is a real button carrying its own name as text, so it is in the tab
@@ -145,7 +145,6 @@ test('ExtensionsHomeSurface', async () => {
     Design: EXTENSIONS_HOME_TILE_SUMMARIES.design,
     Plugins: EXTENSIONS_HOME_TILE_SUMMARIES.plugins,
     Skills: EXTENSIONS_HOME_TILE_SUMMARIES.skills,
-    'Agent CLIs': EXTENSIONS_HOME_TILE_SUMMARIES['agent-clis'],
   }
   for (const tile of tilesIn(home.host)) {
     const name = nameOf(tile)
@@ -278,7 +277,7 @@ test('ExtensionsHomeSurface', async () => {
   })
   assert.deepEqual(
     tilesIn(home.host).map(nameOf),
-    ['Plugins', 'Skills', 'Agent CLIs'],
+    ['Plugins', 'Skills'],
     'a tile for a module that is off is absent rather than dead, and the rest keep their order',
   )
   assert.deepEqual(
@@ -1047,7 +1046,7 @@ test('ExtensionsHomeSurface', async () => {
       // on everything was a misreading of R4's ceremony ruling).
       assert.equal(
         direct?.getAttribute('aria-label'),
-        'Open Agent CLIs — Big task? No problem.',
+        'Open Agents settings — Big task? No problem.',
         'both hosts draw the same button: same label, same name, same card in it',
       )
       assert.equal(

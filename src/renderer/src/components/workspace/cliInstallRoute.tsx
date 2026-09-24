@@ -10,24 +10,16 @@ import { buildAgentCliCatalog, installableCliSummary } from './newWorkspace/cliR
 // the first-run card all end up in the same place, so a user who lands on any
 // of them installs from the same list.
 //
-// **Extensions → Agent CLIs does not change that** (decided 2026-09-06,
-// backlog/2026-09-06-the-seams-that-lead-nowhere.md §3). The Extensions door
-// grew a CLI view, and for a while the card path pointed at it: the seeded hero
-// card's `open.surface` opened it, and the executor's `require.cli` refusal told
-// people to install from there — while `CliInstallRosterRow`, rendered by that
-// same card's Go picker, opened Settings → Agents. Two doors from one surface is
-// exactly what the single-destination rule was written to stop, so the card path was moved onto this
-// one and not the other way round. The reason it went this way rather than that
-// is that a card cannot name Settings: `open.surface` speaks only the Extensions
-// views (CardSurfaceView in src/shared/hosted-card-feed.ts), so making the
-// Extensions view canonical would have meant the pickers and the launcher
-// leaving this module while WorkspaceManager's two rescues stayed — a third
-// state, not one fewer.
+// The Extensions door grew a CLI view for a while (decided 2026-09-06,
+// backlog/2026-09-06-the-seams-that-lead-nowhere.md §3), and the card path was
+// moved onto this destination rather than onto that view: two doors from one
+// surface is exactly what the single-destination rule was written to stop.
+// The view itself is gone since 2026-09-25 (owner ruling) — Settings ▸ Agents is
+// the one list of agent CLIs, per machine — and a card whose `open.surface`
+// still names `agent-clis` lands here too (WorkspaceManager's card runner).
 //
-// So: Extensions → Agent CLIs is a catalogue you browse, and this is the answer
-// to "you have none". A card that needs a CLI says so with `require.cli` and
-// lets the Go picker offer `CliInstallRosterRow`; it does not build a door of
-// its own.
+// A card that needs a CLI says so with `require.cli` and lets the Go picker
+// offer `CliInstallRosterRow`; it does not build a door of its own.
 export const AGENTS_SETTINGS_TAB = 'agents'
 
 function useOpenCliInstall(): () => void {

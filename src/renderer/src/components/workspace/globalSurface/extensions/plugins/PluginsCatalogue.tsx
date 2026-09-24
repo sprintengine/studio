@@ -204,7 +204,6 @@ export function PluginsCatalogue({
   const [landingNotice, setLandingNotice] = useState<string | null>(null)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
-  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   // The app's own plugin. Read once per workspace: it is installed by main when
   // the workspace opens, so by the time this surface can be looked at the answer
   // is already settled and re-polling it would only cost IPC.
@@ -996,9 +995,7 @@ export function PluginsCatalogue({
             moduleOverrides={moduleOverrides}
             workspaceRoot={workspaceRoot}
             registryPlugins={registry}
-            registryUrl={connectors.registryUrl}
             mcpSettings={connectors.mcpSettings}
-            cliAvailability={cliAvailability}
             kinds={['mcp']}
             sourceGrouping={{ sources: sources.sources, records: sources.installedPlugins }}
             paging={{ noun: 'MCP server', query }}

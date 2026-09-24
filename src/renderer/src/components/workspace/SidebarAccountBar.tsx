@@ -1,5 +1,6 @@
 import React from 'react'
 import {
+  Badge,
   IconButton,
   MenuItem,
   OutlineButton,
@@ -12,6 +13,7 @@ import {
 import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
+import type { RailBadge } from './AppRail'
 
 // The account + Settings cluster lives at the sidebar bottom, relocated from
 // WorkspaceTopBar. The account menu, its trigger, and
@@ -199,6 +201,11 @@ export type SidebarAccountBarProps = {
   logout: () => void | Promise<void>
   openSettings: (checkForUpdates?: boolean, targetTab?: string | null) => void
   settingsOpen: boolean
+  /**
+   * The updates waiting in Settings — an agent CLI or the app itself (owner
+   * ruling 2026-09-25) — worn on the gear as the rail's own corner count.
+   */
+  settingsBadge?: RailBadge | null
 }
 
 // Sidebar-bottom account + Settings row. Expanded: a tier-coloured avatar with
@@ -215,6 +222,7 @@ export default function SidebarAccountBar({
   logout,
   openSettings,
   settingsOpen,
+  settingsBadge,
 }: SidebarAccountBarProps) {
   const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
   const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
@@ -246,6 +254,11 @@ export default function SidebarAccountBar({
     />
   )
 
+  // The gear wears the updates waiting inside Settings the way the rail's
+  // squares wear their news: the kit's corner count, ringed in the rail's own
+  // canvas (AppRail's RailGlyph). Named — "2 updates available" — so the number
+  // is never the whole message, and never drawn at zero.
+  const shownSettingsBadge = settingsBadge && settingsBadge.count > 0 ? settingsBadge : null
   const settingsButton = (
     <Tooltip content="Settings" placement="top">
       <IconButton
@@ -253,8 +266,19 @@ export default function SidebarAccountBar({
         pressed={settingsOpen}
         onClick={() => openSettings(false)}
         aria-label="Settings"
+        className={shownSettingsBadge ? 'relative' : undefined}
       >
         <GearIcon className={collapsed ? 'size-icon-lg' : 'size-icon-md'} />
+        {shownSettingsBadge ? (
+          <Badge
+            corner
+            tone={shownSettingsBadge.tone}
+            count={shownSettingsBadge.count}
+            max={99}
+            ariaLabel={shownSettingsBadge.label}
+            className="border-[color:var(--bg-canvas)]"
+          />
+        ) : null}
       </IconButton>
     </Tooltip>
   )

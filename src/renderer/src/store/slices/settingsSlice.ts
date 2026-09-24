@@ -56,7 +56,27 @@ export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 export type SettingsOverlayState = {
   initialTab: string | null
   checkForUpdatesRequestId: number | null
+  /**
+   * The machine Settings ▸ Agents should show, when the opener knows which one
+   * its news is about — a CLI update is this machine's, so its toast, its bell
+   * row and a card that names the retired Agent CLIs view all land on This PC
+   * rather than on whichever machine the tab last showed. `requestId` makes a
+   * second open for the same machine a new request, so an Agents tab already
+   * showing another machine still moves. Absent for a plain open.
+   */
+  agentsMachineRequest?: { hostId: ExecutionHostId; requestId: number }
 }
+
+/** Options for `openSettingsOverlay`. */
+export type SettingsOverlayOptions = {
+  initialTab?: string | null
+  checkForUpdates?: boolean
+  /** Select this machine on the Agents tab (see `agentsMachineRequest`). */
+  agentsMachine?: ExecutionHostId
+}
+
+// A monotonic request id: two opens in the same millisecond are still two.
+let lastAgentsMachineRequestId = 0
 
 export function defaultAppearanceSettings(): AppearanceSettings {
   return { theme: 'system', windowMaterial: 'glass' }
@@ -842,8 +862,8 @@ export interface SettingsSliceState {
   activeModalSurfaceWorkspaceId: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
-  // the Extensions drawer — Design, Plugins, Skills, Agent CLIs
-  // (2026-09-05 ruling); Automations is what the product does rather than
+  // the Extensions drawer — Design, Plugins, Skills (2026-09-05 ruling;
+  // Agent CLIs moved to Settings ▸ Agents 2026-09-25); Automations is what the product does rather than
   // something added to it, so it stands on the rail and is not in the drawer.
   // Beside it the rail's Extensions glyph opens the Extensions home. Per window
   // and transient like activeGlobalSurface — a restart lands on Home.
@@ -913,7 +933,7 @@ export interface SettingsSliceActions {
   setDiffOpensInWindow: (enabled: boolean) => void
   setDiffView: (view: DiffViewMode) => void
   setCheckCliVersions: (enabled: boolean) => void
-  openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
+  openSettingsOverlay: (opts?: SettingsOverlayOptions) => void
   closeSettingsOverlay: () => void
   // Opens the Plugins modal on the requested view: every legacy caller — the
   // command palette, Settings → Modules, the agent "Manage skills" footers —
@@ -1067,6 +1087,7 @@ type SettingsSliceSet = (mutator: (state: SettingsSliceCarrier) => void) => void
 function clearSettingsRequest(state: SettingsSliceCarrier): void {
   state.settingsOverlay.initialTab = null
   state.settingsOverlay.checkForUpdatesRequestId = null
+  delete state.settingsOverlay.agentsMachineRequest
 }
 
 export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
@@ -1188,6 +1209,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.activeModalSurfaceWorkspaceId = null
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
+        if (opts?.agentsMachine) {
+          lastAgentsMachineRequestId = Math.max(lastAgentsMachineRequestId + 1, Date.now())
+          state.settingsOverlay.agentsMachineRequest = {
+            hostId: opts.agentsMachine,
+            requestId: lastAgentsMachineRequestId,
+          }
+        } else {
+          delete state.settingsOverlay.agentsMachineRequest
+        }
       })
     },
 

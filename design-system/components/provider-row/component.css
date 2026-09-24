@@ -1,7 +1,6 @@
 /* Provider row — extracted from the source product's ProviderRow primitive
  * (src/renderer/src/components/ui/ProviderRow.tsx), the shared anatomy for the
- * installed Agent CLIs list, the Agent CLIs marketplace canvas, and the
- * onboarding essentials step. */
+ * agent CLIs list in Settings ▸ Agents and the onboarding essentials step. */
 
 /* The row group holds the row and its expansion, so the disclosure opens INSIDE
  * the row's own box and the list below never shifts anything but its position. */

@@ -63,7 +63,8 @@ test('railBadges', async () => {
   )
   assert.deepEqual(
     unreadNotificationsFrom(list, EXTENSIONS_NOTIFICATION_SOURCES).map((n) => n.id),
-    ['c', 'd', 'f'],
+    ['c'],
+    'a CLI update and model news are Settings ▸ Agents news now, not an Extensions row’s',
   )
   assert.ok(
     !EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('terminal'),
@@ -116,8 +117,10 @@ test('railBadges', async () => {
   // ── News → drawer rows ────────────────────────────────────────────────────────
   // Owner, 2026-09-08: the notification goes on the row it came from. A source
   // decides the row unless the emitter said which.
-  assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), 'agent-clis')
-  assert.equal(extensionsRowOfNotification(note({ source: 'models' })), 'agent-clis')
+  // Agent CLIs left the drawer (owner ruling 2026-09-25): a CLI update and model
+  // news belong to no row, so they badge no Extensions square either.
+  assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), null)
+  assert.equal(extensionsRowOfNotification(note({ source: 'models' })), null)
   assert.equal(
     extensionsRowOfNotification(note({ source: 'marketplace' })),
     'plugins',
@@ -165,7 +168,7 @@ test('railBadges', async () => {
   )
   assert.deepEqual(
     Object.fromEntries(Object.entries(byRow).map(([row, rows]) => [row, rows.map((n) => n.id)])),
-    { design: ['h'], plugins: ['c'], skills: ['i'], 'agent-clis': ['d', 'f'] },
+    { design: ['h'], plugins: ['c'], skills: ['i'] },
     'every row is present; read rows and rows from other sources do not count',
   )
 
@@ -188,13 +191,17 @@ test('railBadges', async () => {
     'entries arrived since the last look are news',
   )
   assert.equal(
-    extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'e', level: 'error', source: 'cli' })], waiting: 1 })
-      ?.tone,
+    extensionsRowBadge({
+      label: 'Plugins',
+      unread: [note({ id: 'e', level: 'error', source: 'marketplace' })],
+      waiting: 1,
+    })?.tone,
     'error',
     'a failure still outranks a wait',
   )
   assert.equal(
-    extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'w', level: 'warning', source: 'models' })] })?.tone,
+    extensionsRowBadge({ label: 'Plugins', unread: [note({ id: 'w', level: 'warning', source: 'marketplace' })] })
+      ?.tone,
     'warn',
   )
 
@@ -220,7 +227,7 @@ test('railBadges', async () => {
     extensionsRailBadge({
       rows: {
         skills: { count: 1, tone: 'warn', label: 'Skills: 1 waiting on you' },
-        'agent-clis': { count: 1, tone: 'error', label: 'Agent CLIs: 1 new' },
+        plugins: { count: 1, tone: 'error', label: 'Plugins: 1 new' },
       },
       unseenCards: 0,
     })?.tone,

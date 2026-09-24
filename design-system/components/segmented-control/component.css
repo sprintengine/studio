@@ -16,6 +16,8 @@
 .ds-segmented-control-segment {
   display: inline-flex;
   align-items: center;
+  /* Only a badged segment has a second child: its count, after the label. */
+  gap: var(--sem-space-xs);
   height: var(--sem-size-control-sm);
   padding: 0 var(--sem-space-lg);
   border: 0;

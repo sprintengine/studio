@@ -145,18 +145,17 @@ export function connectorFacet(category: string): NamedFacet {
  * (`needsWorkspace`, BrowseStorefront.tsx): only mcp and skills components
  * write into a project.
  *
- * `cli` stays out: agent CLIs have their own canvas (`AgentClisCatalogue`) with
- * its own install/launch affordances, and listing them twice would be one thing
- * counted twice on two tabs.
+ * `cli` stays out: agent CLIs are installed, updated and configured per machine
+ * in Settings ▸ Agents (owner ruling 2026-09-25), and a marketplace row for one
+ * would be a second list of the same thing with none of those controls.
  */
 export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
   return registryEntriesForKinds(plugins, ['mcp', 'skills', 'module'])
 }
 
 // Registry plugins presented as normalized entries for a set of component
-// kinds. The Plugins catalogue uses mcp/skills/module; the door's Agent CLIs
-// canvas uses cli — same row shape, same detail/install flow, no parallel
-// presentation model.
+// kinds. The Plugins catalogue uses mcp/skills/module — one row shape, one
+// detail/install flow, no parallel presentation model.
 export function registryEntriesForKinds(
   plugins: MarketplacePluginEntry[],
   kinds: readonly MarketplaceComponentKind[],

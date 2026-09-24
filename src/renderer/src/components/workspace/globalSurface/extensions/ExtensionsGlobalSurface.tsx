@@ -1,34 +1,34 @@
-// The Extensions door: three catalogues behind one surface id.
+// The Extensions door: two catalogues behind one surface id.
 //
 // Source-tabs ruling (2026-09-05). The door used to be a rail of seven rows —
 // Featured, Plugins, MCP servers, Skills, Automations, Modules, Agent CLIs —
-// over a canvas per row. It is three views now, each the same page:
+// over a canvas per row. It is two views now, each the same page:
 //
-//   Plugins · Skills · Agent CLIs
+//   Plugins · Skills
 //
 // and the things that left are each somewhere better: the Automations shelf's
 // five built-ins are the Automations surface's "Built in" list, Modules are
 // switches in Settings → Modules (they were offered in two shapes on two
 // surfaces), the automation server is a Settings concern rather than a
-// catalogue row, and Featured ranked the catalogue by a fact about the machine.
+// catalogue row, Featured ranked the catalogue by a fact about the machine,
+// and Agent CLIs are Settings ▸ Agents (owner ruling 2026-09-25), which lists
+// each machine's CLIs with their install, update and command override.
 //
-// What this file owns is what the three views SHARE and nothing else: the
-// reads (the MCP catalogue, the marketplace registry, the sources and their
-// scans), the two ways a source is added, which view the drawer is standing on,
-// and the tab that view is on — because the ruling says the chosen source
-// survives a switch between Plugins and Skills.
+// What this file owns is what the views SHARE and nothing else: the reads (the
+// MCP catalogue, the marketplace registry, the sources and their scans), the
+// two ways a source is added, which view the drawer is standing on, and the
+// tab that view is on — because the ruling says the chosen source survives a
+// switch between Plugins and Skills.
 
 import React, { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 
-import type { CliVersionAdvisoryMap, McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
+import type { McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
 import { LOCAL_SKILL_SOURCE_ID_PREFIX, type SkillHarness, type SkillSource } from '../../../../../../shared/skills'
 import { SKILL_PACK_HARNESSES } from '../../../../../../shared/skill-harnesses'
 import type { AgentComposerConnector } from '../../agentComposer/useAgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
-import type { CliShelfRuntime } from '../../../panels/ConnectorsPanel/AgentCliShelfRows'
 import { useConnectorSources } from '../../../panels/ConnectorsPanel/useConnectorSources'
 import { getExtensionsSurfaceHost } from './extensionsSurfaceHost'
-import { AgentClisCatalogue } from './clis/AgentClisCatalogue'
 import { PluginsCatalogue } from './plugins/PluginsCatalogue'
 import { AddSkillSourceModal } from './skills/AddSkillSourceModal'
 import { SkillsCatalogue } from './skills/SkillsCatalogue'
@@ -44,10 +44,6 @@ import {
 } from './extensionsSurfaceTarget'
 import { publishSurfaceView } from '../../surfaceView'
 
-// A stable empty map, so switching version checks off does not hand the shelf a
-// fresh object on every render and re-run every memo below it.
-const EMPTY_CLI_VERSION_ADVISORIES: CliVersionAdvisoryMap = {}
-
 export default function ExtensionsGlobalSurface(): JSX.Element {
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
@@ -57,52 +53,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const connectors = useConnectorSources(activeWorkspaceRoot)
   const sources = useSkillSources(activeWorkspaceRoot)
 
-  // The Agent CLIs catalogue shows runtime state: the door reads the
-  // existing detection stack — the availability slice and the plugin catalog —
-  // and hands it down so the catalogue stays store-free. No second mechanism.
+  // What this machine has, for the harness directories below.
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
-  // Gated on the Settings switch the way Settings → Agents gates its own
-  // advisory line: turning version checks off does not clear what was already
-  // fetched, so a surface that read the map raw would keep drawing update pips
-  // from a check the person switched off.
-  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
-  const storedCliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
-  const cliVersionAdvisories = checkCliVersions ? storedCliVersionAdvisories : EMPTY_CLI_VERSION_ADVISORIES
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
-  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
-  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const cliShelfRuntime = useMemo<CliShelfRuntime>(
-    () => ({
-      platform: window.api.platform,
-      availability: cliAvailability,
-      availabilityStatus: cliAvailabilityStatus,
-      availabilityError: cliAvailabilityError,
-      catalogEntries: pluginCatalogEntries,
-      catalogStatus: pluginCatalogStatus,
-      versionAdvisories: cliVersionAdvisories,
-      cliRuntimes,
-      refreshAvailability: refreshCliAvailability,
-      refreshCatalog: refreshPluginCatalog,
-      setCliRuntime,
-    }),
-    [
-      cliAvailability,
-      cliAvailabilityStatus,
-      cliAvailabilityError,
-      pluginCatalogEntries,
-      pluginCatalogStatus,
-      cliVersionAdvisories,
-      cliRuntimes,
-      refreshCliAvailability,
-      refreshPluginCatalog,
-      setCliRuntime,
-    ],
-  )
 
   // The harness directories a plugin's skills fan out to: the shared `.agents`
   // dir plus every natively skill-capable CLI this machine has — the
@@ -187,8 +140,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [applyTarget])
 
   // Say which of the Extensions drawer's rows this surface is standing on
-  // (drawer ruling, 2026-09-05), so exactly one of Plugins / Skills / Agent
-  // CLIs reads selected.
+  // (drawer ruling, 2026-09-05), so exactly one of Plugins / Skills reads
+  // selected.
   useEffect(() => {
     publishSurfaceView('extensions', view)
   }, [view])
@@ -319,17 +272,6 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           addNotice={addError}
           onDismissAddNotice={() => setAddError(null)}
           onUseSkillInNewAgent={useSkillInNewAgent}
-        />
-      ) : view === EXTENSIONS_DRAWER_VIEWS.agentClis ? (
-        <AgentClisCatalogue
-          sources={sources}
-          connectors={connectors}
-          workspaceRoot={activeWorkspaceRoot}
-          cliRuntime={cliShelfRuntime}
-          activeTabId={tabId}
-          onSelectTab={selectTab}
-          query={query}
-          onQueryChange={setQuery}
         />
       ) : (
         <PluginsCatalogue

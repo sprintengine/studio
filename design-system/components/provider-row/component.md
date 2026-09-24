@@ -125,7 +125,11 @@ the other.
   it crowds out the mark that does have something to say. The owner arrived at
   exactly that list from an update notification and could not tell which CLI the
   notification was about (2026-09-10): ten dots, all the same, and the one thing
-  they came for was not among them. The count replaced them.
+  they came for was not among them. The count replaced them. Since 2026-09-25
+  (owner ruling) Settings ▸ Agents draws that count beside the row's Update
+  button, in the row's actions, rather than on the mark: it is still the row's
+  one status idiom, placed next to the control that clears it (the badge entry,
+  "In Settings").
 - **A count says which, not how many.** On a rail square it is a quantity; on a
   row it is a pointer. Give it the row's own name in its accessible label
   ("Codex — update available: 0.153.4") — a bare "1" docked on a logo is not a

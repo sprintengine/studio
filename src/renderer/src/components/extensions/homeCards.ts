@@ -87,7 +87,8 @@ const CARD_SURFACE_NAMES: Readonly<Record<CardSurfaceView, string>> = {
   home: 'Extensions',
   plugins: 'Plugins',
   skills: 'Skills',
-  'agent-clis': 'Agent CLIs',
+  // The retired Agent CLIs view: its card now opens Settings ▸ Agents.
+  'agent-clis': 'Agents settings',
 }
 
 /**

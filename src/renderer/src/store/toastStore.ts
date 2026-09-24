@@ -44,6 +44,8 @@ type AppToast = {
   content?: ReactNode
   /** Override the tone's auto-dismiss: `false` keeps the toast until acted on. */
   autoDismissMs?: number | false
+  /** The person pressed Dismiss (never the timer) — see `ShowToastInput`. */
+  onDismissPressed?: () => void
 }
 
 export type ShowToastInput = {
@@ -72,6 +74,13 @@ export type ShowToastInput = {
    */
   content?: ReactNode
   autoDismissMs?: number | false
+  /**
+   * Called when the person presses the toast's Dismiss, and only then: a toast
+   * that timed out, was shed or was replaced was not dismissed by anyone. The
+   * two update toasts use it to clear the update's badges (owner ruling
+   * 2026-09-25) — Dismiss on "Update available" means "not now".
+   */
+  onDismissPressed?: () => void
 }
 
 interface ToastStore {

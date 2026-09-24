@@ -4,6 +4,7 @@
 // single tab stop. Use for 2–4 short labels where the options deserve equal
 // visual weight — longer or hint-carrying choices belong to radio rows.
 import React, { useCallback, useRef } from 'react'
+import { Badge, type MarkBadge } from './Badge'
 import { FOCUS_RING_CLASS } from './tokens'
 import { Tooltip } from './Tooltip'
 import { toolbarItemProps, useInToolbarBand } from './Toolbar'
@@ -17,6 +18,17 @@ export type SegmentedControlItem<V extends string = string> = {
   icon?: React.ReactNode
   /** Hover/focus text on an `iconOnly` strip; defaults to `label`. */
   tooltip?: string
+  /**
+   * A count of what is waiting behind this choice — the Agents machine
+   * switcher's "1 CLI update available" on the machine that has it (owner
+   * ruling 2026-09-25). The kit's count badge, trailing the label inside the
+   * segment rather than docked on its corner: the strip clips its own edge
+   * (`overflow-hidden` draws the rounded border), so a corner count would be
+   * cut in half. Its `label` joins the segment's accessible name. Ignored on an
+   * `iconOnly` strip, whose square has no room beside the glyph. Null or 0
+   * draws nothing.
+   */
+  badge?: MarkBadge | null
 }
 
 type SegmentedControlProps<V extends string = string> = {
@@ -119,6 +131,7 @@ export function SegmentedControl<V extends string = string>({
     >
       {items.map((item, index) => {
         const checked = item.value === value
+        const badge = !iconOnly && item.badge && item.badge.count > 0 ? item.badge : null
         const segment = (
           <button
             key={item.value}
@@ -126,8 +139,12 @@ export function SegmentedControl<V extends string = string>({
             role="radio"
             aria-checked={checked}
             // Icon-only keeps the same accessible name the labelled variant
-            // has; only the drawing changes.
-            aria-label={iconOnly ? item.label : undefined}
+            // has; only the drawing changes. A badged segment names itself
+            // too: the count is a named live region, and a named child inside
+            // a button lands in the button's name-from-contents twice over —
+            // the explicit name says it once, and the count keeps announcing
+            // changes on its own (the same call the tab strip makes).
+            aria-label={iconOnly ? item.label : badge ? `${item.label}, ${badge.label}` : undefined}
             disabled={item.disabled}
             {...toolbarItemProps(inBand && checked)}
             // In a band the single 0 is the band's to hand out, and a 0
@@ -150,6 +167,11 @@ export function SegmentedControl<V extends string = string>({
             {iconOnly ? (
               <span aria-hidden="true" className="grid size-icon-sm place-items-center">
                 {item.icon}
+              </span>
+            ) : badge ? (
+              <span className="inline-flex items-center gap-1.5">
+                {item.label}
+                <Badge tone={badge.tone ?? 'accent'} count={badge.count} max={99} ariaLabel={badge.label} />
               </span>
             ) : (
               item.label

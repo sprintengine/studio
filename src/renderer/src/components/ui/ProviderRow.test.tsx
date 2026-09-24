@@ -688,15 +688,10 @@ test('ProviderRow', async () => {
       join(repoRoot, 'src/renderer/src/components/onboarding/FirstRunCliCard.tsx'),
       'utf8',
     )
-    const canvas = readFileSync(
-      join(repoRoot, 'src/renderer/src/components/panels/ConnectorsPanel/AgentCliShelfRows.tsx'),
-      'utf8',
-    )
 
     for (const [label, source] of [
       ['Settings → Agents', settings],
       ['first-run CLI card', onboarding],
-      ['Agent CLIs canvas', canvas],
     ] as const) {
       assert.match(source, /<ProviderRow/, `${label} renders the shared row`)
     }
@@ -731,23 +726,6 @@ test('ProviderRow', async () => {
     assert.match(settings, /checked \$\{freshness\}/i, 'the band carries the freshness meta')
     assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)/, 'the band re-checks for real')
 
-    // The registry canvas states registry availability, not a local health probe.
-    assert.match(canvas, /pluginTrust/, 'the canvas row reads the registry signing tier')
-    assert.doesNotMatch(canvas, /resolveCliProviderState/, 'the canvas runs no local install probe')
-    // Matched on the prop, not on any mention: the code comment beside it explains
-    // why `plugin.latest` is NOT rendered, so a bare /plugin\.latest/ would trip on
-    // its own rationale.
-    assert.match(
-      canvas,
-      /version=\{null\}/,
-      "the marketplace row renders no version — `latest` is the registry's bundle revision, not the CLI's own version",
-    )
-    assert.doesNotMatch(
-      canvas,
-      /version=\{[^}]*plugin\.latest/,
-      'and the bundle revision never reaches the version slot',
-    )
-
     // A failed batch probe is one global fact, stated once, not once per row.
     assert.match(
       settings,
@@ -759,19 +737,6 @@ test('ProviderRow', async () => {
       onboarding,
       /probeError=\{cliAvailabilityError\}/,
       'onboarding has no section band, so its rows keep the reason',
-    )
-    // The agent-CLI rows are a file of their own since the source-tabs ruling
-    // (2026-09-05) made Agent CLIs a catalogue rather than one kind of a shared
-    // canvas — and they are still the ONLY marketplace list on this anatomy.
-    assert.match(
-      canvas,
-      /export function AgentCliRuntimeRows\(/,
-      'the runtime rows live where the catalogue reads them',
-    )
-    assert.equal(
-      /ConnectorEntryRow/.test(canvas),
-      false,
-      'and they never fall back to the connector row this anatomy replaced',
     )
     process.stdout.write('ProviderRow tests passed\n')
   }
