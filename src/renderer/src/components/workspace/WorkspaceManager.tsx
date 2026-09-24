@@ -2149,7 +2149,7 @@ export default function WorkspaceManager() {
   // bold them as "hot" — instant to switch into, versus suspended/exited rows that
   // re-launch on open. Derived from the same live `terminalSessions` snapshot as
   // activity, and recomputes the moment the reaper suspends an agent (it disposes
-  // the session and broadcasts terminal:sessions-changed).
+  // the session, and the terminal:sessions-delta broadcast carries the change).
   const residentWorkspaceIds = useMemo(() => residentAgentWorkspaceIds(terminalSessions), [terminalSessions])
 
   const terminalRecencyByWorkspaceId = useMemo(() => {

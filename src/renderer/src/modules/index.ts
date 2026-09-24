@@ -409,7 +409,11 @@ if (typeof window !== 'undefined') {
                     agentId: input.agentId,
                     ...(agentName ? { agentName } : {}),
                     ...(input.cliModel ? { cliModel: input.cliModel } : {}),
-                    cliPermissionPreset: state.appSettings.lastAgentSpawnPermissionPreset ?? 'default',
+                    // This CLI's own preset first, as every other spawn path reads it.
+                    cliPermissionPreset:
+                      state.appSettings.cliPermissionPresets?.[input.cli] ??
+                      state.appSettings.lastAgentSpawnPermissionPreset ??
+                      'default',
                     mcpSettings: state.appSettings.mcp,
                   },
                 )

@@ -18,6 +18,12 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     left.mode === right.mode &&
     left.folderPath === right.folderPath &&
     left.folderMissing === right.folderMissing &&
+    // The row's provenance and machine: the remote badge and grouping, the
+    // parked worktree branch, and the machine the manager opens this chat's
+    // new terminals on.
+    left.remoteOrigin === right.remoteOrigin &&
+    left.hostId === right.hostId &&
+    left.worktree === right.worktree &&
     left.templateId === right.templateId &&
     // Not the layout itself: a tab click, a splitter drag and every tab
     // selection write a new layoutModel, and nothing the manager or the
@@ -46,6 +52,10 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     // row stayed where it was until something unrelated moved.
     left.settledAt === right.settledAt &&
     left.settledOverride === right.settledOverride &&
+    // Sleep: Snooze and Wake write only this, and the sidebar files the row
+    // under the Snoozed shelf from it. Without it a snoozed chat stayed in
+    // the active list until something unrelated moved the projection.
+    left.snoozedUntil === right.snoozedUntil &&
     // The pane column: open/closed, its tabs, the tab showing. Without it the
     // projection handed back the cached workspace when the pane opened, so a
     // value derived from `paneState` off this projection (the pane-open flag

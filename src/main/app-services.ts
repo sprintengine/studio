@@ -91,7 +91,7 @@ import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/h
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
-import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
@@ -770,6 +770,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveUserDataDir: () => app.getPath('userData'),
     // Read at write time, so the registry built below is in place by then.
     readRegistry: () => workspaceRegistry.getState(),
+    // At most one registry serialization every ten seconds; the newest request
+    // inside the interval is written when it ends.
+    minRegistryIntervalMs: 10_000,
   })
   const logWorkspaceSyncDiagnostic = (diagnostic: {
     level: 'warning'
@@ -1117,10 +1120,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // Read live, never captured: the same store the launch service reads, so
           // a preset changed in Settings reaches the next terminal.create without
           // a restart.
-          // A never-chosen preset reads as the app default, as it does in the
-          // window's pickers and in the launch service.
-          getAgentSpawnPermissionDefault: () =>
-            effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+          // The CLI's own preset, else the app-wide one, and a never-chosen
+          // preset reads as the app default: the same resolution the window's
+          // pickers and the launch service use. With no CLI named, the launch
+          // runs on the last-selected one, so that is whose preset applies.
+          getAgentSpawnPermissionDefault: (cli) => {
+            const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
+            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
+          },
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),

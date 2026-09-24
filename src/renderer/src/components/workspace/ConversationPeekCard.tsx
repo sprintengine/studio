@@ -4,6 +4,7 @@ import CliIcon from '../CliIcon'
 import { AgentWorkingDots, Badge, ContextRing, IconButton, LinkButton, Skeleton, Tooltip, TruncatedText } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs } from '../../utils/relativeTime'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { AgentCli } from '../../types/workspace'
 import type { SessionContextUsage, SessionFileChange } from '../../../../shared/electron-api'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
@@ -50,8 +51,15 @@ export type ConversationPeekStatus = {
    *   the same weight as Working without claiming motion that is not there.
    */
   kind: 'working' | 'idle' | 'attention'
-  /** The one word (or short phrase) the corner says: "Working", "Idle · 12m", "Failed". */
+  /** The one word (or short phrase) the corner says: "Working", "Idle", "Failed". */
   label: string
+  /**
+   * A label that reads its age once there is one: from a minute after `since`
+   * the corner says "`label` · 2m" ("Paused · 2m", "Last typed · 12m") in
+   * place of the plain `label` above. It formats the age on its own clock, so
+   * the age keeps moving while the card is open and nothing else redraws.
+   */
+  aged?: { label: string; since: number }
 }
 
 /**
@@ -245,10 +253,17 @@ function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatu
           <span aria-hidden="true">{label}</span>
         </>
       ) : (
-        <span>{label}</span>
+        <span>{status.aged ? <LabelWithAge label={label} aged={status.aged} /> : label}</span>
       )}
     </span>
   )
+}
+
+/** "Paused · 2m" once a minute has passed, else the plain label, on a clock of its own. */
+function LabelWithAge({ label, aged }: { label: string; aged: { label: string; since: number } }) {
+  const now = useRelativeNow()
+  const age = formatRelativeMs(aged.since, now)
+  return <>{age ? `${aged.label} · ${age}` : label}</>
 }
 
 /**

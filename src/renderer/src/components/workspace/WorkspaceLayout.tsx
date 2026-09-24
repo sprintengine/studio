@@ -1254,9 +1254,9 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
       const agentRecency = isWorking
         ? null
         : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
-      // The card's status line is read when the tab is drawn; the chip on
-      // the tab itself keeps its own time (`TabRecencyText`).
-      const agentRecencyText = agentRecency !== null ? formatRelativeMs(agentRecency.at, Date.now()) : ''
+      // The chip on the tab and the card's status line each keep their own
+      // time (`TabRecencyText`, and the card's `aged` label), so neither
+      // freezes at the moment the tab was last drawn.
       const recencyIndicator =
         agentRecency !== null ? (
           <TabRecencyText at={agentRecency.at} label={tabRecencyLabel(agentRecency.source)} />
@@ -1309,7 +1309,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
       const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
         ? {
             kind: 'attention',
-            label: agentRecencyText ? `Paused · ${agentRecencyText}` : 'Paused',
+            label: 'Paused',
+            ...(agentRecency !== null ? { aged: { label: 'Paused', since: agentRecency.at } } : {}),
           }
         : activityDot
           ? {
@@ -1318,10 +1319,11 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
               kind: activityDot.tone === 'good' && activityDot.pulse ? 'working' : 'attention',
               label: activityDot.label,
             }
-          : agentRecency !== null && agentRecencyText
+          : agentRecency !== null
             ? {
                 kind: 'idle',
-                label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
+                label: 'Idle',
+                aged: { label: tabRecencyLabel(agentRecency.source), since: agentRecency.at },
               }
             : { kind: 'idle', label: 'Idle' }
       // The tab's card is about the tab's OWN agent, so the session snapshot it

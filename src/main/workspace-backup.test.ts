@@ -132,3 +132,55 @@ test('a settings-only write takes its registry from main', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+// Each registry backup serializes the whole registry, so main writes at most
+// one per interval: a request inside it is held, the newest wins, and it lands
+// when the interval ends.
+test('registry backups inside the interval are held, and the newest is written when it ends', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-workspace-backup-'))
+  try {
+    let reads = 0
+    let clock = 1_000
+    const registry: WorkspaceBackupRegistry = {
+      workspaces: [{ id: 'ws-main', name: 'From main', folderPath: '/Users/dev/app', agents: {} } as never],
+      activeWorkspaceId: 'ws-main',
+      workspaceWindows: [],
+      primaryWorkspaceWindowId: 'primary',
+    }
+    const service = createWorkspaceBackupService({
+      resolveUserDataDir: () => dir,
+      readRegistry: () => {
+        reads += 1
+        return registry
+      },
+      minRegistryIntervalMs: 40,
+      // A clock the test moves, so however long the first write's disk takes,
+      // the next two land inside the interval.
+      now: () => clock,
+    })
+    const settings = JSON.stringify({ state: {}, version: 80 })
+
+    assert.deepEqual(await service.write({ version: 80, writtenAt: 't1', data: { settings } }), { ok: true })
+    const second = await service.write({ version: 80, writtenAt: 't2', data: { settings } })
+    const third = await service.write({ version: 80, writtenAt: 't3', data: { settings } })
+    assert.equal(second.message, 'deferred')
+    assert.equal(third.message, 'deferred')
+    assert.equal(reads, 1, 'the registry is serialized once inside the interval')
+    const first = await service.read()
+    assert.ok(first.ok)
+    assert.equal(first.payload.writtenAt, 't1')
+
+    // The held write lands once the interval has passed and its timer fires.
+    clock += 40
+    let latest = await service.read()
+    for (let tries = 0; tries < 100 && !(latest.ok && latest.payload.writtenAt === 't3'); tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      latest = await service.read()
+    }
+    assert.ok(latest.ok)
+    assert.equal(latest.payload.writtenAt, 't3', 'the newest held request is the one written')
+    assert.equal(reads, 2)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -72,7 +72,11 @@ export function checkoutPathFor(workspace: SummaryInput): string | null {
   return resolveWorkspaceWorktree(workspace)?.gitRoot ?? workspace.folderPath
 }
 
-function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<string, WorkspaceChangeSummary>): boolean {
+/** Whether two summary maps draw the same: every rendered field of every entry. */
+export function summariesEqual(
+  a: Record<string, WorkspaceChangeSummary>,
+  b: Record<string, WorkspaceChangeSummary>,
+): boolean {
   const aKeys = Object.keys(a)
   if (aKeys.length !== Object.keys(b).length) return false
   for (const key of aKeys) {
