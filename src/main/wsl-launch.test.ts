@@ -508,7 +508,10 @@ test('a WSL startup script, run by a real bash, records its pid, deletes itself,
     kind: 'wsl',
     distro: 'Ubuntu',
     // A long export, so the one line is well past any single read bash makes.
-    env: { PADDING: 'x'.repeat(200_000) },
+    // Under Linux's 128 KiB cap on one environment string (MAX_ARG_STRLEN):
+    // past it, the script's final `exec` fails with E2BIG, which is a limit of
+    // the kernel, not of the script.
+    env: { PADDING: 'x'.repeat(100_000) },
     shell: `sh -c 'touch "${marker}"'`,
     sessionDir,
     pidDir,

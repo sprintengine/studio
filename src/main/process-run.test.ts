@@ -22,10 +22,12 @@ test("stderr is decoded as the caller says, so wsl.exe's own UTF-16 errors read 
 })
 
 test('stderr split across chunks mid-character is still decoded whole', async () => {
+  // Built inside the child: as one argv string it would pass Linux's 128 KiB
+  // per-argument cap (MAX_ARG_STRLEN) and fail to spawn with E2BIG.
   const text = 'ü'.repeat(70_000)
   const outcome = await runSpawnDescriptor({
     file: process.execPath,
-    args: ['-e', `process.stderr.write(${JSON.stringify(text)})`],
+    args: ['-e', "process.stderr.write('ü'.repeat(70000))"],
   })
   assert.equal(outcome.stderr, text)
 })
