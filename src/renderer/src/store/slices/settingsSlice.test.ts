@@ -827,6 +827,11 @@ test('settingsSlice', async () => {
     windowMaterial: 'glass',
   })
   assert.deepEqual(
+    normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
+    { theme: 'sage', windowMaterial: 'tinted' },
+    'tinted is a stored material in its own right',
+  )
+  assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
     { theme: 'sage', windowMaterial: 'glass' },
     'a persisted appearance predating the material axis hydrates to the glass default',

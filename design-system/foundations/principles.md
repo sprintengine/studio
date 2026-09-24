@@ -21,6 +21,11 @@ has, so it is spent on almost nothing:
 - `accent.primary` as **ink or a hairline** may mark focus (`focus.ring`) and a
   genuinely live process.
 - Everything else earns its weight from the neutral ink and surface ramps.
+- One carve-out that is not a signal at all: the **tinted window material**
+  mixes a few percent of `accent.primary` into the window's ground and lets it
+  glow faintly around the brand mark and the rail's buttons (owner ruling
+  2026-09-24). That is the material the chrome is made of, uniform and
+  stateless, not the accent spent on anything — see "Window material" below.
 
 If a surface needs a second accent, it is missing hierarchy, not color. Status
 hues (`status.*`) are not accents: never a button background, section border,
@@ -695,6 +700,61 @@ A gate, not a preference. No design system supplies it for you.
   `#0c1020`) read as generated-dashboard defaults and are out.
 - Dark values keep the anti-dither discipline: solid channel values, no pure
   black surfaces.
+
+## Window material
+
+The window's chrome — the app rail, the sidebar's brand row, the 36px title
+band, the aside column — stands on one ground, and the person picks what that
+ground is made of. It is a second appearance axis beside the theme: every
+material works over every theme and both modes, because each is derived from
+the active theme's own `bg.app` and `accent.primary` rather than from colours
+of its own. Cards and panels never take part; they stay opaque on top of
+whichever ground is chosen, so a material is only ever seen in the chrome.
+
+- **Glass** — the default on macOS. The window is transparent over the OS's
+  own vibrancy, and the theme's `bg.app` is laid over the frost once, at half
+  strength. The OS composites the frost from what is behind the window, never
+  from our content, so it costs nothing per frame. It is not available where
+  the OS has no vibrancy.
+- **Tinted** — the default on Windows and Linux, and an option on macOS for
+  anyone who would rather not have glass (owner ruling 2026-09-24). An opaque
+  window with two static paints on it:
+  - *The wash.* One gradient on the window ground: `accent.primary` mixed into
+    `bg.app` at `tinted.wash` in the top-left corner, where the rail and the
+    brand row meet, easing to plain `bg.app` through the middle of the window
+    and returning at half strength in the far corner.
+  - *The bleed.* The brand wordmark and every rail button sit in a soft glow
+    of `accent.primary` that leaks `tinted.bleed-reach` into the chrome around
+    them: strongest (`tinted.bleed`) in a ring at the element's edge, half that
+    under its centre, nothing past the reach. A glow drawn only outside the
+    box leaves an unlit hole in the shape of the button, which reads as a
+    filled tile — so the glow runs under the element, weakly.
+- **Solid** — the plain opaque `bg.app` ground, with neither.
+
+The rules that keep Tinted honest:
+
+- **Ground, not signal.** The bleed is the same on every rail button whether or
+  not it is selected. Selection stays the neutral `bg.selected` fill; an accent
+  glow that marked the current section would be the accent spent on state,
+  which this system does not do.
+- **Static.** No `backdrop-filter`, no animation, no per-frame blending. The
+  gradient and the glow are rasterised once and repaint only when the window
+  resizes, which is why this is the material for machines with no vibrancy.
+- **Contrast holds.** At most a tenth of the accent reaches the ground under
+  chrome text, which moves `bg.app` by a fraction of a luminance step. Under a
+  glowing element's centre the glow carries half its strength, which keeps the
+  wordmark's accent half and the rail glyphs above AA on their ground in both
+  modes.
+- **The chrome's fills tint, they do not cover.** On both glass and tinted the
+  canvas layers go see-through and the ground is painted once, so a hovered or
+  selected row in the rail is a translucent step over the ground rather than an
+  opaque slab laid on it — the same rule, for the same reason, on both.
+- **The window opens on its own ground.** An opaque material's window is
+  created with the theme's `bg.app` as its background colour, so the frames
+  before the renderer paints are already the right colour and a light theme
+  never flashes dark.
+- The strengths are the `sem.tinted.*` tokens, with their own light and dark
+  values; a consumer never writes a per-mode override for them.
 
 ## Tokens or nothing
 
