@@ -374,6 +374,7 @@ import type {
 import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSessionsDelta,
   TerminalSpawnMetadata,
@@ -1240,6 +1241,9 @@ export type ElectronApi = {
   // What changed among the sessions — the changed ones and the ids of the gone
   // ones, never the whole list (`terminalList` is that).
   onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void) => () => void
+  // A first message main could not type into its agent CLI, handed back so the
+  // window can say so and keep it for the person.
+  onTerminalPromptUndelivered: (cb: (event: TerminalPromptUndelivered) => void) => () => void
   // Flow control: tell main the pane has parsed `units` UTF-16 units of the
   // session's live output, so it can pause the pty while a pane falls behind.
   terminalAck: (sessionId: string, units: number) => void

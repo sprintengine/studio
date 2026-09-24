@@ -67,6 +67,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -1444,6 +1445,28 @@ export default function WorkspaceManager() {
         message: notice.description,
         extensionsRow: 'plugins',
       })
+    })
+  }, [])
+
+  // A first message main could not type into its agent CLI (the CLI exited
+  // first, or never showed its message box): say so, and keep the message in
+  // the bell where Copy message gives it back. The toast is button-free; the
+  // row is where the message lives.
+  useEffect(() => {
+    if (typeof window.api?.onTerminalPromptUndelivered !== 'function') return
+    return window.api.onTerminalPromptUndelivered((event) => {
+      const store = useWorkspaceStore.getState()
+      const notice = undeliveredPromptNotice(
+        event,
+        (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
+      )
+      const workspaceName = event.workspaceId
+        ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
+        : undefined
+      useNotificationStore
+        .getState()
+        .addNotification({ ...undeliveredPromptEntry(event, notice), ...(workspaceName ? { workspaceName } : {}) })
+      showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
     })
   }, [])
 

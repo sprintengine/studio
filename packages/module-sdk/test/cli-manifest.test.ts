@@ -57,6 +57,51 @@ test('requires a readiness signal for send-after-ready injection', () => {
   assert.ok(result.issues.some((issue) => issue.path === 'promptInjection.readiness'))
 })
 
+test('accepts both readiness signals for send-after-ready, and input overflow env', () => {
+  for (const readiness of [
+    { type: 'bracketed-paste', timeoutMs: 20_000 },
+    { type: 'output-match', pattern: 'context: \\d+%', timeoutMs: 60_000 },
+  ]) {
+    const result = validateCliPluginManifest({
+      ...VALID,
+      promptInjection: { mode: 'send-after-ready', readiness, overflow: { mode: 'input', env: { NO_UPDATE: '1' } } },
+    })
+    assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues))
+  }
+})
+
+test('rejects a readiness it cannot act on, and a file overflow for send-after-ready', () => {
+  const cases: Array<[unknown, string]> = [
+    [
+      { mode: 'send-after-ready', readiness: { type: 'output-match', pattern: '(', timeoutMs: 1 } },
+      'readiness.pattern',
+    ],
+    [{ mode: 'send-after-ready', readiness: { type: 'output-match', timeoutMs: 1 } }, 'readiness.pattern'],
+    [{ mode: 'send-after-ready', readiness: { type: 'hook', timeoutMs: 1 } }, 'readiness.type'],
+    [{ mode: 'send-after-ready', readiness: { type: 'bracketed-paste', timeoutMs: 0 } }, 'readiness.timeoutMs'],
+    [{ mode: 'positional-arg', readiness: { type: 'bracketed-paste' } }, 'readiness.timeoutMs'],
+    [
+      {
+        mode: 'send-after-ready',
+        readiness: { type: 'bracketed-paste', timeoutMs: 1 },
+        overflow: { mode: 'file', args: ['--file', '{{promptFile}}'] },
+      },
+      'overflow.mode',
+    ],
+    [{ mode: 'positional-arg', overflow: { mode: 'input', env: { A: 1 } } }, 'overflow.env'],
+    [{ mode: 'positional-arg', overflow: { mode: 'file', args: ['{{promptFile}}'], env: {} } }, 'overflow.env'],
+  ]
+  for (const [promptInjection, path] of cases) {
+    const result = validateCliPluginManifest({ ...VALID, promptInjection })
+    assert.equal(result.ok, false, JSON.stringify(promptInjection))
+    if (result.ok) continue
+    assert.ok(
+      result.issues.some((issue) => issue.path === `promptInjection.${path}`),
+      `${JSON.stringify(promptInjection)}: ${JSON.stringify(result.issues)}`,
+    )
+  }
+})
+
 test('parseCliPluginManifest surfaces JSON errors', () => {
   const result = parseCliPluginManifest('{ not json')
   assert.equal(result.ok, false)

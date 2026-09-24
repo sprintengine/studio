@@ -9,6 +9,7 @@ import {
   deferredPromptSubmitDelayMs,
   sanitizeTypedPrompt,
   type DeferredPromptOutcome,
+  type DeferredPromptReadiness,
 } from './deferred-prompt-delivery'
 
 const PASTE_ON = '\x1b[?2004h'
@@ -43,7 +44,7 @@ function fakeTimers() {
   }
 }
 
-function harness(text = 'fix the build') {
+function harness(text = 'fix the build', readiness?: DeferredPromptReadiness) {
   const timers = fakeTimers()
   const writes: string[] = []
   const outcomes: DeferredPromptOutcome[] = []
@@ -51,6 +52,7 @@ function harness(text = 'fix the build') {
     text,
     write: (data) => writes.push(data),
     onSettled: (outcome) => outcomes.push(outcome),
+    ...(readiness ? { readiness } : {}),
     timers,
   })
   return { timers, writes, outcomes, delivery, text }
@@ -228,4 +230,89 @@ test('a held paste is dropped when the CLI is gone', () => {
   delivery.observeOutput(CLI_EXITED_SENTINEL)
   timers.advance(DEFERRED_PROMPT_FALLBACK_MS * 2)
   assert.deepEqual(writes, [])
+})
+
+// ── A manifest that names the screen its composer is on ─────────────────────
+
+const COMPOSER: DeferredPromptReadiness = { type: 'output-match', pattern: /context: \d+%/, timeoutMs: 60_000 }
+
+test('output-match: bracketed paste alone is not ready, the composer line is', () => {
+  const { timers, writes, outcomes, delivery, text } = harness('fix the build', COMPOSER)
+  // Kimi Code's trust dialog turns the mode on with Trust selected.
+  delivery.observeOutput(`${PASTE_ON} Trust this folder?`)
+  timers.advance(30_000)
+  assert.deepEqual(writes, [], 'nothing typed into the dialog')
+
+  delivery.observeOutput('\x1b[38;2;224;224;224mcontext: 0%\x1b[39m')
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  assert.deepEqual(writes, [pasteOf(text)])
+  timers.advance(deferredPromptSubmitDelayMs(text))
+  assert.deepEqual(writes, [pasteOf(text), '\r'])
+  assert.equal(outcomes.length, 1)
+  assert.equal(outcomes[0]?.kind === 'delivered' && outcomes[0].via, 'ready')
+
+  delivery.observeOutput('context: 0%')
+  timers.advance(120_000)
+  assert.equal(writes.length, 2, 'exactly once')
+})
+
+test('output-match: the pattern is found across a chunk boundary, and a global flag does not stick', () => {
+  const { timers, writes, delivery, text } = harness('go', {
+    type: 'output-match',
+    pattern: /context: \d+%/g,
+    timeoutMs: 60_000,
+  })
+  delivery.observeOutput('footer: cont')
+  delivery.observeOutput('ext: 12% left')
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  assert.deepEqual(writes, [pasteOf(text)])
+})
+
+test('output-match: no composer within the window types nothing and hands the message back', () => {
+  const { timers, writes, outcomes, delivery } = harness('fix the build', COMPOSER)
+  delivery.observeOutput(`${PASTE_ON} Trust this folder?`)
+  timers.advance(60_000)
+  assert.deepEqual(writes, [], 'never typed blind')
+  assert.deepEqual(outcomes, [{ kind: 'abandoned', reason: 'not-ready' }])
+  delivery.observeOutput('context: 0%')
+  timers.advance(10_000)
+  assert.deepEqual(writes, [], 'a composer that turns up later gets nothing either')
+  assert.equal(delivery.holdPaste('\x1b[200~/skill\x1b[201~'), false, 'nothing is held once it has settled')
+})
+
+test('output-match: a recognised composer that never goes quiet still gets the message at the deadline', () => {
+  const { timers, writes, outcomes, delivery, text } = harness('go', COMPOSER)
+  delivery.observeOutput('context: 0%')
+  for (let at = 0; at < 60_000; at += 200) {
+    delivery.observeOutput('spinner')
+    timers.advance(200)
+  }
+  assert.deepEqual(writes, [pasteOf(text)])
+  timers.advance(deferredPromptSubmitDelayMs(text))
+  assert.equal(outcomes[0]?.kind === 'delivered' && outcomes[0].via, 'fallback')
+})
+
+test('output-match: a lifecycle hook reporting in counts as ready', () => {
+  const { timers, writes, delivery, text } = harness('go', COMPOSER)
+  delivery.observeHookFrame()
+  timers.advance(DEFERRED_PROMPT_QUIET_MS)
+  assert.deepEqual(writes, [pasteOf(text)])
+})
+
+test('output-match: a CLI that exits before its composer appears gets nothing, and it is reported', () => {
+  const { timers, writes, outcomes, delivery } = harness('go', COMPOSER)
+  delivery.observeOutput(`${PASTE_ON} Trust this folder?`)
+  delivery.observeOutput(CLI_EXITED_SENTINEL)
+  delivery.observeOutput(`${PASTE_ON}% context: 0%`)
+  timers.advance(120_000)
+  assert.deepEqual(writes, [])
+  assert.deepEqual(outcomes, [{ kind: 'abandoned', reason: 'exited' }])
+})
+
+test('bracketed-paste with its own window sends on that window, not the default', () => {
+  const { timers, writes, outcomes, text } = harness('go', { type: 'bracketed-paste', timeoutMs: 5_000 })
+  timers.advance(5_000)
+  assert.deepEqual(writes, [pasteOf(text)])
+  timers.advance(deferredPromptSubmitDelayMs(text))
+  assert.equal(outcomes[0]?.kind === 'delivered' && outcomes[0].via, 'fallback')
 })

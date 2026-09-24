@@ -8,6 +8,7 @@ import type {
   McpSettings,
   SessionActivity,
   TerminalPathStyle,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
   TerminalVisibilityOptions,
@@ -55,7 +56,11 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
-import { createDeferredPromptDelivery } from './deferred-prompt-delivery'
+import {
+  createDeferredPromptDelivery,
+  type DeferredPromptOutcome,
+  type DeferredPromptReadiness,
+} from './deferred-prompt-delivery'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
@@ -2898,13 +2903,17 @@ function materializeAgentSessionIdentity(
 }
 
 /**
- * Type a first message the launch's command line could not carry into the CLI
+ * Type a first message the launch's command line did not carry into the CLI
  * once it is ready (`deferred-prompt-delivery.ts`): one paste, one Enter, once.
  * Lives on the session so its output, hook frames, exit and dispose reach it.
+ * A message that could not be typed is handed back to the person
+ * (`reportUndeliveredPrompt`), never only logged.
  */
 function armDeferredPrompt(session: TerminalSession, text: string): void {
+  const readiness = deferredPromptReadinessFor(session.cli)
   session.deferredPrompt = createDeferredPromptDelivery({
     text,
+    ...(readiness ? { readiness } : {}),
     write: (data) => {
       recordTerminalInput(session)
       session.process.write(data)
@@ -2917,8 +2926,64 @@ function armDeferredPrompt(session: TerminalSession, text: string): void {
         promptLength: text.length,
         ...(outcome.kind === 'delivered' ? { via: outcome.via, atMs: outcome.atMs } : { reason: outcome.reason }),
       })
+      if (outcome.kind === 'abandoned') reportUndeliveredPrompt(session, text, outcome.reason)
     },
   })
+}
+
+/**
+ * The manifest's `promptInjection.readiness`, in the shape the delivery takes.
+ * Undefined (the delivery's default) for a manifest that declares none, and for
+ * one whose pattern will not compile — the SDK validator refuses that, so it is
+ * only reachable through a manifest that skipped validation.
+ */
+function deferredPromptReadinessFor(cli: string | undefined): DeferredPromptReadiness | undefined {
+  const declared = cli ? getPluginById(pluginIdForCli(cli))?.manifest.promptInjection?.readiness : undefined
+  if (!declared) return undefined
+  if (declared.type === 'bracketed-paste') return { type: 'bracketed-paste', timeoutMs: declared.timeoutMs }
+  try {
+    return { type: 'output-match', pattern: new RegExp(declared.pattern), timeoutMs: declared.timeoutMs }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Tell the person their first message never reached the CLI, and hand it back.
+ * The window that shows the session (else any window) raises the notice and
+ * keeps the text; the diagnostics log records that it happened, without the
+ * text. A session torn down on purpose (`cancelled`) says nothing: the person
+ * closed it, or the app is quitting.
+ */
+function reportUndeliveredPrompt(
+  session: TerminalSession,
+  text: string,
+  reason: Extract<DeferredPromptOutcome, { kind: 'abandoned' }>['reason'],
+): void {
+  if (reason === 'cancelled') return
+  const event: TerminalPromptUndelivered = {
+    sessionId: session.sessionId,
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+    ...(session.agentId ? { agentId: session.agentId } : {}),
+    ...(session.agentName ? { agentName: session.agentName } : {}),
+    ...(session.cli ? { cli: session.cli } : {}),
+    text,
+    reason,
+  }
+  logReapDiagnostic?.({
+    level: 'warning',
+    title: 'First message not sent',
+    message: `The first message for ${session.cli ?? 'an agent'} was not typed in (${reason}).`,
+    details: `${text.length} characters`,
+    ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+    ...(session.agentId ? { agentId: session.agentId } : {}),
+    sessionId: session.sessionId,
+  })
+  const windows = BrowserWindow.getAllWindows().filter(
+    (win) => !win.isDestroyed() && !win.webContents.isDestroyed() && !isCanvasWorkerWindow(win),
+  )
+  const target = windows.find((win) => win.webContents === session.sender) ?? windows[0]
+  target?.webContents.send('terminal:prompt-undelivered', event)
 }
 
 function attachTerminalSession(

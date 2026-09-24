@@ -22,12 +22,11 @@
     "supported": false
   },
   "promptInjection": {
-    "$comment": "Same reasoning as the grok manifest, and for the same reason: Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), and its real input-ready marker is unknown. The pattern (?!) never matches by design — any guessable marker would match the startup banner before the TUI accepts input, swallowing the keystrokes and cancelling the timeout fallback, while a late post-timeout match would inject a second copy. Never-match makes delivery deterministic: exactly one injection, via the runtime's timeout fallback, once the TUI has had timeoutMs to become ready. If a real install confirms `muse \"prompt\"` works interactively, flip mode to positional-arg.",
+    "$comment": "Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), so the first message is typed in once the TUI is reading: when it turns bracketed paste on and output has gone quiet, the signal Claude Code, Codex and Cursor were verified against, with the message sent anyway after timeoutMs. Not verified against Muse itself: it was not installed on the machine this was written on (2026-09-24), so neither its help nor whether a startup dialog precedes the composer could be checked. If one does, this needs an output-match readiness like Kimi Code's.",
     "mode": "send-after-ready",
     "readiness": {
-      "type": "output-match",
-      "pattern": "(?!)",
-      "timeoutMs": 8000
+      "type": "bracketed-paste",
+      "timeoutMs": 20000
     }
   },
   "contextInjection": {

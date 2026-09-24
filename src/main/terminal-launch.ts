@@ -57,10 +57,11 @@ export type ShellLaunchConfig = {
    */
   hostContextPath?: string
   /**
-   * The first message, when it was too long for this platform's command line
-   * and the CLI takes it as typed input instead (`planAgentLaunch`). The launch
-   * carries none of it; the caller owes the CLI exactly this text, once, as a
-   * bracketed paste and an Enter, when the CLI is ready for input.
+   * The first message, when the CLI takes it as typed input: because it was too
+   * long for this platform's command line, or because the manifest is
+   * `send-after-ready` (`planAgentLaunch`). The launch carries none of it; the
+   * caller owes the CLI exactly this text, once, as a bracketed paste and an
+   * Enter, when the CLI is ready for input.
    */
   deferredPrompt?: string
   /**
@@ -1803,7 +1804,9 @@ export function getPlainShellLaunchConfig(
   }
 }
 
-function buildNativeAgentLaunchPowerShellScript(
+// Exported for launch regression coverage: the startup script a native Windows
+// agent launch runs.
+export function buildNativeAgentLaunchPowerShellScript(
   cli: AgentCli,
   sessionId: string,
   resume: boolean,
@@ -1869,9 +1872,20 @@ function buildNativeAgentLaunchPowerShellScript(
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
     `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
+    ...powerShellTypedPromptEnvLines(plan.typedPromptEnv),
     ...buildNativeWindowsInvocation(args),
     ...(plan.promptDelivery.kind === 'input' ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
+}
+
+// The environment a launch whose first message is typed in adds (see
+// `PlannedAgentLaunch.typedPromptEnv`), set for the CLI the script is about to
+// start. PowerShell has no per-command assignment, so it stays set in the
+// session the script leaves behind; nothing there reads it.
+function powerShellTypedPromptEnvLines(env: Record<string, string> | undefined): string[] {
+  return Object.entries(env ?? {})
+    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .map(([name, value]) => `$env:${name} = ${quotePowerShell(value)}`)
 }
 
 // Exported for launch regression coverage. The legacy name is retained for
@@ -1910,11 +1924,13 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   }
   let rendered: { argv: string[]; binary: string }
   let typedPrompt = false
+  let typedPromptEnv: Record<string, string> | undefined
   if (planOptions) {
     const plan = planAgentLaunch(renderInput, planOptions)
     onPlan?.(plan)
     rendered = plan
     typedPrompt = plan.promptDelivery.kind === 'input'
+    typedPromptEnv = plan.typedPromptEnv
   } else {
     rendered = renderAgentLaunchArgv(renderInput)
   }
@@ -1943,6 +1959,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     // in .js, so quoting it needs no trailing-backslash escaping either.
     `  $env:SPRINTENGINE_LAUNCH_ARGS = '"' + $codexJs + '" ' + $env:SPRINTENGINE_LAUNCH_ARGS`,
     `}`,
+    ...powerShellTypedPromptEnvLines(typedPromptEnv),
     ...invoke,
     ...(typedPrompt ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
