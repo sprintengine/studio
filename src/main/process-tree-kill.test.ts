@@ -63,3 +63,21 @@ test('a child that is already gone does not throw', () => {
   }
   assert.doesNotThrow(() => killProcessTree(child, { platform: 'darwin' }))
 })
+
+test('a detached POSIX child is ended with its whole process group', () => {
+  const { child, signals } = fakeChild(4242)
+  const groups: number[] = []
+  killProcessTree(child, { platform: 'darwin', processGroup: true, killGroup: (pid) => groups.push(pid) })
+  assert.deepEqual(groups, [4242])
+  assert.deepEqual(signals, [], 'the group signal replaces the single kill')
+
+  const fallback = fakeChild(4243)
+  killProcessTree(fallback.child, {
+    platform: 'linux',
+    processGroup: true,
+    killGroup: () => {
+      throw new Error('ESRCH')
+    },
+  })
+  assert.deepEqual(fallback.signals, ['SIGKILL'], 'a group that is already gone falls back to the child')
+})

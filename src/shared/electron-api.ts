@@ -292,6 +292,9 @@ import type {
   GitWorktreeRemoveInput,
   RevFileResult,
   WorkspaceChangeSummary,
+  GitCheckoutChange,
+  AgentWorktreeCleanupInput,
+  AgentWorktreeCleanupReport,
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
@@ -913,7 +916,16 @@ export type ElectronApi = {
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   listFolderOpenTargets: () => Promise<FolderOpenTargetAvailability[]>
   openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
-  watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
+  /**
+   * Watch a directory tree. Events under `.git/`, `node_modules/`,
+   * `.sprintengine/` and build output are dropped in main unless
+   * `includeIgnored` is set; a burst arrives as one event naming its paths.
+   */
+  watchPath: (
+    path: string,
+    cb: (event: FileWatchEvent) => void,
+    options?: { includeIgnored?: boolean },
+  ) => Promise<() => Promise<void>>
   openDir: (options?: { defaultPath?: string }) => Promise<string | null>
   /** Creates `~/.sprintengine/skills` if needed and returns its absolute path. */
   ensureDefaultUserSkillsDir: () => Promise<string>
@@ -943,6 +955,15 @@ export type ElectronApi = {
    * only the renderer holds the workspace's worktree record.
    */
   getWorkspaceChangeSummary: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
+  /**
+   * Be told when a checkout's git readings go stale, instead of polling for it.
+   * Main watches the checkout's git directory while any listener in any window
+   * wants it, holds changes while no window is focused, and sends a slow
+   * fallback. Returns the unsubscribe.
+   */
+  watchGitCheckout: (checkoutPath: string, cb: (change: GitCheckoutChange) => void) => () => void
+  /** Remove agent worktrees that are clean and merged; report (and keep) the rest. */
+  cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput) => Promise<AgentWorktreeCleanupReport>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip

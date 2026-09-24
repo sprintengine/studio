@@ -30,6 +30,8 @@ import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
+import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
+import { resolveCheckoutForCwd } from './checkout-resolve'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
 import { readTrustedModulesSync } from './modules/trust-store'
@@ -457,6 +459,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
+    // The runtime asks where an agent is at every turn end and session start.
+    // That is also the moment its checkout's working tree most likely moved,
+    // which git's own files do not show until something is staged: tell the
+    // git view scheduler, so the sidebar re-reads that checkout now rather
+    // than at the next fallback sweep.
+    resolveObservedCheckout: async (cwd) => {
+      const facts = await resolveCheckoutForCwd(cwd)
+      if (facts?.gitRoot) getGitRepoWatch().noteActivity(facts.gitRoot)
+      return facts
+    },
     // The three agent-changelist seams. Fire-and-forget by contract: the feed
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),

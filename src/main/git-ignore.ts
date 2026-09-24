@@ -1,4 +1,6 @@
 import { spawn } from 'child_process'
+import { GIT_READ_TIMEOUT_MS, gitEnv } from './git-run'
+import { killProcessTree } from './process-tree-kill'
 
 // `git check-ignore` answers the question the tree actually asks — "would git
 // ignore this?" — against the full rule stack (.gitignore at every depth, the
@@ -37,14 +39,21 @@ export function checkIgnoredPaths(repoRoot: string, relativePaths: string[]): Pr
   return new Promise((resolve) => {
     const child = spawn('git', ['-C', repoRoot, 'check-ignore', '-z', '--stdin'], {
       windowsHide: true,
-      env: { ...process.env, LC_ALL: 'C' },
+      env: gitEnv(undefined, 'read'),
     })
 
     let stdout = ''
     let settled = false
+    // The same deadline every other read gets (git-run.ts): a tree render must
+    // not wait on a git stuck behind a spun-down volume.
+    const deadline = setTimeout(() => {
+      killProcessTree(child)
+      finish(new Set<string>())
+    }, GIT_READ_TIMEOUT_MS)
     const finish = (paths: Set<string>) => {
       if (settled) return
       settled = true
+      clearTimeout(deadline)
       resolve(paths)
     }
 
