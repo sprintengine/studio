@@ -35,7 +35,7 @@ const workspaceWindows = new Set<BrowserWindow>()
 
 // The window-level half of a material: vibrancy and a transparent background
 // for glass; no vibrancy and the theme's own opaque canvas colour for tinted
-// and solid. Tinted's gradient and glow are painted by the renderer as static
+// and solid. Tinted's washes are painted by the renderer as static
 // CSS over that opaque ground — the window itself is an ordinary opaque one,
 // which is what keeps it free on platforms with no vibrancy. The colour
 // matters for the frames before the renderer paints (creation, and a resize

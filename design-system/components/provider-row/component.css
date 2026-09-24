@@ -71,11 +71,14 @@
   height: var(--sem-icon-size-lg);
 }
 
-/* A provider this machine does not have. It recedes a contrast step — the mark
- * by opacity because it is an image, the name by dropping to the ink under
- * `text.primary` — so a scan down the list lands on what IS here and the
- * absent rows sit behind them. Exactly the move the consuming app's sidebar
- * makes on a conversation that is not the active one.
+/* A provider this machine does not have. It recedes — the mark by opacity
+ * because it is an image, the name to `text.muted`, the ink the state line
+ * under it already wears — so a scan down the list lands on what IS here and
+ * the absent rows sit behind them. `text.muted` and not the step between:
+ * one ink step (`text.default`) was too close to `text.primary` to read as
+ * receded at all (owner ruling 2026-09-24). `text.muted` is the lowest ink
+ * that still clears AA on this ground and on the hover fill, in both modes
+ * (5.3:1 and 4.7:1 light, 6.8:1 and 6.5:1 dark); `text.subtle` does not.
  *
  * It is NOT a disabled state: every control on the row keeps working, and the
  * Install button a recessed row carries is the whole reason it is listed. And
@@ -83,10 +86,19 @@
  * installed" in words. */
 .ds-provider-row--recessed .ds-provider-row__mark {
   opacity: 0.6;
+  /* A glyph mark drawn in `currentColor` recedes to the name's ink too; a
+   * full-colour logo recedes by the opacity alone. */
+  color: var(--sem-color-text-muted);
 }
 
 .ds-provider-row--recessed .ds-provider-row__name {
-  color: var(--sem-color-text-default);
+  color: var(--sem-color-text-muted);
+}
+
+/* `text.muted` falls under AA on the selected fill, so a selected row keeps the
+ * full ink on its name whether or not it is recessed. */
+.ds-provider-row--recessed.ds-provider-row--selected .ds-provider-row__name {
+  color: var(--sem-color-text-primary);
 }
 
 /* The count docked on the mark's TOP-RIGHT: the badge component's corner

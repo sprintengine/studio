@@ -104,6 +104,16 @@ are separate steps.
 - The group needs a visible label beside it (see the `field` component's
   standalone label) or an `aria-label`; the segment labels name options, not
   the question.
+- **Which subject a settings page is about is a value it may set** (owner
+  ruling 2026-09-24). Settings ▸ Agents lists one machine's agent CLIs, and the
+  strip at its top picks the machine: the page, its sections and its controls
+  stay the same page, only the machine they read and write changes, so it is
+  not a tab strip in disguise. It shares the update channel's shape on
+  purpose — one of a few named options, every one worth seeing. Picking changes
+  nothing that is saved: arrowing across the strip asks each machine it lands
+  on for its CLIs, which is a read, so selection-follows-focus stays a cheap and
+  reversible choice. A page with a single subject draws no strip at all rather
+  than a strip of one.
 
 ## Accessibility
 
