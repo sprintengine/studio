@@ -26,6 +26,7 @@ import {
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
   isAtRestAgentPhase,
+  keepsTurnEnd,
   resolveAgentStateEvent,
   selectAgentStateTarget,
   type AgentStateFrame,
@@ -2444,6 +2445,26 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // a broadcast-worthy change even though it moves no phase.
   const backgroundWorkChanged = session.backgroundWork !== previousBackgroundWork
   const resolution = holdTurnEndForBackgroundWork(resolved, session.backgroundWork)
+
+  // A finished turn stays finished against a frame that is not new work: a
+  // background stop that closed nothing (Claude Code's own post-turn helper)
+  // or a straggler of the turn that just ended. See `keepsTurnEnd`.
+  if (
+    keepsTurnEnd({
+      spec: agentStateSpecForSession(session),
+      event: frame.event,
+      resolution,
+      outstandingBefore: previousBackgroundWork,
+      current: session.agentState ?? null,
+      lastTurnEndedAt: session.lastTurnEndedAt,
+      frameTs: frame.ts,
+    })
+  ) {
+    // Neither kind moves the background count (a stop that closed nothing
+    // clamps at zero), so only a ledger change carried alongside is news.
+    publishLedgerChange()
+    return
+  }
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
