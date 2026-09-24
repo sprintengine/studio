@@ -243,6 +243,20 @@ export function createTerminalOutputBuffer({
     flowFor(sessionId).inflight += units
   }
 
+  /**
+   * The runtime sent the pane `units` of live data itself, outside a batch —
+   * a reveal's catch-up. The pane acknowledges those units like any other
+   * live data, so they are counted in flight like any other: uncounted, each
+   * ack for them would cancel units main did count, and backpressure would be
+   * off while the pane parsed what could be megabytes.
+   */
+  function noteRendererSent(sessionId: string, units: number): void {
+    if (!flowControl || units <= 0) return
+    noteRendererForwarded(sessionId, units)
+    const session = getSession(sessionId)
+    if (session) evaluateFlow(session)
+  }
+
   function rendererBacklog(sessionId: string): number {
     const flow = rendererFlow.get(sessionId)
     const pendingUnits = pendingTerminalData.get(sessionId)?.get(TERMINAL_RENDERER_SINK_ID)?.units ?? 0
@@ -347,6 +361,7 @@ export function createTerminalOutputBuffer({
     /** Drop the renderer's queued batch: a replay about to be sent already holds it. */
     discardRenderer: (sessionId: string): void => discard(sessionId, TERMINAL_RENDERER_SINK_ID),
     ack,
+    noteRendererSent,
     resetRendererFlow,
     forgetSession,
     /** Test and diagnostics seam: units the pane has in flight or queued for it. */
@@ -374,9 +389,12 @@ function trimPendingTerminalChunks(
 
     const remainingBytes = maxBytes - bytes
     if (remainingBytes > 0) {
-      const tail = Buffer.from(chunk)
-        .subarray(Math.max(0, chunkBytes - remainingBytes))
-        .toString('utf8')
+      const encoded = Buffer.from(chunk)
+      let start = Math.max(0, chunkBytes - remainingBytes)
+      // Start on a character, not inside one: a cut through a multi-byte
+      // sequence decodes its orphaned continuation bytes as U+FFFD.
+      while (start < encoded.length && ((encoded[start] as number) & 0xc0) === 0x80) start += 1
+      const tail = encoded.subarray(start).toString('utf8')
       retained.unshift(tail)
       bytes += Buffer.byteLength(tail)
     }

@@ -434,6 +434,15 @@ export type IpcStatsSnapshot = {
   channels: IpcChannelStat[]
 }
 
+/**
+ * How a pane reports its visibility. `freshPane` says the xterm was just built
+ * and holds nothing, so main must paint it in full when it is shown rather
+ * than send only what an earlier pane in its place missed.
+ */
+export type TerminalVisibilityOptions = {
+  freshPane?: boolean
+}
+
 export type TerminalSpawnResult =
   { ok: true; sessionId: string } | { ok: false; sessionId: string; message: string; exitCode: number }
 

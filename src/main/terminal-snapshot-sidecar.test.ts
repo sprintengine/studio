@@ -195,3 +195,25 @@ test('terminal-snapshot-sidecar', async () => {
 
   await suiteRun
 })
+
+// A write that fails is not retried, so it must not keep its multi-megabyte
+// sidecar queued in memory for the life of the app — a later read goes to
+// the disk (which has nothing) rather than being answered from the queue.
+test('a failed write lets go of the sidecar it queued', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-terminal-sidecar-failed-'))
+  // Where the sidecar directory should be is a file, so every write fails.
+  writeFileSync(join(userDataDir, TERMINAL_SNAPSHOT_SIDECAR_DIR_NAME), 'not a directory')
+  const store = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+  store.write({
+    version: 1,
+    sessionId: 'session-failed-write',
+    savedAt: 1_700_000_000_000,
+    cols: 120,
+    rows: 30,
+    kind: 'agent',
+    snapshot: 'x'.repeat(1024 * 1024),
+  })
+  assert.ok(await store.read('session-failed-write'), 'queued: a read before the write lands sees it')
+  await store.flush()
+  assert.equal(await store.read('session-failed-write'), null, 'failed: nothing is held for it any more')
+})

@@ -162,6 +162,9 @@ test('terminal-runtime', async () => {
       await assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(runtimeModule)
       await assertSessionsBroadcastCarriesOnlyWhatChanged(runtimeModule)
       await assertRevealSendsOnlyWhatThePaneMissed(runtimeModule)
+      await assertSettledAgentKeepsItsHistoryAndIsNotRepaintedOnReveal(runtimeModule)
+      await assertRevealCatchUpCountsTowardFlowControl(runtimeModule)
+      await assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule)
       await assertFlowControlPausesThePtyWhileThePaneFallsBehind(runtimeModule)
       await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
       await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
@@ -1359,9 +1362,11 @@ test('terminal-runtime', async () => {
   // Per-terminal user lock + idempotent suspended reveal:
   // 1. A locked (reapExempt) agent survives the idle sweep and the 24h stale
   //    backstop; unlocking makes it reapable again.
-  // 2. Revealing a suspended session resends the painted replay even when main
-  //    already has visible=true (a renderer reload/remount can miss the unmount
-  //    hide; edge-triggered reveal left the fresh xterm blank under "Paused").
+  // 2. Revealing a suspended session into a fresh pane resends the painted
+  //    replay even when main already has visible=true (a renderer
+  //    reload/remount can miss the unmount hide; edge-triggered reveal left the
+  //    fresh xterm blank under "Paused"). A repeat reveal of the pane that
+  //    already holds it sends nothing: the frozen screen can be megabytes.
   async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule: RuntimeModule): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-lock-'))
     mockPty.spawnCalls = []
@@ -1416,15 +1421,20 @@ test('terminal-runtime', async () => {
         suspended: true,
       })
 
-      // Idempotent reveal: the first setVisible(true) is the hidden→visible edge;
-      // the second finds visible already true and must STILL resend the replay —
-      // a suspended pty is dead, so a fresh xterm that missed the edge can only
-      // be painted by this resend.
+      // The first setVisible(true) is the hidden→visible edge and paints the
+      // pane. A second one from the same pane finds it already holding the
+      // screen and sends nothing. A fresh pane (a remount that missed the edge)
+      // says so, and must STILL be sent the replay — a suspended pty is dead,
+      // so that resend is the only thing that can paint it.
       mockSender.sent = []
-      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
-      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
-      const replays = mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-lock-b')
-      assert.equal(replays.length, 2, 'suspended reveal must resend the replay even when already visible')
+      const sender = mockSender as unknown as WebContents
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender)
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender)
+      const replaysOf = () => mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-lock-b')
+      assert.equal(replaysOf().length, 1, 'a repeat reveal of a pane that holds the screen sends nothing')
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender, { freshPane: true })
+      const replays = replaysOf()
+      assert.equal(replays.length, 2, 'a fresh pane must be sent the replay even when already visible')
       assert.ok(
         replays.every((event) => typeof event.payload === 'string' && event.payload.length > 0),
         'suspended reveal replays must carry painted content',
@@ -2309,6 +2319,196 @@ test('terminal-runtime', async () => {
       assert.equal(channel('terminal:data:session-reveal').length, 0)
     } finally {
       await runtime.shutdown()
+    }
+  }
+
+  // A finished agent's pane is its history. Once the agent has exited and its
+  // screen is rendered, the raw stream is released and the rendered screen is
+  // all that is left, so it must carry the scrollback a live pane keeps — not
+  // the last thousand rows. And switching away and back to a pane that was
+  // watching when the agent finished must not reset and repaint it.
+  async function assertSettledAgentKeepsItsHistoryAndIsNotRepaintedOnReveal(
+    runtimeModule: RuntimeModule,
+  ): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-settled-history-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const listed = () =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session-settled-history')
+    const channel = (name: string) => mockSender.sent.filter((event) => event.channel === name)
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-settled-history',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-settled-history',
+        agentId: 'session-settled-history',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      for (let line = 0; line < 3_000; line += 1) pty.emitData(`history line ${line}\r\n`)
+      await delay(40)
+      pty.emitExit({ exitCode: 0 })
+      const start = Date.now()
+      while ((listed()?.retainedOutputBytes ?? 0) > 0) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the exited agent to release its stream')
+        await delay(20)
+      }
+
+      const read = runtime.readTerminalOutput('session-settled-history') ?? ''
+      assert.ok(read.includes('history line 5\r'), 'the history far above the last screen is still readable')
+      assert.ok(read.includes('history line 2999'))
+
+      // A workspace switch away and back: the pane already holds all of it.
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', false, sender)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', true, sender)
+      assert.deepEqual(channel('terminal:replay:session-settled-history'), [], 'no reset-and-repaint')
+      assert.deepEqual(channel('terminal:data:session-settled-history'), [], 'and nothing to catch up')
+
+      // The dying CLI's last bytes, after the release: not part of what is read.
+      pty.emitData('a straggler after the screen was rendered\r\n')
+      await delay(30)
+      const after = runtime.readTerminalOutput('session-settled-history') ?? ''
+      assert.ok(after.includes('history line 5\r'), 'late bytes do not replace the rendered history')
+      assert.equal(after.includes('a straggler'), false)
+      assert.equal(listed()?.retainedOutputBytes, 0, 'and are not kept')
+
+      // A fresh pane (a remount) is painted in full, deep history included.
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', true, sender, { freshPane: true })
+      const replay = channel('terminal:replay:session-settled-history')[0]?.payload
+      assert.ok(typeof replay === 'string' && replay.includes('history line 5\r'), 'a fresh pane gets the history')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A reveal's catch-up is live data the pane acknowledges like any other, so
+  // it is counted in flight like any other: otherwise the pane's acks for it
+  // cancel units main did count, and backpressure is off while the pane parses
+  // what can be megabytes.
+  async function assertRevealCatchUpCountsTowardFlowControl(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-catch-up-flow-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-catch-up-flow',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      pty.emitData('x'.repeat(1_000))
+      await delay(30)
+
+      runtime.ipcHandlers.setTerminalVisible('session-catch-up-flow', false, sender)
+      pty.emitData('y'.repeat(150_000))
+      await delay(30)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-catch-up-flow', true, sender)
+      const caughtUp = mockSender.sent.filter((event) => event.channel === 'terminal:data:session-catch-up-flow')
+      assert.equal(caughtUp.length, 1, 'the pane is caught up as live data')
+      assert.equal(pty.pauses, 0, 'a pane that has not acked since the reveal is not waited on')
+
+      runtime.ipcHandlers.ackTerminalOutput('session-catch-up-flow', 1_000, sender)
+      assert.equal(pty.pauses, 1, 'the unparsed catch-up holds the pty back once the pane acks')
+      runtime.ipcHandlers.ackTerminalOutput('session-catch-up-flow', 148_000, sender)
+      assert.equal(pty.resumes, 1, 'and lets it go once the pane has parsed it')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Every hook is its own reporter process, so a short subagent's stop can land
+  // before its start. The stop closes nothing; the start that follows, stamped
+  // earlier, must not open work nothing will close — or the next Stop is held
+  // as working until the stall watch gives up on it.
+  async function assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-overtaken-start-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+    })
+    const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-overtaken')
+    try {
+      const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'sess-overtaken',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-overtaken',
+        agentId: 'agent-overtaken',
+        agentName: 'Overtaken',
+      })
+      assert.equal(spawn.ok, true, JSON.stringify(spawn))
+      const base = Date.now()
+      const ingest = async (event: string, ts: number, extra: Partial<AgentStateFrame> = {}): Promise<void> => {
+        runtime.ingestAgentStateFrame({
+          type: 'agent_state',
+          agentId: 'agent-overtaken',
+          workspaceId: 'ws-overtaken',
+          sessionId: null,
+          event,
+          ts: base + ts,
+          ...extra,
+        })
+        await delay(5)
+      }
+
+      await ingest('SessionStart', 0)
+      await ingest('UserPromptSubmit', 100)
+      await ingest('PostToolUse', 1_000, { toolUseId: 'toolu_one' })
+      await ingest('SubagentStop', 1_600)
+      await ingest('SubagentStart', 1_500)
+      assert.equal(snapshot()?.activeSubagents, 0, 'the start its stop overtook is already closed')
+      await ingest('Stop', 5_000)
+      assert.equal(snapshot()?.agentState?.phase, 'idle', 'so the turn end is not held')
+      assert.equal(snapshot()?.activity.kind, 'idle')
+
+      // A subagent that starts after that stop is real work, and holds the turn.
+      await ingest('UserPromptSubmit', 6_000)
+      await ingest('SubagentStart', 6_500)
+      assert.equal(snapshot()?.activeSubagents, 1)
+      await ingest('Stop', 7_000)
+      assert.equal(snapshot()?.agentState?.phase, 'tool_use', 'a turn end with a subagent open is held')
+      await ingest('SubagentStop', 8_000)
+      assert.equal(snapshot()?.activeSubagents, 0)
+    } finally {
+      runtime.ipcHandlers.killTerminal('sess-overtaken')
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
 

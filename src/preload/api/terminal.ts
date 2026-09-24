@@ -7,6 +7,7 @@ import type {
   TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
 } from '../../shared/electron-api'
 
 export const terminalApi = {
@@ -42,8 +43,8 @@ export const terminalApi = {
   terminalStatus: (sessionId: string): Promise<{ processAlive: boolean; suspended: boolean }> =>
     ipcRenderer.invoke('terminal:status', sessionId),
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
-  terminalSetVisible: (sessionId: string, visible: boolean) =>
-    ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
+  terminalSetVisible: (sessionId: string, visible: boolean, options?: TerminalVisibilityOptions) =>
+    ipcRenderer.invoke('terminal:set-visible', { sessionId, visible, freshPane: options?.freshPane === true }),
   terminalSuspend: (sessionId: string) => ipcRenderer.invoke('terminal:suspend', sessionId),
   terminalResume: (
     sessionId: string,

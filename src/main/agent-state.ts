@@ -189,6 +189,31 @@ export function applyBackgroundWork(outstanding: number, background: 'start' | '
   return outstanding
 }
 
+/**
+ * Whether a background start was already answered by a stop that closed
+ * nothing: it is stamped at or before the newest such stop.
+ *
+ * Every hook is its own reporter process, so a short subagent's `SubagentStop`
+ * can land before its `SubagentStart`. The stop closes nothing (the count is at
+ * zero) and moves no phase — see `keepsTurnEnd` — and when the start lands
+ * after it, stamped earlier, it is not stale to the stale-frame guard, because
+ * that stop never moved the phase's timestamp. Counted, it would open work that
+ * nothing is left to close, and the next `Stop` would be held as working until
+ * the stall watch gave up on it. So the time of each stop that closed nothing
+ * is kept, and a start stamped at or before it is taken as already closed.
+ *
+ * Only a start stamped within a delivery window of that stop is taken: a
+ * reporter delivers for up to two seconds, so only a subagent that short can
+ * have its stop land first. A start that belongs to a later subagent is stamped
+ * after the stop and counts, and so does one stamped well before an unrelated
+ * stop — that is real work still running, and dropping it would let the agent
+ * read idle, and be reclaimed, mid-subagent.
+ */
+export function backgroundStartAlreadyClosed(frameTs: number, unmatchedStopAt: number | null | undefined): boolean {
+  if (typeof unmatchedStopAt !== 'number') return false
+  return frameTs <= unmatchedStopAt && unmatchedStopAt - frameTs < TURN_END_STRAGGLER_WINDOW_MS
+}
+
 export function holdTurnEndForBackgroundWork(
   resolution: AppliedAgentStateEvent,
   outstanding: number,

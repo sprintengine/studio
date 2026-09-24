@@ -246,13 +246,9 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
-      sessionId: attachId,
+      // Paste reaches the remote pty through xterm, and so through the same
+      // guarded `onData` path as typing.
       focusTerminal,
-      // Paste reaches the remote pty through the same guarded path as typing.
-      write: (data) => {
-        if (!fleetInputState(accessRef.current, linkRef.current).canType) return
-        window.api.fleetTerminalInput(attachId, data)
-      },
     })
 
     return () => {

@@ -233,3 +233,15 @@ test('a repaint-heavy stream still keeps its scrollback in the snapshot', async 
   assert.ok(snapshot?.includes('history line 1499'), 'the newest history line is kept')
   assert.ok(snapshot?.includes('history line 700'), 'and the scrollback above it, which the tail alone does not reach')
 })
+
+// Once a settled agent's screen is rendered its raw stream is released, so the
+// snapshot is all the history it has left: it keeps as much scrollback as a
+// live pane does, not a thousand rows of it.
+test('the snapshot keeps the scrollback a live pane keeps', async () => {
+  let data = ''
+  for (let line = 0; line < 20_000; line += 1) data += `\x1b[38;2;120;120;200mhistory line ${line}\x1b[0m\r\n`
+  assert.ok(data.length > SNAPSHOT_RENDER_TAIL_UNITS, 'longer than the alternate-screen tail')
+  const snapshot = await buildReplaySnapshot(data, 100, 30)
+  assert.ok(snapshot?.includes('history line 19999'))
+  assert.ok(snapshot?.includes('history line 5\r'), 'the oldest lines are still there')
+})

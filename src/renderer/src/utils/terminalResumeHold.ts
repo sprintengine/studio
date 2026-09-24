@@ -31,9 +31,16 @@
 //
 // An exit releases what was held without swapping: a CLI that died during
 // start-up leaves its error under the frozen view, not in place of it.
+//
+// A replay ends the hold too, and drops what it held: main repaints the whole
+// pane from the resumed session's retained stream (the pane was hidden before
+// the relaunched CLI was first sent anything, so there was nothing to catch up
+// from), and that stream already holds every byte the hold did. Kept armed,
+// the hold would swallow the next live chunk and release it as a swap whose
+// clear erases the transcript the replay just painted.
 
 /** Why the held output was let go. */
-export type ResumeHoldReleaseReason = 'settled' | 'deadline' | 'max' | 'exit'
+export type ResumeHoldReleaseReason = 'settled' | 'deadline' | 'max' | 'exit' | 'replaced'
 
 export type ResumeHoldRelease = {
   /** Everything the relaunched CLI wrote while held, in arrival order. */
@@ -193,7 +200,7 @@ export function createResumeHold({
     if (!holding) return
     holding = false
     clearAllTimers()
-    const data = held
+    const data = reason === 'replaced' ? '' : held
     held = ''
     scanFrom = 0
     sawPrintable = false
@@ -236,6 +243,8 @@ export function createResumeHold({
     },
     /** Let go of whatever is held without swapping (the process exited). */
     releaseForExit: () => release('exit'),
+    /** End the hold and drop what it held: a replay carrying all of it is being painted. */
+    releaseForReplay: () => release('replaced'),
     dispose: () => {
       holding = false
       held = ''

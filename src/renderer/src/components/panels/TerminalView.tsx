@@ -32,6 +32,8 @@ import { registerTerminalInstance, unregisterTerminalInstance } from '../../util
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { WorkingEdge } from '../ui/WorkingEdge'
 import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
+import { windowActivity } from '../../utils/windowActivity'
+import { clearPaneAttachedHidden, notePaneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -158,6 +160,28 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
+// How long a paste held for a resuming agent waits for the relaunched CLI's
+// first frame before it goes anyway. Well past the resume hold's own limits
+// (a one-second first-frame deadline, two seconds to settle), which cover
+// every CLI that prints at all.
+const RESUME_INPUT_FALLBACK_MS = 5_000
+
+/** Input taken while a paused agent's CLI is not yet reading it. */
+type PendingResumeInput = { kind: 'keys'; data: string } | { kind: 'paste'; text: string }
+
+/**
+ * Whether this pane is being painted right now, as far as the pane can tell:
+ * its window is visible. A pane mounting in a minimized, hidden or locked
+ * window says so, instead of claiming to be on screen and being fed — and
+ * waited on for acknowledgements a throttled page gives slowly — until
+ * WorkspaceManager next corrects it. Whether its workspace is the active one
+ * is WorkspaceManager's to say; it re-sends the answer whenever main reports
+ * something else.
+ */
+function paneIsPainted(): boolean {
+  return windowActivity().get().visible
+}
+
 export default function TerminalView({
   workspaceId,
   agentId,
@@ -201,7 +225,14 @@ export default function TerminalView({
   )
   const suspendedRef = useRef(false)
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
-  const pendingResumeInputRef = useRef<string[]>([])
+  // What the person typed or pasted into a paused pane, in order, for the
+  // relaunched CLI. Keystrokes go as soon as the relaunch is up (the pty holds
+  // them until the CLI reads); a paste waits until the CLI's first frame is on
+  // screen, because only then has xterm seen whether the CLI asked for
+  // bracketed paste — pasted with the frozen view's modes, a multi-line paste
+  // is read as typed lines and submitted at the first newline. Anything typed
+  // behind a waiting paste waits with it, so nothing overtakes it.
+  const pendingResumeInputRef = useRef<PendingResumeInput[]>([])
   const resumingRef = useRef(false)
   // Whether the relaunch resumes a conversation the CLI renders again itself —
   // in which case its render replaces the frozen view instead of following it.
@@ -605,6 +636,7 @@ export default function TerminalView({
       onResumeRelease: (release) => {
         if (disposed) return
         setIsResuming(false)
+        resumeOutputLanded(release.reason === 'exit')
         logPerfEvent('TerminalView', 'terminal-resume-revealed', {
           sessionId,
           workspaceId,
@@ -697,6 +729,73 @@ export default function TerminalView({
       })
     })
 
+    // Input for a resuming agent (see `pendingResumeInputRef`). Held from the
+    // resume gesture until both the relaunch has succeeded and the relaunched
+    // CLI's first frame is on screen; keystrokes ahead of the first paste go
+    // as soon as the relaunch succeeds.
+    let resumeInputHeld = false
+    let resumeLaunched = false
+    let resumeFrameShown = false
+    let deliveringResumeInput = false
+    // Which resume a timer belongs to, so one from an earlier attempt cannot
+    // let a later attempt's input go early.
+    let resumeGeneration = 0
+
+    const deliverResumeInput = (upToFirstPaste: boolean): void => {
+      const queue = pendingResumeInputRef.current
+      deliveringResumeInput = true
+      try {
+        while (queue.length > 0) {
+          const next = queue[0] as PendingResumeInput
+          if (next.kind === 'paste' && upToFirstPaste) return
+          queue.shift()
+          if (next.kind === 'keys') window.api.terminalWriteFast(sessionId, next.data)
+          // Through xterm, now that it holds the live CLI's modes: bracketed
+          // if that CLI asked for it, and out through `onData` like any paste.
+          else term.paste(next.text)
+        }
+      } finally {
+        deliveringResumeInput = false
+      }
+    }
+
+    const deliverHeldResumeInput = (): void => {
+      if (!resumeInputHeld || !resumeLaunched || !resumeFrameShown) return
+      resumeInputHeld = false
+      deliverResumeInput(false)
+    }
+
+    // The resume hold let go (gate `onResumeRelease`).
+    const resumeOutputLanded = (exited: boolean): void => {
+      if (!resumeInputHeld) return
+      if (exited) {
+        resumeInputHeld = false
+        // A relaunch that failed keeps the input for the next attempt, as it
+        // always has; a CLI that came up and died has nobody left to read it.
+        if (resumeLaunched) pendingResumeInputRef.current = []
+        return
+      }
+      replayGate.whenOutputWritten(() => {
+        if (disposed) return
+        resumeFrameShown = true
+        deliverHeldResumeInput()
+      })
+    }
+
+    // A paste into this pane (the clipboard handlers' `paste`).
+    const pasteIntoPane = (text: string) => {
+      if (suspendedRef.current && !inertRef.current) {
+        pendingResumeInputRef.current.push({ kind: 'paste', text })
+        void resumeFromSuspend()
+        return
+      }
+      if (resumeInputHeld) {
+        pendingResumeInputRef.current.push({ kind: 'paste', text })
+        return
+      }
+      term.paste(text)
+    }
+
     // Freeze-the-view: relaunch a suspended agent on the first keystroke, under
     // the same session id with --resume, then flush the keys typed during the
     // boot. Reuses the launch payload captured in `resumeThunkRef`; the existing
@@ -713,6 +812,10 @@ export default function TerminalView({
       if (!resume) return
       resumingRef.current = true
       setIsResuming(true)
+      resumeInputHeld = true
+      resumeLaunched = false
+      resumeFrameShown = false
+      const generation = ++resumeGeneration
       // Tell the paused footer (AgentPanel) a resume is in flight. It gives its
       // row back to the pane now, not when the session stops reading suspended:
       // that happened after the relaunch, so the pane grew under a CLI that was
@@ -741,9 +844,24 @@ export default function TerminalView({
         // Unfreeze eagerly — the store's suspended flag clears a broadcast
         // later, and the cursor should read live the moment the TUI repaints.
         setCursorFrozen(false)
-        const buffered = pendingResumeInputRef.current.join('')
-        pendingResumeInputRef.current = []
-        if (buffered) window.api.terminalWriteFast(sessionId, buffered)
+        if (resumeInputHeld) {
+          resumeLaunched = true
+          deliverResumeInput(true)
+          deliverHeldResumeInput()
+          // The hold starts timing only at the CLI's first byte. A CLI that
+          // prints nothing, or a pane hidden before it was sent anything, would
+          // otherwise keep a held paste — and every key typed behind it —
+          // waiting indefinitely. Past this, the paste goes with whatever modes
+          // xterm has.
+          window.setTimeout(() => {
+            if (disposed || generation !== resumeGeneration || !resumeInputHeld || !resumeLaunched) return
+            resumeFrameShown = true
+            deliverHeldResumeInput()
+          }, RESUME_INPUT_FALLBACK_MS)
+        } else {
+          // The hold already let go: the CLI exited before this answer came.
+          deliverResumeInput(false)
+        }
       } else {
         // Nothing was launched, so nothing will arrive to end the hold.
         replayGate.releaseResumeHoldForExit()
@@ -799,8 +917,13 @@ export default function TerminalView({
       // Suspended: buffer the keystroke and kick a resume instead of writing to a
       // dead pty (main drops writes to a suspended session anyway).
       if (suspendedRef.current) {
-        pendingResumeInputRef.current.push(data)
+        pendingResumeInputRef.current.push({ kind: 'keys', data })
         void resumeFromSuspend()
+        return
+      }
+      // Behind a paste still waiting for the resumed CLI: wait with it.
+      if (resumeInputHeld && !deliveringResumeInput && pendingResumeInputRef.current.length > 0) {
+        pendingResumeInputRef.current.push({ kind: 'keys', data })
         return
       }
       window.api.terminalWriteFast(sessionId, data)
@@ -870,9 +993,9 @@ export default function TerminalView({
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
-      sessionId,
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
+      paste: pasteIntoPane,
       imagePasteKey: () => {
         const { cli: paneCli, hostId: paneHostId } = launchContextRef.current
         return claudeImagePasteKey(paneCli, isWslHostId(paneHostId))
@@ -1133,7 +1256,7 @@ export default function TerminalView({
             mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
             connectorLaunch: finalAgent.connectorMcpSettings != null,
             spawnSkillId: finalAgent.spawnSkillId,
-            visible: true,
+            visible: paneIsPainted(),
             ...(agentSession ? { agentSession } : {}),
           } as TerminalSpawnMetadata & {
             executionMode: AgentExecutionMode
@@ -1150,7 +1273,11 @@ export default function TerminalView({
         // readable while the agent process stays suspended.
         suspendedRef.current = true
         setCursorFrozen(true)
-        await window.api.terminalSetVisible(sessionId, true).catch(() => {})
+        // A fresh xterm: main paints it in full, now or — in a window that is
+        // not being painted — when WorkspaceManager reveals it.
+        const painted = paneIsPainted()
+        await window.api.terminalSetVisible(sessionId, painted, { freshPane: true }).catch(() => {})
+        if (!painted && !disposed) notePaneAttachedHidden(sessionId)
         logPerfEvent('TerminalView', 'terminal-paused-on-open', {
           sessionId,
           workspaceId,
@@ -1163,6 +1290,7 @@ export default function TerminalView({
       }
 
       replayGate.beginReplayWait()
+      const spawnPainted = paneIsPainted()
       const spawnResult = await window.api
         .terminalSpawn(
           sessionId,
@@ -1203,7 +1331,7 @@ export default function TerminalView({
             mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
             connectorLaunch: finalAgent.connectorMcpSettings != null,
             spawnSkillId: finalAgent.spawnSkillId,
-            visible: true,
+            visible: spawnPainted,
             ...(agentSession ? { agentSession } : {}),
           } as TerminalSpawnMetadata & {
             executionMode: AgentExecutionMode
@@ -1219,6 +1347,7 @@ export default function TerminalView({
         }))
       replayGate.finishReplayWait()
       if (disposed) return
+      if (spawnResult.ok && !spawnPainted) notePaneAttachedHidden(sessionId)
       if (!spawnResult.ok) {
         const failureContext = currentContext()
         const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
@@ -1356,6 +1485,7 @@ export default function TerminalView({
       outputQueue.dispose()
       ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
+      clearPaneAttachedHidden(sessionId)
       studioTerminalRef.current = null
       // Last: it unbinds the theme, disposes the web-links addon and disposes
       // the terminal itself, so nothing above may still be reading `term`.

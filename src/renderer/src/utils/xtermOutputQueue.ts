@@ -121,6 +121,11 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
   // and what main needs is the amount, which the counter keeps exact while
   // never reporting more than was enqueued.
   let unreported = 0
+  // Waiting for everything enqueued so far to have been parsed by xterm.
+  const writtenCallbacks: Array<() => void> = []
+  const runWrittenCallbacks = () => {
+    for (const callback of writtenCallbacks.splice(0)) callback()
+  }
   const consume = (units: number) => {
     const reported = Math.min(units, unreported)
     if (reported <= 0) return
@@ -179,7 +184,12 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
 
       const remainingChars = targetChars - retainedChars
       if (remainingChars > 0) {
-        const tail = chunk.slice(-remainingChars)
+        let start = chunk.length - remainingChars
+        // Never begin on the second half of a surrogate pair: xterm would
+        // print the orphan as a replacement character after the notice.
+        const first = chunk.charCodeAt(start)
+        if (first >= 0xdc00 && first <= 0xdfff) start += 1
+        const tail = chunk.slice(start)
         retained.unshift(tail)
         retainedChars += tail.length
       }
@@ -250,7 +260,10 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
       if (disposed || paused) return
 
       const data = takeChunk()
-      if (!data) return
+      if (!data) {
+        runWrittenCallbacks()
+        return
+      }
 
       const writeStartedAt = performance.now()
       writing = true
@@ -339,10 +352,22 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed
       queue.length = 0
       queuedChars = 0
       consume(unreported)
+      if (!writing) runWrittenCallbacks()
+    },
+    /**
+     * Run `callback` once xterm has parsed everything enqueued before this call
+     * (at once, if nothing is waiting). What the pane's program has switched
+     * on — bracketed paste, say — is only in xterm's modes by then.
+     */
+    whenWritten: (callback: () => void) => {
+      if (disposed) return
+      writtenCallbacks.push(callback)
+      if (queue.length === 0 && !writing && !scheduled) runWrittenCallbacks()
     },
     dispose: () => {
       disposed = true
       clearFallback()
+      writtenCallbacks.length = 0
       queue.length = 0
       queuedChars = 0
       consume(unreported)
@@ -405,6 +430,13 @@ export function createXtermReplayGate(
       onResumeRelease?.(release)
     },
   })
+  // Callbacks waiting for the output to be on screen, parked while a replay
+  // drains: live output buffered behind the replay only reaches the queue once
+  // it has settled.
+  const writtenAfterReplay: Array<() => void> = []
+  const releaseWrittenAfterReplay = () => {
+    for (const callback of writtenAfterReplay.splice(0)) outputQueue.whenWritten(callback)
+  }
 
   // Per-reattach diagnostics, reset on each `beginReplayWait`/`handleReplay`.
   let payloadChars = 0
@@ -451,6 +483,7 @@ export function createXtermReplayGate(
       term.scrollToBottom()
       emitState('ready', true)
       flushLiveBuffer()
+      releaseWrittenAfterReplay()
     }
     emitProfile('replay')
   }
@@ -532,6 +565,7 @@ export function createXtermReplayGate(
       revealedOnce = true
       emitState('ready', true)
       flushLiveBuffer()
+      releaseWrittenAfterReplay()
       emitProfile('finish-wait')
     },
     handleReplay: (data: string) => {
@@ -569,6 +603,12 @@ export function createXtermReplayGate(
       if (resync) replayChunks[0] = FULL_RESET + (replayChunks[0] ?? '')
       replayIndex = 0
       emitState('replaying', false)
+      // A resume in flight is over: the replay is the resumed session's own
+      // stream, everything held included, so what the hold kept is dropped
+      // rather than swapped in on top of it (terminalResumeHold.ts). Released
+      // after `replaying` is set, so whoever waits on the release's output
+      // (`whenOutputWritten`) waits for this replay to be on screen.
+      resumeHold.releaseForReplay()
       scheduleDrain()
     },
     handleLiveData: (data: string) => {
@@ -597,8 +637,16 @@ export function createXtermReplayGate(
     releaseResumeHoldForExit: () => {
       resumeHold.releaseForExit()
     },
+    // Run `callback` once everything this pane has been handed so far is on
+    // screen: a replay drained, and the live output behind it parsed.
+    whenOutputWritten: (callback: () => void) => {
+      if (disposed) return
+      if (awaitingReplay || replaying) writtenAfterReplay.push(callback)
+      else outputQueue.whenWritten(callback)
+    },
     dispose: () => {
       disposed = true
+      writtenAfterReplay.length = 0
       awaitingReplay = false
       replaying = false
       liveBuffer.length = 0
