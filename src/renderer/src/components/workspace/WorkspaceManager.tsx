@@ -56,7 +56,7 @@ import {
   worktreeIdFromPath,
 } from '../../utils/workspaceWorktree'
 import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
-import { resolveModelPermissionPreset } from '../ui'
+import { resolveCliPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
@@ -578,9 +578,9 @@ export default function WorkspaceManager() {
   )
   // The app-wide default preset, straight from settings. It used to be mirrored
   // into local state so a spawn surface could edit it; a preset is remembered
-  // against a MODEL ROW now (ui/modelPermissionPresets), so nothing on a spawn
-  // surface writes this any more — it is the fallback a row nobody has set
-  // resolves to, and Settings is where it is changed.
+  // per CLI now (ui/cliPermissionPresets), so nothing on a spawn surface writes
+  // this any more — it is the fallback a CLI nobody has set resolves to, and
+  // Settings is where it is changed.
   const agentSpawnPermissionPreset = lastAgentSpawnPermissionPreset
   // Debug Mode is intentionally transient and never persisted (unlike the
   // permission preset): it defaults off and resets off after each spawn, so a
@@ -1340,7 +1340,7 @@ export default function WorkspaceManager() {
           agentPatch: {
             ...(cliModel ? { cliModel } : {}),
             ...(cliReasoning ? { cliReasoning } : {}),
-            cliPermissionPreset: resolveModelPermissionPreset(templateAgentCli, cliModel, agentSpawnPermissionPreset),
+            cliPermissionPreset: resolveCliPermissionPreset(templateAgentCli, agentSpawnPermissionPreset),
             debugMode: agentSpawnDebugMode,
             ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
             ...skillsSpawnAgentPatch(
@@ -2300,18 +2300,18 @@ export default function WorkspaceManager() {
           ? (row.reasoning ?? undefined)
           : resolveCliReasoning(spawnCli, lastSelectedAgentModel ?? undefined),
       ...(execution ? { execution } : {}),
-      // The preset is a property of the model ROW (2026-09-05), so it is read
-      // HERE, from the (cli, model) this spawn is actually launching — never
-      // taken from the caller, not even one that swears it read the preset off
-      // this very row. The model and the effort above have to be passed in
-      // because nothing on this side can recover them; the preset is the axis
-      // where that reason does not hold, and accepting it anyway is how a spawn
-      // seeds a preset belonging to a row other than the one it launches: the
-      // caller resolved against its own fallback, at its own moment, against
-      // the cli it asked for rather than the one the clamp above answered with.
-      // Today those agree, which is exactly why the drift would ship unnoticed.
+      // The preset is a property of the CLI (owner ruling 2026-09-24), so it is
+      // read HERE, for the cli this spawn is actually launching — never taken
+      // from the caller, not even one that swears it read the preset for this
+      // very CLI. The model and the effort above have to be passed in because
+      // nothing on this side can recover them; the preset is the axis where
+      // that reason does not hold, and accepting it anyway is how a spawn seeds
+      // a preset belonging to a CLI other than the one it launches: the caller
+      // resolved against its own fallback, at its own moment, against the cli
+      // it asked for rather than the one the clamp above answered with. Today
+      // those agree, which is exactly why the drift would ship unnoticed.
       // `createNewChat` reads it the same way, for the same reason.
-      cliPermissionPreset: resolveModelPermissionPreset(spawnCli, cliModel, agentSpawnPermissionPreset),
+      cliPermissionPreset: resolveCliPermissionPreset(spawnCli, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
       cliStartupPrompt: placement?.prompt || undefined,
       cliOnboardingPromptSent: false,

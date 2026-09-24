@@ -189,8 +189,12 @@ test('NewAgentPanel', async () => {
     const { useWorkspaceStore } = await import('../../../store/workspaceStore')
     const { projectHue } = await import('../../../utils/projectColor')
     const { useToastStore } = await import('../../../store/toastStore')
-    const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset, resolveModelPermissionPreset } =
-      await import('../../ui/modelPermissionPresets')
+    const {
+      __reloadCliPermissionPresetsForTest,
+      __resetCliPermissionPresetsForTest,
+      storedCliPermissionPreset,
+      resolveCliPermissionPreset,
+    } = await import('../../ui/cliPermissionPresets')
 
     let failures = 0
     // Every mounted harness, so a check that throws before its own unmount
@@ -211,9 +215,9 @@ test('NewAgentPanel', async () => {
     }
 
     const seedStore = (options: { plugins?: unknown[] } = {}): void => {
-      // Permissions are remembered against a MODEL ROW now, in a module-level
-      // store that would otherwise carry a preset from one check into the next.
-      __resetModelPermissionPresetsForTest()
+      // Permissions are remembered per CLI, in a module-level store that would
+      // otherwise carry a preset from one check into the next.
+      __resetCliPermissionPresetsForTest()
       const plugins = options.plugins ?? [
         {
           id: 'claude-code',
@@ -326,8 +330,8 @@ test('NewAgentPanel', async () => {
       assert.ok(!text.includes('sprintengine'), 'and not the workspace’s own name')
       // Permissions used to stand beside the engine as their own chip. They are a
       // property of the runtime the row names, so they moved INSIDE the model
-      // picker (owner, 2026-09-05) and are remembered against that row — the row
-      // itself no longer carries the value.
+      // picker (owner, 2026-09-05) and are remembered per CLI — the row itself
+      // no longer carries the value.
       assert.ok(!text.includes('Auto'), 'access is not a second chip on the row')
       assert.ok(
         [...view.container.querySelectorAll('button')].some((button) =>
@@ -797,16 +801,8 @@ test('NewAgentPanel', async () => {
         (row) => row.textContent?.startsWith('Manual'),
       )!
       await act(async () => manual.click())
-      assert.equal(
-        storedModelPermissionPreset('codex', 'gpt-5.6-sol'),
-        'manual',
-        'the highlighted model owns the choice',
-      )
-      assert.equal(
-        storedModelPermissionPreset('claude-code', 'claude-opus-5'),
-        undefined,
-        'the previous runtime is untouched',
-      )
+      assert.equal(storedCliPermissionPreset('codex'), 'manual', 'the highlighted model’s CLI owns the choice')
+      assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'the previous runtime is untouched')
       await act(async () => {
         sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
@@ -820,9 +816,9 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches[0]?.cli, 'codex', 'on the runtime that owned the row')
       assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
       assert.equal(
-        resolveModelPermissionPreset(String(view.launches[0]?.cli), String(view.launches[0]?.model), 'bypass'),
+        resolveCliPermissionPreset(String(view.launches[0]?.cli), 'bypass'),
         'manual',
-        'the launch host resolves the highlighted model’s permission choice',
+        'the launch host resolves the launched CLI’s permission choice',
       )
       assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
       view.unmount()
@@ -1481,14 +1477,12 @@ test('NewAgentPanel', async () => {
         const view = await remoteRender({ permissionPreset: 'bypass' })
         await settle()
         await pickMachine(view, 'Air')
-        // The move is written against the ROW the machine refused it for, not into
-        // an app-wide value, so a local model picked afterwards is untouched by it.
-        assert.equal(
-          storedModelPermissionPreset('claude-code', null),
-          'auto',
-          'Bypass moves to the nearest supported preset, Auto, on the row it was refused for',
-        )
+        // The narrowing is what THIS launch runs on, not a rewrite of the stored
+        // choice: every local launch of Claude Code still reads Bypass.
         assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
+        // Bypass shows as the nearest supported preset, Auto, for the remote.
+        await openPermissionsMenu(view, 'Auto')
+        assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'and nothing is written for the CLI')
         view.unmount()
 
         const local = await remoteRender({ permissionPreset: 'auto' })
@@ -2330,12 +2324,115 @@ test('NewAgentPanel', async () => {
       assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
       await key(rows[3]!, 'Enter')
       assert.equal(
-        storedModelPermissionPreset('claude-code', null),
+        storedCliPermissionPreset('claude-code'),
         'bypass',
-        'Enter selects the focused row, and the pick is remembered against the model row it was made on',
+        'Enter selects the focused row, and the pick is remembered for the CLI it was made on',
       )
       view.unmount()
     })
+
+    // One permission mode per CLI, not per model (owner ruling 2026-09-24):
+    // choosing Bypass while one Claude model is highlighted is choosing it for
+    // every Claude model, it outlives the app, and Codex keeps its own.
+    await check(
+      'a permission pick on one model applies to every model of that CLI, survives a reload, and leaves Codex alone',
+      async () => {
+        const claude = {
+          id: 'claude-code',
+          displayName: 'Claude Code',
+          source: 'bundled',
+          version: 1,
+          binary: 'claude',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: {
+            options: [
+              { id: 'claude-opus-5', label: 'Opus 5' },
+              { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+            ],
+            allowCustomId: true,
+          },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }] },
+        }
+        const codex = {
+          id: 'codex',
+          displayName: 'Codex',
+          source: 'bundled',
+          version: 1,
+          binary: 'codex',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: {
+            options: [
+              { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+              { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
+            ],
+            allowCustomId: true,
+          },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }], default: 'medium' },
+        }
+        seedStore({ plugins: [claude, codex] })
+        const modelRow = (label: string) =>
+          [...dom.window.document.querySelectorAll('[data-model-row="true"]')].find((row) =>
+            (row.textContent ?? '').includes(label),
+          )
+        const hover = async (label: string) => {
+          const row = modelRow(label)
+          assert.ok(row, `the ${label} row is in the picker`)
+          await act(async () => {
+            row!.dispatchEvent(new dom.window.MouseEvent('pointerover', { bubbles: true }))
+          })
+        }
+        const chip = (label: string) => dom.window.document.querySelector(`[aria-label="Permissions: ${label}"]`)
+        const tab = (name: string) =>
+          [...dom.window.document.querySelectorAll('button')].find(
+            (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === name,
+          )
+
+        const view = await render({ permissionPreset: 'manual' })
+        await click(engineChip(view))
+        await hover('Opus 5')
+        await click(chip('Manual') as HTMLElement)
+        const bypass = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+          (row) => row.textContent?.startsWith('Bypass'),
+        )
+        await click(bypass)
+        assert.equal(storedCliPermissionPreset('claude-code'), 'bypass', 'the pick is stored for Claude Code')
+
+        await hover('Sonnet 5')
+        assert.ok(chip('Bypass permissions'), 'Sonnet shows the Bypass that was chosen on Opus')
+        await click(tab('Codex'))
+        await hover('GPT-5.6 Sol')
+        assert.ok(chip('Manual'), 'Codex keeps its own value, the app-wide default it never moved from')
+        assert.equal(chip('YOLO'), null, 'and does not inherit Claude’s bypass')
+        assert.equal(storedCliPermissionPreset('codex'), undefined)
+        view.unmount()
+
+        // A reload reads the store back from storage, the way an app restart does.
+        __reloadCliPermissionPresetsForTest()
+        const again = await render({ permissionPreset: 'manual' })
+        await click(engineChip(again))
+        await click(tab('Claude Code'))
+        await hover('Sonnet 5')
+        assert.ok(chip('Bypass permissions'), 'the Claude Code choice survives the reload')
+        const sonnet = modelRow('Sonnet 5')
+        await act(async () => {
+          sonnet!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const start = [...again.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Start agent',
+        )
+        await click(start)
+        assert.equal(again.launches[0]?.cli, 'claude-code')
+        assert.equal(again.launches[0]?.model, 'claude-sonnet-5')
+        assert.equal(
+          resolveCliPermissionPreset('claude-code', 'manual'),
+          'bypass',
+          'and the launch host resolves Bypass for a model it was never chosen on',
+        )
+        again.unmount()
+      },
+    )
 
     // ── The parked draft (new-chat-survives-back-and-forward) ─────────────────
     // The door's surface seeds from the draft parked under its key and writes

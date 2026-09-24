@@ -27,7 +27,7 @@ import {
 } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { cardRunsAModel, type CardLaunchChoice } from '../workspace/globalSurface/extensions/home/CardGoPicker'
-import { __resetModelPermissionPresetsForTest, setModelPermissionPreset } from '../ui/modelPermissionPresets'
+import { __resetCliPermissionPresetsForTest, setCliPermissionPreset } from '../ui/cliPermissionPresets'
 import { test } from 'vitest'
 
 test('ExtensionsHomeSurface', async () => {
@@ -557,8 +557,8 @@ test('ExtensionsHomeSurface', async () => {
     }
 
     // A model the picker can name, so the row a click lands on is one this test
-    // can identify — and a preset stored against THAT row, to prove the preset
-    // rides the row rather than the app.
+    // can identify — and a preset stored for that row's CLI, to prove the preset
+    // rides the CLI rather than the app.
     act(() => {
       useWorkspaceStore.setState((state) => ({
         appSettings: {
@@ -569,8 +569,8 @@ test('ExtensionsHomeSurface', async () => {
         },
       }))
     })
-    __resetModelPermissionPresetsForTest()
-    setModelPermissionPreset('claude-code', MODEL, 'auto')
+    __resetCliPermissionPresetsForTest()
+    setCliPermissionPreset('claude-code', 'auto')
 
     // With no host registered (no WorkspaceManager mounted), opening the picker
     // and choosing from it is a no-op that must not throw: the same guard every
@@ -629,7 +629,7 @@ test('ExtensionsHomeSurface', async () => {
 
       // Choosing a row IS the press that runs it, and the row's own axes ride
       // with it: the cli, the model, the effort the CLI declares, and the
-      // permission preset remembered against `<cli>:<model>` since 2026-09-05.
+      // permission preset remembered for the row's CLI.
       act(() => {
         cardButtons()[0]?.click()
       })
@@ -645,7 +645,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.deepEqual(
         ran[0]?.launch,
         { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'auto' },
-        'and it runs on THAT row — its cli, its model, and the preset stored against it rather than the app-wide default',
+        'and it runs on THAT row — its cli, its model, and the preset stored for its CLI rather than the app-wide default',
       )
       assert.equal(ran[0]?.slug, 'big-task', 'on the card whose Go was pressed')
       assert.equal(picker(), null, 'the popover closes on the choice; there is nothing to confirm afterwards')
@@ -686,9 +686,27 @@ test('ExtensionsHomeSurface', async () => {
       }
       assert.equal(cardButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
 
-      // A row nobody has set falls back to the APP-WIDE default in Settings, not
-      // to something invented here: the CLI's own default-model row has no stored
-      // preset, so it launches on `lastAgentSpawnPermissionPreset`.
+      // The preset belongs to the CLI, not the model: the CLI's own default-model
+      // row launches on the same Auto. A CLI nobody has set falls back to the
+      // APP-WIDE default in Settings, not to something invented here, so with
+      // the store emptied that row launches on `lastAgentSpawnPermissionPreset`.
+      act(() => {
+        cardButtons()[0]?.click()
+      })
+      act(() => {
+        rowNamed('Claude Code')?.click()
+      })
+      assert.equal(ran.length, 2)
+      assert.deepEqual(
+        ran[1]?.launch,
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        'every model of the CLI launches on the preset stored for it',
+      )
+      settlers.pop()?.()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      __resetCliPermissionPresetsForTest()
       act(() => {
         cardButtons()[0]?.click()
       })
@@ -697,12 +715,14 @@ test('ExtensionsHomeSurface', async () => {
       act(() => {
         defaultRow?.click()
       })
-      assert.equal(ran.length, 2)
+      assert.equal(ran.length, 3)
       assert.deepEqual(
-        ran[1]?.launch,
+        ran[2]?.launch,
         { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
-        'a row nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
+        'a CLI nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
       )
+      // Put the stored choice back: the checks below still launch Claude Code on it.
+      setCliPermissionPreset('claude-code', 'auto')
       settlers.pop()?.()
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1046,8 +1066,8 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran[0]?.slug, 'opens-a-door')
       assert.deepEqual(
         ran[0]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
-        'on the app’s own defaults — the wire shape is unchanged, so nothing downstream learns a second kind of press',
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        'on the app’s own defaults and the preset stored for that CLI — the wire shape is unchanged, so nothing downstream learns a second kind of press',
       )
 
       // "One run at a time, and never two" is the page's REF, not the disabled

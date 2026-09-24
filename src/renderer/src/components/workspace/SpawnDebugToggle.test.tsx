@@ -154,24 +154,24 @@ test('SpawnDebugToggle', async () => {
     },
   )
 
-  run('every CLI spawn path seeds the picked row’s permission preset onto the agent record', () => {
+  run('every CLI spawn path seeds the picked CLI’s permission preset onto the agent record', () => {
     // The Default/Auto/Bypass pick must reach the launched agent on every CLI
     // path — the in-workspace spawn and the New Chat seed. The new-chat path
     // silently dropped it (launching Bypass picks with default permissions) until
     // createNewChat seeded it too.
     //
-    // The preset is stored against the MODEL ROW now (owner, 2026-09-05), so each
-    // path resolves it from the (cli, model) it is launching rather than reading
-    // one app-wide value — which is also what keeps a path from seeding a preset
-    // for a different row than the one it spawns.
+    // The preset is stored per CLI (owner ruling 2026-09-24), so each path
+    // resolves it for the cli it is launching rather than reading one app-wide
+    // value — which is also what keeps a path from seeding a preset for a
+    // different CLI than the one it spawns.
     assert.ok(
-      (managerSource.match(/cliPermissionPreset: resolveModelPermissionPreset\(/g) ?? []).length >= 2,
-      'every CLI spawn path resolves the row’s preset',
+      (managerSource.match(/cliPermissionPreset: resolveCliPermissionPreset\(/g) ?? []).length >= 2,
+      'every CLI spawn path resolves the CLI’s preset',
     )
     assert.match(
       managerSource,
-      /cliPermissionPreset: resolveModelPermissionPreset\(templateAgentCli, cliModel, agentSpawnPermissionPreset\)/,
-      'including the new-chat seed, on the model that chat launches with',
+      /cliPermissionPreset: resolveCliPermissionPreset\(templateAgentCli, agentSpawnPermissionPreset\)/,
+      'including the new-chat seed, on the CLI that chat launches with',
     )
     // A conversation is a provider/model pair, not a picker row: it has no stored
     // preset and keeps the app-wide default.
