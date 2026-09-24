@@ -114,6 +114,7 @@ import { isLegacyV44WorkspaceEnvelope, splitLegacyV44Envelope } from './reposito
 import type { AgentLaunchSettings } from '../../../shared/launch-settings'
 import { launchSettingsApiFromWindow, launchSettingsClient } from './launchSettingsClient'
 import { migrateLegacyCliPermissionPresets } from './legacyCliPermissionPresets'
+import { onWindowVisibilityChange } from '../utils/windowActivity'
 import {
   launchSettingsFieldsEqual,
   launchSettingsFromAppSettings,
@@ -829,11 +830,13 @@ function installSettingsFlushOnExit(): void {
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
   window.addEventListener('pagehide', flushWorkspaceSettingsWrite)
   window.addEventListener('beforeunload', flushWorkspaceSettingsWrite)
-  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') flushWorkspaceSettingsWrite()
-    })
-  }
+  // On hide, through the window's own visibility rather than
+  // `document.visibilityState`, which stays 'visible' for a minimized macOS
+  // window. A hidden window's timers are throttled, so a write left on the
+  // 250 ms timer could otherwise sit there for as long as it stays hidden.
+  onWindowVisibilityChange((visible) => {
+    if (!visible) flushWorkspaceSettingsWrite()
+  })
 }
 installSettingsFlushOnExit()
 
