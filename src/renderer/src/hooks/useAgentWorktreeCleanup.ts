@@ -11,6 +11,14 @@ import { agentWorktreeCleanupPlan, entriesRemovedBy } from '../utils/agentWorktr
  * the store entries for what was removed. Owned by the primary window alone,
  * so two windows never sweep side by side (main would share the run anyway).
  */
+// Unattended sweeps are paused. The cleanup's only sign that a worktree is in
+// use is this process's memory, so it can remove a worktree another Studio
+// profile (or a terminal outside the app) is working in, and it counts ignored
+// files and index-hidden edits as disposable. Until both are guarded on disk,
+// the Worktree manager's "Clean up merged agent worktrees" action, which a
+// person runs and reads the report of, is the only way it runs.
+const UNATTENDED_SWEEPS_ENABLED = false
+
 const FIRST_SWEEP_DELAY_MS = 2 * 60_000
 const AFTER_RELEASE_DELAY_MS = 60_000
 const SWEEP_INTERVAL_MS = 6 * 60 * 60_000
@@ -40,7 +48,7 @@ async function sweepAgentWorktrees(): Promise<void> {
 
 export function useAgentWorktreeCleanup(enabled: boolean): void {
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !UNATTENDED_SWEEPS_ENABLED) return
     let releaseTimer: number | null = null
     const first = window.setTimeout(() => void sweepAgentWorktrees(), FIRST_SWEEP_DELAY_MS)
     const periodic = window.setInterval(() => void sweepAgentWorktrees(), SWEEP_INTERVAL_MS)
