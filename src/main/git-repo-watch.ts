@@ -29,8 +29,14 @@ import { runGitCommand } from './git-run'
  *
  *   <common>/            HEAD, index, packed-refs, operation markers (primary)
  *   <common>/refs/       recursive: every loose ref
+ *   <common>/reftable/   every ref, in a repository on the reftable backend
  *   <common>/worktrees/  a worktree registered or removed
  *   <gitdir>/            HEAD, index, operation markers (each linked worktree)
+ *   <gitdir>/reftable/   a linked worktree's own HEAD, on the reftable backend
+ *
+ * A folder that is not there yet (`worktrees/` before the first linked
+ * worktree, `reftable/` in a files-backend repository) is still counted, and
+ * watched once the common dir reports it appearing.
  *
  * Edits to files in the WORKING tree are not visible here — git has not seen
  * them either until something stats them. Those reach the views through the
@@ -114,7 +120,9 @@ export function classifyGitDirEntry(filename: string | null, isCommonDir: boolea
   const name = filename.endsWith('.lock') ? filename.slice(0, -'.lock'.length) : filename
   if (name === 'HEAD') return ['worktree', 'refs']
   if (WORKTREE_FILES.has(name)) return ['worktree']
-  if (isCommonDir && (name === 'packed-refs' || name === 'worktrees' || name === 'refs')) return ['refs']
+  if (isCommonDir && (name === 'packed-refs' || name === 'worktrees' || name === 'refs' || name === 'reftable')) {
+    return ['refs']
+  }
   // FETCH_HEAD, ORIG_HEAD, COMMIT_EDITMSG, logs/, objects/, config, gc files:
   // none of them changes what a view shows (a fetch that moved a ref is seen
   // under refs/).
@@ -134,7 +142,10 @@ type CheckoutRecord = {
   resolving: Promise<void> | null
 }
 
-type DirWatch = { watcher: FSWatcher; users: number }
+type DirWatch = { watcher: FSWatcher | null; users: number; recursive: boolean }
+
+/** Folders of the common dir that can come and go while a checkout is watched. */
+const LATE_COMMON_DIRS = new Set(['worktrees', 'reftable'])
 
 export type GitRepoWatchDeps = {
   resolveDirs?: (checkoutPath: string) => Promise<GitDirs | null>
@@ -213,18 +224,43 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     const inRepo = (commonDir: string): string[] =>
       checkoutsWhere((dirs) => dirKey(dirs.commonDir) === dirKey(commonDir))
 
-    // `refs/` or `worktrees/`: the shared ref store, so every checkout of the
-    // repository.
+    // `refs/`, `reftable/` or `worktrees/`: the shared ref store, so every
+    // checkout of the repository.
     for (const record of checkouts.values()) {
       const dirs = record.dirs
       if (!dirs) continue
-      if (key === dirKey(join(dirs.commonDir, 'refs')) || key === dirKey(join(dirs.commonDir, 'worktrees'))) {
+      if (
+        key === dirKey(join(dirs.commonDir, 'refs')) ||
+        key === dirKey(join(dirs.commonDir, 'reftable')) ||
+        key === dirKey(join(dirs.commonDir, 'worktrees'))
+      ) {
         mark(inRepo(dirs.commonDir), ['refs'], 'gitdir')
+        return
+      }
+      // A linked checkout's own reftable holds its HEAD, as its HEAD file
+      // does under the files backend.
+      if (dirKey(dirs.gitDir) !== dirKey(dirs.commonDir) && key === dirKey(join(dirs.gitDir, 'reftable'))) {
+        mark(
+          checkoutsWhere((other) => dirKey(other.gitDir) === dirKey(dirs.gitDir)),
+          ['worktree', 'refs'],
+          'gitdir',
+        )
         return
       }
     }
 
     const isCommonDir = checkoutsWhere((dirs) => dirKey(dirs.commonDir) === key).length > 0
+    // `worktrees/` appears with the first linked worktree and goes with the
+    // last one pruned. A watch asked for while it was missing, or held on the
+    // folder that went, is taken again now; otherwise registering or removing
+    // a worktree would never be seen again. `reftable/` the same, for a
+    // repository migrated to it while watched.
+    if (isCommonDir) {
+      if (filename !== null && LATE_COMMON_DIRS.has(filename)) rewatchDir(join(dir, filename))
+      // No filename says nothing about which entry moved: only the missing
+      // watches are retried.
+      if (filename === null) for (const name of LATE_COMMON_DIRS) rewatchDir(join(dir, name), { onlyIfMissing: true })
+    }
     const kinds = classifyGitDirEntry(filename, isCommonDir)
     if (!kinds) return
     // `packed-refs` and friends: repository-wide.
@@ -241,37 +277,58 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     )
   }
 
-  const retainDir = (dir: string, recursive: boolean): void => {
-    const key = dirKey(dir)
-    const existing = dirWatches.get(key)
-    if (existing) {
-      existing.users += 1
-      return
+  const closeQuietly = (watcher: FSWatcher | null): void => {
+    try {
+      watcher?.close()
+    } catch {
+      // Already closed.
     }
+  }
+
+  /** A watcher on `dir`, or null when it is not there (no `worktrees/` yet) or not watchable. */
+  const openWatcher = (dir: string, recursive: boolean): FSWatcher | null => {
+    const key = dirKey(dir)
     let watcher: FSWatcher
     try {
       watcher = watch(dir, { recursive }, (_event, filename) => onDirEvent(dir, filename))
     } catch {
-      if (!recursive) return
+      if (!recursive) return null
       try {
         // A platform without recursive watching still sees the top of
         // `refs/` (`refs/stash`, a new namespace); the fallback covers a
         // branch written deeper.
         watcher = watch(dir, { recursive: false }, (_event, filename) => onDirEvent(dir, filename))
       } catch {
-        // Not there (no `worktrees/` yet), or not watchable: the fallback covers it.
-        return
+        return null
       }
     }
     watcher.on?.('error', () => {
-      try {
-        watcher.close()
-      } catch {
-        // Already closed.
-      }
-      if (dirWatches.get(key)?.watcher === watcher) dirWatches.delete(key)
+      closeQuietly(watcher)
+      // The users stay counted, so a later rewatch can take it again.
+      const entry = dirWatches.get(key)
+      if (entry?.watcher === watcher) entry.watcher = null
     })
-    dirWatches.set(key, { watcher, users: 1 })
+    return watcher
+  }
+
+  // A folder's users are counted whether or not it could be watched, so one
+  // that appears later is watched for exactly the checkouts that asked for it.
+  const retainDir = (dir: string, recursive: boolean): void => {
+    const key = dirKey(dir)
+    const existing = dirWatches.get(key)
+    if (existing) {
+      existing.users += 1
+      if (!existing.watcher) existing.watcher = openWatcher(dir, existing.recursive)
+      return
+    }
+    dirWatches.set(key, { watcher: openWatcher(dir, recursive), users: 1, recursive })
+  }
+
+  const rewatchDir = (dir: string, options: { onlyIfMissing?: boolean } = {}): void => {
+    const entry = dirWatches.get(dirKey(dir))
+    if (!entry || (options.onlyIfMissing && entry.watcher)) return
+    closeQuietly(entry.watcher)
+    entry.watcher = openWatcher(dir, entry.recursive)
   }
 
   const releaseDir = (dir: string): void => {
@@ -280,11 +337,7 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     if (!existing) return
     existing.users -= 1
     if (existing.users > 0) return
-    try {
-      existing.watcher.close()
-    } catch {
-      // Already closed.
-    }
+    closeQuietly(existing.watcher)
     dirWatches.delete(key)
   }
 
@@ -292,9 +345,12 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     const list = [
       { dir: dirs.commonDir, recursive: false },
       { dir: join(dirs.commonDir, 'refs'), recursive: true },
+      { dir: join(dirs.commonDir, 'reftable'), recursive: false },
       { dir: join(dirs.commonDir, 'worktrees'), recursive: false },
     ]
-    if (dirKey(dirs.gitDir) !== dirKey(dirs.commonDir)) list.push({ dir: dirs.gitDir, recursive: false })
+    if (dirKey(dirs.gitDir) !== dirKey(dirs.commonDir)) {
+      list.push({ dir: dirs.gitDir, recursive: false }, { dir: join(dirs.gitDir, 'reftable'), recursive: false })
+    }
     return list
   }
 
@@ -384,17 +440,13 @@ export function createGitRepoWatch(deps: GitRepoWatchDeps) {
     },
 
     watchedDirCount(): number {
-      return dirWatches.size
+      let count = 0
+      for (const entry of dirWatches.values()) if (entry.watcher) count += 1
+      return count
     },
 
     dispose(): void {
-      for (const entry of dirWatches.values()) {
-        try {
-          entry.watcher.close()
-        } catch {
-          // Already closed.
-        }
-      }
+      for (const entry of dirWatches.values()) closeQuietly(entry.watcher)
       dirWatches.clear()
       checkouts.clear()
       pending.clear()
