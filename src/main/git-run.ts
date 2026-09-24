@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import type { GitCommandResult } from './git'
 import { killProcessTree } from './process-tree-kill'
+import type { ExecutionHost } from './hosts/execution-host'
 
 /**
  * The one place a git process is started for the app's own reads and writes.
@@ -216,6 +217,63 @@ type ExecGitError = Error & { stdout?: string; stderr?: string; timedOut?: boole
  */
 export const gitSpawnCounter = { read: 0, network: 0, write: 0 }
 
+// ── Repositories on another machine ─────────────────────────────────────────
+//
+// A repository that belongs to a WSL workspace is run by that distribution's
+// git (owner decision 2026-09-24): its agents commit, branch and add worktrees
+// with Linux git, and two gits on one repository disagree about worktree
+// links, line endings and the index. The resolver says which host a folder is
+// on; a WSL host runs the command inside the distribution under the same kind,
+// deadline and environment rules as everything here. Everything else — every
+// path on macOS and Linux, and a plain Windows folder — keeps the `execFile`
+// below, untouched.
+
+type GitHost = Pick<ExecutionHost, 'kind' | 'runGit'>
+let gitHostResolver: ((cwd: string) => GitHost | null) | null = null
+
+/** Installed by app-services once the host registry exists. */
+export function installGitHostResolver(resolver: ((cwd: string) => GitHost | null) | null): void {
+  gitHostResolver = resolver
+}
+
+/**
+ * The variables `gitEnv` adds for git's own sake, plus the caller's, without
+ * this process's whole environment: a git in WSL gets its environment from
+ * its own login, and only what the runner decides crosses.
+ */
+function gitEnvDelta(overrides: NodeJS.ProcessEnv | undefined, kind: GitCommandKind): Record<string, string> {
+  const delta: Record<string, string> = {
+    LC_ALL: 'C',
+    GIT_TERMINAL_PROMPT: '0',
+    ...(kind === 'read' ? { GIT_OPTIONAL_LOCKS: '0' } : {}),
+  }
+  for (const [key, value] of Object.entries(overrides ?? {})) if (typeof value === 'string') delta[key] = value
+  return delta
+}
+
+async function execGitOnHost(
+  host: GitHost,
+  cwd: string,
+  args: string[],
+  envOverrides: NodeJS.ProcessEnv | undefined,
+  kind: GitCommandKind,
+  timeoutMs: number | null,
+): Promise<ExecGitResult> {
+  const outcome = await host.runGit(cwd, args, { timeoutMs, env: gitEnvDelta(envOverrides, kind) })
+  if (outcome.code === 0 && !outcome.timedOut && !outcome.spawnFailed) {
+    return { stdout: outcome.stdout, stderr: outcome.stderr }
+  }
+  const failure = new Error(
+    outcome.timedOut
+      ? `git ${splitSubcommand(args).subcommand ?? ''} did not finish within ${Math.round((timeoutMs ?? 0) / 1000)} s and was stopped.`
+      : outcome.stderr.trim() || `git exited with code ${outcome.code}.`,
+  ) as ExecGitError
+  failure.stdout = outcome.stdout
+  failure.stderr = outcome.timedOut ? '' : outcome.stderr
+  if (outcome.timedOut) failure.timedOut = true
+  throw failure
+}
+
 /**
  * One git process, with its kind's deadline. On POSIX a timed child is started
  * in its own process group so the deadline ends git and whatever it started (a
@@ -231,6 +289,9 @@ function execGit(
   const timeoutMs = options.timeoutMs === undefined ? defaultGitTimeoutMs(kind) : options.timeoutMs
   const grouped = timeoutMs !== null && process.platform !== 'win32'
   gitSpawnCounter[kind] += 1
+
+  const host = gitHostResolver?.(cwd) ?? null
+  if (host && host.kind === 'wsl') return execGitOnHost(host, cwd, args, envOverrides, kind, timeoutMs)
 
   return new Promise((resolvePromise, reject) => {
     let timedOut = false

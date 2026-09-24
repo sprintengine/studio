@@ -18,7 +18,8 @@ const FILE_NAME = 'agent-launch-settings.json'
 
 function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSettings {
   return {
-    cliRuntimes: { claude: { command: 'claude', useWsl: false } },
+    cliRuntimes: { claude: { command: 'claude' } },
+    hosts: {},
     mcp: { syncEnabled: true, servers: {} },
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',
@@ -96,21 +97,53 @@ test('update writes only the fields its patch names', async () => {
     await store.migrate(
       settings({
         cliRuntimes: {
-          claude: { command: 'claude', useWsl: false },
-          codex: { command: 'codex', useWsl: false, models: ['gpt-6'] },
+          claude: { command: 'claude' },
+          codex: { command: 'codex', models: ['gpt-6'] },
         },
         mcp: { syncEnabled: false, servers: { keep: server('keep'), drop: server('drop') } },
         projectKnowledgeRoots: { '/repo': 'knowledge', '/other': 'notes' },
       }),
     ).persisted
 
-    // One CLI's runtime: the other CLI is untouched.
+    // One CLI's runtime: the other CLI is untouched. A window from before the
+    // per-CLI WSL switch was retired may still send it; it is not stored.
     let result = store.update({ cliRuntimes: { claude: { command: '/opt/claude', useWsl: true } } }, 'ui')
     assert.equal(result.changed, true)
     assert.deepEqual(result.record.settings.cliRuntimes, {
-      claude: { command: '/opt/claude', useWsl: true },
-      codex: { command: 'codex', useWsl: false, models: ['gpt-6'] },
+      claude: { command: '/opt/claude' },
+      codex: { command: 'codex', models: ['gpt-6'] },
     })
+
+    // One machine's settings, replaced whole; an id that is not a machine,
+    // and an environment name no shell can export, are dropped.
+    result = store.update(
+      {
+        hosts: {
+          'wsl:Ubuntu': {
+            enabled: true,
+            cliCommands: { codex: '/home/dev/bin/codex' },
+            env: { A_B: '1', 'no-dash': 'x' },
+          },
+          'not-a-host': { enabled: true },
+        },
+      },
+      'ui',
+    )
+    assert.deepEqual(result.record.settings.hosts, {
+      'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: { A_B: '1' } },
+    })
+    result = store.update(
+      { hosts: { 'wsl:Ubuntu': { enabled: false, cliCommands: {}, env: {}, shell: 'zsh -l' } } },
+      'ui',
+    )
+    assert.deepEqual(result.record.settings.hosts['wsl:Ubuntu'], {
+      enabled: false,
+      cliCommands: {},
+      env: {},
+      shell: 'zsh -l',
+    })
+    result = store.update({ hosts: { 'wsl:Ubuntu': null } }, 'ui')
+    assert.deepEqual(result.record.settings.hosts, {})
 
     // One MCP field, then one server added and one removed by id.
     result = store.update({ mcp: { syncEnabled: true } }, 'ui')
@@ -150,7 +183,7 @@ test('an update is normalized fail-soft: a malformed field is dropped, not the p
       },
       'ui',
     )
-    assert.deepEqual(result.record.settings.cliRuntimes, { codex: { command: 'codex', useWsl: false } })
+    assert.deepEqual(result.record.settings.cliRuntimes, { codex: { command: 'codex' } })
     assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, null, 'an unknown preset is not written')
     assert.equal(result.record.settings.lastSelectedCli, 'codex')
     assert.equal(store.update('not a patch', 'ui').changed, false, 'a non-object patch changes nothing')
@@ -290,7 +323,7 @@ test('a fresh install reads empty defaults and has no record', async () => {
 test('a legacy bare settings file reads, accepts a migration, and carries into an update', async () => {
   await withHarness(async (harness) => {
     const legacy = {
-      cliRuntimes: { legacy: { command: 'legacy-cli', useWsl: false } },
+      cliRuntimes: { legacy: { command: 'legacy-cli' } },
       mcp: { syncEnabled: true, servers: {} },
       projectKnowledgeRoots: {},
     }

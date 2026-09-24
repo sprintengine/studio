@@ -80,7 +80,7 @@ test('modelCatalogEffortSeam', async () => {
       JSON.stringify({
         state: {
           appSettings: {
-            cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+            cliRuntimes: { codex: { command: 'codex', models: ['o4-mini'] } },
             cliModelCatalog: PREVIOUS_BUILD_CATALOG,
             lastSelectedAgentModel: PREVIOUS_BUILD_SELECTION,
           },

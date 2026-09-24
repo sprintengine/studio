@@ -4,6 +4,7 @@
 // PowerShell cannot run here; the WSL script is POSIX, so it is run through a
 // real `sh` the way `wsl.exe --exec sh -s` would run it.
 
+import type { ExecutionHostId } from '../shared/execution-host'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -195,19 +196,19 @@ function outcome(stdout: string, code = 0): RunOutcome {
   return { code, stdout, stderr: '', timedOut: false }
 }
 
-test('detectCliBatch starts one process per target, whatever the CLI count', async () => {
+test('detectCliBatch starts one process per machine, whatever the CLI count', async () => {
   const runs: SpawnDescriptor[] = []
   const results = await detectCliBatch(
     [
-      { cli: 'claude-code', runtime: { useWsl: true } },
-      { cli: 'codex', runtime: { useWsl: true } },
-      { cli: 'opencode', runtime: { useWsl: true } },
-      { cli: 'cursor', runtime: { useWsl: false } },
+      { cli: 'claude-code', runtime: { hostId: 'wsl:Debian' } },
+      { cli: 'codex', runtime: { hostId: 'wsl:Debian' } },
+      { cli: 'opencode', runtime: { hostId: 'wsl:Debian' } },
+      { cli: 'cursor', runtime: {} },
     ],
     {
       platform: 'win32',
       env: {},
-      resolveDistro: async () => 'Debian',
+      resolveDistro: async () => 'Ubuntu',
       run: async (desc) => {
         runs.push(desc)
         return desc.file === 'wsl.exe'
@@ -225,7 +226,15 @@ test('detectCliBatch starts one process per target, whatever the CLI count', asy
     },
   )
   assert.equal(runs.length, 2, 'one wsl.exe for three WSL CLIs, one PowerShell for the native one')
-  assert.deepEqual(runs.find((run) => run.file === 'wsl.exe')?.args.slice(0, 2), ['-d', 'Debian'])
+  assert.deepEqual(
+    runs.find((run) => run.file === 'wsl.exe')?.args.slice(0, 2),
+    ['-d', 'Debian'],
+    'the machine names its distribution; the default is not asked',
+  )
+  assert.deepEqual(
+    results.map((result) => result.hostId),
+    ['wsl:Debian', 'wsl:Debian', 'wsl:Debian', 'local'],
+  )
   assert.deepEqual(
     results.map((result) => [result.cli, result.installed, result.error === null]),
     [
@@ -238,11 +247,36 @@ test('detectCliBatch starts one process per target, whatever the CLI count', asy
   )
 })
 
+test('two WSL machines are two probes, each in its own distribution', async () => {
+  const runs: SpawnDescriptor[] = []
+  await detectCliBatch(
+    [
+      { cli: 'claude-code', runtime: { hostId: 'wsl:Ubuntu' } },
+      { cli: 'codex', runtime: { hostId: 'wsl:Debian' } },
+      { cli: 'opencode', runtime: { hostId: 'wsl:Ubuntu' } },
+    ],
+    {
+      platform: 'win32',
+      env: {},
+      run: async (desc) => {
+        runs.push(desc)
+        return outcome(
+          '@@SPRINTENGINE_CLI 0\n@@SPRINTENGINE_NOT_FOUND\n@@SPRINTENGINE_CLI 1\n@@SPRINTENGINE_NOT_FOUND\n',
+        )
+      },
+    },
+  )
+  assert.deepEqual(runs.map((run) => run.args.slice(0, 2)).sort(), [
+    ['-d', 'Debian'],
+    ['-d', 'Ubuntu'],
+  ])
+})
+
 test('a batch whose wsl.exe failed reports every CLI as unanswered', async () => {
   const results = await detectCliBatch(
     [
-      { cli: 'claude-code', runtime: { useWsl: true } },
-      { cli: 'codex', runtime: { useWsl: true } },
+      { cli: 'claude-code', runtime: { hostId: 'wsl:Ubuntu' } },
+      { cli: 'codex', runtime: { hostId: 'wsl:Ubuntu' } },
     ],
     {
       platform: 'win32',
@@ -267,14 +301,14 @@ function entry(id: string): PluginRegistryListEntry {
   }
 }
 
-function found(cli: AgentCli, useWsl: boolean): CliDetectResult {
+function found(cli: AgentCli, hostId: ExecutionHostId): CliDetectResult {
   return {
     cli,
     binary: cli,
     installed: true,
     version: '1.0.0',
     resolvedPath: `/usr/bin/${cli}`,
-    useWsl,
+    hostId,
     error: null,
   }
 }
@@ -292,10 +326,12 @@ test('availability on Windows batches the cache misses and shares the batch with
     detectBatch: async (requests: Array<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>) => {
       batches.push(requests)
       await gate
-      return requests.map((request) => found(request.cli, request.runtime?.useWsl ?? false))
+      return requests.map((request) => found(request.cli, request.runtime?.hostId ?? 'local'))
     },
   }
-  const input = { cliRuntimes: { 'claude-code': { useWsl: true }, codex: { useWsl: true } } }
+  const input = {
+    cliRuntimes: { 'claude-code': { hostId: 'wsl:Ubuntu' as const }, codex: { hostId: 'wsl:Ubuntu' as const } },
+  }
   const first = detectAgentCliAvailability(input, deps)
   const second = detectAgentCliAvailability(input, deps)
   await Promise.resolve()

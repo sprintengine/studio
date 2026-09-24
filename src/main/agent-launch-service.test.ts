@@ -94,7 +94,7 @@ test('agent-launch-service', async () => {
       settings: settings({
         lastSelectedCli: 'claude-code',
         lastAgentSpawnPermissionPreset: 'auto',
-        cliRuntimes: { 'claude-code': { command: '/usr/local/bin/claude', useWsl: false } },
+        cliRuntimes: { 'claude-code': { command: '/usr/local/bin/claude' } },
         mcp: { syncEnabled: true, servers: {} },
       }),
     })
@@ -112,7 +112,7 @@ test('agent-launch-service', async () => {
     assert.equal(spawn.initialPrompt, 'go')
     assert.equal(spawn.kind, 'agent')
     assert.equal(spawn.visible, false, 'nothing is bound to the session yet')
-    assert.deepEqual(spawn.cliRuntimes, { 'claude-code': { command: '/usr/local/bin/claude', useWsl: false } })
+    assert.deepEqual(spawn.cliRuntimes, { 'claude-code': { command: '/usr/local/bin/claude' } })
     assert.deepEqual(spawn.mcpSettings, { syncEnabled: true, servers: {} })
     assert.equal(spawn.connectorLaunch, undefined, 'an ordinary launch never prunes the worktree MCP config')
   })

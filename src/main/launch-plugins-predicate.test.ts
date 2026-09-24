@@ -71,23 +71,39 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
   setLaunchPluginDirsResolver(() => PLUGIN_DIRS)
   const cwd = join(temp, 'workspace-launch')
   mkdirSync(cwd, { recursive: true })
-  for (const useWsl of [false, true]) {
+  const targets = [{ kind: 'windows' }, { kind: 'wsl', distro: 'Ubuntu', env: {} }] as const
+  for (const target of targets) {
     let config: ReturnType<typeof getShellLaunchConfig> | undefined
     try {
       config = withPlatform('win32', () =>
-        getShellLaunchConfig(cwd, 'sid-plugins', false, 'claude-code', undefined, {
-          'claude-code': { command: 'claude', useWsl },
-        }),
+        getShellLaunchConfig(
+          cwd,
+          'sid-plugins',
+          false,
+          'claude-code',
+          undefined,
+          { 'claude-code': { command: 'claude' } },
+          'manual',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          target,
+        ),
       )
     } catch (error) {
       // The native branch refuses a POSIX temp dir as a Windows path; the
       // flag decision under test is the WSL one there.
-      if (!useWsl && /not available as a Windows path/u.test(String(error))) continue
+      if (target.kind === 'windows' && /not available as a Windows path/u.test(String(error))) continue
       throw error
     }
     try {
       const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
-      assert.doesNotMatch(script, /--plugin-dir/u, `useWsl=${useWsl}`)
+      assert.doesNotMatch(script, /--plugin-dir/u, `host=${target.kind}`)
     } finally {
       cleanupTerminalStartupScript(config.startupScriptPath)
     }

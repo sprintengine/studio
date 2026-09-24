@@ -226,7 +226,7 @@ export function AgentCliRuntimeRows({
       const override = cliRuntimeForPlugin(pluginId, runtime.cliRuntimes)
       setMethods((current) => ({ ...current, [pluginId]: { status: 'loading' } }))
       void window.api
-        .cliInstallMethods(pluginId, { command: override.command, useWsl: override.useWsl })
+        .cliInstallMethods(pluginId, { command: override.command })
         .then((loaded) => {
           setMethods((current) => ({ ...current, [pluginId]: { status: 'ready', methods: loaded } }))
         })
@@ -248,7 +248,7 @@ export function AgentCliRuntimeRows({
       // Persist the resolved binary path the way Settings does, so launches use
       // the binary the install actually produced.
       if (result.resolvedPath && !override.command) {
-        runtime.setCliRuntime(pluginId, { command: result.resolvedPath, useWsl: override.useWsl })
+        runtime.setCliRuntime(pluginId, { command: result.resolvedPath })
       }
       void runtime.refreshCatalog()
       // Force past the main-process TTL so the freshly installed CLI reads as
@@ -271,7 +271,6 @@ export function AgentCliRuntimeRows({
           availabilityStatus: runtime.availabilityStatus,
           installMethods: methods[pluginId] ?? { status: 'unknown' },
           platform: runtime.platform,
-          useWsl: override.useWsl,
         })
         return (
           <ProviderRow
@@ -294,7 +293,6 @@ export function AgentCliRuntimeRows({
                 <CliProviderStateLine
                   state={state.provider}
                   binary={catalog.binary}
-                  useWsl={override.useWsl}
                   // One list-wide fact, stated once above the band — not per row.
                   probeError={null}
                 />
@@ -331,7 +329,6 @@ export function AgentCliRuntimeRows({
                   displayName={catalog.displayName}
                   binary={catalog.binary}
                   command={override.command}
-                  useWsl={override.useWsl}
                   showName={false}
                   showStatus={false}
                   autoOpenInstall={installIntentId === entry.key}

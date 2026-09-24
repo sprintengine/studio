@@ -54,6 +54,10 @@ export type TerminalSnapshotSidecar = {
   // own). Carried onto the placeholder so resume targets the right conversation
   // even if the renderer's payload lacks it.
   cliSessionId?: string
+  // The machine the session ran on. A Claude `--resume <id>` transcript lives
+  // in that machine's home, so the resume after a restart must go back there.
+  // Read back through normalizeExecutionHostId — the file is untrusted input.
+  hostId?: string
   cwd?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string

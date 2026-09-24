@@ -289,6 +289,8 @@ interface WorkspacesSliceActions {
       folderPath?: string | null
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../../types/workspace').WorkspaceRemoteOrigin | null
+      // The machine on this computer the workspace runs on; see Workspace.hostId.
+      hostId?: import('../../../../shared/execution-host').ExecutionHostId | null
       worktree?: WorkspaceWorktree | null
       // CLI for the general template agents (e.g. the solo "New chat" agent).
       // When set, overrides the remembered `lastSelectedCli` default below.
@@ -1272,6 +1274,10 @@ export function createWorkspacesSlice(
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
+          // Only a machine other than this one is written: an absent hostId
+          // already means this machine, and every workspace on macOS and
+          // Linux stays exactly the record it always was.
+          ...(options?.hostId && options.hostId !== 'local' ? { hostId: options.hostId } : {}),
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           templateId: template.id,
           layoutModel: standardLayout,

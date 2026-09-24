@@ -18,7 +18,14 @@ export type VersionControlProviderId = (typeof VERSION_CONTROL_PROVIDER_IDS)[num
 // installed or missing.
 export type VersionControlProbeFailure = 'not_installed' | 'probe_failed'
 
-export type VersionControlProviderProbe =
+/**
+ * The machine a probe ran on, when it is not this one. On Windows each WSL
+ * machine runs its own git (a WSL workspace's git is the distribution's), so
+ * the Git row is one row per machine; a probe without this is this machine's.
+ */
+export type VersionControlProbeMachine = { hostId: string; label: string }
+
+export type VersionControlProviderProbe = (
   | {
       id: VersionControlProviderId
       resolved: true
@@ -29,3 +36,4 @@ export type VersionControlProviderProbe =
       auth?: { login: string }
     }
   | { id: VersionControlProviderId; resolved: false; reason: VersionControlProbeFailure }
+) & { machine?: VersionControlProbeMachine }

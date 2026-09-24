@@ -18,6 +18,7 @@ const fixtures = vi.hoisted(() => ({
     cliAvailability: {} as Record<string, { installed: boolean }>,
     appSettings: { cliRuntimes: {}, lastSelectedCli: 'claude-code' },
     focusedAgentByWorkspaceId: { workspace: 'agent' } as Record<string, string>,
+    workspaces: [] as Array<{ id: string; hostId?: string }>,
   },
   sessions: [] as FixtureSession[],
 }))
@@ -248,6 +249,19 @@ test('a Claude Code session running in WSL asks main for its WSL-side skills', a
   await render()
   expect(list).toHaveBeenCalledWith({ workspaceRoot: '/Users/dev/project', pluginId: 'claude-code', pathStyle: 'wsl' })
   expect(host.textContent).toContain('Claude Code skills in WSL')
+})
+
+test("a session on a named WSL machine asks for that distribution's skills", async () => {
+  fixtures.sessions[0].cli = 'claude-code'
+  fixtures.sessions[0].pathStyle = 'wsl'
+  ;(fixtures.sessions[0] as { hostId?: string }).hostId = 'wsl:Ubuntu'
+  await render()
+  expect(list).toHaveBeenCalledWith({
+    workspaceRoot: '/Users/dev/project',
+    pluginId: 'claude-code',
+    pathStyle: 'wsl',
+    hostId: 'wsl:Ubuntu',
+  })
 })
 
 test('read failures stay visible instead of claiming no skills are installed', async () => {

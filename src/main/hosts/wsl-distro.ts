@@ -21,8 +21,8 @@
 
 import { basename } from 'node:path'
 
-import { distroOfUncPath } from '../shared/host-paths'
-import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from './process-run'
+import { distroOfUncPath } from '../../shared/host-paths'
+import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from '../process-run'
 
 export type WslDistro = { name: string; isDefault: boolean; state: string; version: number | null }
 
@@ -133,6 +133,62 @@ export function knownDefaultWslDistro(): string | null {
   return defaultDistroCache?.value ?? null
 }
 
+// ── Every distribution ──────────────────────────────────────────────────────
+
+/**
+ * What `wsl.exe --list --verbose` said, or why it could not be asked. `null`
+ * distros means WSL did not answer (not installed, or broken), which Settings
+ * says in words rather than showing an empty list.
+ */
+export type WslListing = { distros: WslDistro[] | null; at: number }
+
+let listingCache: WslListing | null = null
+let listingInFlight: Promise<WslListing> | null = null
+
+/**
+ * Every installed distribution, with its state and version. Read on demand —
+ * Settings opening, the machine list being asked for, a launch that named a
+ * distribution nobody had listed yet — and never on window focus. `force`
+ * reads again; otherwise the last answer stands for as long as the default
+ * distribution's does. Reading also refreshes the cached default.
+ */
+export async function listWslDistros(
+  deps: { runList?: WslListRunner; now?: () => number; force?: boolean } = {},
+): Promise<WslListing> {
+  const now = deps.now ?? Date.now
+  if (!deps.force && listingCache) {
+    const ttl = listingCache.distros ? DEFAULT_DISTRO_TTL_MS : DEFAULT_DISTRO_FAILURE_TTL_MS
+    if (now() - listingCache.at < ttl) return listingCache
+  }
+  if (listingInFlight) return listingInFlight
+  const runList = deps.runList ?? runWslList
+  const read = (async () => {
+    const text = await runList().catch(() => null)
+    const distros = text === null ? null : parseWslListVerbose(text)
+    const listing: WslListing = { distros, at: now() }
+    listingCache = listing
+    if (distros) {
+      const value = distros.find((distro) => distro.isDefault)?.name ?? null
+      defaultDistroCache = {
+        value,
+        expiresAt: now() + (value ? DEFAULT_DISTRO_TTL_MS : DEFAULT_DISTRO_FAILURE_TTL_MS),
+      }
+    }
+    return listing
+  })()
+  listingInFlight = read
+  try {
+    return await read
+  } finally {
+    if (listingInFlight === read) listingInFlight = null
+  }
+}
+
+/** The last listing read, without asking again; null before the first. */
+export function knownWslListing(): WslListing | null {
+  return listingCache
+}
+
 /** Starts the default-distribution lookup in the background (Windows only). */
 export function primeDefaultWslDistro(platform: NodeJS.Platform = process.platform): void {
   if (platform !== 'win32') return
@@ -170,6 +226,8 @@ export function __setDefaultWslDistroForTest(value: string | null, ttlMs = DEFAU
 export function __resetWslHostForTest(): void {
   defaultDistroCache = null
   defaultDistroInFlight = null
+  listingCache = null
+  listingInFlight = null
 }
 
 // ── Scripts ─────────────────────────────────────────────────────────────────
@@ -199,15 +257,20 @@ export function wslLoginScript(body: string): string {
   return `exec bash -l <<'${LOGIN_SCRIPT_END}'\n${body}\n${LOGIN_SCRIPT_END}\n`
 }
 
+// `timeoutMs` null is no deadline: a git write runs the repository's hooks,
+// and killing it part-way leaves an `index.lock` behind.
 export type WslScriptRunner = (
   distro: string | null,
   script: string,
-  options: { timeoutMs: number },
+  options: { timeoutMs: number | null },
 ) => Promise<RunOutcome>
 
 /** Runs a script in a distribution through `wsl.exe`, with a deadline. */
 export const runWslScript: WslScriptRunner = (distro, script, options) =>
-  runSpawnDescriptor(wslScriptDescriptor(distro, script), { timeoutMs: options.timeoutMs })
+  runSpawnDescriptor(
+    wslScriptDescriptor(distro, script),
+    options.timeoutMs === null ? {} : { timeoutMs: options.timeoutMs },
+  )
 
 // ── Session root pids ───────────────────────────────────────────────────────
 //

@@ -161,7 +161,7 @@ test('freshInstallWalkSeam', async () => {
         installed: resolvedPath !== null,
         version: resolvedPath === null ? null : '2.0.0',
         resolvedPath,
-        useWsl: false,
+        hostId: 'local',
         error: null,
       }
     }

@@ -40,6 +40,7 @@ import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
+import { MachinesSettingsTab } from './MachinesSettingsTab'
 import {
   MetaCell,
   SettingCard,
@@ -75,6 +76,7 @@ import {
   ModulesSettingsIcon,
   MobileSettingsIcon,
   RemoteSettingsIcon,
+  MachinesSettingsIcon,
   FolderPlusIcon,
   ReleaseNotesIcon,
 } from '../AppIcons'
@@ -120,6 +122,7 @@ type SettingsTabId =
   | 'trackers'
   | 'agents'
   | 'providers'
+  | 'machines'
   | 'knowledge-graph'
   | 'design-system'
   | 'mobile'
@@ -142,6 +145,9 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'shortcuts', label: 'Shortcuts', icon: ShortcutsSettingsIcon },
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
+  // Windows only: this PC and its WSL distributions, each a machine a
+  // workspace can run on (shared/execution-host.ts). Elsewhere there is one.
+  { id: 'machines', label: 'Machines', icon: MachinesSettingsIcon },
   // Covers both groups on the page (the VCS itself, then the hosting provider),
   // so the label is the subject rather than one of the two rows. The tab *id*
   // stays 'github' — it is a persisted deep-link target (menus, module routes).
@@ -160,7 +166,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
-  { label: 'agents', ids: ['agents', 'providers'] },
+  { label: 'agents', ids: ['agents', 'providers', 'machines'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
   { label: 'companion', ids: ['mobile', 'remote'] },
 ]
@@ -197,6 +203,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'trackers' ||
     value === 'agents' ||
     value === 'providers' ||
+    value === 'machines' ||
     value === 'knowledge-graph' ||
     value === 'design-system' ||
     value === 'mobile' ||
@@ -662,6 +669,10 @@ function VersionControlStateLine({ view }: { view: VersionControlRowView }) {
 // and the state line carry health; nothing here pretends to carry enablement.
 export function VersionControlSections({ githubToken }: { githubToken: React.ReactNode }) {
   const [probes, setProbes] = useState<Partial<Record<VersionControlProviderId, VersionControlProviderProbe>>>({})
+  // Git on the other machines of this computer (the WSL machines turned on in
+  // Settings ▸ Machines), each its own row: a WSL workspace's git is its
+  // distribution's (owner decision 2026-09-24). Empty on macOS and Linux.
+  const [machineProbes, setMachineProbes] = useState<VersionControlProviderProbe[]>([])
   const [probeStatus, setProbeStatus] = useState<VersionControlProbeStatus>('loading')
   const [probeError, setProbeError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
@@ -683,7 +694,8 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
       const results = await window.api.probeVersionControlProviders()
       // Replace rather than merge: a re-check is a fresh reading of the machine,
       // so a provider that disappeared must not keep its old version line.
-      setProbes(Object.fromEntries(results.map((result) => [result.id, result])))
+      setProbes(Object.fromEntries(results.filter((result) => !result.machine).map((result) => [result.id, result])))
+      setMachineProbes(results.filter((result) => result.machine))
       setProbeStatus('ready')
       setProbeError(null)
     } catch (error) {
@@ -744,21 +756,41 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
               // behind it, so git renders as a plain row rather than an empty
               // disclosure.
               const detail = spec.id === 'gh' ? githubToken : null
+              // One row per machine for git: this one, then each WSL machine.
+              const others = spec.id === 'git' ? machineProbes : []
               return (
-                <ProviderRow
-                  key={spec.id}
-                  as="li"
-                  surface="card"
-                  icon={<VersionControlMark monogram={spec.monogram} />}
-                  health={view.tone}
-                  name={spec.label}
-                  version={view.version}
-                  stateLine={<VersionControlStateLine view={view} />}
-                  expanded={expandedId === spec.id}
-                  onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
-                >
-                  {detail}
-                </ProviderRow>
+                <React.Fragment key={spec.id}>
+                  <ProviderRow
+                    as="li"
+                    surface="card"
+                    icon={<VersionControlMark monogram={spec.monogram} />}
+                    health={view.tone}
+                    name={others.length > 0 ? `${spec.label} — This PC (Windows)` : spec.label}
+                    version={view.version}
+                    stateLine={<VersionControlStateLine view={view} />}
+                    expanded={expandedId === spec.id}
+                    onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
+                  >
+                    {detail}
+                  </ProviderRow>
+                  {others.map((probe) => {
+                    // A distribution has no install command this app can name
+                    // (apt, dnf, pacman…), so a missing git names the binary.
+                    const machineView = resolveVersionControlRow(spec, probe, probeStatus, 'linux')
+                    return (
+                      <ProviderRow
+                        key={`${spec.id}:${probe.machine?.hostId}`}
+                        as="li"
+                        surface="card"
+                        icon={<VersionControlMark monogram={spec.monogram} />}
+                        health={machineView.tone}
+                        name={`${spec.label} — ${probe.machine?.label ?? ''}`}
+                        version={machineView.version}
+                        stateLine={<VersionControlStateLine view={machineView} />}
+                      />
+                    )
+                  })}
+                </React.Fragment>
               )
             })}
           </SettingCard>
@@ -860,7 +892,10 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter((tab) => tab.id !== 'mobile' || mobileRelayEnabled),
+      ...settingsTabs.filter(
+        (tab) =>
+          (tab.id !== 'mobile' || mobileRelayEnabled) && (tab.id !== 'machines' || window.api.platform === 'win32'),
+      ),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -921,7 +956,6 @@ export default function SettingsPanel({
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const activeDesignSystemRoot = activeWorkspace?.folderPath ?? null
-  const isWindows = window.api.platform === 'win32'
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
@@ -1823,7 +1857,6 @@ export default function SettingsPanel({
                           <CliProviderStateLine
                             state={state}
                             binary={plugin.binary}
-                            useWsl={override.useWsl}
                             // Deliberately not the reason: a failed batch probe
                             // wipes every entry, so the reason is one fact for the
                             // whole list and the section states it once below the
@@ -1905,13 +1938,12 @@ export default function SettingsPanel({
                         displayName={plugin.displayName}
                         binary={plugin.binary}
                         command={override.command}
-                        useWsl={override.useWsl}
                         showName={false}
                         showStatus={false}
                         autoOpenInstall={installIntentId === plugin.id}
                         onInstalled={(result) => {
                           if (result.resolvedPath && !override.command) {
-                            setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                            setCliRuntime(plugin.id, { command: result.resolvedPath })
                           }
                           void refreshPluginCatalog()
                           // Force-refresh availability so the freshly installed CLI
@@ -1956,9 +1988,7 @@ export default function SettingsPanel({
                             // identical "Command override" for every CLI.
                             aria-label={`${plugin.displayName} command override`}
                             value={override.command}
-                            onChange={(event) =>
-                              setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })
-                            }
+                            onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value })}
                             placeholder={plugin.binary}
                             size="md"
                             variant="well"
@@ -1966,16 +1996,6 @@ export default function SettingsPanel({
                             className={ROW_FIELD}
                           />
                         </SettingsRow>
-
-                        {isWindows && (
-                          <SettingToggle
-                            label={`Run ${plugin.displayName} through WSL`}
-                            enabled={override.useWsl}
-                            onChange={(enabled) =>
-                              setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })
-                            }
-                          />
-                        )}
 
                         {allowCustomModels ? (
                           <PluginModelSettings
@@ -2039,6 +2059,7 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'providers' ? <ProviderSettingsTab /> : null}
+      {activeSettingsTab === 'machines' ? <MachinesSettingsTab /> : null}
 
       {activeSettingsTab === 'knowledge-graph' ? (
         <div

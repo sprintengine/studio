@@ -63,6 +63,7 @@ import {
   type KnowledgeLaunchContext,
 } from '../shared/project-knowledge'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
+import { normalizeExecutionHostId } from '../shared/execution-host'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
 /**
@@ -83,6 +84,8 @@ export type AgentLaunchWorkspace = {
   agents?: Record<string, { name?: string }>
   /** Workspace-level Knowledge Graph override, below the per-project setting. */
   memory?: { relativeRoot?: string | null } | null
+  /** The machine the workspace runs on (`local`, or a WSL distribution). */
+  hostId?: string | null
 }
 
 export type AgentLaunchServiceDeps = {
@@ -243,6 +246,11 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
     }
+    // The caller's machine, else the workspace's. Absent from both, the spawn
+    // reads the folder (a folder inside a distribution runs there) and
+    // otherwise launches on this machine.
+    const hostId = normalizeExecutionHostId(request.host) ?? normalizeExecutionHostId(workspace.hostId)
+    if (hostId) record.hostId = hostId
 
     const sessionId = newSessionId()
     const spawned = await deps.terminal.spawn({
@@ -252,8 +260,8 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       cwd,
       cli,
       ...(initialPrompt ? { initialPrompt } : {}),
-      // The user's command/WSL overrides. The two shapes are field-identical
-      // (`command`, `useWsl`, `models?`); the cast is only the keying — the
+      // The user's command overrides. The two shapes are field-identical
+      // (`command`, `models?`); the cast is only the keying — the
       // mirror types its map by plain string, the payload by `AgentCli`, which
       // is itself a string alias. Omitted when empty so an unconfigured install
       // spawns exactly as it did before the store existed.
@@ -262,6 +270,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         : {}),
       kind: 'agent',
       workspaceId: workspace.id,
+      ...(hostId ? { hostId } : {}),
       agentId,
       agentName: name,
       cliPermissionPreset: record.cliPermissionPreset,

@@ -10,6 +10,7 @@ import {
   classifyGitCommand,
   defaultGitTimeoutMs,
   gitEnv,
+  installGitHostResolver,
   runGitCommand,
 } from './git-run'
 
@@ -86,6 +87,55 @@ test('a git that outlives its deadline is stopped and reported as timed out', as
     assert.equal(result.ok, false)
     assert.match(result.message ?? '', /did not finish within/)
     assert.ok(Date.now() - startedAt < 10_000, 'the deadline, not the process, ended the call')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("a repository on a WSL machine is run by that machine's git, under the same rules", async () => {
+  const calls: Array<{ cwd: string; args: readonly string[]; timeoutMs: number | null; env: Record<string, string> }> =
+    []
+  let answer = { code: 0, stdout: 'main\n', stderr: '', timedOut: false }
+  installGitHostResolver((cwd) =>
+    cwd.startsWith('\\\\wsl.localhost\\')
+      ? {
+          kind: 'wsl',
+          runGit: async (at, args, options) => {
+            calls.push({ cwd: at, args, ...options })
+            return answer
+          },
+        }
+      : null,
+  )
+  try {
+    const read = await runGitCommand('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', ['branch', '--show-current'])
+    assert.deepEqual(read, { ok: true, stdout: 'main\n', stderr: '', message: null })
+    assert.equal(calls[0].timeoutMs, GIT_READ_TIMEOUT_MS, 'a read keeps its deadline')
+    assert.deepEqual(calls[0].env, { LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' })
+
+    answer = { code: 1, stdout: '', stderr: 'fatal: not a git repository', timedOut: false }
+    const write = await runGitCommand('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', ['commit', '-m', 'x'], {
+      GIT_AUTHOR_NAME: 'dev',
+    })
+    assert.equal(write.ok, false)
+    assert.equal(write.message, 'fatal: not a git repository')
+    assert.equal(calls[1].timeoutMs, null, 'a write keeps no deadline')
+    assert.equal(calls[1].env.GIT_AUTHOR_NAME, 'dev')
+    assert.equal(calls[1].env.GIT_OPTIONAL_LOCKS, undefined)
+
+    answer = { code: 1, stdout: '', stderr: '', timedOut: true }
+    const slow = await runGitCommand('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', ['status'])
+    assert.equal(slow.ok, false)
+    assert.match(slow.message ?? '', /did not finish within 15 s/u)
+  } finally {
+    installGitHostResolver(null)
+  }
+  // Anything the resolver does not claim keeps this machine's git.
+  const dir = await mkdtemp(join(tmpdir(), 'se-git-local-'))
+  try {
+    const local = await runGitCommand(dir, ['--version'])
+    assert.equal(local.ok, true)
+    assert.equal(calls.length, 3)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

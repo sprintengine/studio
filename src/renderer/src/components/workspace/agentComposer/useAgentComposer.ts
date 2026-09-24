@@ -1,4 +1,5 @@
 import React from 'react'
+import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import type { AgentCli } from '../../../types/workspace'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import {
@@ -130,6 +131,12 @@ type UseAgentComposerOptions = {
    * here writes a default and retires it.
    */
   initialEngine?: { cli: AgentCli; model: string | null; reasoning: string | null } | null
+  /**
+   * Which CLIs the launch's machine has, when it is not this one (a WSL
+   * distribution picked in the New chat dropdown). Absent reads this machine's
+   * availability from the store, exactly as before.
+   */
+  availability?: { map: AgentCliAvailabilityMap; status: 'loading' | 'ready' | 'error' }
 }
 
 // Shared state + store-derived data for every agent composer surface (the New
@@ -145,6 +152,7 @@ export function useAgentComposer({
   initialMcpServers,
   initialSkills,
   initialEngine,
+  availability,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
@@ -155,8 +163,10 @@ export function useAgentComposer({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
-  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const storeCliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const storeCliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const cliAvailability = availability?.map ?? storeCliAvailability
+  const cliAvailabilityStatus = availability?.status ?? storeCliAvailabilityStatus
   // What each installed CLI reported about its models. Without it this surface
   // would offer only the manifest seed while every other picker offers the
   // CLI's own list.

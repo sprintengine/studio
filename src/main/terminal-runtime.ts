@@ -39,6 +39,8 @@ import {
   type ObservedCheckout,
 } from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
+import { distroOfHostId, normalizeExecutionHostId } from '../shared/execution-host'
+import { hostRegistry } from './hosts/host-registry'
 import {
   cleanupHostContextFile,
   cleanupTerminalStartupScript,
@@ -162,6 +164,11 @@ type TerminalRuntimeOptions = {
   // per-spawn MCP sync writes those files. Best-effort: the caller swallows
   // failures so an exclude write never blocks a launch. Absent in tests (no-op).
   excludeWorktreeMcpConfig?(worktreePath: string): Promise<void>
+  // The machine a workspace runs on, from main's workspace registry. Asked
+  // when a spawn names no host of its own, so every door into a terminal —
+  // the agent tab, a plain terminal, the Git panel's diff shell, a module's
+  // agent — lands on its workspace's machine without each carrying it.
+  resolveWorkspaceHostId?(workspaceId: string): string | null
   // Installs the authoritative-agent-state reporter hook into the workspace
   // before a supported agent (Claude Code / Codex) launches, so the agent's
   // lifecycle hooks report its true phase over the agent-state socket. The
@@ -171,7 +178,7 @@ type TerminalRuntimeOptions = {
   prepareAgentStateHook?(
     workspaceRoot: string,
     cli: string,
-    execution?: { pathStyle?: TerminalPathStyle },
+    execution?: { pathStyle?: TerminalPathStyle; wslDistro?: string | null },
   ): Promise<void>
   // Durable freeze-the-view: per-terminal snapshot sidecars on disk, so a
   // suspended terminal reopens painted-and-paused after an app restart. Absent
@@ -302,6 +309,7 @@ let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
+let resolveWorkspaceHostId: TerminalRuntimeOptions['resolveWorkspaceHostId']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
@@ -362,6 +370,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
+  resolveWorkspaceHostId = options.resolveWorkspaceHostId
   snapshotSidecars = options.snapshotSidecars
   agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
@@ -1140,6 +1149,7 @@ function writeTerminalSnapshotSidecar(
     terminalId: session.terminalId,
     cli: session.cli,
     cliSessionId: session.cliSessionId,
+    ...(session.hostId ? { hostId: session.hostId } : {}),
     cwd: session.cwd,
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
@@ -1197,6 +1207,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     terminalId: sidecar.terminalId,
     cli: sidecar.cli,
     cliSessionId: sidecar.cliSessionId,
+    hostId: normalizeExecutionHostId(sidecar.hostId) ?? undefined,
     cwd: sidecar.cwd,
     executionMode: sidecar.executionMode,
     worktreeId: sidecar.worktreeId,
@@ -1266,7 +1277,10 @@ async function resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload
     }
     disposeTerminal(payload.sessionId)
   }
-  return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId })
+  // The host too: a resumed CLI's conversation lives in the home of the
+  // machine it ran on, whatever the payload now asks for.
+  const hostId = existing?.hostId ?? payload.hostId
+  return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId, ...(hostId ? { hostId } : {}) })
 }
 
 function disposeTerminal(sessionId: string): void {
@@ -1325,8 +1339,14 @@ function survivorHost(session: TerminalSession): {
   pathStyle?: TerminalSession['pathStyle']
   cwd?: string
   startupScriptPath?: string
+  wslDistro?: string | null
 } {
-  return { pathStyle: session.pathStyle, cwd: session.cwd, startupScriptPath: session.startupScriptPath }
+  return {
+    pathStyle: session.pathStyle,
+    cwd: session.cwd,
+    startupScriptPath: session.startupScriptPath,
+    wslDistro: distroOfHostId(session.hostId),
+  }
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1792,6 +1812,8 @@ async function buildReapGuardHolds(
         pathStyle: session.pathStyle,
         cwd: session.cwd,
         startupScriptPath: session.startupScriptPath,
+        // The session's host names its distribution; the cwd only guesses.
+        wslDistro: distroOfHostId(session.hostId),
       })
     }
   }
@@ -2875,6 +2897,7 @@ async function spawnTerminalFromIpc(
     cliSessionId,
     kind,
     workspaceId,
+    hostId: requestedHostId,
     agentId,
     agentName,
     terminalId,
@@ -2982,8 +3005,21 @@ async function spawnTerminalFromIpc(
   // Non-null on every path that reads it: a fresh agent spawn with no CLI
   // returned above, and shell-only spawns never reach an agent-CLI consumer.
   const agentCli = cli as AgentCli
-  const executionPathStyle: TerminalPathStyle =
-    process.platform === 'win32' ? (cliRuntimes?.[agentCli]?.useWsl === true ? 'wsl' : 'windows') : 'posix'
+  // The machine this runs on: the session's own when it is being relaunched,
+  // else the workspace's, else the distribution the folder lives in, else this
+  // one. Everything below asks it rather than the platform: the path style the
+  // CLI's hooks and MCP config are written in, the command the CLI runs as
+  // there, and the shape of the startup script.
+  const host = hostRegistry().resolve({
+    bound: existingSession?.hostId,
+    requested: requestedHostId ?? (workspaceId ? resolveWorkspaceHostId?.(workspaceId) : null),
+    folder: cwd,
+  })
+  const executionPathStyle: TerminalPathStyle = host.pathStyle
+  const hostWslDistro = distroOfHostId(host.id)
+  const launchCliRuntimes: typeof cliRuntimes = shellOnly
+    ? cliRuntimes
+    : { ...cliRuntimes, [agentCli]: host.cliRuntime(agentCli, cliRuntimes?.[agentCli]) }
 
   disposeTerminal(sessionId)
   logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
@@ -3011,7 +3047,7 @@ async function spawnTerminalFromIpc(
       const preflight = await preflightAgentCliLaunch(
         {
           cli: agentCli,
-          cliRuntimes,
+          cliRuntimes: launchCliRuntimes,
           platform: agentCliPreflightOverrides.platform,
           shell: agentCliPreflightOverrides.shell,
         },
@@ -3164,14 +3200,14 @@ async function spawnTerminalFromIpc(
       managed,
       reapExempt,
     } = shellOnly
-      ? getPlainShellLaunchConfig(workingDirectory, sessionId)
+      ? getPlainShellLaunchConfig(workingDirectory, sessionId, host.launchTarget())
       : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
           resume,
           agentCli,
           initialPrompt,
-          cliRuntimes,
+          launchCliRuntimes,
           cliPermissionPreset,
           cliModel,
           memoryRootPath,
@@ -3181,13 +3217,17 @@ async function spawnTerminalFromIpc(
           cliAuthToken,
           cliReasoning,
           resolvedBinaryPath,
+          host.launchTarget(),
         )
     // Install the authoritative-agent-state reporter into the workspace before
     // launching a supported agent, so its lifecycle hooks report phase the
     // moment it starts. Awaited so the hooks exist when the CLI reads its
     // settings; best-effort inside (never throws), so it cannot fail a launch.
     if (!shellOnly && agentStateSupportsCli(cli)) {
-      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, { pathStyle: executionPathStyle })
+      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, {
+        pathStyle: executionPathStyle,
+        wslDistro: hostWslDistro,
+      })
     }
 
     const initialSize = getTerminalSize(cols, rows)
@@ -3223,6 +3263,7 @@ async function spawnTerminalFromIpc(
       output: new TerminalReplayBuffer(),
       kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
       pathStyle,
+      hostId: host.id,
       workspaceId,
       agentId,
       agentName,

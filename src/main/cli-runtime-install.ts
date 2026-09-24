@@ -11,7 +11,8 @@ import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from './process-run'
-import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScriptDescriptor } from './wsl-host'
+import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScriptDescriptor } from './hosts/wsl-distro'
+import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
@@ -22,21 +23,31 @@ const PATH_SENTINEL = 'SPRINTENGINE_PATH:'
 
 export type { SpawnDescriptor }
 
-// Maps the OS platform + per-CLI WSL override onto the manifest install bucket.
-// WSL is a logical target (Windows host, POSIX guest) distinct from win32.
-export function resolveInstallPlatform(platform: NodeJS.Platform, useWsl: boolean): PluginInstallPlatform {
-  if (platform === 'win32') return useWsl ? 'wsl' : 'win32'
+// Maps the OS platform + the machine a CLI runs on onto the manifest install
+// bucket. A WSL distribution is a logical target (Windows host, POSIX guest)
+// distinct from win32.
+export function resolveInstallPlatform(
+  platform: NodeJS.Platform,
+  hostId: string | null | undefined,
+): PluginInstallPlatform {
+  if (platform === 'win32') return isWslHostId(hostId) ? 'wsl' : 'win32'
   if (platform === 'darwin') return 'darwin'
   // Treat any other POSIX-like platform (linux, and uncommon ones) as linux.
   return 'linux'
 }
 
-// Reads the default distribution's name before a WSL descriptor is built, so
-// the descriptor can pass it to `-d`. Cached, so only the first call starts
-// `wsl.exe`; a failed read leaves the descriptor without `-d`, which is the
-// default distribution anyway.
-async function knowWslDistro(target: PluginInstallPlatform): Promise<void> {
-  if (target === 'wsl') await resolveDefaultWslDistro().catch(() => null)
+// The distribution a WSL descriptor passes to `-d`: the one the host names,
+// else the default, read once and cached. A failed read leaves the descriptor
+// without `-d`, which is the default distribution anyway.
+async function wslDistroFor(target: PluginInstallPlatform, hostId: string | null | undefined): Promise<string | null> {
+  if (target !== 'wsl') return null
+  return distroOfHostId(hostId) ?? (await resolveDefaultWslDistro().catch(() => null))
+}
+
+/** The host a runtime override names, as a host id; absent is this machine. */
+function runtimeHostId(runtime: Partial<CliRuntimeSettings> | undefined): ExecutionHostId {
+  const hostId = runtime?.hostId
+  return isWslHostId(hostId) ? hostId : LOCAL_HOST_ID
 }
 
 function isPosixTarget(target: PluginInstallPlatform): boolean {
@@ -53,11 +64,16 @@ function powerShellSingleQuote(value: string): string {
 
 // Wraps a shell snippet in the right host shell for the target. POSIX targets
 // run through a login shell so user-local install dirs (~/.local/bin, npm
-// global prefix) are on PATH. WSL routes through wsl.exe into the default
-// distribution by name, with the script on stdin (see wsl-host.ts for why
-// never on the command line); its stdin is closed for everything the script
-// runs, so a command that reads input cannot swallow the rest of the script.
-function shellDescriptorForScript(target: PluginInstallPlatform, script: string): SpawnDescriptor {
+// global prefix) are on PATH. WSL routes through wsl.exe into the named
+// distribution (else the default), with the script on stdin (see
+// hosts/wsl-distro.ts for why never on the command line); its stdin is closed
+// for everything the script runs, so a command that reads input cannot
+// swallow the rest of the script.
+function shellDescriptorForScript(
+  target: PluginInstallPlatform,
+  script: string,
+  distro?: string | null,
+): SpawnDescriptor {
   if (target === 'win32') {
     return {
       file: 'powershell.exe',
@@ -65,7 +81,7 @@ function shellDescriptorForScript(target: PluginInstallPlatform, script: string)
     }
   }
   if (target === 'wsl') {
-    return wslScriptDescriptor(knownDefaultWslDistro(), wslLoginScript(`{\n${script}\n} </dev/null`))
+    return wslScriptDescriptor(distro ?? knownDefaultWslDistro(), wslLoginScript(`{\n${script}\n} </dev/null`))
   }
   return { file: 'bash', args: ['-lc', script] }
 }
@@ -76,8 +92,9 @@ export function buildProbeDescriptor(input: {
   binary: string
   versionArgs: string[]
   target: PluginInstallPlatform
+  distro?: string | null
 }): SpawnDescriptor {
-  const { binary, versionArgs, target } = input
+  const { binary, versionArgs, target, distro } = input
   if (isPosixTarget(target)) {
     const bin = posixSingleQuote(binary)
     const versionPart = versionArgs.map(posixSingleQuote).join(' ')
@@ -86,7 +103,7 @@ export function buildProbeDescriptor(input: {
       `printf '${PATH_SENTINEL}%s\\n' "$(command -v ${bin})"`,
       `${bin} ${versionPart} 2>&1 || true`,
     ].join('\n')
-    return shellDescriptorForScript(target, script)
+    return shellDescriptorForScript(target, script, distro)
   }
   const bin = powerShellSingleQuote(binary)
   const versionPart = versionArgs.map(powerShellSingleQuote).join(' ')
@@ -102,11 +119,15 @@ export function buildProbeDescriptor(input: {
 
 // Builds a script that exits NOT_FOUND_EXIT when a prerequisite binary (npm,
 // brew, curl, …) is absent, without invoking it.
-export function buildExistsDescriptor(input: { binary: string; target: PluginInstallPlatform }): SpawnDescriptor {
-  const { binary, target } = input
+export function buildExistsDescriptor(input: {
+  binary: string
+  target: PluginInstallPlatform
+  distro?: string | null
+}): SpawnDescriptor {
+  const { binary, target, distro } = input
   if (isPosixTarget(target)) {
     const bin = posixSingleQuote(binary)
-    return shellDescriptorForScript(target, `command -v ${bin} >/dev/null 2>&1 || exit ${NOT_FOUND_EXIT}`)
+    return shellDescriptorForScript(target, `command -v ${bin} >/dev/null 2>&1 || exit ${NOT_FOUND_EXIT}`, distro)
   }
   const bin = powerShellSingleQuote(binary)
   return shellDescriptorForScript(
@@ -117,8 +138,12 @@ export function buildExistsDescriptor(input: { binary: string; target: PluginIns
 
 // Builds the descriptor that runs an install method's command verbatim in the
 // target shell.
-export function buildInstallDescriptor(input: { shell: string; target: PluginInstallPlatform }): SpawnDescriptor {
-  return shellDescriptorForScript(input.target, input.shell)
+export function buildInstallDescriptor(input: {
+  shell: string
+  target: PluginInstallPlatform
+  distro?: string | null
+}): SpawnDescriptor {
+  return shellDescriptorForScript(input.target, input.shell, input.distro)
 }
 
 export function parseProbeOutput(
@@ -300,10 +325,11 @@ export function buildCommandDescriptor(input: {
   binary: string
   args: string[]
   target: PluginInstallPlatform
+  distro?: string | null
 }): SpawnDescriptor {
-  const { binary, args, target } = input
+  const { binary, args, target, distro } = input
   if (isPosixTarget(target)) {
-    return shellDescriptorForScript(target, `exec ${[binary, ...args].map(posixSingleQuote).join(' ')}`)
+    return shellDescriptorForScript(target, `exec ${[binary, ...args].map(posixSingleQuote).join(' ')}`, distro)
   }
   const argv = [binary, ...args].map(powerShellSingleQuote).join(' ')
   return shellDescriptorForScript(target, `& ${argv}\nexit $LASTEXITCODE`)
@@ -314,14 +340,15 @@ export type CliCommandOutcome = RunOutcome
 export async function runCliCommand(input: {
   binary: string
   args: string[]
-  useWsl: boolean
+  /** The machine to run on; absent is this one. */
+  hostId?: string | null
   timeoutMs: number
   env?: NodeJS.ProcessEnv
 }): Promise<CliCommandOutcome> {
-  const target = resolveInstallPlatform(process.platform, input.useWsl)
-  await knowWslDistro(target)
+  const target = resolveInstallPlatform(process.platform, input.hostId)
+  const distro = await wslDistroFor(target, input.hostId)
   return runDescriptor(
-    buildCommandDescriptor({ binary: input.binary, args: input.args, target }),
+    buildCommandDescriptor({ binary: input.binary, args: input.args, target, distro }),
     undefined,
     input.env ?? defaultProbeEnv(),
     input.timeoutMs,
@@ -354,7 +381,7 @@ export async function probeBinaryVersion(binary: string): Promise<BinaryVersionP
       await runVersionProbe({
         binary,
         versionArgs: ['--version'],
-        target: resolveInstallPlatform(process.platform, false),
+        target: resolveInstallPlatform(process.platform, LOCAL_HOST_ID),
         env: defaultProbeEnv(),
       }),
     )
@@ -513,15 +540,21 @@ export function parseBatchProbeOutput(stdout: string, count: number): BatchProbe
 export type DetectCliBatchDeps = {
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
+  // The default distribution, for a WSL request whose host names none.
   resolveDistro?: () => Promise<string | null>
   run?: (desc: SpawnDescriptor, env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<RunOutcome>
 }
 
 type BatchItem = { index: number; binary: string; versionArgs: string[] }
 
-function detectResult(cli: AgentCli, binary: string, useWsl: boolean, answer: BatchProbeAnswer): CliDetectResult {
+function detectResult(
+  cli: AgentCli,
+  binary: string,
+  hostId: ExecutionHostId,
+  answer: BatchProbeAnswer,
+): CliDetectResult {
   if ('error' in answer) {
-    return { cli, binary, installed: false, version: null, resolvedPath: null, useWsl, error: answer.error }
+    return { cli, binary, installed: false, version: null, resolvedPath: null, hostId, error: answer.error }
   }
   return {
     cli,
@@ -529,13 +562,14 @@ function detectResult(cli: AgentCli, binary: string, useWsl: boolean, answer: Ba
     installed: answer.installed,
     version: answer.version,
     resolvedPath: answer.resolvedPath,
-    useWsl,
+    hostId,
     error: null,
   }
 }
 
 async function runBatchGroup(
   target: 'wsl' | 'win32',
+  hostId: ExecutionHostId,
   items: readonly BatchItem[],
   deps: DetectCliBatchDeps,
   env: NodeJS.ProcessEnv,
@@ -546,7 +580,7 @@ async function runBatchGroup(
       runDescriptor(desc, undefined, runEnv, timeoutMs))
   const resolveDistro = deps.resolveDistro ?? (() => resolveDefaultWslDistro())
   try {
-    const distro = target === 'wsl' ? await resolveDistro().catch(() => null) : null
+    const distro = target === 'wsl' ? (distroOfHostId(hostId) ?? (await resolveDistro().catch(() => null))) : null
     const outcome = await run(buildBatchProbeDescriptor({ requests: items, target, distro }), env, BATCH_TIMEOUT_MS)
     if (outcome.timedOut) {
       return items.map(() => ({ error: `The CLI check timed out after ${BATCH_TIMEOUT_MS / 1000} s.` }))
@@ -566,8 +600,8 @@ async function runBatchGroup(
 }
 
 /**
- * `detectCli` for many CLIs at once. On Windows, one process per target (the
- * CLIs that run through WSL, the ones that run natively) whatever the count; on
+ * `detectCli` for many CLIs at once. On Windows, one process per machine (each
+ * WSL distribution asked about, and this PC natively) whatever the count; on
  * macOS and Linux each CLI keeps its own probe, which has the interactive-shell
  * fallback a batch does not.
  */
@@ -577,27 +611,27 @@ export async function detectCliBatch(
 ): Promise<CliDetectResult[]> {
   const platform = deps.platform ?? process.platform
   const results: CliDetectResult[] = []
-  const groups = new Map<'wsl' | 'win32', BatchItem[]>()
+  const groups = new Map<ExecutionHostId, { target: 'wsl' | 'win32'; items: BatchItem[] }>()
   const posix: number[] = []
   requests.forEach(({ cli, runtime }, index) => {
     const manifest = getPluginManifest(cli)
-    const useWsl = runtime?.useWsl ?? false
+    const hostId = runtimeHostId(runtime)
     if (!manifest) {
-      results[index] = detectResult(cli, cli, useWsl, { error: `No plugin manifest found for "${cli}".` })
+      results[index] = detectResult(cli, cli, hostId, { error: `No plugin manifest found for "${cli}".` })
       return
     }
-    const target = resolveInstallPlatform(platform, useWsl)
+    const target = resolveInstallPlatform(platform, hostId)
     if (target !== 'wsl' && target !== 'win32') {
       posix.push(index)
       return
     }
-    const group = groups.get(target) ?? []
-    group.push({
+    const group = groups.get(hostId) ?? { target, items: [] }
+    group.items.push({
       index,
       binary: resolveBinary(manifest, runtime),
       versionArgs: manifest.detect?.versionArgs ?? ['--version'],
     })
-    groups.set(target, group)
+    groups.set(hostId, group)
   })
 
   const env = deps.env ?? defaultProbeEnv()
@@ -605,10 +639,10 @@ export async function detectCliBatch(
     ...posix.map(async (index) => {
       results[index] = await detectCli(requests[index].cli, requests[index].runtime, deps.env)
     }),
-    ...[...groups].map(async ([target, items]) => {
-      const answers = await runBatchGroup(target, items, deps, env)
+    ...[...groups].map(async ([hostId, { target, items }]) => {
+      const answers = await runBatchGroup(target, hostId, items, deps, env)
       items.forEach((item, position) => {
-        results[item.index] = detectResult(requests[item.index].cli, item.binary, target === 'wsl', answers[position])
+        results[item.index] = detectResult(requests[item.index].cli, item.binary, hostId, answers[position])
       })
     }),
   ])
@@ -621,7 +655,7 @@ export async function detectCli(
   env?: NodeJS.ProcessEnv,
 ): Promise<CliDetectResult> {
   const manifest = getPluginManifest(cli)
-  const useWsl = runtime?.useWsl ?? false
+  const hostId = runtimeHostId(runtime)
   if (!manifest) {
     return {
       cli,
@@ -629,12 +663,12 @@ export async function detectCli(
       installed: false,
       version: null,
       resolvedPath: null,
-      useWsl,
+      hostId,
       error: `No plugin manifest found for "${cli}".`,
     }
   }
   const binary = resolveBinary(manifest, runtime)
-  const target = resolveInstallPlatform(process.platform, useWsl)
+  const target = resolveInstallPlatform(process.platform, hostId)
   // On Windows a single CLI goes through the batch too, so every probe there
   // is built, run and read one way.
   if (target === 'wsl' || target === 'win32') {
@@ -661,7 +695,7 @@ export async function detectCli(
         installed: false,
         version: null,
         resolvedPath: null,
-        useWsl,
+        hostId,
         error: 'No login shell answered with a PATH to look the binary up on.',
       }
     }
@@ -671,7 +705,7 @@ export async function detectCli(
       installed: parsed.installed,
       version: parsed.version,
       resolvedPath: parsed.resolvedPath,
-      useWsl,
+      hostId,
       error: null,
     }
   } catch (error) {
@@ -681,15 +715,19 @@ export async function detectCli(
       installed: false,
       version: null,
       resolvedPath: null,
-      useWsl,
+      hostId,
       error: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
-async function prerequisiteAvailable(requires: string, target: PluginInstallPlatform): Promise<boolean> {
+async function prerequisiteAvailable(
+  requires: string,
+  target: PluginInstallPlatform,
+  distro: string | null,
+): Promise<boolean> {
   try {
-    const outcome = await runDescriptor(buildExistsDescriptor({ binary: requires, target }))
+    const outcome = await runDescriptor(buildExistsDescriptor({ binary: requires, target, distro }))
     return outcome.code !== NOT_FOUND_EXIT
   } catch {
     return false
@@ -706,13 +744,12 @@ export async function cliInstallMethods(
 ): Promise<CliInstallMethodInfo[]> {
   const manifest = getPluginManifest(cli)
   if (!manifest) return []
-  const useWsl = runtime?.useWsl ?? false
-  const target = resolveInstallPlatform(process.platform, useWsl)
-  await knowWslDistro(target)
+  const target = resolveInstallPlatform(process.platform, runtime?.hostId)
+  const distro = await wslDistroFor(target, runtime?.hostId)
   const methods = selectInstallMethods(manifest, target)
   const infos = await Promise.all(
     methods.map(async (method): Promise<CliInstallMethodInfo> => {
-      const available = method.requires ? await prerequisiteAvailable(method.requires, target) : true
+      const available = method.requires ? await prerequisiteAvailable(method.requires, target, distro) : true
       return {
         id: method.id,
         label: method.label,
@@ -733,7 +770,6 @@ export async function installCli(
   onData?: (chunk: string) => void,
 ): Promise<CliInstallResult> {
   const manifest = getPluginManifest(input.cli)
-  const useWsl = runtime?.useWsl ?? false
   if (!manifest) {
     return {
       ok: false,
@@ -745,8 +781,8 @@ export async function installCli(
       error: `No plugin manifest found for "${input.cli}".`,
     }
   }
-  const target = resolveInstallPlatform(process.platform, useWsl)
-  await knowWslDistro(target)
+  const target = resolveInstallPlatform(process.platform, runtime?.hostId)
+  const distro = await wslDistroFor(target, runtime?.hostId)
   const method = selectInstallMethods(manifest, target).find((entry) => entry.id === input.methodId)
   if (!method) {
     return {
@@ -776,7 +812,11 @@ export async function installCli(
 
   let runError: string | null = null
   try {
-    const outcome = await runDescriptor(buildInstallDescriptor({ shell: method.shell, target }), capture, installEnv)
+    const outcome = await runDescriptor(
+      buildInstallDescriptor({ shell: method.shell, target, distro }),
+      capture,
+      installEnv,
+    )
     if (outcome.code !== 0) {
       runError = `Install command exited with code ${outcome.code}.`
     }
@@ -808,10 +848,11 @@ export function buildUpdateDescriptor(input: {
   binary: string
   args: string[]
   target: PluginInstallPlatform
+  distro?: string | null
 }): SpawnDescriptor {
-  const { binary, args, target } = input
+  const { binary, args, target, distro } = input
   if (isPosixTarget(target)) {
-    return shellDescriptorForScript(target, [binary, ...args].map(posixSingleQuote).join(' '))
+    return shellDescriptorForScript(target, [binary, ...args].map(posixSingleQuote).join(' '), distro)
   }
   return shellDescriptorForScript(target, `& ${[binary, ...args].map(powerShellSingleQuote).join(' ')}`)
 }
@@ -838,8 +879,8 @@ export async function updateCli(
       error: `No plugin manifest found for "${cli}".`,
     }
   }
-  const target = resolveInstallPlatform(process.platform, runtime?.useWsl ?? false)
-  await knowWslDistro(target)
+  const target = resolveInstallPlatform(process.platform, runtime?.hostId)
+  const distro = await wslDistroFor(target, runtime?.hostId)
 
   if (manifest.update?.args?.length) {
     const binary = resolveBinary(manifest, runtime)
@@ -854,7 +895,7 @@ export async function updateCli(
     let runError: string | null = null
     try {
       const outcome = await runDescriptor(
-        buildUpdateDescriptor({ binary, args: manifest.update.args, target }),
+        buildUpdateDescriptor({ binary, args: manifest.update.args, target, distro }),
         capture,
         updateEnv,
       )
@@ -897,7 +938,11 @@ export async function updateCli(
     const updateEnv = managedInstallEnv() ?? undefined
     let runError: string | null = null
     try {
-      const outcome = await runDescriptor(buildInstallDescriptor({ shell: chosen.command, target }), capture, updateEnv)
+      const outcome = await runDescriptor(
+        buildInstallDescriptor({ shell: chosen.command, target, distro }),
+        capture,
+        updateEnv,
+      )
       if (outcome.code !== 0) runError = `Update command exited with code ${outcome.code}.`
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)

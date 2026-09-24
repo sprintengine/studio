@@ -426,7 +426,7 @@ test('persistenceSlice', async () => {
     workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
     activeWorkspaceId: 'ws-standard',
     appSettings: {
-      cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+      cliRuntimes: { codex: { command: 'codex', models: ['o4-mini'] } },
       cliModelCatalog: {
         codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
         grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' },

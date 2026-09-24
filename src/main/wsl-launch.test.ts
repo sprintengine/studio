@@ -5,16 +5,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test, vi } from 'vitest'
 
+import type { McpServerConfig } from '../shared/agent-state'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { AGENT_IDENTITY_ENV_KEYS } from '../shared/studio-env'
 import { buildAgentStateReporterCommand, installAgentStateReporter } from './agent-state'
 import { createMcpConfigService } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
-import { syncStudioMcpConfig } from './studio-mcp-sync'
+import { mcpServersForWsl, syncStudioMcpConfig } from './studio-mcp-sync'
 import {
   applyAgentIdentityEnv,
   cleanupTerminalStartupScript,
+  getPlainShellLaunchConfig,
   getShellLaunchConfig,
   wslStartupArgs,
 } from './terminal-launch'
@@ -24,7 +26,7 @@ import {
   __setDefaultWslDistroForTest,
   wslSessionPidFileCommand,
   wslSessionPidKey,
-} from './wsl-host'
+} from './hosts/wsl-distro'
 import { mergeWslEnv, withWslSharedEnv, wslInteropEnv } from './wsl-interop'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
@@ -263,6 +265,33 @@ test('the MCP gateway written for a native launch carries no WSLENV', async () =
   assert.doesNotMatch(readFileSync(join(root, '.mcp.json'), 'utf8'), /WSLENV/u)
 })
 
+// An agent launch on a WSL machine, the way the terminal runtime makes one:
+// the host's launch target rides as the last argument.
+function launchInWsl(
+  cwd: string,
+  sessionId: string,
+  target: { kind: 'wsl'; distro: string | null; env: Record<string, string>; shell?: string },
+): ReturnType<typeof getShellLaunchConfig> {
+  return getShellLaunchConfig(
+    cwd,
+    sessionId,
+    false,
+    'claude-code',
+    'hello',
+    { 'claude-code': { command: 'claude', hostId: target.distro ? `wsl:${target.distro}` : undefined } },
+    'manual',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    target,
+  )
+}
+
 test('an agent launched through WSL shares its identity with the Linux side', () => {
   const cwd = join(temp, 'workspace')
   mkdirSync(cwd, { recursive: true })
@@ -270,9 +299,7 @@ test('an agent launched through WSL shares its identity with the Linux side', ()
   Object.defineProperty(process, 'platform', { value: 'win32' })
   let config: ReturnType<typeof getShellLaunchConfig>
   try {
-    config = getShellLaunchConfig(cwd, 'sid-wsl', false, 'claude-code', 'hello', {
-      'claude-code': { command: 'claude', useWsl: true },
-    })
+    config = launchInWsl(cwd, 'sid-wsl', { kind: 'wsl', distro: null, env: {} })
   } finally {
     if (platform) Object.defineProperty(process, 'platform', platform)
   }
@@ -328,9 +355,7 @@ test('an agent launched through WSL names the distribution and records its shell
   Object.defineProperty(process, 'platform', { value: 'win32' })
   let config: ReturnType<typeof getShellLaunchConfig>
   try {
-    config = getShellLaunchConfig(cwd, 'sid-distro', false, 'claude-code', 'hello', {
-      'claude-code': { command: 'claude', useWsl: true },
-    })
+    config = launchInWsl(cwd, 'sid-distro', { kind: 'wsl', distro: null, env: {} })
   } finally {
     if (platform) Object.defineProperty(process, 'platform', platform)
     __resetWslHostForTest()
@@ -344,4 +369,96 @@ test('an agent launched through WSL names the distribution and records its shell
   } finally {
     cleanupTerminalStartupScript(config.startupScriptPath)
   }
+})
+
+test("a launch on a WSL machine runs in the machine's distribution, whatever folder it opens", () => {
+  const cwd = join(temp, 'workspace-machine')
+  mkdirSync(cwd, { recursive: true })
+  __setDefaultWslDistroForTest('Debian')
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  let config: ReturnType<typeof getShellLaunchConfig>
+  try {
+    config = launchInWsl(cwd, 'sid-machine', {
+      kind: 'wsl',
+      distro: 'Ubuntu',
+      env: { NODE_OPTIONS: "--max-old-space-size=4096 --title='x'", 'bad-name': 'nope' },
+      shell: 'zsh -l',
+    })
+  } finally {
+    if (platform) Object.defineProperty(process, 'platform', platform)
+    __resetWslHostForTest()
+  }
+  try {
+    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'], 'the machine, not the default distribution')
+    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
+    assert.ok(script.includes(`export NODE_OPTIONS='--max-old-space-size=4096 --title='"'"'x'"'"''`), script)
+    assert.ok(!script.includes('bad-name'), 'a name no shell can export is left out')
+    assert.ok(script.trimEnd().endsWith('exec zsh -l'), 'the tab ends in the machine shell')
+    // The machine's environment comes before the launch's own exports, so a
+    // provider's endpoint still wins over a machine-wide default.
+    assert.ok(script.indexOf('export NODE_OPTIONS') < script.indexOf(`cd '`), script)
+  } finally {
+    cleanupTerminalStartupScript(config.startupScriptPath)
+  }
+})
+
+test('a plain terminal on a WSL machine opens in its distribution with its shell', () => {
+  const cwd = join(temp, 'workspace-plain')
+  mkdirSync(cwd, { recursive: true })
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  let config: ReturnType<typeof getPlainShellLaunchConfig>
+  try {
+    config = getPlainShellLaunchConfig(cwd, 'plain-machine', { kind: 'wsl', distro: 'Ubuntu', env: { A: '1' } })
+  } finally {
+    if (platform) Object.defineProperty(process, 'platform', platform)
+  }
+  try {
+    assert.equal(config.command, 'wsl.exe')
+    assert.equal(config.pathStyle, 'wsl')
+    assert.deepEqual(config.args.slice(0, 2), ['-d', 'Ubuntu'])
+    const script = readFileSync(config.startupScriptPath ?? '', 'utf8')
+    assert.ok(script.includes("export A='1'"), script)
+    assert.ok(script.trimEnd().endsWith('exec bash -li'), 'no configured shell: a login bash, as always')
+  } finally {
+    cleanupTerminalStartupScript(config.startupScriptPath)
+  }
+})
+
+test("the person's own MCP servers are handed to a CLI in WSL with Linux paths", () => {
+  const base: Pick<McpServerConfig, 'enabled' | 'clients' | 'scope' | 'source' | 'riskLevel'> = {
+    enabled: true,
+    clients: ['claude-code'],
+    scope: 'workspace',
+    source: 'custom',
+    riskLevel: 'local-command',
+  }
+  const { servers, warnings } = mcpServersForWsl({
+    files: {
+      ...base,
+      id: 'files',
+      name: 'Files',
+      transport: 'stdio',
+      command: 'C:\\tools\\mcp\\files-server',
+      args: ['--root', 'C:\\Users\\dev\\notes', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\cfg.json', '--flag'],
+    },
+    npx: { ...base, id: 'npx', name: 'Npx', transport: 'stdio', command: 'npx', args: ['-y', '@acme/mcp'] },
+    exe: { ...base, id: 'exe', name: 'Windows only', transport: 'stdio', command: 'C:\\tools\\server.exe' },
+    web: { ...base, id: 'web', name: 'Web', transport: 'http', url: 'https://example.com/mcp' },
+  })
+  assert.equal(servers.files.command, '/mnt/c/tools/mcp/files-server')
+  assert.deepEqual(servers.files.args, ['--root', '/mnt/c/Users/dev/notes', '/home/dev/cfg.json', '--flag'])
+  assert.deepEqual(servers.npx, {
+    ...base,
+    id: 'npx',
+    name: 'Npx',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@acme/mcp'],
+  })
+  assert.equal(servers.web.url, 'https://example.com/mcp')
+  assert.equal(servers.exe.command, '/mnt/c/tools/server.exe', 'still written, so interop can start it')
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /Windows only.*WSL interop/u)
 })

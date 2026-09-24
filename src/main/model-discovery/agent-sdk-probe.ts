@@ -9,6 +9,7 @@
 // `opus[1m]`, `sonnet`) is a first-class id: the CLI resolves it to its current
 // model at launch, which is the reason to offer the alias at all. Its
 // `resolvedModel` is kept as a display hint only (see DiscoveredCliModel).
+import { isWslHostId } from '../../shared/execution-host'
 import { isAbsolute } from 'path'
 import type { ModelInfo, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
@@ -79,10 +80,10 @@ function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
 }
 
 export async function probeAgentSdkModels(
-  context: Pick<CliModelProbeContext, 'binary' | 'useWsl' | 'timeoutMs' | 'displayName'>,
+  context: Pick<CliModelProbeContext, 'binary' | 'hostId' | 'timeoutMs' | 'displayName'>,
   deps: AgentSdkProbeDeps = {},
 ): Promise<DiscoveredCliModel[]> {
-  if (context.useWsl) {
+  if (isWslHostId(context.hostId)) {
     throw new CliModelProbeError(`${context.displayName} models cannot be listed under WSL yet.`)
   }
   if (!isAbsolute(context.binary)) {

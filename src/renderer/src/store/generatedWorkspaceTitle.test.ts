@@ -127,7 +127,7 @@ test('generatedWorkspaceTitle', async () => {
     await run('an ok result is applied against the interim heuristic title', async () => {
       const { requester, requests, applied } = harness({
         heuristic: 'Fix the stash panel',
-        cliRuntimes: { codex: { command: '/opt/codex', useWsl: false } },
+        cliRuntimes: { codex: { command: '/opt/codex' } },
         results: [{ ok: true, value: 'Stash panel loses its hash', ms: 42 }],
       })
       requester.titleFromPrompt(WS, 'fix the stash panel dropping its hash')
@@ -136,7 +136,7 @@ test('generatedWorkspaceTitle', async () => {
         {
           prompt: 'fix the stash panel dropping its hash',
           engine: ENGINE,
-          cliRuntimes: { codex: { command: '/opt/codex', useWsl: false } },
+          cliRuntimes: { codex: { command: '/opt/codex' } },
         },
       ])
       assert.deepEqual(applied, [[WS, 'Stash panel loses its hash', 'Fix the stash panel']])

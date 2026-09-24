@@ -42,16 +42,16 @@ export function resolveDebugSkillInvocation(plugin: LoadedPlugin): string | unde
   return resolveSkillInvocation(plugin.manifest.skillIntegration, DEBUG_SKILL_ID)
 }
 
-// Resolves the effective command/WSL override for a launch. Uses the plugin-id
-// key only; a blank command means "use the manifest binary".
+// Resolves the effective command override for a launch, and the machine it is
+// for. Uses the plugin-id key only; a blank command means "use the manifest
+// binary".
 export function resolveCliRuntimeSettings(
   cli: AgentCli,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
 ): CliRuntimeSettings {
   const direct = cliRuntimes?.[cli]
   const command = (typeof direct?.command === 'string' ? direct.command : undefined) ?? ''
-  const useWsl = direct?.useWsl ?? false
-  return { command: command.trim(), useWsl }
+  return { command: command.trim(), ...(direct?.hostId ? { hostId: direct.hostId } : {}) }
 }
 
 export type AgentLaunchRenderInput = {

@@ -11,6 +11,7 @@ import type {
   TerminalSpawnResult,
 } from '../../shared/electron-api'
 import type { AgentLaunchRecord } from '../../shared/agent-launch'
+import type { ExecutionHostId } from '../../shared/execution-host'
 
 export type TerminalSpawnPayload = {
   sessionId: string
@@ -29,6 +30,8 @@ export type TerminalSpawnPayload = {
   cliSessionId?: string
   kind?: TerminalKind
   workspaceId?: string
+  // The machine to run on; see TerminalSpawnMetadata.hostId.
+  hostId?: ExecutionHostId
   agentId?: string
   agentName?: string
   terminalId?: string

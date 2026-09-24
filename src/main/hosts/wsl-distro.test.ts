@@ -17,7 +17,7 @@ import {
   wslScriptDescriptor,
   wslSessionPidFileCommand,
   wslSessionPidKey,
-} from './wsl-host'
+} from './wsl-distro'
 
 afterEach(() => __resetWslHostForTest())
 

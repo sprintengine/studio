@@ -530,10 +530,10 @@ test('ProviderRow', async () => {
           health={state.tone}
           name="Claude"
           version={state.version}
-          stateLine={<CliProviderStateLine state={state} binary="claude" useWsl />}
+          stateLine={<CliProviderStateLine state={state} binary="claude" machineLabel="WSL: Ubuntu" />}
         />,
       )
-      assert.match(host.textContent ?? '', /Ready — \/usr\/local\/bin\/claude · through WSL/)
+      assert.match(host.textContent ?? '', /Ready — \/usr\/local\/bin\/claude · WSL: Ubuntu/)
       const monos = [...host.querySelectorAll('.font-mono')].map((node) => node.textContent)
       assert.ok(monos.includes('/usr/local/bin/claude'), 'the path renders mono — identifiers are mono, prose is not')
       unmount(root, host)
