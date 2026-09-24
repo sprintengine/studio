@@ -151,3 +151,32 @@ test('a hidden pane is never waited on, even when late acks for what it was sent
   emit('c'.repeat(HIGH * 2))
   assert.deepEqual(flow, ['pause'])
 })
+
+test('live data the runtime sends itself (a reveal catch-up) is counted in flight', () => {
+  const { buffer, emit, flow, session } = harness()
+  emit('a'.repeat(20))
+  buffer.flush(session.sessionId)
+  buffer.ack(session.sessionId, 20)
+  // A reveal: the pane is forgotten, then sent what it missed in one go.
+  buffer.resetRendererFlow(session.sessionId)
+  buffer.noteRendererSent(session.sessionId, HIGH * 3)
+  assert.equal(buffer.rendererBacklog(session.sessionId), HIGH * 3)
+  assert.deepEqual(flow, [], 'not waited on until it acks after the reset')
+  buffer.ack(session.sessionId, 10)
+  assert.deepEqual(flow, ['pause'], 'its acks are for units main counted, so the backlog is real')
+  buffer.ack(session.sessionId, HIGH * 3 - 10)
+  assert.deepEqual(flow, ['pause', 'resume'])
+})
+
+test('trimming a pending batch never starts inside a multi-byte character', () => {
+  const { buffer, session, sent } = harness()
+  // Three bytes a character, and a byte cut that lands two bytes into one.
+  const data = '€'.repeat(90_000)
+  buffer.send(session, 'a', 1)
+  buffer.send(session, data, Buffer.byteLength(data))
+  buffer.flush(session.sessionId)
+  const forwarded = String(sent[sent.length - 1]?.payload ?? '')
+  assert.ok(forwarded.includes('throttled'), 'the bound was hit')
+  assert.equal(forwarded.includes('�'), false, 'no replacement character after the notice')
+  assert.ok(forwarded.endsWith('€€€'))
+})

@@ -426,7 +426,6 @@ export default function PlainTerminalPanel({
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
-      sessionId,
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
     })

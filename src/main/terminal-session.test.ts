@@ -61,6 +61,7 @@ test('terminal-session', async () => {
     assertVisibilityRecordingUpdatesRecency()
     assertStaleRuleExemptsVisibleSessionsWithLiveSender()
     assertStaleRuleUsesMostRecentUserSignal()
+    assertStaleRuleCountsFromTheLastMomentOnScreen()
     assertSuspendedSessionIsNotAlive()
     assertPlaceholderIdlesSinceTheTurnEnd()
     assertFileLedgerAccumulatesAndStaysBounded()
@@ -761,6 +762,30 @@ test('terminal-session', async () => {
 
     assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS), false)
     assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+  }
+
+  // `visible` means painted now: a minimized or locked window reports its panes
+  // hidden. A paused agent that sat on screen for days with no output must not
+  // be disposed — deleting the sidecar it reopens on after a restart — the
+  // moment its window is minimized. The backstop counts from when it was last
+  // on screen, and a hide repeated while hidden is not a look.
+  function assertStaleRuleCountsFromTheLastMomentOnScreen(): void {
+    const startedAt = 1_000
+    const session = createSession({ startedAt, visible: false })
+    recordTerminalVisibility(session, true, 2_000)
+    const minimizedAt = startedAt + STALE_TERMINAL_MAX_UNSEEN_MS * 3
+    recordTerminalVisibility(session, false, minimizedAt)
+    assert.equal(
+      isTerminalSessionStale(session, minimizedAt + 60_000),
+      false,
+      'on screen until a minute ago: not stale, however old its last output',
+    )
+    assert.equal(isTerminalSessionStale(session, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+
+    // Hidden, and told so again later (a window re-reporting its panes): the
+    // repeat is not time on screen.
+    recordTerminalVisibility(session, false, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS)
+    assert.equal(isTerminalSessionStale(session, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
   }
 
   // Freeze-the-view: a suspended session's pty is killed, so it reports not-alive

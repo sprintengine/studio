@@ -9,6 +9,7 @@ import type {
   TerminalKind,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
 } from '../../shared/electron-api'
 import type { AgentLaunchRecord } from '../../shared/agent-launch'
 import type { ExecutionHostId } from '../../shared/execution-host'
@@ -78,7 +79,12 @@ type TerminalIpcDependencies = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   getTerminalStatus(sessionId: string, sender?: WebContents): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
-  setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
+  setTerminalVisible(
+    sessionId: string,
+    visible: boolean,
+    sender?: WebContents,
+    options?: TerminalVisibilityOptions,
+  ): void
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
@@ -138,8 +144,8 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
 
   ipcMain.handle(
     'terminal:set-visible',
-    (event, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
-      deps.setTerminalVisible(sessionId, visible, event.sender)
+    (event, { sessionId, visible, freshPane }: { sessionId: string; visible: boolean; freshPane?: boolean }): void => {
+      deps.setTerminalVisible(sessionId, visible, event.sender, freshPane === true ? { freshPane: true } : undefined)
     },
   )
 

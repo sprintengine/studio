@@ -178,6 +178,10 @@ export type TerminalSession = {
   // while this is above zero is held as working (agent-state.ts,
   // holdTurnEndForBackgroundWork). Reset on a session start and on a stall.
   backgroundWork?: number
+  // When the newest background stop that closed nothing was stamped; a start
+  // stamped at or before it is not counted (agent-state.ts,
+  // `backgroundStartAlreadyClosed`).
+  unmatchedBackgroundStopAt?: number
   // The retained pty stream, as UTF-8 bytes (terminal-replay-buffer.ts). Its
   // `truncated` flag is what licenses the head resync in
   // {@link materializeTerminalReplay}: an untouched buffer starts where the CLI
@@ -242,6 +246,10 @@ export type TerminalSession = {
   lastOutputAt: number | null
   lastInputAt: number | null
   lastVisibleAt: number | null
+  // The last moment this session was painted in a pane someone could see:
+  // stamped while it is shown and when it stops being shown, never by a hide
+  // repeated while it was already hidden. See `isTerminalSessionStale`.
+  lastOnScreenAt?: number
   pendingResize?: TerminalSize
   // Last dimensions actually applied to the pty. A reveal/tab-switch re-fits to
   // the SAME size; resizing the pty then makes the alt-screen TUI repaint, and
@@ -339,12 +347,13 @@ export function recordTerminalInput(session: TerminalSession, at = Date.now()): 
 // "the user looked at this": becoming visible marks the view starting, and
 // becoming hidden marks the moment the user navigated away.
 export function recordTerminalVisibility(session: TerminalSession, visible: boolean, at = Date.now()): void {
+  if (visible || session.visible) session.lastOnScreenAt = at
   session.visible = visible
   session.lastVisibleAt = at
 }
 
-// A terminal with no mounted view (the separate visible guard below), no input,
-// and no output for this long is reaped by the main-process sweep.
+// A terminal nobody has seen on screen, typed into, or had output from for
+// this long is reaped by the main-process sweep.
 export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 
 // "When real activity last happened on this terminal": the spawn moment plus the
@@ -352,10 +361,27 @@ export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 // opening a workspace or clicking a tab marks a terminal visible, and counting
 // that would reset the idle clock every time the user just *looked*. Idle reaping
 // must key off real interaction (typing) and real work (output), not attention.
-// lastVisibleAt is still recorded for the snapshot/diagnostics, and the
-// currently-on-screen guard lives separately in isTerminalSessionStale.
+// lastVisibleAt is still recorded for the snapshot/diagnostics; the stale
+// backstop adds on-screen time separately, in isTerminalSessionStale.
 export function getTerminalLastSeenAt(session: TerminalSession): number {
   return Math.max(session.startedAt, session.lastInputAt ?? 0, session.lastOutputAt ?? 0)
+}
+
+/**
+ * The start of the stretch the stale backstop measures: the later of the last
+ * real activity and the last moment the session was on screen.
+ *
+ * On-screen time counts here because disposing is not idle suspension: it
+ * deletes a paused or finished agent's snapshot sidecar, and with it the screen
+ * and history that agent reopens on after a restart. `visible` alone cannot be
+ * the guard any more, because it now means "painted" — a minimized or locked
+ * window and an inactive workspace all report their panes hidden — and a
+ * paused agent whose last output was days ago would be disposed at the first
+ * sweep after its window was minimized. Counting from when it was last shown
+ * reaps only what nobody has looked at for the whole window.
+ */
+export function getTerminalUnseenSince(session: TerminalSession): number {
+  return Math.max(getTerminalLastSeenAt(session), session.lastOnScreenAt ?? 0)
 }
 
 export function isTerminalSessionStale(
@@ -364,10 +390,10 @@ export function isTerminalSessionStale(
   maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS,
 ): boolean {
   if (session.isDisposed) return false
-  // A session with a mounted TerminalView is on screen somewhere; only treat
-  // the visible flag as live while its window still exists.
+  // A session painted in a pane right now is on screen; only trust the flag
+  // while its window still exists.
   if (session.visible && !session.sender.isDestroyed()) return false
-  return now - getTerminalLastSeenAt(session) > maxUnseenMs
+  return now - getTerminalUnseenSince(session) > maxUnseenMs
 }
 
 export function markTerminalExited(session: TerminalSession, exitCode: number, at = Date.now()): void {

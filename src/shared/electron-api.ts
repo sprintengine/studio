@@ -378,6 +378,7 @@ import type {
   TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
   WorkspaceRegistryHydrateResult,
 } from './ipc/terminal'
 import type {
@@ -1204,7 +1205,7 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
-  terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
+  terminalSetVisible: (sessionId: string, visible: boolean, options?: TerminalVisibilityOptions) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,
   // resumable session; resume relaunches it (mirrors terminalSpawn's payload,
   // forced --resume) on the first keystroke.

@@ -211,6 +211,8 @@ import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { showAppUpdateReadyToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
+import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
+import { shouldSendTerminalPaintVisibility } from './manager/terminalPaintVisibility'
 import {
   closeActiveLayoutTab,
   cycleActiveLayoutTab,
@@ -1671,6 +1673,10 @@ export default function WorkspaceManager() {
   //
   // Only sessions routed to THIS window are touched; a workspace lives in
   // exactly one window, so windows never fight over a session's visibility.
+  //
+  // What main reports is checked as well as what this effect last sent: a pane
+  // mounting states its own visibility, and can leave main believing something
+  // else (see `shouldSendTerminalPaintVisibility`).
   const windowShowsTerminals = useWindowPageVisible()
   useEffect(() => {
     const paintingWorkspaceId = windowShowsTerminals ? windowActiveWorkspaceId : null
@@ -1682,7 +1688,13 @@ export default function WorkspaceManager() {
       if (typeof workspaceId !== 'string' || !visibleWorkspaceIdSet.has(workspaceId)) continue
       liveSessionIds.add(session.sessionId)
       const shouldPaint = workspaceId === paintingWorkspaceId
-      if (applied.get(session.sessionId) === shouldPaint) continue
+      const send = shouldSendTerminalPaintVisibility({
+        shouldPaint,
+        lastSent: applied.get(session.sessionId),
+        mainVisible: session.visible !== false,
+        paneMounted: hasTerminalInstance(session.sessionId),
+      })
+      if (!send) continue
       applied.set(session.sessionId, shouldPaint)
       void window.api.terminalSetVisible(session.sessionId, shouldPaint).catch(() => {})
     }

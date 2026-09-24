@@ -10,6 +10,7 @@ import type {
   TerminalPathStyle,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
 } from '../shared/electron-api'
 import type {
   AgentPhaseEvent,
@@ -22,6 +23,7 @@ import type { AgentPromptStore } from './agent-prompt-store'
 import {
   agentStateSpecReportsPrompts,
   applyBackgroundWork,
+  backgroundStartAlreadyClosed,
   deriveActivityFromPhase,
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
@@ -73,7 +75,7 @@ import {
   createInitialAgentState,
   createInitialTerminalActivity,
   createSuspendedPlaceholderSession,
-  getTerminalLastSeenAt,
+  getTerminalUnseenSince,
   getTerminalSize,
   getTerminalSnapshot,
   getTerminalSnapshotBase,
@@ -245,7 +247,12 @@ type TerminalIpcHandlers = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   getTerminalStatus(sessionId: string, sender?: WebContents): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
-  setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
+  setTerminalVisible(
+    sessionId: string,
+    visible: boolean,
+    sender?: WebContents,
+    options?: TerminalVisibilityOptions,
+  ): void
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
@@ -870,9 +877,22 @@ function flushTerminalSessionsBroadcast(): void {
   }
 }
 
-function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void {
+function setTerminalVisible(
+  sessionId: string,
+  visible: boolean,
+  sender?: WebContents,
+  options?: TerminalVisibilityOptions,
+): void {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return
+  // A pane that has just been built holds nothing, whatever the last pane in
+  // its place was sent. Forget that, so the reveal below (now or later) paints
+  // it in full instead of "catching up" an empty xterm by zero bytes.
+  const freshPane = options?.freshPane === true
+  if (freshPane) {
+    session.rendererDeliveredOffset = undefined
+    session.rendererDeliveredTo = undefined
+  }
   // A suspended session has no live pty routing output anywhere, and its
   // recorded sender can be a dead window (or the noop sender of a placeholder
   // rehydrated from a snapshot sidecar). Adopt the revealing window so the
@@ -890,28 +910,40 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
   // pay this.
   const wasVisible = session.visible
   const becameVisible = visible && session.visible === false
-  // A suspended session's reveal must be IDEMPOTENT, not edge-triggered: a
-  // renderer window reload or a TerminalView remount that never delivered its
-  // unmount hide leaves `session.visible === true` in main, so the fresh xterm's
-  // reveal misses the hidden→visible edge and — with a dead pty that will never
-  // repaint — stays blank forever under the Paused footer. Resending the replay
-  // to a suspended session is cheap (no live output to duplicate) and the
-  // renderer replay gate resets before applying, so repeats are safe.
-  const shouldReplay = becameVisible || (visible && session.suspended === true)
+  // A suspended session's reveal must not be only edge-triggered: a renderer
+  // window reload or a TerminalView remount that never delivered its unmount
+  // hide leaves `session.visible === true` in main, so the fresh xterm's reveal
+  // misses the hidden→visible edge and — with a dead pty that will never
+  // repaint — stays blank forever under the Paused footer. So a suspended
+  // session is repainted whenever main cannot vouch that this pane already has
+  // its screen: a fresh pane (above), a window it was never sent to. A repeat
+  // reveal of a pane that does have it sends nothing — the frozen screen can be
+  // a couple of megabytes, and a workspace switch should not repaint it.
+  const shouldReplay =
+    becameVisible || (visible && (freshPane || (session.suspended === true && !rendererHoldsSessionOutput(session))))
   if (becameVisible) {
     // Drop any batch buffered-but-not-forwarded while hidden: it is already in
     // the retained replay we are about to send, so forwarding it after the
     // replay would duplicate the tail.
     terminalOutput.flush(sessionId, 'visibility')
+  } else if (shouldReplay) {
+    // A fresh pane shown without a hidden→visible edge: the replay below holds
+    // whatever batch was queued for the pane it replaces.
+    terminalOutput.discardRenderer(sessionId)
   }
   recordTerminalVisibility(session, visible)
   // A pane going hidden or coming back has nothing in flight worth waiting on:
   // a hidden one receives nothing, and a revealed one is about to be caught up.
-  if (visible !== wasVisible) terminalOutput.resetRendererFlow(sessionId)
+  // Nor has a fresh one: it has been sent nothing yet.
+  if (visible !== wasVisible || freshPane) terminalOutput.resetRendererFlow(sessionId)
   if (shouldReplay) {
     const catchUp = becameVisible ? revealCatchUp(session) : null
     if (catchUp !== null) {
-      if (catchUp) sendTerminalEvent(session.sender, `terminal:data:${sessionId}`, catchUp)
+      if (catchUp) {
+        sendTerminalEvent(session.sender, `terminal:data:${sessionId}`, catchUp)
+        // Only a live pty has a flow to hold back; a dead one's state is gone.
+        if (isTerminalProcessAlive(session)) terminalOutput.noteRendererSent(sessionId, catchUp.length)
+      }
       noteRendererCaughtUp(session)
       logMainPerfEvent('TerminalRuntime', 'terminal-reveal-catch-up-sent', {
         sessionId,
@@ -958,17 +990,29 @@ function setTerminalVisible(sessionId: string, visible: boolean, sender?: WebCon
  * hidden would be.
  *
  * Null (repaint in full) whenever that reasoning does not hold:
- *   - a suspended session, or one showing its frozen snapshot: there is no live
- *     stream to continue, and the snapshot is a different thing from it;
+ *   - a suspended session, or one showing its frozen snapshot, that produced
+ *     output the pane was not sent: there is no live stream to continue, and
+ *     the snapshot is a different thing from it;
  *   - the pane is in a different window from the one that was sent the bytes
  *     (the session was adopted by another window since);
  *   - nothing was ever sent to it, or what it missed has already been cut from
  *     the head of the retained window.
  */
 function revealCatchUp(session: TerminalSession): string | null {
+  if (!rendererHoldsSessionOutput(session)) return null
+  const deliveredOffset = session.rendererDeliveredOffset as number
+  // Nothing arrived while it was hidden: the pane is already exactly right.
+  // This holds for a settled session too — releasing its stream keeps the
+  // stream's end offset — so a finished or paused agent the pane watched to
+  // the end is not reset and repainted on every workspace switch.
+  if (deliveredOffset === session.output.endOffset) return ''
   if (session.suspended || session.replaySnapshot) return null
-  if (session.rendererDeliveredOffset === undefined || session.rendererDeliveredTo !== session.sender) return null
-  return session.output.readFrom(session.rendererDeliveredOffset)
+  return session.output.readFrom(deliveredOffset)
+}
+
+/** Whether the session's current pane was sent its output, by this window. */
+function rendererHoldsSessionOutput(session: TerminalSession): boolean {
+  return session.rendererDeliveredOffset !== undefined && session.rendererDeliveredTo === session.sender
 }
 
 /** The pane now holds everything the session has produced, by replay or by catch-up. */
@@ -1502,10 +1546,11 @@ function stopStaleTerminalSweep(): void {
   staleTerminalSweepTimer = undefined
 }
 
-// Reap terminals nobody has looked at for the stale window: no mounted view,
-// no user input, and no process output. Disposing through `disposeTerminal`
-// deliberately skips the renderer `terminal:exit` event, so agent launch flags
-// stay intact and reopening the workspace re-launches the CLI with resume.
+// Reap terminals nobody has looked at for the stale window: not on screen, no
+// user input, and no process output (see `getTerminalUnseenSince`). Disposing
+// through `disposeTerminal` deliberately skips the renderer `terminal:exit`
+// event, so agent launch flags stay intact and reopening the workspace
+// re-launches the CLI with resume.
 // `guardHolds` (sessionId → hold reason, built by the guarded sweep) names
 // sessions that must NOT be reaped this pass because killing the CLI would
 // abort live work under it; absent (legacy/test callers) means unguarded.
@@ -1529,7 +1574,7 @@ export function reapStaleTerminals(
   for (const sessionId of staleSessionIds) {
     const session = terminals.get(sessionId)
     if (!session) continue
-    const unseenMs = now - getTerminalLastSeenAt(session)
+    const unseenMs = now - getTerminalUnseenSince(session)
     logMainPerfEvent('TerminalRuntime', 'terminal-stale-reaped', {
       sessionId,
       kind: session.kind,
@@ -1538,7 +1583,7 @@ export function reapStaleTerminals(
       terminalId: session.terminalId,
       cli: session.cli,
       processAlive: isTerminalProcessAlive(session),
-      lastSeenAt: getTerminalLastSeenAt(session),
+      lastSeenAt: getTerminalUnseenSince(session),
       unseenMs,
     })
     recordReapEvent({
@@ -2541,8 +2586,20 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // working — Claude fires Stop when it parks the model on "waiting for N
   // background agents", and re-invokes it when they finish.
   const previousBackgroundWork = session.backgroundWork ?? 0
-  if (resolved.phase === 'starting') session.backgroundWork = 0
-  session.backgroundWork = applyBackgroundWork(session.backgroundWork ?? 0, resolved.background)
+  if (resolved.phase === 'starting') {
+    session.backgroundWork = 0
+    session.unmatchedBackgroundStopAt = undefined
+  }
+  // A start its own stop overtook in delivery is already closed; a stop that
+  // closes nothing is remembered so that start is recognized when it lands.
+  const background =
+    resolved.background === 'start' && backgroundStartAlreadyClosed(frame.ts, session.unmatchedBackgroundStopAt)
+      ? undefined
+      : resolved.background
+  if (background === 'stop' && (session.backgroundWork ?? 0) <= 0) {
+    session.unmatchedBackgroundStopAt = Math.max(session.unmatchedBackgroundStopAt ?? frame.ts, frame.ts)
+  }
+  session.backgroundWork = applyBackgroundWork(session.backgroundWork ?? 0, background)
   // The count is rendered ("2 running"), so a subagent starting or stopping is
   // a broadcast-worthy change even though it moves no phase.
   const backgroundWorkChanged = session.backgroundWork !== previousBackgroundWork
@@ -2800,6 +2857,12 @@ function attachTerminalSession(
   broadcastTerminalSessionsChanged(terminalSession)
 
   terminalSession.process.onData((data) => {
+    // A settled session's screen has been rendered and its stream released.
+    // What a dying CLI still writes after that (its goodbye text after a pause
+    // kill, a straggler after exit on Windows) is not part of the screen the
+    // pane and every reader now show, and keeping it would put a scrap of
+    // stream back behind the snapshot. The process is dead or dying: drop it.
+    if (terminalSession.replaySnapshot) return
     if (!terminalSession.isReady) {
       terminalSession.isReady = true
       flushPendingTerminalResize(sessionId, terminalSession)
@@ -3420,8 +3483,12 @@ function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
   // A paused or exited agent let go of its raw stream once its screen was
-  // rendered; the rendered screen and its scrollback carry the same text.
-  if (session.replaySnapshot && session.output.retainedBytes === 0) return session.replaySnapshot
+  // rendered, so what is left to read is that screen and the scrollback above
+  // it — rendered as deep as a live pane keeps it, so the history the agent
+  // printed is all there, as text laid out on the screen rather than as the
+  // raw stream (cursor movement and repaints already applied). A snapshot
+  // exists only once the stream behind it has been released.
+  if (session.replaySnapshot) return session.replaySnapshot
   return materializeTerminalReplay(session)
 }
 
@@ -3431,17 +3498,13 @@ function readTerminalOutputSince(sessionId: string, cursor: number): { text: str
   const read = readSessionOutputSince(session, cursor)
   // A paused or exited agent let go of its stream once its screen was
   // rendered. A reader that had not yet seen the end of that stream is handed
-  // the rendered screen, which carries the same text, instead of nothing: a
-  // pattern wait started after the release still sees what the agent printed.
+  // the rendered screen and its scrollback, which carry the text the stream
+  // did, instead of nothing: a pattern wait started after the release still
+  // sees what the agent printed.
   // The screen can repeat text that reader already had: which part it missed
   // cannot be told once the stream is gone, and a repeat is the lesser error
   // for a reader looking for the agent's last words.
-  if (
-    read.text === '' &&
-    (cursor === 0 || cursor < read.cursor) &&
-    session.replaySnapshot &&
-    session.output.retainedBytes === 0
-  ) {
+  if (read.text === '' && (cursor === 0 || cursor < read.cursor) && session.replaySnapshot) {
     return { text: session.replaySnapshot, cursor: read.cursor }
   }
   return { text: read.text, cursor: read.cursor }

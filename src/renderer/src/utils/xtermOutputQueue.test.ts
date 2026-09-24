@@ -36,6 +36,9 @@ test('xtermOutputQueue', async () => {
     assertResumeHoldReleasesOnExitWithoutSwapping()
     assertResumeHoldAppendsForAFreshRelaunch()
     assertResumeRevealDefersWhileReplayDraining()
+    assertReplayDuringResumeHoldEndsTheHold()
+    assertWhenOutputWrittenWaitsForTheResumedFrameToBeParsed()
+    assertCapTrimNeverStartsInsideASurrogatePair()
     assertModalPauseWithholdsEveryChunkAndFlushesInOrder()
     assertModalPauseKeepsTheNewestWindowWhenTheCapIsHit()
     assertModalPauseStopsAfterTheInFlightWrite()
@@ -536,6 +539,98 @@ test('xtermOutputQueue', async () => {
     // Post-dispose enqueues stay inert whether or not a dialog is open.
     queue.enqueue('after-dispose\n')
     assert.equal(writes.length, 0)
+    resetTerminalRepaintPauseForTests()
+  }
+
+  // A replay that lands while a resume is being held is the resumed session's
+  // own stream (the pane was hidden before the relaunched CLI was sent
+  // anything, so main repainted it in full). It already holds what the hold
+  // kept: the hold ends, drops that, and the next live chunk is written as
+  // itself — not swapped in with a clear that erases the transcript just
+  // painted.
+  function assertReplayDuringResumeHoldEndsTheHold(): void {
+    const writes: string[] = []
+    const clock = createHoldClock()
+    const releases: ResumeHoldRelease[] = []
+    const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+    const gate = createXtermReplayGate(createTerminal(writes), queue, {
+      resumeHoldTimers: clock.timers,
+      onResumeRelease: (release) => releases.push(release),
+    })
+    const content = (): string[] => writes.filter((value) => value !== '[scroll-bottom]')
+
+    gate.beginReplayWait()
+    gate.handleReplay('FROZEN SNAPSHOT\r\n')
+    gate.armResumeHold({ replaceFrozenView: true })
+    gate.handleLiveData('\x1b[?2004h')
+    gate.handleReplay('BANNER + WHOLE TRANSCRIPT\r\n')
+    assert.equal(releases.length, 1, 'the replay ended the hold')
+    assert.equal(releases[0]!.reason, 'replaced')
+    assert.equal(releases[0]!.data, '', 'and dropped what it held: the replay carries it')
+
+    gate.handleLiveData('\x1b[2K> x')
+    clock.fireAll()
+    assert.deepEqual(content(), ['FROZEN SNAPSHOT\r\n', '\x1bcBANNER + WHOLE TRANSCRIPT\r\n', '\x1b[2K> x'])
+    assert.equal(
+      content().some((write) => write.includes('\x1b[3J')),
+      false,
+      'nothing clears the transcript the replay painted',
+    )
+    gate.dispose()
+    queue.dispose()
+  }
+
+  // A paste held for a resuming agent goes once the relaunched CLI's first
+  // frame has been parsed — only then has xterm seen whether that CLI asked for
+  // bracketed paste. `whenOutputWritten` is how the pane waits for that.
+  function assertWhenOutputWrittenWaitsForTheResumedFrameToBeParsed(): void {
+    const writes: string[] = []
+    const manual = createManualTerminal(writes)
+    const clock = createHoldClock()
+    const order: string[] = []
+    const queue = createXtermOutputQueue(manual.term, { recordWrite: () => {} })
+    const gate = createXtermReplayGate(manual.term, queue, {
+      resumeHoldTimers: clock.timers,
+      onResumeRelease: () => gate.whenOutputWritten(() => order.push('written')),
+    })
+
+    gate.armResumeHold({ replaceFrozenView: true })
+    gate.handleLiveData('\x1b[?2004hbanner\r\n')
+    clock.fireAll()
+    assert.equal(writes.length, 1, 'the swap is handed to xterm')
+    assert.deepEqual(order.slice(), [], 'but not yet parsed')
+    manual.flushAll()
+    assert.deepEqual(order.slice(), ['written'], 'parsed: now the modes are the CLI’s')
+
+    // With nothing waiting, it runs at once.
+    gate.whenOutputWritten(() => order.push('idle'))
+    assert.deepEqual(order, ['written', 'idle'])
+    gate.dispose()
+    queue.dispose()
+  }
+
+  // Trimming the queue at its cap keeps the newest units, and must not begin
+  // on the second half of a surrogate pair: xterm would print the orphan as a
+  // replacement character right after the throttle notice.
+  function assertCapTrimNeverStartsInsideASurrogatePair(): void {
+    const banner = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
+    const pairs = Math.ceil(TERMINAL_RECENT_REPLAY_BYTES / 2) + 10
+    // One of the two lands the cut on a low surrogate, whichever parity the cap has.
+    for (const prefix of ['', 'b']) {
+      resetTerminalRepaintPauseForTests()
+      const writes: string[] = []
+      const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+      const release = acquireTerminalRepaintPause({ label: 'test-modal' })
+      queue.enqueue('a')
+      queue.enqueue(prefix + '\u{1F600}'.repeat(pairs))
+      release()
+      const written = writes.join('')
+      assert.equal(written.startsWith(banner), true, 'the cap was hit')
+      const first = written.charCodeAt(banner.length)
+      assert.equal(first >= 0xdc00 && first <= 0xdfff, false, 'no orphaned low surrogate after the notice')
+      assert.equal(written.endsWith('\u{1F600}'), true)
+      queue.dispose()
+    }
     resetTerminalRepaintPauseForTests()
   }
 

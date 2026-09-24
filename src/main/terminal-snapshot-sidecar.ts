@@ -216,10 +216,20 @@ export function createTerminalSnapshotSidecarStore(options: {
           if (pending.get(sessionId) !== sidecar) return
           const path = sidecarPath(sessionId)
           const tmp = `${path}.tmp`
-          await mkdir(sidecarDir(), { recursive: true })
-          await writeFile(tmp, JSON.stringify(sidecar), { mode: 0o600 })
-          await rename(tmp, path)
-          if (pending.get(sessionId) === sidecar) pending.delete(sessionId)
+          try {
+            await mkdir(sidecarDir(), { recursive: true })
+            await writeFile(tmp, JSON.stringify(sidecar), { mode: 0o600 })
+            await rename(tmp, path)
+          } catch (error) {
+            // Nothing retries a failed write, so a disk that is full or gone
+            // would otherwise keep this multi-megabyte sidecar queued for the
+            // life of the app. The session still holds its screen in memory;
+            // what is lost is only the copy a restart would have reopened.
+            await rm(tmp, { force: true }).catch(() => undefined)
+            throw error
+          } finally {
+            if (pending.get(sessionId) === sidecar) pending.delete(sessionId)
+          }
         },
         'Terminal snapshot sidecar write failed',
       )

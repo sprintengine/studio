@@ -52,6 +52,7 @@ import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../..
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { CliPermissionPreset } from '../../shared/electron-api'
 import { createAutomationTools } from './automation-tools'
+import { standIn } from '../../../tests/stand-in'
 import { test } from 'vitest'
 
 test('tailnet', async () => {
@@ -1452,6 +1453,114 @@ test('tailnet', async () => {
     }
   }
 
+  // A paired device keeps hearing about this machine's terminals while no
+  // window here is visible — the window minimized, the screen locked, every
+  // window closed. The path is the REAL terminal runtime's sessions beat, the
+  // subscription app-services makes (`terminalRuntime.subscribeSessionsChanged`
+  // → the automation service → the listener's `notifyTerminalsChanged`), and
+  // the real change feed. Nothing on it may wait on a renderer: the runtime's
+  // flush runs on a main-process timer, and the pane is reported hidden.
+  async function testTerminalChangesReachPairedDevicesWhileNoWindowIsVisible(): Promise<void> {
+    const dataCallbacks = new Set<(data: string) => void>()
+    const pty = {
+      pid: 71_000,
+      cols: 100,
+      rows: 30,
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined,
+      pause: () => undefined,
+      resume: () => undefined,
+      onData(callback: (data: string) => void) {
+        dataCallbacks.add(callback)
+        return { dispose: () => dataCallbacks.delete(callback) }
+      },
+      onExit: () => ({ dispose: () => undefined }),
+    }
+    const restoreModules = standIn({
+      electron: {
+        app: {
+          getAppPath: () => process.cwd(),
+          getPath: () => join(tmpdir(), 'sprintengine-tailnet-runtime-user-data'),
+        },
+        // No window is open at all.
+        BrowserWindow: { getAllWindows: () => [] },
+      },
+      'node-pty': { spawn: () => pty },
+    })
+    const harness = await startHarness({ changePushIntervalMs: 40 })
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-runtime-'))
+    let shutdown: (() => Promise<void>) | undefined
+    const nextPush = async (feed: TestWebSocket, description: string) =>
+      await Promise.race([
+        feed.nextMessage(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`no push: ${description}`)), 3_000)),
+      ])
+    try {
+      const runtimeModule = (await import('../terminal-runtime')) as typeof import('../terminal-runtime')
+      const runtime = runtimeModule.createTerminalRuntime({
+        diagnosticsEnabled: false,
+        logMainPerfEvent: () => undefined,
+      })
+      shutdown = () => runtime.shutdown()
+      // The pre-flight would read this machine's PATH; an empty registry is its
+      // "proceed exactly as before" answer.
+      runtimeModule.__setAgentCliPreflightForTest({
+        platform: 'darwin',
+        shell: '/bin/zsh',
+        deps: { listEntries: () => [] },
+      })
+      runtime.subscribeSessionsChanged(() => harness.server.notifyTerminalsChanged())
+
+      const device = await pairDevice(harness, { name: 'android-phone', scopes: ['workspace:read'] })
+      const ticket = (await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })).body as {
+        ticket: string
+      }
+      const feed = await openWebSocket(harness.port, ticket.ticket, { path: TAILNET_EVENTS_PATH })
+      assert.equal((await nextPush(feed, 'hello')).type, 'hello')
+
+      // The window that launched it is minimized: its pane reports hidden, and
+      // the window itself is gone from the list of open ones.
+      const minimizedWindow = { isDestroyed: () => false, send: () => undefined }
+      const spawned = await runtime.ipcHandlers.spawnTerminal(minimizedWindow as never, {
+        sessionId: 'session-remote-feed',
+        cols: 100,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-remote-feed',
+        agentId: 'agent-remote-feed',
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} },
+      })
+      assert.equal(spawned.ok, true, JSON.stringify(spawned))
+      const opened = await nextPush(feed, 'the new session')
+      assert.equal(opened.what, 'terminals', 'a session opening is pushed')
+
+      // The agent works and then finishes its turn while nobody here is
+      // looking: the status change is what the device hears.
+      for (const callback of dataCallbacks) callback('output while nobody here is looking\r\n')
+      const frame = { type: 'agent_state' as const, agentId: 'agent-remote-feed', workspaceId: 'ws-remote-feed' }
+      runtime.ingestAgentStateFrame({ ...frame, sessionId: null, event: 'UserPromptSubmit', ts: Date.now() })
+      runtime.ingestAgentStateFrame({ ...frame, sessionId: null, event: 'Stop', ts: Date.now() + 10 })
+      const finished = await nextPush(feed, 'the turn ending')
+      assert.equal(finished.what, 'terminals')
+      assert.ok(Number(finished.revision) > Number(opened.revision), 'a later revision, not a repeat')
+      const listed = runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session-remote-feed')
+      assert.equal(listed?.activity.kind, 'idle', 'and it is the finished turn the device will read')
+      assert.equal(listed?.visible, false, 'with the local pane hidden throughout')
+
+      feed.socket.destroy()
+    } finally {
+      await shutdown?.()
+      restoreModules()
+      await harness.close()
+      rmSync(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
   async function testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable(): Promise<void> {
     assert.equal(peerNameFromWhois('{"Node":{"Name":"mac-mini.tail1234.ts.net."}}'), 'mac-mini.tail1234.ts.net')
     assert.equal(peerNameFromWhois('{"UserProfile":{"LoginName":"someone@example.com"}}'), 'someone@example.com')
@@ -2464,6 +2573,7 @@ test('tailnet', async () => {
     testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
     testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,
     testTheChangeFeedPushesOncePerBurstAndFollowsRevocation,
+    testTerminalChangesReachPairedDevicesWhileNoWindowIsVisible,
     testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable,
     testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl,
     testRevocationLandsOnTheNextRequestAndKillsLiveStreams,
