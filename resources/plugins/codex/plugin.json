@@ -62,6 +62,7 @@
       { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
+      { "spreadIf": "promptOverflowArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -76,10 +77,15 @@
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "codex 0.155.1 and 0.156.1 document no prompt-file option and no stdin prompt for the interactive TUI (`codex exec` is the non-interactive path), so a first message too long for the platform's command line is typed in: launched without it, then pasted (bracketed) and submitted once the TUI is reading. `check_for_update_on_startup=false` rides only that launch: Codex's startup update prompt turns on bracketed paste just as the composer does, and the typed Enter would accept its default, which installs the update (observed 2026-09-24 against 0.155.1). The key is a declared ConfigToml field of the installed binary; with it set, the paste and its Enter landed in the composer and were answered once.",
+      "mode": "input",
+      "args": ["-c", "check_for_update_on_startup=false"]
+    }
   },
   "contextInjection": {
-    "$comment": "codex -c <key=value> overrides a config.toml value, and `developer_instructions` is a declared key of codex's own ConfigToml (verified against the installed binary: --help documents -c, and the key is present in the compiled ConfigToml field set). The value is parsed as TOML, so {{contextToml}} renders the document as a quoted, escaped basic string — a raw multi-line value would be a parse error. Deliberately NOT on the resume argv: codex persists a session's own config, exactly as the reasoning-effort override does here.",
+    "$comment": "codex -c <key=value> overrides a config.toml value, and `developer_instructions` is a declared key of codex's own ConfigToml (verified against the installed binary: --help documents -c, and the key is present in the compiled ConfigToml field set). The value is parsed as TOML, so {{contextToml}} renders the document as a quoted, escaped basic string — a raw multi-line value would be a parse error. Deliberately NOT on the resume argv: codex persists a session's own config, exactly as the reasoning-effort override does here. No file-taking form exists for this channel (re-verified 2026-09-24 against 0.156.1): the compiled ConfigToml declares `model_instructions_file`, but `codex debug prompt-input -c model_instructions_file=<file>` rendered none of the file into the model-visible input while `-c developer_instructions=<text>` rendered it as the first developer message, which is consistent with the file key replacing Codex's built-in instructions rather than adding to them, so it is not used. A document too long for the platform's command line is cut instead, with a marker naming the file main wrote it to (planAgentLaunch in src/main/agent-launch-render.ts).",
     "mode": "argv",
     "args": ["-c", "developer_instructions={{contextToml}}"]
   },

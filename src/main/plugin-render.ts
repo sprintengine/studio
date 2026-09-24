@@ -62,6 +62,16 @@ export function renderReasoningArgs(
   return selection.args.map((template) => substituteString(template, variables))
 }
 
+/**
+ * The `contextArgs` this launch renders on its own — the tokens a host-context
+ * document takes on the command line, measured by the launch planner to decide
+ * whether the document fits there.
+ */
+export function renderPluginContextArgs(manifest: PluginManifest, context: PluginRenderContext): string[] {
+  const value = buildVariableScope(manifest, context).get('contextArgs')
+  return Array.isArray(value) ? value : []
+}
+
 function renderArgvSpec(
   manifest: PluginManifest,
   context: PluginRenderContext,
@@ -240,6 +250,24 @@ function buildVariableScope(
       ? contextArgTemplates.map((template) => substituteString(template, scope))
       : [],
   )
+
+  // `promptOverflowArgs`: what a launch carries instead of a prompt too long for
+  // the platform's command line (see `promptInjection.overflow`). Rendered only
+  // when the caller says the prompt overflowed, so every ordinary launch renders
+  // none. `input` is the default for a manifest that declares no overflow, and
+  // has no args of its own unless the manifest gives some.
+  const overflow = context.promptOverflow
+  const overflowSpec = manifest.promptInjection?.overflow ?? { mode: 'input' as const }
+  if (overflow && overflow.mode === overflowSpec.mode) {
+    const overflowScope = new Map(scope)
+    if (overflow.mode === 'file') overflowScope.set('promptFile', overflow.promptFile)
+    scope.set(
+      'promptOverflowArgs',
+      (overflowSpec.args ?? []).map((template) => substituteString(template, overflowScope)),
+    )
+  } else {
+    scope.set('promptOverflowArgs', [])
+  }
 
   // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
   // Rendered only when the host reported a color scheme AND the manifest declares

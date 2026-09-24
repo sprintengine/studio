@@ -18,6 +18,7 @@ import type {
 import type { AgentLaunchRecord } from '../shared/agent-launch'
 import type { ExecutionHostId } from '../shared/execution-host'
 import type { AgentStateFrameStatusLine } from './agent-state'
+import type { DeferredPromptDelivery } from './deferred-prompt-delivery'
 import { isValidFileChangePath, MAX_AGENT_PROMPT_LENGTH, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import {
@@ -268,6 +269,17 @@ export type TerminalSession = {
    * on every launch and resume, so nothing outlives the pty.
    */
   hostContextPath?: string
+  /**
+   * Where the launch wrote a first message too long for the command line, for
+   * a CLI that reads it from a file. Reaped with the host-context document.
+   */
+  launchPromptPath?: string
+  /**
+   * A first message too long for the command line, still to be typed into the
+   * CLI once it is ready (`deferred-prompt-delivery.ts`). Fed the session's
+   * output and hook frames; settles once, delivered or abandoned.
+   */
+  deferredPrompt?: DeferredPromptDelivery
   /**
    * A WSL agent launch's MCP channel token (`ExecutionHost.issueChannelToken`),
    * revoked with the session so a bridge outliving it cannot open a channel.

@@ -55,6 +55,7 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
+import { createDeferredPromptDelivery } from './deferred-prompt-delivery'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
@@ -1380,8 +1381,10 @@ function disposeTerminal(sessionId: string): void {
   // App-quit teardown deliberately does NOT run through here (disposeAllTerminals
   // inlines its own loop), so quit never erases the sidecars it just wrote.
   snapshotSidecars?.remove(sessionId)
+  session.deferredPrompt?.cancel()
   cleanupTerminalStartupScript(session.startupScriptPath)
   cleanupHostContextFile(session.hostContextPath)
+  cleanupHostContextFile(session.launchPromptPath)
   discardHostLaunchFiles(session)
   terminalOutput.flush(sessionId, 'dispose')
   // Say so rather than leaving remote viewers on a stream that will never speak
@@ -1472,7 +1475,9 @@ function releaseSessionHost(session: TerminalSession): void {
 // cleanups beside each call leave such paths alone.
 function discardHostLaunchFiles(session: TerminalSession): void {
   if (session.pathStyle !== 'wsl') return
-  hostRegistry().get(session.hostId).discardLaunchFiles?.([session.startupScriptPath, session.hostContextPath])
+  hostRegistry()
+    .get(session.hostId)
+    .discardLaunchFiles?.([session.startupScriptPath, session.hostContextPath, session.launchPromptPath])
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
@@ -1994,8 +1999,10 @@ async function shutdownTerminalRuntime(): Promise<void> {
 async function disposeAllTerminals(): Promise<void> {
   const sessions = [...terminals.values()].filter((session) => !session.isDisposed)
   for (const session of sessions) {
+    session.deferredPrompt?.cancel()
     cleanupTerminalStartupScript(session.startupScriptPath)
     cleanupHostContextFile(session.hostContextPath)
+    cleanupHostContextFile(session.launchPromptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
     endRemoteTerminalViewers(session.sessionId, 'SprintEngine Studio is shutting down on this machine.')
     terminalDiagnostics.clear(session.sessionId)
@@ -2685,6 +2692,9 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
+  // The CLI's own hook says it is up; a first message waiting on it can go
+  // once the screen is quiet.
+  session.deferredPrompt?.observeHookFrame()
   // The moment the turn ended, kept apart from `activity` (owner, 2026-09-05):
   // the reaper's suspend and the quit-path sidecar both restamp activity with
   // when the PROCESS died, which is what every parked row used to show as its
@@ -2887,6 +2897,30 @@ function materializeAgentSessionIdentity(
   }
 }
 
+/**
+ * Type a first message the launch's command line could not carry into the CLI
+ * once it is ready (`deferred-prompt-delivery.ts`): one paste, one Enter, once.
+ * Lives on the session so its output, hook frames, exit and dispose reach it.
+ */
+function armDeferredPrompt(session: TerminalSession, text: string): void {
+  session.deferredPrompt = createDeferredPromptDelivery({
+    text,
+    write: (data) => {
+      recordTerminalInput(session)
+      session.process.write(data)
+    },
+    onSettled: (outcome) => {
+      session.deferredPrompt = undefined
+      logMainPerfEvent('TerminalRuntime', `deferred-prompt-${outcome.kind}`, {
+        sessionId: session.sessionId,
+        cli: session.cli,
+        promptLength: text.length,
+        ...(outcome.kind === 'delivered' ? { via: outcome.via, atMs: outcome.atMs } : { reason: outcome.reason }),
+      })
+    },
+  })
+}
+
 function attachTerminalSession(
   sessionId: string,
   terminalSession: TerminalSession,
@@ -2921,6 +2955,7 @@ function attachTerminalSession(
     // pane and every reader now show, and keeping it would put a scrap of
     // stream back behind the snapshot. The process is dead or dying: drop it.
     if (terminalSession.replaySnapshot) return
+    terminalSession.deferredPrompt?.observeOutput(data)
     if (!terminalSession.isReady) {
       terminalSession.isReady = true
       flushPendingTerminalResize(sessionId, terminalSession)
@@ -2951,6 +2986,9 @@ function attachTerminalSession(
 
   terminalSession.process.onExit((event) => {
     releaseSessionHost(terminalSession)
+    // A first message still waiting for the CLI to be ready has nobody left to
+    // read it — a suspend-kill included, whose relaunch is a resume.
+    terminalSession.deferredPrompt?.observeExit()
     // Freeze-the-view: a suspend-kill is NOT a real exit. Finalize the suspended
     // state and keep the session + painted scrollback; do not mark the session
     // exited or fire `terminal:exit` (which would unmount the view). Resume
@@ -2973,6 +3011,7 @@ function attachTerminalSession(
     }
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     cleanupHostContextFile(terminalSession.hostContextPath)
+    cleanupHostContextFile(terminalSession.launchPromptPath)
     discardHostLaunchFiles(terminalSession)
     terminalOutput.flush(sessionId, 'exit')
     if (terminals.get(sessionId) === terminalSession) terminalOutput.forgetSession(sessionId)
@@ -3427,6 +3466,8 @@ async function spawnTerminalFromIpc(
       env,
       startupScriptPath,
       hostContextPath,
+      deferredPrompt,
+      launchPromptPath,
       hostFiles,
       managed,
       reapExempt,
@@ -3531,8 +3572,10 @@ async function spawnTerminalFromIpc(
       lastVisibleAt: visible ? startedAt : null,
       startupScriptPath,
       hostContextPath,
+      ...(launchPromptPath ? { launchPromptPath } : {}),
       ...(channelToken ? { channelToken } : {}),
     }
+    if (deferredPrompt) armDeferredPrompt(terminalSession, deferredPrompt)
 
     attachTerminalSession(sessionId, terminalSession, initialInput)
 
