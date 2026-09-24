@@ -173,14 +173,13 @@ function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl')
   // Linux `claude` would run `node "C:/Users/…/agent-state.mjs"` and report
   // MODULE_NOT_FOUND for every event. Native Windows would work, but one
   // platform answering two ways is how the double registration gets back in.
-  if (!launchPluginsSupportedOnThisPlatform()) return []
-  if (!cliTakesLaunchPlugins(cli)) return []
   let dirs: string[]
   try {
     dirs = launchPluginDirsResolver?.() ?? []
   } catch {
     return []
   }
+  if (!launchCarriesAppPluginsFor(cli, dirs)) return []
   if (target === 'posix') return dirs
   return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : toWindowsPath(dir)))
 }
@@ -234,8 +233,32 @@ function launchSettingsForLaunch(
   return statusLine ? { statusLine } : undefined
 }
 
-export function launchPluginsSupportedOnThisPlatform(): boolean {
-  return process.platform !== 'win32'
+export function launchPluginsSupportedOnThisPlatform(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32'
+}
+
+/**
+ * Whether launches carry the app's plugin copy at all: the platform takes it
+ * and the copy has landed. The workspace installer skips its Claude half on
+ * exactly this answer, so it must be the same one the launch flag reads — on
+ * Windows the copy materialises but no launch passes it, and a workspace
+ * installer that only looked at the copy removed the hook the launch was never
+ * going to register, leaving Claude there with no agent state.
+ */
+export function appLaunchPluginsActive(
+  pluginDirs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return launchPluginsSupportedOnThisPlatform(platform) && pluginDirs.length > 0
+}
+
+/** `appLaunchPluginsActive`, narrowed to one CLI: does THIS launch pass `--plugin-dir`. */
+export function launchCarriesAppPluginsFor(
+  cli: string,
+  pluginDirs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return appLaunchPluginsActive(pluginDirs, platform) && cliTakesLaunchPlugins(cli)
 }
 
 // Apply this session's agent identity onto a base env: strip any inherited

@@ -6,7 +6,6 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
-import { cliTakesLaunchPlugins } from './agent-launch-render'
 import {
   ensureAgentIntegrationHome,
   LAUNCH_STATUS_LINE_REL,
@@ -14,7 +13,8 @@ import {
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
 import {
-  launchPluginsSupportedOnThisPlatform,
+  appLaunchPluginsActive,
+  launchCarriesAppPluginsFor,
   setLaunchPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
@@ -199,8 +199,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `pluginDirsForLaunch` asks the same three things), the agent-state
   // installer, the skill installer and the MCP sync can never disagree — a
   // disagreement is either a doubled registration or a session with none.
-  const launchCarriesAppPlugins = (cli: string): boolean =>
-    launchPluginsSupportedOnThisPlatform() && agentIntegrationPluginDirs.length > 0 && cliTakesLaunchPlugins(cli)
+  const launchCarriesAppPlugins = (cli: string): boolean => launchCarriesAppPluginsFor(cli, agentIntegrationPluginDirs)
   // Bundled skills arrive in the `studio-skills` directory of that same copy.
   setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
   const listAgentStateSpecs = () =>
@@ -294,7 +293,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // old way seconds before the launch starts carrying the same pieces, while
     // a build whose copy FAILED still gets the workspace install, which is what
     // keeps agent state working rather than losing it.
-    resolveLaunchPluginsActive: () => agentIntegrationPluginDirs.length > 0,
+    resolveLaunchPluginsActive: () => appLaunchPluginsActive(agentIntegrationPluginDirs),
     whenLaunchPluginsSettled: () => agentIntegrationReady,
     listAgentStateSpecs,
     logDiagnostic: (diagnostic) => {
