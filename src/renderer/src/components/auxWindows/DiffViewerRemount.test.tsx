@@ -4,7 +4,11 @@ import React from 'react'
 import { contentAcrossTargetChange, DiffBody } from './DiffViewer'
 import { DEFAULT_DIFF_EDITOR_PREFS, diffEditorOptions } from './diffToolbarModel'
 import type { DiffFileItem } from './diffFileList'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The real module loads all of Monaco, which needs a DOM this suite does not
+// have. DiffBody only has to name *a* component for the type assertions below.
+vi.mock('../../monaco/editor', () => ({ DiffEditor: function DiffEditor() {} }))
 
 test('DiffViewerRemount', async () => {
   // "Toggling the view does not remount Monaco" (git-commit-window T4,
@@ -13,8 +17,8 @@ test('DiffViewerRemount', async () => {
   // React remounts a child when the ELEMENT's `type` or `key` changes, and for
   // nothing else — new props on the same type are an update. `DiffBody` holds no
   // hooks precisely so this suite can call it as a plain function and read the
-  // element it returns, rather than driving a real Monaco (which needs a loader,
-  // a canvas and a network fetch, none of which exist in a unit test). The
+  // element it returns, rather than driving a real Monaco (which needs a DOM,
+  // a canvas and its workers, none of which exist in a unit test). The
   // companion assertion lives in `diffToolbarModel.test.ts`: every preference is
   // in the live option set, so a change to one is always an `updateOptions` call.
 

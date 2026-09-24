@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import MonacoEditor, { OnMount } from '@monaco-editor/react'
+import MonacoEditor, { OnMount } from '../../monaco/editor'
 import type * as Monaco from 'monaco-editor'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getGitEntry, useGitStatus } from '../../hooks/useGitStatus'

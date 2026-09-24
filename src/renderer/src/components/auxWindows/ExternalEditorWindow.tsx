@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor from '../../monaco/editor'
 import { detectLanguage } from '../../utils/files'
 import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
