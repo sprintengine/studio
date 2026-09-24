@@ -151,13 +151,10 @@ export function registerAppLifecycle({
     backgroundPresence.onWindowOpened()
   }
 
+  // The single-instance lock itself is taken by the entry (index.ts), before any
+  // service is built, so a second launch exits without paying for the service
+  // graph. This process holds it, and hears every later launch here.
   if (!allowMultipleInstances) {
-    const singleInstanceLock = app.requestSingleInstanceLock()
-    if (!singleInstanceLock) {
-      app.quit()
-      return
-    }
-
     app.on('second-instance', (_, argv) => {
       // A hook or bridge script that reached the binary without
       // ELECTRON_RUN_AS_NODE is not a person asking for the app. Raising the
