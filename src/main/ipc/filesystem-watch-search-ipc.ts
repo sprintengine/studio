@@ -1,6 +1,6 @@
 import { BrowserWindow, type IpcMain } from 'electron'
-import { watch, type FSWatcher } from 'fs'
 import type { ContentSearchResult, FileSearchResult, FileWatchEvent } from '../../shared/electron-api'
+import { getWatchHub, type WatchHub, type WatchSubscription } from '../workspace-watch-hub'
 
 type FileSearchRequest = {
   rootPath: string
@@ -11,10 +11,8 @@ type FileSearchRequest = {
 type ContentSearchRequest = FileSearchRequest
 
 type FileWatcherRecord = {
-  watcher: FSWatcher
+  subscription: WatchSubscription
   senderId: number
-  pendingEvent: FileWatchEvent | null
-  flushTimer: NodeJS.Timeout | null
 }
 
 type FilesystemWatchSearchIpcDependencies = {
@@ -23,11 +21,17 @@ type FilesystemWatchSearchIpcDependencies = {
   searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult>
   searchContent(senderId: number, input: ContentSearchRequest): Promise<ContentSearchResult>
   cancelActiveContentSearch(senderId: number): void
+  /** Injectable for tests; the process-wide hub otherwise. */
+  watchHub?: WatchHub
 }
 
-const FILE_WATCH_EVENT_COALESCE_MS = 100
+export type FileWatchStartOptions = {
+  /** Deliver events under `.git/`, `node_modules/`, `.sprintengine/` and build output too. */
+  includeIgnored?: boolean
+}
 
 export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: FilesystemWatchSearchIpcDependencies): void {
+  const hub = deps.watchHub ?? getWatchHub()
   const fileWatchers = new Map<string, FileWatcherRecord>()
   const trackedWatcherSenders = new Set<number>()
   let nextFileWatcherId = 0
@@ -35,96 +39,52 @@ export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: Filesys
   const disposeFileWatcher = (watchId: string): void => {
     const fileWatcher = fileWatchers.get(watchId)
     if (!fileWatcher) return
-
-    if (fileWatcher.flushTimer) {
-      clearTimeout(fileWatcher.flushTimer)
-    }
-    fileWatcher.watcher.close()
+    fileWatcher.subscription.close()
     fileWatchers.delete(watchId)
   }
 
   const disposeFileWatchersForSender = (senderId: number): void => {
     for (const [watchId, fileWatcher] of fileWatchers.entries()) {
-      if (fileWatcher.senderId === senderId) {
-        if (fileWatcher.flushTimer) {
-          clearTimeout(fileWatcher.flushTimer)
-        }
-        fileWatcher.watcher.close()
-        fileWatchers.delete(watchId)
-      }
+      if (fileWatcher.senderId === senderId) disposeFileWatcher(watchId)
     }
   }
 
-  const flushFileWatchEvent = (watchId: string): void => {
-    const fileWatcher = fileWatchers.get(watchId)
-    if (!fileWatcher) return
-
-    fileWatcher.flushTimer = null
-    const watchEvent = fileWatcher.pendingEvent
-    fileWatcher.pendingEvent = null
-    if (!watchEvent) return
-
+  const sendFileWatchEvent = (watchId: string, senderId: number, watchEvent: FileWatchEvent): void => {
+    if (!fileWatchers.has(watchId)) return
     const sender = BrowserWindow.getAllWindows()
       .map((window) => window.webContents)
-      .find((webContents) => webContents.id === fileWatcher.senderId)
+      .find((webContents) => webContents.id === senderId)
     if (!sender || sender.isDestroyed()) return
-
     sender.send(`fs:watch-event:${watchId}`, watchEvent)
   }
 
-  const scheduleFileWatchEvent = (watchId: string, watchEvent: FileWatchEvent): void => {
-    const fileWatcher = fileWatchers.get(watchId)
-    if (!fileWatcher) return
-
-    fileWatcher.pendingEvent = fileWatcher.pendingEvent ? { eventType: 'change', path: null } : watchEvent
-
-    if (fileWatcher.flushTimer) clearTimeout(fileWatcher.flushTimer)
-    fileWatcher.flushTimer = setTimeout(() => flushFileWatchEvent(watchId), FILE_WATCH_EVENT_COALESCE_MS)
-  }
-
-  ipcMain.handle('fs:watch-start', async (event, dirPath: string): Promise<string | null> => {
-    if (!trackedWatcherSenders.has(event.sender.id)) {
-      trackedWatcherSenders.add(event.sender.id)
-      event.sender.once('destroyed', () => {
-        trackedWatcherSenders.delete(event.sender.id)
-        disposeFileWatchersForSender(event.sender.id)
-      })
-    }
-
-    if (!(await deps.pathExists(dirPath))) return null
-
-    const watchId = `watch-${++nextFileWatcherId}`
-    const recursive = process.platform === 'win32' || process.platform === 'darwin'
-
-    const createWatcher = (useRecursive: boolean): FSWatcher =>
-      watch(dirPath, { recursive: useRecursive }, (eventType, filename) => {
-        if (event.sender.isDestroyed()) return
-        scheduleFileWatchEvent(watchId, {
-          eventType,
-          path: typeof filename === 'string' ? filename : null,
+  ipcMain.handle(
+    'fs:watch-start',
+    async (event, dirPath: string, options?: FileWatchStartOptions): Promise<string | null> => {
+      const senderId = event.sender.id
+      if (!trackedWatcherSenders.has(senderId)) {
+        trackedWatcherSenders.add(senderId)
+        event.sender.once('destroyed', () => {
+          trackedWatcherSenders.delete(senderId)
+          disposeFileWatchersForSender(senderId)
         })
-      })
+      }
 
-    try {
-      const watcher = createWatcher(recursive)
-      fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
-      return watchId
-    } catch (error) {
-      if (deps.isMissingPathError(error)) return null
-      if (!recursive) {
+      if (!(await deps.pathExists(dirPath))) return null
+
+      const watchId = `watch-${++nextFileWatcherId}`
+      try {
+        const subscription = hub.subscribe(dirPath, (watchEvent) => sendFileWatchEvent(watchId, senderId, watchEvent), {
+          includeIgnored: options?.includeIgnored === true,
+        })
+        fileWatchers.set(watchId, { subscription, senderId })
+        return watchId
+      } catch (error) {
+        if (deps.isMissingPathError(error)) return null
         throw error
       }
-
-      try {
-        const watcher = createWatcher(false)
-        fileWatchers.set(watchId, { watcher, senderId: event.sender.id, pendingEvent: null, flushTimer: null })
-        return watchId
-      } catch (fallbackError) {
-        if (deps.isMissingPathError(fallbackError)) return null
-        throw fallbackError
-      }
-    }
-  })
+    },
+  )
 
   ipcMain.handle('fs:watch-stop', (_, watchId: string): void => {
     disposeFileWatcher(watchId)

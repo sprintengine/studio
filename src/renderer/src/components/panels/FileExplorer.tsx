@@ -24,6 +24,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { isPathOrChild } from '../../utils/paths'
+import { isWatchEventIgnored } from '../../../../shared/file-watch-event'
 import { openGitDiff } from '../../utils/openGitDiff'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
@@ -93,9 +94,7 @@ function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Ent
     .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
 }
 
-function isIgnoredExplorerWatchPath(path: string | null): boolean {
-  if (!path) return false
-
+function isIgnoredExplorerWatchPath(path: string): boolean {
   return path
     .split(/[/\\]+/)
     .filter(Boolean)
@@ -1826,7 +1825,9 @@ function ExplorerTree({
 
     window.api
       .watchPath(rootPath, (event) => {
-        if (isIgnoredExplorerWatchPath(event.path)) return
+        // A burst naming only dependency churn is skipped; one that names
+        // nothing (the OS gave no filename, or it overflowed) still refreshes.
+        if (isWatchEventIgnored(event, isIgnoredExplorerWatchPath)) return
         scheduleRefresh()
       })
       .then((cleanup) => {

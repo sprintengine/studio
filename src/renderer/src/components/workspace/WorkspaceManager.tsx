@@ -38,6 +38,7 @@ import {
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
+import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import type {
   AgentCli,
@@ -754,6 +755,8 @@ export default function WorkspaceManager() {
   ).length
   const settingsOpen = settingsOverlayOpen
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
+  // Reclaims agent worktrees that are clean and merged; one window runs it.
+  useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))

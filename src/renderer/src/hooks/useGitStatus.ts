@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { logPerfEvent } from '../utils/perfDiagnostics'
+import { isWatchEventIgnored } from '../../../shared/file-watch-event'
+import type { FileWatchEvent } from '../../../shared/ipc/filesystem'
 
 type UseGitStatusResult = {
   repoRoot: string | null
@@ -47,6 +49,8 @@ type GitStatusSubscription = {
   refreshPromise: Promise<void> | null
   refreshAgain: boolean
   stopWatching?: () => Promise<void>
+  /** The checkout's git-directory subscription (index, HEAD, refs). */
+  stopGitdirWatch?: () => void
   watchStarting: boolean
   lastWatchRefreshAt: number
 }
@@ -266,12 +270,18 @@ async function refreshGitStatusSubscription(
   return subscription.refreshPromise
 }
 
-function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: GitStatusScheduledRefreshCause): void {
+function scheduleGitStatusRefresh(
+  subscription: GitStatusSubscription,
+  cause: GitStatusScheduledRefreshCause,
+  delayOverrideMs?: number,
+): void {
   if (subscription.refreshTimer !== null) {
     window.clearTimeout(subscription.refreshTimer)
   }
 
-  const delayMs = cause === 'watch' ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS : GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS
+  const delayMs =
+    delayOverrideMs ??
+    (cause === 'watch' ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS : GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS)
 
   subscription.refreshTimer = window.setTimeout(() => {
     subscription.refreshTimer = null
@@ -279,12 +289,35 @@ function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: Gi
   }, delayMs)
 }
 
-function shouldIgnoreGitStatusWatchPath(path: string | null): boolean {
-  if (!path) return true
+function isIgnoredGitStatusPath(path: string): boolean {
   return path
     .split(/[/\\]+/)
     .filter(Boolean)
     .some((segment) => GIT_STATUS_WATCH_IGNORED_SEGMENTS.has(segment))
+}
+
+/**
+ * Whether a watch event can be skipped. Only when EVERY path it names is one
+ * status never reports on. An event naming no path at all is a burst main
+ * could not list, and it used to be skipped here as if it were noise — which
+ * dropped any real edit that arrived in the same 100 ms as anything else.
+ * Exported for its regression test.
+ */
+export function shouldIgnoreGitStatusWatchEvent(event: Pick<FileWatchEvent, 'path' | 'paths' | 'overflow'>): boolean {
+  return isWatchEventIgnored(event, isIgnoredGitStatusPath)
+}
+
+/**
+ * When a watch-driven refresh may run, given the last one. Inside the minimum
+ * interval the refresh is DEFERRED to the end of it rather than dropped: an
+ * edit that lands two seconds after the previous refresh must still show up,
+ * ten seconds later at worst. Exported for its regression test.
+ */
+export function gitStatusWatchRefreshDelay(now: number, lastWatchRefreshAt: number): number {
+  const sinceLast = now - lastWatchRefreshAt
+  return sinceLast >= GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS
+    ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS
+    : Math.max(GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS, GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS - sinceLast)
 }
 
 function startGitStatusWatch(subscription: GitStatusSubscription): void {
@@ -302,7 +335,7 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
   subscription.watchStarting = true
   window.api
     .watchPath(subscription.repoRoot, (event) => {
-      if (shouldIgnoreGitStatusWatchPath(event.path)) {
+      if (shouldIgnoreGitStatusWatchEvent(event)) {
         logPerfEvent('GitStatus', 'watch-ignored', {
           repoRoot: subscription.repoRoot,
           path: event.path,
@@ -312,19 +345,15 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
       logPerfEvent('GitStatus', 'watch', {
         repoRoot: subscription.repoRoot,
         path: event.path,
+        pathCount: event.paths?.length ?? null,
         eventType: event.eventType,
       })
+      // One refresh already pending covers this event too.
+      if (subscription.refreshTimer !== null) return
       const now = Date.now()
-      if (now - subscription.lastWatchRefreshAt < GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS) {
-        logPerfEvent('GitStatus', 'watch-throttled', {
-          repoRoot: subscription.repoRoot,
-          path: event.path,
-          eventType: event.eventType,
-        })
-        return
-      }
-      subscription.lastWatchRefreshAt = now
-      scheduleGitStatusRefresh(subscription, 'watch')
+      const delayMs = gitStatusWatchRefreshDelay(now, subscription.lastWatchRefreshAt)
+      subscription.lastWatchRefreshAt = now + delayMs
+      scheduleGitStatusRefresh(subscription, 'watch', delayMs)
     })
     .then((cleanup) => {
       subscription.watchStarting = false
@@ -369,6 +398,15 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
   gitStatusSubscriptions.set(key, subscription)
   void refreshGitStatusSubscription(subscription, 'initial')
   startGitStatusWatch(subscription)
+  // A stage, a commit, a checkout or an operation starting — made here, by an
+  // agent, or in a terminal — moves the index or HEAD, which main watches.
+  // That is the one signal that reaches Windows too, where the working-tree
+  // watch above is off.
+  if (typeof window.api.watchGitCheckout === 'function') {
+    subscription.stopGitdirWatch = window.api.watchGitCheckout(repoRoot, () => {
+      scheduleGitStatusRefresh(subscription, 'watch', GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS)
+    })
+  }
   return subscription
 }
 
@@ -402,6 +440,7 @@ function releaseGitStatusSubscription(subscription: GitStatusSubscription, key: 
   if (subscription.stopWatching) {
     void subscription.stopWatching()
   }
+  subscription.stopGitdirWatch?.()
   gitStatusSubscriptions.delete(key)
 }
 

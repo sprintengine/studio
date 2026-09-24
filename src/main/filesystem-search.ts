@@ -3,6 +3,8 @@ import { stat } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import { rgPath } from '@vscode/ripgrep'
 import type { ContentSearchEntry, ContentSearchResult, FileSearchEntry, FileSearchResult } from '../shared/electron-api'
+import { watchEventPaths } from '../shared/file-watch-event'
+import { getWatchHub, type WatchHub, type WatchSubscription } from './workspace-watch-hub'
 
 export type FileSearchRequest = {
   rootPath: string
@@ -424,9 +426,218 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   }
 
   cancelActiveFileSearch(senderId)
+  const ticket = (fileSearchTickets.get(senderId) ?? 0) + 1
+  fileSearchTickets.set(senderId, ticket)
+
+  const listing = await fileListCache.list(rootPath)
+  if (listing) {
+    // A newer query from the same window arrived while the list was being
+    // built: answer this one empty, exactly as a cancelled walk used to.
+    if (fileSearchTickets.get(senderId) !== ticket) {
+      return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
+    }
+    return withFileSearchDiagnostics(filterFileList(rootPath, listing, query, limit), startedAt)
+  }
+
+  // Too large to hold, or the listing failed: walk for this query alone.
   const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
   if (ripgrepResult.ok) return withFileSearchDiagnostics(ripgrepResult, startedAt)
   return ripgrepResult
+}
+
+const fileSearchTickets = new Map<number, number>()
+
+/** The same match and ranking the streaming walk applies, over a held list. */
+export function filterFileList(
+  rootPath: string,
+  files: readonly string[],
+  query: string,
+  limit: number,
+): FileSearchEngineResult & { ok: true } {
+  const normalizedQuery = normalizeSearchPath(query)
+  const results: FileSearchEntry[] = []
+  let truncated = false
+  for (const relativePath of files) {
+    if (!normalizeSearchPath(relativePath).includes(normalizedQuery)) continue
+    if (results.length === limit) {
+      truncated = true
+      break
+    }
+    results.push(toFileSearchEntry(rootPath, relativePath))
+  }
+  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'ripgrep' }
+}
+
+/**
+ * The quick-open file list, per root, held between keystrokes.
+ *
+ * Quick-open used to start `rg --files` over the whole repository on every
+ * query, so typing a twelve-character name walked the tree twelve times. The
+ * list is now walked once and filtered in memory, and thrown away when the
+ * tree changes shape: the shared watcher (workspace-watch-hub.ts) reports a
+ * create, delete or rename, or an edit to an ignore file, which changes what
+ * `rg` would list. An edit to a file's contents changes nothing here and keeps
+ * the list.
+ *
+ * Bounds, because the watcher is not the whole story:
+ * - an entry is also dropped after `maxAgeMs`, as a backstop for a platform
+ *   whose watch is not recursive (Linux) or a root that cannot be watched;
+ * - a root nobody has searched for `idleMs` is dropped and its watch closed;
+ * - a listing past `maxFiles` paths is not held at all, and that root keeps
+ *   the per-query walk, which stops early at the result limit.
+ */
+type CachedFileList = {
+  files: string[] | null
+  building: Promise<string[] | null> | null
+  builtAt: number
+  lastUsedAt: number
+  generation: number
+  watch: WatchSubscription | null
+  idleTimer: NodeJS.Timeout | null
+}
+
+const FILE_LIST_MAX_FILES = 200_000
+const FILE_LIST_MAX_AGE_MS = 5 * 60_000
+const FILE_LIST_IDLE_MS = 10 * 60_000
+const IGNORE_FILE_NAMES = new Set(['.gitignore', '.ignore', '.rgignore'])
+
+export function createFileListCache(
+  deps: {
+    listFiles?: (rootPath: string, maxFiles: number) => Promise<string[] | null>
+    hub?: () => WatchHub
+    now?: () => number
+    maxAgeMs?: number
+    idleMs?: number
+  } = {},
+) {
+  const listFiles = deps.listFiles ?? listFilesWithRipgrep
+  const hub = deps.hub ?? getWatchHub
+  const now = deps.now ?? Date.now
+  const maxAgeMs = deps.maxAgeMs ?? FILE_LIST_MAX_AGE_MS
+  const idleMs = deps.idleMs ?? FILE_LIST_IDLE_MS
+  const entries = new Map<string, CachedFileList>()
+
+  const drop = (key: string): void => {
+    const entry = entries.get(key)
+    if (!entry) return
+    entry.watch?.close()
+    if (entry.idleTimer) clearTimeout(entry.idleTimer)
+    entries.delete(key)
+  }
+
+  const invalidate = (entry: CachedFileList): void => {
+    entry.files = null
+    entry.generation += 1
+  }
+
+  const touch = (key: string, entry: CachedFileList): void => {
+    entry.lastUsedAt = now()
+    if (entry.idleTimer) clearTimeout(entry.idleTimer)
+    entry.idleTimer = setTimeout(() => drop(key), idleMs)
+    entry.idleTimer.unref?.()
+  }
+
+  const open = (rootPath: string): CachedFileList => {
+    const entry: CachedFileList = {
+      files: null,
+      building: null,
+      builtAt: 0,
+      lastUsedAt: now(),
+      generation: 0,
+      watch: null,
+      idleTimer: null,
+    }
+    try {
+      entry.watch = hub().subscribe(rootPath, (event) => {
+        const paths = watchEventPaths(event)
+        const reshaped =
+          paths === null || event.eventType === 'rename' || paths.some((path) => IGNORE_FILE_NAMES.has(basename(path)))
+        if (reshaped) invalidate(entry)
+      })
+    } catch {
+      // Unwatchable (a network mount): the age bound alone keeps it honest.
+    }
+    return entry
+  }
+
+  return {
+    async list(rootPath: string): Promise<string[] | null> {
+      const key = normalizeSearchPath(rootPath).replace(/\/+$/u, '')
+      let entry = entries.get(key)
+      if (!entry) {
+        entry = open(rootPath)
+        entries.set(key, entry)
+      }
+      touch(key, entry)
+      if (entry.files && now() - entry.builtAt < maxAgeMs) return entry.files
+      if (entry.building) return entry.building
+
+      const generation = entry.generation
+      const current = entry
+      current.building = listFiles(rootPath, FILE_LIST_MAX_FILES)
+        .catch(() => null)
+        .then((files) => {
+          current.building = null
+          // The tree changed shape while it was being walked: answer this
+          // query from the walk, but do not keep it.
+          if (files && current.generation === generation) {
+            current.files = files
+            current.builtAt = now()
+          }
+          return files
+        })
+      return current.building
+    },
+    size: () => entries.size,
+    clear(): void {
+      for (const key of [...entries.keys()]) drop(key)
+    },
+  }
+}
+
+const fileListCache = createFileListCache()
+
+/**
+ * Every file `rg` would list under `rootPath`, root-relative, or null when the
+ * walk failed or passed `maxFiles` (it is stopped there rather than finished).
+ */
+function listFilesWithRipgrep(rootPath: string, maxFiles: number): Promise<string[] | null> {
+  return new Promise((resolve) => {
+    const files: string[] = []
+    let buffered = ''
+    let settled = false
+    const finish = (value: string[] | null): void => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
+    const child = spawn(rgPath, ['--files', '--color', 'never', '--no-messages', ...builtinExcludeArgs()], {
+      cwd: rootPath,
+      windowsHide: true,
+    })
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      if (settled) return
+      buffered += chunk
+      const lines = buffered.split(/\r?\n/u)
+      buffered = lines.pop() ?? ''
+      for (const line of lines) if (line) files.push(line)
+      if (files.length > maxFiles) {
+        finish(null)
+        try {
+          child.kill()
+        } catch {
+          // Already exiting.
+        }
+      }
+    })
+    child.stderr.resume()
+    child.on('error', () => finish(null))
+    child.on('close', (code) => {
+      if (buffered) files.push(buffered)
+      finish(code === 0 || code === 1 ? files : null)
+    })
+  })
 }
 
 export async function searchContent(senderId: number, input: ContentSearchRequest): Promise<ContentSearchResult> {

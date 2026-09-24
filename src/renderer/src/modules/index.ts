@@ -348,7 +348,9 @@ if (typeof window !== 'undefined') {
         rendererHost.setWorkspaceFileWatcher(
           createWorkspaceFileWatcher({
             resolveFolderPath: resolveWorkingRoot,
-            watchPath: (path, cb) => window.api.watchPath(path, cb),
+            // A module may watch a file under `.sprintengine/` (its own state),
+            // which the shared watcher drops for everyone else.
+            watchPath: (path, cb) => window.api.watchPath(path, cb, { includeIgnored: true }),
             readFile: (path) => window.api.readfile(path),
           }),
         )
