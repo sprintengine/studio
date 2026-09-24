@@ -614,6 +614,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
+    // Read at write time, so the registry built below is in place by then.
+    readRegistry: () => workspaceRegistry.getState(),
   })
   const logWorkspaceSyncDiagnostic = (diagnostic: {
     level: 'warning'
