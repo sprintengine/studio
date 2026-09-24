@@ -309,6 +309,30 @@ GitHub settings.
   that follows offers the latest stable even when its version is lower than the
   nightly's. Switch back to Nightly and confirm the latest nightly is offered.
 
+### Windows installs from the assisted installer
+
+There are existing Windows installs to update. Stable 0.4.0, 0.5.0, 0.5.1 and
+0.6.0 shipped the assisted NSIS installer (`oneClick: false`), which let the
+person choose an all-users install under Program Files (recorded in HKLM) or a
+folder of their own. The one-click per-user installer that replaced it looks
+for an earlier install in HKCU only, so it may not find either kind: the update
+can land as a second copy under `%LOCALAPPDATA%\Programs` while the old copy and
+its all-users shortcuts stay on 0.6.0 and keep being offered the update.
+
+**Migration from an all-users 0.x install must be tested before the next
+stable.** How to handle it (point the installer at the existing folder, migrate
+off the all-users install, or document a manual reinstall) is still an owner
+decision; until it is made, run these on a Windows machine or VM:
+
+- Install 0.6.0 for all users (Program Files), start it, and update to the
+  candidate through Restart to update. Record where the new version landed,
+  which copy the Start menu and desktop shortcuts start, and whether the old
+  copy still reports an update.
+- Repeat with 0.6.0 installed for the current user into a custom folder.
+- Repeat with 0.6.0 installed with the defaults (only for the current user,
+  default folder). That install is recorded in HKCU and is expected to update
+  in place; confirm that it does.
+
 ## Failure And Rollback
 
 - Confirm manual update check errors are visible in Settings.

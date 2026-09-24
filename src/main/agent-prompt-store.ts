@@ -17,8 +17,15 @@
  *
  * Bounded twice: each file keeps at most {@link MAX_LIVE_PEEK_PROMPTS} prompts
  * of at most {@link MAX_AGENT_PROMPT_LENGTH} characters (the same trim the live
- * list applies, first prompt kept), and the directory keeps the
- * {@link MAX_AGENT_PROMPT_FILES} most recently written agents.
+ * list applies, first prompt kept), and past {@link MAX_AGENT_PROMPT_FILES}
+ * files the directory sheds agents that no longer exist. Recency alone would
+ * be the wrong test: a burst of short-lived agents (frequent automation runs)
+ * would push out an idle agent the person still sees in the sidebar, and the
+ * whole point of this store is that such an agent keeps its history. So an
+ * agent the registry still holds is never evicted; one it has dropped goes
+ * first, oldest first, and one it cannot vouch for either way after that. An
+ * agent removed from the registry has its file deleted there and then
+ * (`remove`), since its prompts are verbatim typing nobody can see any more.
  *
  * Every read is of untrusted input and goes through `parseSessionPrompts`.
  * Every failure is a diagnostic, never a throw: a card with no history is the
@@ -72,6 +79,8 @@ export type AgentPromptStore = {
   read(owner: Pick<AgentPromptOwner, 'workspaceId' | 'agentId'>): Promise<SessionPrompt[] | null>
   /** The agent a terminal session belonged to, with its prompts, or null. */
   findBySessionId(sessionId: string): Promise<StoredAgentPrompts | null>
+  /** Delete the agent's stored prompts: the agent is gone for good. */
+  remove(owner: Pick<AgentPromptOwner, 'workspaceId' | 'agentId'>): Promise<void>
   /** Settles once every queued write has landed. */
   flush(): Promise<void>
 }
@@ -92,6 +101,12 @@ export function createAgentPromptStore(options: {
   resolveUserDataDir: () => string
   now?: () => number
   maxFiles?: number
+  /**
+   * Whether the agent still exists (is in the workspace registry): true keeps
+   * its file through eviction, false makes it the first to go, undefined (not
+   * known, or no answer given) falls back to least recently written.
+   */
+  agentExists?: (owner: { workspaceId: string; agentId: string }) => boolean | undefined
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }): AgentPromptStore {
   const now = options.now ?? Date.now
@@ -189,12 +204,25 @@ export function createAgentPromptStore(options: {
     await evictBeyondLimit(entries, key)
   }
 
+  function existence(entry: IndexEntry): boolean | undefined {
+    try {
+      return options.agentExists?.({ workspaceId: entry.workspaceId, agentId: entry.agentId })
+    } catch {
+      return undefined
+    }
+  }
+
   async function evictBeyondLimit(entries: Map<string, IndexEntry>, keep: string): Promise<void> {
     if (entries.size <= maxFiles) return
-    const oldestFirst = [...entries.entries()]
+    // Gone agents first, then the ones nothing vouches for; each oldest first.
+    // An agent that still exists is never a candidate.
+    const rank = (exists: boolean | undefined): number => (exists === false ? 0 : 1)
+    const candidates = [...entries.entries()]
       .filter(([key]) => key !== keep)
-      .sort((a, b) => a[1].updatedAt - b[1].updatedAt)
-    for (const [key] of oldestFirst.slice(0, entries.size - maxFiles)) {
+      .map(([key, entry]) => ({ key, entry, exists: existence(entry) }))
+      .filter((candidate) => candidate.exists !== true)
+      .sort((a, b) => rank(a.exists) - rank(b.exists) || a.entry.updatedAt - b.entry.updatedAt)
+    for (const { key } of candidates.slice(0, entries.size - maxFiles)) {
       entries.delete(key)
       await rm(filePath(key), { force: true }).catch((error: unknown) => warn('Agent prompt eviction failed', error))
     }
@@ -301,10 +329,42 @@ export function createAgentPromptStore(options: {
       })
     },
 
+    remove(owner) {
+      const key = ownerKey(owner)
+      if (!key) return Promise.resolve()
+      return run(key, async () => {
+        try {
+          await rm(filePath(key), { force: true })
+        } catch (error) {
+          warn('Agent prompt removal failed', error)
+          return
+        }
+        // Only once the index exists: building it here would scan the whole
+        // directory for one delete.
+        if (index) (await index).delete(key)
+      })
+    },
+
     async flush() {
       await Promise.all([...chains.values()])
     },
   }
+}
+
+/**
+ * Every agent a registry state holds, keyed by workspace and agent id. Diffing
+ * two of these tells which agents a registry change removed.
+ */
+export function registeredAgentOwners(state: {
+  workspaces: ReadonlyArray<{ id: string; agents: Readonly<Record<string, unknown>> }>
+}): Map<string, { workspaceId: string; agentId: string }> {
+  const owners = new Map<string, { workspaceId: string; agentId: string }>()
+  for (const workspace of state.workspaces) {
+    for (const agentId of Object.keys(workspace.agents ?? {})) {
+      owners.set(`${workspace.id}\0${agentId}`, { workspaceId: workspace.id, agentId })
+    }
+  }
+  return owners
 }
 
 /**

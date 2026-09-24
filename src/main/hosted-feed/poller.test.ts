@@ -4,6 +4,8 @@ import {
   POLLER_BATTERY_STRETCH,
   POLLER_FEED_INTERVAL_MS,
   POLLER_FOCUS_UPDATE_AFTER_MS,
+  POLLER_WAKE_OFFLINE_RETRIES,
+  POLLER_WAKE_OFFLINE_RETRY_MS,
   POLLER_WAKE_SETTLE_MS,
   POLLER_FIRST_TICK_MS,
   POLLER_UPDATE_INTERVAL_MS,
@@ -148,8 +150,8 @@ test('poller', async () => {
       poller.stop()
     }
 
-    // Sleep: nothing runs while suspended; waking checks for an update at once
-    // and brings overdue legs back shortly after, not in the same instant.
+    // Sleep: nothing runs while suspended; waking checks for an update and
+    // brings overdue legs back shortly after, once the network has settled.
     {
       const clock = fakeClock()
       const calls: string[] = []
@@ -169,20 +171,85 @@ test('poller', async () => {
       assert.equal(calls.length, 0, 'nothing ran while suspended')
       poller.wake()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
-      assert.deepEqual(calls, [`updates@${clock.now()}`], 'waking checks for an update at once')
+      assert.equal(calls.length, 0, 'the instant of waking, when the network is usually still down, runs nothing')
       const wokeAt = clock.now()
       await clock.advance(POLLER_WAKE_SETTLE_MS)
+      const settled = wokeAt + POLLER_WAKE_SETTLE_MS
       assert.deepEqual(
-        calls.slice(1).sort(),
-        [`feed@${wokeAt + POLLER_WAKE_SETTLE_MS}`, `versions@${wokeAt + POLLER_WAKE_SETTLE_MS}`],
-        'overdue legs run once, shortly after waking',
+        calls.slice().sort(),
+        [`feed@${settled}`, `updates@${settled}`, `versions@${settled}`],
+        'the update check and the overdue legs run once, shortly after waking',
       )
-      await clock.advance(POLLER_UPDATE_INTERVAL_MS - POLLER_WAKE_SETTLE_MS)
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS - 1)
+      assert.equal(calls.filter((c) => c.startsWith('updates@')).length, 1)
+      await clock.advance(1)
       assert.equal(
         calls.filter((c) => c.startsWith('updates@')).length,
         2,
-        'the wake check restarted the update interval from the wake',
+        'the wake check restarted the update interval from when it ran',
       )
+      poller.stop()
+    }
+
+    // Waking offline: the update check retries on a short cadence until the
+    // network is back, instead of skipping itself and waiting an hour.
+    {
+      const clock = fakeClock()
+      let online = false
+      const checks: number[] = []
+      const poller = createHostedFeedPoller({
+        checkUpdates: async () => void checks.push(clock.now()),
+        refreshFeed: async () => {},
+        refreshVersions: async () => {},
+        isOnline: () => online,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+        now: clock.now,
+        random: () => 0.5,
+      })
+      poller.start()
+      poller.suspend()
+      await clock.advance(3 * POLLER_UPDATE_INTERVAL_MS)
+      poller.wake()
+      const wokeAt = clock.now()
+      await clock.advance(POLLER_WAKE_SETTLE_MS + 2 * POLLER_WAKE_OFFLINE_RETRY_MS)
+      assert.deepEqual(checks, [], 'still offline: nothing ran')
+      online = true
+      await clock.advance(POLLER_WAKE_OFFLINE_RETRY_MS)
+      assert.deepEqual(
+        checks,
+        [wokeAt + POLLER_WAKE_SETTLE_MS + 3 * POLLER_WAKE_OFFLINE_RETRY_MS],
+        'the first retry that finds the network checks',
+      )
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS - 1)
+      assert.equal(checks.length, 1, 'then back to the hourly rhythm, not the retry cadence')
+      poller.stop()
+    }
+
+    // A wake that stays offline gives up after its retries and keeps the rhythm.
+    {
+      const clock = fakeClock()
+      let online = false
+      let checks = 0
+      const poller = createHostedFeedPoller({
+        checkUpdates: async () => void (checks += 1),
+        refreshFeed: async () => {},
+        refreshVersions: async () => {},
+        isOnline: () => online,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+        now: clock.now,
+        random: () => 0.5,
+      })
+      poller.start()
+      poller.wake()
+      const retriesEndAt = POLLER_WAKE_SETTLE_MS + POLLER_WAKE_OFFLINE_RETRIES * POLLER_WAKE_OFFLINE_RETRY_MS
+      await clock.advance(retriesEndAt)
+      online = true
+      await clock.advance(POLLER_UPDATE_INTERVAL_MS - 1)
+      assert.equal(checks, 0, 'the retries are bounded; the next check is an interval after the last one')
+      await clock.advance(1)
+      assert.equal(checks, 1)
       poller.stop()
     }
 

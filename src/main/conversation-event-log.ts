@@ -107,13 +107,23 @@ export class ConversationEventLog {
     return this.write(filePath, log)
   }
 
-  /** Write whatever is buffered — for one file, or for all of them. */
+  /**
+   * Write whatever is buffered — for one file, or for all of them — and wait
+   * for it to be on disk. A file whose log is being closed (the idle sweep, a
+   * session stopping) is already detached from `files`, but its last chunk may
+   * still be in flight: a reader that flushes before reading waits for that
+   * close too, or it could read the transcript without its tail.
+   */
   async flush(filePath?: string): Promise<void> {
-    const targets = filePath === undefined ? Array.from(this.files.keys()) : [filePath]
+    const targets =
+      filePath === undefined ? new Set([...this.files.keys(), ...this.closing.keys()]) : new Set([filePath])
     await Promise.all(
-      targets.map((path) => {
+      Array.from(targets, (path) => {
         const log = this.files.get(path)
-        return log ? this.write(path, log) : Promise.resolve()
+        // A log reopened during a close queues behind it (its tail starts from
+        // the close), so its own write covers both.
+        if (log) return this.write(path, log)
+        return this.closing.get(path) ?? Promise.resolve()
       }),
     )
   }
@@ -121,7 +131,8 @@ export class ConversationEventLog {
   /** Flush and close one file's stream. A later append simply opens a new one. */
   async close(filePath: string): Promise<void> {
     const log = this.files.get(filePath)
-    if (!log) return
+    // Already closing: the caller still expects it closed when this settles.
+    if (!log) return this.closing.get(filePath)
     // Detached first, so an append that lands while this close is in flight
     // starts a new log (queued behind nothing of ours) instead of adding to one
     // that is about to be closed and forgotten.

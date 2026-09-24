@@ -20,7 +20,7 @@ export function registerUpdateIpc(ipcMain: IpcMain, { updateService }: UpdateIpc
     return updateService.downloadUpdate()
   })
 
-  ipcMain.handle('update:quit-and-install', (): AppUpdateCheckResult => {
+  ipcMain.handle('update:quit-and-install', (): Promise<AppUpdateCheckResult> => {
     return updateService.quitAndInstall()
   })
 
