@@ -113,8 +113,6 @@ export type WorktreeEntry = {
   createdAt: number
   updatedAt: number
   missingAt?: number | null
-  /** The pool lease behind this entry, when the worktree is a pool slot. */
-  leaseId?: string | null
 }
 
 export type WorkspaceWorktreeState = {

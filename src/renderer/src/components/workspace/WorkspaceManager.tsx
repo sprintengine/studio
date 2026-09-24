@@ -40,7 +40,6 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
-import { useWorktreePoolHeldNotices } from '../../hooks/useWorktreePoolHeldNotices'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import type {
   AgentCli,
@@ -68,7 +67,6 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { leaseOrCreateAgentWorktree } from '../../utils/poolWorktree'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -760,8 +758,6 @@ export default function WorkspaceManager() {
   const ownsGlobalSupervisors = isPrimaryWorkspaceWindow
   // Reclaims agent worktrees that are clean and merged; one window runs it.
   useAgentWorktreeCleanup(isPrimaryWorkspaceWindow)
-  // A pooled worktree that came back with work in it is held, and said so once.
-  useWorktreePoolHeldNotices(isPrimaryWorkspaceWindow)
   const renderedWorkspaceIds = visibleWorkspaces
     .map((workspace) => workspace.id)
     .filter((workspaceId) => workspaceId === windowActiveWorkspaceId || mountedWorkspaceIds.includes(workspaceId))
@@ -2252,13 +2248,13 @@ export default function WorkspaceManager() {
       spawnError('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
       return null
     }
-    // A warm pool slot when one is ready (instant); otherwise the worktree is
-    // created here as it always was.
-    const result = await leaseOrCreateAgentWorktree({
+    const result = await window.api.createGitWorktree({
       repoRoot,
-      name,
-      owner: { agentId, workspaceId: workspace.id },
-      hostId: workspace.hostId ?? null,
+      containerPath: paths.containerPath,
+      destinationPath: paths.destinationPath,
+      branchName: paths.branchName,
+      baseRef: 'HEAD',
+      copyIncludedFiles: true,
     })
     if (!result.ok) {
       spawnError('Agent worktree failed', result.message)
@@ -2268,18 +2264,17 @@ export default function WorkspaceManager() {
     const store = useWorkspaceStore.getState()
     store.setWorkspaceWorktreeState(workspace.id, { containerPath: paths.containerPath })
     const now = Date.now()
-    const worktreeId = worktreeIdFromPath(result.worktree.path, result.worktree.leaseId)
+    const worktreeId = worktreeIdFromPath(result.data.path)
     store.upsertWorktreeEntry(workspace.id, {
       id: worktreeId,
-      path: result.worktree.path,
-      branch: result.worktree.branch,
+      path: result.data.path,
+      branch: result.data.branch ?? paths.branchName,
       ownerAgentId: agentId,
       status: 'assigned',
       createdAt: now,
       updatedAt: now,
-      leaseId: result.worktree.leaseId,
     })
-    return { mode: 'worktree', worktreeId, cwd: result.worktree.path }
+    return { mode: 'worktree', worktreeId, cwd: result.data.path }
   }
 
   const addNewCliAgent = async (
@@ -2569,19 +2564,21 @@ export default function WorkspaceManager() {
       )
     }
     const name = requestedName.trim() || `chat-${nanoid(4).toLowerCase()}`
-    // The chat's own workspace is made after this returns, with its folder IN
-    // the worktree; that folder is what keeps a pooled slot leased (the pool
-    // sees the registry pointing into it), so the lease names no owner.
-    const result = await leaseOrCreateAgentWorktree({
+    const paths = agentWorktreePaths(repoRoot, name)
+    if (!paths) return fail('Worktree name invalid', `"${name}" does not reduce to a usable worktree name.`)
+    const result = await window.api.createGitWorktree({
       repoRoot,
-      name,
-      owner: { agentId: null, workspaceId: null },
-      hostId: worktreeHostId ?? null,
+      containerPath: paths.containerPath,
+      destinationPath: paths.destinationPath,
+      branchName: paths.branchName,
+      baseRef: 'HEAD',
+      copyIncludedFiles: true,
+      ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {
-      folderPath: result.worktree.path,
-      worktree: { branch: result.worktree.branch, baseRef: result.worktree.baseRef, repoRoot: projectFolder },
+      folderPath: result.data.path,
+      worktree: { branch: result.data.branch ?? paths.branchName, baseRef: 'HEAD', repoRoot: projectFolder },
     }
   }
 
