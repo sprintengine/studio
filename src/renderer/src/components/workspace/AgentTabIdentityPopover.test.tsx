@@ -129,6 +129,27 @@ test('AgentTabIdentityPopover', async () => {
     assert.match(markup, /Working/, 'shows the status label')
   })
 
+  run('a paused or idle tab card reads its age on its own clock, not the tab’s draw time', () => {
+    // The card formats `aged` against the clock it reads as it renders, so a
+    // tab drawn once and hovered much later still says how long it has been.
+    const paused = tabCard({
+      ...TAB,
+      status: { kind: 'attention', label: 'Paused', aged: { label: 'Paused', since: Date.now() - 2 * 60_000 } },
+    })
+    assert.match(paused, /Paused · 2m/)
+    const typed = tabCard({
+      ...TAB,
+      status: { kind: 'idle', label: 'Idle', aged: { label: 'Last typed', since: Date.now() - 12 * 60_000 } },
+    })
+    assert.match(typed, /Last typed · 12m/)
+    const fresh = tabCard({
+      ...TAB,
+      status: { kind: 'idle', label: 'Idle', aged: { label: 'Last typed', since: Date.now() - 5_000 } },
+    })
+    assert.match(fresh, /Idle/, 'under a minute the plain label stands')
+    assert.equal(fresh.includes('Last typed'), false)
+  })
+
   run('Role, Runtime and Checkout are gone, and so is the label column that held them up', () => {
     const markup = tabCard()
     for (const gone of ['No role', 'General agent', 'Claude Code', 'Main checkout']) {
