@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
 import type { AgentCliAvailabilityMap } from '../../../../shared/electron-api'
@@ -79,65 +79,31 @@ export function AgentsMachineSwitcher({
   )
 }
 
-/**
- * Settings ▸ Agents' list of agent CLIs, for one machine.
- *
- * This machine's list is the one it always was: the store's availability, its
- * version advisories and Update, the command on `cliRuntimes`, and the
- * CLI-wide settings (model list, custom model ids, API key). A WSL machine's
- * list is that machine's own: its probe, its command overrides
- * (`hosts[id].cliCommands`), and install bound to it — the controls that sat
- * under each distribution on the Machines tab until 2026-09-24. The CLI-wide
- * settings are not repeated under it: they are not the machine's, and drawing
- * them there would say they were.
- */
-export function AgentClisSection({
-  machine,
-  machineAvailability,
-  onMachineRecheck,
-  showMachine,
-  now,
-}: {
-  machine: AgentsMachine
-  /** The WSL machine's probe; null for this machine, whose answer is the store's. */
-  machineAvailability: MachineCliAvailability | null
-  onMachineRecheck: () => void
-  /** A switcher is on screen, so a state line names the machine it found the CLI on. */
-  showMachine: boolean
-  now: number
-}): React.JSX.Element {
-  const wsl = isWslHostId(machine.id) ? machine.id : null
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
-  const hostSettings = useWorkspaceStore((s) => (wsl ? s.appSettings.hosts?.[wsl] : undefined))
-  const setHostSettings = useWorkspaceStore((s) => s.setHostSettings)
-  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
-  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
-  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
-  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
-  // Detection map shared with the deployment pickers — drives the at-a-glance
-  // status on every CLI row without a per-row probe.
-  const localAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const localAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const localAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
-  // Installed version against the registry's newest, per CLI. Main computes it
-  // hourly and on Re-check, for this machine.
-  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
-  const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
-  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
-  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
-  const setCliModelCatalog = useWorkspaceStore((s) => s.setCliModelCatalog)
-  const installedPluginRows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
+type OpenCliRow = { machineId: string; cliId: string; install: boolean }
+type CliUpdateRun = { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }
 
-  const cliAvailability = wsl ? (machineAvailability?.map ?? NO_AVAILABILITY) : localAvailability
-  const cliAvailabilityStatus = wsl ? (machineAvailability?.status ?? 'loading') : localAvailabilityStatus
-  const cliAvailabilityError = wsl ? (machineAvailability?.error ?? null) : localAvailabilityError
-  const ownSettings: ExecutionHostSettings = hostSettings ?? emptyExecutionHostSettings()
-  const writeHostCommands = (cliCommands: Record<string, string>): void => {
-    if (wsl) setHostSettings(wsl, { ...ownSettings, cliCommands })
-  }
+export type AgentCliRuns = {
+  modelRefresh: { running: boolean; errors: Record<string, string> }
+  refreshCliModels: () => Promise<void>
+  cliUpdateRuns: Record<string, CliUpdateRun>
+  runCliUpdate: (cli: AgentCli) => Promise<void>
+  open: OpenCliRow | null
+  setOpen: (open: OpenCliRow | null) => void
+}
+
+/**
+ * The Agents list's work in progress — a model refresh, each Update, the open
+ * row. Called by the panel rather than the list, because the list unmounts with
+ * its tab, and an Update still running must not come back with its button
+ * enabled, able to start a second one beside it.
+ */
+export function useAgentCliRuns(): AgentCliRuns {
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const localAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
+  const setCliModelCatalog = useWorkspaceStore((s) => s.setCliModelCatalog)
 
   // The last Refresh: whether one is running, and why each CLI's probe failed.
   // A failed probe keeps the last good list (the answer carries no catalog for
@@ -174,9 +140,7 @@ export function AgentClisSection({
   // command is in flight; afterwards the notice says what happened when the
   // version did not move or the command failed. A clean success needs no
   // notice: the row's version changes and the advisory goes away.
-  const [cliUpdateRuns, setCliUpdateRuns] = useState<
-    Record<string, { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }>
-  >({})
+  const [cliUpdateRuns, setCliUpdateRuns] = useState<Record<string, CliUpdateRun>>({})
   const runCliUpdate = useCallback(
     async (cli: AgentCli) => {
       const api = window.api
@@ -205,29 +169,110 @@ export function AgentClisSection({
     [localAvailability, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories],
   )
 
-  // The CLI row whose detail is open (null = none). `installIntentId` marks a
-  // row whose Install button was pressed, so its detail opens straight into the
-  // install flow. Both belong to the machine they were opened on: switching
-  // machines closes them rather than opening the same CLI on another machine.
-  const [selectedCliId, setSelectedCliId] = useState<string | null>(null)
-  const [installIntentId, setInstallIntentId] = useState<string | null>(null)
-  useEffect(() => {
-    setSelectedCliId(null)
-    setInstallIntentId(null)
-  }, [machine.id])
+  // The CLI row whose detail is open, and whether its Install button opened it
+  // (its detail then opens straight into the install flow). It belongs to the
+  // machine it was opened on, compared as the list renders: another machine's
+  // list never mounts that row open, not even for the one commit an effect
+  // would take to close it — its install control would already have probed
+  // the new machine by then.
+  const [open, setOpen] = useState<OpenCliRow | null>(null)
+
+  return { modelRefresh, refreshCliModels, cliUpdateRuns, runCliUpdate, open, setOpen }
+}
+
+/**
+ * Settings ▸ Agents' list of agent CLIs, for one machine.
+ *
+ * This machine's list is the one it always was: the store's availability, its
+ * version advisories and Update, the command on `cliRuntimes`, and the
+ * CLI-wide settings (model list, custom model ids, API key). A WSL machine's
+ * list is that machine's own: its probe, its command overrides
+ * (`hosts[id].cliCommands`), and install bound to it — the controls that sat
+ * under each distribution on the Machines tab until 2026-09-24. The CLI-wide
+ * settings are not repeated under it: they are not the machine's, and drawing
+ * them there would say they were.
+ */
+export function AgentClisSection({
+  machine,
+  machineAvailability,
+  onMachineRecheck,
+  showMachine,
+  now,
+  runs,
+}: {
+  machine: AgentsMachine
+  /** Held by the panel, so a running Update or model refresh, and the open row, outlive a visit to another tab. */
+  runs: AgentCliRuns
+  /** The WSL machine's probe; null for this machine, whose answer is the store's. */
+  machineAvailability: MachineCliAvailability | null
+  onMachineRecheck: () => void
+  /** A switcher is on screen, so a state line names the machine it found the CLI on. */
+  showMachine: boolean
+  now: number
+}): React.JSX.Element {
+  const wsl = isWslHostId(machine.id) ? machine.id : null
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
+  const hostSettings = useWorkspaceStore((s) => (wsl ? s.appSettings.hosts?.[wsl] : undefined))
+  const setHostSettings = useWorkspaceStore((s) => s.setHostSettings)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
+  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  // Detection map shared with the deployment pickers — drives the at-a-glance
+  // status on every CLI row without a per-row probe.
+  const localAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const localAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const localAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
+  // Installed version against the registry's newest, per CLI. Main computes it
+  // hourly and on Re-check, for this machine.
+  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
+  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
+  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
+  const installedPluginRows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
+
+  const cliAvailability = wsl ? (machineAvailability?.map ?? NO_AVAILABILITY) : localAvailability
+  const cliAvailabilityStatus = wsl ? (machineAvailability?.status ?? 'loading') : localAvailabilityStatus
+  const cliAvailabilityError = wsl ? (machineAvailability?.error ?? null) : localAvailabilityError
+  const ownSettings: ExecutionHostSettings = hostSettings ?? emptyExecutionHostSettings()
+  const writeHostCommands = (cliCommands: Record<string, string>): void => {
+    if (wsl) setHostSettings(wsl, { ...ownSettings, cliCommands })
+  }
+
+  const { modelRefresh, refreshCliModels, cliUpdateRuns, runCliUpdate } = runs
+  const selectedCliId = runs.open?.machineId === machine.id ? runs.open.cliId : null
+  const installIntentId = selectedCliId !== null && runs.open?.install ? selectedCliId : null
+  const openRow = (cliId: string | null, install = false): void =>
+    runs.setOpen(cliId ? { machineId: machine.id, cliId, install } : null)
 
   // Installed first, then what this machine does not have — dimmed below it.
-  const rows = useMemo(
-    () =>
-      orderInstalledFirst(
-        installedPluginRows.map((plugin) => ({
-          plugin,
-          state: resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus),
-        })),
-        (row) => row.state.health === 'missing',
-      ),
-    [installedPluginRows, cliAvailability, cliAvailabilityStatus],
-  )
+  // The order is taken again only while no row is open: a row the person is
+  // working in (typing an override, installing) must not move under them when
+  // a probe of the half-typed command answers "missing", or when the install
+  // it is running succeeds.
+  const heldOrder = useRef<{ machineId: string; ids: string[] } | null>(null)
+  const rows = useMemo(() => {
+    const fresh = orderInstalledFirst(
+      installedPluginRows.map((plugin) => ({
+        plugin,
+        state: resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus),
+      })),
+      (row) => row.state.health === 'missing',
+    )
+    const held = heldOrder.current
+    if (
+      selectedCliId !== null &&
+      held?.machineId === machine.id &&
+      held.ids.length === fresh.length &&
+      fresh.every((row) => held.ids.includes(row.plugin.id))
+    ) {
+      return held.ids.map((id) => fresh.find((row) => row.plugin.id === id)!)
+    }
+    heldOrder.current = { machineId: machine.id, ids: fresh.map((row) => row.plugin.id) }
+    return fresh
+  }, [installedPluginRows, cliAvailability, cliAvailabilityStatus, selectedCliId, machine.id])
 
   return (
     <>
@@ -351,23 +396,14 @@ export function AgentClisSection({
                     </>
                   }
                   expanded={selectedCliId === plugin.id}
-                  onExpandedChange={(next) => {
-                    setInstallIntentId(null)
-                    setSelectedCliId(next ? plugin.id : null)
-                  }}
+                  onExpandedChange={(next) => openRow(next ? plugin.id : null)}
                   // Install is offered only on a definitive negative probe. A
                   // CLI whose probe never completed may well be installed, so
                   // offering to install it would be a fake affordance — those
                   // rows say so on their state line and route to Re-check.
                   actions={
                     state.health === 'missing' ? (
-                      <PrimaryButton
-                        size="xs"
-                        onClick={() => {
-                          setInstallIntentId(plugin.id)
-                          setSelectedCliId(plugin.id)
-                        }}
-                      >
+                      <PrimaryButton size="xs" onClick={() => openRow(plugin.id, true)}>
                         Install
                       </PrimaryButton>
                     ) : behind ? (

@@ -38,6 +38,7 @@ function stubApi(): void {
 const { default: SettingsPanel } = await import('./SettingsPanel')
 const { ConfirmDialogProvider } = await import('../ui/ConfirmDialog')
 const { useWorkspaceStore } = await import('../../store/workspaceStore')
+const { rememberAgentsMachine } = await import('./agentsMachine')
 
 function Panel({ initialTab }: { initialTab: string }): React.JSX.Element {
   return (
@@ -52,6 +53,11 @@ let host: HTMLDivElement
 
 beforeEach(() => {
   probes.length = 0
+  // Both outlive a test: the store is the app's one store, and the machine the
+  // window last showed is module state.
+  rememberAgentsMachine('local')
+  useWorkspaceStore.getState().setHostSettings('wsl:Ubuntu', null)
+  useWorkspaceStore.setState({ pluginCatalogEntries: [] })
   platform = 'win32'
   listing = {
     hosts: [

@@ -15,7 +15,22 @@ vi.mock('../../store/workspaceStore', () => ({
   }),
 }))
 
-const { AgentClisSection, AgentsMachineSwitcher } = await import('./AgentClisSection')
+const { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } = await import('./AgentClisSection')
+
+// The panel holds the runs; so does this harness.
+function Section({ machine, availability }: { machine: AgentsMachine; availability: MachineCliAvailability | null }) {
+  const runs = useAgentCliRuns()
+  return (
+    <AgentClisSection
+      machine={machine}
+      machineAvailability={availability}
+      onMachineRecheck={() => {}}
+      showMachine
+      now={2}
+      runs={runs}
+    />
+  )
+}
 
 const plugin = (id: string, displayName: string) => ({
   id,
@@ -98,17 +113,7 @@ const ubuntuProbe: MachineCliAvailability = {
 }
 
 async function renderSection(machine: AgentsMachine, availability: MachineCliAvailability | null): Promise<void> {
-  await act(async () =>
-    root.render(
-      <AgentClisSection
-        machine={machine}
-        machineAvailability={availability}
-        onMachineRecheck={() => {}}
-        showMachine
-        now={2}
-      />,
-    ),
-  )
+  await act(async () => root.render(<Section machine={machine} availability={availability} />))
 }
 
 function rowNames(): string[] {
@@ -200,6 +205,27 @@ test('this PC’s override still writes the CLI runtime, as it always did', asyn
   })
   expect(runtimeWrites).toEqual([['claude', { command: 'claude-dev' }]])
   expect(hostWrites).toEqual([])
+})
+
+test('an open row keeps its place when its own probe answers "missing"', async () => {
+  await renderSection(LOCAL, null)
+  await openRow('Codex')
+  // A half-typed override probes as missing; the row being edited stays put.
+  ;(fixtures.state as { cliAvailability: Record<string, unknown> }).cliAvailability = {
+    ...(fixtures.state as { cliAvailability: Record<string, unknown> }).cliAvailability,
+    codex: { cli: 'codex', installed: false, resolvedPath: null, version: null },
+  }
+  await renderSection(LOCAL, null)
+  expect(rowNames()).toEqual(['Codex', 'Gemini', 'Claude Code'])
+  expect(host.querySelector('input[aria-label="Codex command override"]')).toBeTruthy()
+  // Closed, the list takes its order again.
+  await openRow('Codex')
+  expect(rowNames()).toEqual(['Gemini', 'Claude Code', 'Codex'])
+})
+
+test('a WSL probe that failed is said once, naming the machine', async () => {
+  await renderSection(UBUNTU, { ...ubuntuProbe, map: {}, status: 'error', error: 'wsl.exe timed out', checkedAt: null })
+  expect(host.textContent).toContain('Agent CLIs could not be checked on WSL: Ubuntu: wsl.exe timed out')
 })
 
 test('a WSL machine still being asked reads as checking, not as missing', async () => {

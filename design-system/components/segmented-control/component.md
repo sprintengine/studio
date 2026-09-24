@@ -109,9 +109,11 @@ are separate steps.
   strip at its top picks the machine: the page, its sections and its controls
   stay the same page, only the machine they read and write changes, so it is
   not a tab strip in disguise. It shares the update channel's shape on
-  purpose — one of a few named options, every one worth seeing. Picking only
-  reads, so selection-follows-focus costs nothing. A page with a single subject
-  draws no strip at all rather than a strip of one.
+  purpose — one of a few named options, every one worth seeing. Picking changes
+  nothing that is saved: arrowing across the strip asks each machine it lands
+  on for its CLIs, which is a read, so selection-follows-focus stays a cheap and
+  reversible choice. A page with a single subject draws no strip at all rather
+  than a strip of one.
 
 ## Accessibility
 

@@ -36,7 +36,7 @@ import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MachinesSettingsTab } from './MachinesSettingsTab'
-import { AgentClisSection, AgentsMachineSwitcher } from './AgentClisSection'
+import { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } from './AgentClisSection'
 import {
   agentsMachines,
   lastAgentsMachine,
@@ -756,7 +756,9 @@ export default function SettingsPanel({
   // machine — every macOS and Linux install, and Windows with no distribution
   // on — draws no switcher, and the tab is the one it always was. The pick is
   // the window's last one while that machine is still offered, else this one.
-  const { listing: agentsHostListing } = useExecutionHosts()
+  // Listed only once the Agents tab is shown: on Windows the first listing can
+  // start WSL, and opening Settings on General should not.
+  const { listing: agentsHostListing } = useExecutionHosts({ enabled: activeSettingsTab === 'agents' })
   const agentsMachineOptions = useMemo(
     () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, window.api.platform)),
     [agentsHostListing],
@@ -775,6 +777,12 @@ export default function SettingsPanel({
     agentsCliIds,
   )
   const agentsOnWsl = agentsMachine.id !== LOCAL_HOST_ID
+  const agentCliRuns = useAgentCliRuns()
+  // A WSL machine's answer restarts the band's clock the way this machine's does.
+  const agentsMachineCheckedAt = agentsMachineCli.availability?.checkedAt ?? null
+  useEffect(() => {
+    if (agentsMachineCheckedAt !== null) setAgentsFreshnessNow(Date.now())
+  }, [agentsMachineCheckedAt])
 
   // If the active tab is no longer visible (e.g. the Mobile module was disabled
   // while its tab was active), fall back to the first visible tab so the panel
@@ -1481,14 +1489,19 @@ export default function SettingsPanel({
             value={agentsMachine.id}
             onChange={selectAgentsMachine}
           />
-          <SettingCard>
-            <SettingToggle
-              label="Check for CLI updates"
-              description="Offers Update when a newer version is published."
-              enabled={checkCliVersions}
-              onChange={setCheckCliVersions}
-            />
-          </SettingCard>
+          {/* The registry comparison is this machine's (main compares the
+              version its own probe found), so a WSL machine's list does not
+              offer the switch that would do nothing for it. */}
+          {agentsOnWsl ? null : (
+            <SettingCard>
+              <SettingToggle
+                label="Check for CLI updates"
+                description="Offers Update when a newer version is published."
+                enabled={checkCliVersions}
+                onChange={setCheckCliVersions}
+              />
+            </SettingCard>
+          )}
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
@@ -1496,6 +1509,7 @@ export default function SettingsPanel({
               actually ran this session, and says so plainly when it failed. */}
           <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
           <AgentClisSection
+            runs={agentCliRuns}
             machine={agentsMachine}
             machineAvailability={agentsMachineCli.availability}
             onMachineRecheck={agentsMachineCli.recheck}

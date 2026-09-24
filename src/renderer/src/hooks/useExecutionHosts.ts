@@ -15,12 +15,15 @@ import type { HostsListResult } from '../../../shared/execution-host'
  * Null until the first answer; a window whose preload predates the API (a
  * test harness) stays null, which every caller reads as "this machine only".
  */
-export function useExecutionHosts(options: { all?: boolean; refreshOnMount?: boolean } = {}): {
+export function useExecutionHosts(options: { all?: boolean; refreshOnMount?: boolean; enabled?: boolean } = {}): {
   listing: HostsListResult | null
   refresh: () => Promise<void>
 } {
   const all = options.all === true
   const refreshOnMount = options.refreshOnMount === true
+  // False holds off the first read (and the subscription) until a caller that
+  // mounts early actually needs the list.
+  const enabled = options.enabled !== false
   const [listing, setListing] = useState<HostsListResult | null>(null)
   const load = useCallback(
     async (refresh: boolean): Promise<void> => {
@@ -34,11 +37,12 @@ export function useExecutionHosts(options: { all?: boolean; refreshOnMount?: boo
     [all],
   )
   useEffect(() => {
+    if (!enabled) return
     void load(refreshOnMount)
     const unsubscribe =
       typeof window.api?.onHostsChanged === 'function' ? window.api.onHostsChanged(() => void load(false)) : null
     return () => unsubscribe?.()
-  }, [load, refreshOnMount])
+  }, [enabled, load, refreshOnMount])
   const refresh = useCallback(() => load(true), [load])
   return { listing, refresh }
 }

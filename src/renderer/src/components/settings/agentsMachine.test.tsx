@@ -110,6 +110,57 @@ async function settle(): Promise<void> {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
 }
 
+test('an override edit waits for typing to stop before it asks the machine again', async () => {
+  await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
+  await settle()
+  expect(probes).toHaveLength(1)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    fixtures.state.appSettings.hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/o' }, env: {} } }
+    await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
+    fixtures.state.appSettings.hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/op' }, env: {} } }
+    await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
+    expect(probes).toHaveLength(1)
+    await act(async () => vi.advanceTimersByTime(1_000))
+  } finally {
+    vi.useRealTimers()
+  }
+  await settle()
+  expect(probes).toHaveLength(2)
+  expect(probes[1]).toMatchObject({ cliRuntimes: { codex: { command: '/op' } } })
+})
+
+test('an answer for a machine no longer shown is dropped', async () => {
+  let release: (value: unknown) => void = () => {}
+  ;(window as unknown as { api: Record<string, unknown> }).api = {
+    pluginsDetectAvailability: (input: unknown) => {
+      probes.push(input)
+      return new Promise((resolve) => {
+        release = resolve
+      })
+    },
+  }
+  await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
+  await act(async () => root.render(<Probe hostId="local" />))
+  await act(async () =>
+    release({
+      ok: true,
+      availability: { claude: { cli: 'claude', installed: true, resolvedPath: null, version: '1' } },
+    }),
+  )
+  await settle()
+  expect(seen?.availability).toBe(null)
+})
+
+test('a probe that fails says why', async () => {
+  ;(window as unknown as { api: Record<string, unknown> }).api = {
+    pluginsDetectAvailability: async () => ({ ok: false, message: 'The distribution did not start.' }),
+  }
+  await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
+  await settle()
+  expect(seen?.availability).toMatchObject({ status: 'error', error: 'The distribution did not start.', map: {} })
+})
+
 test('this machine is never probed here — its answer is the store’s', async () => {
   await act(async () => root.render(<Probe hostId="local" />))
   await settle()

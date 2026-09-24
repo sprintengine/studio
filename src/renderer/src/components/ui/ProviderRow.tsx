@@ -58,10 +58,11 @@ export type ProviderRowProps = {
   /**
    * The provider is not present on this machine. Drops the mark by opacity and
    * the name to `--text-muted` (the state line's own ink, and the lowest that
-   * still clears AA here in both modes), so a scan down the list lands on what
-   * IS here. It is not a
-   * disabled state and never the only carrier of the fact: the state line still
-   * says "Not installed — no `muse` on PATH", and every control on the row keeps
+   * still clears AA on this ground and its hover fill in both modes), so a scan
+   * down the list lands on what IS here. A `selected` row keeps the full ink:
+   * `--text-muted` falls under AA on the selected fill. It is not a disabled
+   * state and never the only carrier of the fact: the state line still says
+   * "Not installed — no `muse` on PATH", and every control on the row keeps
    * working (an Install button on a recessed row is the whole point).
    */
   recessed?: boolean
@@ -254,7 +255,7 @@ export function ProviderRow({
               sentence of version output. */}
           <span
             className={`min-w-0 truncate text-body font-semibold ${
-              recessed ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-strong)]'
+              recessed && !selected ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-strong)]'
             }`}
           >
             {name}

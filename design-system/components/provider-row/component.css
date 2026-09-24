@@ -92,6 +92,12 @@
   color: var(--sem-color-text-muted);
 }
 
+/* `text.muted` falls under AA on the selected fill, so a selected row keeps the
+ * full ink on its name whether or not it is recessed. */
+.ds-provider-row--recessed.ds-provider-row--selected .ds-provider-row__name {
+  color: var(--sem-color-text-primary);
+}
+
 /* The count docked on the mark's TOP-RIGHT: the badge component's corner
  * species, on a list row rather than on a rail square. The opposite corner
  * from the health dot, so a surface that draws both reads as two marks rather

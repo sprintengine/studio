@@ -168,8 +168,11 @@ the other.
 - Recessed is a contrast change and nothing else. It sets no `aria-disabled`,
   removes nothing from the tab order, and adds no state to the announcement —
   the state line already carries the fact in words. The receded name's
-  `text.muted` clears AA on the row's ground and on its hover fill in both
-  modes (at worst 4.7:1, light, hovered).
+  `text.muted` clears AA on the row's ground and on its hover fill in the
+  system's light and dark modes (at worst 4.7:1, light, hovered) — the same
+  ink the state line has always worn there. It does not clear AA on
+  `bg.selected` (3.9:1, light), so a row that is both selected and recessed
+  keeps `text.primary` on its name; the mark still recedes.
 - Focus-visible is a 2px `border.focus` mark on the chevron and the switch
   independently — a ring on the chevron, an offset outline on the switch, whose
   checked fill is `border.focus`'s own colour. The row itself never takes focus,
