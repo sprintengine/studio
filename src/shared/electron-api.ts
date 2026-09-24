@@ -883,6 +883,10 @@ export type ElectronApi = {
   updateGetChannel: () => Promise<AppUpdateChannelSetting>
   /** Save a channel choice, re-point the updater at it and check that channel. */
   updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>
+  /** Download updates as soon as they are found, or wait to be asked (the default). */
+  updateSetAutoDownload: (enabled: boolean) => Promise<AppUpdateState>
+  /** The last update's result has been shown; stop reporting it. */
+  updateDismissInstallOutcome: () => Promise<AppUpdateState>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   /** Read main's agent-launch settings: the record (null before any write) and the settings in force. */
   launchSettingsGet: () => Promise<AgentLaunchSettingsSnapshot>

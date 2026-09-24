@@ -140,7 +140,9 @@ import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
-import { createUpdateChannelStore } from './update-channel-store'
+import { channelForVersion, createUpdateChannelStore } from './update-channel-store'
+import { createUpdateInstallNoteStore } from './update-install-note'
+import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { createWorkspaceRegistryStore } from './workspace-registry-store'
@@ -767,7 +769,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'update' })
     },
   })
-  const updateService = new SprintEngineUpdateService({ writeDiagnosticLog, channelStore: updateChannelStore })
+  const updateService = new SprintEngineUpdateService({
+    writeDiagnosticLog,
+    channelStore: updateChannelStore,
+    // The note an update leaves for the build that starts after it.
+    installNotes: createUpdateInstallNoteStore({ resolveUserDataDir: () => app.getPath('userData') }),
+    // "Restart to update" shows its progress on the launch plate.
+    progressWindow: {
+      show: (progress) => showUpdateProgressWindow(channelForVersion(app.getVersion()), progress),
+      update: (progress) => sendSplashProgress(progress),
+    },
+  })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
     builtinSkillManager,

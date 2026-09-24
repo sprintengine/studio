@@ -98,8 +98,9 @@ export type DockDiffToWorkspaceResult = { accepted: boolean }
 
 export type OpenExternalResult = { ok: true } | { ok: false; message: string }
 
+/** `installing` runs from "Restart to update" until the app hands over to the installer. */
 export type AppUpdateStatus =
-  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not_available' | 'error'
+  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'not_available' | 'error'
 
 /** A release train an installed build can follow. */
 export type AppUpdateTrack = 'stable' | 'nightly'
@@ -119,6 +120,21 @@ export type AppUpdateProgress = {
   transferred: number
   total: number
   bytesPerSecond: number
+}
+
+/**
+ * What became of the last update this install handed to an installer, read
+ * once at the start after it (main's update-install note). `updated` when the
+ * version running is the one it went to; `failed` when it is still the one it
+ * came from.
+ */
+export type AppUpdateInstallOutcome = {
+  kind: 'updated' | 'failed'
+  /** The version the update was going to. */
+  version: string
+  fromVersion: string
+  /** Why it failed, in a sentence; null when it did not. */
+  message: string | null
 }
 
 export type AppUpdateState = {
@@ -141,6 +157,16 @@ export type AppUpdateState = {
   progress: AppUpdateProgress | null
   errorMessage: string | null
   lastCheckedAt: string | null
+  /** Download an update as soon as a check finds one. Off unless the person turns it on. */
+  autoDownload: boolean
+  /**
+   * Installing needs an administrator: a Windows installation for all users,
+   * or in a folder the person cannot write. Windows asks for permission when
+   * Restart to update is pressed, and such an update does not install at quit.
+   */
+  installRequiresAdmin: boolean
+  /** The last update's result, until the renderer has shown it. */
+  installOutcome: AppUpdateInstallOutcome | null
 }
 
 export type AppUpdateCheckResult =

@@ -63,7 +63,8 @@ test('app-lifecycle', async () => {
 
     const order: string[] = []
     let disposed = 0
-    let prepareForInstall: (() => Promise<void>) | null = null
+    type LegReport = { name: string; done: number; total: number; failed: boolean }
+    let prepareForInstall: ((report?: (leg: LegReport) => void) => Promise<void>) | null = null
     registerAppLifecycle({
       diagnosticsEnabled: false,
       allowMultipleInstances: true,
@@ -112,7 +113,7 @@ test('app-lifecycle', async () => {
       },
       updateService: {
         checkForUpdates: async () => undefined,
-        setPrepareForInstall: (prepare: () => Promise<void>) => {
+        setPrepareForInstall: (prepare: (report?: (leg: LegReport) => void) => Promise<void>) => {
           prepareForInstall = prepare
         },
       } as unknown as Parameters<typeof registerAppLifecycle>[0]['updateService'],
@@ -125,8 +126,21 @@ test('app-lifecycle', async () => {
     // "Restart to update": the whole ordered shutdown runs before the installer
     // is started, and the app is not exited yet — the updater's quit does that.
     assert.ok(prepareForInstall, 'the lifecycle hands the update service its shutdown')
-    await (prepareForInstall as () => Promise<void>)()
+    const reports: LegReport[] = []
+    await (prepareForInstall as (report?: (leg: LegReport) => void) => Promise<void>)((leg) => reports.push(leg))
     assert.deepEqual(exitCalls, [], 'the installer, not the shutdown, ends the process')
+    // Every leg reports as it finishes, in order, which is what moves the
+    // update progress window's bar; a leg that throws still reports, as failed.
+    assert.deepEqual(
+      reports.map((leg) => leg.done),
+      reports.map((_, index) => index + 1),
+    )
+    assert.ok(reports.every((leg) => leg.total === reports.length))
+    assert.deepEqual(
+      reports.filter((leg) => leg.failed).map((leg) => leg.name),
+      ['canvas'],
+    )
+    assert.ok(reports.some((leg) => leg.name === 'terminals'))
     assert.deepEqual(order, [
       'workspaceSync.flush',
       'conversation.flushTranscripts',

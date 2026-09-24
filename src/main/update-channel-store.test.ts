@@ -77,3 +77,22 @@ test('a write that fails still applies for the session and says so', () => {
   store.set('nightly')
   assert.equal(warnings.length, 1)
 })
+
+test('automatic download is off until chosen, and saved beside the channel', () => {
+  const dir = userData()
+  const store = createUpdateChannelStore({ resolveUserDataDir: () => dir })
+  assert.equal(store.getAutoDownload(), false)
+  store.setAutoDownload(true)
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'update-channel.json'), 'utf8')), { autoDownload: true })
+  store.set('nightly')
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'update-channel.json'), 'utf8')), {
+    channel: 'nightly',
+    autoDownload: true,
+  })
+  const next = createUpdateChannelStore({ resolveUserDataDir: () => dir })
+  assert.equal(next.getAutoDownload(), true)
+  assert.equal(next.get(), 'nightly')
+  // A value that is not a boolean reads as the default.
+  writeFileSync(join(dir, 'update-channel.json'), JSON.stringify({ autoDownload: 'yes' }))
+  assert.equal(createUpdateChannelStore({ resolveUserDataDir: () => dir }).getAutoDownload(), false)
+})

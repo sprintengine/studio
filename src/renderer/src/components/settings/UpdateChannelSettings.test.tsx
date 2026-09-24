@@ -44,6 +44,9 @@ function resultFor(channel: AppUpdateTrack): AppUpdateCheckResult {
       progress: null,
       errorMessage: null,
       lastCheckedAt: null,
+      autoDownload: false,
+      installRequiresAdmin: false,
+      installOutcome: null,
     },
   }
 }

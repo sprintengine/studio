@@ -209,7 +209,7 @@ import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
-import { showAppUpdateReadyToast } from './manager/appUpdateToast'
+import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
@@ -1539,17 +1539,33 @@ export default function WorkspaceManager() {
     })
   }, [])
 
-  // The app update, once main has downloaded it in the background: one toast
-  // asking to restart into it, and one bell row. Later leaves it to
-  // autoInstallOnAppQuit.
+  // The app update: one toast that follows it through its steps (offered,
+  // downloading, ready, installing) and a bell row at each question, plus, at
+  // the first start after an update, how it went.
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (!api || typeof api.onUpdateStateChanged !== 'function') return
-    let last: string | null = null
-    return api.onUpdateStateChanged((state) => {
-      if (state.status === 'downloaded' && last !== 'downloaded') showAppUpdateReadyToast(state)
-      last = state.status
-    })
+    const drive = createAppUpdateToastDriver()
+    const unsubscribe = api.onUpdateStateChanged(drive)
+    let cancelled = false
+    if (typeof api.updateGetState === 'function') {
+      void api
+        .updateGetState()
+        .then((state) => {
+          if (cancelled) return
+          // The boot check often answers before this window subscribes; what it
+          // found is shown from here rather than waiting for the next check.
+          drive(state)
+          if (!state.installOutcome) return
+          showAppUpdateOutcomeToast(state.installOutcome)
+          void api.updateDismissInstallOutcome?.().catch(() => undefined)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
   }, [])
 
   // CLI version advisories: the Settings switch is mirrored into main (which

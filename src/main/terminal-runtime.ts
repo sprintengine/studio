@@ -2032,6 +2032,13 @@ async function disposeAllTerminals(): Promise<void> {
     } catch {
       // ignore kill errors if process died first
     }
+    // Each session's stretch above is synchronous: the replay materialized
+    // from its whole history, and on Windows a ConPTY close that blocks until
+    // the console host lets go. Back to the event loop between sessions, so a
+    // quit with many terminals never holds the main thread for the five
+    // seconds after which Windows calls the app's windows "not responding",
+    // and the update progress window keeps painting.
+    await new Promise<void>((resolve) => setImmediate(resolve))
   }
 
   // The sidecars are queued writes now, not synchronous ones; the quit path

@@ -23,6 +23,11 @@ const SPLASH_HEIGHT = 320
 const SPLASH_BACKGROUND_COLOR = '#08080c'
 
 let splashWindow: BrowserWindow | null = null
+// The last line pushed, re-sent once the document has loaded: a push made
+// while the page is still parsing has no listener yet and would be lost. The
+// launch plate never needed this (its static "Starting…" covers the gap), but
+// the update progress window opens and reports in the same breath.
+let lastProgress: SplashProgress | null = null
 
 /**
  * The query the splash document is loaded with. A nightly build opens on its
@@ -88,6 +93,9 @@ export function createSplashWindow({ buildChannel }: { buildChannel: AppUpdateTr
   win.on('closed', () => {
     if (splashWindow === win) splashWindow = null
   })
+  win.webContents.once('did-finish-load', () => {
+    if (splashWindow === win && lastProgress) win.webContents.send('splash:progress', lastProgress)
+  })
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
@@ -105,7 +113,30 @@ export function createSplashWindow({ buildChannel }: { buildChannel: AppUpdateTr
 export function sendSplashProgress(update: SplashProgress): void {
   const win = splashWindow
   if (!win || win.isDestroyed()) return
+  lastProgress = update
   win.webContents.send('splash:progress', update)
+}
+
+/** The plate, when it is up. The update flow hides every other window and must not hide this one. */
+export function currentSplashWindow(): BrowserWindow | null {
+  return splashWindow && !splashWindow.isDestroyed() ? splashWindow : null
+}
+
+/**
+ * The update progress window (owner ruling 2026-09-24): the launch plate again,
+ * with the update's status line and bar, from "Restart to update" until the
+ * installer takes over. Reusing the plate means the person sees the same small
+ * box on the way out as on the way back in, and it paints without the app
+ * bundle, which is being shut down underneath it.
+ */
+export function showUpdateProgressWindow(buildChannel: AppUpdateTrack, progress: SplashProgress): void {
+  const existing = currentSplashWindow()
+  lastProgress = progress
+  if (existing) {
+    sendSplashProgress(progress)
+    return
+  }
+  createSplashWindow({ buildChannel })
 }
 
 // Idempotent: the reveal path and the timeout path both call it, and whichever
@@ -114,6 +145,7 @@ export function sendSplashProgress(update: SplashProgress): void {
 export function closeSplashWindow(): void {
   const win = splashWindow
   splashWindow = null
+  lastProgress = null
   if (!win || win.isDestroyed()) return
   win.destroy()
 }

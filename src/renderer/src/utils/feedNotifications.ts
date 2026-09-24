@@ -76,10 +76,23 @@ export function cliUpdateNotice(
   }
 }
 
-export function updateReadyNotice(appName: string, version: string | null): Notice {
+export function updateReadyNotice(appName: string, version: string | null, requiresAdmin = false): Notice {
   return {
     title: version ? `${appName} ${version} is ready` : `${appName} update is ready`,
-    description: 'Restart now to update, or it installs the next time you quit.',
+    // An update that needs an administrator does not install at quit: the
+    // permission prompt would come up after the app had gone.
+    description: requiresAdmin
+      ? 'Restart to update. Windows will ask for administrator permission.'
+      : 'Restart now to update, or it installs the next time you quit.',
+  }
+}
+
+// Owner ruling 2026-09-24: an update downloads when the person asks for it
+// (unless they turned automatic download on in Settings -> General).
+export function updateAvailableNotice(appName: string, version: string | null): Notice {
+  return {
+    title: version ? `${appName} ${version} is available` : `A ${appName} update is available`,
+    description: 'Download it now, or any time from Settings → General.',
   }
 }
 
