@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import {
   colorSchemeForResolvedTheme,
+  effectiveWindowMaterial,
   LIGHT_SURFACE_THEMES,
   type AppTheme,
   type ColorScheme,
@@ -47,24 +48,46 @@ function applyTheme(resolved: ResolvedAppTheme): void {
   // launch matching the app surface (e.g. Claude Code's --settings theme).
   // Best-effort: the API is absent in non-Electron/test contexts.
   void window.api?.setColorScheme?.(colorSchemeForResolvedTheme(resolved))
+  // An opaque window's background colour is the theme's canvas, so a theme
+  // change re-pushes the material with the new colour.
+  pushWindowMaterial(useWorkspaceStore.getState().appSettings.appearance.windowMaterial)
+}
+
+// The active theme's canvas (`--bg-app`) as `#rrggbb` — the colour main paints
+// an opaque window before the renderer has drawn, so a new window or a resize
+// that outruns the renderer shows the theme's own ground rather than a fixed
+// dark one. Undefined when the value is not a plain opaque hex (main then
+// keeps the colour it already has).
+function themeCanvasColor(): string | undefined {
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return undefined
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : undefined
+}
+
+function pushWindowMaterial(material: WindowMaterial): void {
+  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  // Mirror to main: persists for pre-boot application on the next launch and
+  // re-applies the window-level material to live windows. Best-effort outside
+  // Electron.
+  void window.api?.setWindowMaterial?.(effective, effective === 'glass' ? undefined : themeCanvasColor())
 }
 
 function applyWindowMaterial(material: WindowMaterial): void {
   if (typeof document === 'undefined') return
-  // Glass is macOS-only; collapse to solid elsewhere so a synced/copied
+  // Glass is macOS-only and resolves to tinted elsewhere, so a synced/copied
   // profile can never leave a translucent canvas over a non-vibrant window.
-  const active = material === 'glass' && window.api?.platform === 'darwin'
-  if (active) {
-    document.documentElement.setAttribute('data-window-material', 'glass')
+  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  if (effective === 'solid') {
+    document.documentElement.removeAttribute('data-window-material')
+  } else {
+    document.documentElement.setAttribute('data-window-material', effective)
+  }
+  if (effective === 'glass') {
     // The boot script's opaque pre-paint on <html> would sit in front of the
     // window vibrancy; clear it so the frost shows (body carries the tint).
     document.documentElement.style.backgroundColor = ''
-  } else {
-    document.documentElement.removeAttribute('data-window-material')
   }
-  // Mirror to main: persists for pre-boot application on the next launch and
-  // re-applies vibrancy to live windows. Best-effort outside Electron.
-  void window.api?.setWindowMaterial?.(active ? 'glass' : 'solid')
+  pushWindowMaterial(material)
 }
 
 // Drives the <html data-theme="…"> attribute from the persisted preference.

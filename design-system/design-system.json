@@ -72,6 +72,7 @@
       "tooltip",
       "trigger-button",
       "truncated-text",
+      "working-edge",
       "workspace-panel"
     ],
     "patterns": [

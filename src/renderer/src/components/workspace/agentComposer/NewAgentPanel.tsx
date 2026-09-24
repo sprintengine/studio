@@ -42,11 +42,10 @@ import {
   Popover,
   PrimaryButton,
   Textarea,
-  setModelPermissionPreset,
   StarGlyph,
   Tooltip,
   TruncatedText,
-  useModelPermissionPreset,
+  useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
@@ -639,8 +638,8 @@ export default function NewAgentPanel({
   pickRemoteMachineRef.current = pickRemoteMachine
   // A remote target takes exactly what its gateway accepts (manual, auto).
   // The moment one is picked, a preset it would refuse — or silently replace
-  // with the other machine's default — moves to the nearest supported one and
-  // says so; the unsupported rows stay listed, dimmed, with the reason.
+  // with the other machine's default — launches as the nearest supported one
+  // and says so; the unsupported rows stay listed, dimmed, with the reason.
   const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
   const remoteMachineName = remoteTarget?.connection.machineName ?? null
   React.useEffect(() => {
@@ -799,32 +798,31 @@ export default function NewAgentPanel({
   const engineNames = composer.engineNamesFor(selection)
   const model = launchCli ? composer.modelForSelection(selection, launchCli) : undefined
   const reasoning = launchCli ? composer.reasoningForSelection(selection, launchCli) : undefined
-  // Permissions are a property of the ROW (owner, 2026-09-05): the preset this
-  // launch runs on is the one stored against the picked model, and the host's
-  // `permissionPreset` is only the app-wide default a row nobody has set still
-  // resolves to. Everything the surface says about permissions — the
-  // command-line preview, the remote coercion, what the launch carries — reads
-  // THIS, never the prop. A terminal or a conversation has no row and no
-  // permission flag, so it simply reads the fallback and shows no control.
-  const effectivePreset = useModelPermissionPreset(launchCli, model ?? null, permissionPreset)
-  // A remote machine cannot take every preset. The moment one is picked, a
-  // preset it would refuse — or silently replace with its own default — moves
-  // to the nearest supported one and says so. It lives here, below the row
-  // derivations, because what it coerces is the PICKED ROW's preset.
+  // Permissions are a property of the CLI (owner ruling 2026-09-24): the preset
+  // this launch runs on is the one stored for the picked runtime, whichever of
+  // its models is picked, and the host's `permissionPreset` is only the
+  // app-wide default a CLI nobody has set still resolves to. A terminal or a
+  // conversation has no CLI and no permission flag, so it simply reads the
+  // fallback and shows no control.
+  const storedPreset = useCliPermissionPreset(launchCli, permissionPreset)
+  // A remote machine cannot take every preset, so a remote launch runs on the
+  // nearest one it accepts. The narrowing is derived, never written back: the
+  // stored value is what every local launch of this CLI reads, and picking a
+  // remote machine must not quietly take Bypass away from all of them.
+  // Everything the surface says about permissions — the chip, the command-line
+  // preview, what the launch carries — reads THIS, never the prop.
+  const effectivePreset = remoteMachineName ? nearestRemotePermissionPreset(storedPreset) : storedPreset
   React.useEffect(() => {
     // Keyed on the MACHINE, not the target object: the browse resolving
-    // replaces the object, and the move must happen once per pick.
+    // replaces the object, and the note must be written once per pick.
     if (!remoteMachineName) return
-    if (REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
-    const next = nearestRemotePermissionPreset(effectivePreset)
+    if (REMOTE_PERMISSION_PRESETS.has(storedPreset)) return
+    const next = nearestRemotePermissionPreset(storedPreset)
     const from =
-      agentPermissionOptions(launchCli).find((option) => option.value === effectivePreset)?.label ?? effectivePreset
+      agentPermissionOptions(launchCli).find((option) => option.value === storedPreset)?.label ?? storedPreset
     const to = agentPermissionOptions(launchCli).find((option) => option.value === next)?.label ?? next
-    // The move is written against the ROW the machine refused it for, so
-    // picking a local model back does not inherit the remote's narrowing.
-    setModelPermissionPreset(launchCli, model ?? null, next)
     setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
-  }, [effectivePreset, launchCli, model, remoteMachineName])
+  }, [storedPreset, launchCli, remoteMachineName])
 
   // ── The skill trigger ────────────────────────────────────────────────────
   const skillIntegration = React.useMemo(() => {
@@ -955,8 +953,9 @@ export default function NewAgentPanel({
         })
         return
       }
-      // Never a value the gateway will refuse after a round-trip: the effect
-      // above already moved the choice, and this is the belt to its braces.
+      // Never a value the gateway will refuse after a round-trip: the remote
+      // narrowing above already moved the choice, and this is the belt to its
+      // braces.
       if (!REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
       // A worktree the gate has since closed on (a scope read that came back
       // narrower, a project that turned out not to be a repo) never travels:
@@ -1366,16 +1365,16 @@ export default function NewAgentPanel({
                   // Permissions live in the picker rather than on a chip beside
                   // it (owner, 2026-09-05). A preset is a property of the runtime
                   // the row names — Claude Code's auto mode is not Codex's
-                  // sandbox, and the repo you trust one model in is not the one
-                  // you trust the next in — so it is chosen where the model is,
-                  // remembered against that row, and sits on the picker's one
-                  // trailing row beside the effort control.
-                  permissions={(cli, rowModel) => (
+                  // sandbox — so it is chosen where the runtime is, remembered
+                  // once per CLI for all of its models, and sits on the picker's
+                  // one trailing row beside the effort control.
+                  permissions={(cli) => (
                     <SpawnPermissionFooter
                       cli={cli}
-                      model={rowModel}
                       fallback={permissionPreset}
-                      {...(remotePresetReasons ? { disabledReasons: remotePresetReasons } : {})}
+                      {...(remotePresetReasons
+                        ? { disabledReasons: remotePresetReasons, shown: nearestRemotePermissionPreset }
+                        : {})}
                       onSelect={() => setRemoteNote(null)}
                     />
                   )}

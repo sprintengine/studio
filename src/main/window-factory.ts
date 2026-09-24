@@ -4,7 +4,7 @@ import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
-import { getWindowMaterial } from './window-material-store'
+import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
@@ -30,10 +30,25 @@ let appQuitInProgress = false
 let detachedRestorePending = true
 
 // Workspace (main-shell) windows only — aux/diagnostics windows never frost.
-// The material IPC re-applies vibrancy live to every member on change.
+// The material IPC re-applies the material live to every member on change.
 const workspaceWindows = new Set<BrowserWindow>()
 
-const SOLID_BACKGROUND_COLOR = '#09090b'
+// The window-level half of a material: vibrancy and a transparent background
+// for glass; no vibrancy and the theme's own opaque canvas colour for tinted
+// and solid. Tinted's gradient and glow are painted by the renderer as static
+// CSS over that opaque ground — the window itself is an ordinary opaque one,
+// which is what keeps it free on platforms with no vibrancy. The colour
+// matters for the frames before the renderer paints (creation, and a resize
+// that outruns it): it is the theme's canvas, so a light theme never flashes
+// a dark ground.
+function materialWindowOptions(
+  material: WindowMaterial,
+  canvasColor: string,
+): { vibrancy?: 'under-window'; backgroundColor: string } {
+  return material === 'glass'
+    ? { vibrancy: 'under-window', backgroundColor: '#00000000' }
+    : { backgroundColor: canvasColor }
+}
 
 // macOS vibrancy for the glass window material. The OS composites the blur
 // from the desktop BEHIND the window (never from our own content), so this is
@@ -41,12 +56,14 @@ const SOLID_BACKGROUND_COLOR = '#09090b'
 // backdrop-filter, which stays banned (see .overlay-scrim in index.css).
 // Which regions read as glass is the renderer's call via the
 // data-window-material attribute; everything painted opaque stays opaque.
-export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial): void {
-  if (process.platform !== 'darwin') return
+// The opaque materials re-apply on every platform: their background colour
+// follows the theme, so a theme change re-pushes it.
+export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial, canvasColor: string): void {
+  const options = materialWindowOptions(material, canvasColor)
   for (const win of workspaceWindows) {
     if (win.isDestroyed()) continue
-    win.setVibrancy(material === 'glass' ? 'under-window' : null)
-    win.setBackgroundColor(material === 'glass' ? '#00000000' : SOLID_BACKGROUND_COLOR)
+    if (process.platform === 'darwin') win.setVibrancy(options.vibrancy ?? null)
+    win.setBackgroundColor(options.backgroundColor)
   }
 }
 
@@ -91,10 +108,11 @@ export function createMainWindow({
   const restoreDetached = windowId === 'primary' && detachedRestorePending
   if (windowId === 'primary') detachedRestorePending = false
   // Applied at creation (not post-boot) so a glass-persisted profile paints
-  // frosted chrome from the first frame; getWindowMaterial() is 'solid'
-  // everywhere but macOS. The renderer boot script stamps the matching
-  // data-window-material attribute just as synchronously.
-  const glass = getWindowMaterial() === 'glass'
+  // frosted chrome from the first frame, and an opaque one its theme's canvas;
+  // getWindowMaterial() never answers 'glass' off macOS. The renderer boot
+  // script stamps the matching data-window-material attribute just as
+  // synchronously.
+  const materialOptions = materialWindowOptions(getWindowMaterial(), getWindowCanvasColor())
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     width: safeBounds?.width ?? 1400,
@@ -116,9 +134,7 @@ export function createMainWindow({
           trafficLightPosition: { x: 12, y: 11 },
         }),
     autoHideMenuBar: process.platform !== 'darwin',
-    ...(glass
-      ? { vibrancy: 'under-window' as const, backgroundColor: '#00000000' }
-      : { backgroundColor: SOLID_BACKGROUND_COLOR }),
+    ...materialOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
