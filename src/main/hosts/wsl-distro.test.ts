@@ -133,7 +133,9 @@ test('the pid file is keyed by the startup script and written by the shell it na
         { encoding: 'utf8' },
       )
       const [pid, started] = printed.split('\n')
-      const [writtenPid, writtenStarted] = readFileSync(join(tmp, 'sessions', 'sess-1.pid'), 'utf8').trim().split(' ')
+      const [writtenPid, writtenStarted] = readFileSync(join(tmp, 'sessions', 'sess-1.pid'), 'utf8')
+        .trim()
+        .split(' ')
       assert.equal(writtenPid, pid, `${shell}: the shell's own pid`)
       if (hasProc) {
         assert.match(writtenStarted ?? '', /^\d+$/u, `${shell}: a start time`)
