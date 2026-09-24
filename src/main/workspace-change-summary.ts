@@ -303,6 +303,14 @@ async function countLines(absolutePath: string): Promise<number> {
  */
 export type CheckoutSummaryShare = {
   read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
+  /**
+   * Forget a SETTLED reading, so the next read is fresh. Called when the
+   * checkout's git files moved (git-repo-watch.ts): the views are told to
+   * re-read at that moment, and being served the hold's copy of the reading
+   * they were told is stale would make the event buy nothing. An in-flight read
+   * is kept — it started after the change or it is about to be replaced.
+   */
+  invalidate: (checkoutPath: string) => void
 }
 
 /**
@@ -314,14 +322,13 @@ export type CheckoutSummaryShare = {
  * every one of those asks re-ran the whole branch-span chain (about twenty git
  * spawns per checkout, each spawn a synchronous step on main's event loop).
  *
- * The number is not free and it is not arbitrary. The hold must stay UNDER the
- * sidebar's sweep or every other sweep is served the reading it was run to
- * replace; at thirty, forty-five would have made the faster poll buy nothing.
- * What halving costs is the thing 09-05 bought: the Remote band's
- * thirty-second ask now always misses, so that reader pays a full re-read every
- * time instead of folding into the sidebar's. If main's event loop starts
- * stuttering on a large registry, this pair — not the sweep alone — is the
- * first place to look.
+ * The number is not free and it is not arbitrary. It was sized to stay UNDER
+ * the sidebar's thirty-second sweep, or every other sweep would have been
+ * served the reading it was run to replace. The sidebar no longer sweeps on a
+ * clock: it re-reads a checkout when git-repo-watch.ts reports it changed, and
+ * that report drops the held reading first (`invalidate`), so the hold now
+ * only ever serves readers asking about a checkout that has NOT changed — the
+ * Remote band, the phone, two windows showing one checkout.
  */
 const CHECKOUT_SUMMARY_HOLD_MS = 22_500
 /**
@@ -384,11 +391,18 @@ export function createCheckoutSummaryShare(
     return entry.settledAt === null ? at - entry.startedAt < inFlightMaxMs : at - entry.settledAt < holdMs
   }
 
+  // Rows on one checkout arrive with whatever path their workspace stores;
+  // a trailing slash or a Windows separator must not split the share.
+  const keyOf = (checkoutPath: string): string => checkoutPath.replace(/\\/g, '/').replace(/\/+$/u, '')
+
   return {
+    invalidate(checkoutPath) {
+      const key = keyOf(checkoutPath)
+      const entry = reads.get(key)
+      if (entry && entry.settledAt !== null) reads.delete(key)
+    },
     read(checkoutPath) {
-      // Rows on one checkout arrive with whatever path their workspace stores;
-      // a trailing slash or a Windows separator must not split the share.
-      const key = checkoutPath.replace(/\\/g, '/').replace(/\/+$/u, '')
+      const key = keyOf(checkoutPath)
       const at = now()
       // Opportunistic prune: the map is small (one entry per polled checkout),
       // so this costs nothing and keeps a closed workspace's entry from being
@@ -415,3 +429,8 @@ export function createCheckoutSummaryShare(
 }
 
 const defaultCheckoutSummaries = createCheckoutSummaryShare(readCheckoutSummary)
+
+/** Drop the held reading for a checkout whose git files just moved. */
+export function invalidateCheckoutSummary(checkoutPath: string): void {
+  defaultCheckoutSummaries.invalidate(checkoutPath)
+}

@@ -9,12 +9,14 @@ type TerminalClipboardHandlersOptions = {
   focusTerminal: () => void
   recordKeydown?: (event: KeyboardEvent) => void
   /**
-   * Where pasted text goes. Defaults to this machine's terminal runtime.
+   * Where the image-paste key goes. Defaults to this machine's terminal runtime.
    *
    * A REMOTE pane passes its own writer, because its session id names
-   * a session on another machine: pasting through the local path would either
+   * a session on another machine: writing through the local path would either
    * land nowhere or, worse, in a local session that happens to share the id.
-   * Copy needs no override — the selection is in this xterm either way.
+   * Pasted TEXT does not come here: it goes through xterm (see `pasteText`),
+   * and so through the pane's own input path, remote or not. Copy needs no
+   * override — the selection is in this xterm either way.
    */
   write?: (text: string) => void
   /**
@@ -123,11 +125,20 @@ export function bindTerminalClipboardHandlers({
 
   const getCopySelection = () => secondaryClickSelection || term.getSelection() || lastKnownSelection
 
+  // Text is pasted through xterm, not written to the pty. `term.paste` turns
+  // newlines into carriage returns as this used to by hand, and, when the
+  // program in the pane has asked for bracketed paste (DECSET 2004, which every
+  // agent CLI does), wraps the text in `ESC[200~` … `ESC[201~`. Without the
+  // markers the CLI reads the paste as typed keystrokes: each newline is a
+  // submit, and a large paste is fed through its key handling one character
+  // at a time.
+  //
+  // The bytes then leave through the pane's own `onData` handler, the same
+  // path a keystroke takes, so a suspended agent buffers the paste and resumes
+  // rather than losing it, and a remote pane that may not type refuses it.
   const pasteText = async (text: string) => {
     if (!text) return
-    const payload = text.replace(/\r?\n/g, '\r')
-    if (write) write(payload)
-    else await window.api.terminalWrite(sessionId, payload)
+    term.paste(text)
     focusTerminal()
   }
 

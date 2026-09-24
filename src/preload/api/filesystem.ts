@@ -81,8 +81,8 @@ export const filesystemApi = {
   listFolderOpenTargets: (): Promise<FolderOpenTargetAvailability[]> => ipcRenderer.invoke('fs:folder-open-targets'),
   openFolderInTarget: (request: FolderOpenRequest): Promise<FolderOpenResult> =>
     ipcRenderer.invoke('fs:open-folder-in-target', request),
-  watchPath: async (path: string, cb: (event: FileWatchEvent) => void) => {
-    const watchId = await ipcRenderer.invoke('fs:watch-start', path)
+  watchPath: async (path: string, cb: (event: FileWatchEvent) => void, options?: { includeIgnored?: boolean }) => {
+    const watchId = await ipcRenderer.invoke('fs:watch-start', path, options)
     if (!watchId) {
       throw new Error(`Cannot watch missing path: ${path}`)
     }

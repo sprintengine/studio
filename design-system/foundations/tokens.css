@@ -148,6 +148,9 @@
   --sem-glass-blur: 12px;
   --sem-glass-opacity: 0.8;
   --sem-glass-saturation: 1.14;
+  --sem-tinted-wash: 0.06;
+  --sem-tinted-bleed: 0.2;
+  --sem-tinted-bleed-reach: 18px;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
   --sem-z-float: 30;
@@ -209,4 +212,7 @@
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
   --sem-glass-blur: 16px;
   --sem-glass-saturation: 1.08;
+  --sem-tinted-wash: 0.09;
+  --sem-tinted-bleed: 0.28;
+  --sem-tinted-bleed-reach: 22px;
 }

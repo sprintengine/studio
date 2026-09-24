@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  AGENT_INTEGRATION_LAYOUT,
   agentIntegrationRoot,
   ensureAgentIntegrationHome,
   launchPluginDirs,
@@ -11,8 +12,88 @@ import {
   LAUNCH_STATUS_LINE_REL,
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
-import { hasUnsubstitutedTokens } from './skills/studio-plugin'
+import { hasUnsubstitutedTokens, TEMPLATE_COMMENT_KEY } from './skills/studio-plugin'
 import { test } from 'vitest'
+
+// Shared by the per-case tests below the legacy suite.
+const TEMPLATE_ROOT = join(process.cwd(), 'resources', 'studio-plugin')
+const REPORTER_SOURCE = join(process.cwd(), 'resources', 'hooks', 'sprintengine-agent-state.mjs')
+const TOKENS = {
+  nodeCommand: '/Applications/SprintEngine Studio.app/Contents/MacOS/Studio',
+  bridgeScriptPath: '/Applications/SprintEngine Studio.app/Contents/Resources/bridge.mjs',
+  userDataDir: '/Users/dev/Library/Application Support/sprintengine-studio',
+  agentStateSocketPath: '/Users/dev/Library/Application Support/sprintengine-studio/agent-state.sock',
+}
+
+/** Every `$comment` key in every JSON file under `root`, as `file: key.path`. */
+async function commentKeysUnder(root: string): Promise<string[]> {
+  const found: string[] = []
+  const walk = (value: unknown, path: string, file: string): void => {
+    if (Array.isArray(value)) value.forEach((child, index) => walk(child, `${path}[${index}]`, file))
+    else if (typeof value === 'object' && value !== null) {
+      for (const [key, child] of Object.entries(value)) {
+        if (key === TEMPLATE_COMMENT_KEY) found.push(`${file}: ${path || '<root>'}`)
+        walk(child, path === '' ? key : `${path}.${key}`, file)
+      }
+    }
+  }
+  const entries = await readdir(root, { recursive: true, withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    const file = join(entry.parentPath, entry.name)
+    walk(JSON.parse(await readFile(file, 'utf8')), '', file.slice(root.length + 1))
+  }
+  return found
+}
+
+test('the copy a launch hands Claude Code carries no $comment key in any JSON file', async () => {
+  // The template still explains itself — the strip is at materialisation, not
+  // in the source — so this check is only meaningful while that stays true.
+  assert.notDeepEqual(await commentKeysUnder(TEMPLATE_ROOT), [], 'the template keeps its explanatory comments')
+
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const result = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+  })
+  assert.ok(result.ok, result.ok ? '' : result.message)
+  // Claude Code prints `hooks.json: unknown key "$comment" ignored` for every
+  // load of a plugin whose hook file carries one.
+  assert.deepEqual(await commentKeysUnder(result.home.root), [])
+  const hooks = JSON.parse(
+    await readFile(join(result.home.root, 'sprintengine-studio', 'hooks', 'hooks.json'), 'utf8'),
+  ) as { hooks: Record<string, unknown> }
+  assert.ok(Object.keys(hooks.hooks).length >= 8, 'stripping the comment keeps the declaration')
+})
+
+test('a copy materialised before the comment strip is rebuilt, not trusted', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const first = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+  })
+  assert.ok(first.ok, first.ok ? '' : first.message)
+  const marker = join(first.home.root, '.installed.json')
+  assert.equal((JSON.parse(await readFile(marker, 'utf8')) as { layout?: number }).layout, AGENT_INTEGRATION_LAYOUT)
+
+  // The marker an earlier build wrote: the same plugin version, no layout.
+  await writeFile(marker, JSON.stringify({ plugin: 'sprintengine-studio', version: first.home.version }), 'utf8')
+  const sentinel = join(first.home.root, 'sentinel.txt')
+  await writeFile(sentinel, 'should not survive', 'utf8')
+
+  const second = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+  })
+  assert.equal(second.ok, true)
+  await assert.rejects(readFile(sentinel, 'utf8'), 'an old-layout copy is replaced')
+})
 
 test('agent-integration-home', async () => {
   // The REAL bundled template and the REAL reporter, for the same reason

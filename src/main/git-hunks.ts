@@ -17,7 +17,7 @@ import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 
 import type { GitCommandResult } from './git'
-import { getRelativeGitPath, runGitCommand, toPathspec, toPosixPath } from './git-utils'
+import { getRelativeGitPath, gitEnv, runGitCommand, toPathspec, toPosixPath } from './git-utils'
 import {
   formatHunkHeader,
   hunkFingerprint,
@@ -214,7 +214,9 @@ function applyPatch(repoRoot: string, args: string[], patch: string): Promise<Gi
     const child = execFile(
       'git',
       ['-C', repoRoot, ...args],
-      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } },
+      // A write (it rewrites the index), so no deadline and no optional-lock
+      // opt-out; the shared environment still turns the terminal prompt off.
+      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, windowsHide: true, env: gitEnv() },
       (error, stdout, stderr) => {
         const err = (stderr ?? '').trim()
         if (!error) {

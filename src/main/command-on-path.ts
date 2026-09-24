@@ -12,15 +12,38 @@
 // warning beside a completed install, never a refusal.
 
 import { existsSync } from 'node:fs'
+import { access } from 'node:fs/promises'
 import { delimiter, isAbsolute, join } from 'node:path'
 
 /** True when `command` is an absolute file that exists, or a name on PATH. */
 export function commandOnPath(command: string): boolean {
+  return candidatePaths(command).some((path) => existsSync(path))
+}
+
+/**
+ * {@link commandOnPath} without blocking the thread: the MCP sync asks it on
+ * every agent launch, and a PATH entry on a slow mount would otherwise stall
+ * the main process for as long as that mount takes to answer.
+ */
+export async function commandOnPathAsync(command: string): Promise<boolean> {
+  for (const path of candidatePaths(command)) {
+    try {
+      await access(path)
+      return true
+    } catch {
+      // Not here; try the next candidate.
+    }
+  }
+  return false
+}
+
+/** Every file whose existence would answer yes, in lookup order. */
+function candidatePaths(command: string): string[] {
   const trimmed = command.trim()
-  if (trimmed === '') return false
-  if (isAbsolute(trimmed)) return existsSync(trimmed)
+  if (trimmed === '') return []
+  if (isAbsolute(trimmed)) return [trimmed]
   const pathValue = process.env.PATH ?? process.env.Path ?? ''
   const names =
     process.platform === 'win32' ? [trimmed, `${trimmed}.cmd`, `${trimmed}.exe`, `${trimmed}.ps1`] : [trimmed]
-  return pathValue.split(delimiter).some((dir) => names.some((name) => existsSync(join(dir, name))))
+  return pathValue.split(delimiter).flatMap((dir) => names.map((name) => join(dir, name)))
 }

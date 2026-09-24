@@ -16,15 +16,32 @@ import { spawn } from 'node:child_process'
  * It is itself a process start, but it only runs on the rare path where a
  * deadline was missed. On POSIX a plain kill is kept: there the wrappers
  * `exec` the CLI or share its process group, and this has not been the leak.
+ *
+ * `processGroup` is for a child the caller started `detached` on POSIX, which
+ * makes it the leader of its own process group. Git is the case: a fetch hands
+ * the transfer to `git-remote-https`, and a hook is a shell with children of
+ * its own. Signalling the negative pid ends the whole group, so a timed-out
+ * fetch does not leave its transport helper holding the connection open.
  */
 export function killProcessTree(
   child: { pid?: number; kill(signal?: NodeJS.Signals | number): boolean },
   deps: {
     platform?: NodeJS.Platform
     runTaskkill?: (pid: number) => void
+    processGroup?: boolean
+    killGroup?: (pid: number) => void
   } = {},
 ): void {
   const platform = deps.platform ?? process.platform
+  if (platform !== 'win32' && deps.processGroup && typeof child.pid === 'number' && child.pid > 0) {
+    const killGroup = deps.killGroup ?? ((pid: number) => process.kill(-pid, 'SIGKILL'))
+    try {
+      killGroup(child.pid)
+      return
+    } catch {
+      // The group is already gone, or was never formed: fall through.
+    }
+  }
   if (platform === 'win32' && typeof child.pid === 'number' && child.pid > 0) {
     const runTaskkill = deps.runTaskkill ?? defaultRunTaskkill
     try {

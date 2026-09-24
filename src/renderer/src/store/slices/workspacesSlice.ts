@@ -14,6 +14,7 @@ import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
+import { releaseWorktreeEntriesOwnedBy } from './worktreesSlice'
 import {
   workspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -1632,6 +1633,11 @@ export function createWorkspacesSlice(
         const workspace = state.workspaces.find((w) => w.id === workspaceId)
         if (!workspace?.agents[agentId]) return
         delete workspace.agents[agentId]
+        // The agent's worktree is released with it: no longer `assigned`, so
+        // the agent worktree cleanup may reclaim it once it is clean and its
+        // work is merged (the cleanup decides that, never this). Left assigned,
+        // it would be protected for ever by an owner that no longer exists.
+        releaseWorktreeEntriesOwnedBy(workspace, agentId)
       })
       void workspaceSyncClient.dispatchUpdateWorkspaceAgent(workspaceId, agentId, null)
     },

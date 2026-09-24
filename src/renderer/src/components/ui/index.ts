@@ -12,6 +12,7 @@ export { StatusDot } from './StatusDot'
 export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
+export { WorkingEdge } from './WorkingEdge'
 export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
 export { PullRequestGlyph } from './PullRequestGlyph'
 export {
@@ -75,11 +76,7 @@ export { KebabGlyph } from './KebabGlyph'
 export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
-export {
-  resolveModelPermissionPreset,
-  setModelPermissionPreset,
-  useModelPermissionPreset,
-} from './modelPermissionPresets'
+export { resolveCliPermissionPreset, setCliPermissionPreset, useCliPermissionPreset } from './cliPermissionPresets'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

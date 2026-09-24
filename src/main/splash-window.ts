@@ -76,8 +76,11 @@ export function createSplashWindow({ buildChannel }: { buildChannel: AppUpdateTr
     show: true,
     backgroundColor: SPLASH_BACKGROUND_COLOR,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // Its own one-channel preload, not the app's: the plate reads a progress
+      // line and nothing else, and it starts at the same moment the main
+      // window's renderer does. Sandboxed, since it needs nothing but Electron.
+      preload: join(__dirname, '../preload/splash.js'),
+      sandbox: true,
     },
   })
   splashWindow = win

@@ -27,11 +27,31 @@ import {
   STUDIO_PLUGIN_SOURCE_ID,
   STUDIO_PLUGIN_WORKSPACE_DIR,
   STUDIO_SKILLS_PLUGIN_ID,
+  stripTemplateComments,
   studioClaudePluginKey,
   substituteStudioPluginTokens,
   type StudioPluginTokens,
 } from './studio-plugin'
 import { test } from 'vitest'
+
+test('stripTemplateComments drops $comment at every depth and leaves the rest alone', () => {
+  const stripped = JSON.parse(
+    stripTemplateComments(
+      JSON.stringify({
+        $comment: 'top',
+        mcpServers: { $comment: 'would read as a server', app: { command: 'node', args: [{ $comment: 'x', a: 1 }] } },
+      }),
+    ),
+  ) as unknown
+  assert.deepEqual(stripped, { mcpServers: { app: { command: 'node', args: [{ a: 1 }] } } })
+
+  // Untouched text comes back byte-for-byte, and so does text that is not JSON.
+  const plain = '{"hooks":   {}}\n'
+  assert.equal(stripTemplateComments(plain), plain)
+  assert.equal(stripTemplateComments('not json {'), 'not json {')
+  // A value that merely mentions the key is not a key.
+  assert.deepEqual(JSON.parse(stripTemplateComments('{"note":"$comment"}')), { note: '$comment' })
+})
 
 test('studio-plugin', async () => {
   // These suites are bundled into node_modules/.cache before they run, so
@@ -200,9 +220,8 @@ test('studio-plugin', async () => {
     // says the silence is deliberate.
     const hooksJson = await readFile(join(materialised, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json'), 'utf8')
     assert.equal(hasUnsubstitutedTokens(hooksJson), false)
-    const materialisedHooks = JSON.parse(hooksJson) as { hooks: Record<string, unknown>; $comment?: string }
-    assert.deepEqual(materialisedHooks.hooks, {}, 'a natively-loaded copy of this plugin must register NOTHING')
-    assert.match(materialisedHooks.$comment ?? '', /second registration/i, 'and must say why it is empty')
+    const materialisedHooks = JSON.parse(hooksJson) as Record<string, unknown>
+    assert.deepEqual(materialisedHooks, { hooks: {} }, 'a natively-loaded copy of this plugin must register NOTHING')
     assert.equal(
       hooksJson.includes('agent-state.mjs'),
       false,
@@ -219,21 +238,27 @@ test('studio-plugin', async () => {
       'the template keeps the declaration the merge reads',
     )
 
-    // Substitution is textual, so a `$comment` that spelled a token name would be
-    // rewritten into a sentence naming a path — which is what it said the first
-    // time this was run against the live app. The prose must survive verbatim.
-    // Only `.mcp.json` is checked: the hook declaration's copy is replaced
-    // wholesale above, comment and all.
-    for (const relative of [['.mcp.json']]) {
+    // The template's JSON files explain themselves under `$comment`; the copy a
+    // CLI loads must not. Claude Code validates a plugin's hooks.json and prints
+    // `unknown key "$comment" ignored` at the foot of every session otherwise.
+    for (const relative of [['.mcp.json'], ['hooks', 'hooks.json']]) {
       const before = JSON.parse(await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, ...relative), 'utf8')) as {
         $comment?: string
       }
-      const after = JSON.parse(await readFile(join(materialised, STUDIO_PLUGIN_ID, ...relative), 'utf8')) as {
-        $comment?: string
-      }
-      assert.equal(after.$comment, before.$comment, `${relative.join('/')}: the comment was rewritten by substitution`)
+      const after = await readFile(join(materialised, STUDIO_PLUGIN_ID, ...relative), 'utf8')
       assert.notEqual(before.$comment, undefined, `${relative.join('/')}: the template must explain itself`)
+      assert.equal(after.includes('$comment'), false, `${relative.join('/')}: the comment must not reach the CLI`)
     }
+    const walk = async (dir: string): Promise<string[]> => {
+      const hits: string[] = []
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) hits.push(...(await walk(path)))
+        else if (entry.name.endsWith('.json') && (await readFile(path, 'utf8')).includes('"$comment"')) hits.push(path)
+      }
+      return hits
+    }
+    assert.deepEqual(await walk(materialised), [], 'no materialised JSON file may carry a $comment key')
 
     // 2. The skills, in every harness, each carrying provenance.
     assert.equal(result.skillDirNames.length >= 4, true)

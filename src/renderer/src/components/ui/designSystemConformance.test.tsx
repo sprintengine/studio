@@ -504,12 +504,11 @@ test('designSystemConformance', async () => {
           },
           peek: {
             sessionId: '309703f3-0000-1756',
-            source: 'transcript',
+            source: 'live',
             first: {
               id: 'm1',
               text: 'I think we need to improve our git panel',
               at: peekNow - 3_120_000,
-              attachments: [],
               truncatedChars: 0,
             },
             since: [
@@ -517,27 +516,23 @@ test('designSystemConformance', async () => {
                 id: 'm2',
                 text: '1A is definitely more in line with what we want',
                 at: peekNow - 1_740_000,
-                attachments: [{ kind: 'image', id: 'img-0', label: 'shot.png' }],
                 truncatedChars: 0,
               },
             ],
-            images: [{ kind: 'image', id: 'img-0', label: 'shot.png', thumbnailDataUrl: 'data:image/png;base64,AA' }],
           },
           loading: false,
           now: peekNow,
           copied: false,
           onCopySession: () => {},
-          onOpenAttachment: () => {},
           onOpenDiff: () => {},
         } as never),
       )
     })
 
-    await run('the peek card composes: a corner, a ring, a file row, a thumbnail and a thread', () => {
+    await run('the peek card composes: a corner, a ring, a file row and a thread', () => {
       assert.ok(peekContainer.querySelector('.agent-working-dots'), 'the corner drew the sidebar’s mark')
       assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
       assert.ok(peekContainer.querySelector('[aria-label^="Open the diff for"]'), 'the changed file drew as a link')
-      assert.ok(peekContainer.querySelector('[aria-label="Open shot.png"]'), 'the image strip drew')
       assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
     })
 

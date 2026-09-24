@@ -59,18 +59,24 @@
             theme = mql && mql.matches ? 'light' : 'dark'
           }
           applyThemeAttributes(theme)
-          // Window material (macOS glass) must be stamped just as synchronously:
-          // main already created the window with vibrancy, so a late attribute
-          // would flash a solid canvas over the frost. Same no-allow-list
-          // stance as the theme — the store normalizer owns validity.
+          // Window material must be stamped just as synchronously: main
+          // already created the window with vibrancy (glass) or the theme's
+          // opaque canvas (tinted, solid), so a late attribute would flash the
+          // wrong canvas. Same no-allow-list stance as the theme — the store
+          // normalizer owns validity.
           var material = persisted && persisted.state && persisted.state.appSettings
             && persisted.state.appSettings.appearance
             && persisted.state.appSettings.appearance.windowMaterial
-          // Glass is the default, so only an explicit 'solid' opts out — a
-          // first launch with nothing persisted paints the frost too.
-          var glass = material !== 'solid' && navigator.platform.indexOf('Mac') === 0
-          if (glass) {
-            document.documentElement.setAttribute('data-window-material', 'glass')
+          // Mirrors effectiveWindowMaterial() in types/appTheme.ts: an explicit
+          // solid or tinted is kept; anything else (glass, or nothing persisted
+          // on a first launch) is the platform default — glass on macOS,
+          // tinted where there is no vibrancy.
+          var effective = material === 'solid' || material === 'tinted'
+            ? material
+            : navigator.platform.indexOf('Mac') === 0 ? 'glass' : 'tinted'
+          var glass = effective === 'glass'
+          if (effective !== 'solid') {
+            document.documentElement.setAttribute('data-window-material', effective)
           }
           // Paint the canvas background immediately (before the bundled CSS
           // loads) so first launch never flashes the wrong scale. The exact

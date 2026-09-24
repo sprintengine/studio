@@ -1,13 +1,6 @@
 import React, { type JSX } from 'react'
 
-import {
-  ChipButton,
-  Popover,
-  Tooltip,
-  roveMenuFocus,
-  setModelPermissionPreset,
-  useModelPermissionPreset,
-} from '../../ui'
+import { ChipButton, Popover, Tooltip, roveMenuFocus, setCliPermissionPreset, useCliPermissionPreset } from '../../ui'
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
 import {
@@ -138,7 +131,7 @@ function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): s
 }
 
 /**
- * Permissions for the row the picker is currently on — a dropdown at the
+ * Permissions for the CLI of the row the picker is currently on — a dropdown at the
  * trailing end of the picker's one row, sitting immediately right of the effort
  * dropdown (owner, 2026-09-05). Two controls of the same kind, on the same
  * line: effort on the left, permissions on the right.
@@ -150,29 +143,36 @@ function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): s
  * belong to radio rows"). The rows are the ones the live-agent pill opens, so
  * there is one rendering of the choice in the app, not two.
  *
- * The value is remembered AGAINST THE ROW (`modelPermissionPresets`), not once
- * for the app: the preset is a property of the runtime the row names, which is
- * why this control moved inside the picker rather than standing beside it. A
- * row nobody has set reads `fallback` — the app-wide default Settings still
- * owns — so nothing moves until someone chooses here.
+ * The value is remembered PER CLI (`cliPermissionPresets`), not once for the
+ * app and not per model: the preset is a property of the runtime the row
+ * names, which is why this control moved inside the picker rather than
+ * standing beside it, and choosing it on one Claude Code model chooses it for
+ * every Claude Code model. A CLI nobody has set reads `fallback` — the
+ * app-wide default Settings still owns — so nothing moves until someone
+ * chooses here.
  */
 export function SpawnPermissionFooter({
   cli,
-  model,
   fallback,
   disabledReasons,
+  shown,
   onSelect,
 }: {
   cli: AgentCli
-  /** The row's model id; null is the CLI's own default row. */
-  model: string | null
   fallback: CliPermissionPreset
   /** Presets this target cannot take, each with the one line it dims with. */
   disabledReasons?: Partial<Record<CliPermissionPreset, string>>
-  /** Notified after the row's preset is written (the remote note clears on it). */
+  /**
+   * What the chip shows for the stored preset, when this target launches on
+   * something else — a remote machine narrows Bypass to Auto for its own launch
+   * without rewriting the choice every local launch of the CLI reads.
+   */
+  shown?: (stored: CliPermissionPreset) => CliPermissionPreset
+  /** Notified after the CLI's preset is written (the remote note clears on it). */
   onSelect?: (preset: CliPermissionPreset) => void
 }): JSX.Element {
-  const preset = useModelPermissionPreset(cli, model, fallback)
+  const stored = useCliPermissionPreset(cli, fallback)
+  const preset = shown ? shown(stored) : stored
   return (
     <FooterMenu
       ariaLabel={permissionAccessibleName(preset, cli)}
@@ -195,7 +195,7 @@ export function SpawnPermissionFooter({
           value={preset}
           {...(disabledReasons ? { disabledReasons } : {})}
           onSelect={(next) => {
-            setModelPermissionPreset(cli, model, next)
+            setCliPermissionPreset(cli, next)
             onSelect?.(next)
             close()
           }}

@@ -30,6 +30,8 @@ import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
+import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
+import { resolveCheckoutForCwd } from './checkout-resolve'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
 import { readTrustedModulesSync } from './modules/trust-store'
@@ -96,7 +98,8 @@ import { getGitBranches } from './git-read-models'
 import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
-import { createConversationPeek } from './conversation-peek/io'
+import { createConversationPeekService } from './conversation-peek/service'
+import { createAgentPromptStore } from './agent-prompt-store'
 import {
   cliResumeCapabilities,
   createTerminalRuntime,
@@ -237,12 +240,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Boot jobs that nothing on screen needs — the plugin-home copy, the git
+  // probe, the first plugin install into open workspaces — wait for the main
+  // window to reveal, so they do not compete with the renderer's first load.
+  // The lifecycle opens the gate on reveal; an agent launch opens it early,
+  // because a launch has to wait for the plugin home rather than race it.
+  let openBootJobsGate: () => void = () => undefined
+  const bootJobsGate = new Promise<void>((resolve) => {
+    openBootJobsGate = resolve
+  })
+  const startDeferredBootJobs = (): void => openBootJobsGate()
+
   // The app's own plugin, materialised ONCE for this build under the profile's
   // userData directory and handed to every launch that can take it
   // (`--plugin-dir`) rather than written into the person's repository. Empty
-  // until the copy lands, which is what makes a launch during startup fall back
-  // to the workspace installer instead of losing agent state.
+  // until the copy lands; every agent launch waits for it to settle (see
+  // `whenAgentLaunchReady`), and a build whose copy failed falls back to the
+  // workspace installer instead of losing agent state.
   const agentIntegrationReady = (async () => {
+    await bootJobsGate
     const home = await ensureAgentIntegrationHome({
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
@@ -308,6 +324,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
     prepareStudioMcp: async ({ workspaceRoot }) => {
+      await whenAgentLaunchReady()
       const result = await syncStudioMcpConfig(
         {
           workspaceRoot,
@@ -442,6 +459,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
+    // The runtime asks where an agent is at every turn end and session start.
+    // That is also the moment its checkout's working tree most likely moved,
+    // which git's own files do not show until something is staged: tell the
+    // git view scheduler, so the sidebar re-reads that checkout now rather
+    // than at the next fallback sweep.
+    resolveObservedCheckout: async (cwd) => {
+      const facts = await resolveCheckoutForCwd(cwd)
+      if (facts?.gitRoot) getGitRepoWatch().noteActivity(facts.gitRoot)
+      return facts
+    },
     // The three agent-changelist seams. Fire-and-forget by contract: the feed
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
@@ -463,29 +490,40 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
       },
     }),
+    // The conversation peek's durable history: each agent's captured prompts,
+    // kept beside the agent's record in userData so they outlive the session,
+    // the app and the sidecar sweep.
+    agentPrompts: createAgentPromptStore({
+      resolveUserDataDir: () => app.getPath('userData'),
+      logDiagnostic: (diagnostic) => {
+        void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
+      },
+    }),
     // Reaper decision trail (actions + rate-limited skips) into the daily
     // diagnostics JSONL — the in-memory reap ring buffer dies with the process.
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
     syncMcpConfig: (input) =>
-      syncStudioMcpConfig(
-        {
-          ...input,
-          // A launch that carries the app's plugin directory gets the gateway
-          // from that plugin's own `.mcp.json`; pinning it into the repository
-          // as well would be a second copy of the server, and one a plain
-          // terminal's `claude` in that checkout would load too.
-          studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => ({
-            command: process.execPath,
-            bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-            userDataDir: app.getPath('userData'),
-          }),
-        },
+      whenAgentLaunchReady().then(() =>
+        syncStudioMcpConfig(
+          {
+            ...input,
+            // A launch that carries the app's plugin directory gets the gateway
+            // from that plugin's own `.mcp.json`; pinning it into the repository
+            // as well would be a second copy of the server, and one a plain
+            // terminal's `claude` in that checkout would load too.
+            studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
+          },
+          {
+            mcpConfigService,
+            studioGateway: () => ({
+              command: process.execPath,
+              bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+              userDataDir: app.getPath('userData'),
+            }),
+          },
+        ),
       ),
     // Debug Mode: make the `debug` skill present in the session CLI's native
     // skill dir before launch. Check-first so already-installed workspaces skip
@@ -570,6 +608,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
       read: (sessionId) => terminalRuntime.readTerminalOutput(sessionId),
+      readSince: (sessionId, cursor) => terminalRuntime.readTerminalOutputSince(sessionId, cursor),
     },
     conversation: {
       // The runtime's list result carries the shared ok/message envelope but
@@ -614,6 +653,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
+    // Read at write time, so the registry built below is in place by then.
+    readRegistry: () => workspaceRegistry.getState(),
   })
   const logWorkspaceSyncDiagnostic = (diagnostic: {
     level: 'warning'
@@ -717,7 +758,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     cacheDir: skillRepoCacheDir,
     resolveToken: () => githubTokenStore.resolveToken(),
   })
-  void app.whenReady().then(async () => {
+  void Promise.all([app.whenReady(), bootJobsGate]).then(async () => {
     await gitTransport.refresh()
     // Objects fetched into a promisor clone are never repacked away, so a
     // repository that keeps moving grows its clone for as long as it is read.
@@ -1130,11 +1171,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   tailnetToolsFrontDoor = automationService
-  // The conversation peek (hover a chat row or an agent tab): reads the CLI's
-  // own transcript, or the prompts the runtime reported since launch, for the
-  // session the card is anchored to. Built here rather than inside the runtime
-  // so its assembly rules stay Electron-free and testable.
-  const conversationPeek = createConversationPeek(terminalRuntime.readConversationPeekSessionState)
+  // The conversation peek (hover a chat row or an agent tab): the prompts this
+  // app captured for the session the card is anchored to. Built here rather
+  // than inside the runtime so its assembly rules stay Electron-free and
+  // testable.
+  const conversationPeek = createConversationPeekService({
+    readSessionState: terminalRuntime.readConversationPeekSessionState,
+  })
 
   // The change feed (2026-09-05): paired devices used to poll terminal.list
   // and workspace.list every thirty seconds; now the runtime's own coalesced
@@ -1154,17 +1197,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
     )
   })
-  void studioPluginService.ensureInstalledForRoots(
-    uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
-  )
-  // And again once the app's own plugin copy exists. That copy is materialised
-  // asynchronously, so the pass above ran while launches still had nothing to
-  // be handed: it installed the OLD arrangement into every open workspace —
-  // hook merged into their Claude settings, reporter copied in. The moment the
-  // copy lands, launches start registering that hook themselves, so the pass
-  // has to run again to take the workspace copy back out. Without this second
-  // pass the two registrations both fire for every event, for the rest of the
-  // run, and the next run loses the same race again.
+  // The pass over the roots the registry already holds runs once the app's own
+  // plugin copy has settled (itself a boot job, started after the reveal), so
+  // it installs the arrangement launches will actually use. Each install also
+  // waits for that copy on its own, which is what keeps an install triggered
+  // by an early registry event from writing the old arrangement.
   void agentIntegrationReady.then(() =>
     studioPluginService.ensureInstalledForRoots(
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
@@ -1184,6 +1221,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // list and the gateway's own status — because a presence that reported a
   // renderer projection would go stale the moment the last window it came from
   // closed.
+  /**
+   * What every agent launch waits for before it writes MCP config or builds a
+   * command line: the Studio gateway listening (boot starts it alongside the
+   * windows rather than ahead of them) and the plugin-home copy settled. A
+   * launch before the reveal starts the deferred boot jobs itself.
+   */
+  function whenAgentLaunchReady(): Promise<void> {
+    startDeferredBootJobs()
+    return Promise.all([automationService.whenGatewayReady(), agentIntegrationReady]).then(() => undefined)
+  }
+
   function readBackgroundStatus(): BackgroundStatus {
     const sessions = terminalRuntime.ipcHandlers
       .listTerminals()
@@ -1195,6 +1243,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   return {
+    startDeferredBootJobs,
     agentConfigImportService,
     agentStateService,
     browserManager,

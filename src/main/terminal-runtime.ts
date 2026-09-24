@@ -17,8 +17,8 @@ import type {
   AgentSessionExitListener,
   LiveAgentExecution,
 } from '../shared/agent-runtime'
-import { clearConversationPeekCaches } from './conversation-peek/caches'
 import { appendLivePeekPrompt, type ConversationPeekSessionState } from './conversation-peek/service'
+import type { AgentPromptStore } from './agent-prompt-store'
 import {
   agentStateSpecReportsPrompts,
   applyBackgroundWork,
@@ -76,6 +76,7 @@ import {
   isTerminalSessionStale,
   listSessionFileChanges,
   materializeTerminalReplay,
+  readTerminalOutputSince as readSessionOutputSince,
   parseSessionContextUsage,
   parseSessionFileChanges,
   parseSessionPrompts,
@@ -159,6 +160,10 @@ type TerminalRuntimeOptions = {
   // when unwired (tests): suspend/quit skip persistence and rehydration never
   // finds anything — in-process behavior is unchanged.
   snapshotSidecars?: TerminalSnapshotSidecarStore
+  // Where an agent's captured prompts outlive its session, the app and the
+  // sidecar sweep, for the conversation peek. Absent in tests: prompts then
+  // live on the session (and its sidecar) only, as they always did.
+  agentPrompts?: AgentPromptStore
   // Persists reaper decisions to the daily diagnostics JSONL: every reap
   // action, plus rate-limited "parked past threshold by gate X" skips. The
   // in-memory ring buffer (terminal-reap-log) dies with the process; the
@@ -227,11 +232,11 @@ type TerminalIpcHandlers = {
 type TerminalRuntime = {
   commandService: MobileControlCommandService
   ipcHandlers: TerminalIpcHandlers
-  // The conversation peek's read of a session (transcript path + the prompts
-  // seen since launch). Exposed as a plain reader rather than an IPC handler so
-  // the peek service can be assembled outside the runtime and unit-tested
-  // without one.
-  readConversationPeekSessionState(sessionId: string): ConversationPeekSessionState | null
+  // The conversation peek's read of a session: whether its runtime reports
+  // prompts, and the prompts captured for it. Exposed as a plain reader rather
+  // than an IPC handler so the peek service can be assembled outside the
+  // runtime and unit-tested without one.
+  readConversationPeekSessionState(sessionId: string): Promise<ConversationPeekSessionState | null>
   shutdown(): Promise<void>
   getLiveAgentExecutionIds(): LiveAgentExecution[]
   resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
@@ -249,6 +254,11 @@ type TerminalRuntime = {
   // prefers the serialized screen snapshot: this is the raw stream, because a
   // caller matching a pattern needs the text the agent printed.
   readTerminalOutput(sessionId: string): string | undefined
+  // Only what the session printed after `cursor` (the cursor an earlier call
+  // returned; 0 for "everything retained"). For a poller: the agent control
+  // plane's pattern wait asks this every 100 ms, and joining a multi-megabyte
+  // scrollback each time was the whole cost of a wait.
+  readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined
   // Watch-and-type access for remote transports. The tailnet
   // listener's terminal WebSocket is its only caller today; it is a port, not a
   // capability grant — the transport still has to prove a scoped device.
@@ -274,6 +284,7 @@ let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInsta
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
+let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
@@ -289,19 +300,6 @@ let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 function agentStateSupportsCli(cli: string | undefined): cli is string {
   if (!cli) return false
   return Boolean(getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec)
-}
-
-// Whether this runtime keeps a Claude-family transcript under `~/.claude`, read
-// from the resolving plugin's declared `skillIntegration.harnessId`. The
-// conversation peek asks before it derives a transcript path for a session, so
-// it never invents a Claude-shaped path for a CLI that writes none.
-function isClaudeHarnessCli(cli: string | undefined): boolean {
-  if (!cli) return false
-  try {
-    return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
-  } catch {
-    return false
-  }
 }
 
 // The resolving plugin's agentStateSpec for a live session, consulted per
@@ -346,6 +344,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
+  agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   onAgentLaunched = options.onAgentLaunched
@@ -371,6 +370,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     registerAgentPhaseListener,
     ingestAgentStateFrame,
     readTerminalOutput,
+    readTerminalOutputSince,
     remoteHost: terminalRemoteHost,
     subscribeSessionsChanged(listener) {
       terminalSessionsChangedListeners.add(listener)
@@ -952,10 +952,9 @@ function writeTerminalSnapshotSidecar(
     // The context reading rides the same sidecar and for the same reason: a
     // parked chat that says nothing about how full it is looks like a fresh one.
     ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
-    // The prompts, for the same reason again, and most of all for a runtime
-    // this app keeps no readable transcript of: a parked Codex chat with no
-    // prompts here has nothing whatsoever to show, and its card says so about a
-    // chat named after its own first message.
+    // The prompts, for the same reason again: they are the peek's only source,
+    // and a parked chat with none here has nothing to show until its agent's
+    // prompt store is read.
     ...(session.peekPrompts?.length ? { prompts: session.peekPrompts } : {}),
     lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
@@ -1608,11 +1607,9 @@ export function listTerminalRoots(): TerminalRootInfo[] {
 
 async function shutdownTerminalRuntime(): Promise<void> {
   stopStaleTerminalSweep()
-  // The peek's caches hold parsed transcripts and, with them, retained image
-  // bytes for up to eight sessions. They belong to no session, so nothing in
-  // the teardown below would ever drop them.
-  clearConversationPeekCaches()
   await disposeAllTerminals()
+  // A prompt that arrived just before quit is still being written.
+  await agentPrompts?.flush()
 }
 
 async function disposeAllTerminals(): Promise<void> {
@@ -1942,85 +1939,111 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
 }
 
 /**
- * Append a prompt to the session's bounded live list (terminal-session.ts,
- * `peekPrompts`). In memory only: nothing here is written to the snapshot, the
- * sidecar or the registry, which is the whole reason the conversation peek has
- * a `live` source rather than a stored history.
+ * Append a prompt to the session's bounded list (terminal-session.ts,
+ * `peekPrompts`) and, for an agent, to its durable prompt store. The store is
+ * written behind the session: the in-memory list answers a hover at once, and
+ * the next restart reads the file.
  */
 function rememberSessionPrompt(session: TerminalSession, text: string, at: number): void {
   session.peekPrompts = appendLivePeekPrompt(session.peekPrompts, text, at)
+  const owner = promptOwnerFor(session)
+  const store = agentPrompts
+  if (!owner || !store) return
+  // The first prompt a session sees after a restart must not replace the
+  // agent's stored history with a list of one: the session's list, this prompt
+  // included, is folded into the store once, and later prompts append behind
+  // that fold.
+  const first = !session.peekPromptsReinflated
+  const reinflated = reinflateSessionPrompts(session)
+  if (first) return
+  void reinflated.then(() => store.append(owner, { text, at }))
+}
+
+/** The agent a session's prompts are stored under, or null for a session that is not one. */
+function promptOwnerFor(
+  session: Pick<TerminalSession, 'kind' | 'workspaceId' | 'agentId' | 'cli' | 'sessionId'>,
+): { workspaceId: string; agentId: string; cli?: string; sessionId: string } | null {
+  if (session.kind !== 'agent' || !session.workspaceId || !session.agentId) return null
+  return {
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    ...(session.cli ? { cli: session.cli } : {}),
+    sessionId: session.sessionId,
+  }
 }
 
 /**
- * What the conversation peek needs to answer for `sessionId`, or null when no
- * live session owns that id. A disposed session answers null rather than an
- * empty peek: the card belongs to a row whose chat is gone.
+ * Bring an agent session's prompt list and its agent's stored list into line,
+ * once per session: what the store kept from earlier runs comes back onto the
+ * session, and anything the session holds that the store lacks (a prompt that
+ * arrived before this ran, or a list an older build kept only in the sidecar)
+ * goes into it. Later prompts append to both as they arrive.
  */
-function readConversationPeekSessionState(sessionId: string): ConversationPeekSessionState | null {
-  const session = terminals.get(sessionId)
-  if (session && !session.isDisposed) return peekStateForSession(session)
-  // No live session. A chat parked across an app restart still has a snapshot
-  // sidecar carrying the facts the peek needs — the CLI, its session id, the
-  // directory it was launched in, and the prompts it was sent — so the card it
-  // is most wanted for is exactly the one we can still answer.
-  return peekStateForSidecar(sessionId)
-}
-
-function peekStateForSession(session: TerminalSession): ConversationPeekSessionState {
-  // `worktreePath` before `cwd`: an agent running in a worktree was LAUNCHED
-  // there, and that is the directory its CLI encoded into the folder its
-  // transcript lives in. `observedCheckout` is deliberately not consulted — it
-  // is where the hooks last saw the session, which follows a `cd` while the
-  // transcript's folder does not.
-  const launchCwd = session.worktreePath ?? session.cwd
-  // A session that has never fired a hook has no captured `cliSessionId` — and
-  // that is precisely the parked, just-restarted chat the derivation exists for.
-  // For a CLI that resumes on the id WE mint and pass at launch (Claude's
-  // `--session-id`), our terminal key IS its session id, so the transcript can
-  // still be found. A CLI that mints its own (Codex) gets nothing, which is
-  // correct: guessing there would name someone else's file.
-  const cliSessionId =
-    session.cliSessionId ?? (cliResumesWithCallerSessionId(session.cli) ? session.sessionId : undefined)
-  return {
-    ...(session.transcriptPath === undefined ? {} : { transcriptPath: session.transcriptPath }),
-    ...(cliSessionId === undefined ? {} : { cliSessionId }),
-    ...(launchCwd === undefined ? {} : { launchCwd }),
-    claudeHarness: isClaudeHarnessCli(session.cli),
-    reportsMessages: cliReportsMessages(session.cli),
-    prompts: session.peekPrompts ?? [],
+function reinflateSessionPrompts(session: TerminalSession): Promise<void> {
+  if (session.peekPromptsReinflated) return session.peekPromptsReinflated
+  const owner = promptOwnerFor(session)
+  const store = agentPrompts
+  if (!owner || !store) {
+    session.peekPromptsReinflated = Promise.resolve()
+    return session.peekPromptsReinflated
   }
-}
-
-function peekStateForSidecar(sessionId: string): ConversationPeekSessionState | null {
-  // Absent in tests and in a runtime built without durable freeze-the-view;
-  // a parked chat then simply has no card, as before.
-  const sidecar = snapshotSidecars?.read(sessionId)
-  if (!sidecar || sidecar.kind !== 'agent') return null
-  const launchCwd = sidecar.worktreePath ?? sidecar.cwd
-  const cliSessionId =
-    sidecar.cliSessionId ?? (cliResumesWithCallerSessionId(sidecar.cli) ? sidecar.sessionId : undefined)
-  return {
-    ...(cliSessionId === undefined ? {} : { cliSessionId }),
-    ...(launchCwd === undefined ? {} : { launchCwd }),
-    claudeHarness: isClaudeHarnessCli(sidecar.cli),
-    reportsMessages: cliReportsMessages(sidecar.cli),
-    // The prompts the sidecar kept. This is the whole answer for a parked chat
-    // on a runtime whose transcript this app cannot read — and the reason they
-    // are written at all.
-    prompts: parseSessionPrompts(sidecar.prompts) ?? [],
-  }
+  session.peekPromptsReinflated = (async () => {
+    const merged = await store.merge(owner, session.peekPrompts ?? [])
+    // A prompt that arrived while the store was being read is on the session
+    // but not in `merged`; it stays on the session here, and its own
+    // `rememberSessionPrompt` appends it to the store once this settles.
+    const seen = new Set(merged.map((prompt) => `${prompt.at}\0${prompt.text}`))
+    let next = merged
+    for (const prompt of session.peekPrompts ?? []) {
+      if (seen.has(`${prompt.at}\0${prompt.text}`)) continue
+      next = appendLivePeekPrompt(next, prompt.text, prompt.at)
+    }
+    if (next.length > 0) session.peekPrompts = next
+  })().catch(() => undefined)
+  return session.peekPromptsReinflated
 }
 
 /**
- * Whether this CLI reports the person's messages at all — it keeps a Claude
- * transcript, or its manifest declares the hook event that carries a prompt.
- * The peek needs it to tell "nothing said yet" from "cannot say": OpenCode and
- * Muse answer false, and only they should make the card say the runtime does
- * not report its messages.
+ * What the conversation peek needs to answer for `sessionId`, or null when
+ * nothing at all is known about it: no live session, no sidecar, and no agent
+ * whose stored prompts name it.
+ */
+async function readConversationPeekSessionState(sessionId: string): Promise<ConversationPeekSessionState | null> {
+  const session = terminals.get(sessionId)
+  if (session && !session.isDisposed) {
+    await reinflateSessionPrompts(session)
+    return { reportsMessages: cliReportsMessages(session.cli), prompts: session.peekPrompts ?? [] }
+  }
+  // No live session. A chat parked across an app restart may still have a
+  // snapshot sidecar naming its agent and CLI; its prompts come from the
+  // agent's store first and from what an older build wrote into the sidecar
+  // otherwise.
+  const sidecar = snapshotSidecars?.read(sessionId)
+  if (sidecar && sidecar.kind === 'agent') {
+    const stored =
+      sidecar.workspaceId && sidecar.agentId
+        ? await agentPrompts?.read({ workspaceId: sidecar.workspaceId, agentId: sidecar.agentId })
+        : null
+    return {
+      reportsMessages: cliReportsMessages(sidecar.cli),
+      prompts: stored ?? parseSessionPrompts(sidecar.prompts) ?? [],
+    }
+  }
+  // Nor a sidecar — killed rather than quit, or swept at 30 days. The agent's
+  // store still knows which sessions were its own.
+  const found = await agentPrompts?.findBySessionId(sessionId)
+  if (found) return { reportsMessages: cliReportsMessages(found.cli), prompts: found.prompts }
+  return null
+}
+
+/**
+ * Whether this CLI reports the person's messages at all — its manifest declares
+ * the hook event that carries a prompt. The peek needs it to tell "nothing said
+ * yet" from "cannot say": OpenCode and Muse answer false, and only they should
+ * make the card say the runtime does not report its messages.
  */
 function cliReportsMessages(cli: string | undefined): boolean {
   if (!cli) return false
-  if (isClaudeHarnessCli(cli)) return true
   const spec = getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec ?? null
   return agentStateSpecReportsPrompts(spec)
 }
@@ -2209,19 +2232,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const promptChanged = Boolean(frame.prompt) && frame.prompt !== session.lastPrompt?.text
   if (frame.prompt) {
     session.lastPrompt = { text: frame.prompt, at: frame.ts }
-    // The same prompt also joins the session's bounded live list, which is the
-    // conversation peek's only source for a runtime that reports no transcript.
-    // Appended here rather than derived from `lastPrompt` later, which keeps only
-    // the newest: the card shows the whole thread. The list rides the snapshot
-    // sidecar from here, so it survives a restart along with the painted screen.
+    // The same prompt also joins the session's bounded list, which is the
+    // conversation peek's only source. Appended here rather than derived from
+    // `lastPrompt` later, which keeps only the newest: the card shows the whole
+    // thread. The list is written to the agent's prompt store from here, so it
+    // outlives the session, the app and the sidecar sweep.
     rememberSessionPrompt(session, frame.prompt, frame.ts)
   }
-
-  // The CLI's transcript rides a turn end only, and the path can change across a
-  // resume (a new session id means a new file), so the latest one wins. Kept on
-  // the session for the conversation peek, which reads it on a hover — long
-  // after this frame — and treats it as the untrusted path it is.
-  if (frame.transcriptPath) session.transcriptPath = frame.transcriptPath
 
   // Self-scheduled wakeup bookkeeping: a schedule frame arms the reap hold, a
   // stop frame disarms it, and a session-start frame (phase `starting`, however
@@ -2922,6 +2939,7 @@ async function spawnTerminalFromIpc(
       outputChunkStart: 0,
       outputBytes: 0,
       outputLength: 0,
+      outputAppendedChars: 0,
       kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
       pathStyle,
       workspaceId,
@@ -2989,6 +3007,13 @@ function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
   return materializeTerminalReplay(session)
+}
+
+function readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return undefined
+  const read = readSessionOutputSince(session, cursor)
+  return { text: read.text, cursor: read.cursor }
 }
 
 function writeTerminalInput(sessionId: string, data: string): void {

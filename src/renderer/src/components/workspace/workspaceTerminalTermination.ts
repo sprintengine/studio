@@ -1,5 +1,6 @@
 import { paneTerminalSessionId } from './pane/paneTerminals'
 import type { Workspace } from '../../types/workspace'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
 type LayoutSessionNode = {
   component?: string
@@ -17,8 +18,15 @@ type LayoutSessionNode = {
  *
  * One collector, so the paths that stop a workspace running cannot drift about
  * what "this workspace's terminals" means.
+ *
+ * The store's copy wins over the one passed in. Callers hand over the row they
+ * rendered, and the sidebar renders from a projection that does not move for a
+ * layout or agent change alone, so the passed copy can miss a tab opened since.
+ * A tab missed here is a pty left running. The passed copy stands in once the
+ * workspace has left the store (Close removes it before its kills settle).
  */
-export function workspaceTerminalSessionIds(workspace: Workspace): string[] {
+export function workspaceTerminalSessionIds(passed: Workspace): string[] {
+  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === passed.id) ?? passed
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents ?? {}).forEach((agent) => {
