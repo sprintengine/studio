@@ -163,7 +163,7 @@ export function AgentTabIdentityPopover({
           surfaceClassName="conversation-peek-surface w-[340px]"
         >
           {/* Keep the card open while the pointer rests on it, so the session-id
-              copy button and the attachment chips are reachable across the gap
+              copy button and the file links are reachable across the gap
               from the tab. */}
           <div onMouseEnter={hover.keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
@@ -174,7 +174,6 @@ export function AgentTabIdentityPopover({
                 now={now}
                 copied={copied}
                 onCopySession={copy}
-                onOpenAttachment={hover.openAttachment}
                 onOpenDiff={onOpenDiff}
               />
             </React.Suspense>

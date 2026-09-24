@@ -29,6 +29,7 @@ import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xterm
 import { createSessionAckReporter } from '../../utils/terminalOutputAck'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
+import { WorkingEdge } from '../ui/WorkingEdge'
 import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
 import {
   hasCommitDropData,
@@ -84,6 +85,21 @@ type AgentExecutionRoot = {
 type MemoryLaunchContext = KnowledgeLaunchContext
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+
+// Resolves after `count` animation frames: long enough for a layout change
+// committed in this tick to reach the DOM and for its resize to be observed.
+function nextAnimationFrames(count: number): Promise<void> {
+  return new Promise((resolve) => {
+    const step = (remaining: number) => {
+      if (remaining <= 0) {
+        resolve()
+        return
+      }
+      window.requestAnimationFrame(() => step(remaining - 1))
+    }
+    step(count)
+  })
+}
 
 function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
@@ -186,6 +202,13 @@ export default function TerminalView({
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
   const pendingResumeInputRef = useRef<string[]>([])
   const resumingRef = useRef(false)
+  // Whether the relaunch resumes a conversation the CLI renders again itself —
+  // in which case its render replaces the frozen view instead of following it.
+  // Set beside `resumeThunkRef`, from the same resume capabilities.
+  const resumeReplacesFrozenViewRef = useRef(false)
+  // From the resume gesture until the relaunched CLI's first frame is on
+  // screen: the working edge runs round the pane while the frozen view stays.
+  const [isResuming, setIsResuming] = useState(false)
   // Cold-loaded with nothing to paint and nobody asking for it (decision 'inert',
   // utils/terminalColdLoad.ts). The tab is deliberately dead: no pty, no replay.
   // A click or keystroke is the user asking for it, which is what starts it.
@@ -567,6 +590,19 @@ export default function TerminalView({
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onResumeRelease: (release) => {
+        if (disposed) return
+        setIsResuming(false)
+        logPerfEvent('TerminalView', 'terminal-resume-revealed', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          reason: release.reason,
+          replacedFrozenView: release.replaceFrozenView,
+          heldChars: release.data.length,
+        })
+      },
       onReplayProfile: (profile) => {
         logPerfEvent('TerminalView', 'terminal-replay-profile', {
           sessionId,
@@ -595,9 +631,10 @@ export default function TerminalView({
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       const latestContext = currentContext()
-      // If the process died mid-resume, reveal any withheld boot output first so
-      // a genuine startup error surfaces ahead of the exit banner.
-      replayGate.flushResumeSuppression()
+      // If the process died mid-resume, reveal any held start-up output first so
+      // a genuine startup error surfaces ahead of the exit banner — under the
+      // frozen view, which stays.
+      replayGate.releaseResumeHoldForExit()
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
       const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
         agentId
@@ -653,31 +690,40 @@ export default function TerminalView({
     // boot. Reuses the launch payload captured in `resumeThunkRef`; the existing
     // replay/data handlers on this same term pick up the resumed pty's output, so
     // the painted view is never torn down.
+    //
+    // The frozen view stays on screen, untouched, until the relaunched CLI's
+    // first frame has arrived; the replay gate then swaps one for the other in a
+    // single synchronized write (utils/terminalResumeHold.ts). Until then the
+    // working edge says the click was heard.
     const resumeFromSuspend = async () => {
       if (resumingRef.current) return
       const resume = resumeThunkRef.current
       if (!resume) return
       resumingRef.current = true
-      // Tell the paused footer (AgentPanel) a resume is in flight: the relaunch
-      // takes seconds and boot output is suppressed below, so without this the
-      // click/keystroke reads as dead. Success needs no counterpart event — the
-      // session snapshot flips `suspended` off and the footer leaves. Failure
-      // rolls the footer back to "Paused".
+      setIsResuming(true)
+      // Tell the paused footer (AgentPanel) a resume is in flight. It gives its
+      // row back to the pane now, not when the session stops reading suspended:
+      // that happened after the relaunch, so the pane grew under a CLI that was
+      // already drawing, and the resize made it clear and repaint its screen.
+      // Success needs no counterpart event; failure rolls the footer back.
       window.dispatchEvent(
         new CustomEvent('sprintengine:terminal-resume-state', {
           detail: { sessionId, resuming: true },
         }),
       )
-      // Withhold the relaunched CLI's transitional boot output (focus-report
-      // echo, trust/permissions warning, shell fragments) until it repaints its
-      // alt-screen TUI, so the resume cuts cleanly from snapshot to live view.
-      replayGate.armResumeSuppression()
+      // Let the footer's row come back to the pane and fit to it, so the
+      // relaunch below is sized once, at the size it will keep.
+      await nextAnimationFrames(2)
+      if (disposed) return
+      fitTerminal()
+      replayGate.armResumeHold({ replaceFrozenView: resumeReplacesFrozenViewRef.current })
       const result = await resume().catch((): TerminalSpawnResult => ({
         ok: false,
         sessionId,
         message: 'Failed to resume terminal.',
         exitCode: 1,
       }))
+      if (disposed) return
       if (result.ok) {
         suspendedRef.current = false
         // Unfreeze eagerly — the store's suspended flag clears a broadcast
@@ -687,6 +733,9 @@ export default function TerminalView({
         pendingResumeInputRef.current = []
         if (buffered) window.api.terminalWriteFast(sessionId, buffered)
       } else {
+        // Nothing was launched, so nothing will arrive to end the hold.
+        replayGate.releaseResumeHoldForExit()
+        setIsResuming(false)
         window.dispatchEvent(
           new CustomEvent('sprintengine:terminal-resume-state', {
             detail: { sessionId, resuming: false },
@@ -1017,6 +1066,7 @@ export default function TerminalView({
       const finalCli = finalContext.cli
       if (!finalAgent || !finalCli) return
       const finalResumeCaps = resumeCapabilitiesForCli(finalCli, useWorkspaceStore.getState().pluginCatalogEntries)
+      resumeReplacesFrozenViewRef.current = agentCliSupportsConversationResume(finalResumeCaps)
       const agentSession: Omit<AgentSessionIdentity, 'sessionId'> | undefined = attachedSessionId
         ? undefined
         : {
@@ -1291,6 +1341,8 @@ export default function TerminalView({
       // the terminal itself, so nothing above may still be reading `term`.
       studioTerminal.dispose()
       applyCursorFrozenRef.current = null
+      // A resume in flight dies with this terminal; its edge goes with it.
+      setIsResuming(false)
       focusTerminalRef.current = () => {
         containerRef.current?.focus()
       }
@@ -1431,6 +1483,9 @@ export default function TerminalView({
           skeleton there just reads as a flash. Keep it only for the genuine
           pre-launch folder-verification wait. */}
       {folderBlocked && checkingFolder ? <TerminalReplaySkeleton /> : null}
+      {/* A paused agent resuming: the frozen view stays readable and the edge
+          says the click was heard, until the CLI's first frame replaces it. */}
+      {isResuming ? <WorkingEdge label="Resuming agent" /> : null}
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}

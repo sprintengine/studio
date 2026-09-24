@@ -40,6 +40,11 @@ export class TerminalReplayBuffer {
   retainedUnits = 0
   endOffset = 0
   /**
+   * UTF-16 units ever appended, never decreased by an eviction: the cursor a
+   * reader polling for new text counts in (readTerminalOutputSince).
+   */
+  appendedUnits = 0
+  /**
    * Whether the head has ever been cut — a block evicted past the budget, or an
    * oversized write trimmed. Sticky: it is what licenses the head resync in
    * materializeTerminalReplay, and a buffer cut once stays cut.
@@ -168,6 +173,7 @@ export class TerminalReplayBuffer {
     this.retainedBytes += bytes
     this.retainedUnits += units
     this.endOffset += bytes
+    this.appendedUnits += units
   }
 
   // A block about to stop receiving writes gives back a large unused tail: a
@@ -201,6 +207,7 @@ export class TerminalReplayBuffer {
     this.retainedBytes = block.length
     this.retainedUnits = units
     this.endOffset += bytes
+    this.appendedUnits += data.length
     this.truncated = true
   }
 

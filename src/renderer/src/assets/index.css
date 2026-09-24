@@ -185,7 +185,8 @@
      own values through the cascade, exactly like --agent-surface above. The
      glass window material (data-window-material="glass", macOS vibrancy)
      overrides ONLY these to transparent so the OS frost shows through the
-     chrome while every other --bg-app consumer stays opaque. Panels inside
+     chrome while every other --bg-app consumer stays opaque; the tinted
+     material does the same over its opaque gradient on body. Panels inside
      the workspace card must never paint these tokens. */
   --bg-canvas: var(--bg-app);
   /* Ground for the window's top 36px band — the app rail's traffic-light
@@ -2281,6 +2282,63 @@ samp,
   }
 }
 
+/* Working edge — a light travelling round the edge of a surface that is being
+ * brought back while its content stays readable (a paused terminal resuming;
+ * WorkingEdge.tsx, design-system/components/working-edge). The ring is the
+ * element's border box with its padding box masked out, so only the edge is
+ * painted and the content under it is untouched. The light is a conic
+ * gradient whose start angle turns: a faint accent track all the way round,
+ * and a bright head that fades into it behind. The 1800ms lap is a loop, not a transition, so it takes
+ * no motion duration token (the same call as the spinner's 900ms). Reduced
+ * motion keeps a still ring in the soft accent: the edge still says "working",
+ * and the status text says it to a screen reader. */
+@property --working-edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes working-edge-orbit {
+  to {
+    --working-edge-angle: 360deg;
+  }
+}
+
+@keyframes working-edge-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.working-edge {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-float);
+  pointer-events: none;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  background: conic-gradient(
+      from var(--working-edge-angle),
+      var(--accent-primary-soft) 0turn 0.55turn,
+      var(--accent-primary) 0.94turn,
+      var(--accent-primary-soft) 1turn
+    )
+    border-box;
+  mask:
+    linear-gradient(currentColor 0 0) padding-box exclude,
+    linear-gradient(currentColor 0 0) border-box;
+  animation:
+    working-edge-orbit 1800ms linear infinite,
+    working-edge-in var(--motion-normal) var(--motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-edge {
+    background: var(--accent-primary-soft) border-box;
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
@@ -2853,6 +2911,11 @@ body:has([data-selection-pane]:focus-within)
    the same 2px --border-focus value the focus-ring utility applies — so this is
    a second SHAPE, never a second treatment: move the indicator and this moves
    with it. */
+.terminal-focus-ring {
+  /* Read by the ring below and by a working edge standing in for it. */
+  --terminal-ring-inset: 3px;
+}
+
 .terminal-focus-ring::after {
   /* The ring is CONCENTRIC with the tabset card it sits inside: an inner
      rounded rect whose corners run parallel to the card's at a constant
@@ -2861,7 +2924,6 @@ body:has([data-selection-pane]:focus-within)
      card and visibly wrong the moment the cards went to --sem-radius-shell-lg:
      the two curves crossed at the corners instead of nesting. Deriving it means
      the ring follows the card wherever the radius goes next. */
-  --terminal-ring-inset: 3px;
   content: '';
   position: absolute;
   inset: var(--terminal-ring-inset);
@@ -2873,6 +2935,19 @@ body:has([data-selection-pane]:focus-within)
 
 .terminal-focus-ring:focus-within::after {
   opacity: 1;
+}
+
+/* A resuming terminal's working edge runs on the focus ring's own line, and
+   stands in for the ring while it runs: a moving accent head over a solid
+   accent ring would be the same colour on the same pixels, and invisible. When
+   the edge goes, the ring is back where it was. */
+.terminal-focus-ring > .working-edge {
+  inset: var(--terminal-ring-inset);
+  border-radius: calc(var(--shell-card-radius) - var(--terminal-ring-inset));
+}
+
+.terminal-focus-ring:has(> .working-edge)::after {
+  opacity: 0;
 }
 
 /* The splitter is a GAP, not a rule: at rest it paints nothing, so between two
@@ -3068,8 +3143,14 @@ body:has([data-selection-pane]:focus-within)
  * and the active theme's tint is painted exactly once, on body: translucent
  * layers must not stack (body + shell root + sidebar would compound alpha and
  * erase the frost). color-mix derives the tint from each theme's own --bg-app,
- * so glass works over every theme with no per-theme block. */
-:root[data-window-material="glass"] {
+ * so glass works over every theme with no per-theme block.
+ *
+ * The tinted material (below) shares this block and the two after it: it too
+ * is one ground painted once on body with the canvas layers see-through above
+ * it — an opaque gradient rather than the OS frost — so every chrome fill here
+ * has the same job there, tinting the ground instead of covering it. */
+:root[data-window-material="glass"],
+:root[data-window-material="tinted"] {
   --bg-canvas: transparent;
   /* The top band is a canvas layer, not a stacking one: nothing scrolls under
      it, so it paints nothing and inherits the OS frost, and the frost runs
@@ -3109,7 +3190,8 @@ body:has([data-selection-pane]:focus-within)
  * a scope and not a second block of :root overrides. Nothing stacks: a row
  * wears one of these at a time, so it is one alpha step over the body tint,
  * the same budget --bg-field spends. */
-:root[data-window-material="glass"] .window-chrome {
+:root[data-window-material="glass"] .window-chrome,
+:root[data-window-material="tinted"] .window-chrome {
   --bg-surface-raised: var(--bg-chrome-raised);
   --bg-hover: var(--bg-chrome-hover);
   --bg-active: var(--bg-chrome-active);
@@ -3129,6 +3211,68 @@ body:has([data-selection-pane]:focus-within)
  * --bg-chrome-bar, so whatever that token is set to above, the band is one
  * continuous thing rather than four tiles — and at `transparent` it is exactly
  * one layer (body's tint) over the OS frost, with nothing stacked on it. */
-:root[data-window-material="glass"] .chrome-bar {
+:root[data-window-material="glass"] .chrome-bar,
+:root[data-window-material="tinted"] .chrome-bar {
   background-color: var(--bg-chrome-bar);
+}
+
+/* Tinted window material (data-window-material="tinted"; the default where
+ * there is no vibrancy, and an option on macOS). The window is an ordinary
+ * opaque one — main gives it the theme's --bg-app as its background colour —
+ * and the material is two static paints on top, both derived from the active
+ * theme's own --bg-app and --accent-primary so it follows every theme and both
+ * modes with no per-theme block. The recipe's strengths are design-system
+ * tokens (sem.tinted.*), which carry their own light and dark values.
+ *
+ * Nothing here is backdrop-filter, and nothing animates: the gradient and the
+ * glow are rasterised once and only repaint when the window resizes, which is
+ * what makes this the cheap premium material on machines with no vibrancy.
+ *
+ * 1. The ground. One gradient on body, painted once, under every canvas layer
+ *    the shared block above made see-through: the accent washes in at the
+ *    top-left corner — where the rail and the brand row meet — eases to plain
+ *    --bg-app through the middle of the window, and returns at half strength in
+ *    the far corner so the window does not read as lit from one side only. The
+ *    workspace card and every panel stay opaque on top of it, so the wash is
+ *    only ever seen in the chrome. Text on it keeps its contrast: at most a
+ *    tenth of the accent moves --bg-app by a fraction of a luminance step. */
+:root[data-window-material="tinted"] body {
+  background-color: var(--bg-app);
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 100%), var(--bg-app)) 0%,
+    var(--bg-app) 50%,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-wash) * 50%), var(--bg-app)) 100%
+  );
+}
+/* 2. The bleed. The brand wordmark and each rail button sit in a soft glow of
+ *    the accent that leaks into the chrome around them. It is one static
+ *    radial gradient on a pseudo-element that reaches --sem-tinted-bleed-reach
+ *    past the element on every side, strongest in a ring at the element's own
+ *    edge and fading to nothing beyond it. Under the element's centre — where a
+ *    glyph or a letter sits — it carries only half the strength, so the ink
+ *    keeps its contrast; a ring-only glow (a box-shadow) was tried first and
+ *    left an unlit hole in the shape of the button, which read as a filled
+ *    tile on every rail square. `isolation` keeps the pseudo-element behind
+ *    the element's own content and inside its stacking context, and it is
+ *    worn on a wrapper rather than on the kit's button so the button's hover
+ *    and selection fills paint over it untouched. Every rail button glows the
+ *    same whether or not it is selected: the glow is ground, and selection
+ *    stays the neutral fill. */
+:root[data-window-material="tinted"] .material-bleed {
+  position: relative;
+  isolation: isolate;
+}
+:root[data-window-material="tinted"] .material-bleed::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--sem-tinted-bleed-reach) * -1);
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 50%), transparent) 0%,
+    color-mix(in srgb, var(--accent-primary) calc(var(--sem-tinted-bleed) * 100%), transparent) 55%,
+    transparent 100%
+  );
 }

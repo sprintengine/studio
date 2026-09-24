@@ -89,7 +89,7 @@ test('tailnet', async () => {
     userDataDir: string
     calls: string[]
     terminals: StubTerminalHost
-    auditRecords(): GatewayAuditRecord[]
+    auditRecords(): Promise<GatewayAuditRecord[]>
     close(): Promise<void>
   }
 
@@ -139,7 +139,8 @@ test('tailnet', async () => {
       userDataDir,
       calls,
       terminals,
-      auditRecords: () => {
+      auditRecords: async () => {
+        await audit.flush()
         const path = join(userDataDir, STUDIO_GATEWAY_AUDIT_FILENAME)
         if (!existsSync(path)) return []
         return readFileSync(path, 'utf8')
@@ -529,10 +530,14 @@ test('tailnet', async () => {
     }
   }
 
-  async function waitFor(predicate: () => boolean, description: string, timeoutMs = 2000): Promise<void> {
+  async function waitFor(
+    predicate: () => boolean | Promise<boolean>,
+    description: string,
+    timeoutMs = 2000,
+  ): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      if (predicate()) return
+      if (await predicate()) return
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     throw new Error(`Timed out waiting for ${description}`)
@@ -1080,7 +1085,7 @@ test('tailnet', async () => {
       assert.deepEqual(harness.calls, [], 'the refused handler never ran')
 
       // A refused MUTATION is still audited: an attempt is a security event.
-      const audited = harness.auditRecords()
+      const audited = await harness.auditRecords()
       assert.equal(audited.length, 1)
       assert.equal(audited[0].tool, 'backlog.update')
       assert.equal(audited[0].outcome, 'failure')
@@ -1110,7 +1115,7 @@ test('tailnet', async () => {
         token: terminalsOnly.deviceToken,
         body: rpc(5, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: {} } }),
       })
-      const worktreeAudit = harness.auditRecords().filter((record) => record.tool === 'agent.launch')
+      const worktreeAudit = (await harness.auditRecords()).filter((record) => record.tool === 'agent.launch')
       assert.equal(worktreeAudit.length, 2, 'the granted and the refused worktree create are both audited')
       assert.equal(worktreeAudit[0].outcome, 'success')
       assert.equal(worktreeAudit[0].connection.deviceId, worktreeMaker.deviceId, 'with the device that asked')
@@ -1119,7 +1124,7 @@ test('tailnet', async () => {
       assert.equal(worktreeAudit[1].errorCode, 'tailnet_scope_required')
       assert.equal(worktreeAudit[1].connection.deviceId, terminalsOnly.deviceId)
       assert.ok(
-        !harness.auditRecords().some((record) => record.tool === 'workspace.checkout'),
+        !(await harness.auditRecords()).some((record) => record.tool === 'workspace.checkout'),
         'the checkout read is not a mutation and is not audited',
       )
 
@@ -1195,7 +1200,7 @@ test('tailnet', async () => {
 
       // A device manufacturing another grant is the attempt this rule exists to
       // stop; it is audited with the device that made it, like any mutation.
-      const audited = harness.auditRecords()
+      const audited = await harness.auditRecords()
       assert.equal(audited.length, 1)
       assert.equal(audited[0].tool, 'tailnet.offer_pairing')
       assert.equal(audited[0].outcome, 'failure')
@@ -1336,13 +1341,13 @@ test('tailnet', async () => {
         token: device.deviceToken,
         body: rpc(1, 'tools/call', { name: 'workspace.list', arguments: { workspaceId: 'w1' } }),
       })
-      assert.deepEqual(harness.auditRecords(), [], 'reads stay unaudited (existing gateway policy)')
+      assert.deepEqual(await harness.auditRecords(), [], 'reads stay unaudited (existing gateway policy)')
 
       await call(harness.port, 'POST', TAILNET_MCP_PATH, {
         token: device.deviceToken,
         body: rpc(2, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w1', status: 'completed' } }),
       })
-      const records = harness.auditRecords()
+      const records = await harness.auditRecords()
       assert.equal(records.length, 1)
       assert.equal(records[0].tool, 'backlog.update')
       assert.equal(records[0].outcome, 'success')
@@ -1429,7 +1434,7 @@ test('tailnet', async () => {
       stream.send(rpc(2, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w9' } }))
       assert.equal((await stream.nextMessage()).id, 2)
 
-      const record = harness.auditRecords().at(-1)
+      const record = (await harness.auditRecords()).at(-1)
       assert.ok(record)
       // The advisory fields it declared are honoured…
       assert.equal(record.connection.workspaceId, 'w9')
@@ -1473,7 +1478,7 @@ test('tailnet', async () => {
         token: device.deviceToken,
         body: rpc(1, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w1' } }),
       })
-      const record = harness.auditRecords()[0]
+      const record = (await harness.auditRecords())[0]
       assert.equal(record.connection.deviceId, device.deviceId)
       assert.equal(record.connection.peerNode, undefined, 'an unresolved peer is absent, never a placeholder name')
     } finally {
@@ -1809,7 +1814,7 @@ test('tailnet', async () => {
 
       // …and calling it anyway is refused, with the attempt audited: a device
       // reaching for a shell it was not granted is a security event, not a typo.
-      const auditedBefore = harness.auditRecords().length
+      const auditedBefore = (await harness.auditRecords()).length
       const denied = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
         token: watcher.deviceToken,
         body: rpc(4, 'tools/call', { name: 'terminal.create', arguments: { workspaceId: 'ws-1' } }),
@@ -1822,7 +1827,7 @@ test('tailnet', async () => {
       assert.equal(deniedResult.isError, true)
       assert.equal(deniedResult.structuredContent.error.code, 'tailnet_scope_required')
       assert.equal(harness.calls.includes('terminal.create'), false, 'the refused handler never ran')
-      const deniedRecords = harness.auditRecords().slice(auditedBefore)
+      const deniedRecords = (await harness.auditRecords()).slice(auditedBefore)
       assert.equal(deniedRecords.length, 1)
       assert.equal(deniedRecords[0].tool, 'terminal.create')
       assert.equal(deniedRecords[0].errorCode, 'tailnet_scope_required')
@@ -1837,7 +1842,7 @@ test('tailnet', async () => {
       })
       assert.equal((created.body as { result: { isError?: boolean } }).result.isError, undefined)
       assert.equal(harness.calls.includes('terminal.create'), true)
-      const createdRecord = harness.auditRecords().at(-1)
+      const createdRecord = (await harness.auditRecords()).at(-1)
       assert.equal(createdRecord?.tool, 'terminal.create')
       assert.equal(createdRecord?.outcome, 'success')
       assert.equal(createdRecord?.connection.deviceName, 'laptop')
@@ -1938,7 +1943,7 @@ test('tailnet', async () => {
       assert.deepEqual(await stream.nextMessage(), { type: 'output', data: 'remote\r\n' })
 
       // The creation is on the audit trail with the device that made it.
-      const record = harness.auditRecords().at(-1)
+      const record = (await harness.auditRecords()).at(-1)
       assert.equal(record?.tool, 'terminal.create')
       assert.equal(record?.outcome, 'success')
       assert.equal(record?.connection.deviceName, 'laptop')
@@ -2108,8 +2113,8 @@ test('tailnet', async () => {
         assert.equal(mutation.result.structuredContent.tool, 'backlog.update')
 
         // The mutation is audited with the transport-proven device identity.
-        await waitFor(() => harness.auditRecords().length >= 1, 'the remote mutation to be audited')
-        const audited = harness.auditRecords()
+        await waitFor(async () => (await harness.auditRecords()).length >= 1, 'the remote mutation to be audited')
+        const audited = await harness.auditRecords()
         assert.equal(audited.length, 1, 'the read is not audited; the mutation is')
         assert.equal(audited[0].tool, 'backlog.update')
         const connection = audited[0].connection as Record<string, unknown>

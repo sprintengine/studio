@@ -100,27 +100,20 @@ export type TerminalSession = {
   // I working on here?") and names a new chat after its first real prompt.
   // Absent for plain terminals, for hookless CLIs, and until the first prompt.
   lastPrompt?: SessionPrompt
-  // Every prompt this session has been sent since it launched, oldest first and
-  // bounded (see rememberSessionPrompt). This is the conversation peek's LIVE
-  // fallback: Codex, Grok and Kimi Code report `UserPromptSubmit` but hand us no
-  // transcript, so without this the card for one of them could only ever show
-  // the single most recent thing said.
+  // The prompts this chat has been sent, oldest first and bounded (see
+  // rememberSessionPrompt). This is the conversation peek's only source: the
+  // peek never reads a CLI's own transcript (owner ruling 2026-09-24).
   //
-  // Persisted with the snapshot sidecar, and nowhere else — never the workspace
-  // registry, never a log. That reverses the original decision to keep prompts
-  // out of every file the app writes (the app that writes none cannot leak
-  // any), and the reason is that the alternative was worse: a Codex chat is a
-  // runtime with no transcript we can read, so on the far side of a restart the
-  // card for one could only say it had no messages — about a chat whose own
-  // title was its first prompt. The sidecar is the narrowest home for them: one
-  // file per parked chat under userData, mode 0600, deleted on dispose and
-  // swept at 30 days, holding a painted screen that already shows this text.
+  // Written to disk in two places, both under userData and mode 0600: the
+  // snapshot sidecar, beside a painted screen that already shows this text, and
+  // for an agent the agent prompt store (agent-prompt-store.ts), which outlives
+  // the sidecar's 30-day sweep so a chat still in the sidebar keeps its card.
+  // Never the workspace registry, never a log.
   peekPrompts?: SessionPrompt[]
-  // The CLI's own transcript, as its turn-end hook last reported it. Retained so
-  // the conversation peek can read the whole history on a hover instead of only
-  // what this app happened to watch go by. UNTRUSTED — a path chosen by the hook
-  // reporter — so containment belongs to the reader (conversation-peek/transcript.ts).
-  transcriptPath?: string
+  // Set once this session's prompts have been reconciled with its agent's
+  // stored list (terminal-runtime.ts, reinflateSessionPrompts), and settled
+  // when that is done. Never persisted.
+  peekPromptsReinflated?: Promise<void>
   // When the agent's last turn ended (hook-reported Stop). Stamped in
   // ingestAgentStateFrame, carried across resume and through the snapshot
   // sidecar; never overwritten by suspend/exit. See the snapshot field.
@@ -451,7 +444,7 @@ type SuspendedPlaceholderSessionInput = {
   // full it was.
   contextUsage?: SessionContextUsage
   // The prompts the sidecar persisted, oldest first, so the conversation peek
-  // for a transcript-less runtime survives the restart along with the screen.
+  // for a parked chat survives the restart along with the screen.
   peekPrompts?: SessionPrompt[]
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
@@ -597,6 +590,31 @@ export function resyncTerminalReplayHead(text: string): string {
   // enough to print, and gutting the scrollback to be sure would cost more than
   // the garbage it saves.
   return text
+}
+
+/**
+ * The retained output appended after `cursor` (a value of
+ * `output.appendedUnits` from an earlier read — UTF-16 units, as the text is
+ * measured), plus the cursor to pass next time. Only the newest bytes that can
+ * cover the gap are decoded, so a caller polling a busy session pays for what
+ * is new rather than for the whole scrollback on every poll. When eviction has
+ * already dropped part of the gap, what is still retained is returned and
+ * `truncated` says so.
+ */
+export function readTerminalOutputSince(
+  session: TerminalSession,
+  cursor: number,
+): { text: string; cursor: number; truncated: boolean } {
+  const output = session.output
+  const end = output.appendedUnits
+  const retainedFrom = end - output.retainedUnits
+  const from = Math.max(0, cursor, retainedFrom)
+  const wanted = end - from
+  if (wanted <= 0) return { text: '', cursor: end, truncated: false }
+  // No UTF-16 unit takes more than three UTF-8 bytes, so the newest
+  // `wanted * 3` bytes always hold the `wanted` units asked for.
+  const { text } = output.tail(wanted * 3)
+  return { text: text.slice(text.length - wanted), cursor: end, truncated: cursor < retainedFrom }
 }
 
 export function materializeTerminalReplay(session: TerminalSession): string {

@@ -29,19 +29,17 @@ test('useConversationPeek', async () => {
 
   type Peek = {
     sessionId: string
-    source: 'transcript'
+    source: 'live'
     first: null
     since: []
-    images: []
   }
 
   const reads: string[] = []
   let answer: (sessionId: string) => Promise<Peek> = async (sessionId) => ({
     sessionId,
-    source: 'transcript',
+    source: 'live',
     first: null,
     since: [],
-    images: [],
   })
 
   ;(dom.window as unknown as { api: unknown }).api = {
@@ -146,11 +144,7 @@ test('useConversationPeek', async () => {
       await settle()
       mounted.moveTo(LL)
       await settle()
-      assert.deepEqual(
-        reads,
-        [DS, LL],
-        'sweeping back up the row’s agent lines is instant and never re-streams a transcript',
-      )
+      assert.deepEqual(reads, [DS, LL], 'sweeping back up the row’s agent lines is instant and never asks main twice')
       mounted.unmount()
     })
 
@@ -178,7 +172,7 @@ test('useConversationPeek', async () => {
       await settle()
       assert.equal(hook!.loading, false, 'no endless skeleton')
       assert.equal(hook!.peek, null, 'and the card falls back to saying so')
-      answer = async (sessionId) => ({ sessionId, source: 'transcript', first: null, since: [], images: [] })
+      answer = async (sessionId) => ({ sessionId, source: 'live', first: null, since: [] })
       mounted.unmount()
     })
 

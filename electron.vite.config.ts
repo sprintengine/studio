@@ -233,9 +233,12 @@ export default defineConfig({
         // Two preloads: the app's, and the browser guest's element picker
         // (browser-pane epic), which main hands to the <webview> as a file
         // URL and pins in `will-attach-webview`.
+        // A third: the launch plate's, which exposes one channel and so need
+        // not evaluate the app's whole API surface in a second renderer at boot.
         input: {
           index: resolve('src/preload/index.ts'),
           'browser-guest': resolve('src/preload/browser-guest.ts'),
+          splash: resolve('src/preload/splash.ts'),
         },
       },
     },

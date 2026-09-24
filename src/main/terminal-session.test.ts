@@ -12,6 +12,7 @@ import {
   markTerminalFailed,
   listSessionFileChanges,
   materializeTerminalReplay,
+  readTerminalOutputSince,
   resyncTerminalReplayHead,
   MAX_SESSION_FILE_CHANGE_PATH_CHARS,
   MAX_SESSION_FILE_CHANGES,
@@ -51,6 +52,7 @@ test('terminal-session', async () => {
     assertActivityTransitionDiagnostics()
     assertRecentSessionsRetainExtendedReplay()
     assertColdSessionsCompactToStandardReplay()
+    assertOutputSinceACursorIsOnlyTheNewOutput()
     assertRecentInputKeepsSessionInExtendedReplayTier()
     assertColdSingleLargeChunkIsTrimmedNotDropped()
     assertCutReplayNeverStartsMidEscapeSequence()
@@ -558,6 +560,33 @@ test('terminal-session', async () => {
     assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
     assert.equal(materializeTerminalReplay(session).length, TERMINAL_RECENT_REPLAY_BYTES)
+  }
+
+  function assertOutputSinceACursorIsOnlyTheNewOutput(): void {
+    const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+    const session = createSession({ startedAt: coldAt })
+    appendTerminalOutput(session, 'one\n', coldAt)
+    appendTerminalOutput(session, 'two\n', coldAt)
+    const all = readTerminalOutputSince(session, 0)
+    assert.deepEqual(all, { text: 'one\ntwo\n', cursor: 8, truncated: false })
+
+    appendTerminalOutput(session, 'thr', coldAt)
+    appendTerminalOutput(session, 'ee\n', coldAt)
+    assert.deepEqual(readTerminalOutputSince(session, all.cursor), { text: 'three\n', cursor: 14, truncated: false })
+    // A cursor inside a chunk is honoured to the character.
+    assert.equal(readTerminalOutputSince(session, 10).text, 'ree\n')
+    assert.deepEqual(readTerminalOutputSince(session, 14), { text: '', cursor: 14, truncated: false })
+
+    // Once eviction has dropped part of the gap, the reader gets what is still
+    // retained and is told it missed some.
+    const chunk = 'x'.repeat(TERMINAL_RECENT_REPLAY_BYTES)
+    appendTerminalOutput(session, chunk, coldAt)
+    appendTerminalOutput(session, 'tail', coldAt)
+    const late = readTerminalOutputSince(session, 14)
+    assert.equal(late.truncated, true)
+    assert.equal(late.cursor, 14 + chunk.length + 4)
+    assert.ok(late.text.endsWith('tail'))
+    assert.equal(late.text.length, session.output.retainedUnits)
   }
 
   function assertColdSessionsCompactToStandardReplay(): void {

@@ -555,7 +555,7 @@ test('plugin-bundle-installer', async () => {
           logMainPerfEvent: () => undefined,
           syncMcpConfig: async (syncInput) => {
             syncInputs.push({ settings: syncInput.settings, clients: syncInput.clients })
-            const syncResult = services.mcpConfigService.sync(syncInput)
+            const syncResult = await services.mcpConfigService.sync(syncInput)
             if (!syncResult.ok) return { ok: false, message: syncResult.message }
             return { ok: true }
           },

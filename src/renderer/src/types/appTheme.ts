@@ -269,13 +269,27 @@ export function isAppTheme(value: unknown): value is AppTheme {
 
 // Window chrome material — a second appearance axis, orthogonal to the theme.
 // 'glass' frosts the window canvas (sidebar, title strip, aside column) with
-// OS-native vibrancy under the active theme's tint; macOS-only, opt-in. The
-// picker is hidden on other platforms and main ignores 'glass' there.
-const WINDOW_MATERIALS = ['solid', 'glass'] as const
+// OS-native vibrancy under the active theme's tint; macOS-only.
+// 'tinted' paints the same canvas opaque, with a static gradient washed with
+// the theme's accent and a soft accent glow bleeding out from the brand mark
+// and the rail's buttons — the premium ground for platforms with no vibrancy,
+// and an option on macOS for anyone who would rather not have glass (owner
+// ruling 2026-09-24). 'solid' is the plain opaque canvas.
+const WINDOW_MATERIALS = ['solid', 'glass', 'tinted'] as const
 export type WindowMaterial = (typeof WINDOW_MATERIALS)[number]
 
 export function isWindowMaterial(value: unknown): value is WindowMaterial {
   return typeof value === 'string' && (WINDOW_MATERIALS as readonly string[]).includes(value)
+}
+
+// The material a stored preference paints on this platform. The stored default
+// is 'glass' — "the premium material" — and where the OS has no vibrancy the
+// premium material is tinted, so glass resolves to tinted off macOS. That is
+// also how every existing Windows and Linux profile, which holds the untouched
+// glass default, lands on tinted without a migration. An explicit solid or
+// tinted is honoured everywhere.
+export function effectiveWindowMaterial(material: WindowMaterial, platform: string | undefined): WindowMaterial {
+  return material === 'glass' && platform !== 'darwin' ? 'tinted' : material
 }
 
 export type AppearanceSettings = {

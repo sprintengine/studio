@@ -71,10 +71,11 @@ export type TerminalSnapshotSidecar = {
   // parseSessionFileChanges, since this file is untrusted input too.
   fileChanges?: SessionFileChange[]
   // What the person typed into this chat, oldest first, from the CLI's
-  // `UserPromptSubmit` hook. The conversation peek's only source for a runtime
-  // whose transcript this app cannot read (Codex, Grok, Kimi Code), and without
-  // it a parked one of those comes back claiming to have no messages. Bounded
-  // by MAX_LIVE_PEEK_PROMPTS on the way in; read back through
+  // `UserPromptSubmit` hook — the conversation peek's only source, so without
+  // it a parked chat comes back claiming to have no messages. An agent's list
+  // also lives in the agent prompt store, which outlasts this file; this copy
+  // covers the time before that store is read and sessions that are not an
+  // agent's. Bounded by MAX_LIVE_PEEK_PROMPTS on the way in; read back through
   // parseSessionPrompts, untrusted like everything else here.
   //
   // This is a person's verbatim typing, in plaintext under userData — which is
