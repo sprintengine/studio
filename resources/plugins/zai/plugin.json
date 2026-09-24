@@ -73,7 +73,11 @@
     "args": ["--plugin-dir", "{{pluginDir}}"]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "Runs the same `claude` binary as the claude-code runtime, so a first message too long for the command line is typed in the same way; see that manifest for the 2026-09-24 verification against CLI 2.1.282.",
+      "mode": "input"
+    }
   },
   "contextInjection": {
     "$comment": "Runs the same `claude` binary as the claude-code runtime, redirected at another endpoint, so it takes the same --append-system-prompt-file flag. Verified against the installed CLI 2.1.263.",

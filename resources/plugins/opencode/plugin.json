@@ -29,7 +29,8 @@
       "run",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
-      { "valueIf": "prompt", "value": "{{prompt}}" }
+      { "valueIf": "prompt", "value": "{{prompt}}" },
+      { "spreadIf": "promptOverflowArgs" }
     ]
   },
   "resume": {
@@ -42,11 +43,17 @@
       "--continue",
       { "valueIf": "sessionId", "value": "--session" },
       { "valueIf": "sessionId", "value": "{{sessionId}}" },
-      { "valueIf": "prompt", "value": "{{prompt}}" }
+      { "valueIf": "prompt", "value": "{{prompt}}" },
+      { "spreadIf": "promptOverflowArgs" }
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "`opencode run` is a one-shot command, not a TUI, so there is no composer to type an overflowed message into. `opencode run --help` (1.18.30) documents `-f, --file` (\"file(s) to attach to message\"), so a first message too long for the platform's command line is written to a file and attached, and `{{prompt}}` renders a one-line note naming it. The note comes first because -f is an array option: a positional after it would be read as another file. Not verified end to end: this machine has no provider credentials.",
+      "mode": "file",
+      "args": ["--file", "{{promptFile}}"]
+    }
   },
   "contextInjection": {
     "$comment": "OpenCode has no system-prompt flag; it merges OPENCODE_CONFIG_CONTENT (JSON) over the config it already loaded, and `instructions` is a list of instruction FILES. Verified against the installed binary, which reads process.env.OPENCODE_CONFIG_CONTENT and merges it last. Env rather than argv, so a resumed session is re-told for free. The path goes in as {{contextFileJson}} — a JSON string literal — because a Windows path's backslashes would otherwise be JSON escapes and the config would not parse. A user who already exports OPENCODE_CONFIG_CONTENT is merged with rather than clobbered — see mergeProviderLaunchEnv in terminal-launch.ts.",

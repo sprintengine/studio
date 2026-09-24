@@ -16,13 +16,19 @@ import {
   wrapHostContextForPrompt,
 } from '../shared/host-context/document'
 import {
-  buildAgentShellCommand,
   cliTakesLaunchPlugins,
+  planAgentLaunch,
+  planAgentShellCommand,
   pluginIdForCli,
   renderAgentLaunchArgv,
   renderCliLaunchEnv,
   resolveCliRuntimeSettings,
+  type AgentLaunchPlanOptions,
+  type AgentPromptDelivery,
+  type PlannedAgentLaunch,
 } from './agent-launch-render'
+import { launchArgBudgetFor, quoteWindowsCommandLineArg } from './launch-arg-budget'
+import { CLI_EXITED_OSC } from './deferred-prompt-delivery'
 import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
 import { getPluginManifest } from './plugin-registry-instance'
@@ -50,6 +56,18 @@ export type ShellLaunchConfig = {
    * the startup script; see `cleanupHostContextFile`.
    */
   hostContextPath?: string
+  /**
+   * The first message, when it was too long for this platform's command line
+   * and the CLI takes it as typed input instead (`planAgentLaunch`). The launch
+   * carries none of it; the caller owes the CLI exactly this text, once, as a
+   * bracketed paste and an Enter, when the CLI is ready for input.
+   */
+  deferredPrompt?: string
+  /**
+   * Where an overflowed first message was written for a CLI that reads it from
+   * a file. Reaped at teardown like the host-context document.
+   */
+  launchPromptPath?: string
   /**
    * Files the launch needs on its host, which the caller has the host write
    * before it starts the terminal (`ExecutionHost.writeLaunchFiles`). Only a
@@ -529,24 +547,6 @@ function quotePowerShell(value: string): string {
 
 function powerShellBase64Literal(value: string): string {
   return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(${quotePowerShell(Buffer.from(value, 'utf8').toString('base64'))}))`
-}
-
-// One argument as the MSVC runtime (CommandLineToArgvW) parses it back: quoted
-// when it holds whitespace or a quote, `"` escaped, and the backslashes that
-// run up to a quote doubled.
-function quoteWindowsCommandLineArg(value: string): string {
-  if (value !== '' && !/[\s"]/.test(value)) return value
-  let quoted = '"'
-  let backslashes = 0
-  for (const char of value) {
-    if (char === '\\') {
-      backslashes += 1
-      continue
-    }
-    quoted += char === '"' ? `${'\\'.repeat(backslashes * 2 + 1)}"` : `${'\\'.repeat(backslashes)}${char}`
-    backslashes = 0
-  }
-  return `${quoted}${'\\'.repeat(backslashes * 2)}"`
 }
 
 // Exported for terminal-launch.test.ts. The tail of the native Windows launch
@@ -1256,6 +1256,56 @@ function writeHostContextCursorPlugin(sessionId: string, cwd: string, document: 
   }
 }
 
+// ── A first message too long for the command line ───────────────────────────
+//
+// `planAgentLaunch` decides; these write the file a `file` overflow names and
+// turn the decision into what the caller acts on. A file is written beside the
+// host-context documents on this machine, or (WSL) added to the launch's files
+// inside the distribution, where the CLI that reads it runs.
+
+const LAUNCH_PROMPT_DIRECTORY = 'launch-prompts'
+
+function writeLaunchPromptFile(sessionId: string, cwd: string, text: string): string | null {
+  try {
+    const directory = join(app.getPath('userData'), LAUNCH_PROMPT_DIRECTORY)
+    // Named per launch, not per session: a relaunch under the same session id
+    // must not have its file reaped by the previous pty's exit.
+    const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}-${randomUUID()}.md`)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(filePath, text, { encoding: 'utf8', mode: 0o600 })
+    return filePath
+  } catch {
+    return null
+  }
+}
+
+/** The plan options for a launch on `target`, with a prompt file written where that launch can read it. */
+function launchPlanOptions(
+  target: HostLaunchTarget,
+  sessionId: string,
+  cwd: string,
+  onHost?: { dir: string; files: HostLaunchFile[] },
+): AgentLaunchPlanOptions {
+  return {
+    budget: launchArgBudgetFor(target.kind),
+    writePromptFile: (text) => {
+      if (!onHost) return writeLaunchPromptFile(sessionId, cwd, text)
+      const path = `${onHost.dir}/launch-prompt-${hostContextSessionKey(sessionId, cwd)}-${randomUUID()}.md`
+      onHost.files.push({ path, content: text })
+      return path
+    },
+  }
+}
+
+/** What the caller of a launch acts on once the plan moved the prompt off the command line. */
+function promptDeliveryConfig(
+  delivery: AgentPromptDelivery | undefined,
+): Pick<ShellLaunchConfig, 'deferredPrompt' | 'launchPromptPath'> {
+  if (delivery?.kind === 'input') return { deferredPrompt: delivery.text }
+  if (delivery?.kind === 'file') return { launchPromptPath: delivery.path }
+  return {}
+}
+
 /** Reap a session's host-context document or plugin directory. */
 export function cleanupHostContextFile(contextPath: string | undefined): Promise<void> {
   if (!contextPath || isForeignLaunchPath(contextPath)) return Promise.resolve()
@@ -1325,6 +1375,8 @@ function buildWslShellScript(
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   host: WslLaunchTarget = DEFAULT_WSL_TARGET,
+  planOptions: AgentLaunchPlanOptions = { budget: launchArgBudgetFor('wsl') },
+  onPlan?: (plan: PlannedAgentLaunch) => void,
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
   const merged = collectLaunchContributionMerge({
@@ -1356,6 +1408,8 @@ function buildWslShellScript(
       hostContext,
       pluginDirsForLaunch(cli, host),
       launchSettingsForLaunch(cli, cwd, host),
+      planOptions,
+      onPlan,
     ),
     wslShellExec(host),
   ]
@@ -1476,6 +1530,9 @@ export function getShellLaunchConfig(
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined
+  // Whether the prompt rode the command line, set by whichever builder below
+  // renders this launch (see `planAgentLaunch`).
+  let promptDelivery: AgentPromptDelivery | undefined
 
   // CLI manifests may redirect the agent at an alternate API endpoint via
   // `launch.env` (e.g. the Z.AI runtime points the `claude` binary at Z.AI's
@@ -1532,6 +1589,10 @@ export function getShellLaunchConfig(
         windowsHostContext,
         pluginDirsForLaunch(cli, launchHost),
         launchSettingsForLaunch(cli, cwd, launchHost),
+        launchPlanOptions(launchHost, sessionId, cwd),
+        (plan) => {
+          promptDelivery = plan.promptDelivery
+        },
       ),
     )
 
@@ -1549,6 +1610,7 @@ export function getShellLaunchConfig(
       pathStyle: 'windows',
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
+      ...promptDeliveryConfig(promptDelivery),
       ...launchSessionTags(merged),
     }
   }
@@ -1572,6 +1634,10 @@ export function getShellLaunchConfig(
         cliReasoning,
         hostContextRenderInputs(hostContext, 'wsl', [cwd, memoryRootPath]),
         launchHost,
+        launchPlanOptions(launchHost, sessionId, cwd, onHost),
+        (plan) => {
+          promptDelivery = plan.promptDelivery
+        },
       ),
     )
     return {
@@ -1585,6 +1651,7 @@ export function getShellLaunchConfig(
       startupScriptPath: startup.path,
       hostFiles: [startup.file, ...hostFiles],
       ...(hostContextPath ? { hostContextPath } : {}),
+      ...promptDeliveryConfig(promptDelivery),
       ...launchSessionTags(merged),
     }
   }
@@ -1607,6 +1674,10 @@ export function getShellLaunchConfig(
       hostContextRenderInputs(hostContext, null, []),
       pluginDirsForLaunch(cli, launchHost),
       launchSettingsForLaunch(cli, cwd, launchHost),
+      launchPlanOptions(launchHost, sessionId, cwd),
+      (plan) => {
+        promptDelivery = plan.promptDelivery
+      },
     ),
     buildInteractiveShellExec(shellPath, shellName),
   ]
@@ -1628,6 +1699,7 @@ export function getShellLaunchConfig(
     pathStyle: 'posix',
     startupScriptPath,
     ...(hostContextPath ? { hostContextPath } : {}),
+    ...promptDeliveryConfig(promptDelivery),
     ...launchSessionTags(merged),
   }
 }
@@ -1745,6 +1817,8 @@ function buildNativeAgentLaunchPowerShellScript(
   hostContext: HostContextRenderInputs = {},
   pluginDirs: string[] = [],
   launchSettings?: Record<string, unknown>,
+  planOptions: AgentLaunchPlanOptions = { budget: launchArgBudgetFor('windows') },
+  onPlan?: (plan: PlannedAgentLaunch) => void,
 ): string {
   // Codex needs an explicit workspace and npm-shim unwrapping on Windows.
   // Its argument rendering is shared with the other launch paths.
@@ -1761,25 +1835,32 @@ function buildNativeAgentLaunchPowerShellScript(
       cliReasoning,
       hostContext,
       getColorScheme(),
+      planOptions,
+      onPlan,
     )
   }
 
-  const { argv, binary } = renderAgentLaunchArgv({
-    cli,
-    sessionId,
-    resume,
-    workspaceRoot: cwd,
-    initialPrompt,
-    cliRuntime,
-    cliPermissionPreset,
-    cliModel,
-    cliReasoning,
-    debugMode,
-    colorScheme: getColorScheme(),
-    pluginDirs,
-    ...(launchSettings ? { launchSettings } : {}),
-    ...hostContext,
-  })
+  const plan = planAgentLaunch(
+    {
+      cli,
+      sessionId,
+      resume,
+      workspaceRoot: cwd,
+      initialPrompt,
+      cliRuntime,
+      cliPermissionPreset,
+      cliModel,
+      cliReasoning,
+      debugMode,
+      colorScheme: getColorScheme(),
+      pluginDirs,
+      ...(launchSettings ? { launchSettings } : {}),
+      ...hostContext,
+    },
+    planOptions,
+  )
+  onPlan?.(plan)
+  const { argv, binary } = plan
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
   // to base64-encode for round-trip safety through nested quoting layers.
   const args = argv.slice(1)
@@ -1789,6 +1870,7 @@ function buildNativeAgentLaunchPowerShellScript(
     `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
     ...buildNativeWindowsInvocation(args),
+    ...(plan.promptDelivery.kind === 'input' ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
 
@@ -1807,9 +1889,13 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   colorScheme?: 'light' | 'dark',
+  // Fit the launch to the Windows command line (`planAgentLaunch`). Absent
+  // renders it as-is, which is what the script's own tests pin.
+  planOptions?: AgentLaunchPlanOptions,
+  onPlan?: (plan: PlannedAgentLaunch) => void,
 ): string {
-  const { argv, binary } = renderAgentLaunchArgv({
-    cli: 'codex',
+  const renderInput = {
+    cli: 'codex' as const,
     sessionId,
     resume,
     workspaceRoot: cwd,
@@ -1821,7 +1907,18 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     debugMode,
     colorScheme,
     ...hostContext,
-  })
+  }
+  let rendered: { argv: string[]; binary: string }
+  let typedPrompt = false
+  if (planOptions) {
+    const plan = planAgentLaunch(renderInput, planOptions)
+    onPlan?.(plan)
+    rendered = plan
+    typedPrompt = plan.promptDelivery.kind === 'input'
+  } else {
+    rendered = renderAgentLaunchArgv(renderInput)
+  }
+  const { argv, binary } = rendered
   const args = ['-C', cwd, ...argv.slice(1)]
   // Use the same native quoting as other agents. Splatting through Windows
   // PowerShell 5.1 loses embedded quotes in TOML overrides and user prompts.
@@ -1847,6 +1944,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     `  $env:SPRINTENGINE_LAUNCH_ARGS = '"' + $codexJs + '" ' + $env:SPRINTENGINE_LAUNCH_ARGS`,
     `}`,
     ...invoke,
+    ...(typedPrompt ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
 
@@ -1864,21 +1962,35 @@ function buildAgentLaunchCommand(
   hostContext: HostContextRenderInputs = {},
   pluginDirs: string[] = [],
   launchSettings?: Record<string, unknown>,
+  planOptions: AgentLaunchPlanOptions = { budget: launchArgBudgetFor('posix') },
+  onPlan?: (plan: PlannedAgentLaunch) => void,
 ): string {
-  return buildAgentShellCommand({
-    cli,
-    sessionId,
-    resume,
-    initialPrompt,
-    cliRuntime,
-    cliPermissionPreset,
-    cliModel,
-    cliReasoning,
-    debugMode,
-    colorScheme: getColorScheme(),
-    resolvedBinaryPath,
-    pluginDirs,
-    ...(launchSettings ? { launchSettings } : {}),
-    ...hostContext,
-  })
+  const { command, plan } = planAgentShellCommand(
+    {
+      cli,
+      sessionId,
+      resume,
+      initialPrompt,
+      cliRuntime,
+      cliPermissionPreset,
+      cliModel,
+      cliReasoning,
+      debugMode,
+      colorScheme: getColorScheme(),
+      resolvedBinaryPath,
+      pluginDirs,
+      ...(launchSettings ? { launchSettings } : {}),
+      ...hostContext,
+    },
+    planOptions,
+  )
+  onPlan?.(plan)
+  return plan.promptDelivery.kind === 'input' ? `${command}; ${POSIX_CLI_EXITED_LINE}` : command
 }
+
+// A launch whose first message is typed in says when its CLI has exited, before
+// the shell the script ends in starts (see `CLI_EXITED_SENTINEL`): that shell
+// turns bracketed paste on too, and the message must never be typed into it.
+// Only such a launch prints it, so every other launch is byte-for-byte as it was.
+const POSIX_CLI_EXITED_LINE = `printf '\\033]${CLI_EXITED_OSC}\\007'`
+const POWERSHELL_CLI_EXITED_LINE = `[Console]::Out.Write([string][char]27 + ']${CLI_EXITED_OSC}' + [char]7)`

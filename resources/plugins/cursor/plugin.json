@@ -63,7 +63,11 @@
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "cursor-agent 2026.09.15 documents no prompt-file option and no stdin prompt for an interactive session (-p/--prompt is a one-shot print mode), so a first message too long for the platform's command line is typed in: launched without it, then pasted (bracketed) and submitted once the TUI is reading. Verified 2026-09-24 that the composer takes the bracketed paste once the TUI has enabled bracketed paste and gone quiet.",
+      "mode": "input"
+    }
   },
   "contextInjection": {
     "$comment": "cursor-agent 2026.09.10 documents no --append-system-prompt flag (verified against --help). The hidden --system-prompt REPLACES the stock prompt and is team-gated, so it is not this channel. --plugin-dir is the public out-of-band path: the host packs the document as a one-session Cursor plugin (always-apply rule under .cursor-plugin/) and that directory is what {{contextFile}} names. Writing .cursor/rules into the person's repo is deliberately not the channel. Spread into launch AND resume argv, so a resumed session is re-told — plugin rules load per invocation, and sessionStart does not re-fire on --continue.",

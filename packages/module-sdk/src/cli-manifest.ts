@@ -61,9 +61,20 @@ export type CliReadinessSignal = {
   timeoutMs: number
 }
 
+/**
+ * What a launch does with a first prompt too long for the platform's command
+ * line. `input` (the default): launch without it and type it in once the CLI is
+ * ready, adding `args` to that launch only. `file`: write it to a file and
+ * render `args` (naming `{{promptFile}}`) in its place, for a CLI that
+ * documents a file option. Either way the args are spread as
+ * `promptOverflowArgs`.
+ */
+export type CliPromptOverflow = { mode: 'input'; args?: string[] } | { mode: 'file'; args: string[] }
+
 export type CliPromptInjection = {
   mode: CliPromptInjectionMode
   readiness?: CliReadinessSignal
+  overflow?: CliPromptOverflow
 }
 
 export type CliCompletionMode = 'process-exit' | 'output-sentinel' | 'mcp-signal' | 'idle-at-prompt'
@@ -547,6 +558,28 @@ function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): vo
         })
       }
     }
+  }
+  if (value.overflow !== undefined) validatePromptOverflow(value.overflow, issues)
+}
+
+function validatePromptOverflow(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'promptInjection.overflow', message: 'overflow must be an object when present.' })
+    return
+  }
+  if (value.mode !== 'input' && value.mode !== 'file') {
+    issues.push({ path: 'promptInjection.overflow.mode', message: 'overflow.mode must be one of: input, file.' })
+  }
+  const args = value.args
+  const argsAreStrings = Array.isArray(args) && args.every((arg) => typeof arg === 'string')
+  if (args !== undefined && !argsAreStrings) {
+    issues.push({ path: 'promptInjection.overflow.args', message: 'overflow.args must be an array of strings.' })
+  }
+  if (value.mode === 'file' && (!argsAreStrings || !(args as string[]).some((arg) => arg.includes('{{promptFile}}')))) {
+    issues.push({
+      path: 'promptInjection.overflow.args',
+      message: 'A file overflow must name {{promptFile}} in its args.',
+    })
   }
 }
 

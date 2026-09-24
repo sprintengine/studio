@@ -4,7 +4,8 @@ import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifes
 import { resolveSkillInvocation } from '../shared/skill-invocation'
 
 import { getPluginById } from './plugin-registry-instance'
-import { renderPluginLaunch, renderPluginResume } from './plugin-render'
+import { launchArgvExceedsBudget, measureLaunchArgv, type LaunchArgBudget } from './launch-arg-budget'
+import { renderPluginContextArgs, renderPluginLaunch, renderPluginResume } from './plugin-render'
 
 export function pluginIdForCli(cli: AgentCli): string {
   return cli
@@ -117,6 +118,12 @@ export type AgentLaunchRenderInput = {
   // that never fills and nothing in the terminal to say so. Absent renders the
   // document the theme alone would have.
   launchSettings?: Record<string, unknown>
+  // Set by `planAgentLaunch` when the prompt is too long for the command line:
+  // the prompt leaves argv and the manifest's `promptInjection.overflow` args
+  // render in its place. `input` renders no prompt at all (it is typed in once
+  // the CLI is up); `file` renders a one-line note naming `promptFile`. Nothing
+  // else sets it, so every other launch renders the argv it always did.
+  promptOverflow?: { mode: 'input' } | { mode: 'file'; promptFile: string }
 }
 
 export type RenderedAgentLaunch = {
@@ -128,32 +135,69 @@ export type RenderedAgentLaunch = {
   // declare no `launch.env`. The caller injects these into the spawned PTY env
   // (and the WSL bootstrap) — they are intentionally NOT folded into argv.
   env: Record<string, string>
+  // The first message this launch carries, Debug Mode's directive included:
+  // what `{{prompt}}` renders, or what an overflowed launch still owes the CLI.
+  // Undefined for a launch with nothing to say.
+  prompt?: string
 }
 
 class AgentLaunchRenderError extends Error {}
 
-export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAgentLaunch {
-  const pluginId = pluginIdForCli(input.cli)
+function resolveLaunchPlugin(cli: AgentCli): LoadedPlugin {
+  const pluginId = pluginIdForCli(cli)
   const plugin = getPluginById(pluginId)
   if (!plugin) {
     throw new AgentLaunchRenderError(
-      `No plugin manifest found for "${input.cli}" (looked up as "${pluginId}"). ` +
+      `No plugin manifest found for "${cli}" (looked up as "${pluginId}"). ` +
         `Check that resources/plugins/${pluginId}/plugin.json is bundled.`,
     )
   }
+  return plugin
+}
 
+// Debug Mode is applied here, at the single render boundary every spawn path
+// converges on, so the directive (led by the CLI-native skill invocation when
+// the plugin supports it) lands in the rendered prompt for any CLI. Only touched
+// when debugMode is set, preserving an undefined prompt (and thus the no-prompt
+// argv shape) for ordinary launches.
+function launchPrompt(input: AgentLaunchRenderInput, plugin: LoadedPlugin): string | undefined {
+  return input.debugMode
+    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
+    : input.initialPrompt
+}
+
+/**
+ * What `{{prompt}}` renders when the prompt went to a file: one line, in the
+ * person's voice because it stands where their message would have, pointing at
+ * the file that holds the message itself.
+ */
+export function promptFileNote(promptFile: string): string {
+  return `My request is in the attached file ${promptFile}. Read all of it and act on it as this message.`
+}
+
+export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAgentLaunch {
+  const plugin = resolveLaunchPlugin(input.cli)
+  const prompt = launchPrompt(input, plugin)
+  const rendered = renderWithPlugin(input, plugin, renderedPromptToken(input, prompt))
+  return { ...rendered, prompt }
+}
+
+/** What `{{prompt}}` renders: the prompt, the note naming its file, or nothing once it is typed in. */
+function renderedPromptToken(input: AgentLaunchRenderInput, prompt: string | undefined): string | undefined {
+  const overflow = input.promptOverflow
+  if (!overflow) return prompt
+  return overflow.mode === 'file' ? promptFileNote(overflow.promptFile) : undefined
+}
+
+function buildLaunchRenderContext(
+  input: AgentLaunchRenderInput,
+  plugin: LoadedPlugin,
+  prompt: string | undefined,
+): { binary: string; context: PluginRenderContext } {
   // The probed path wins over a `cliRuntimes` command override because the probe
   // ran against that same override (detection is keyed by it) — the resolved
   // path is that command, made absolute. The bare name is the last resort.
   const binary = input.resolvedBinaryPath?.trim() || input.cliRuntime?.command?.trim() || plugin.manifest.binary
-  // Debug Mode is applied here, at the single render boundary every spawn path
-  // converges on, so the directive (led by the CLI-native skill invocation when
-  // the plugin supports it) lands in the rendered prompt token for any CLI. Only
-  // touched when debugMode is set, preserving an undefined prompt (and thus the
-  // no-prompt argv shape) for ordinary launches.
-  const prompt = input.debugMode
-    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
-    : input.initialPrompt
   const context: PluginRenderContext = {
     binary,
     sessionId: input.sessionId,
@@ -178,8 +222,18 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     ...(input.launchSettings && Object.keys(input.launchSettings).length > 0
       ? { launchSettings: input.launchSettings }
       : {}),
+    ...(input.promptOverflow ? { promptOverflow: input.promptOverflow } : {}),
   }
+  return { binary, context }
+}
 
+function renderWithPlugin(
+  input: AgentLaunchRenderInput,
+  plugin: LoadedPlugin,
+  prompt: string | undefined,
+): Omit<RenderedAgentLaunch, 'prompt'> {
+  const pluginId = plugin.manifest.id
+  const { binary, context } = buildLaunchRenderContext(input, plugin, prompt)
   const rendered = input.resume
     ? renderPluginResume(plugin.manifest, context)
     : renderPluginLaunch(plugin.manifest, context)
@@ -192,6 +246,212 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   }
 
   return { argv: rendered.argv, binary, plugin, env: rendered.env }
+}
+
+// ── Fitting a launch to the platform's command line ──────────────────────────
+//
+// Two things a launch carries can be arbitrarily long: the person's first
+// message (a pasted log) and the host-context document (a CLI that takes it as
+// text rather than as a file). Either can make the exec fail outright on Linux
+// and WSL, where one argument is capped at 128 KiB, or on Windows, where the
+// whole command line is. `planAgentLaunch` renders the launch, measures it
+// against `launch-arg-budget.ts`, and moves what does not fit:
+//
+// 1. A host-context document longer than one argument may be is cut, with a
+//    marker naming the file main wrote it to, so the agent can read the rest —
+//    a launch that loses the tail of its context beats one that does not start.
+// 2. A prompt that does not fit leaves argv by the manifest's
+//    `promptInjection.overflow`: typed in once the CLI is ready (the default),
+//    or written to a file the CLI documents an option for.
+// 3. If the launch is still over, the context is cut to what room is left; and
+//    if that is not enough either, the launch goes as rendered and says so in
+//    the log. A launch that fits is never changed, context included.
+
+export type AgentPromptDelivery =
+  /** On the command line, where `{{prompt}}` put it — or there is no prompt. */
+  | { kind: 'argv' }
+  /** Typed into the CLI once it is ready: the caller owes the CLI exactly this. */
+  | { kind: 'input'; text: string }
+  /** Written to `path`, which the launch names through the manifest's file args. */
+  | { kind: 'file'; text: string; path: string }
+
+export type PlannedAgentLaunch = RenderedAgentLaunch & {
+  promptDelivery: AgentPromptDelivery
+  /** Set when the host-context document was cut to fit: characters kept of the whole. */
+  contextTruncated?: { shown: number; total: number }
+  /** True when nothing more could be moved and the launch is still over budget. */
+  overBudget?: boolean
+}
+
+export type AgentLaunchPlanOptions = {
+  budget: LaunchArgBudget
+  /**
+   * Write the prompt where the launched CLI can read it, returning the path as
+   * the launched shell names it, or null when it could not be written (the
+   * prompt then stays on the command line). Only consulted for a manifest whose
+   * overflow is `file`.
+   */
+  writePromptFile?: (text: string) => string | null
+  /** Where a launch that had to be changed to fit is reported. */
+  log?: (event: string, detail: Record<string, unknown>) => void
+}
+
+function defaultPlanLog(event: string, detail: Record<string, unknown>): void {
+  console.warn(`[agent-launch] ${event}`, detail)
+}
+
+/**
+ * The marker a cut host-context document ends with. It names the file because
+ * the whole document is there: main writes it for every CLI with an
+ * out-of-band channel, the ones that take it as text included.
+ */
+export function hostContextTruncationMarker(shown: number, total: number, contextFile: string | undefined): string {
+  const where = contextFile ? ` The complete document is in ${contextFile}; read it before you start.` : ''
+  return (
+    `\n\n[Host context truncated: this platform's command line has room for ${shown} of its ${total} characters.` +
+    `${where}]`
+  )
+}
+
+/**
+ * The longest prefix of `text` (with its marker) that `fits`, found by halving:
+ * each probe is one render, and the answer is exact to the character. Never
+ * splits a surrogate pair. Null when not even the marker alone fits.
+ */
+function truncateToFit(
+  text: string,
+  withMarker: (kept: string) => string,
+  fits: (candidate: string) => boolean,
+): { text: string; kept: number } | null {
+  if (!fits(withMarker(''))) return null
+  let lo = 0
+  let hi = text.length
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (fits(withMarker(safePrefix(text, mid)))) lo = mid
+    else hi = mid
+  }
+  const kept = safePrefix(text, lo)
+  return { text: withMarker(kept), kept: kept.length }
+}
+
+function safePrefix(text: string, length: number): string {
+  const code = text.charCodeAt(length - 1)
+  const cut = length > 0 && code >= 0xd800 && code <= 0xdbff ? length - 1 : length
+  return text.slice(0, cut)
+}
+
+export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLaunchPlanOptions): PlannedAgentLaunch {
+  const { budget } = options
+  const log = options.log ?? defaultPlanLog
+  const plugin = resolveLaunchPlugin(input.cli)
+  const prompt = launchPrompt(input, plugin)
+  const overBudget = (argv: string[]): boolean => launchArgvExceedsBudget(argv, budget)
+  const render = (candidate: AgentLaunchRenderInput): RenderedAgentLaunch => ({
+    ...renderWithPlugin(candidate, plugin, renderedPromptToken(candidate, prompt)),
+    prompt,
+  })
+
+  let working: AgentLaunchRenderInput = { ...input }
+  let contextTruncated: PlannedAgentLaunch['contextTruncated']
+  const originalContext = input.contextText
+  const cutContext = (fits: (candidate: AgentLaunchRenderInput) => boolean): boolean => {
+    if (!originalContext) return false
+    const cut = truncateToFit(
+      originalContext,
+      (kept) => `${kept}${hostContextTruncationMarker(kept.length, originalContext.length, input.contextFile)}`,
+      (text) => fits({ ...working, contextText: text }),
+    )
+    if (cut === null) return false
+    working = { ...working, contextText: cut.text }
+    contextTruncated = { shown: cut.kept, total: originalContext.length }
+    return true
+  }
+
+  // 1. The context document alone must fit in one argument; past that nothing
+  //    else moving could save the launch. A document that fits is left whole
+  //    here, and only cut in step 3 if the launch is still over.
+  const contextFits = (candidate: AgentLaunchRenderInput): boolean => {
+    const { context } = buildLaunchRenderContext(candidate, plugin, undefined)
+    const measured = measureLaunchArgv(renderPluginContextArgs(plugin.manifest, context), budget)
+    return measured.largest <= budget.maxArg && measured.total <= budget.maxArg
+  }
+  if (originalContext && !contextFits(working)) cutContext(contextFits)
+
+  // 2. The prompt, when the launch does not fit with it on the command line.
+  let rendered = render(working)
+  let promptDelivery: AgentPromptDelivery = { kind: 'argv' }
+  if (overBudget(rendered.argv) && prompt && promptRendersIntoArgv(working, plugin, rendered.argv)) {
+    const overflow = plugin.manifest.promptInjection?.overflow ?? { mode: 'input' as const }
+    if (overflow.mode === 'file') {
+      // A CLI that takes an overflowed message from a file has no line editor
+      // to type it into (OpenCode's `run` is one-shot). A file that could not
+      // be written leaves the prompt on the command line: a launch the platform
+      // refuses says so, where a message typed at nothing is lost in silence.
+      const promptFile = options.writePromptFile?.(prompt) ?? null
+      if (promptFile) {
+        working = { ...working, promptOverflow: { mode: 'file', promptFile } }
+        promptDelivery = { kind: 'file', text: prompt, path: promptFile }
+      }
+    } else {
+      working = { ...working, promptOverflow: { mode: 'input' } }
+      promptDelivery = { kind: 'input', text: prompt }
+    }
+    if (promptDelivery.kind !== 'argv') {
+      rendered = render(working)
+      log('prompt-moved-off-command-line', {
+        cli: input.cli,
+        platform: budget.platform,
+        delivery: promptDelivery.kind,
+        promptLength: prompt.length,
+      })
+    }
+  }
+
+  // 3. Still over: whatever room is left goes to the context.
+  if (overBudget(rendered.argv) && working.contextText) {
+    if (cutContext((candidate) => !overBudget(render(candidate).argv))) rendered = render(working)
+  }
+  if (contextTruncated) {
+    log('host-context-truncated', {
+      cli: input.cli,
+      platform: budget.platform,
+      shown: contextTruncated.shown,
+      total: contextTruncated.total,
+    })
+  }
+
+  const stillOver = overBudget(rendered.argv)
+  if (stillOver) {
+    const measured = measureLaunchArgv(rendered.argv, budget)
+    log('launch-still-over-budget', {
+      cli: input.cli,
+      platform: budget.platform,
+      largestArg: measured.largest,
+      largestArgIndex: measured.largestIndex,
+      total: measured.total,
+      maxArg: budget.maxArg,
+      maxTotal: budget.maxTotal,
+    })
+  }
+
+  return {
+    ...rendered,
+    promptDelivery,
+    ...(contextTruncated ? { contextTruncated } : {}),
+    ...(stillOver ? { overBudget: true } : {}),
+  }
+}
+
+/**
+ * Whether this manifest puts the prompt on the command line at all. A CLI that
+ * takes its first message some other way (a `send-after-ready` manifest renders
+ * no `{{prompt}}`) gains nothing from moving it, and must not be handed a
+ * prompt to type in that its own launch never carried.
+ */
+function promptRendersIntoArgv(input: AgentLaunchRenderInput, plugin: LoadedPlugin, argv: string[]): boolean {
+  const without = renderWithPlugin({ ...input, promptOverflow: undefined }, plugin, undefined).argv
+  return without.length !== argv.length || without.some((token, index) => token !== argv[index])
 }
 
 // Decides whether a CLI launch must be blocked because the CLI declares a
@@ -294,7 +554,24 @@ const AGENT_BINARY_NOT_FOUND_EXIT = 127
 // authority; this is the second line of defence for a binary that disappears
 // between the pre-flight and the spawn, and it must fail visibly.
 export function buildAgentShellCommand(input: AgentLaunchRenderInput): string {
-  const { argv, binary, plugin } = renderAgentLaunchArgv(input)
+  return agentShellCommandFor(input, renderAgentLaunchArgv(input))
+}
+
+/**
+ * `buildAgentShellCommand`, fitted to the command line `options.budget`
+ * allows (see `planAgentLaunch`), with the plan beside it so the caller can
+ * deliver a prompt the command line could not carry.
+ */
+export function planAgentShellCommand(
+  input: AgentLaunchRenderInput,
+  options: AgentLaunchPlanOptions,
+): { command: string; plan: PlannedAgentLaunch } {
+  const plan = planAgentLaunch(input, options)
+  return { command: agentShellCommandFor(input, plan), plan }
+}
+
+function agentShellCommandFor(input: AgentLaunchRenderInput, rendered: RenderedAgentLaunch): string {
+  const { argv, binary, plugin } = rendered
   const shellCommand = argvToPosixShellCommand(argv)
   const displayName = plugin.manifest.displayName
   const shortName = displayName.split(/\s+/)[0] || displayName

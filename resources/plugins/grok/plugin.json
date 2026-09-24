@@ -62,7 +62,7 @@
     }
   },
   "contextInjection": {
-    "$comment": "grok --append-system-prompt <text>, verified accepted by the installed Grok Build 1.0.13 as an undocumented compat alias of the documented --rules (\"Extra rules to append to the system prompt\"). Text rather than a file: grok documents no file-taking variant. Spread into launch AND resume argv, so a resumed session is re-told.",
+    "$comment": "grok --append-system-prompt <text>, verified accepted by the installed Grok Build 1.0.13 as an undocumented compat alias of the documented --rules (\"Extra rules to append to the system prompt\"). Text rather than a file: grok documents no file-taking variant. Spread into launch AND resume argv, so a resumed session is re-told. Re-verified 2026-09-24 against Grok Build 1.0.25: --help documents --rules and --system-prompt-override (both text) and --prompt-file only for a single-turn run; the binary's strings hold no rules-file or append-system-prompt-file flag. A document too long for the platform's command line is cut instead, with a marker naming the file main wrote it to (planAgentLaunch in src/main/agent-launch-render.ts).",
     "mode": "argv",
     "args": ["--append-system-prompt", "{{contextText}}"]
   },

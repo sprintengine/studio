@@ -46,9 +46,23 @@ type PluginReadinessSignal = {
   timeoutMs: number
 }
 
+// What a launch does with a first prompt too long for the command line the
+// platform allows (src/main/launch-arg-budget.ts).
+//
+// - `input` (the default, and what a manifest declaring nothing gets) — launch
+//   without it and type it into the CLI, as one bracketed paste and one Enter,
+//   once the CLI is ready for input. `args` are added to that launch only, as
+//   `promptOverflowArgs`: whatever keeps a startup dialog from standing between
+//   the CLI and its composer, where the typed Enter would answer it.
+// - `file` — write it to a file and render `args` (which name `{{promptFile}}`)
+//   as `promptOverflowArgs`, for a CLI that documents a file option; `{{prompt}}`
+//   then renders a one-line note pointing at that file.
+type PluginPromptOverflow = { mode: 'input'; args?: string[] } | { mode: 'file'; args: string[] }
+
 type PluginPromptInjection = {
   mode: PluginPromptInjectionMode
   readiness?: PluginReadinessSignal
+  overflow?: PluginPromptOverflow
 }
 
 // How the host's out-of-band context document reaches this CLI (design-door /
@@ -539,6 +553,12 @@ export type PluginRenderContext = {
   // caller supplies the rest (the status line). Absent or empty renders no
   // flag beyond the theme the launch already passed.
   launchSettings?: Record<string, unknown>
+  // Set when the prompt is too long for this platform's command line and goes
+  // by the manifest's `promptInjection.overflow` instead: `input` renders its
+  // args (the prompt itself is typed in later, so `prompt` is absent); `file`
+  // renders its args against `promptFile`, the file main wrote. Absent, no
+  // `promptOverflowArgs` render and the launch is the one it always was.
+  promptOverflow?: { mode: 'input' } | { mode: 'file'; promptFile: string }
   variables?: Record<string, string | number | boolean | string[] | undefined>
   files?: string[]
 }
