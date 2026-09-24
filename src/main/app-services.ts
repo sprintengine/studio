@@ -238,12 +238,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Boot jobs that nothing on screen needs — the plugin-home copy, the git
+  // probe, the first plugin install into open workspaces — wait for the main
+  // window to reveal, so they do not compete with the renderer's first load.
+  // The lifecycle opens the gate on reveal; an agent launch opens it early,
+  // because a launch has to wait for the plugin home rather than race it.
+  let openBootJobsGate: () => void = () => undefined
+  const bootJobsGate = new Promise<void>((resolve) => {
+    openBootJobsGate = resolve
+  })
+  const startDeferredBootJobs = (): void => openBootJobsGate()
+
   // The app's own plugin, materialised ONCE for this build under the profile's
   // userData directory and handed to every launch that can take it
   // (`--plugin-dir`) rather than written into the person's repository. Empty
-  // until the copy lands, which is what makes a launch during startup fall back
-  // to the workspace installer instead of losing agent state.
+  // until the copy lands; every agent launch waits for it to settle (see
+  // `whenAgentLaunchReady`), and a build whose copy failed falls back to the
+  // workspace installer instead of losing agent state.
   const agentIntegrationReady = (async () => {
+    await bootJobsGate
     const home = await ensureAgentIntegrationHome({
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
@@ -309,6 +322,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
     prepareStudioMcp: async ({ workspaceRoot }) => {
+      await whenAgentLaunchReady()
       const result = await syncStudioMcpConfig(
         {
           workspaceRoot,
@@ -479,23 +493,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
     syncMcpConfig: (input) =>
-      syncStudioMcpConfig(
-        {
-          ...input,
-          // A launch that carries the app's plugin directory gets the gateway
-          // from that plugin's own `.mcp.json`; pinning it into the repository
-          // as well would be a second copy of the server, and one a plain
-          // terminal's `claude` in that checkout would load too.
-          studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => ({
-            command: process.execPath,
-            bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-            userDataDir: app.getPath('userData'),
-          }),
-        },
+      whenAgentLaunchReady().then(() =>
+        syncStudioMcpConfig(
+          {
+            ...input,
+            // A launch that carries the app's plugin directory gets the gateway
+            // from that plugin's own `.mcp.json`; pinning it into the repository
+            // as well would be a second copy of the server, and one a plain
+            // terminal's `claude` in that checkout would load too.
+            studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
+          },
+          {
+            mcpConfigService,
+            studioGateway: () => ({
+              command: process.execPath,
+              bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+              userDataDir: app.getPath('userData'),
+            }),
+          },
+        ),
       ),
     // Debug Mode: make the `debug` skill present in the session CLI's native
     // skill dir before launch. Check-first so already-installed workspaces skip
@@ -728,7 +744,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     cacheDir: skillRepoCacheDir,
     resolveToken: () => githubTokenStore.resolveToken(),
   })
-  void app.whenReady().then(async () => {
+  void Promise.all([app.whenReady(), bootJobsGate]).then(async () => {
     await gitTransport.refresh()
     // Objects fetched into a promisor clone are never repacked away, so a
     // repository that keeps moving grows its clone for as long as it is read.
@@ -1167,17 +1183,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
     )
   })
-  void studioPluginService.ensureInstalledForRoots(
-    uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
-  )
-  // And again once the app's own plugin copy exists. That copy is materialised
-  // asynchronously, so the pass above ran while launches still had nothing to
-  // be handed: it installed the OLD arrangement into every open workspace —
-  // hook merged into their Claude settings, reporter copied in. The moment the
-  // copy lands, launches start registering that hook themselves, so the pass
-  // has to run again to take the workspace copy back out. Without this second
-  // pass the two registrations both fire for every event, for the rest of the
-  // run, and the next run loses the same race again.
+  // The pass over the roots the registry already holds runs once the app's own
+  // plugin copy has settled (itself a boot job, started after the reveal), so
+  // it installs the arrangement launches will actually use. Each install also
+  // waits for that copy on its own, which is what keeps an install triggered
+  // by an early registry event from writing the old arrangement.
   void agentIntegrationReady.then(() =>
     studioPluginService.ensureInstalledForRoots(
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
@@ -1197,6 +1207,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // list and the gateway's own status — because a presence that reported a
   // renderer projection would go stale the moment the last window it came from
   // closed.
+  /**
+   * What every agent launch waits for before it writes MCP config or builds a
+   * command line: the Studio gateway listening (boot starts it alongside the
+   * windows rather than ahead of them) and the plugin-home copy settled. A
+   * launch before the reveal starts the deferred boot jobs itself.
+   */
+  function whenAgentLaunchReady(): Promise<void> {
+    startDeferredBootJobs()
+    return Promise.all([automationService.whenGatewayReady(), agentIntegrationReady]).then(() => undefined)
+  }
+
   function readBackgroundStatus(): BackgroundStatus {
     const sessions = terminalRuntime.ipcHandlers
       .listTerminals()
@@ -1208,6 +1229,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   return {
+    startDeferredBootJobs,
     agentConfigImportService,
     agentStateService,
     browserManager,

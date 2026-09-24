@@ -390,7 +390,6 @@ import type {
   OpenAuxWindowInput,
   OpenAuxWindowResult,
   OpenExternalResult,
-  SplashProgress,
   WindowPlacement,
   WindowState,
 } from './ipc/window'
@@ -545,12 +544,12 @@ export type ElectronApi = {
   canvasWorkerReady: (report: CanvasWorkerReport) => void
   onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
   canvasWorkerRespond: (response: CanvasWorkerResponse) => void
-  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
-  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
-  // window when its first frame is on screen, and is what closes the splash and
-  // reveals the main window (main also holds a hard timeout, so a renderer that
-  // never gets there cannot strand a hidden main window).
-  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  // Splash boot handshake. `notifyBootComplete` is sent once by the primary
+  // workspace window when its first frame is on screen, and is what closes the
+  // splash and reveals the main window (main also holds a hard timeout, so a
+  // renderer that never gets there cannot strand a hidden main window). The
+  // plate's own progress subscription is not here: the plate loads a preload of
+  // its own (`src/preload/splash.ts`).
   notifyBootComplete: () => void
   // Boot measurement, off unless asked for. The flag is resolved in
   // preload from the same environment main reads, so the renderer never reports

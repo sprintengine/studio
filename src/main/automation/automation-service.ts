@@ -113,10 +113,17 @@ export function createAutomationService(options: AutomationServiceOptions) {
     }
   }
 
+  // The first start of the socket gateway, set synchronously by `initialize`.
+  // Boot no longer waits for it before putting windows up, so every agent
+  // launch waits on this instead: an agent must never start before the
+  // listener its MCP config points at exists.
+  let gatewayStarted: Promise<void> | null = null
+
   /** Start the instance-global Studio MCP gateway with the app. */
   async function initialize(): Promise<AutomationServerStatus> {
     loadSettings()
-    await startServer()
+    gatewayStarted = startServer()
+    await gatewayStarted
     // Opt-in and independent: a tailnet listener that cannot start reports why
     // in its own status and never blocks the socket gateway the app depends on.
     await tailnetService().initialize()
@@ -277,8 +284,19 @@ export function createAutomationService(options: AutomationServiceOptions) {
     tailnet?.notifyWorkspacesChanged()
   }
 
+  /**
+   * Settles once the socket gateway's first start has been attempted — never
+   * rejects, since a gateway that failed to start reports that in its status
+   * and must not also hold every launch hostage. Resolves at once when
+   * `initialize` has not been called (a host without the gateway).
+   */
+  function whenGatewayReady(): Promise<void> {
+    return gatewayStarted ? gatewayStarted.catch(() => undefined) : Promise.resolve()
+  }
+
   return {
     initialize,
+    whenGatewayReady,
     getStatus,
     setEnabled,
     shutdown,
