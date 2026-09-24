@@ -425,6 +425,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // process, so a launch, the reaper and the git runner resolve a host against
   // the same per-machine settings. A change to those settings tells every
   // window its machine list may read differently.
+  const mcpWslWarningsSeen = new Set<string>()
   const hosts = createHostRegistry({ readHostSettings: () => agentLaunchSettings.get().hosts })
   installHostRegistry(hosts)
   let lastHostSettings = JSON.stringify(agentLaunchSettings.get().hosts)
@@ -560,7 +561,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
               userDataDir: app.getPath('userData'),
             }),
+            // Once per server per run: the same config is synced on every
+            // WSL launch, and the same sentence each time is noise.
             warn: (message) => {
+              if (mcpWslWarningsSeen.has(message)) return
+              mcpWslWarningsSeen.add(message)
               void writeDiagnosticLog({
                 level: 'warning',
                 title: 'MCP server may not start in WSL',

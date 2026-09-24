@@ -12,6 +12,7 @@ import {
   gitEnv,
   installGitHostResolver,
   runGitCommand,
+  withGitHost,
 } from './git-run'
 
 test('reads are told apart from writes, so only reads get a deadline and skip optional locks', () => {
@@ -138,5 +139,31 @@ test("a repository on a WSL machine is run by that machine's git, under the same
     assert.equal(calls.length, 3)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a machine named for one piece of work runs its git, ahead of the resolver', async () => {
+  const seen: string[] = []
+  installGitHostResolver(() => null)
+  try {
+    const host = {
+      kind: 'wsl' as const,
+      runGit: async (cwd: string) => {
+        seen.push(cwd)
+        return { code: 0, stdout: '/home/dev/repo\n', stderr: '', timedOut: false }
+      },
+    }
+    const inside = await withGitHost(host, () => runGitCommand('C:\\repo', ['rev-parse', '--show-toplevel']))
+    assert.equal(inside.ok, true)
+    assert.deepEqual(seen, ['C:\\repo'])
+    const dir = await mkdtemp(join(tmpdir(), 'se-git-scope-'))
+    try {
+      await withGitHost(null, () => runGitCommand(dir, ['--version']))
+      assert.equal(seen.length, 1, 'no machine named: the resolver (here, this machine) decides')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  } finally {
+    installGitHostResolver(null)
   }
 })

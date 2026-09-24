@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from 'child_process'
 import type { GitCommandResult } from './git'
 import { killProcessTree } from './process-tree-kill'
@@ -236,6 +237,16 @@ export function installGitHostResolver(resolver: ((cwd: string) => GitHost | nul
   gitHostResolver = resolver
 }
 
+// A machine named by the caller for one piece of work, which wins over the
+// resolver: a New chat on a WSL machine makes its worktree before the
+// workspace that would tell the resolver about it exists.
+const gitHostScope = new AsyncLocalStorage<GitHost>()
+
+/** Runs `work` with every git it starts on `host`; null leaves the resolver to decide. */
+export function withGitHost<T>(host: GitHost | null, work: () => Promise<T>): Promise<T> {
+  return host ? gitHostScope.run(host, work) : work()
+}
+
 /**
  * The variables `gitEnv` adds for git's own sake, plus the caller's, without
  * this process's whole environment: a git in WSL gets its environment from
@@ -290,7 +301,7 @@ function execGit(
   const grouped = timeoutMs !== null && process.platform !== 'win32'
   gitSpawnCounter[kind] += 1
 
-  const host = gitHostResolver?.(cwd) ?? null
+  const host = gitHostScope.getStore() ?? gitHostResolver?.(cwd) ?? null
   if (host && host.kind === 'wsl') return execGitOnHost(host, cwd, args, envOverrides, kind, timeoutMs)
 
   return new Promise((resolvePromise, reject) => {

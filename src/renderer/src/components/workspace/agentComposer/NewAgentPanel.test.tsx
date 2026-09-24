@@ -1404,6 +1404,23 @@ test('NewAgentPanel', async () => {
           assert.equal(view.launches.at(-1)?.hostId, 'wsl:Debian', 'the machine rides the launch')
           view.unmount()
 
+          // Debian is then turned off: the remembered pick no longer counts.
+          const offered = hostsAnswer.hosts
+          hostsAnswer = { ...hostsAnswer, hosts: offered.filter((host) => host.id !== 'wsl:Debian') }
+          const afterOff = await render({
+            folderPath: 'C:\\Users\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(
+            machineTrigger(afterOff)?.textContent?.trim(),
+            'This PC (Windows)',
+            'a machine no longer offered',
+          )
+          afterOff.unmount()
+          hostsAnswer = { ...hostsAnswer, hosts: offered }
+
           const inDistro = await render({
             folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
             projectOptions: [],

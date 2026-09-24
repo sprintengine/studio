@@ -951,7 +951,7 @@ export type ElectronApi = {
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
-  getGitRepoRoot: (folderPath: string) => Promise<string | null>
+  getGitRepoRoot: (folderPath: string, hostId?: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   /**
    * Which of `relativePaths` the ignore rules cover — one `check-ignore` per

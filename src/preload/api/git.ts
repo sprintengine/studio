@@ -89,7 +89,8 @@ export const gitApi = {
       }
     }
   },
-  getGitRepoRoot: (folderPath: string): Promise<string | null> => ipcRenderer.invoke('git:get-repo-root', folderPath),
+  getGitRepoRoot: (folderPath: string, hostId?: string): Promise<string | null> =>
+    ipcRenderer.invoke('git:get-repo-root', folderPath, hostId),
   getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> => ipcRenderer.invoke('git:get-status', repoRoot),
   checkIgnored: (repoRoot: string, relativePaths: string[]): Promise<string[]> =>
     ipcRenderer.invoke('git:check-ignored', repoRoot, relativePaths),

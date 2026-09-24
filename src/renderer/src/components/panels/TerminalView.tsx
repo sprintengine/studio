@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isWslHostId } from '../../../../shared/execution-host'
+import { hostIdForFolder, isWslHostId } from '../../../../shared/execution-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
@@ -258,9 +258,11 @@ export default function TerminalView({
   // The machine this agent runs on: its own once it has launched somewhere,
   // else its workspace's. Main keeps a resumed session on the machine it ran
   // on whatever this says; this is what a fresh launch asks for.
-  const hostId = useWorkspaceStore(
-    (s) => agent?.hostId ?? s.workspaces.find((w) => w.id === workspaceId)?.hostId ?? undefined,
-  )
+  const hostId = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    // A workspace from before hosts, inside a distribution, runs there too.
+    return agent?.hostId ?? workspace?.hostId ?? hostIdForFolder(workspace?.folderPath) ?? undefined
+  })
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)

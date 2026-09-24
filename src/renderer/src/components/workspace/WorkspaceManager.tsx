@@ -2553,7 +2553,10 @@ export default function WorkspaceManager() {
     if (!folderPath)
       return fail('Worktree needs a project', 'Choose a project folder before starting a chat on a worktree.')
     const projectFolder = workspaceProjectRootOf({ folderPath }) ?? folderPath
-    const repoRoot = await window.api.getGitRepoRoot(projectFolder)
+    // The machine the chat will run on makes its worktree too: a worktree made
+    // by another machine's git names a gitdir this one cannot follow.
+    const worktreeHostId = newChatHostRef.current ?? undefined
+    const repoRoot = await window.api.getGitRepoRoot(projectFolder, worktreeHostId)
     if (!repoRoot) {
       return fail(
         'Worktree needs a git repository',
@@ -2570,6 +2573,7 @@ export default function WorkspaceManager() {
       branchName: paths.branchName,
       baseRef: 'HEAD',
       copyIncludedFiles: true,
+      ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)
     return {

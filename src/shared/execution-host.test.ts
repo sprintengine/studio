@@ -80,7 +80,7 @@ test('host settings normalize fail-soft', () => {
     }),
     { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: { OK_NAME: 'v' } },
   )
-  assert.equal(normalizeExecutionHostSettings({ shell: ' zsh -l ' }).shell, 'zsh -l')
+  assert.equal(normalizeExecutionHostSettings({ shell: 'zsh ' }).shell, 'zsh ', 'kept as typed')
 })
 
 test("a CLI's command on a machine: this one keeps the runtime's, a WSL one its own", () => {

@@ -404,7 +404,14 @@ export default function NewAgentPanel({
   const localHosts: ExecutionHostSummary[] = hostChoosable ? (hostListing?.hosts ?? []) : []
   const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() => lastPickedHostId)
   const scopeFolder = folderPath !== undefined ? folderPath : null
-  const hostId: ExecutionHostId = hostChoosable ? defaultNewChatHostId(scopeFolder, pickedHostId) : LOCAL_HOST_ID
+  // A remembered pick counts only while that machine is still offered: one
+  // turned off in Settings, or gone from WSL, falls back to this machine
+  // rather than launching somewhere the dropdown no longer shows.
+  const pickedStillOffered =
+    pickedHostId !== null && localHosts.some((host) => host.id === pickedHostId && host.state !== 'unavailable')
+  const hostId: ExecutionHostId = hostChoosable
+    ? defaultNewChatHostId(scopeFolder, pickedStillOffered ? pickedHostId : null)
+    : LOCAL_HOST_ID
   const pickLocalHost = (next: ExecutionHostId): void => {
     const remembered = next === LOCAL_HOST_ID ? null : next
     lastPickedHostId = remembered

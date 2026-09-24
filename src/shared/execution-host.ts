@@ -190,7 +190,9 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u
 export function normalizeExecutionHostSettings(value: unknown): ExecutionHostSettings {
   if (!isPlainObject(value)) return emptyExecutionHostSettings()
   const env = Object.fromEntries(Object.entries(stringRecord(value.env)).filter(([name]) => ENV_NAME.test(name)))
-  const shell = typeof value.shell === 'string' && value.shell.trim() ? value.shell.trim() : undefined
+  // Kept as typed (the launch trims it): the Settings field writes on every
+  // keystroke, and trimming here would eat the space before a flag.
+  const shell = typeof value.shell === 'string' && value.shell.trim() ? value.shell : undefined
   return {
     enabled: value.enabled === true,
     cliCommands: stringRecord(value.cliCommands),
