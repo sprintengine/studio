@@ -46,6 +46,13 @@ here as tokens — `__SPRINTENGINE_NODE__`, `__SPRINTENGINE_BRIDGE__`,
 marketplace into `<workspace>/.sprintengine/studio-plugin` with each one replaced.
 A test walks every materialised file and fails if a token survives.
 
+The JSON files here explain themselves under a `$comment` key, and that key
+stops at the template. Install strips every `$comment`, at any depth, from each
+JSON file it copies: Claude Code validates a plugin's `hooks/hooks.json` and
+prints `unknown key "$comment" ignored` at the end of every session that loads
+one, and under `mcpServers` the key would read as a server's name. A test walks
+the materialised copy and fails if one survives.
+
 ## Where the bridge comes from
 
 The item offered two ways to give the plugin its MCP server: **ship the bridge
