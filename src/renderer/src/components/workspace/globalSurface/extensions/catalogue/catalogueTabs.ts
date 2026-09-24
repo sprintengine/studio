@@ -25,8 +25,8 @@ import {
   type SkillSource,
 } from '../../../../../../../shared/skills'
 
-/** The three views of the Extensions door, which are its three catalogues. */
-export type CatalogueKind = 'plugins' | 'skills' | 'agent-clis'
+/** The views of the Extensions door, which are its catalogues. */
+export type CatalogueKind = 'plugins' | 'skills'
 
 export const INSTALLED_TAB_ID = 'installed'
 
@@ -56,11 +56,10 @@ export type CatalogueTab = {
   /** A check has seen this source's repository move past the scanned commit. */
   updateAvailable: boolean
   /**
-   * How many things IN this tab are behind their published version: agent CLIs
-   * the registry has moved past, plugins whose source has a newer commit than
-   * the one their receipt was written at.
+   * How many things IN this tab are behind their published version: plugins
+   * whose source has a newer commit than the one their receipt was written at.
    *
-   * The number, not a glyph (owner, 2026-09-10). The owner opened Agent CLIs
+   * The number, not a glyph (owner, 2026-09-10). The owner opened a catalogue
    * from a notification and the page could not say which of ten rows the
    * notification was about; a count on the tab says how many are in there
    * before the tab is even opened, and the corner pips on the marks inside say
@@ -153,15 +152,7 @@ export function deriveCatalogueTabs(input: {
     updateCount: input.updateCounts?.[INSTALLED_TAB_ID] ?? 0,
     isDefault: false,
   }
-  // Agent CLIs come from the marketplace registry and nowhere else: a skill
-  // source's scan yields plugins, skills and MCP servers, never a CLI, so
-  // listing every added repository here would be a row of tabs that can only
-  // ever say "none". The app's own catalogue is the whole source list for
-  // this kind — and the reason the plus is withheld from it (CatalogueSurface).
-  const sources =
-    input.kind === 'agent-clis'
-      ? input.sources.filter((source) => source.id === STUDIO_SKILL_SOURCE_ID)
-      : orderCatalogueSources(input.sources)
+  const sources = orderCatalogueSources(input.sources)
   return [
     installed,
     ...sources.map((source) => {
@@ -177,8 +168,8 @@ export function deriveCatalogueTabs(input: {
         // Plugins opens on Anthropic: it is where the plugins are — 292 of
         // them against our own catalogue's handful — and the app's own tab is
         // one click away, still first in the row (official-plugins ruling,
-        // 2026-09-06). Skills and Agent CLIs are unchanged; the app's own
-        // skills are what a first-time reader of those wants.
+        // 2026-09-06). Skills is unchanged; the app's own skills are what a
+        // first-time reader of it wants.
         isDefault: input.kind === 'plugins' && source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
       }
     }),

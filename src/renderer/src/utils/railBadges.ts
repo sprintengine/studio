@@ -28,19 +28,17 @@ import type { AppNotification, DiagnosticSource } from '../types/workspace'
 export const AUTOMATIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
   'automations',
 ])
-// Plugins and skills (marketplace), and the Agent CLIs row's two feeds
-// (cli updates, hosted models). A module's own source→row mapping is a
+// Plugins and skills (marketplace). A module's own source→row mapping is a
 // door-badge contribution (`notificationSource`), not an import from here.
-export const EXTENSIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
-  'marketplace',
-  'cli',
-  'models',
-])
+//
+// A CLI update and hosted-model news badged an Agent CLIs row here until that
+// row left the drawer (owner ruling 2026-09-25). Both are about Settings ▸
+// Agents now: a CLI update wears the Settings badges while it is outstanding
+// (settingsUpdateBadges.ts), and model news stays a bell row with an Open.
+export const EXTENSIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>(['marketplace'])
 
 /** Core source → drawer row, with no module knowledge of run doors. */
 export const CORE_NOTIFICATION_SOURCE_ROWS: Readonly<Partial<Record<DiagnosticSource, ExtensionsDrawerRowId>>> = {
-  cli: 'agent-clis',
-  models: 'agent-clis',
   marketplace: 'plugins',
 }
 

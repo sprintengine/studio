@@ -6,8 +6,8 @@ import { FOCUS_RING_CLASS, STATUS_TONE_COLOR_VAR, type StatusTone } from './toke
 
 // ProviderRow — the one two-line anatomy for a *provider*: something the app
 // talks to that can be present-or-absent, healthy-or-not, and configured
-// per-instance. Agent CLIs (installed list and registry canvas) are the first
-// consumers; source-control providers, MCP servers, and capability modules
+// per-instance. Agent CLIs (Settings ▸ Agents and the first-run card) are the
+// first consumers; source-control providers, MCP servers, and capability modules
 // carry the same shape.
 //
 // Anatomy, top to bottom / left to right:

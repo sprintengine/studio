@@ -6,6 +6,7 @@
 <title>Segmented control</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<link rel="stylesheet" href="../badge/component.css" />
 <style>
   body {
     margin: 0;
@@ -83,6 +84,15 @@
       </div>
     </span>
   </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-machine">Machine</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="l-machine">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="This PC, 1 CLI update available">This PC <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="1 CLI update available">1</span></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">WSL: Ubuntu</button>
+      </div>
+    </span>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -121,6 +131,15 @@
       <div class="ds-segmented-control ds-segmented-control--icon-only" role="radiogroup" aria-labelledby="d-view">
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0" aria-label="Side by side"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg></button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="Unified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h10.8v9.6H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4.6 6.2h6.8M4.6 9.8h6.8" stroke-width="1.2" stroke-linecap="round" /></svg></button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-machine">Machine</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="l-machine">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="This PC, 1 CLI update available">This PC <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="1 CLI update available">1</span></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">WSL: Ubuntu</button>
       </div>
     </span>
   </div>

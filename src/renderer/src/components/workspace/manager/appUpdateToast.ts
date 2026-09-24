@@ -3,6 +3,8 @@
 import type { AppUpdateState } from '../../../../../shared/electron-api'
 import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { updateReadyNotice } from '../../../utils/feedNotifications'
+import { appUpdateKey } from '../../../utils/settingsUpdateBadges'
+import { useNotificationStore } from '../../../store/notificationStore'
 import { showToast, useToastStore } from '../../../store/toastStore'
 
 // The second toast with an action row (owner ruling 2026-09-23, recorded in
@@ -11,10 +13,16 @@ import { showToast, useToastStore } from '../../../store/toastStore'
 // means they never have to go looking for the installer. It stays until answered. Later loses nothing:
 // the update installs at the next quit, and the bell row and the Settings
 // version row both keep saying it is ready.
+//
+// Later (or Dismiss) is also the person saying "not now" to this version, so it
+// clears the update's badges on the Settings gear and on General (owner ruling
+// 2026-09-25). The version row keeps its Restart to update; a newer release
+// badges again.
 export const APP_UPDATE_TOAST_ID = 'app-update:ready'
 
 export function showAppUpdateReadyToast(state: Pick<AppUpdateState, 'updateVersion'>): void {
   const notice = updateReadyNotice('SprintEngine Studio', state.updateVersion)
+  const dismissUpdate = (): void => useNotificationStore.getState().dismissUpdate(appUpdateKey(state.updateVersion))
   publishDiagnosticSync({
     level: 'info',
     source: 'update',
@@ -28,11 +36,15 @@ export function showAppUpdateReadyToast(state: Pick<AppUpdateState, 'updateVersi
     title: notice.title,
     description: notice.description,
     autoDismissMs: false,
+    onDismissPressed: dismissUpdate,
     actions: [
       {
         id: 'later',
         label: 'Later',
-        run: () => useToastStore.getState().dismissToast(APP_UPDATE_TOAST_ID),
+        run: () => {
+          dismissUpdate()
+          useToastStore.getState().dismissToast(APP_UPDATE_TOAST_ID)
+        },
       },
       {
         id: 'restart',

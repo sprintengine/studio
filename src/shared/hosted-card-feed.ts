@@ -43,10 +43,15 @@ export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'automation' | 'showca
 
 const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automation', 'showcase']
 
-// The doors a card may open. `plugins`, `skills` and `agent-clis` are VIEWS OF
-// THE EXTENSIONS DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
+// The doors a card may open. `plugins` and `skills` are VIEWS OF THE EXTENSIONS
+// DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
 // extensionsSurfaceTarget.ts — and `home` is the card feed's own page beside
 // them. The renderer latches the view and then opens the door.
+//
+// `agent-clis` named a third view until the owner moved agent CLIs to Settings ▸
+// Agents (2026-09-25). It stays in the union because the union is a permanent
+// contract and published cards still name it: the renderer now opens Settings ▸
+// Agents on this machine for it, which is where that view's list went.
 //
 // The rule is the wide one: **every door the app has, whether or not it lives
 // under Extensions**, may be named here. Adding one is additive and safe,

@@ -14,8 +14,8 @@ test('installedInventoryUpdates', async () => {
   //     delta ("Acme Design Kit update · v1 → v2", action "Update to v2");
   //   • the action routes through updateMarketplacePluginFromRegistry and the
   //     surface settles to current (banner gone) with no remount;
-  //   • CLI rows offer Update with no version-delta claim (cliUpdate, never the
-  //     bundle download);
+  //   • the agent CLI plugin list feeds skill invocations and never becomes
+  //     rows — agent CLIs live in Settings ▸ Agents;
   //   • registry unreachable renders couldn't-check; ahead-of-registry renders
   //     neither an update nor an error;
   //   • no update UI exists anywhere on the Skills surface (standing ruling).
@@ -66,7 +66,6 @@ test('installedInventoryUpdates', async () => {
   const calls: Record<string, unknown[]> = {
     updateEntry: [],
     verify: [],
-    cliUpdate: [],
     updateStatesReads: [],
   }
 
@@ -157,18 +156,6 @@ test('installedInventoryUpdates', async () => {
         updated: true,
       }
     },
-    cliUpdate: async (cli: string) => {
-      calls.cliUpdate.push(cli)
-      return {
-        ok: true,
-        cli,
-        installed: true,
-        version: '2.4.2',
-        resolvedPath: '/usr/local/bin/claude',
-        log: '',
-        error: null,
-      }
-    },
     terminalList: async () => [],
   }
   domWindow.api = new Proxy(api, {
@@ -213,12 +200,6 @@ test('installedInventoryUpdates', async () => {
     const { createRoot } = await import('react-dom/client')
     const { InstalledExtensionsInventory } = await import('./InstalledExtensionsInventory')
 
-    const cliAvailability = {
-      'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/local/bin/claude', version: '2.4.1' },
-      cursor: { cli: 'cursor', installed: false, resolvedPath: null, version: null },
-    }
-
-    let cliUpdatedCalls = 0
     async function mount(): Promise<{ host: HTMLElement; unmount: () => void }> {
       const host = dom.window.document.createElement('div')
       dom.window.document.body.append(host)
@@ -231,10 +212,6 @@ test('installedInventoryUpdates', async () => {
             workspaceRoot: '/repo',
             registryPlugins: [acmeKitEntry, cursorEntry] as never,
             mcpSettings: { syncEnabled: false, servers: {} } as never,
-            cliAvailability: cliAvailability as never,
-            onCliUpdated: () => {
-              cliUpdatedCalls += 1
-            },
           }),
         )
       })
@@ -278,27 +255,14 @@ test('installedInventoryUpdates', async () => {
     assert.match(settled, /Acme Design Kit/, 'the module row is still listed')
     console.log('ok - update routes through updateFromRegistry and settles current without a remount')
 
-    // ── 3. CLI rows: Update with no version-delta claim ────────────────────────
-    const cliUpdateButton = [...first.host.querySelectorAll('button')].find(
-      (candidate) => candidate.getAttribute('aria-label') === 'Update Claude Code',
-    ) as HTMLButtonElement | undefined
-    assert.ok(cliUpdateButton, 'an installed CLI row offers Update')
-    assert.equal(cliUpdateButton.textContent, 'Update', 'the CLI action claims no newer version')
-    assert.ok(
-      ![...first.host.querySelectorAll('button')].some(
-        (candidate) => candidate.getAttribute('aria-label') === 'Update Cursor',
-      ),
-      'a CLI that is not installed offers no Update',
+    // ── 3. the CLI plugin list is not a group of rows ──────────────────────────
+    assert.doesNotMatch(
+      first.host.textContent ?? '',
+      /Claude Code|Cursor/,
+      'agent CLIs are listed in Settings ▸ Agents, not in the installed inventory',
     )
-    await act(async () => {
-      cliUpdateButton.click()
-    })
-    await settle()
-    assert.deepEqual(calls.cliUpdate, ['claude-code'], 'CLI update runs the runtime updater, never the bundle flow')
-    assert.equal(cliUpdatedCalls, 1, 'a finished CLI update re-probes availability')
-    assert.match(first.host.textContent ?? '', /Claude Code is on 2\.4\.2\./)
     first.unmount()
-    console.log('ok - CLI rows offer Update without a delta claim')
+    console.log('ok - the inventory draws no agent CLI rows')
 
     // ── 4. registry unreachable: couldn't-check, never "up to date" ────────────
     installedVersion = 1

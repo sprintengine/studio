@@ -73,8 +73,33 @@ test('notificationStore', async () => {
       [],
       'junk and retired rows go',
     )
-    const current = { notifications: [], sectionSeenAt: {} }
+    const current = { notifications: [], sectionSeenAt: {}, dismissedUpdates: [] as string[] }
     assert.equal(mergePersistedNotificationState(null, current), current, 'nothing stored keeps the initial state')
+    assert.deepEqual(
+      mergePersistedNotificationState({ dismissedUpdates: ['app@0.7.0', 3, null] }, current).dismissedUpdates,
+      ['app@0.7.0'],
+      'a stored dismissal survives, junk in the list does not',
+    )
+    assert.deepEqual(
+      mergePersistedNotificationState({ notifications: [] }, current).dismissedUpdates,
+      [],
+      'a profile from before dismissals existed starts with none',
+    )
+
+    // --- dismissing an update ---
+    useNotificationStore.setState({ dismissedUpdates: [] })
+    useNotificationStore.getState().dismissUpdate('cli:codex@0.154.0')
+    useNotificationStore.getState().dismissUpdate('cli:codex@0.154.0')
+    assert.deepEqual(
+      useNotificationStore.getState().dismissedUpdates,
+      ['cli:codex@0.154.0'],
+      'one version is dismissed once',
+    )
+    for (let index = 0; index < 60; index += 1) useNotificationStore.getState().dismissUpdate(`app@0.${index}.0`)
+    const kept = useNotificationStore.getState().dismissedUpdates
+    assert.equal(kept.length, 50, 'the list is bounded')
+    assert.equal(kept.at(-1), 'app@0.59.0', 'the newest dismissal is kept')
+    assert.equal(kept.includes('cli:codex@0.154.0'), false, 'and the oldest falls off')
 
     console.log('notificationStore.test.ts: ok')
   }

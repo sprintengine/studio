@@ -1,4 +1,4 @@
-// The words on the Settings › Agent CLIs models line: where one CLI's model
+// The words on the Settings › Agents models line: where one CLI's model
 // list came from. Pure: the panel hands in the stored catalog, the last probe
 // error and the clock, this hands back the sentence and the test holds the
 // table. Plain words only; the probe's source names never reach the screen.

@@ -154,9 +154,8 @@ export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): Connec
 }
 
 // Registry plugins presented as normalized entries for a set of component
-// kinds. The Plugins catalogue uses mcp/skills/module; the door's Agent CLIs
-// canvas uses cli — same row shape, same detail/install flow, no parallel
-// presentation model.
+// kinds. The Plugins catalogue uses mcp/skills/module — one row shape, one
+// detail/install flow, no parallel presentation model.
 export function registryEntriesForKinds(
   plugins: MarketplacePluginEntry[],
   kinds: readonly MarketplaceComponentKind[],

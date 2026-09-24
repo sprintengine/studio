@@ -5,8 +5,9 @@
 // unavailable / error / empty / populated) get node-level coverage like
 // `providerSettings.ts`.
 //
-// This is the single canonical inventory surface across the four extension
-// primitives (per the approved TD1 design notes). It reads real installed state
+// This is the single canonical inventory surface across the extension
+// primitives — MCP servers, skills and capability modules; agent CLIs live in
+// Settings ▸ Agents instead (owner ruling 2026-09-25) (per the approved TD1 design notes). It reads real installed state
 // from the existing list APIs and never fabricates entries. A source that is
 // missing (older build), unavailable (no workspace), or failing is surfaced as
 // an explicit notice — a failed dependency must never read as an empty list.
@@ -17,21 +18,19 @@ import type {
   ThirdPartyModuleListResult,
 } from '../../../../shared/modules/manifest'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
 
-export type ExtensionKind = 'mcp' | 'skill' | 'cli' | 'module'
+export type ExtensionKind = 'mcp' | 'skill' | 'module'
 
 // Singular, sentence-case kind labels. Group order is the array order below:
 // the direct-install primitives in the order the surface presents them.
 const EXTENSION_KIND_LABEL: Record<ExtensionKind, string> = {
   mcp: 'MCP server',
   skill: 'Skill',
-  cli: 'Agent CLI',
   module: 'Module',
 }
 
-const GROUP_ORDER: ExtensionKind[] = ['mcp', 'skill', 'cli', 'module']
+const GROUP_ORDER: ExtensionKind[] = ['mcp', 'skill', 'module']
 
 /**
  * The row state for a server whose source has stopped declaring it. It rides
@@ -45,7 +44,7 @@ export const NO_LONGER_IN_SOURCE = 'No longer in source'
 // One row in the aggregated inventory. `trust` is only carried by capability
 // modules (the security axis the trust dot encodes); `enabled` is tri-state —
 // true/false where the primitive has an enable concept (MCP servers, modules),
-// undefined where "installed" is the only state (skills, CLIs), so the row
+// undefined where "installed" is the only state (skills), so the row
 // never implies a toggle that does not exist.
 export type InstalledExtension = {
   key: string
@@ -97,7 +96,6 @@ export type ExtensionsInstalledInput = {
   modules: LoadedSource<ThirdPartyModuleListResult>
   moduleOverrides: ModuleEnablementOverrides
   skills: LoadedSource<WorkspaceSkill[]>
-  clis: LoadedSource<PluginRegistryListEntry[]>
 }
 
 export type SourceNotice = {
@@ -208,17 +206,6 @@ export function skillsToInstalled(skills: WorkspaceSkill[]): InstalledExtension[
     }))
 }
 
-function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledExtension[] {
-  return plugins.map((plugin) => ({
-    key: `cli:${plugin.id}`,
-    id: plugin.id,
-    name: plugin.displayName,
-    kind: 'cli' as const,
-    source: sourceLabel(plugin.source),
-    chips: [EXTENSION_KIND_LABEL.cli],
-  }))
-}
-
 // Builds one notice for a non-ok, non-loading source. Returns null for ok/loading.
 function sourceNotice(kind: ExtensionKind, source: LoadedSource<unknown>): SourceNotice | null {
   switch (source.status) {
@@ -238,7 +225,7 @@ function sourceNotice(kind: ExtensionKind, source: LoadedSource<unknown>): Sourc
 }
 
 export function deriveInstalledExtensions(input: ExtensionsInstalledInput): ExtensionsInstalledView {
-  const ipcSources = [input.modules, input.skills, input.clis]
+  const ipcSources = [input.modules, input.skills]
 
   // Any IPC source still in flight holds the whole view in loading rather than
   // flashing a partial list then reflowing.
@@ -250,7 +237,6 @@ export function deriveInstalledExtensions(input: ExtensionsInstalledInput): Exte
   const byKind: Record<ExtensionKind, InstalledExtension[]> = {
     mcp: mcpToInstalled(input.mcpServers),
     skill: input.skills.status === 'ok' ? skillsToInstalled(input.skills.value) : [],
-    cli: input.clis.status === 'ok' ? clisToInstalled(input.clis.value) : [],
     module: input.modules.status === 'ok' ? modulesToInstalled(input.modules.value, input.moduleOverrides) : [],
   }
 
@@ -262,10 +248,8 @@ export function deriveInstalledExtensions(input: ExtensionsInstalledInput): Exte
 
   const notices: SourceNotice[] = []
   const skillNotice = sourceNotice('skill', input.skills)
-  const cliNotice = sourceNotice('cli', input.clis)
   const moduleNotice = sourceNotice('module', input.modules)
   if (skillNotice) notices.push(skillNotice)
-  if (cliNotice) notices.push(cliNotice)
   if (moduleNotice) notices.push(moduleNotice)
   // Rejected module folders are an honest "could not load" signal, distinct from
   // a clean empty list.

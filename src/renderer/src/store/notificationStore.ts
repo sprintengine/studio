@@ -19,7 +19,12 @@ type RailSeenSection = 'extensions'
 // (2026-09-16).
 const RETIRED_NOTIFICATION_SOURCES: ReadonlySet<string> = new Set(['sprintengine'])
 
-type PersistedNotificationState = Pick<NotificationStore, 'notifications' | 'sectionSeenAt'>
+type PersistedNotificationState = Pick<NotificationStore, 'notifications' | 'sectionSeenAt' | 'dismissedUpdates'>
+
+// How many dismissed updates are remembered. A key names one version
+// (`settingsUpdateBadges.ts`), so the list only ever needs the few that are
+// still outstanding; the oldest fall off rather than growing for ever.
+const MAX_DISMISSED_UPDATES = 50
 
 export function dropRetiredNotifications(notifications: unknown): AppNotification[] {
   if (!Array.isArray(notifications)) return []
@@ -43,6 +48,9 @@ export function mergePersistedNotificationState<T extends PersistedNotificationS
     ...current,
     ...stored,
     notifications: dropRetiredNotifications(stored.notifications ?? current.notifications),
+    dismissedUpdates: Array.isArray(stored.dismissedUpdates)
+      ? stored.dismissedUpdates.filter((key): key is string => typeof key === 'string')
+      : current.dismissedUpdates,
   }
 }
 
@@ -61,6 +69,16 @@ interface NotificationStore {
    */
   markReadWhere: (predicate: (notification: AppNotification) => boolean) => void
   markSectionSeen: (section: RailSeenSection, at: string) => void
+  /**
+   * The updates the person said "not now" to — a CLI's or the app's, one
+   * version each (`cliUpdateKey` / `appUpdateKey` in settingsUpdateBadges.ts).
+   * Kept beside `read` because it is the same kind of fact: what this person
+   * has already been told. A dismissed update keeps its Update button and its
+   * version line; only the badges that were pointing at it go (owner ruling
+   * 2026-09-25). A newer version is a new key, so it badges again.
+   */
+  dismissedUpdates: string[]
+  dismissUpdate: (key: string) => void
   clearAll: () => void
 }
 
@@ -69,6 +87,7 @@ export const useNotificationStore = create<NotificationStore>()(
     immer((set) => ({
       notifications: [],
       sectionSeenAt: {},
+      dismissedUpdates: [],
 
       addNotification: (entry) => {
         const notification: AppNotification = {
@@ -116,6 +135,15 @@ export const useNotificationStore = create<NotificationStore>()(
       markSectionSeen: (section, at) =>
         set((state) => {
           state.sectionSeenAt[section] = at
+        }),
+
+      dismissUpdate: (key) =>
+        set((state) => {
+          if (state.dismissedUpdates.includes(key)) return
+          state.dismissedUpdates.push(key)
+          if (state.dismissedUpdates.length > MAX_DISMISSED_UPDATES) {
+            state.dismissedUpdates.splice(0, state.dismissedUpdates.length - MAX_DISMISSED_UPDATES)
+          }
         }),
 
       clearAll: () =>

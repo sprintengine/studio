@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 
 import type { AppUpdateCheckResult, AppUpdateState } from '../../../../../shared/electron-api'
+import { useNotificationStore } from '../../../store/notificationStore'
 import { useToastStore } from '../../../store/toastStore'
 
 const diagnostics = vi.hoisted(() => ({ published: [] as Array<{ title: string; source: string }> }))
@@ -74,6 +75,22 @@ test('Later dismisses the toast and installs nothing now', () => {
   press('later')
   assert.equal(toast(), undefined)
   assert.equal(installs, 0)
+})
+
+test('Later and Dismiss are "not now" for this version: its Settings badges clear', () => {
+  useNotificationStore.setState({ dismissedUpdates: [] })
+  showAppUpdateReadyToast({ updateVersion: '0.5.3' })
+  press('later')
+  assert.deepEqual(useNotificationStore.getState().dismissedUpdates, ['app@0.5.3'])
+
+  useNotificationStore.setState({ dismissedUpdates: [] })
+  showAppUpdateReadyToast({ updateVersion: '0.5.4' })
+  toast()?.onDismissPressed?.()
+  assert.deepEqual(
+    useNotificationStore.getState().dismissedUpdates,
+    ['app@0.5.4'],
+    'the toast’s own Dismiss says the same thing as Later',
+  )
 })
 
 test('Restart to update installs, and the toast becomes the restart report without buttons', async () => {

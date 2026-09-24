@@ -167,6 +167,29 @@ test('ToastRegion', async () => {
     unmount()
   })
 
+  run('a producer hears the person press Dismiss, and only that', () => {
+    reset()
+    const mounted = mount()
+    let pressed = 0
+    act(() => {
+      showToast({ id: 'update', tone: 'warn', title: 'Update available', onDismissPressed: () => (pressed += 1) })
+    })
+    act(() => {
+      useToastStore.getState().dismissToast('update')
+    })
+    assert.equal(pressed, 0, 'a programmatic dismiss (the timer’s path) is not the person pressing Dismiss')
+    act(() => {
+      showToast({ id: 'update', tone: 'warn', title: 'Update available', onDismissPressed: () => (pressed += 1) })
+    })
+    const dismiss = mounted.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement
+    act(() => {
+      dismiss.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(pressed, 1)
+    assert.equal(useToastStore.getState().toasts.length, 0, 'and the toast still goes')
+    unmount()
+  })
+
   run(
     'a second toast arriving does not extend the first one’s life — the clock is keyed on policy, not the callback',
     () => {

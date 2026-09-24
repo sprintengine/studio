@@ -1,8 +1,9 @@
 // The installed-extensions inventory, relocated from the (removed) Settings →
 // Extensions tab into the Connectors surface (T3). It is the aggregated roll-up
-// of everything installed across the four extension primitives — MCP servers,
-// skills, agent CLIs, and capability modules — so the Connectors
-// "Installed" view has one honest "what do I have" surface. Rows render the same
+// of everything installed across the extension primitives — MCP servers,
+// skills and capability modules — so the Connectors "Installed" view has one
+// honest "what do I have" surface. Agent CLIs are not among them: they live in
+// Settings ▸ Agents (owner ruling 2026-09-25). Rows render the same
 // ConnectorRow as Browse so the whole surface reads as one system. The
 // list-building lives in the DOM-free `extensionsInstalled` view-model for unit
 // coverage; this component owns the IPC loading and rendering, and its per-row
@@ -13,7 +14,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
 import type {
-  AgentCliAvailabilityMap,
   InstalledPluginRecord,
   MarketplaceUpdateStatesResult,
   WorkspaceSkill,
@@ -46,7 +46,7 @@ import {
 import { showToast } from '../../../store/toastStore'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
-import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
+import { PluginIcon } from '../../settings/BrowseStorefront'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import { pluginTrust } from '../../settings/BrowseStorefront'
 import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
@@ -72,9 +72,6 @@ import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates
 // Per-row actions, all optional: the host wires only the handlers that exist
 // today (no new IPC), and rows without a matching handler carry no affordance.
 type InventoryActions = {
-  // Where the registry's relative icon paths resolve from, so an installed CLI
-  // wears the same mark its Browse row does.
-  registryUrl?: string | null
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
@@ -110,8 +107,6 @@ export function InstalledExtensionsInventory({
   workspaceRoot,
   registryPlugins,
   mcpSettings,
-  cliAvailability,
-  onCliUpdated,
   kinds,
   sourceGrouping,
   paging,
@@ -129,17 +124,11 @@ export function InstalledExtensionsInventory({
   // Forwarded into the update input so a bundle's MCP servers merge the same
   // way the storefront install merges them.
   mcpSettings?: McpSettings
-  // Which CLI binaries are really installed: only those rows offer Update
-  // (updating an absent binary is the shelf's Install, not this surface's job).
-  cliAvailability?: AgentCliAvailabilityMap
-  // After a CLI update ran, the host force-reprobes availability so the row
-  // reflects the binary the updater actually left behind.
-  onCliUpdated?: () => void
   /**
    * Which primitives this mount is the inventory OF. The Extensions door's
-   * three catalogues each show one — the Plugins view's Installed tab lists
-   * MCP servers, Skills lists skills, Agent CLIs lists CLIs — because a tab
-   * that says "Installed" beside "Plugins" must not answer with skills.
+   * catalogues each show one — the Plugins view's Installed tab lists MCP
+   * servers, Skills lists skills — because a tab that says "Installed" beside
+   * "Plugins" must not answer with skills.
    * Omitted, every group renders, which is the whole-inventory mount.
    */
   kinds?: readonly ExtensionKind[]
@@ -154,14 +143,14 @@ export function InstalledExtensionsInventory({
 } & InventoryActions) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skills, setSkills] = useState<LoadedSource<WorkspaceSkill[]>>({ status: 'loading' })
+  // The CLI plugin list is not a group of rows: it is what a skill row's "Use
+  // in agent" reads to render each CLI's own skill invocation.
   const [clis, setClis] = useState<LoadedSource<PluginRegistryListEntry[]>>({ status: 'loading' })
   // null until the first read lands (or forever on a build predating the API):
   // no update claim either way. Never rendered as "up to date".
   const [updateStates, setUpdateStates] = useState<MarketplaceUpdateStatesResult | null>(null)
   const [updateRun, setUpdateRun] = useState<ModuleUpdateRun>({ status: 'idle' })
   const [updateNotice, setUpdateNotice] = useState<ModuleUpdateNotice | null>(null)
-  const [updatingCliId, setUpdatingCliId] = useState<string | null>(null)
-  const [cliNotice, setCliNotice] = useState<ModuleUpdateNotice | null>(null)
 
   const loadModules = useCallback(async () => {
     if (typeof window.api.listThirdPartyModules !== 'function') {
@@ -364,39 +353,6 @@ export function InstalledExtensionsInventory({
     [processUpdateQueue],
   )
 
-  // CLI half (owner-pinned): an Update action with no staleness detection —
-  // the manifest update spec (the CLI's own updater where one exists, else an
-  // idempotent re-run of the install). The outcome states what the updater
-  // left behind; it never claims a newer version existed beforehand.
-  const updateCli = useCallback(
-    async (id: string) => {
-      const name = (clis.status === 'ok' ? clis.value : []).find((plugin) => plugin.id === id)?.displayName ?? id
-      if (typeof window.api.cliUpdate !== 'function') {
-        setCliNotice({ tone: 'warn', message: 'Updating agent CLIs needs a newer app build. Update and restart.' })
-        return
-      }
-      setUpdatingCliId(id)
-      setCliNotice(null)
-      try {
-        const result = await window.api.cliUpdate(id)
-        if (result.ok) {
-          setCliNotice({
-            tone: 'good',
-            message: result.version ? `${name} is on ${result.version}.` : `${name} update finished.`,
-          })
-          onCliUpdated?.()
-        } else {
-          setCliNotice({ tone: 'error', message: result.error || `Could not update ${name}.` })
-        }
-      } catch (error) {
-        setCliNotice({ tone: 'error', message: errorMessage(error, `Could not update ${name}.`) })
-      } finally {
-        setUpdatingCliId(null)
-      }
-    },
-    [clis, onCliUpdated],
-  )
-
   const banner = useMemo(
     () => deriveManageUpdateBanner(updateStates, cliOnlyRegistryIds(registryPlugins ?? [])),
     [updateStates, registryPlugins],
@@ -416,7 +372,6 @@ export function InstalledExtensionsInventory({
     modules,
     moduleOverrides,
     skills,
-    clis,
   })
 
   return (
@@ -426,14 +381,7 @@ export function InstalledExtensionsInventory({
       sourceGrouping={sourceGrouping}
       paging={paging}
       actions={actions}
-      registryPlugins={registryPlugins}
       skillUse={{ workspaceRoot, clis: clis.status === 'ok' ? clis.value : [] }}
-      cliUpdate={{
-        availability: cliAvailability,
-        updatingId: updatingCliId,
-        onUpdate: (id) => void updateCli(id),
-        notice: cliNotice,
-      }}
       moduleUpdateSlot={
         <ModuleUpdateBanner
           banner={banner}
@@ -465,16 +413,6 @@ type SkillUseContext = {
   clis: PluginRegistryListEntry[]
 }
 
-// Context for the per-row CLI Update action: which binaries are really
-// installed (only those rows offer it), the row currently updating, and the
-// outcome line rendered under the group.
-type CliUpdateContext = {
-  availability?: AgentCliAvailabilityMap
-  updatingId: string | null
-  onUpdate: (id: string) => void
-  notice: ModuleUpdateNotice | null
-}
-
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
   return (
     <div className="space-y-2">
@@ -494,8 +432,6 @@ function InstalledView({
   paging,
   actions,
   skillUse,
-  cliUpdate,
-  registryPlugins,
   moduleUpdateSlot,
 }: {
   view: ExtensionsInstalledView
@@ -504,8 +440,6 @@ function InstalledView({
   paging?: { noun: string; query?: string }
   actions: InventoryActions
   skillUse: SkillUseContext
-  cliUpdate?: CliUpdateContext
-  registryPlugins?: MarketplacePluginEntry[]
   // The update banner: one calm line above the Capability modules
   // group — per the owner ruling it lives here and only here, never on rows,
   // never on the Skills surface.
@@ -555,8 +489,8 @@ function InstalledView({
         }))
         .filter((group) => group.items.length > 0)
     : kinded
-  // Rows carry their kind, so a source-grouped mount still knows where the CLI
-  // update line and the module banner belong.
+  // Rows carry their kind, so a source-grouped mount still knows where the
+  // module banner belongs.
   const kindsPresent = new Set(kindGroups.map((group) => group.kind))
   const groups = sourceGrouping
     ? groupInstalledBySource({
@@ -573,7 +507,7 @@ function InstalledView({
       <EmptyState
         density="list"
         title="Nothing installed yet."
-        body="Get MCP servers, skills, agent CLIs and plugins from a source tab and they appear here."
+        body="Get MCP servers, skills and plugins from a source tab and they appear here."
       />
     )
   }
@@ -620,33 +554,17 @@ function InstalledView({
             <SettingCard as="ul" ariaLabel={group.label} columns={2}>
               {group.items.map((item) => (
                 <li key={item.key}>
-                  <InstalledRow
-                    item={item}
-                    actions={actions}
-                    registryPlugins={registryPlugins}
-                    skillUse={skillUse}
-                    cliUpdate={cliUpdate}
-                  />
+                  <InstalledRow item={item} actions={actions} skillUse={skillUse} />
                 </li>
               ))}
             </SettingCard>
           </section>
         ))}
       </div>
-      {/* One line for the whole list, not one per group: the CLI updater's
-          outcome and the module update banner are facts about the mount, and a
-          source-grouped list has no single group to hang them on. */}
+      {/* One banner for the whole list, not one per group: the module update
+          banner is a fact about the mount, and a source-grouped list has no
+          single group to hang it on. */}
       {sourceGrouping && kindsPresent.has('module') ? moduleUpdateSlot : null}
-      {kindsPresent.has('cli') && cliUpdate?.notice ? (
-        cliUpdate.notice.tone === 'good' ? (
-          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
-            <StatusDot tone="good" />
-            <span>{cliUpdate.notice.message}</span>
-          </div>
-        ) : (
-          <InlineNotice tone={cliUpdate.notice.tone}>{cliUpdate.notice.message}</InlineNotice>
-        )
-      ) : null}
       {page ? (
         <Pager
           page={page.page}
@@ -662,7 +580,7 @@ function InstalledView({
 
 // One inventory row on the shared ConnectorRow, exactly as Browse renders its
 // entries: 36px icon chip · name + kind chip · human summary · plain-language
-// status · actions. The forward actions (New chat, Use in agent, Update) are
+// status · actions. The forward actions (New chat, Use in agent) are
 // visible, as Browse's Add is; Remove is an icon action withheld until the row
 // is pointed at or focused, so a card of installed things does not read as a
 // card of delete buttons, and its reserved slot is one control wide rather
@@ -670,19 +588,13 @@ function InstalledView({
 function InstalledRow({
   item,
   actions,
-  registryPlugins,
   skillUse,
-  cliUpdate,
 }: {
   item: InstalledExtension
   actions: InventoryActions
-  registryPlugins?: MarketplacePluginEntry[]
   skillUse: SkillUseContext
-  cliUpdate?: CliUpdateContext
 }) {
-  const registryEntry = item.kind === 'cli' ? registryPlugins?.find((plugin) => plugin.id === item.id) : undefined
   const launchable = item.kind === 'mcp' && item.enabled === true
-  const cliUpdating = item.kind === 'cli' && cliUpdate?.updatingId === item.id
 
   const rowActions: ReactNode[] = []
   if (item.kind === 'mcp') {
@@ -711,25 +623,6 @@ function InstalledRow({
             <CloseIconButton onClick={() => actions.onRemoveMcpServer!(item.id)} aria-label={`Remove ${item.name}`} />
           </Tooltip>
         </RevealedAction>,
-      )
-    }
-  } else if (item.kind === 'cli') {
-    // Update with no version-delta claim (the owner-pinned CLI split: no
-    // staleness detection — the label never says a newer version exists).
-    // Offered only where the binary is really installed; an absent CLI's
-    // affordance is the shelf's Install, not an update.
-    if (cliUpdate && cliUpdate.availability?.[item.id]?.installed === true) {
-      rowActions.push(
-        <GhostButton
-          key="update"
-          size="sm"
-          disabled={cliUpdate.updatingId !== null}
-          onClick={() => cliUpdate.onUpdate(item.id)}
-          className="border border-[color:var(--border-default)]"
-          aria-label={`Update ${item.name}`}
-        >
-          {cliUpdating ? 'Updating…' : 'Update'}
-        </GhostButton>,
       )
     }
   } else if (item.kind === 'skill') {
@@ -762,11 +655,7 @@ function InstalledRow({
         item.kind === 'mcp' ? (
           <ExtensionIcon slug={mcpIconSlug(item.id)} name={item.name} size={36} />
         ) : (
-          <PluginIcon
-            iconUrl={registryEntry ? resolveIconUrl(actions.registryUrl ?? null, registryEntry.icon) : null}
-            name={item.name}
-            size={36}
-          />
+          <PluginIcon iconUrl={null} name={item.name} size={36} />
         )
       }
       name={item.name}
@@ -791,7 +680,7 @@ function RevealedAction({ children }: { children: ReactNode }) {
 
 // The row's decision-relevant status — trust for capability modules,
 // active/inactive for MCP servers — as a StatusDot always paired with its text
-// label, so status is never colour-only. Skills and CLIs have no such axis
+// label, so status is never colour-only. Skills have no such axis
 // (presence is the only state), so they carry no dot.
 function RowStatus({ item }: { item: InstalledExtension }) {
   if (item.kind === 'module' && item.trust) {

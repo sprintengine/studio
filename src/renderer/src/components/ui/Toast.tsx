@@ -36,6 +36,11 @@ type ToastProps = {
   /** Programmatic dismiss. Also wired to the trailing dismiss button when
    *  supplied. Required for auto-dismiss to fire. */
   onDismiss?: () => void
+  /** Called when the PERSON presses the dismiss button, before `onDismiss`.
+   *  The timer never calls it: a toast that timed out was not dismissed by
+   *  anyone. The update toasts read it as "not now" and clear the update's
+   *  badges (owner ruling 2026-09-25); a report with nothing to clear omits it. */
+  onDismissPressed?: () => void
   /** Override the tone-default auto-dismiss policy. Pass `false` to keep the
    *  toast until the user dismisses it, or a number of ms to override the
    *  tone default. */
@@ -57,6 +62,7 @@ export function Toast({
   title,
   description,
   onDismiss,
+  onDismissPressed,
   autoDismissMs,
   className,
   cli,
@@ -133,7 +139,10 @@ export function Toast({
       {onDismiss ? (
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => {
+            onDismissPressed?.()
+            onDismiss()
+          }}
           aria-label="Dismiss"
           // The floor is the token, not a typed box: the target used to be
           // `h-5 w-5` — 20px, under `--sem-size-hit-target-min` (24px), which

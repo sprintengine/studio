@@ -7,7 +7,6 @@ import type {
   ThirdPartyModuleView,
 } from '../../../../shared/modules/manifest'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
 import {
   deriveInstalledExtensions,
@@ -74,24 +73,12 @@ test('extensionsInstalled', async () => {
     }
   }
 
-  function cli(overrides: Partial<PluginRegistryListEntry> = {}): PluginRegistryListEntry {
-    return {
-      id: 'codex',
-      displayName: 'Codex',
-      source: 'user',
-      version: 2,
-      binary: 'codex',
-      ...overrides,
-    } as PluginRegistryListEntry
-  }
-
   function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsInstalledInput {
     return {
       mcpServers: [],
       modules: { status: 'ok', value: modulesResult([]) },
       moduleOverrides: {},
       skills: { status: 'ok', value: [] },
-      clis: { status: 'ok', value: [] },
       ...overrides,
     }
   }
@@ -209,17 +196,16 @@ test('extensionsInstalled', async () => {
       input({
         mcpServers: [mcp()],
         skills: { status: 'ok', value: [skill()] },
-        clis: { status: 'ok', value: [cli()] },
         modules: { status: 'ok', value: modulesResult([moduleView('trusted')]) },
       }),
     )
     assert.equal(view.status, 'ready')
     if (view.status !== 'ready') throw new Error('unreachable')
-    assert.equal(view.total, 4)
-    // Group order: mcp, skill, cli, module.
+    assert.equal(view.total, 3)
+    // Group order: mcp, skill, module.
     assert.deepEqual(
       view.groups.map((g) => g.kind),
-      ['mcp', 'skill', 'cli', 'module'],
+      ['mcp', 'skill', 'module'],
     )
     assert.equal(view.notices.length, 0)
   }
@@ -227,7 +213,7 @@ test('extensionsInstalled', async () => {
   // --- empty state (only a clean, fully-loaded zero-row result) --------------
 
   {
-    // All three IPC sources ok with zero rows, no MCP servers, nothing rejected.
+    // Both IPC sources ok with zero rows, no MCP servers, nothing rejected.
     const view = deriveInstalledExtensions(input())
     assert.equal(view.status, 'empty')
   }
@@ -264,13 +250,12 @@ test('extensionsInstalled', async () => {
   // --- failed / unavailable sources surface as notices, never empty ----------
 
   {
-    // One source errored, one unavailable, one unsupported, but MCP has an item:
-    // the list still renders AND every degraded source is announced.
+    // One source unavailable, one unsupported, but MCP has an item: the list
+    // still renders AND every degraded source is announced.
     const view = deriveInstalledExtensions(
       input({
         mcpServers: [mcp()],
         skills: { status: 'unavailable', reason: 'Open a workspace to see the skills installed in it.' },
-        clis: { status: 'error', message: 'plugin registry unreadable' },
         modules: { status: 'unsupported' },
       }),
     )
@@ -279,7 +264,6 @@ test('extensionsInstalled', async () => {
     assert.equal(view.groups.length, 1, 'only MCP has items')
     const tones = view.notices.map((n) => `${n.kind}:${n.tone}`)
     assert.ok(tones.includes('skill:warn'))
-    assert.ok(tones.includes('cli:error'))
     assert.ok(tones.includes('module:warn'))
   }
 
@@ -289,13 +273,12 @@ test('extensionsInstalled', async () => {
     const view = deriveInstalledExtensions(
       input({
         skills: { status: 'error', message: 'boom' },
-        clis: { status: 'error', message: 'boom' },
         modules: { status: 'error', message: 'boom' },
       }),
     )
     assert.equal(view.status, 'degraded')
     if (view.status !== 'degraded') throw new Error('unreachable')
-    assert.equal(view.notices.filter((n) => n.tone === 'error').length, 3)
+    assert.equal(view.notices.filter((n) => n.tone === 'error').length, 2)
   }
 
   // --- rejected module folders are an honest "could not load" notice ---------
@@ -322,7 +305,7 @@ test('extensionsInstalled', async () => {
 
   {
     const loading: LoadedSource<never> = { status: 'loading' }
-    const view = deriveInstalledExtensions(input({ clis: loading }))
+    const view = deriveInstalledExtensions(input({ skills: loading }))
     assert.equal(view.status, 'loading')
   }
 
@@ -332,7 +315,6 @@ test('extensionsInstalled', async () => {
       input({
         modules: { status: 'unsupported' },
         skills: { status: 'unsupported' },
-        clis: { status: 'unsupported' },
       }),
     )
     assert.equal(view.status, 'unsupported')
@@ -346,7 +328,6 @@ test('extensionsInstalled', async () => {
         mcpServers: [mcp()],
         modules: { status: 'unsupported' },
         skills: { status: 'unsupported' },
-        clis: { status: 'unsupported' },
       }),
     )
     assert.equal(view.status, 'ready')

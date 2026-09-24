@@ -11,6 +11,7 @@ import {
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import CliIcon from '../CliIcon'
 import {
+  Badge,
   CliProviderStateLine,
   EmptyState,
   GhostButton,
@@ -28,6 +29,7 @@ import { orderInstalledFirst, type AgentsMachine, type MachineCliAvailability } 
 import { CliInstallControl } from './CliInstallControl'
 import { modelDiscoveryLine } from './modelDiscoveryLine'
 import { SettingCard, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
+import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 
 // Row inputs hold an identifier (a command, a model id, a key), so they are
 // mono; sized to the standard 240px row measure rather than stretched to the
@@ -53,10 +55,18 @@ export function AgentsMachineSwitcher({
   machines,
   value,
   onChange,
+  badges,
 }: {
   machines: readonly AgentsMachine[]
   value: ExecutionHostId
   onChange: (id: ExecutionHostId) => void
+  /**
+   * The CLI updates waiting on each machine (owner ruling 2026-09-25), worn on
+   * that machine's segment only. Today only This PC can have one: the version
+   * check compares what this machine's probe found, and nothing checks a
+   * distribution's CLIs against their registries.
+   */
+  badges?: Readonly<Partial<Record<ExecutionHostId, SettingsUpdateBadge>>>
 }): React.JSX.Element | null {
   if (machines.length < 2) return null
   return (
@@ -70,7 +80,14 @@ export function AgentsMachineSwitcher({
         <SegmentedControl<ExecutionHostId>
           ariaLabel="Machine"
           ariaDescribedBy={MACHINE_HELP_ID}
-          items={machines.map((machine) => ({ value: machine.id, label: machine.label }))}
+          items={machines.map((machine) => {
+            const badge = badges?.[machine.id]
+            return {
+              value: machine.id,
+              label: machine.label,
+              badge: badge ? { count: badge.count, tone: badge.tone, label: badge.detail } : null,
+            }
+          })}
           value={value}
           onChange={onChange}
         />
@@ -199,6 +216,7 @@ export function AgentClisSection({
   showMachine,
   now,
   runs,
+  updateBadgeClis,
 }: {
   machine: AgentsMachine
   /** Held by the panel, so a running Update or model refresh, and the open row, outlive a visit to another tab. */
@@ -209,6 +227,12 @@ export function AgentClisSection({
   /** A switcher is on screen, so a state line names the machine it found the CLI on. */
   showMachine: boolean
   now: number
+  /**
+   * The CLIs whose update is still news — not installed, not dismissed — and so
+   * wear a count beside their Update button (useSettingsUpdateBadges). A CLI
+   * whose update was dismissed keeps its Update; only the badge goes.
+   */
+  updateBadgeClis: ReadonlySet<string>
 }): React.JSX.Element {
   const wsl = isWslHostId(machine.id) ? machine.id : null
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
@@ -356,20 +380,13 @@ export function AgentClisSection({
                       }`}
                     />
                   }
-                  // No health dot here either, and for the same reason it
-                  // left the Agent CLIs catalogue (owner, 2026-09-10): this
-                  // is the same list of CLIs, and nine identical green dots
-                  // down a column is a status idiom spent on a fact nobody
-                  // is scanning for. What a person is scanning for is the
-                  // one row that is behind — so that is what the mark says.
-                  badge={
-                    behind
-                      ? {
-                          count: 1,
-                          label: `${plugin.displayName} — update available: ${advisory.latestVersion}`,
-                        }
-                      : null
-                  }
+                  // No health dot (owner, 2026-09-10): nine identical green
+                  // dots down a column is a status idiom spent on a fact
+                  // nobody is scanning for. What a person is scanning for is
+                  // the one row that is behind, and that row's count sits
+                  // beside its Update button (owner ruling 2026-09-25) —
+                  // beside the thing that answers it, rather than on the
+                  // mark, so the row wears one badge and not two.
                   // A CLI this machine does not have recedes, and sits below
                   // every one it does, so the list reads as what is here
                   // first. Only a DEFINITIVE absence: a probe that never
@@ -422,14 +439,23 @@ export function AgentClisSection({
                         Install
                       </OutlineButton>
                     ) : behind ? (
-                      <PrimaryButton
-                        size="xs"
-                        disabled={updateRun?.running === true}
-                        onClick={() => void runCliUpdate(plugin.id)}
-                      >
-                        {updateRun?.running ? <Spinner className="icon-sm" /> : null}
-                        Update
-                      </PrimaryButton>
+                      <span className="inline-flex items-center gap-1.5">
+                        {updateBadgeClis.has(plugin.id) ? (
+                          <Badge
+                            tone="accent"
+                            count={1}
+                            ariaLabel={`${plugin.displayName} — update available: ${advisory.latestVersion}`}
+                          />
+                        ) : null}
+                        <PrimaryButton
+                          size="xs"
+                          disabled={updateRun?.running === true}
+                          onClick={() => void runCliUpdate(plugin.id)}
+                        >
+                          {updateRun?.running ? <Spinner className="icon-sm" /> : null}
+                          Update
+                        </PrimaryButton>
+                      </span>
                     ) : null
                   }
                 >

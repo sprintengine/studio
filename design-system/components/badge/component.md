@@ -66,8 +66,9 @@ disagree because one derivation feeds both (principles.md, "The app rail",
 item 9).
 
 **On a list row's mark** (2026-09-10) the same corner count is the row's own
-pip: an agent CLI that is behind its published version, a plugin installed at a
-commit its source has moved past. The number is usually 1, and on a row that is
+pip: a plugin installed at a commit its source has moved past (and, until
+2026-09-25, an agent CLI behind its published version — see "In Settings"
+below for where that one went). The number is usually 1, and on a row that is
 the point — a rail square's count is a quantity, a row's is a pointer, and the
 number is what makes it a pip rather than one more status colour. It **replaces
 the row's health dot** rather than joining it (`provider-row`, "One status
@@ -87,6 +88,38 @@ strip in reserved trailing padding rather than overhanging the way `--corner`
 does, because a tab strip scrolls inside an overflow container that clips
 anything hanging past the edge — and it needs no keyline there, since it covers
 the band rather than a glyph.
+
+**In Settings** (owner ruling 2026-09-25) the same count marks an update
+waiting to be installed — an agent CLI behind its published release, or a newer
+SprintEngine Studio — from wherever the person is, down to the control that
+installs it:
+
+| Where | Counts | Drawn as |
+|---|---|---|
+| The Settings gear at the app rail's foot | every outstanding update | `--corner`, ringed in `bg.canvas` like a rail square ("2 updates available") |
+| General in the Settings nav | the app update | trailing the label, as a drawer row wears its count ("Update available") |
+| Agents in the Settings nav | the CLI updates | trailing the label ("2 CLI updates available") |
+| A machine's segment on the Agents switcher | that machine's CLI updates | trailing the segment's label (segmented-control, "Badged segment") |
+| A CLI's row | that CLI | beside its **Update** button, not on the mark ("Codex — update available: 0.41.0") |
+
+One derivation feeds all five, so the gear, the nav, the switcher and the rows
+cannot disagree about how many there are. Every one is the **accent** tone —
+plain news, the tone the rail gives news — and every one is named, so the
+number is never the whole message and colour is never the only signal.
+
+On the CLI row the count sits beside the button that answers it rather than on
+the mark: the row wears one count, next to the one thing that clears it, and a
+person who arrived from the gear follows the number to the action. It still
+**replaces** the row's health dot (`provider-row`, "One status idiom").
+
+An update stops being counted when it installs, or when the person dismisses it
+— Later or Dismiss on its toast (the toast entry, "Dismissing an update is
+'not now'"). A dismissal names one version, so the next release is counted
+again; and it takes only the badges — the Update button and the version line
+stay, because the update is still there to take. A tab or nav row whose count
+is showing names itself with the count in it ("Agents, 2 CLI updates
+available"), the same call the tab strip makes: the count is a named live
+region, and inside the button it would otherwise land in the name twice.
 
 ## Only a count is a live region (2026-09-02)
 

@@ -14,6 +14,7 @@ import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
   type ActionResult,
   ActionResultMessage,
+  Badge,
   GhostButton,
   IconButton,
   InlineNotice,
@@ -64,7 +65,6 @@ import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import { DesignSystemSettings } from './DesignSystemSettings'
 import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
-import SprintEngineFrond from '../brand/SprintEngineFrond'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -81,7 +81,6 @@ import {
   RemoteSettingsIcon,
   MachinesSettingsIcon,
   FolderPlusIcon,
-  ReleaseNotesIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
@@ -90,6 +89,10 @@ import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
 import { UpdateChannelSettings } from './UpdateChannelSettings'
+import { AppVersionRow } from './AppVersionRow'
+import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
+import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
+import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
 
 interface Props {
@@ -97,6 +100,12 @@ interface Props {
   checkForUpdatesOnOpen?: boolean
   checkForUpdatesRequestId?: number
   initialTab?: string | null
+  /**
+   * Select this machine on the Agents tab — the opener's news is about it (a
+   * CLI update is This PC's). A new `requestId` is a new request, so a panel
+   * already open on another machine still moves.
+   */
+  agentsMachineRequest?: { hostId: ExecutionHostId; requestId: number }
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
    * `'overlay'` is how Settings actually opens (doors→modals, 2026-09-01): the
@@ -107,8 +116,6 @@ interface Props {
    */
   chrome?: 'panel' | 'overlay' | 'door'
 }
-
-type UpdateAction = 'check' | 'download' | 'restart'
 
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
@@ -615,6 +622,7 @@ export default function SettingsPanel({
   checkForUpdatesOnOpen = false,
   checkForUpdatesRequestId,
   initialTab = null,
+  agentsMachineRequest,
   chrome = 'panel',
 }: Props) {
   const activeWorkspace = useWorkspaceStore(
@@ -690,7 +698,11 @@ export default function SettingsPanel({
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const activeDesignSystemRoot = activeWorkspace?.folderPath ?? null
-  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
+  // The app update as main reports it, shared with the Settings badges
+  // (appUpdateStore) so the version row and the badge on General are one answer.
+  const updateState = useAppUpdateStore((s) => s.state)
+  const setUpdateState = useAppUpdateStore((s) => s.setState)
+  const updateBadges = useSettingsUpdateBadges()
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
   // Which transport the skills service reads repositories over, because the
@@ -763,12 +775,26 @@ export default function SettingsPanel({
     () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, window.api.platform)),
     [agentsHostListing],
   )
-  const [pickedAgentsMachine, setPickedAgentsMachine] = useState<ExecutionHostId | null>(() => lastAgentsMachine())
+  const [pickedAgentsMachine, setPickedAgentsMachine] = useState<ExecutionHostId | null>(
+    () => agentsMachineRequest?.hostId ?? lastAgentsMachine(),
+  )
   const agentsMachine = resolveAgentsMachine(agentsMachineOptions, pickedAgentsMachine)
   const selectAgentsMachine = useCallback((id: ExecutionHostId) => {
     rememberAgentsMachine(id)
     setPickedAgentsMachine(id)
   }, [])
+  // An opener that knows which machine its news is about (a CLI update toast,
+  // its bell row, a card that named the retired Agent CLIs view) selects it —
+  // on first mount through the state above, and on every later request here.
+  const agentsMachineRequestId = agentsMachineRequest?.requestId
+  const agentsMachineRequestHost = agentsMachineRequest?.hostId
+  useEffect(() => {
+    if (agentsMachineRequestId === undefined || !agentsMachineRequestHost) return
+    selectAgentsMachine(agentsMachineRequestHost)
+    // A machine request is always about the Agents tab, even when the panel was
+    // already open on the same `initialTab` and the person has since moved on.
+    setActiveSettingsTab('agents')
+  }, [agentsMachineRequestId, agentsMachineRequestHost, selectAgentsMachine])
   const agentsCliIds = useMemo(() => installedPluginRows.map((plugin) => plugin.id), [installedPluginRows])
   // A WSL machine is probed only while its list is on screen: asking starts a
   // process inside the distribution.
@@ -907,17 +933,9 @@ export default function SettingsPanel({
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    void window.api.updateGetState().then((state) => {
-      if (!cancelled) setUpdateState(state)
-    })
-    const unsubscribe = window.api.onUpdateStateChanged((state) => setUpdateState(state))
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
+  // The window's shell keeps the store current too; subscribing here as well is
+  // what a panel mounted on its own (tests, the door chrome) needs.
+  useEffect(() => subscribeAppUpdateState(), [])
 
   const checkForUpdates = useCallback(async () => {
     setUpdateActionPending(true)
@@ -927,7 +945,7 @@ export default function SettingsPanel({
     } finally {
       setUpdateActionPending(false)
     }
-  }, [])
+  }, [setUpdateState])
 
   // Profile actions — thin wrappers over the same auth IPC the sidebar account
   // menu uses, kept local so the Settings panel needs no auth props threaded in.
@@ -984,7 +1002,10 @@ export default function SettingsPanel({
     void checkForUpdates()
   }, [checkForUpdates, checkForUpdatesOnOpen, checkForUpdatesRequestId])
 
-  const onUpdateChannelResult = useCallback((result: { state: AppUpdateState }) => setUpdateState(result.state), [])
+  const onUpdateChannelResult = useCallback(
+    (result: { state: AppUpdateState }) => setUpdateState(result.state),
+    [setUpdateState],
+  )
 
   const downloadUpdate = useCallback(async () => {
     setUpdateActionPending(true)
@@ -994,12 +1015,12 @@ export default function SettingsPanel({
     } finally {
       setUpdateActionPending(false)
     }
-  }, [])
+  }, [setUpdateState])
 
   const restartToInstall = useCallback(async () => {
     const result = await window.api.updateQuitAndInstall()
     setUpdateState(result.state)
-  }, [])
+  }, [setUpdateState])
 
   const saveGitHubToken = useCallback(async () => {
     const token = githubTokenDraft.trim()
@@ -1042,12 +1063,6 @@ export default function SettingsPanel({
       setGithubTokenPending(false)
     }
   }, [])
-
-  const nextUpdateAction: UpdateAction = updateState?.downloaded
-    ? 'restart'
-    : updateState?.status === 'available'
-      ? 'download'
-      : 'check'
 
   // Write-only token entry: render the input only when nothing is saved or the
   // user is replacing; a saved token reads as meta text plus Replace/Clear.
@@ -1164,6 +1179,7 @@ export default function SettingsPanel({
                 }}
                 tab={tab}
                 active={activeSettingsTab === tab.id}
+                badge={tab.id === 'general' ? updateBadges.general : tab.id === 'agents' ? updateBadges.agents : null}
                 onClick={() => selectSettingsTab(tab.id)}
                 onKeyDown={(event) => onSettingsTabKeyDown(event, tabIndexById.get(tab.id) ?? 0)}
               />
@@ -1272,73 +1288,16 @@ export default function SettingsPanel({
         <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
           <SettingsPageHeader title="General" />
           {/* The version row: identity on the left, the one state-driven action
-              on the right. The update flow is a line (check → download →
-              restart), so only the current step's action renders. Checking is
-              a glyph; downloading and restarting are the primary action. */}
-          {/* No rule under this row any more: the card below brings its own
-              top border, and a hairline immediately above it was two rules
-              saying one boundary. The row's `pb-4` went with it — the gap to
-              the card is the card's own `mt-5`, so the two do not add up to a
-              step no other section spends. */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <SprintEngineFrond tone="current" className="icon-md shrink-0" />
-              <div className="min-w-0">
-                <div className="text-body font-medium text-[color:var(--text-strong)]">
-                  SprintEngine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
-                </div>
-                <div
-                  className={`mt-0.5 text-body ${
-                    updateState?.status === 'error'
-                      ? 'text-[color:var(--tone-error)]'
-                      : 'text-[color:var(--text-muted)]'
-                  }`}
-                >
-                  {formatUpdateChannel(updateState?.channel)} · {formatUpdateStatus(updateState)}
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Tooltip content="Release notes">
-                <IconButton aria-label="Release notes" onClick={() => void window.api.updateOpenReleaseNotes()}>
-                  <ReleaseNotesIcon className="icon-sm" />
-                </IconButton>
-              </Tooltip>
-              {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
-                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
-                  Restart to install
-                </PrimaryButton>
-              ) : nextUpdateAction === 'download' ? (
-                <PrimaryButton
-                  size="md"
-                  onClick={() => void downloadUpdate()}
-                  disabled={updateActionPending || updateState?.status === 'downloading'}
-                >
-                  {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
-                </PrimaryButton>
-              ) : (
-                <Tooltip content={updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}>
-                  <IconButton
-                    aria-label={updateState?.status === 'error' ? 'Retry the update check' : 'Check for updates'}
-                    onClick={() => void checkForUpdates()}
-                    disabled={
-                      updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'
-                    }
-                  >
-                    {updateState?.status === 'checking' ? <Spinner className="icon-sm" /> : <RefreshIcon />}
-                  </IconButton>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-          {updateState?.progress ? (
-            <div className="mt-3 h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
-              <div
-                className="h-full rounded-full bg-[color:var(--accent-primary)]"
-                style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
-              />
-            </div>
-          ) : null}
+              on the right — check, then Download, then Restart to update —
+              with the download's progress under it (AppVersionRow). */}
+          <AppVersionRow
+            state={updateState}
+            pending={updateActionPending}
+            onCheck={() => void checkForUpdates()}
+            onDownload={() => void downloadUpdate()}
+            onRestart={() => void restartToInstall()}
+            onOpenReleaseNotes={() => void window.api.updateOpenReleaseNotes()}
+          />
 
           <SettingCard className="mt-5">
             <UpdateChannelSettings onResult={onUpdateChannelResult} />
@@ -1488,6 +1447,7 @@ export default function SettingsPanel({
             machines={agentsMachineOptions}
             value={agentsMachine.id}
             onChange={selectAgentsMachine}
+            badges={updateBadges.machines}
           />
           {/* The registry comparison is this machine's (main compares the
               version its own probe found), so a WSL machine's list does not
@@ -1515,6 +1475,7 @@ export default function SettingsPanel({
             onMachineRecheck={agentsMachineCli.recheck}
             showMachine={agentsMachineOptions.length > 1}
             now={agentsFreshnessNow}
+            updateBadgeClis={updateBadges.clis}
           />
 
           <TextGenerationSettingsSection />
@@ -1793,11 +1754,15 @@ const SettingsTabButton = React.forwardRef<
   {
     tab: SettingsTabDescriptor
     active: boolean
+    /** An update waiting on this tab (owner ruling 2026-09-25): General's app
+     *  update, Agents' CLI updates. Null or 0 draws nothing. */
+    badge?: SettingsUpdateBadge | null
     onClick: () => void
     onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   }
->(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
+>(function SettingsTabButton({ tab, active, badge, onClick, onKeyDown }, ref) {
   const Icon = tab.icon ?? tab.moduleSection?.icon
+  const shownBadge = badge && badge.count > 0 ? badge : null
   return (
     <RowButton
       ref={ref}
@@ -1812,6 +1777,10 @@ const SettingsTabButton = React.forwardRef<
       // its state as `aria-selected`, and two would be announced twice.
       aria-current={undefined}
       aria-controls={`settings-panel-${tab.id}`}
+      // A badged tab names itself, the way a badged tab in the strip does: the
+      // count is a named live region, and inside the button it would land in
+      // the name-from-contents as well. The explicit name says it once.
+      aria-label={shownBadge ? `${tab.label}, ${shownBadge.detail}` : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -1823,50 +1792,19 @@ const SettingsTabButton = React.forwardRef<
         />
       ) : null}
       <span className="min-w-0 truncate">{tab.label}</span>
+      {shownBadge ? (
+        // Trailing the label, as an Extensions drawer row wears its count.
+        <span className="ml-auto flex shrink-0 pl-1">
+          <Badge tone={shownBadge.tone} count={shownBadge.count} max={99} ariaLabel={shownBadge.detail} />
+        </span>
+      ) : null}
     </RowButton>
   )
 })
-
-function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
-  switch (channel) {
-    case 'stable':
-      return 'Stable'
-    case 'nightly':
-      return 'Nightly'
-    case 'dev':
-      return 'Development'
-    default:
-      return 'Unknown'
-  }
-}
 
 function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
   if (!status) return 'Checking'
   if (status.source === 'settings') return 'Saved'
   if (status.source === 'environment') return 'Environment'
   return 'Not set'
-}
-
-// One clause after the channel on the version row: a state, never a sentence.
-function formatUpdateStatus(state: AppUpdateState | null): string {
-  if (!state) return 'loading'
-  if (!state.packaged) return 'unpackaged build'
-  switch (state.status) {
-    case 'checking':
-      return 'checking…'
-    case 'available':
-      return state.updateVersion ? `${state.updateVersion} available` : 'update available'
-    case 'downloading':
-      return state.progress ? `downloading ${Math.round(state.progress.percent)}%` : 'downloading…'
-    case 'downloaded':
-      return 'restart to install'
-    case 'not_available':
-      return 'up to date'
-    case 'error':
-      return state.errorMessage ?? 'check failed'
-    default:
-      return state.lastCheckedAt
-        ? `checked ${formatRelativeMsAgo(Date.parse(state.lastCheckedAt), Date.now()) || 'just now'}`
-        : 'not checked yet'
-  }
 }

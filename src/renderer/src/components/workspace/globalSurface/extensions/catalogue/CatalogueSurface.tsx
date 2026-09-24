@@ -1,8 +1,8 @@
-// The one shape the three Extensions catalogues share.
+// The one shape the Extensions catalogues share.
 //
-// Source-tabs ruling (2026-09-05): Plugins, Skills and Agent CLIs are the same
-// page three times — the view's name and a search field on the chrome row,
-// Installed and then one tab per source under it with a plus at the end, and
+// Source-tabs ruling (2026-09-05): Plugins and Skills are the same page twice
+// — the view's name and a search field on the chrome row, Installed and then
+// one tab per source under it with a plus at the end, and
 // inside the open tab the connector row idiom in two columns, kept in its
 // groups, walked by one pager. The nested Sources rail is gone: the drawer and
 // this row are the whole navigation, so the door brings no rail and the
@@ -15,7 +15,7 @@
 // different product from the Settings page one door over.
 //
 // This file owns that frame. What goes IN a tab is each catalogue's own
-// business — a registry category, a repository's folders, the CLI shelf — and
+// business — a registry category, a repository's folders — and
 // arrives as sections of items plus a way to draw one and a way to key it.
 
 import React, { useMemo, useState, type JSX } from 'react'
@@ -82,7 +82,7 @@ export function CatalogueSurface<T>({
   noun,
   detail,
 }: {
-  /** The view's name: "Plugins", "Skills", "Agent CLIs". */
+  /** The view's name: "Plugins", "Skills". */
   title: string
   tabs: readonly CatalogueTab[]
   activeTabId: string

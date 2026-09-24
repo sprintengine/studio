@@ -18,25 +18,26 @@ import {
 import { test } from 'vitest'
 
 test('extensionsDrawer', async () => {
-  // ── The four rows, in the ruled order ────────────────────────────────────────
+  // ── The three rows, in the ruled order ───────────────────────────────────────
   assert.deepEqual(
     DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.kind === 'surface' ? row.surfaceId : row.viewId)),
-    ['design', 'plugins', 'skills', 'agent-clis'],
-    'the drawer is Design · Plugins · Skills · Agent CLIs, and the shell holds that order',
+    ['design', 'plugins', 'skills'],
+    'the drawer is Design · Plugins · Skills — Agent CLIs moved to Settings ▸ Agents (owner ruling 2026-09-25)',
   )
   assert.deepEqual(
     DRAWER_ROWS.filter((row) => row.kind === 'view').map((row) => (row.kind === 'view' ? row.surfaceId : '')),
-    ['extensions', 'extensions', 'extensions'],
-    'the last three rows are three views of ONE surface, not three surfaces',
+    ['extensions', 'extensions'],
+    'the last two rows are two views of ONE surface, not two surfaces',
   )
 
   // ── Each row's own name ──────────────────────────────────────────────────────
   // What a row's unread count is keyed by, and what a notification names to say
-  // which row it belongs to (owner, 2026-09-08). Not a surface id: three of the
-  // rows are views of one surface, and a count keyed on it would light all three.
-  assert.deepEqual([...EXTENSIONS_DRAWER_ROW_IDS], ['design', 'plugins', 'skills', 'agent-clis'])
+  // which row it belongs to (owner, 2026-09-08). Not a surface id: two of the
+  // rows are views of one surface, and a count keyed on it would light both.
+  assert.deepEqual([...EXTENSIONS_DRAWER_ROW_IDS], ['design', 'plugins', 'skills'])
+  assert.equal(isExtensionsDrawerRowId('agent-clis'), false, 'the retired Agent CLIs row is not a row')
   assert.equal(isExtensionsDrawerRowId('plugins'), true)
-  assert.equal(isExtensionsDrawerRowId('extensions'), false, 'the surface three rows share is not a row')
+  assert.equal(isExtensionsDrawerRowId('extensions'), false, 'the surface two rows share is not a row')
   assert.equal(isExtensionsDrawerRowId(undefined), false)
 
   // Which row is on screen — the moment its news counts as read.
@@ -50,7 +51,7 @@ test('extensionsDrawer', async () => {
   assert.equal(openExtensionsDrawerRow('design', null), 'design')
   assert.equal(openExtensionsDrawerRow('extensions', 'plugins'), 'plugins')
   assert.equal(openExtensionsDrawerRow('extensions', 'skills'), 'skills')
-  assert.equal(openExtensionsDrawerRow('extensions', 'agent-clis'), 'agent-clis')
+  assert.equal(openExtensionsDrawerRow('extensions', 'agent-clis'), null, 'a stale Agent CLIs view opens no row')
   assert.equal(
     openExtensionsDrawerRow('extensions', null),
     null,

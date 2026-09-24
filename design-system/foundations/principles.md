@@ -459,7 +459,7 @@ for a second band means asking which band the new control belongs in, not where
 to put the new band.
 
 **The door surface** — a full-page surface that takes over the content region
-(Automations, Design, Plugins, Skills, Agent CLIs, the Extensions home) — has
+(Automations, Design, Plugins, Skills, the Extensions home) — has
 an anatomy too, and it has exactly one band of chrome:
 
 1. **The app's top strip is the door's title bar.** The door's name and its
@@ -480,8 +480,9 @@ an anatomy too, and it has exactly one band of chrome:
 **Surfaces, not modals** (ruled 2026-09-05, reversing the doors→modals ruling
 of 2026-09-01). A destination the shell's own chrome offers — anything an app
 rail square or a sidebar drawer row opens — is a DOOR: it takes the card region
-and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs
-and the Extensions home are doors. They spent four days as modals, and the
+and owns the top row above it. Automations, Design, Plugins, Skills and the
+Extensions home are doors (Agent CLIs was one until 2026-09-25, when the owner
+moved the list to Settings ▸ Agents). They spent four days as modals, and the
 modal was wrong for them twice over: a scrim put a dialog between the person
 and the very column they had just navigated with, and a float over the card
 region means back, forward and the window's history all step to a destination
@@ -551,13 +552,14 @@ walks. Its anatomy:
    rail because it is what the product DOES, not something added to it; it is
    the module's own registered surface, gated on the module's enablement, so a
    turned-off module's glyph is simply absent. Plugins does not: it is one of
-   the four product things under Extensions, and a glyph of its own said it stood
+   the product things under Extensions, and a glyph of its own said it stood
    beside them.
 4. **Extensions opens its home, and the sidebar becomes the drawer.** The
-   drawer starts with four product rows in a fixed order — Design, Plugins,
-   Skills, Agent CLIs — and installed module doors follow in stable registry
-   order, all with the same `SidebarNavButton` chrome. Registry
-   `order` never moves the four product rows; an installed door contributes its
+   drawer starts with three product rows in a fixed order — Design, Plugins,
+   Skills — and installed module doors follow in stable registry order, all
+   with the same `SidebarNavButton` chrome. (Agent CLIs was a fourth until
+   2026-09-25: the owner moved agent CLIs to Settings ▸ Agents, which already
+   listed every CLI per machine.) Registry `order` never moves the product rows; an installed door contributes its
    name, glyph and behaviour, then takes the next available place. The drawer
    STAYS PUT while the card region swaps, which is what makes it the navigation
    rather than a menu:
@@ -615,7 +617,7 @@ walks. Its anatomy:
    moment the section opened, and the drawer that appeared said nothing about
    which row the news belonged to — a count that vanished on the click it
    asked for. Now the news goes on the row it came from: a source drift notice
-   on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the
+   on Plugins, a run waiting on an answer on the
    door that lists it, entries arrived since the bundle was last shown on
    Design. Installed module rows carry no inferred count: a module owns its
    status inside its door until it contributes a notification contract. A
@@ -630,6 +632,14 @@ walks. Its anatomy:
    reads its own cards as it mounts, and marks the ones that were new with
    the New mark, so what the count pointed at is still on screen when the
    person arrives.
+10. **The Settings gear counts the updates waiting inside Settings** (owner
+   ruling 2026-09-25): an agent CLI behind its release, and a newer
+   SprintEngine Studio. The same corner counter, and the same count follows the
+   person in — onto General or Agents in the Settings nav, onto the machine's
+   segment on the Agents switcher, and beside the CLI row's Update button (the
+   badge entry, "In Settings"). Unlike news, opening Settings reads nothing: an
+   update is not seen by being looked at, it is answered — installed, or
+   dismissed from its toast for that version.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.

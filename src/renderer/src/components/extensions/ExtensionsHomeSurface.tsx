@@ -17,7 +17,6 @@ import { useSkillSources } from '../workspace/globalSurface/extensions/skills/us
 import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import type { SurfaceIconComponent } from '../../modules/renderer-host'
 import {
-  agentCliCountLine,
   designLibraryCountLine,
   EXTENSIONS_HOME_TILE_SUMMARIES,
   mcpServerCountLine,
@@ -160,17 +159,13 @@ function ExtensionsHomeTile({
  * opens cannot state different totals.
  *
  * Every read here is a mount read or a store subscription; nothing polls and
- * nothing re-fetches on render. Three of the five come free (MCP servers and
- * both CLI facts are in the workspace store, populated before any door opens);
- * the other two cost the same reads their own surface makes, once, on the way
- * in — which is the price of the page saying something true rather than
- * something decorative.
+ * nothing re-fetches on render. The MCP servers come free (they are in the
+ * workspace store, populated before any door opens); the other two cost the
+ * same reads their own surface makes, once, on the way in — which is the price
+ * of the page saying something true rather than something decorative.
  */
 function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
   const mcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
-  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
   // App-level sources, so no workspace: `null` skips the per-workspace
   // installed read this page has no use for.
   //
@@ -185,13 +180,6 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
 
   return useMemo(() => {
     const servers = Object.values(mcpServers ?? {})
-    const installedClis = Object.values(cliAvailability ?? {}).filter((entry) => entry?.installed)
-    const updates = Object.entries(cliVersionAdvisories ?? {}).filter(
-      ([cli, advisory]) =>
-        cliAvailability?.[cli as keyof typeof cliAvailability]?.installed &&
-        advisory?.status === 'behind_latest' &&
-        Boolean(advisory.latestVersion),
-    )
     // The Skills total is the Skills surface's own derivation (skillsTotal),
     // not a second sum: the same fact derived twice is a pair of numbers that
     // eventually disagree.
@@ -207,22 +195,8 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
         sourceCount: skillTotals.sourceCount,
         skillCount: skillTotals.skillCount,
       }),
-      'agent-clis': agentCliCountLine({
-        ready: cliAvailabilityStatus === 'ready',
-        installed: installedClis.length,
-        updates: updates.length,
-      }),
     }
-  }, [
-    cliAvailability,
-    cliAvailabilityStatus,
-    cliVersionAdvisories,
-    designLibrary,
-    mcpServers,
-    skills.scans,
-    skills.sources,
-    skills.sourcesLoad,
-  ])
+  }, [designLibrary, mcpServers, skills.scans, skills.sources, skills.sourcesLoad])
 }
 
 /**
