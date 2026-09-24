@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { AGENT_PROMPTS_DIR_NAME, createAgentPromptStore } from './agent-prompt-store'
+import { AGENT_PROMPTS_DIR_NAME, createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import { MAX_AGENT_PROMPT_LENGTH } from './agent-state'
 import { test } from 'vitest'
@@ -80,6 +80,92 @@ test('the least recently written agents are evicted past the limit', async () =>
   assert.equal((await readdir(join(dir, AGENT_PROMPTS_DIR_NAME))).length, 3)
   assert.equal(await store.read({ workspaceId: 'ws', agentId: 'a' }), null, 'the oldest agent went')
   assert.ok(await store.read({ workspaceId: 'ws', agentId: 'd' }))
+})
+
+test('an agent still in the registry keeps its prompts however long it sits idle', async () => {
+  const dir = await scratch()
+  let now = 0
+  // The sidebar holds one long-idle agent; a stream of short-lived automation
+  // agents comes and goes after it.
+  const live = new Set(['idle'])
+  const store = createAgentPromptStore({
+    resolveUserDataDir: () => dir,
+    maxFiles: 3,
+    now: () => (now += 1),
+    agentExists: ({ agentId }) => live.has(agentId),
+  })
+  await store.append({ workspaceId: 'ws', agentId: 'idle' }, { text: 'the one I still look at', at: 1 })
+  for (let run = 0; run < 10; run += 1) {
+    const agentId = `automation-${run}`
+    live.add(agentId)
+    await store.append({ workspaceId: 'ws', agentId }, { text: `run ${run}`, at: 1 })
+    live.delete(agentId)
+  }
+  assert.deepEqual(await store.read({ workspaceId: 'ws', agentId: 'idle' }), [
+    { text: 'the one I still look at', at: 1 },
+  ])
+  assert.equal((await readdir(join(dir, AGENT_PROMPTS_DIR_NAME))).length, 3, 'gone agents still go')
+  assert.ok(await store.read({ workspaceId: 'ws', agentId: 'automation-9' }), 'the file just written stays')
+  assert.equal(await store.read({ workspaceId: 'ws', agentId: 'automation-0' }), null, 'oldest gone agent first')
+})
+
+test('eviction takes gone agents before ones nothing vouches for, and never a live one', async () => {
+  const dir = await scratch()
+  let now = 0
+  const existence = new Map<string, boolean | undefined>([
+    ['unknown-old', undefined],
+    ['gone-newer', false],
+    ['live', true],
+    ['newest', true],
+  ])
+  const store = createAgentPromptStore({
+    resolveUserDataDir: () => dir,
+    maxFiles: 2,
+    now: () => (now += 1),
+    agentExists: ({ agentId }) => existence.get(agentId),
+  })
+  for (const agentId of ['unknown-old', 'gone-newer', 'live']) {
+    await store.append({ workspaceId: 'ws', agentId }, { text: agentId, at: 1 })
+  }
+  assert.equal(
+    await store.read({ workspaceId: 'ws', agentId: 'gone-newer' }),
+    null,
+    'a gone agent goes before an older one nothing vouches for',
+  )
+  assert.ok(await store.read({ workspaceId: 'ws', agentId: 'unknown-old' }))
+  await store.append({ workspaceId: 'ws', agentId: 'newest' }, { text: 'newest', at: 1 })
+  assert.equal(await store.read({ workspaceId: 'ws', agentId: 'unknown-old' }), null, 'then an unvouched one')
+  assert.ok(await store.read({ workspaceId: 'ws', agentId: 'live' }), 'a live agent is never evicted')
+})
+
+test('removing an agent deletes its prompts and forgets its sessions', async () => {
+  const dir = await scratch()
+  const store = createAgentPromptStore({ resolveUserDataDir: () => dir })
+  await store.append(owner, { text: 'secret-ish', at: 1 })
+  await store.append({ ...owner, agentId: 'agent-2', sessionId: 'session-9' }, { text: 'kept', at: 1 })
+  assert.ok(await store.findBySessionId('session-1'), 'the index is built')
+  await store.remove(owner)
+  assert.equal(await store.read(owner), null)
+  assert.equal(await store.findBySessionId('session-1'), null)
+  assert.equal((await readdir(join(dir, AGENT_PROMPTS_DIR_NAME))).length, 1, 'only the other agent is left')
+  await store.remove(owner) // idempotent
+  assert.ok(await store.read({ workspaceId: owner.workspaceId, agentId: 'agent-2' }))
+})
+
+test('registeredAgentOwners lists every agent a registry state holds', () => {
+  const owners = registeredAgentOwners({
+    workspaces: [
+      { id: 'ws-a', agents: { one: {}, two: {} } },
+      { id: 'ws-b', agents: {} },
+    ],
+  })
+  assert.deepEqual(
+    [...owners.values()],
+    [
+      { workspaceId: 'ws-a', agentId: 'one' },
+      { workspaceId: 'ws-a', agentId: 'two' },
+    ],
+  )
 })
 
 test('merging a session list keeps the stored history and adds only what is new', async () => {
