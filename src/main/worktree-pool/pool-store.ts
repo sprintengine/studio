@@ -345,6 +345,7 @@ export function createPoolStore(userDataDir: string): PoolStore {
 
 export const POOL_LOCK_FILE = '.pool.lock'
 export const POOL_LOCK_STALE_MS = 15 * 60_000
+export const POOL_LOCK_PID_REUSE_MS = 24 * 60 * 60_000
 
 type LockBody = { pid: number; host: string; instanceId: string; startedAt: number }
 
@@ -415,7 +416,10 @@ export async function acquireInstanceLock(
     // every timer, the holder's included). Age decides only for a holder on
     // another machine, whose process cannot be asked, and for a lock file too
     // torn to name anyone; an unreadable fresh one may be a holder mid-write.
-    if (deadHere || (!sameHost && age > POOL_LOCK_STALE_MS)) {
+    // A live pid on this machine whose heartbeat stopped a day ago is not a
+    // sleeping Studio but a dead one whose pid was reused.
+    const reusedPid = sameHost && age > POOL_LOCK_PID_REUSE_MS
+    if (deadHere || reusedPid || (!sameHost && age > POOL_LOCK_STALE_MS)) {
       await rm(lockPath, { force: true })
       continue
     }
@@ -430,17 +434,28 @@ export async function acquireInstanceLock(
  * someone else has lost the pool and must stop driving it (the caller steps
  * down to "held by another Studio").
  */
-export async function heartbeatInstanceLock(containerPath: string, instanceId: string): Promise<boolean> {
+export async function heartbeatInstanceLock(
+  containerPath: string,
+  instanceId: string,
+): Promise<'ours' | 'lost' | 'unknown'> {
   const lockPath = join(containerPath, POOL_LOCK_FILE)
-  const text = await readFile(lockPath, 'utf8').catch(() => null)
-  if (!text) return false
+  let text: string
   try {
-    if ((JSON.parse(text) as Partial<LockBody>).instanceId !== instanceId) return false
-  } catch {
-    return false
+    text = await readFile(lockPath, 'utf8')
+  } catch (error) {
+    // Gone is lost; a read that failed for any other reason (a scanner
+    // holding the file on Windows) says nothing either way.
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'lost' : 'unknown'
   }
+  let holder: Partial<LockBody>
+  try {
+    holder = JSON.parse(text) as Partial<LockBody>
+  } catch {
+    return 'unknown'
+  }
+  if (holder.instanceId !== instanceId) return 'lost'
   await utimes(lockPath, new Date(), new Date()).catch(() => {})
-  return true
+  return 'ours'
 }
 
 export async function releaseInstanceLock(containerPath: string, instanceId: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { readFile, rm, stat, writeFile } from 'fs/promises'
+import { lstat, readFile, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { GitCommandResult } from '../git'
 import { runGitCommand } from '../git-run'
@@ -25,6 +25,8 @@ export type SlotStatus = {
   trackedPaths: string[]
   /** How many of them are untracked. */
   untracked: number
+  /** The untracked paths themselves. */
+  untrackedPaths: string[]
 }
 
 // Fields before the path in each porcelain v2 record kind.
@@ -48,6 +50,7 @@ export function parseSlotStatus(stdout: string): SlotStatus {
   let changedPaths = 0
   let untracked = 0
   const trackedPaths: string[] = []
+  const untrackedPaths: string[] = []
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
     if (!record) continue
@@ -66,6 +69,7 @@ export function parseSlotStatus(stdout: string): SlotStatus {
     if (kind === '?') {
       changedPaths += 1
       untracked += 1
+      untrackedPaths.push(record.slice(2))
     } else if (kind === '1' || kind === 'u') {
       changedPaths += 1
       trackedPaths.push(pathOf(record, kind))
@@ -77,7 +81,7 @@ export function parseSlotStatus(stdout: string): SlotStatus {
       if (records[index]) trackedPaths.push(records[index])
     }
   }
-  return { oid, branch, changedPaths, trackedPaths, untracked }
+  return { oid, branch, changedPaths, trackedPaths, untracked, untrackedPaths }
 }
 
 export async function readSlotStatus(
@@ -107,6 +111,11 @@ const SLOT_MARKER = 'sprintengine-pool-slot'
 export async function writeSlotMarker(run: SlotGitRunner, slotPath: string): Promise<void> {
   const gitDir = await readSlotGitDir(run, slotPath)
   if (gitDir) await writeFile(join(gitDir, SLOT_MARKER), 'This worktree is a pool slot of SprintEngine Studio.\n')
+}
+
+export async function removeSlotMarker(run: SlotGitRunner, slotPath: string): Promise<void> {
+  const gitDir = await readSlotGitDir(run, slotPath)
+  if (gitDir) await rm(join(gitDir, SLOT_MARKER), { force: true })
 }
 
 export async function hasSlotMarker(run: SlotGitRunner, slotPath: string): Promise<boolean> {
@@ -224,13 +233,21 @@ export async function commitIsReachable(run: SlotGitRunner, cwd: string, oid: st
 }
 
 /**
- * Ignored files that belong to one agent's run and must not reach the next
- * agent leased the same slot: the app's managed MCP config (a connector
- * launch's carries that connector's server, and its credentials) and a CLI's
- * local permission approvals. Removed on a clean return, and only while git
- * does not track them.
+ * Files that belong to one agent's run and must not reach the next agent
+ * leased the same slot: the app's managed MCP config, which every launch
+ * writes into its worktree (a connector launch's carries that connector's
+ * server, and its credentials), and a CLI's local permission approvals.
+ * Removed on a clean return, and only while git does not track them. Because
+ * the app writes them itself, they alone never make a return read as dirty
+ * (see {@link isPerAgentFile}); excluding them in the repository's shared
+ * exclude file instead would hide a person's own untracked `.mcp.json` in
+ * their main checkout too.
  */
 export const PER_AGENT_IGNORED_FILES = ['.mcp.json', '.codex/config.toml', '.claude/settings.local.json'] as const
+
+export function isPerAgentFile(path: string): boolean {
+  return (PER_AGENT_IGNORED_FILES as readonly string[]).includes(path)
+}
 
 export async function removePerAgentFiles(run: SlotGitRunner, slotPath: string): Promise<string[]> {
   const tracked = await run(slotPath, ['ls-files', '-z', '--', ...PER_AGENT_IGNORED_FILES.map((p) => `:(literal)${p}`)])
@@ -265,7 +282,22 @@ export async function ignoredFilesInTheWay(
 ): Promise<string[] | null> {
   const added = await run(slotPath, ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', fromSha, toSha])
   if (!added.ok) return null
-  const paths = added.stdout.split('\0').filter(Boolean)
+  const addedPaths = added.stdout.split('\0').filter(Boolean)
+  // An ignored FILE where the new tree needs a directory (`cache` when the
+  // base adds `cache/x`) is replaced just as silently, so every parent of an
+  // added path that exists here as something other than a directory is
+  // checked too.
+  const parents = new Set<string>()
+  for (const path of addedPaths) {
+    const parts = path.split('/')
+    for (let depth = 1; depth < parts.length; depth += 1) parents.add(parts.slice(0, depth).join('/'))
+  }
+  const blocking: string[] = []
+  for (const parent of parents) {
+    const info = await lstat(join(slotPath, ...parent.split('/'))).catch(() => null)
+    if (info && !info.isDirectory()) blocking.push(parent)
+  }
+  const paths = [...addedPaths, ...blocking]
   const found: string[] = []
   for (let start = 0; start < paths.length; start += 200) {
     const chunk = paths.slice(start, start + 200).map((path) => `:(literal)${path}`)

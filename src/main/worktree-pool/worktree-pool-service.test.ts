@@ -819,6 +819,7 @@ test('pool keys and slot status parsing', () => {
     changedPaths: 0,
     trackedPaths: [],
     untracked: 0,
+    untrackedPaths: [],
   })
   const busy = [
     `# branch.oid ${oid}`,
@@ -835,6 +836,7 @@ test('pool keys and slot status parsing', () => {
     changedPaths: 3,
     trackedPaths: ['src/a file.ts', 'src/new.ts', 'src/old.ts'],
     untracked: 1,
+    untrackedPaths: ['notes.md'],
   })
 })
 
@@ -992,4 +994,48 @@ test('review fixes: per-agent config is removed on return, and ignored files in 
   assert.equal(after.state, 'held')
   assert.match(after.held?.detail ?? '', /local\.cfg/)
   assert.equal(await readFile(join(leased.path, 'local.cfg'), 'utf8'), 'LOCAL=1\n')
+})
+
+test('second review: the shared exclude is left alone, an ignored file where a directory is due holds the slot, and kept worktrees lose the marker', async () => {
+  const harness = makeService()
+  await warmPool(harness, 2)
+  const excludeBefore = await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8').catch(() => '')
+  const leased = await harness.service.lease({
+    repoRoot: repo,
+    name: 'shape',
+    owner: { agentId: 'agent-1', workspaceId: 'ws' },
+    runtime: 'native',
+  })
+  assert.ok(leased.ok)
+  // The app's own MCP config, untracked and NOT excluded, still returns clean.
+  await writeFile(join(leased.path, '.mcp.json'), '{}\n')
+  // An ignored FILE named like a directory the next base adds.
+  await writeFile(join(repo, '.git', 'info', 'exclude'), 'cache\n', { flag: 'a' })
+  await writeFile(join(leased.path, 'cache'), 'precious\n')
+  const seedDir = join(caseDir, 'pusher')
+  await pushToOrigin('README.md', '# moved\n')
+  await mkdir(join(seedDir, 'cache'), { recursive: true })
+  await writeFile(join(seedDir, 'cache', 'x'), 'tracked\n')
+  await git(seedDir, 'add', '-f', 'cache/x')
+  await git(seedDir, 'commit', '-q', '-m', 'add cache dir')
+  await git(seedDir, 'push', '-q', 'origin', 'HEAD:main')
+  await harness.service.release(leased.leaseId)
+  await harness.settle()
+  const after = await slotAt(harness, leased.slotId)
+  assert.equal(after.state, 'held', 'the refresh would have replaced an ignored file with a directory')
+  assert.match(after.held?.detail ?? '', /cache/)
+  assert.equal(await readFile(join(leased.path, 'cache'), 'utf8'), 'precious\n')
+  assert.equal(await exists(join(leased.path, '.mcp.json')), false)
+  const excludeAfter = await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8')
+  assert.equal(
+    excludeAfter.includes('.mcp.json'),
+    excludeBefore.includes('.mcp.json'),
+    'the shared exclude is untouched',
+  )
+
+  // Keep: the worktree leaves the pool and its marker goes with it.
+  const kept = await harness.service.action({ kind: 'held', repoRoot: repo, slotId: leased.slotId, action: 'keep' })
+  assert.equal(kept.ok, true)
+  const gitDir = await git(leased.path, 'rev-parse', '--absolute-git-dir')
+  assert.equal(await exists(join(gitDir, 'sprintengine-pool-slot')), false)
 })

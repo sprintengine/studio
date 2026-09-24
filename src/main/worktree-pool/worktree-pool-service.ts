@@ -15,7 +15,7 @@ import {
 import { comparablePath } from '../../shared/host-paths'
 import { pathJoin } from '../../shared/paths'
 import { slugifyWorktreeName, worktreeContainerPath } from '../../shared/worktree-paths'
-import { excludeMcpConfigFromWorktree, seedWorktreeIncludedFiles } from '../git'
+import { seedWorktreeIncludedFiles } from '../git'
 import { pathExists } from '../git-utils'
 import { withWorktreeRegistryLock } from '../worktree-registry-lock'
 import {
@@ -43,6 +43,8 @@ import {
   clearStaleIndexLock,
   hasSlotMarker,
   ignoredFilesInTheWay,
+  isPerAgentFile,
+  removeSlotMarker,
   pathsBetween,
   removePerAgentFiles,
   writeSlotMarker,
@@ -383,7 +385,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     // acting on slots someone else now owns. Recovery runs again if it wins the
     // lock back, since the other holder may have moved every slot meanwhile.
     if (pool.instance === 'held') {
-      if (await heartbeatInstanceLock(pool.containerPath, instanceId).catch(() => false)) return true
+      const beat = await heartbeatInstanceLock(pool.containerPath, instanceId).catch(() => 'unknown' as const)
+      if (beat !== 'lost') return true
       log(`${pool.record.repoRoot}: lost the pool's lock`)
       pool.instance = 'unknown'
       pool.recovered = null
@@ -750,9 +753,14 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
         await hold(pool, slot, 'error', `status failed: ${status.message}`, { branch })
         return
       }
-      if (status.status.changedPaths > 0) {
+      // The MCP config every agent launch writes into its worktree is the
+      // app's, not the agent's work, and is removed below; nothing else counts
+      // as clean.
+      const ownFiles = status.status.untrackedPaths.filter(isPerAgentFile).length
+      const agentChanges = status.status.changedPaths - ownFiles
+      if (agentChanges > 0) {
         await hold(pool, slot, 'dirty', null, {
-          changedPaths: status.status.changedPaths,
+          changedPaths: agentChanges,
           branch: status.status.branch ?? branch,
         })
         return
@@ -897,7 +905,7 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
           slot.op = { kind: 'refresh', startedAt: now(), pid: process.pid, fromSha: oid, toSha: target }
           await persist(pool)
         })
-        if (oid !== target && oid !== null && !resuming) {
+        if (oid !== target && oid !== null) {
           // Ignored files where the new base adds tracked ones would be
           // overwritten silently by the reset; they are nobody's to lose.
           const inTheWay = await ignoredFilesInTheWay(git, slot.path, oid, target)
@@ -952,11 +960,6 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       // `.worktreeinclude` names ignored files (an `.env`) the tree needs; they
       // survive the reset, but the checkout's copy may have changed since.
       await seedWorktreeIncludedFiles(pool.record.repoRoot, slot.path).catch(() => null)
-      // An agent launch writes the app's managed MCP config (`.mcp.json`,
-      // `.codex/config.toml`) into the worktree it runs in. Untracked, those
-      // would make every return read as dirty and hold the slot; excluded, they
-      // are ignored files like any other and are left in place by `clean -fd`.
-      await excludeMcpConfigFromWorktree(slot.path).catch(() => {})
       await withPool(pool, async () => {
         slot.baseRef = base.ref
         slot.baseSha = target
@@ -1400,6 +1403,12 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
     let pruneNeeded = false
     const survivors: SlotRecord[] = []
     for (const slot of record.slots) {
+      // Recovery can run again after this process lost and regained the lock;
+      // a slot it is itself working on right now is not a dead run's.
+      if (pool.busy.has(slot.id)) {
+        survivors.push(slot)
+        continue
+      }
       const entry = registered.get(comparablePath(slot.path))
       const onDisk = await pathExists(slot.path)
       if (!entry || !onDisk) {
@@ -1556,6 +1565,8 @@ export function createWorktreePoolService(deps: WorktreePoolServiceDeps) {
       const operation = gitDir ? await operationInProgress(gitDir) : null
       if (action === 'keep') {
         await git(pool.record.repoRoot, ['worktree', 'unlock', slot.path])
+        // No longer the pool's: nothing may ever adopt it back.
+        await removeSlotMarker(git, slot.path).catch(() => {})
         await withPool(pool, async () => {
           pool.record.slots = pool.record.slots.filter((candidate) => candidate !== slot)
           pool.record.releasedPaths.push(slot.path)
