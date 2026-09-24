@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor from '../../monaco/editor'
 import {
   combineConflictSides,
   hasGitConflictMarkers,

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
+import { DiffEditor, type DiffOnMount } from '../../monaco/editor'
 import type * as Monaco from 'monaco-editor'
 import { useGitStatus, useGitTreeRevision, type GitRepoState } from '../../hooks/useGitStatus'
 import { useChangelists } from '../../hooks/useChangelists'

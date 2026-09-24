@@ -73,7 +73,7 @@ const EAGER_SHARED_MODULE_SPECIFIERS: Record<string, object> = {
 const LAZY_SHARED_MODULE_LOADERS: Record<string, () => Promise<object>> = {
   '@sprintengine/module-sdk/ui': () => import('./sdk-ui'),
   '@sprintengine/module-sdk/surface': () => import('./sdk-surface'),
-  '@monaco-editor/react': () => import('@monaco-editor/react'),
+  '@monaco-editor/react': () => import('../monaco/sharedEditorModule'),
 }
 
 const SHARED_RUNTIME_GLOBAL = '__sprintengineSharedModuleRuntime'
