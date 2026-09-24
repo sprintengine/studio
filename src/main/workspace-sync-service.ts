@@ -63,7 +63,6 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
   let nextSequence = registry.getState().lastAppliedWorkspaceSyncSequence + 1
   const events: WorkspaceSyncEvent[] = []
   const eventListeners = new Set<(event: WorkspaceSyncEvent) => void>()
-  const appliedListeners = new Set<(type: WorkspaceSyncEventType) => void>()
 
   function state(): WorkspaceSyncState {
     return registry.getState()
@@ -271,22 +270,10 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     return () => eventListeners.delete(listener)
   }
 
-  /**
-   * Told the type of EVERY accepted event, window-dispatched ones included
-   * (which `subscribeEvents` does not see: the IPC handler broadcasts those
-   * itself). For a main-side reader that only needs to know the registry
-   * moved, such as the worktree pool noticing an agent was removed.
-   */
-  function subscribeAppliedEvents(listener: (type: WorkspaceSyncEventType) => void): () => void {
-    appliedListeners.add(listener)
-    return () => appliedListeners.delete(listener)
-  }
-
   return {
     adoptWorkspace,
     createWorkspace,
     dispatch,
-    subscribeAppliedEvents,
     flush: () => registry.flush(),
     getEventsAfter,
     getSnapshot,
@@ -370,13 +357,6 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     nextSequence += 1
     events.push(event)
     if (events.length > maxReplayEvents) events.splice(0, events.length - maxReplayEvents)
-    for (const listener of appliedListeners) {
-      try {
-        listener(event.type)
-      } catch {
-        // A listener's failure is its own; the event is applied either way.
-      }
-    }
     if (announce) {
       for (const listener of eventListeners) listener(clone(event))
     }

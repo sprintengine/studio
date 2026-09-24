@@ -8,7 +8,6 @@ import type { GitCommandResult, GitWorktreeEntry } from './git'
 import { normalizeComparablePath, pathExists, runGitCommand } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
 import { resolveRepoRoot } from './git-worktree-validation'
-import { withWorktreeRegistryLock } from './worktree-registry-lock'
 
 /**
  * Removes the agent worktrees nobody needs any more, and nothing else.
@@ -57,12 +56,6 @@ export type AgentWorktreeCleanupDeps = {
   exists?: (path: string) => Promise<boolean>
   /** Working directories of the live terminal sessions, which are never removed from under. */
   livePaths?: () => string[]
-  /**
-   * Whether the worktree pool owns a path. A pool slot is on an `agent/` branch
-   * only while it is leased, and the pool alone decides what happens to it:
-   * it returns a slot to the pool, it never deletes one with its branch on it.
-   */
-  poolOwns?: (path: string) => boolean
   log?: (line: string) => void
 }
 
@@ -169,10 +162,6 @@ export async function cleanupAgentWorktrees(
 
   for (const worktree of candidates) {
     const base = { path: worktree.path, branch: worktree.branch }
-    if (deps.poolOwns?.(worktree.path)) {
-      record({ ...base, verdict: 'in-use', detail: 'worktree pool slot' })
-      continue
-    }
     // Something sits IN it. A protected path that merely contains it (a
     // workspace opened on a parent folder) does not use it.
     if (protectedPaths.some((path) => isInside(path, worktree.path))) {
@@ -221,7 +210,7 @@ export async function cleanupAgentWorktrees(
       continue
     }
     // No --force: git re-checks cleanliness itself at the moment of removal.
-    const removed = await withWorktreeRegistryLock(root, () => runGit(root, ['worktree', 'remove', worktree.path]))
+    const removed = await runGit(root, ['worktree', 'remove', worktree.path])
     record(
       removed.ok
         ? { ...base, verdict: 'removed', detail: how }
