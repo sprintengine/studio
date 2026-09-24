@@ -344,7 +344,18 @@ export function AgentClisSection({
                   key={plugin.id}
                   as="li"
                   surface="card"
-                  icon={<CliIcon cli={plugin.id} className="size-icon-lg text-[color:var(--text-default)]" />}
+                  // A CLI this machine does not have takes the muted ink on its
+                  // mark as well as its name (the row recedes the opacity).
+                  icon={
+                    <CliIcon
+                      cli={plugin.id}
+                      className={`size-icon-lg ${
+                        state.health === 'missing'
+                          ? 'text-[color:var(--text-muted)]'
+                          : 'text-[color:var(--text-default)]'
+                      }`}
+                    />
+                  }
                   // No health dot here either, and for the same reason it
                   // left the Agent CLIs catalogue (owner, 2026-09-10): this
                   // is the same list of CLIs, and nine identical green dots
@@ -403,9 +414,13 @@ export function AgentClisSection({
                   // rows say so on their state line and route to Re-check.
                   actions={
                     state.health === 'missing' ? (
-                      <PrimaryButton size="xs" onClick={() => openRow(plugin.id, true)}>
+                      // The outline secondary, not the primary: nine accent
+                      // Installs down the bottom of the list pulled the eye to
+                      // exactly the rows the list recedes (owner, 2026-09-24).
+                      // The accent stays for Update, on a CLI that is here.
+                      <OutlineButton size="xs" onClick={() => openRow(plugin.id, true)}>
                         Install
-                      </PrimaryButton>
+                      </OutlineButton>
                     ) : behind ? (
                       <PrimaryButton
                         size="xs"

@@ -70,9 +70,12 @@ the other.
   `text.muted`; nothing else changes. `text.muted` rather than the one step to
   `text.default`, which sat too close to the present rows to read as receded
   (owner ruling 2026-09-24), and rather than `text.subtle`, which falls under AA
-  on the dark card. **Not a disabled state** — every control
-  keeps working, and the Install button such a row carries is the reason it is
-  listed at all.
+  on the dark card. A glyph mark drawn in the text ink takes `text.muted` with
+  it. **Not a disabled state** — every control keeps working, and the Install
+  button such a row carries is the reason it is listed at all. That button is
+  the `--outline` secondary, not the primary: an accent fill on every absent row
+  pulls the eye straight back to the rows the list recedes (owner ruling
+  2026-09-24). The accent stays for the action on a present row (Update).
 - In a card (`ds-provider-row--in-card`) — the row inside the list card
   ([setting-row](../setting-row/component.md) → *The list card*, ruled
   2026-09-15). The face drops its radius and takes the card's `space.xl` side
@@ -129,7 +132,7 @@ the other.
   sentence.
 - **Recede absence, do not grey it out.** A provider the machine does not have
   belongs in the list — that is how it gets installed — but it should not hold
-  the same weight as one that is there. Recede it and leave its controls alone.
+  the same weight as one that is there. Recede it and leave its controls working.
   A list that mixes the two puts the present ones first, in their usual order,
   and the receded ones after them in the same order, so the list reads as what
   is here and then what could be.

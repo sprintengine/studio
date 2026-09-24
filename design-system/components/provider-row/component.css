@@ -86,6 +86,9 @@
  * installed" in words. */
 .ds-provider-row--recessed .ds-provider-row__mark {
   opacity: 0.6;
+  /* A glyph mark drawn in `currentColor` recedes to the name's ink too; a
+   * full-colour logo recedes by the opacity alone. */
+  color: var(--sem-color-text-muted);
 }
 
 .ds-provider-row--recessed .ds-provider-row__name {
