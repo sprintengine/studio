@@ -143,6 +143,7 @@ test('workspaceStore.persistence', async () => {
     useWorkspaceStore,
     __workspaceStoreBackupRecoveryPromise,
     __workspaceStoreRunBackupRecoveryForTests,
+    flushWorkspaceSettingsWrite,
   } = await import('./workspaceStore')
   const { normalizeWorkspaceForPartialize } = await import('./slices/normalizers')
 
@@ -192,7 +193,12 @@ test('workspaceStore.persistence', async () => {
   // satisfied by a persistence layer that had stopped working entirely.
   const settingsRawBefore = stored['sprintengine-app-settings']
   useWorkspaceStore.getState().setSidebarCollapsed(false)
-  await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  assert.equal(
+    stored['sprintengine-app-settings'],
+    settingsRawBefore,
+    'the settings write is coalesced: nothing is serialized in the store write itself',
+  )
+  flushWorkspaceSettingsWrite()
   assert.notEqual(
     stored['sprintengine-app-settings'],
     settingsRawBefore,
@@ -303,26 +309,60 @@ test('workspaceStore.persistence', async () => {
   // asserted end-to-end in `src/main/workspace-registry-reconciliation.test.ts`.
 
   // ── CASE 3 ──────────────────────────────────────────────────────────────────
-  // Backup mirror fires for non-empty registry writes only.
-  await new Promise<void>((resolve) => setTimeout(resolve, 350))
+  // Backup mirror fires for non-empty registry writes only, coalesced on a
+  // one-second timer.
+  await new Promise<void>((resolve) => setTimeout(resolve, 1100))
   const nonEmptyBackupCalls = backupWriteCalls.length
   assert.ok(nonEmptyBackupCalls > 0, 'backup write IPC fires for non-empty registry writes')
   const lastBackup = backupWriteCalls[backupWriteCalls.length - 1]
   assert.equal(typeof lastBackup.data, 'object', 'backup payload uses split registry/settings envelopes')
-  const lastBackupPair = lastBackup.data as BackupPair
-  const lastBackupParsed = JSON.parse(lastBackupPair.registry) as RegistryRecord
-  const lastBackupSettings = JSON.parse(lastBackupPair.settings) as SettingsRecord
-  assert.equal(lastBackupParsed.state.workspaces[0]?.id, persistedWorkspace.id)
-  assert.equal(
-    (lastBackupParsed.state as unknown as { appSettings?: unknown }).appSettings,
-    undefined,
-    'backup registry envelope is registry-only (no appSettings)',
-  )
-  assert.ok(lastBackupSettings.state.appSettings, 'backup settings envelope carries appSettings separately')
+  // The window sends only the settings envelope it owns. Main fills the
+  // registry half in from its own registry when it writes the file
+  // (`src/main/workspace-backup.test.ts`), so no registry is serialized here.
+  const lastBackupData = lastBackup.data as { registry?: unknown; settings: string }
+  assert.equal('registry' in lastBackupData, false, 'the window does not serialize the registry into the backup')
+  const lastBackupSettings = JSON.parse(lastBackupData.settings) as SettingsRecord
+  assert.ok(lastBackupSettings.state.appSettings, 'backup settings envelope carries appSettings')
   assert.equal(
     (lastBackupSettings.state as unknown as { workspaces?: unknown }).workspaces,
     undefined,
     'backup settings envelope does not carry workspaces',
+  )
+
+  // A store write that leaves every persisted settings field alone writes
+  // nothing and schedules nothing: the reference check is the whole cost.
+  const settingsRawBeforeNoop = stored['sprintengine-app-settings']
+  const backupCallsBeforeNoop = backupWriteCalls.length
+  let settingsWrites = 0
+  const countingSetItem = localStorageMock.setItem
+  localStorageMock.setItem = (key: string, value: string) => {
+    if (key === 'sprintengine-app-settings') settingsWrites += 1
+    countingSetItem(key, value)
+  }
+  for (let i = 0; i < 5; i += 1) useWorkspaceStore.setState({})
+  flushWorkspaceSettingsWrite()
+  await new Promise<void>((resolve) => setTimeout(resolve, 1100))
+  localStorageMock.setItem = countingSetItem
+  assert.equal(settingsWrites, 0, 'a no-op store write does not touch the settings key')
+  assert.equal(stored['sprintengine-app-settings'], settingsRawBeforeNoop)
+  assert.equal(backupWriteCalls.length, backupCallsBeforeNoop, 'a no-op store write does not refresh the backup')
+
+  // Several settings changes in a burst reach localStorage as one write
+  // carrying the last value, and survive a reload through the same key.
+  useWorkspaceStore.getState().setSidebarCollapsed(true)
+  useWorkspaceStore.getState().setSidebarCollapsed(false)
+  useWorkspaceStore.getState().setSidebarCollapsed(true)
+  localStorageMock.setItem = (key: string, value: string) => {
+    if (key === 'sprintengine-app-settings') settingsWrites += 1
+    countingSetItem(key, value)
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 350))
+  localStorageMock.setItem = countingSetItem
+  assert.equal(settingsWrites, 1, 'a burst of settings changes is one localStorage write')
+  assert.equal(
+    (JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord).state.sidebarCollapsed,
+    true,
+    'and it carries the last value',
   )
 
   // ── CASE 4 ──────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { create, type Mutate, type StoreApi, type UseBoundStore } from 'zustand'
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
 import type {
@@ -98,7 +98,6 @@ import {
 } from './workspaceSyncClient'
 import {
   APP_SETTINGS_STORAGE_KEY,
-  PRIMARY_WORKSPACE_WINDOW_ID,
   WORKSPACE_STORAGE_KEY,
   WORKSPACE_STORE_VERSION,
   type HydrationDiagnostic,
@@ -412,30 +411,36 @@ function getPersistedWorkspaceCount(raw: string | null): number {
   }
 }
 
-const BACKUP_WRITE_DEBOUNCE_MS = 250
+// The userData backup is the last-known-good copy that recovery falls back to
+// when the legacy registry key reads as dangerously empty. Main owns the
+// registry, so main fills the registry half in when it writes the file
+// (`src/main/workspace-backup.ts`) and this window sends only the settings
+// envelope it owns. Serializing a registry of a few hundred workspaces here
+// cost several milliseconds of this thread on every store write, for data
+// that was main's to begin with.
+//
+// The backup is refreshed when the settings or the workspace list change,
+// coalesced so that a burst of layout writes costs one IPC.
+const BACKUP_WRITE_DEBOUNCE_MS = 1000
 let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
-let pendingBackupValue: { registry: string; settings: string } | null = null
 
-function scheduleBackupWrite(serializedRegistryEnvelope: string, serializedSettingsEnvelope: string): void {
+function scheduleBackupWrite(): void {
   if (typeof window === 'undefined') return
   const api = window.api
   if (!api || typeof api.workspaceBackupWrite !== 'function') return
 
-  pendingBackupValue = {
-    registry: serializedRegistryEnvelope,
-    settings: serializedSettingsEnvelope,
-  }
   if (backupWriteTimer) clearTimeout(backupWriteTimer)
   backupWriteTimer = setTimeout(() => {
     backupWriteTimer = null
-    const value = pendingBackupValue
-    pendingBackupValue = null
-    if (value === null) return
+    const state = useWorkspaceStore.getState()
+    // The backup mirrors a non-empty registry only. An intentionally empty
+    // one is honored locally and never promoted over the last good copy.
+    if (state.workspaces.length === 0) return
     void api
       .workspaceBackupWrite({
         version: WORKSPACE_STORE_VERSION,
         writtenAt: new Date().toISOString(),
-        data: value,
+        data: { settings: serializeSettingsEnvelope(partializeWorkspaceStoreState(state), WORKSPACE_STORE_VERSION) },
       })
       .catch((error: unknown) => {
         console.warn('[workspaceStore] backup write failed', {
@@ -446,14 +451,14 @@ function scheduleBackupWrite(serializedRegistryEnvelope: string, serializedSetti
 }
 
 // Two-key split persistence (T23). The custom storage adapter is the only
-// place workspace-registry and app-settings keys are read/written, so non-
-// workspace state changes physically cannot serialize the workspace registry:
-//   setItem extracts registry fields → writes sprintengine-workspaces ONLY when
-//                                      those fields changed (dedup)
-//   setItem extracts settings fields → writes sprintengine-app-settings ONLY
-//                                      when those fields changed (dedup)
-// A setSidebarCollapsed call ends up in the dedup'd settings write; the
-// workspace-registry key is untouched, so it cannot be wiped by construction.
+// place workspace-registry and app-settings keys are read or written:
+//   sprintengine-workspaces   → read at hydration only. Main owns the
+//                               registry, and the key is frozen.
+//   sprintengine-app-settings → written when a settings field changes, and
+//                               then only on a coalesced timer (see setItem).
+// Partialize hands setItem the settings fields by reference, so a store write
+// that leaves them alone (a tab click, a terminal clock, a focus change) costs
+// a handful of reference comparisons and serializes nothing.
 
 type RegistryEnvelopeState = {
   workspaces: unknown
@@ -476,7 +481,6 @@ type SettingsEnvelopeState = {
 }
 
 let lastWrittenSettingsSerialized: string | null = null
-let suppressNextPersistWrite = false
 
 // The agent-launch fields are main's (launchSettingsReadModel.ts). A settings
 // envelope written before main owned them still carries them; hydration reads
@@ -581,24 +585,9 @@ function preserveAgentTerminalMetadata(
   return changed ? { ...incomingWorkspace, agents: nextAgents } : incomingWorkspace
 }
 
-function extractRegistryFields(state: Record<string, unknown>): RegistryEnvelopeState {
-  return {
-    workspaces: state.workspaces,
-    activeWorkspaceId: state.activeWorkspaceId,
-    workspaceWindows: state.workspaceWindows,
-    primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
-    workspaceRegistryEmptyState: state.workspaceRegistryEmptyState,
-  }
-}
-
-// The persist `partialize` normalizes the registry portion before it reaches
-// `setItem` — it strips workspace file content and in-memory agent buffers and
-// re-derives window membership. Any code that advances the registry dedup
-// baseline (`lastWrittenRegistrySerialized`) without going through a real
-// persist write must serialize this SAME normalized shape, otherwise a later
-// unrelated `setItem` sees a phantom registry diff and writes the registry.
-// This is the single source of that normalized shape, shared by `partialize`
-// and the imported-event no-echo baseline advance.
+// The registry in the shape this window offers main on the one-time hydration
+// handshake: workspace file content and in-memory agent buffers stripped, and
+// window membership re-derived. Main is never handed the raw store shape.
 type RegistryFields = Pick<
   WorkspaceStore,
   'workspaces' | 'activeWorkspaceId' | 'workspaceWindows' | 'primaryWorkspaceWindowId' | 'workspaceRegistryEmptyState'
@@ -650,61 +639,21 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
   return fields as SettingsEnvelopeState
 }
 
-function partializeWorkspaceStoreState(
-  s: WorkspaceStore,
-): ReturnType<typeof partializeRegistryFields> & SettingsEnvelopeState {
-  // s.workspaceRegistryEmptyState is the explicit intent record set by
-  // workspacesSlice.removeWorkspace when the splice leaves workspaces=[]
-  // and cleared by addWorkspace + importWorkspace. Its presence proves
-  // user intent; its absence with workspaces=[] proves a dangerous
-  // startup-write/wipe attempt.
-  if (s.workspaces.length === 0 && s.workspaceRegistryEmptyState == null) {
-    // Read the on-disk registry directly (not the legacy
-    // nonEmptyPersistedWorkspaceState helper) so we retain the last
-    // persisted registry even though the settings key may also exist.
-    const registry = readWorkspaceRegistryKey()
-    const retainedWorkspaces = Array.isArray(registry.envelope?.state?.workspaces)
-      ? (registry.envelope!.state.workspaces as Workspace[])
-      : []
-    if (retainedWorkspaces.length > 0) {
-      const retainedActiveId = (registry.envelope!.state.activeWorkspaceId as WorkspaceId | null | undefined) ?? null
-      const classification = classifyPersistedWorkspaceState({
-        rawLocalStorage: registry.raw,
-      })
-      console.warn('[workspaceStore] blocked empty workspace snapshot from overwriting persisted workspaces', {
-        retainedWorkspaceCount: retainedWorkspaces.length,
-        retainedActiveWorkspaceId: retainedActiveId,
-        persistedClassification: classification,
-        dangerous: isDangerousEmptyClassification(classification),
-      })
-      return {
-        appSettings: withoutLaunchSettings(s.appSettings),
-        sidebarCollapsed: s.sidebarCollapsed,
-        chatListView: s.chatListView,
-        sidebarWidth: s.sidebarWidth,
-        workspacePaneWidth: s.workspacePaneWidth,
-        openFilesInExternalWindow: s.openFilesInExternalWindow,
-        diffOpensInWindow: s.diffOpensInWindow,
-        diffView: s.diffView,
-        checkCliVersions: s.checkCliVersions,
-        workspaces: retainedWorkspaces,
-        activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
-        workspaceWindows: normalizeWorkspaceWindows(
-          retainedWorkspaces,
-          registry.envelope!.state.workspaceWindows as WorkspaceWindowState[] | undefined,
-          registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined,
-          retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
-        ).windows,
-        primaryWorkspaceWindowId:
-          (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined) ??
-          PRIMARY_WORKSPACE_WINDOW_ID,
-        workspaceRegistryEmptyState: null,
-      }
-    }
-  }
+/**
+ * What the persist middleware hands `setItem` on every store write: the
+ * settings fields, by reference, and the workspace list, by reference only.
+ *
+ * Nothing here is copied or normalized. The write path decides from reference
+ * equality whether anything it owns changed, and only then pays for
+ * serialization. The registry is not in it: main persists the registry, and
+ * the legacy key is frozen. `workspaces` rides along so a change to the list
+ * can ask main to refresh the userData backup; it is never written from here.
+ */
+type PersistedWorkspaceSlice = SettingsEnvelopeState & { workspaces: WorkspaceStore['workspaces'] }
 
+function partializeWorkspaceStoreState(s: WorkspaceStore): PersistedWorkspaceSlice {
   return {
-    appSettings: withoutLaunchSettings(s.appSettings),
+    appSettings: s.appSettings,
     sidebarCollapsed: s.sidebarCollapsed,
     chatListView: s.chatListView,
     sidebarWidth: s.sidebarWidth,
@@ -713,8 +662,24 @@ function partializeWorkspaceStoreState(
     diffOpensInWindow: s.diffOpensInWindow,
     diffView: s.diffView,
     checkCliVersions: s.checkCliVersions,
-    ...partializeRegistryFields(s),
+    workspaces: s.workspaces,
   }
+}
+
+function settingsFieldsUnchanged(previous: PersistedWorkspaceSlice, next: PersistedWorkspaceSlice): boolean {
+  for (const key of SETTINGS_ENVELOPE_FIELDS) {
+    if (previous[key] !== next[key]) return false
+  }
+  return true
+}
+
+/** The settings key's on-disk envelope, launch fields stripped (see persistableAppSettings). */
+function serializeSettingsEnvelope(state: PersistedWorkspaceSlice, version: number): string {
+  const settingsFields = extractSettingsFields(state as unknown as Record<string, unknown>)
+  return JSON.stringify({
+    state: { ...settingsFields, appSettings: persistableAppSettings(settingsFields.appSettings) },
+    version,
+  })
 }
 
 export function __workspaceStorePartializeForTests(
@@ -809,8 +774,62 @@ function parseSettingsEnvelopeState(raw: string | null): SettingsEnvelopeState |
   }
 }
 
-const workspaceStateStorage: StateStorage = {
-  getItem: (_name: string): string | null => {
+// A settings change reaches localStorage at most this long after it lands in
+// the store. Long enough to fold a drag of the sidebar edge, or the handful of
+// writes one click can make, into a single write; short enough that nothing a
+// person could notice is lost if the process dies without a pagehide.
+const SETTINGS_WRITE_COALESCE_MS = 250
+let settingsWriteTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSettingsWrite: { state: PersistedWorkspaceSlice; version: number } | null = null
+// The last slice setItem saw, for the reference comparison. Null until the
+// first write after hydration, which is therefore always examined in full.
+let lastPersistedSlice: PersistedWorkspaceSlice | null = null
+
+/**
+ * Write the pending settings change now, if there is one. Runs on the coalesce
+ * timer and when the window is hidden or unloads, so a change made just before
+ * quitting or reloading still reaches disk. Exported for tests.
+ */
+export function flushWorkspaceSettingsWrite(): void {
+  if (settingsWriteTimer !== null) {
+    clearTimeout(settingsWriteTimer)
+    settingsWriteTimer = null
+  }
+  const pending = pendingSettingsWrite
+  pendingSettingsWrite = null
+  if (!pending || typeof window === 'undefined') return
+  // Content dedup on top of the reference check: a setter that rebuilds
+  // `appSettings` with the same values changes the reference, not the data.
+  const settingsSerialized = JSON.stringify(extractSettingsFields(pending.state as unknown as Record<string, unknown>))
+  if (settingsSerialized === lastWrittenSettingsSerialized) return
+  try {
+    window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, serializeSettingsEnvelope(pending.state, pending.version))
+  } catch (error) {
+    console.warn('[workspaceStore] localStorage settings write failed', {
+      message: error instanceof Error ? error.message : 'unknown',
+    })
+  }
+  lastWrittenSettingsSerialized = settingsSerialized
+  // The backup carries the settings envelope too, so recovery does not
+  // restore workspaces while silently dropping recent folders, skill packs or
+  // sidebar state.
+  if (pending.state.workspaces.length > 0) scheduleBackupWrite()
+}
+
+function installSettingsFlushOnExit(): void {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+  window.addEventListener('pagehide', flushWorkspaceSettingsWrite)
+  window.addEventListener('beforeunload', flushWorkspaceSettingsWrite)
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushWorkspaceSettingsWrite()
+    })
+  }
+}
+installSettingsFlushOnExit()
+
+const workspaceStateStorage: PersistStorage<PersistedWorkspaceSlice> = {
+  getItem: (_name: string): StorageValue<PersistedWorkspaceSlice> | null => {
     if (typeof window === 'undefined') {
       hydrationContext.storageSource = 'fresh'
       hydrationContext.classification = 'dangerous_empty_missing_storage'
@@ -883,69 +902,47 @@ const workspaceStateStorage: StateStorage = {
     // decide whether to re-serialize that key. The registry key has no baseline
     // any more: it is frozen and never written again.
     lastWrittenSettingsSerialized = JSON.stringify(extractSettingsFields(mergedState))
-    return JSON.stringify({ state: mergedState, version })
+    // Handed to the middleware as an object: both halves were just parsed, so
+    // a stringify-and-parse round trip here would only copy them. A key whose
+    // value is undefined is dropped, as that round trip used to drop it, so
+    // merge's spread cannot blank a field in the current state.
+    for (const key of Object.keys(mergedState)) {
+      if (mergedState[key] === undefined) delete mergedState[key]
+    }
+    return { state: mergedState as unknown as PersistedWorkspaceSlice, version }
   },
 
-  setItem: (_name: string, value: string): void => {
+  // The persist middleware calls this after EVERY store write, including the
+  // many that change nothing it persists: a tab click is about three writes.
+  // So the fast path is reference comparison and nothing else, and the one
+  // write that does change a setting is coalesced onto a short timer, flushed
+  // early when the window goes away (`flushWorkspaceSettingsWrite`).
+  //
+  // The registry key is FROZEN, not deleted. Main owns the workspace registry,
+  // so the renderer does not write this key and leaves the last written value
+  // in place as the rollback artifact; a later release deletes it, in its own
+  // commit. The stated trade: a user who downgrades loses workspace changes
+  // made since. Dual-writing the key instead would be exactly the dual
+  // authority the move to main exists to end, and a stale dual-write is worse
+  // than a clean frozen snapshot, because it would silently lose the NEWER
+  // state on the way back up.
+  setItem: (_name: string, value: StorageValue<PersistedWorkspaceSlice>): void => {
     if (typeof window === 'undefined') return
-    if (suppressNextPersistWrite) return
-    let envelope: { state?: Record<string, unknown>; version?: number } | null = null
-    try {
-      envelope = JSON.parse(value) as { state?: Record<string, unknown>; version?: number }
-    } catch (error) {
-      console.warn('[workspaceStore] persist envelope parse failed', {
-        message: error instanceof Error ? error.message : 'unknown',
-      })
-      return
-    }
-    if (!envelope?.state) return
-    const version = envelope.version ?? WORKSPACE_STORE_VERSION
-    const fullState = envelope.state
+    const next = value.state
+    const previous = lastPersistedSlice
+    lastPersistedSlice = next
 
-    // The registry key is FROZEN, not deleted. Main owns the workspace
-    // registry now, so the renderer stops writing this key and leaves the last
-    // written value in place for one release as the rollback artifact; the
-    // release after this deletes it, in its own commit.
-    //
-    // The stated trade: a user who downgrades after one release loses workspace
-    // changes made during it. Dual-writing the key instead would be exactly the
-    // dual authority this move exists to end — and a stale dual-write is worse
-    // than a clean frozen snapshot, because it would silently lose the NEWER
-    // state on the way back up.
-    const registryFields = extractRegistryFields(fullState)
-    const registryEnvelopeSerialized = JSON.stringify({ state: registryFields, version })
-
-    // Settings key — also dedup'd. Workspace registry mutations that don't
-    // touch settings produce identical settings payloads here, so the
-    // settings key is left alone.
-    const settingsFields = extractSettingsFields(fullState)
-    const settingsSerialized = JSON.stringify(settingsFields)
-    const settingsEnvelopeSerialized = JSON.stringify({
-      state: { ...settingsFields, appSettings: persistableAppSettings(settingsFields.appSettings) },
-      version,
-    })
-    if (settingsSerialized !== lastWrittenSettingsSerialized) {
-      try {
-        window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, settingsEnvelopeSerialized)
-      } catch (error) {
-        console.warn('[workspaceStore] localStorage settings write failed', {
-          message: error instanceof Error ? error.message : 'unknown',
-        })
-      }
-      lastWrittenSettingsSerialized = settingsSerialized
+    // A changed workspace list asks main for a fresh backup. Only a non-empty
+    // one: the intentional empty case is honored locally but never promoted
+    // over the last-known-good copy.
+    if (previous && previous.workspaces !== next.workspaces && next.workspaces.length > 0) {
+      scheduleBackupWrite()
     }
-    // Backup mirror only when the registry has actual workspaces — the
-    // intentional empty case (registryFields.workspaces=[],
-    // workspaceRegistryEmptyState non-null) is honored locally but not
-    // promoted to the userData backup, because backup is the last-known-
-    // good non-empty mirror and stays out of intent decisions (AC4).
-    //
-    // The backup includes both split envelopes so recovery does not restore
-    // workspaces while silently dropping app settings such as recent folders,
-    // skill packs, or sidebar state. (The agent-launch settings are main's and
-    // leave the envelope once main holds a record.)
-    if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
-      scheduleBackupWrite(registryEnvelopeSerialized, settingsEnvelopeSerialized)
+
+    if (previous && settingsFieldsUnchanged(previous, next)) return
+    pendingSettingsWrite = { state: next, version: value.version ?? WORKSPACE_STORE_VERSION }
+    if (settingsWriteTimer === null) {
+      settingsWriteTimer = setTimeout(flushWorkspaceSettingsWrite, SETTINGS_WRITE_COALESCE_MS)
     }
   },
 
@@ -958,6 +955,8 @@ const workspaceStateStorage: StateStorage = {
       // Removal is best-effort.
     }
     lastWrittenSettingsSerialized = null
+    lastPersistedSlice = null
+    pendingSettingsWrite = null
   },
 }
 
@@ -1255,7 +1254,9 @@ export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
     {
       name: WORKSPACE_STORAGE_KEY,
       version: WORKSPACE_STORE_VERSION,
-      storage: createJSONStorage(() => workspaceStateStorage),
+      // The middleware's option type is widened to `unknown` by the explicit
+      // hook type above; partialize and this storage agree on the slice.
+      storage: workspaceStateStorage as PersistStorage<unknown>,
       migrate: (persisted: unknown, version: number) => {
         try {
           return migratePersistedWorkspaceState(persisted, version)
