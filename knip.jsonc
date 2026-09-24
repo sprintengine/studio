@@ -27,6 +27,9 @@
     // The Windows system launcher for a WSL distribution: it lists the
     // distributions and starts each one's helper. Not an npm binary.
     "wsl.exe",
+    // The POSIX disk-usage tool, run with execFile to size a worktree pool
+    // slot on macOS and Linux. Part of the operating system, not an npm binary.
+    "du",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
