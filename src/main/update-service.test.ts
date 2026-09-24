@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { beforeEach, test, vi } from 'vitest'
 
 import type { AppUpdateTrack } from '../shared/electron-api'
+import { standIn } from '../../tests/stand-in'
 
 // The two things the service configures and reads: Electron's app identity and
 // electron-updater's singleton. The updater stand-in copies the one side effect
@@ -10,6 +11,9 @@ import type { AppUpdateTrack } from '../shared/electron-api'
 // every stable install a downgrade.
 const hoisted = vi.hoisted(() => {
   const app = { version: '0.5.2', packaged: true }
+  // How many times the updater module was loaded; it is loaded lazily, on the
+  // first check, rather than when the service is built.
+  const loads = { count: 0 }
   class CancellationToken {
     cancelled = false
     cancel() {
@@ -62,7 +66,7 @@ const hoisted = vi.hoisted(() => {
       this.installs.push({ isSilent, isForceRunAfter })
     },
   }
-  return { app, updater, CancellationToken }
+  return { app, updater, CancellationToken, loads }
 })
 
 vi.mock('electron', () => ({
@@ -75,7 +79,17 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   shell: { openExternal: async () => undefined },
 }))
-vi.mock('electron-updater', () => ({ autoUpdater: hoisted.updater, CancellationToken: hoisted.CancellationToken }))
+// Stood in at `require`, which is how the service loads it (lazily, on the
+// first check). Reading `autoUpdater` is what counts as a load.
+standIn({
+  'electron-updater': {
+    get autoUpdater() {
+      hoisted.loads.count += 1
+      return hoisted.updater
+    },
+    CancellationToken: hoisted.CancellationToken,
+  },
+})
 
 const { SprintEngineUpdateService } = await import('./update-service')
 
@@ -96,6 +110,26 @@ function service(store = memoryStore()) {
   return new SprintEngineUpdateService({ writeDiagnosticLog: async () => ({}) as never, channelStore: store })
 }
 
+/**
+ * A service whose updater has been loaded and configured, which happens on the
+ * first check. The check is forgotten again, so a test sees only its own.
+ */
+async function readyService(store = memoryStore()) {
+  const s = service(store)
+  await s.checkForUpdates(false)
+  hoisted.updater.checks = []
+  return s
+}
+
+/** The configuration the updater had when it was last asked for an update. */
+function lastCheck() {
+  return hoisted.updater.checks.at(-1)
+}
+
+async function settle(): Promise<void> {
+  for (let pass = 0; pass < 5; pass += 1) await new Promise((resolve) => setImmediate(resolve))
+}
+
 beforeEach(() => {
   hoisted.app.version = '0.5.2'
   hoisted.app.packaged = true
@@ -111,36 +145,48 @@ beforeEach(() => {
   hoisted.updater.listeners.clear()
 })
 
-test('a stable build follows latest, sees no prerelease and is never offered a downgrade', () => {
+test('electron-updater is not loaded until the first check needs it', async () => {
+  // First in the file on purpose: the module is loaded once per suite.
+  const s = service()
+  assert.equal(s.getState().channel, 'stable')
+  assert.equal(hoisted.loads.count, 0, 'building the service loads nothing')
+  await s.checkForUpdates(false)
+  assert.equal(hoisted.loads.count, 1, 'the first check loads it')
+})
+
+test('a stable build follows latest, sees no prerelease and is never offered a downgrade', async () => {
   const s = service()
   assert.equal(s.getState().channel, 'stable')
   assert.deepEqual(s.getChannel(), { channel: 'stable', chosen: false })
-  assert.equal(hoisted.updater.channel, 'latest')
-  assert.equal(hoisted.updater.allowPrerelease, false)
-  assert.equal(hoisted.updater.allowDowngrade, false)
+  await s.checkForUpdates(false)
+  assert.deepEqual(lastCheck(), { channel: 'latest', allowPrerelease: false, allowDowngrade: false })
 })
 
-test('a nightly build follows nightly', () => {
+test('a nightly build follows nightly', async () => {
   hoisted.app.version = '0.6.0-nightly.20260923.41'
   const s = service()
   assert.equal(s.getState().channel, 'nightly')
-  assert.equal(hoisted.updater.channel, 'nightly')
-  assert.equal(hoisted.updater.allowPrerelease, true)
-  assert.equal(hoisted.updater.allowDowngrade, false)
+  await s.checkForUpdates(false)
+  assert.deepEqual(lastCheck(), { channel: 'nightly', allowPrerelease: true, allowDowngrade: false })
 })
 
-test('a saved choice overrides the version at startup', () => {
+test('a saved choice overrides the version at startup', async () => {
   const s = service(memoryStore('nightly'))
   assert.equal(s.getState().channel, 'nightly')
   assert.deepEqual(s.getChannel(), { channel: 'nightly', chosen: true })
-  assert.equal(hoisted.updater.allowPrerelease, true)
+  await s.checkForUpdates(false)
+  assert.equal(lastCheck()?.allowPrerelease, true)
 
   hoisted.app.version = '0.6.0-nightly.20260923.41'
-  service(memoryStore('stable'))
-  assert.equal(hoisted.updater.channel, 'latest')
-  assert.equal(hoisted.updater.allowPrerelease, false)
+  await service(memoryStore('stable')).checkForUpdates(false)
   // Its own version sorts above the latest stable until the next promotion.
-  assert.equal(hoisted.updater.allowDowngrade, true)
+  assert.deepEqual(lastCheck(), { channel: 'latest', allowPrerelease: false, allowDowngrade: true })
+})
+
+test('a channel chosen before the first check is the one the first check follows', async () => {
+  const s = service()
+  await s.setChannel('nightly')
+  assert.deepEqual(hoisted.updater.checks, [{ channel: 'nightly', allowPrerelease: true, allowDowngrade: false }])
 })
 
 test('switching channel saves it, re-points the updater, and checks the new channel', async () => {
@@ -183,7 +229,7 @@ test('the build channel is what the version was cut for, whatever the updater fo
 })
 
 test('an update found on the old channel is forgotten when the channel changes', async () => {
-  const s = service()
+  const s = await readyService()
   hoisted.updater.listeners.get('update-downloaded')?.({ version: '0.5.3' })
   assert.equal(s.getState().downloaded, true)
   assert.equal(hoisted.updater.autoInstallOnAppQuit, true)
@@ -201,9 +247,10 @@ test('an update found on the old channel is forgotten when the channel changes',
 })
 
 test('a download still running on the old channel is cancelled and never becomes the update to install', async () => {
-  const s = service()
+  const s = await readyService()
   hoisted.updater.listeners.get('update-available')?.({ version: '0.5.3' })
   const pending = s.downloadUpdate()
+  await settle()
   const running = hoisted.updater.downloads[0]
   assert.ok(running, 'the service started a download')
   const check = hoisted.updater.checkForUpdates
@@ -230,6 +277,7 @@ test('a download still running on the old channel is cancelled and never becomes
   // The next download is the new channel's own, and completes normally.
   hoisted.updater.listeners.get('update-available')?.({ version: '0.6.0-nightly.20260923.41' })
   const next = s.downloadUpdate()
+  await settle()
   hoisted.updater.listeners.get('update-downloaded')?.({ version: '0.6.0-nightly.20260923.41' })
   hoisted.updater.downloads[1]?.finish()
   assert.equal((await next).ok, true)
