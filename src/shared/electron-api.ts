@@ -1044,6 +1044,11 @@ export type ElectronApi = {
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+  /** Lift an in-use lock the app placed on an agent worktree (never a lock a person placed). */
+  unlockAgentGitWorktree: (
+    repoRoot: string,
+    worktreePath: string,
+  ) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   /**
    * This repository's changelists, pruned against `git status` before they are
    * answered (git-commit-window T6). Every call below answers with the whole

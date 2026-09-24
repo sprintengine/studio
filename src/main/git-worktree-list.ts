@@ -1,3 +1,4 @@
+import { agentWorktreeLockOwner } from './agent-worktree-lock'
 import type { GitWorktreeEntry, GitWorktreeListSnapshot, GitWorktreeOperationResult } from './git'
 import { runGitCommand } from './git-utils'
 import { resolveRepoRoot } from './git-worktree-validation'
@@ -56,6 +57,8 @@ function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
     } else if (line === 'locked' || line.startsWith('locked ')) {
       current.locked = true
       current.lockedReason = line === 'locked' ? null : line.slice('locked '.length)
+      const agentLock = agentWorktreeLockOwner(current.lockedReason)
+      if (agentLock) current.agentLock = agentLock
     } else if (line === 'prunable' || line.startsWith('prunable ')) {
       current.prunable = true
       current.prunableReason = line === 'prunable' ? null : line.slice('prunable '.length)

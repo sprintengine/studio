@@ -109,7 +109,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeekService } from './conversation-peek/service'
-import { createAgentPromptStore } from './agent-prompt-store'
+import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   cliResumeCapabilities,
   createTerminalRuntime,
@@ -545,6 +545,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     broadcast: broadcastGitChangelistsChanged,
   })
 
+  // The conversation peek's durable history: each agent's captured prompts,
+  // kept beside the agent's record in userData so they outlive the session,
+  // the app and the sidecar sweep. The registry (created below, and only asked
+  // once prompts are being written) says which agents still exist, so eviction
+  // never takes the history of one still in the sidebar.
+  const agentPrompts = createAgentPromptStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    agentExists: ({ workspaceId, agentId }) => {
+      const record = workspaceRegistry.getRecord(workspaceId)
+      if (record) return Object.hasOwn(record.agents, agentId)
+      // A workspace the registry has never heard of is gone only once the
+      // registry is authoritative; before hydration nothing is known.
+      return workspaceRegistry.needsHydration() ? undefined : false
+    },
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
+    },
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     logMainPerfEvent,
@@ -579,15 +598,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
       },
     }),
-    // The conversation peek's durable history: each agent's captured prompts,
-    // kept beside the agent's record in userData so they outlive the session,
-    // the app and the sidecar sweep.
-    agentPrompts: createAgentPromptStore({
-      resolveUserDataDir: () => app.getPath('userData'),
-      logDiagnostic: (diagnostic) => {
-        void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
-      },
-    }),
+    agentPrompts,
     // Reaper decision trail (actions + rate-limited skips) into the daily
     // diagnostics JSONL — the in-memory reap ring buffer dies with the process.
     logDiagnostic: (diagnostic) => {
@@ -783,6 +794,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const workspaceRegistry = createWorkspaceRegistryService({
     store: workspaceRegistryStore,
     logDiagnostic: logWorkspaceSyncDiagnostic,
+  })
+  // An agent removed from the registry (its row deleted, or its workspace
+  // removed) takes its stored prompts with it: they are a person's verbatim
+  // typing, and nothing can show them any more.
+  let registeredAgents = registeredAgentOwners(workspaceRegistry.getState())
+  workspaceRegistry.subscribe((state) => {
+    const next = registeredAgentOwners(state)
+    for (const [key, owner] of registeredAgents) {
+      if (!next.has(key)) void agentPrompts.remove(owner)
+    }
+    registeredAgents = next
   })
   const workspaceSyncService = createWorkspaceSyncService({
     registry: workspaceRegistry,
@@ -1217,6 +1239,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               // this checkout's branches); a local one forks HEAD as it always did.
               baseRef: baseRef?.trim() || 'HEAD',
               copyIncludedFiles: true,
+              // The agent's id is minted after this, by the launch; the branch
+              // names the owner until then.
+              agentLockOwner: paths.branchName,
             })
             if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
             return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }

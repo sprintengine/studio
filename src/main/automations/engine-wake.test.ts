@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'vitest'
 
 import type { AutomationsEngineEvaluationResult } from './engine'
 import { AutomationsEngine, nextAutomationsWakeDelayMs } from './engine'
-import type { AutomationsStore } from './store'
+import { AutomationsStore } from './store'
 
 const MINUTE = 60_000
 const NOW = Date.parse('2026-06-17T09:00:00.000Z')
@@ -136,4 +139,69 @@ test('the engine arms one timer from each evaluation, and wake re-evaluates at o
   engine.wake()
   await settle()
   assert.equal(evaluations, 3, 'a stopped engine does not wake')
+})
+
+async function manualRunEngine(maxAgentRunMs: number) {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-automations-wake-'))
+  const store = new AutomationsStore(workspaceRoot)
+  const created = await store.createDefinition({
+    id: 'review',
+    name: 'Review',
+    status: 'enabled',
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 60 * 24 } },
+    },
+    action: { kind: 'spawn-agent', config: { prompt: 'Review the repository.' } },
+    // Far enough out that the quarter-hour cap is what the startup evaluation arms.
+    nextRunAt: new Date(NOW + 24 * 60 * MINUTE).toISOString(),
+    lastRunAt: null,
+    lastRunId: null,
+    createdAt: new Date(NOW).toISOString(),
+    updatedAt: new Date(NOW).toISOString(),
+  })
+  assert.equal(created.ok, true)
+  const armed: number[] = []
+  let cleared = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: workspaceRoot }],
+    now: () => NOW,
+    maxAgentRunMs,
+    runAutomation: async () => ({ status: 'running', workspaceId: 'ws-a', agentId: 'agent-1' }),
+    timers: {
+      setTimeout: (_handler, ms) => {
+        armed.push(ms)
+        return armed.length
+      },
+      clearTimeout: () => {
+        cleared += 1
+      },
+    },
+  })
+  engine.start()
+  await engine.handleStartup()
+  for (let index = 0; index < 50; index += 1) await Promise.resolve()
+  return { engine, workspaceRoot, armed, cleared: () => cleared }
+}
+
+test('a manual run pulls the wake in to its max-duration deadline', async () => {
+  const { engine, workspaceRoot, armed, cleared } = await manualRunEngine(5 * MINUTE)
+  assert.deepEqual(armed, [15 * MINUTE], 'startup arms the quarter-hour cap')
+
+  const ran = await engine.runNow({ workspaceRoot, automationId: 'review', workspaceId: 'ws-a' })
+  assert.equal(ran.ok, true)
+  // Before, the pending run's deadline was only seen at the next wake, up to
+  // fifteen minutes past the limit.
+  assert.deepEqual(armed, [15 * MINUTE, 5 * MINUTE], 'the deadline re-arms the timer')
+  assert.equal(cleared(), 1, 'the later timer is replaced, not doubled')
+  engine.stop()
+})
+
+test('a manual run whose deadline is past the armed wake leaves the timer alone', async () => {
+  const { engine, workspaceRoot, armed, cleared } = await manualRunEngine(6 * 60 * MINUTE)
+  const ran = await engine.runNow({ workspaceRoot, automationId: 'review', workspaceId: 'ws-a' })
+  assert.equal(ran.ok, true)
+  assert.deepEqual(armed, [15 * MINUTE])
+  assert.equal(cleared(), 0)
+  engine.stop()
 })

@@ -27,6 +27,15 @@ export const POLLER_FOCUS_UPDATE_AFTER_MS = 30 * 60_000
 export const POLLER_BATTERY_STRETCH = 4
 /** A leg that came due while the machine slept runs this soon after it wakes. */
 export const POLLER_WAKE_SETTLE_MS = 10_000
+/**
+ * The network is often still coming up when the wake check fires (Wi-Fi
+ * rejoining, a VPN reconnecting). An offline wake check is retried this often,
+ * up to {@link POLLER_WAKE_OFFLINE_RETRIES} times, before it falls back to the
+ * ordinary interval — otherwise "check on waking" would mostly skip itself and
+ * push the next check an hour (four on battery) out.
+ */
+export const POLLER_WAKE_OFFLINE_RETRY_MS = 30_000
+export const POLLER_WAKE_OFFLINE_RETRIES = 10
 
 type PollerLeg = 'updates' | 'feed' | 'versions'
 
@@ -51,8 +60,10 @@ export type HostedFeedPoller = {
   /** The machine is going to sleep: hold every timer until `wake`. */
   suspend(): void
   /**
-   * The machine woke. Check for an update now — a release may have shipped
-   * overnight — and pick the other legs back up where their intervals say.
+   * The machine woke. Check for an update once the network has had a moment to
+   * come back — a release may have shipped overnight — retrying shortly while
+   * it is still offline, and pick the other legs back up where their intervals
+   * say.
    */
   wake(): void
   /** A window gained focus. Checks for an update if the last check is old enough. */
@@ -84,6 +95,11 @@ export function createHostedFeedPoller(deps: HostedFeedPollerDeps): HostedFeedPo
   // from the schedule instead of losing its place in it.
   const dueAt = new Map<PollerLeg, number>()
   let lastUpdateCheckAt = 0
+  // Offline retries the current wake check has left; 0 outside one.
+  let wakeRetriesLeft = 0
+  // Bumped by every `schedule`, so a tick that finishes after something else
+  // rescheduled its leg (a wake during an in-flight check) does not undo that.
+  const generation = new Map<PollerLeg, number>()
   let running = false
   let suspended = false
   let onBattery = false
@@ -119,12 +135,23 @@ export function createHostedFeedPoller(deps: HostedFeedPollerDeps): HostedFeedPo
     timers.delete(leg)
   }
 
-  // Offline: skip this tick, keep the rhythm. Nothing is retried early; the
-  // next tick will find the network or not.
+  // Offline: skip this tick, keep the rhythm. Nothing is retried early — the
+  // next tick will find the network or not — except the check a wake asked
+  // for, which retries on a short cadence for a few minutes first.
   const runThenReschedule = (leg: PollerLeg): void => {
-    const tick = isOnline() ? run(leg) : Promise.resolve()
+    const online = isOnline()
+    if (leg === 'updates') {
+      if (!online && wakeRetriesLeft > 0) {
+        wakeRetriesLeft -= 1
+        schedule(leg, POLLER_WAKE_OFFLINE_RETRY_MS)
+        return
+      }
+      wakeRetriesLeft = 0
+    }
+    const tick = online ? run(leg) : Promise.resolve()
+    const scheduledAs = generation.get(leg) ?? 0
     void tick.finally(() => {
-      if (running) schedule(leg, interval(leg))
+      if (running && generation.get(leg) === scheduledAs) schedule(leg, interval(leg))
     })
   }
 
@@ -147,6 +174,7 @@ export function createHostedFeedPoller(deps: HostedFeedPollerDeps): HostedFeedPo
   }
 
   const schedule = (leg: PollerLeg, delay: number): void => {
+    generation.set(leg, (generation.get(leg) ?? 0) + 1)
     dueAt.set(leg, now() + delay)
     arm(leg)
   }
@@ -173,6 +201,7 @@ export function createHostedFeedPoller(deps: HostedFeedPollerDeps): HostedFeedPo
     },
     stop() {
       running = false
+      wakeRetriesLeft = 0
       for (const leg of LEGS) clearLegTimer(leg)
       dueAt.clear()
     },
@@ -194,7 +223,11 @@ export function createHostedFeedPoller(deps: HostedFeedPollerDeps): HostedFeedPo
         if (at !== undefined && at < soonest) dueAt.set(leg, soonest)
         arm(leg)
       }
-      checkUpdatesNow()
+      // The update check waits out the same settle: fired the instant the lid
+      // opens it nearly always found the network down, skipped itself and
+      // moved the next check a full interval away.
+      wakeRetriesLeft = POLLER_WAKE_OFFLINE_RETRIES
+      schedule('updates', POLLER_WAKE_SETTLE_MS)
     },
     noteFocus() {
       if (!running || suspended) return

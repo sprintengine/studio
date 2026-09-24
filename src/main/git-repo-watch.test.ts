@@ -13,7 +13,8 @@ import { classifyGitDirEntry, createGitRepoWatch, resolveGitDirs } from './git-r
 
 type FakeDirWatch = { dir: string; recursive: boolean; fire: (filename: string | null) => void; closed: boolean }
 
-function harness() {
+function harness(options: { missing?: Set<string> } = {}) {
+  const missing = options.missing ?? new Set<string>()
   const dirs: FakeDirWatch[] = []
   const emitted: GitCheckoutChange[][] = []
   const timers: Array<{ callback: () => void; cleared: boolean }> = []
@@ -32,6 +33,7 @@ function harness() {
       return { toplevel: checkoutPath, gitDir: '/Users/dev/app/.git', commonDir: '/Users/dev/app/.git' }
     },
     watch: (dir, options, listener) => {
+      if (missing.has(dir)) throw Object.assign(new Error(`ENOENT: ${dir}`), { code: 'ENOENT' })
       const record: FakeDirWatch = {
         dir,
         recursive: options.recursive,
@@ -69,7 +71,7 @@ function harness() {
     assert.ok(found, `watching ${path}`)
     return found
   }
-  return { watch, dirs, emitted, flush, dir, repeating }
+  return { watch, dirs, emitted, flush, dir, repeating, missing }
 }
 
 test('what a change in a git directory means', () => {
@@ -94,13 +96,15 @@ test('checkouts of one repository share the watchers on its common dir', async (
   assert.deepEqual(open.sort(), [
     '/Users/dev/app/.git',
     '/Users/dev/app/.git/refs (r)',
+    '/Users/dev/app/.git/reftable',
     '/Users/dev/app/.git/worktrees',
     '/Users/dev/app/.git/worktrees/wt-a',
+    '/Users/dev/app/.git/worktrees/wt-a/reftable',
   ])
   watch.release('/Users/dev/wt-a')
   assert.equal(dirs.find((record) => record.dir.endsWith('worktrees/wt-a'))?.closed, true)
   watch.release('/Users/dev/app')
-  assert.equal(watch.watchedDirCount(), 3, 'still retained once')
+  assert.equal(watch.watchedDirCount(), 4, 'still retained once')
   watch.release('/Users/dev/app')
   assert.equal(watch.watchedDirCount(), 0, 'the last release closes everything')
 })
@@ -135,6 +139,48 @@ test('a ref moving reaches every checkout of the repository; an index change onl
   dir('/Users/dev/app/.git').fire('logs')
   flush()
   assert.equal(emitted.length, 4, 'noise delivers nothing')
+})
+
+test('a reftable repository reports its refs through reftable/', async () => {
+  const { watch, emitted, flush, dir } = harness()
+  await watch.retain('/Users/dev/app')
+  await watch.retain('/Users/dev/wt-a')
+  dir('/Users/dev/app/.git/reftable').fire('tables.list')
+  flush()
+  assert.deepEqual(emitted[0].map((change) => [change.checkoutKey, change.kinds.join('+')]).sort(), [
+    ['/Users/dev/app', 'refs'],
+    ['/Users/dev/wt-a', 'refs'],
+  ])
+  // A linked checkout's own table (its HEAD) is that checkout's alone.
+  dir('/Users/dev/app/.git/worktrees/wt-a/reftable').fire('tables.list')
+  flush()
+  assert.deepEqual(emitted[1], [{ checkoutKey: '/Users/dev/wt-a', kinds: ['refs', 'worktree'], reason: 'gitdir' }])
+  assert.deepEqual(classifyGitDirEntry('reftable', true), ['refs'])
+})
+
+test('a worktrees/ folder that appears after the checkout was watched is watched then', async () => {
+  const { watch, emitted, flush, dir, dirs, missing } = harness({ missing: new Set(['/Users/dev/app/.git/worktrees']) })
+  await watch.retain('/Users/dev/app')
+  assert.equal(
+    dirs.some((record) => record.dir === '/Users/dev/app/.git/worktrees'),
+    false,
+    'nothing to watch yet',
+  )
+  missing.clear()
+  // The first `worktree add` creates it; the common dir reports the new entry.
+  dir('/Users/dev/app/.git').fire('worktrees')
+  flush()
+  assert.deepEqual(emitted[0], [{ checkoutKey: '/Users/dev/app', kinds: ['refs'], reason: 'gitdir' }])
+  dir('/Users/dev/app/.git/worktrees').fire('wt-b')
+  flush()
+  assert.deepEqual(emitted[1], [{ checkoutKey: '/Users/dev/app', kinds: ['refs'], reason: 'gitdir' }])
+
+  // Pruned away and back again: the stale watch is replaced, not stacked.
+  dir('/Users/dev/app/.git').fire('worktrees')
+  assert.equal(dirs.filter((record) => record.dir === '/Users/dev/app/.git/worktrees' && !record.closed).length, 1)
+  watch.release('/Users/dev/app')
+  assert.equal(watch.watchedDirCount(), 0)
+  assert.ok(dirs.every((record) => record.closed))
 })
 
 test('nothing is delivered while no window is focused, and it all arrives on focus', async () => {
@@ -212,5 +258,84 @@ test('a real commit is reported through the real watchers', async () => {
   } finally {
     watch.dispose()
     await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+/** A real repository, watched for real, and a way to wait for what it reports. */
+async function realRepo(initArgs: string[] = []) {
+  const execFileAsync = promisify(execFile)
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-repo-watch-')))
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'test',
+    GIT_AUTHOR_EMAIL: 'dev@example.com',
+    GIT_COMMITTER_NAME: 'test',
+    GIT_COMMITTER_EMAIL: 'dev@example.com',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_SYSTEM: '/dev/null',
+  }
+  const repo = join(scratch, 'repo')
+  const git = (...args: string[]) => execFileAsync('git', ['-C', repo, ...args], { env })
+  await mkdir(repo, { recursive: true })
+  const changes: GitCheckoutChange[] = []
+  const watch = createGitRepoWatch({ emit: (batch) => changes.push(...batch), debounceMs: 50 })
+  const cleanup = async (): Promise<void> => {
+    watch.dispose()
+    await rm(scratch, { recursive: true, force: true })
+  }
+  try {
+    await git('init', '-q', '-b', 'main', ...initArgs)
+  } catch {
+    await cleanup()
+    return null
+  }
+  await writeFile(join(repo, 'a.txt'), 'a\n')
+  await git('add', 'a.txt')
+  await git('commit', '-q', '-m', 'first')
+  const refsReported = async (): Promise<boolean> => {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      if (changes.some((change) => change.kinds.includes('refs'))) return true
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return false
+  }
+  const settle = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    changes.length = 0
+  }
+  return { scratch, repo, git, watch, refsReported, settle, cleanup }
+}
+
+test('a branch created in a reftable repository is reported', async () => {
+  const real = await realRepo(['--ref-format=reftable'])
+  // A git without the reftable backend (before 2.45) has nothing to watch.
+  if (!real) return
+  try {
+    await real.watch.retain(real.repo)
+    await real.settle()
+    await real.git('branch', 'feature')
+    assert.ok(await real.refsReported(), 'the new branch reached the views')
+  } finally {
+    await real.cleanup()
+  }
+})
+
+test('worktrees added and removed after the first are still reported', async () => {
+  const real = await realRepo()
+  assert.ok(real)
+  try {
+    // No linked worktree yet, so no `worktrees/` to watch.
+    await real.watch.retain(real.repo)
+    await real.settle()
+    await real.git('worktree', 'add', '-q', '--detach', join(real.scratch, 'wt-1'))
+    assert.ok(await real.refsReported(), 'the first add')
+    await real.settle()
+    await real.git('worktree', 'add', '-q', '--detach', join(real.scratch, 'wt-2'))
+    await real.settle()
+    await real.git('worktree', 'remove', join(real.scratch, 'wt-2'))
+    assert.ok(await real.refsReported(), 'a removal once worktrees/ exists')
+  } finally {
+    await real.cleanup()
   }
 })

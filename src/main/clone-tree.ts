@@ -18,7 +18,8 @@ import { join } from 'path'
  *
  * Symlinks are recreated as symlinks, not followed: a `node_modules/.bin` full
  * of links must stay links, and following one out of the tree would copy
- * whatever it points at.
+ * whatever it points at. Anything that is neither a regular file, a directory
+ * nor a symlink (a FIFO, a socket a dev server left behind) is not copied.
  */
 export async function cloneTree(
   source: string,
@@ -62,10 +63,14 @@ export async function cloneTree(
       })
       return
     }
-    if (!info.isDirectory()) {
+    if (info.isFile()) {
       await cloneFile(from, to)
       return
     }
+    // A FIFO, socket or device node is skipped. Opening a FIFO to copy it
+    // blocks until something writes to the other end, which is never, and it
+    // holds one of libuv's four threadpool threads while it waits.
+    if (!info.isDirectory()) return
     await mkdir(to, { recursive: true })
     const children = await readdir(from)
     await Promise.all(children.map((name) => walk(join(from, name), join(to, name))))

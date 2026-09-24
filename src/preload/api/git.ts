@@ -172,6 +172,11 @@ export const gitApi = {
     ipcRenderer.invoke('git:worktree:remove', input),
   pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:prune', repoRoot),
+  unlockAgentGitWorktree: (
+    repoRoot: string,
+    worktreePath: string,
+  ): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
+    ipcRenderer.invoke('git:worktree:unlock-agent', repoRoot, worktreePath),
   cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput): Promise<AgentWorktreeCleanupReport> =>
     ipcRenderer.invoke('git:worktree:cleanup-agents', input),
   // Changelists and patches (git-commit-window T6). Every changelist call
@@ -262,6 +267,7 @@ export const gitApi = {
   | 'createGitWorktree'
   | 'removeGitWorktree'
   | 'pruneGitWorktrees'
+  | 'unlockAgentGitWorktree'
   | 'getGitChangelists'
   | 'setActiveGitChangelist'
   | 'createGitChangelist'

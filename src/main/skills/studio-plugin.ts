@@ -51,6 +51,7 @@ import type { SkillHarness } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import type { PluginAgentStateSpec } from '../../shared/plugin-manifest'
 import { mergeAgentStateHooks, removeWorkspaceAgentStateRegistration } from '../agent-state'
+import { withConfigFileLock } from '../config-file-write'
 import { installSkillDirectory, readSkillProvenance } from './install'
 import { CLAUDE_SETTINGS_RELATIVE_PATH } from './install-plugin'
 import { isRecord } from '../../shared/records'
@@ -698,7 +699,7 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
     } else {
       const path = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
       try {
-        await mergeAgentStateHooks(path, registration.command, registration.events)
+        await withConfigFileLock(path, () => mergeAgentStateHooks(path, registration.command, registration.events))
         hookSettingsPath = path
       } catch (error) {
         warnings.push(`The agent-state hook could not be registered: ${describe(error)}`)
@@ -863,16 +864,20 @@ export async function removeStudioPluginClaudeRegistration(
  * progress, and this is a tidy-up, not a repair.
  */
 async function removeSettingsKey(path: string, record: string, key: string): Promise<boolean> {
-  if (!existsSync(path)) return false
-  const read = await readJsonObject(path)
-  if (!read.ok || read.raw.trim() === '') return false
-  const holder = read.value[record]
-  if (!isRecord(holder) || !(key in holder)) return false
-  delete holder[key]
-  if (Object.keys(holder).length === 0) delete read.value[record]
-  else read.value[record] = holder
-  const wrote = await writeJsonObject(path, read.value, read.raw)
-  return wrote.ok
+  // Under the same per-file lock as the MCP sync and the hook installer, which
+  // read-modify-write `.claude/settings.local.json` too.
+  return withConfigFileLock(path, async () => {
+    if (!existsSync(path)) return false
+    const read = await readJsonObject(path)
+    if (!read.ok || read.raw.trim() === '') return false
+    const holder = read.value[record]
+    if (!isRecord(holder) || !(key in holder)) return false
+    delete holder[key]
+    if (Object.keys(holder).length === 0) delete read.value[record]
+    else read.value[record] = holder
+    const wrote = await writeJsonObject(path, read.value, read.raw)
+    return wrote.ok
+  })
 }
 
 /**
@@ -895,25 +900,31 @@ async function enableStudioPluginInClaudeSettings(input: {
 }): Promise<{ ok: true; pluginKey: string } | { ok: false; message: string }> {
   const pluginKey = studioClaudePluginKey()
   const projectPath = resolve(input.workspaceRoot, CLAUDE_SETTINGS_RELATIVE_PATH)
-  const project = await readJsonObject(projectPath)
-  if (!project.ok) return project
-  const enabledPlugins = isRecord(project.value.enabledPlugins) ? project.value.enabledPlugins : {}
-  enabledPlugins[pluginKey] = true
-  project.value.enabledPlugins = enabledPlugins
-  const wroteProject = await writeJsonObject(projectPath, project.value, project.raw)
+  const wroteProject = await withConfigFileLock(projectPath, async () => {
+    const project = await readJsonObject(projectPath)
+    if (!project.ok) return project
+    const enabledPlugins = isRecord(project.value.enabledPlugins) ? project.value.enabledPlugins : {}
+    enabledPlugins[pluginKey] = true
+    project.value.enabledPlugins = enabledPlugins
+    return writeJsonObject(projectPath, project.value, project.raw)
+  })
   if (!wroteProject.ok) return wroteProject
 
+  // Under the same per-file lock as the MCP sync and the hook installer, which
+  // read-modify-write this file too.
   const localPath = resolve(input.workspaceRoot, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
-  const local = await readJsonObject(localPath)
-  if (!local.ok) return local
-  const marketplaces = isRecord(local.value.extraKnownMarketplaces) ? local.value.extraKnownMarketplaces : {}
-  // Rewritten every install rather than left alone if present: the path is this
-  // build's, and an app that moved would otherwise leave the old one standing.
-  marketplaces[STUDIO_PLUGIN_MARKETPLACE_NAME] = {
-    source: { source: 'directory', path: input.marketplacePath },
-  }
-  local.value.extraKnownMarketplaces = marketplaces
-  const wroteLocal = await writeJsonObject(localPath, local.value, local.raw)
+  const wroteLocal = await withConfigFileLock(localPath, async () => {
+    const local = await readJsonObject(localPath)
+    if (!local.ok) return local
+    const marketplaces = isRecord(local.value.extraKnownMarketplaces) ? local.value.extraKnownMarketplaces : {}
+    // Rewritten every install rather than left alone if present: the path is this
+    // build's, and an app that moved would otherwise leave the old one standing.
+    marketplaces[STUDIO_PLUGIN_MARKETPLACE_NAME] = {
+      source: { source: 'directory', path: input.marketplacePath },
+    }
+    local.value.extraKnownMarketplaces = marketplaces
+    return writeJsonObject(localPath, local.value, local.raw)
+  })
   if (!wroteLocal.ok) return wroteLocal
   return { ok: true, pluginKey }
 }

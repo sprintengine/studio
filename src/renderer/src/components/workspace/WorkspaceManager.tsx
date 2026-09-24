@@ -2255,6 +2255,7 @@ export default function WorkspaceManager() {
       branchName: paths.branchName,
       baseRef: 'HEAD',
       copyIncludedFiles: true,
+      agentLockOwner: agentId,
     })
     if (!result.ok) {
       spawnError('Agent worktree failed', result.message)
@@ -2573,6 +2574,8 @@ export default function WorkspaceManager() {
       branchName: paths.branchName,
       baseRef: 'HEAD',
       copyIncludedFiles: true,
+      // The chat is created after its worktree, so the branch names the owner.
+      agentLockOwner: paths.branchName,
       ...(worktreeHostId ? { hostId: worktreeHostId } : {}),
     })
     if (!result.ok) return fail('Worktree failed', result.message)

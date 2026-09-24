@@ -28,6 +28,8 @@ test('app-lifecycle', async () => {
     // is what this test is about.
     whenReady: () => new Promise<void>(() => {}),
     quit: () => undefined,
+    // The update path's fallback, should the installer never quit the app.
+    relaunch: () => undefined,
     exit: (code: number) => {
       exitCalls.push(code)
     },
@@ -61,12 +63,33 @@ test('app-lifecycle', async () => {
 
     const order: string[] = []
     let disposed = 0
+    let prepareForInstall: (() => Promise<void>) | null = null
     registerAppLifecycle({
       diagnosticsEnabled: false,
       allowMultipleInstances: true,
       terminalRuntime: {
         shutdown: async () => {
           order.push('terminal.shutdown')
+        },
+      },
+      conversationRuntime: {
+        flushTranscripts: async () => {
+          order.push('conversation.flushTranscripts')
+        },
+        shutdown: async () => {
+          order.push('conversation.shutdown')
+        },
+      },
+      // A leg that fails must not cost the legs after it.
+      canvasService: {
+        dispose: async () => {
+          order.push('canvas.dispose')
+          throw new Error('canvas worker gone')
+        },
+      },
+      analytics: {
+        shutdown: async () => {
+          order.push('analytics.shutdown')
         },
       },
       // REVIEW FIX (finding 8). The record was created with the app and never
@@ -89,12 +112,32 @@ test('app-lifecycle', async () => {
       },
       updateService: {
         checkForUpdates: async () => undefined,
+        setPrepareForInstall: (prepare: () => Promise<void>) => {
+          prepareForInstall = prepare
+        },
       } as unknown as Parameters<typeof registerAppLifecycle>[0]['updateService'],
       handleAuthCallback: () => undefined,
     })
 
     const beforeQuit = appEvents.get('before-quit') ?? []
     assert.equal(beforeQuit.length, 1, 'quit is handled exactly once')
+
+    // "Restart to update": the whole ordered shutdown runs before the installer
+    // is started, and the app is not exited yet — the updater's quit does that.
+    assert.ok(prepareForInstall, 'the lifecycle hands the update service its shutdown')
+    await (prepareForInstall as () => Promise<void>)()
+    assert.deepEqual(exitCalls, [], 'the installer, not the shutdown, ends the process')
+    assert.deepEqual(order, [
+      'workspaceSync.flush',
+      'conversation.flushTranscripts',
+      'terminal.shutdown',
+      'pullRequests.flush',
+      'pullRequests.dispose',
+      'conversation.shutdown',
+      'canvas.dispose',
+      'workspaceSync.flush',
+      'analytics.shutdown',
+    ])
 
     let prevented = 0
     beforeQuit[0]({
@@ -109,6 +152,11 @@ test('app-lifecycle', async () => {
       await new Promise((resolve) => setImmediate(resolve))
 
     assert.deepEqual(exitCalls, [0], 'the app still exits once every leg has run')
+    assert.equal(
+      order.filter((entry) => entry === 'terminal.shutdown').length,
+      1,
+      'the updater’s quit joins the shutdown already run instead of running it again',
+    )
     assert.ok(order.includes('pullRequests.flush'), 'the record is flushed at quit')
     assert.ok(order.includes('pullRequests.dispose'), 'and disposed, so no watch timer outlives it')
     assert.equal(disposed, 1)

@@ -479,6 +479,16 @@ export class ConversationRuntime {
 
   // App-quit disposal: stop every live session so no headless child outlives
   // the app. Sessions keep their resume cursors in the JSONL transcripts.
+  /**
+   * Put every chat's buffered transcript on disk without stopping anything.
+   * The first thing quit does for chats: the streamed text is what a person
+   * would miss, and stopping each session (the rest of `shutdown`) can take
+   * longer than a quit that is being cut short allows.
+   */
+  async flushTranscripts(): Promise<void> {
+    await this.eventLog.flush()
+  }
+
   async shutdown(): Promise<void> {
     this.stopIdleSweep()
     for (const session of Array.from(this.sessions.values())) {
