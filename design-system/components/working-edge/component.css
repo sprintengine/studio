@@ -52,6 +52,18 @@
   }
 }
 
+/* Forced colours: the light is a gradient, and a forced palette paints no
+ * gradients, so the edge would vanish and say nothing. It becomes a still ring
+ * in the system Highlight colour instead, drawn by the border the mask already
+ * leaves showing. */
+@media (forced-colors: active) {
+  .ds-working-edge {
+    background: none;
+    border-color: Highlight; /* ds-lint-allow: a forced-colors system colour, which no token can stand for */
+    animation: none;
+  }
+}
+
 @keyframes ds-working-edge-orbit {
   to {
     --ds-working-edge-angle: 360deg;

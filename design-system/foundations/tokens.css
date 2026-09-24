@@ -151,6 +151,7 @@
   --sem-tinted-wash: 0.06;
   --sem-tinted-bleed: 0.2;
   --sem-tinted-bleed-reach: 18px;
+  --sem-z-behind: -1;
   --sem-z-sticky: 10;
   --sem-z-pane: 20;
   --sem-z-float: 30;
