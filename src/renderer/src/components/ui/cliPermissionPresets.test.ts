@@ -78,7 +78,7 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
   await migrateLegacyCliPermissionPresets({
     storage,
     // Another window has already chosen for Codex since the upgrade.
-    held: () => ({ codex: 'manual' }),
+    held: async () => ({ codex: 'manual' }),
     update: async (patch) => {
       patches.push(patch)
       return true
@@ -94,7 +94,7 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
 
 test('the localStorage map stays when main could not keep the handover on disk', async () => {
   const storage = memoryStorage({ [LEGACY_CLI_PERMISSION_PRESETS_KEY]: JSON.stringify({ codex: 'auto' }) })
-  await migrateLegacyCliPermissionPresets({ storage, held: () => ({}), update: async () => false })
+  await migrateLegacyCliPermissionPresets({ storage, held: async () => ({}), update: async () => false })
   assert.ok(storage.map.has(LEGACY_CLI_PERMISSION_PRESETS_KEY), 'the next boot offers it again')
 })
 
@@ -104,9 +104,9 @@ test('a profile with nothing to hand over sends nothing', async () => {
     calls += 1
     return true
   }
-  await migrateLegacyCliPermissionPresets({ storage: memoryStorage({}), held: () => ({}), update })
+  await migrateLegacyCliPermissionPresets({ storage: memoryStorage({}), held: async () => ({}), update })
   const covered = memoryStorage({ [LEGACY_CLI_PERMISSION_PRESETS_KEY]: JSON.stringify({ codex: 'auto' }) })
-  await migrateLegacyCliPermissionPresets({ storage: covered, held: () => ({ codex: 'manual' }), update })
+  await migrateLegacyCliPermissionPresets({ storage: covered, held: async () => ({ codex: 'manual' }), update })
   assert.equal(calls, 0)
   assert.equal(covered.map.size, 0, 'a map main already covers is simply dropped')
 })

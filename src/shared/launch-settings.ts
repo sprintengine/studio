@@ -214,12 +214,11 @@ export function resolveAgentSpawnPermissionPreset(
   cli: string | null | undefined,
   requested?: CliPermissionPreset | null,
 ): CliPermissionPreset {
-  return (
-    requested ??
-    (cli ? settings.cliPermissionPresets?.[cli] : undefined) ??
-    settings.lastAgentSpawnPermissionPreset ??
-    DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
-  )
+  const presets = settings.cliPermissionPresets
+  // Own keys only: a free-form CLI name such as `constructor` must not read
+  // something off Object.prototype as its preset.
+  const own = cli && presets && Object.hasOwn(presets, cli) ? presets[cli] : undefined
+  return requested ?? own ?? settings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
 }
 
 export function emptyAgentLaunchSettings(): AgentLaunchSettings {

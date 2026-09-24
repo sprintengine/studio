@@ -1104,7 +1104,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // runs on the last-selected one, so that is whose preset applies.
           getAgentSpawnPermissionDefault: (cli) => {
             const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
-            return resolveAgentSpawnPermissionPreset(settings, cli || settings.lastSelectedCli)
+            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
           },
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),

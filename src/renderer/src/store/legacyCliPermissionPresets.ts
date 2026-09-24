@@ -25,8 +25,11 @@ type Storage = Pick<globalThis.Storage, 'getItem' | 'removeItem'>
 
 export type LegacyCliPermissionPresetsMigration = {
   storage: Storage | null
-  /** The per-CLI presets this window's read model holds from main. */
-  held: () => Readonly<Record<string, CliPermissionPreset | undefined>>
+  /**
+   * The per-CLI presets main holds, asked of main itself rather than read off
+   * this window's read model, which can lag main while an update is in flight.
+   */
+  held: () => Promise<Readonly<Record<string, CliPermissionPreset | undefined>>>
   /** Main's `update`; resolves true when main's answer is on disk. */
   update: (patch: AgentLaunchSettingsPatch) => Promise<boolean>
 }
@@ -67,7 +70,13 @@ export async function migrateLegacyCliPermissionPresets(input: LegacyCliPermissi
   remove(storage, RETIRED_PER_MODEL_PRESETS_KEY)
   const legacy = readLegacyMap(storage)
   if (legacy === null) return
-  const held = input.held()
+  let held: Readonly<Record<string, CliPermissionPreset | undefined>>
+  try {
+    held = await input.held()
+  } catch {
+    // Main did not answer: keep the key, and the next boot offers it again.
+    return
+  }
   const patch: Record<string, CliPermissionPreset> = {}
   for (const [cli, preset] of Object.entries(legacy)) {
     if (held[cli] === undefined) patch[cli] = preset

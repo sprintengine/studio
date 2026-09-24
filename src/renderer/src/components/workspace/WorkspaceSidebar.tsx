@@ -1613,13 +1613,19 @@ function WorkspaceSidebar({
   // The flat stream's options carry a project line built afresh on every
   // render. A row keeps the options object it was last handed while what it
   // says is the same, so an equal copy is not a new prop.
+  // Each render records the options it handed out, and the committed render's
+  // record replaces the last one, so a row no longer drawn is forgotten.
   const rowOptionsRef = useRef(new Map<string, WorkspaceRowOptions>())
+  const rowOptionsThisRender = new Map<string, WorkspaceRowOptions>()
+  useEffect(() => {
+    rowOptionsRef.current = rowOptionsThisRender
+  })
   const stableRowOptions = (rowKey: string, options: WorkspaceRowOptions | undefined) => {
     if (!options?.flatProject) return options
     const prior = rowOptionsRef.current.get(rowKey)
-    if (prior && rowOptionsEqual(prior, options)) return prior
-    rowOptionsRef.current.set(rowKey, options)
-    return options
+    const kept = prior && rowOptionsEqual(prior, options) ? prior : options
+    rowOptionsThisRender.set(rowKey, kept)
+    return kept
   }
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: WorkspaceRowOptions) => {
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`

@@ -1830,7 +1830,7 @@ function migrateCliPermissionPresetsToMain(): void {
   void launchSettingsClient.ready.then(() =>
     migrateLegacyCliPermissionPresets({
       storage,
-      held: () => useWorkspaceStore.getState().appSettings.cliPermissionPresets ?? {},
+      held: async () => (await window.api.launchSettingsGet()).settings.cliPermissionPresets ?? {},
       update: (patch) => launchSettingsClient.update(patch),
     }),
   )
