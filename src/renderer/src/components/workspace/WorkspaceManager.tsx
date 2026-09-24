@@ -105,7 +105,6 @@ import {
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
-import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
@@ -3343,7 +3342,10 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'workspace.sidebar.toggle') {
-        beginSidebarTransition()
+        // Collapsing snaps (the rail is display:none, not a narrowed width), so
+        // the terminals beside it fit once at the new size straight away. A
+        // width that does glide is caught by its own transition events
+        // (utils/layoutTransition.ts).
         setSidebarCollapsed(!sidebarCollapsed)
         return true
       }
