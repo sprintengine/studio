@@ -37,6 +37,8 @@ type RegisterAppLifecycleOptions = {
   // Conversation-agent runtime: quit must dispose its headless child
   // processes too — they live outside the PTY reaper's sight.
   conversationRuntime?: {
+    /** Buffered transcript text to disk, before the slower session stops. */
+    flushTranscripts?(): Promise<void>
     shutdown(): Promise<void>
   }
   automationService?: {
@@ -406,11 +408,30 @@ export function registerAppLifecycle({
     if (backgroundPresence.onWindowAllClosed() === 'quit') app.quit()
   })
 
-  let isShuttingDown = false
-  app.on('before-quit', (event) => {
-    if (isShuttingDown) return
-    event.preventDefault()
-    isShuttingDown = true
+  // The app's ordered shutdown, run once whichever way the app is leaving: a
+  // quit (`before-quit`), or "Restart to update", which runs it BEFORE handing
+  // over to the installer. The Windows installer force-kills a running app a
+  // couple of seconds after it starts, so a shutdown that only began at the
+  // updater's own quit could be cut off before its later legs ran.
+  //
+  // The legs are ordered by what a cut-short quit would cost, cheapest-to-save
+  // and most-missed first, within what they depend on:
+  //  1. Stop new work: module begin hooks, timers, the automations engine (so a
+  //     dying agent cannot finalize a run: open a PR, remove its worktree) and
+  //     the agent-state socket.
+  //  2. Small writes the person would miss: the workspace registry (every
+  //     sidebar change), then every chat's buffered transcript.
+  //  3. Terminal snapshots: the most valuable and, with many terminals, the
+  //     slowest.
+  //  4. What the terminal legs fed: captured pull requests. Then the chat
+  //     sessions' own stop, the canvas's in-flight write, and the registry
+  //     once more for anything the legs above changed.
+  //  5. What costs nothing if lost: the WSL helpers (they exit when this
+  //     process's end closes their stdin), telemetry's network send, and the
+  //     module kernel's own shutdown.
+  let shutdownRun: Promise<void> | null = null
+  const runShutdown = (): Promise<void> => {
+    if (shutdownRun) return shutdownRun
     // Drop the tray before the shutdown legs run: quit from the tray is the
     // same graceful path as any other quit (sidecar snapshots, gateway
     // discovery file removed), and the icon must not outlive the decision.
@@ -423,44 +444,108 @@ export function registerAppLifecycle({
     stallMonitor.stop()
     releasePollerActivity?.()
     releasePollerActivity = null
+    // One failing leg must not cost the ones after it.
+    const leg = async (task: () => unknown): Promise<void> => {
+      try {
+        await task()
+      } catch {
+        // Best-effort by design: the process is leaving either way.
+      }
+    }
     const shutdown = async () => {
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
-      await moduleKernel?.runShutdownBegin()
+      await leg(() => moduleKernel?.runShutdownBegin())
       if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
       hostedFeedPoller?.stop()
-      await automationService?.shutdown()
-      await agentStateService?.shutdown()
-      await terminalRuntime.shutdown()
+      await leg(() => automationService?.shutdown())
+      await leg(() => agentStateService?.shutdown())
+      await leg(() => workspaceSyncService?.flush())
+      await leg(() => conversationRuntime?.flushTranscripts?.())
+      await leg(() => terminalRuntime.shutdown())
+      // After the terminal service: the last frames it ingests can still file
+      // a captured pull request, and this is what gets that write to disk and
+      // stops the watch timers.
+      await leg(() => pullRequestRecord?.flush())
+      await leg(() => pullRequestRecord?.dispose())
+      await leg(() => conversationRuntime?.shutdown())
+      await leg(() => canvasService?.dispose())
+      await leg(() => workspaceSyncService?.flush())
       // Each WSL helper is told to shut down (it would also go on its own when
       // this process's end closes its stdin).
-      await hostRegistry()
-        .dispose()
-        .catch(() => undefined)
-      // In the same leg as the terminal service, and after it: the last frames
-      // it ingests can still file a captured pull request, and this is what
-      // gets that write to disk and stops the watch timers.
-      await pullRequestRecord?.flush()
-      pullRequestRecord?.dispose()
-      await conversationRuntime?.shutdown()
-      await canvasService?.dispose()
-      await workspaceSyncService?.flush()
+      await leg(() => hostRegistry().dispose())
       // Last of the app-owned legs: every service above has had its chance to
       // record, and a network round trip must not sit in front of anything
       // that still has state to persist.
-      await analytics?.shutdown()
+      await leg(() => analytics?.shutdown())
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars in reverse
       // registration order.
-      await moduleKernel?.runShutdown()
+      await leg(() => moduleKernel?.runShutdown())
     }
+    shutdownRun = shutdown()
+    return shutdownRun
+  }
 
-    void shutdown().finally(() => {
+  let exitScheduled = false
+  let installFallback: NodeJS.Timeout | null = null
+  app.on('before-quit', (event) => {
+    // The updater did take over: its quit is the exit, so the fallback below
+    // must never relaunch the old build under a running installer.
+    if (installFallback) clearTimeout(installFallback)
+    installFallback = null
+    if (exitScheduled) return
+    event.preventDefault()
+    exitScheduled = true
+    // Joins a shutdown "Restart to update" already ran, so the updater's own
+    // quit exits at once instead of running the legs a second time.
+    void runShutdown().finally(() => {
       app.exit(0)
     })
   })
+
+  updateService.setPrepareForInstall(async () => {
+    const run = runShutdown()
+    let bounded: NodeJS.Timeout | undefined
+    await Promise.race([
+      run,
+      new Promise<void>((resolve) => {
+        bounded = setTimeout(resolve, UPDATE_SHUTDOWN_BUDGET_MS)
+      }),
+    ])
+    clearTimeout(bounded)
+    // The services are down from here, so the app must not outlive a hand-over
+    // that goes wrong: on Windows and Linux the updater starts the installer
+    // and quits at once, so an installer that fails to start leaves nothing to
+    // quit the app. Any `before-quit` cancels this. Not on macOS, where the
+    // quit can legitimately wait on Squirrel still copying the update, and a
+    // relaunch there would race the bundle swap.
+    if (process.platform === 'darwin' || exitScheduled) return
+    installFallback = setTimeout(() => {
+      installFallback = null
+      if (exitScheduled) return
+      app.relaunch()
+      app.exit(0)
+    }, UPDATE_INSTALL_QUIT_FALLBACK_MS)
+    installFallback.unref()
+  })
 }
+
+/**
+ * How long "Restart to update" waits for the ordered shutdown before handing
+ * over to the installer anyway. The legs run in order of importance, so what
+ * this can cut short is the least missed; and the installer is still worth
+ * more than a leg that has hung.
+ */
+const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
+
+/**
+ * After the shutdown, the updater quits the app to install. Should it not (the
+ * installer failed to start), relaunch the old build rather than leave a
+ * window over services that have already shut down. Windows and Linux only.
+ */
+const UPDATE_INSTALL_QUIT_FALLBACK_MS = 30_000
 
 /**
  * Feed `powerActivity` from Electron. Needs the app ready (`powerMonitor` is

@@ -375,7 +375,7 @@ test('a background download that fails reports the error and the next check trie
 
 test('restart to update installs silently and relaunches, and only once an update is ready', async () => {
   const s = service()
-  const early = s.quitAndInstall()
+  const early = await s.quitAndInstall()
   assert.equal(early.ok, false)
   assert.deepEqual(hoisted.updater.installs, [])
 
@@ -385,10 +385,39 @@ test('restart to update installs silently and relaunches, and only once an updat
   hoisted.updater.downloads[0]?.finish()
   await Promise.resolve()
 
-  const result = s.quitAndInstall()
+  const result = await s.quitAndInstall()
   assert.equal(result.ok, true)
   // Silent: the Windows installer runs with /S and shows no wizard.
   assert.deepEqual(hoisted.updater.installs, [{ isSilent: true, isForceRunAfter: true }])
+})
+
+test('restart to update runs the app’s shutdown before the installer starts, once', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  await s.checkForUpdates(false)
+  downloaded('0.5.3')
+  hoisted.updater.downloads[0]?.finish()
+  await Promise.resolve()
+
+  const order: string[] = []
+  let finishShutdown: () => void = () => undefined
+  s.setPrepareForInstall(async () => {
+    order.push('shutdown:start')
+    await new Promise<void>((resolve) => {
+      finishShutdown = resolve
+    })
+    order.push('shutdown:done')
+  })
+  const first = s.quitAndInstall()
+  const second = s.quitAndInstall()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(hoisted.updater.installs, [], 'the installer waits for the shutdown')
+  assert.deepEqual(order, ['shutdown:start'], 'a second click does not start a second shutdown')
+  finishShutdown()
+  assert.equal((await first).ok, true)
+  assert.equal((await second).ok, true)
+  assert.deepEqual(order, ['shutdown:start', 'shutdown:done'])
+  assert.deepEqual(hoisted.updater.installs, [{ isSilent: true, isForceRunAfter: true }], 'installed once')
 })
 
 test('a channel switch mid-download fetches the new channel only after the old download lets go', async () => {
