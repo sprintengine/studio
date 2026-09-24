@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
+import { isWindowVisible, onWindowVisibilityChange } from '../../utils/windowActivity'
 import type { WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import type { Workspace } from '../../types/workspace'
 
@@ -179,7 +180,7 @@ export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Re
     let followUp: number | null = null
     async function sweep(only: Set<string> | null = null): Promise<void> {
       if (cancelled) return
-      if (inFlight || document.hidden) {
+      if (inFlight || !isWindowVisible()) {
         // Remembered, not dropped: it runs when the sweep ahead of it ends or
         // the window is shown again.
         dirty = dirty ?? new Set()
@@ -220,7 +221,7 @@ export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Re
       }
     }
     function drainDirty(): void {
-      if (cancelled || !dirty || dirty.size === 0 || document.hidden) return
+      if (cancelled || !dirty || dirty.size === 0 || !isWindowVisible()) return
       const next = dirty
       dirty = null
       void sweep(next)
@@ -246,15 +247,16 @@ export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Re
             }),
           )
         : []
-    const onVisible = (): void => {
-      if (!document.hidden) drainDirty()
-    }
-    document.addEventListener('visibilitychange', onVisible)
+    // Shown again: run what was held. The window-activity signal, not
+    // `document.hidden`, which macOS leaves false for a minimized window.
+    const stopVisibility = onWindowVisibilityChange((visible) => {
+      if (visible) drainDirty()
+    })
     return () => {
       cancelled = true
       if (followUp !== null) window.clearTimeout(followUp)
       for (const stop of stops) stop()
-      document.removeEventListener('visibilitychange', onVisible)
+      stopVisibility()
     }
   }, [membership])
 

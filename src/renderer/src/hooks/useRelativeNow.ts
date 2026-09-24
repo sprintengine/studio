@@ -1,71 +1,85 @@
 import { useEffect, useState } from 'react'
 
+import { onWindowVisibilityChange, windowActivity, type WindowActivity } from '../utils/windowActivity'
+
 // One clock per interval, shared by every caller asking for that interval.
 // Leaf timestamp components (a sidebar row's idle label, a tab's recency)
 // each read their own `now`, so a list of a few hundred rows would otherwise
 // start a few hundred timers that all fire on the same beat.
 //
-// The clock stops while the document is hidden: nothing is on screen to
+// The clock stops while the window cannot be seen: nothing is on screen to
 // advance, and a minimized window has no reason to re-render every row
 // twice a minute. It reads the time afresh the moment the window is shown.
+// "Cannot be seen" is the window-activity signal, not `document.hidden`: on
+// macOS a minimized or covered window keeps reporting itself visible, and only
+// main knows otherwise.
 type SharedClock = {
   now: number
   listeners: Set<(now: number) => void>
-  timer: number | null
+  timer: ReturnType<typeof setInterval> | null
 }
 
-const clocks = new Map<number, SharedClock>()
-
-function documentHidden(): boolean {
-  return typeof document !== 'undefined' && document.visibilityState === 'hidden'
+export type RelativeNowClocks = {
+  subscribe(intervalMs: number, listener: (now: number) => void): () => void
 }
 
-function tick(clock: SharedClock): void {
-  clock.now = Date.now()
-  for (const listener of clock.listeners) listener(clock.now)
-}
+export function createRelativeNowClocks(activity: WindowActivity, clock: { now(): number } = Date): RelativeNowClocks {
+  const clocks = new Map<number, SharedClock>()
+  let visibilityBound = false
 
-function startClock(intervalMs: number, clock: SharedClock): void {
-  if (clock.timer !== null || documentHidden()) return
-  clock.timer = window.setInterval(() => tick(clock), intervalMs)
-}
-
-function stopClock(clock: SharedClock): void {
-  if (clock.timer === null) return
-  window.clearInterval(clock.timer)
-  clock.timer = null
-}
-
-let visibilityListenerInstalled = false
-function installVisibilityListener(): void {
-  if (visibilityListenerInstalled || typeof document === 'undefined') return
-  visibilityListenerInstalled = true
-  document.addEventListener('visibilitychange', () => {
-    for (const [intervalMs, clock] of clocks) {
-      if (documentHidden()) {
-        stopClock(clock)
-      } else if (clock.listeners.size > 0) {
-        tick(clock)
-        startClock(intervalMs, clock)
+  const tick = (shared: SharedClock): void => {
+    shared.now = clock.now()
+    for (const listener of shared.listeners) listener(shared.now)
+  }
+  const start = (intervalMs: number, shared: SharedClock): void => {
+    if (shared.timer !== null || !activity.get().visible) return
+    shared.timer = setInterval(() => tick(shared), intervalMs)
+  }
+  const stop = (shared: SharedClock): void => {
+    if (shared.timer === null) return
+    clearInterval(shared.timer)
+    shared.timer = null
+  }
+  // Bound once, on the first subscriber, and kept: the clocks live as long as
+  // the window does.
+  const bindVisibility = (): void => {
+    if (visibilityBound) return
+    visibilityBound = true
+    onWindowVisibilityChange((visible) => {
+      for (const [intervalMs, shared] of clocks) {
+        if (!visible) {
+          stop(shared)
+        } else if (shared.listeners.size > 0) {
+          tick(shared)
+          start(intervalMs, shared)
+        }
       }
-    }
-  })
+    }, activity)
+  }
+
+  return {
+    subscribe(intervalMs, listener) {
+      bindVisibility()
+      let shared = clocks.get(intervalMs)
+      if (!shared) {
+        shared = { now: clock.now(), listeners: new Set(), timer: null }
+        clocks.set(intervalMs, shared)
+      }
+      const current = shared
+      current.listeners.add(listener)
+      start(intervalMs, current)
+      return () => {
+        current.listeners.delete(listener)
+        if (current.listeners.size === 0) stop(current)
+      }
+    },
+  }
 }
 
-function subscribe(intervalMs: number, listener: (now: number) => void): () => void {
-  installVisibilityListener()
-  let clock = clocks.get(intervalMs)
-  if (!clock) {
-    clock = { now: Date.now(), listeners: new Set(), timer: null }
-    clocks.set(intervalMs, clock)
-  }
-  const shared = clock
-  shared.listeners.add(listener)
-  startClock(intervalMs, shared)
-  return () => {
-    shared.listeners.delete(listener)
-    if (shared.listeners.size === 0) stopClock(shared)
-  }
+let sharedClocks: RelativeNowClocks | null = null
+function relativeNowClocks(): RelativeNowClocks {
+  sharedClocks ??= createRelativeNowClocks(windowActivity())
+  return sharedClocks
 }
 
 // `enabled` gates the ticking interval so callers behind a transient surface
@@ -77,7 +91,7 @@ export function useRelativeNow(intervalMs = 30_000, enabled = true): number {
   useEffect(() => {
     if (!enabled) return undefined
     setNow(Date.now())
-    return subscribe(intervalMs, setNow)
+    return relativeNowClocks().subscribe(intervalMs, setNow)
   }, [intervalMs, enabled])
   return now
 }

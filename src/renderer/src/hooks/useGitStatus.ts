@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { logPerfEvent } from '../utils/perfDiagnostics'
+import { isWindowVisible, onWindowVisibilityChange } from '../utils/windowActivity'
 import { isWatchEventIgnored } from '../../../shared/file-watch-event'
 import type { FileWatchEvent } from '../../../shared/ipc/filesystem'
 
@@ -166,11 +167,11 @@ function scheduleGitStatusRecovery(subscription: GitStatusSubscription): void {
   // reader beside it) would otherwise be kept alive and then never tick again
   // after its first failure.
   const listening = subscription.subscribers.size > 0 || subscription.revisionSubscribers.size > 0
-  if (!listening || document.hidden) return
+  if (!listening || !isWindowVisible()) return
 
   subscription.recoveryTimer = window.setTimeout(() => {
     subscription.recoveryTimer = null
-    if (document.hidden) return
+    if (!isWindowVisible()) return
     void refreshGitStatusSubscription(subscription, 'recovery')
   }, subscription.recoveryDelayMs)
 }
@@ -179,9 +180,11 @@ function ensureGitStatusVisibilityListener(): void {
   if (gitStatusVisibilityListenerInstalled) return
   gitStatusVisibilityListenerInstalled = true
 
-  document.addEventListener('visibilitychange', () => {
+  // The window-activity signal rather than `document.hidden`, which macOS
+  // leaves false for a minimized or covered window.
+  onWindowVisibilityChange((visible) => {
     gitStatusSubscriptions.forEach((subscription) => {
-      if (document.hidden) {
+      if (!visible) {
         clearGitStatusRecovery(subscription)
         return
       }
