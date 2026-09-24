@@ -403,6 +403,14 @@ For each of (a) to (h) also check:
   shortcuts; the all-users shortcuts remain. Repeat it through 0.6.0's
   install at quit (Later on its ready toast, then quit 0.6.0): the Program
   Files copy is the one updated, after one UAC prompt.
+- An older build's install at quit cannot see which copy it came from, so the
+  installer picks by registry: the per-user installation, unless it sits in
+  the one-click default folder (`%LOCALAPPDATA%\Programs\sprintengine-studio`)
+  beside an all-users one, which is the stray case above. Known limit, stated
+  in the release notes: a person running a pre-fix nightly per-user on a
+  machine where another account installed 0.6.0 for all users is asked for
+  administrator permission at quit, and their copy is folded into the
+  all-users one if they give it. Restart to update is not affected.
 - Later, then quit, on (e) and (f): no window and no prompt; the next start is
   the candidate's successor, in the same folder, with "Updated to X".
 

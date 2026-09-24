@@ -267,6 +267,8 @@ export class SprintEngineUpdateService {
   /** The download-progress marks already logged for the download under way. */
   private loggedProgressMarks = new Set<number>()
   private installAtQuitRegistered = false
+  /** Restart to update has started an installer, or tried to: the quit that follows starts no other. */
+  private installAttempted = false
 
   constructor({
     writeDiagnosticLog,
@@ -738,6 +740,7 @@ export class SprintEngineUpdateService {
     // Windows: the app starts the installer, so electron-updater's own
     // install-at-quit must not start a second one as the app exits.
     autoUpdater.autoInstallOnAppQuit = false
+    this.installAttempted = true
     if (!installerStarted && installerPath && installerArgs) {
       this.logStep('info', 'Starting the installer', `${installerPath} ${nsisCommandLineTail(installerArgs)}`)
       try {
@@ -800,7 +803,10 @@ export class SprintEngineUpdateService {
     if (this.installAtQuitRegistered) return
     this.installAtQuitRegistered = true
     this.platform.onAppQuit((exitCode) => {
-      if (this.installing || !this.state.downloaded || exitCode !== 0) return
+      // `installAttempted` too: the relaunch after an installer that would not
+      // start exits through `app.exit`, which still emits `quit`, and must not
+      // start a silent installer behind the app it is relaunching.
+      if (this.installing || this.installAttempted || !this.state.downloaded || exitCode !== 0) return
       const note: UpdateInstallNote = {
         fromVersion: getAppVersion(),
         toVersion: this.state.updateVersion ?? '',
@@ -815,7 +821,18 @@ export class SprintEngineUpdateService {
       }
       const installerPath = downloadedInstallerPath(autoUpdater)
       const target = this.resolvedWindowsTarget
-      if (!installerPath || !target || target.requiresAdmin) return
+      if (!installerPath || !target || target.requiresAdmin) {
+        this.logStep(
+          'info',
+          'Update not installed at quit',
+          !installerPath
+            ? 'The downloaded installer could not be found.'
+            : !target
+              ? 'Where SprintEngine Studio is installed could not be found.'
+              : 'Installing needs an administrator; Restart to update asks for one.',
+        )
+        return
+      }
       let args: string[]
       try {
         args = nsisUpdateArgs({

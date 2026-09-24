@@ -692,6 +692,12 @@ test('Windows: an installer that will not start brings the app back, with the re
   assert.equal(steps.at(-1), 'relaunch')
   assert.ok(!steps.includes('quit'))
   assert.match(String(installNotes.written.at(-1)?.failureReason), /could not be started: EACCES/)
+  // The relaunch exits through app.exit, which still emits quit: no silent
+  // installer behind the app coming back, and the reason is kept.
+  const notesBefore = installNotes.written.length
+  quitHandlers.forEach((handler) => handler(0))
+  assert.equal(steps.filter((step) => step.startsWith('spawn')).length, 0)
+  assert.equal(installNotes.written.length, notesBefore)
 })
 
 test('an install under way cannot be moved to another channel', async () => {

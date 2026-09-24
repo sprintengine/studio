@@ -126,14 +126,22 @@
 
     ; 3. Neither: the registry. An older build's install at quit lands here
     ;    (the app is gone by the time the installer has checked its own CRC).
-    ;    An all-users installation first: it is the one the all-users
-    ;    shortcuts start, and a per-user one beside it is the stray copy an
-    ;    earlier one-click update left, which the all-users update removes.
-    ;    Then a per-user installation, as stock setInstallModePerUser does.
+    ;    A per-user installation first, as stock setInstallModePerUser does,
+    ;    then an all-users one. One exception: a per-user installation in the
+    ;    one-click default folder beside an all-users installation is the stray
+    ;    copy an earlier one-click update left (the assisted installer named its
+    ;    per-user folder after the product, not the package), so the all-users
+    ;    installation, which its shortcuts start, is the one updated, and the
+    ;    update removes the stray.
     ${If} $updateTargetDir == ""
-      ReadRegStr $R0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
+      ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+      ReadRegStr $R1 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
+      !insertmacro updateTrimTrailingSlash $R0
       ${If} $R0 == ""
-        ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+        StrCpy $R0 $R1
+      ${ElseIf} $R1 != ""
+      ${AndIf} $R0 == "$LOCALAPPDATA\Programs\${APP_FILENAME}"
+        StrCpy $R0 $R1
       ${EndIf}
       StrCpy $updateTargetDir $R0
     ${EndIf}
