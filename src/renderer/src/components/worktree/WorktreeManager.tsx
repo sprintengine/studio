@@ -23,6 +23,8 @@ import {
   type SelectItem,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { useWorktreePool } from '../../hooks/useWorktreePool'
+import WorktreePoolSection from './WorktreePoolSection'
 
 type WorktreeMessage = {
   tone: 'neutral' | 'error' | 'success'
@@ -159,6 +161,17 @@ export default function WorktreeManager({
   const [branchName, setBranchName] = useState('')
   const [baseRef, setBaseRef] = useState(currentBranch ?? 'HEAD')
   const [copyIncludedFiles, setCopyIncludedFiles] = useState(true)
+  const pool = useWorktreePool(repoRoot)
+  // Pool slots are listed in the Pool section, with the actions that fit them;
+  // the list above keeps the worktrees a person or an agent owns outright.
+  const poolPaths = useMemo(
+    () => new Set((pool.snapshot?.slots ?? []).map((slot) => trimPath(slot.path).toLowerCase())),
+    [pool.snapshot],
+  )
+  const visibleRows = useMemo(
+    () => rows.filter((row) => !poolPaths.has(trimPath(row.path).toLowerCase())),
+    [poolPaths, rows],
+  )
 
   const storedEntries = useMemo(
     () => Object.values(workspace?.worktreeState.entries ?? {}),
@@ -458,7 +471,7 @@ export default function WorktreeManager({
   const contentOpen = mode === 'tab' || open
   const sectionClassName = mode === 'tab' ? 'min-h-0' : 'mb-5 border-b border-[color:var(--border-subtle)] pb-4'
 
-  const onlyMain = rows.length === 1 && rows[0].isMain
+  const onlyMain = visibleRows.length === 1 && visibleRows[0].isMain
   const canCreate = !formDisabled && Boolean(worktreeName.trim()) && Boolean(branchName.trim())
 
   return (
@@ -467,7 +480,7 @@ export default function WorktreeManager({
         {mode === 'tab' ? (
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-meta font-semibold text-[color:var(--text-strong)]">Worktrees</span>
-            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
+            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{visibleRows.length}</span>
           </div>
         ) : (
           // A heading that opens a section: `inline` spends no height, and `ink`
@@ -495,7 +508,7 @@ export default function WorktreeManager({
               />
             </svg>
             <span className="text-meta font-semibold text-[color:var(--text-strong)]">Worktrees</span>
-            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
+            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{visibleRows.length}</span>
           </GhostButton>
         )}
         {contentOpen ? (
@@ -591,11 +604,11 @@ export default function WorktreeManager({
               <Spinner size={14} label="Loading worktrees" />
               Loading worktrees…
             </div>
-          ) : rows.length === 0 ? (
+          ) : visibleRows.length === 0 ? (
             <EmptyState density="list" title="No worktrees reported by Git." />
           ) : (
             <ul role="list" className="-mx-1 space-y-0.5">
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const ownerName = row.ownerAgentId
                   ? (workspace?.agents[row.ownerAgentId]?.name ?? row.ownerAgentId)
                   : '-'
@@ -681,6 +694,17 @@ export default function WorktreeManager({
               Only the default checkout. Create a worktree to run an agent on a branch in parallel.
             </p>
           ) : null}
+
+          <WorktreePoolSection
+            repoRoot={repoRoot}
+            snapshot={pool.snapshot}
+            reload={pool.reload}
+            busy={formDisabled}
+            onChanged={async () => {
+              await refreshWorktrees()
+              await onChanged()
+            }}
+          />
 
           {message ? (
             message.tone === 'error' ? (

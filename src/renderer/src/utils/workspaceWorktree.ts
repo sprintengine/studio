@@ -192,9 +192,17 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
 // These pure helpers build the deterministic pieces of that spawn; the async
 // worktree IO around them lives in the launch path.
 
-/** Registry id for a worktree, derived from its absolute path. */
-export function worktreeIdFromPath(pathValue: string): string {
-  return `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
+/**
+ * Registry id for a worktree, derived from its absolute path — and, for a
+ * pooled worktree, its lease. A pool slot keeps one path for its whole life
+ * and serves one agent after another, so the path alone would give every
+ * lease of `pool-03` the same id and the second agent's entry would overwrite
+ * (or be mistaken for) the first's.
+ */
+export function worktreeIdFromPath(pathValue: string, leaseId?: string | null): string {
+  const base = `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
+  const lease = leaseId ? slugifyWorktreeName(leaseId).replace(/[\\/.:]+/g, '-') : ''
+  return lease ? `${base}--lease-${lease}` : base
 }
 
 /** Branch a connector chat's worktree is created on: `connector/<id>-<uid>`. */

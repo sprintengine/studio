@@ -60,6 +60,13 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The worktree pool: it stops its timers, cancels a running dependency
+  // install (the slot's record keeps the install as unfinished, so the next
+  // start runs it again) and gives up its hold on each pool's container, so a
+  // second Studio can take the pool over.
+  worktreePool?: {
+    shutdown(): Promise<void>
+  }
   // The conversation pull request record (epic `pull-request-marks`). It holds
   // a chained write per repository and a watch timer per open pull request, so
   // quit has to settle the writes — a capture in the last seconds before quit
@@ -117,6 +124,7 @@ export function registerAppLifecycle({
   agentStateService,
   workspaceSyncService,
   canvasService,
+  worktreePool,
   pullRequestRecord,
   analytics,
   moduleKernel,
@@ -445,6 +453,7 @@ export function registerAppLifecycle({
       pullRequestRecord?.dispose()
       await conversationRuntime?.shutdown()
       await canvasService?.dispose()
+      await worktreePool?.shutdown()
       await workspaceSyncService?.flush()
       // Last of the app-owned legs: every service above has had its chance to
       // record, and a network round trip must not sit in front of anything

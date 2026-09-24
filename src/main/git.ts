@@ -13,6 +13,7 @@ import {
   toPosixPath,
 } from './git-utils'
 import { listGitWorktrees } from './git-worktree-list'
+import { withWorktreeRegistryLock } from './worktree-registry-lock'
 import {
   resolveRepoRoot,
   resolveWorktreeDestination,
@@ -239,7 +240,7 @@ async function explainBranchConflict(
  * Copy the repository's `.worktreeinclude` set into a worktree this module has
  * just created. `repoRoot` is already git's resolved root.
  */
-async function seedWorktreeIncludedFiles(
+export async function seedWorktreeIncludedFiles(
   repoRoot: string,
   worktreePath: string,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
@@ -357,14 +358,9 @@ export async function createGitWorktree(
   }
 
   await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
-  const addResult = await runGitCommand(root.data, [
-    'worktree',
-    'add',
-    '-b',
-    branch.data,
-    destination.data.destinationPath,
-    baseRef.data,
-  ])
+  const addResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'add', '-b', branch.data, destination.data.destinationPath, baseRef.data]),
+  )
 
   if (!addResult.ok) {
     return {
@@ -458,12 +454,9 @@ export async function removeGitWorktree(
     }
   }
 
-  const removeResult = await runGitCommand(root.data, [
-    'worktree',
-    'remove',
-    ...(input.force ? ['--force'] : []),
-    worktreePath,
-  ])
+  const removeResult = await withWorktreeRegistryLock(root.data, () =>
+    runGitCommand(root.data, ['worktree', 'remove', ...(input.force ? ['--force'] : []), worktreePath]),
+  )
 
   return toWorktreeResult(removeResult, removeResult)
 }
@@ -472,7 +465,7 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
   const root = await resolveRepoRoot(repoRoot)
   if (!root.ok) return root
 
-  const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  const result = await withWorktreeRegistryLock(root.data, () => runGitCommand(root.data, ['worktree', 'prune']))
   return toWorktreeResult(result, result)
 }
 

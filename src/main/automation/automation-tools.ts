@@ -142,7 +142,17 @@ export type AutomationBackends = {
     name: string
     /** The ref the worktree branches from; the checkout's HEAD when absent. */
     baseRef?: string
-  }): Promise<{ worktreePath: string; branch: string } | { error: string }>
+    /** The machine the launch runs on, when it names one. */
+    host?: ExecutionHostId
+  }): Promise<{ worktreePath: string; branch: string; leaseId?: string } | { error: string }>
+  /**
+   * Name the agent a pooled worktree (one handed out with a `leaseId`) now
+   * belongs to, once the launch has minted it. Optional: a backend with no
+   * pool never returns a lease.
+   */
+  bindAgentWorktree?(leaseId: string, owner: { agentId: string | null; workspaceId: string | null }): Promise<void>
+  /** Hand a pooled worktree back when the launch it was taken for failed. */
+  releaseAgentWorktree?(leaseId: string): Promise<void>
   /**
    * Which repository a folder is a clone of (one-project-across-machines):
    * its primary remote, normalised. Null for a non-repo or a remote-less one.
@@ -506,6 +516,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     // caller asked for isolation, so we never silently fall back.
     let worktreePath: string | undefined
     let worktreeBranch: string | undefined
+    let worktreeLeaseId: string | undefined
     if (plan.worktreeRequested || plan.connectorId) {
       const resolved = resolveWorkspaceRoot(plan.workspaceId)
       if (!('root' in resolved)) return resolved
@@ -514,6 +525,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         workspaceRoot: resolved.root,
         name: derivedName,
         ...(plan.worktreeBaseRef ? { baseRef: plan.worktreeBaseRef } : {}),
+        ...(plan.host ? { host: plan.host } : {}),
       })
       if ('error' in created) {
         return failure(
@@ -523,6 +535,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       }
       worktreePath = created.worktreePath
       worktreeBranch = created.branch
+      worktreeLeaseId = created.leaseId
     }
 
     // Composed and spawned in main. Previously this delegated to the
@@ -540,8 +553,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       worktreePath,
       ...(plan.host ? { host: plan.host } : {}),
     })
-    if (!launched.ok) return failure(launched.code, launched.message)
+    if (!launched.ok) {
+      if (worktreeLeaseId) await backends.releaseAgentWorktree?.(worktreeLeaseId).catch(() => {})
+      return failure(launched.code, launched.message)
+    }
     const { agentId, sessionId } = launched
+    // A pooled worktree belongs to the agent from here: the pool returns it
+    // when this agent's record is removed.
+    if (worktreeLeaseId) {
+      await backends.bindAgentWorktree?.(worktreeLeaseId, { agentId, workspaceId: plan.workspaceId }).catch(() => {})
+    }
     // Confirmation is still a LIVE terminal session, not the launch call
     // returning — a spawn can report success and the CLI can die immediately.
     // It now watches the session main actually minted rather than waiting for a

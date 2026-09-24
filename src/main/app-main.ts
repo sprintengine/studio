@@ -283,6 +283,7 @@ registerAppLifecycle({
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   canvasService: services.canvasService,
+  worktreePool: services.worktreePool,
   pullRequestRecord: services.pullRequestRecord,
   analytics: services.analytics,
   moduleKernel: moduleLoad.kernel,
