@@ -187,6 +187,10 @@ export type TerminalSession = {
   outputChunkStart: number
   outputBytes: number
   outputLength: number
+  // Characters ever appended to the retained buffer, never decreased by an
+  // eviction. The cursor {@link readTerminalOutputSince} counts in, so a reader
+  // polling for new output can ask for only what arrived since its last look.
+  outputAppendedChars: number
   // Faithful screen snapshot captured at suspend: the retained output stream is
   // rendered once through a headless terminal and serialized, so reopening a
   // paused agent repaints its last screen (including alternate-screen TUI state)
@@ -400,6 +404,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     outputChunkStart: 0,
     outputBytes: 0,
     outputLength: 0,
+    outputAppendedChars: 0,
     kind: input.kind ?? 'agent',
     pathStyle: input.pathStyle,
     workspaceId: input.workspaceId,
@@ -497,6 +502,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
     outputChunkStart: 0,
     outputBytes: 0,
     outputLength: 0,
+    outputAppendedChars: 0,
     replaySnapshot: input.replaySnapshot,
     kind: input.kind ?? 'agent',
     workspaceId: input.workspaceId,
@@ -548,6 +554,7 @@ export function appendTerminalOutput(
   session.outputChunkBytes.push(chunk.bytes)
   session.outputBytes += chunk.bytes
   session.outputLength += chunk.data.length
+  session.outputAppendedChars += chunk.data.length
   if (markAsRealOutput) session.lastOutputAt = at
 
   if (chunk.bytes !== Buffer.byteLength(data)) session.replayTruncated = true
@@ -612,6 +619,39 @@ export function resyncTerminalReplayHead(text: string): string {
   // enough to print, and gutting the scrollback to be sure would cost more than
   // the garbage it saves.
   return text
+}
+
+/**
+ * The retained output appended after `cursor` (a value of
+ * {@link TerminalSession.outputAppendedChars} from an earlier read), plus the
+ * cursor to pass next time. Only the chunks that cover the gap are joined, so a
+ * caller polling a busy session pays for what is new rather than for the whole
+ * scrollback on every poll. When eviction has already dropped part of the gap,
+ * what is still retained is returned and `truncated` says so.
+ */
+export function readTerminalOutputSince(
+  session: TerminalSession,
+  cursor: number,
+): { text: string; cursor: number; truncated: boolean } {
+  const end = session.outputAppendedChars
+  const retainedFrom = end - session.outputLength
+  const from = Math.max(0, cursor, retainedFrom)
+  const wanted = end - from
+  if (wanted <= 0) return { text: '', cursor: end, truncated: false }
+  const pieces: string[] = []
+  let collected = 0
+  for (
+    let index = session.outputChunks.length - 1;
+    index >= session.outputChunkStart && collected < wanted;
+    index -= 1
+  ) {
+    const chunk = session.outputChunks[index] ?? ''
+    pieces.push(chunk)
+    collected += chunk.length
+  }
+  pieces.reverse()
+  const joined = pieces.join('')
+  return { text: joined.slice(joined.length - wanted), cursor: end, truncated: cursor < retainedFrom }
 }
 
 export function materializeTerminalReplay(session: TerminalSession): string {

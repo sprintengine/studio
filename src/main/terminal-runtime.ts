@@ -76,6 +76,7 @@ import {
   isTerminalSessionStale,
   listSessionFileChanges,
   materializeTerminalReplay,
+  readTerminalOutputSince as readSessionOutputSince,
   parseSessionContextUsage,
   parseSessionFileChanges,
   parseSessionPrompts,
@@ -249,6 +250,11 @@ type TerminalRuntime = {
   // prefers the serialized screen snapshot: this is the raw stream, because a
   // caller matching a pattern needs the text the agent printed.
   readTerminalOutput(sessionId: string): string | undefined
+  // Only what the session printed after `cursor` (the cursor an earlier call
+  // returned; 0 for "everything retained"). For a poller: the agent control
+  // plane's pattern wait asks this every 100 ms, and joining a multi-megabyte
+  // scrollback each time was the whole cost of a wait.
+  readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined
   // Watch-and-type access for remote transports. The tailnet
   // listener's terminal WebSocket is its only caller today; it is a port, not a
   // capability grant — the transport still has to prove a scoped device.
@@ -371,6 +377,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     registerAgentPhaseListener,
     ingestAgentStateFrame,
     readTerminalOutput,
+    readTerminalOutputSince,
     remoteHost: terminalRemoteHost,
     subscribeSessionsChanged(listener) {
       terminalSessionsChangedListeners.add(listener)
@@ -2922,6 +2929,7 @@ async function spawnTerminalFromIpc(
       outputChunkStart: 0,
       outputBytes: 0,
       outputLength: 0,
+      outputAppendedChars: 0,
       kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
       pathStyle,
       workspaceId,
@@ -2989,6 +2997,13 @@ function readTerminalOutput(sessionId: string): string | undefined {
   const session = terminals.get(sessionId)
   if (!session || session.isDisposed) return undefined
   return materializeTerminalReplay(session)
+}
+
+function readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return undefined
+  const read = readSessionOutputSince(session, cursor)
+  return { text: read.text, cursor: read.cursor }
 }
 
 function writeTerminalInput(sessionId: string, data: string): void {

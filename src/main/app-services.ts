@@ -570,6 +570,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
       read: (sessionId) => terminalRuntime.readTerminalOutput(sessionId),
+      readSince: (sessionId, cursor) => terminalRuntime.readTerminalOutputSince(sessionId, cursor),
     },
     conversation: {
       // The runtime's list result carries the shared ok/message envelope but
