@@ -63,6 +63,17 @@ export const LAUNCH_STATUS_LINE_REL = join(STUDIO_PLUGIN_ID, 'hooks', 'status-li
 /** Written last, so a half-finished copy is never mistaken for a usable one. */
 const MARKER_FILE = '.installed.json'
 
+/**
+ * What the materialiser wrote, independent of the template's version.
+ *
+ * The marker is otherwise keyed on the plugin version alone, so a change to HOW
+ * the copy is written (not to what the template holds) would never reach a
+ * machine that already has this version's copy. Bump it whenever the copier's
+ * output changes. 2: `$comment` keys are stripped from every JSON file, which
+ * Claude Code reported as unknown keys at the end of each session.
+ */
+export const AGENT_INTEGRATION_LAYOUT = 2
+
 /** The version-keyed root. Sibling versions coexist; see `prune`. */
 export function agentIntegrationRoot(userDataDir: string, version: string): string {
   return resolve(userDataDir, AGENT_INTEGRATION_DIR, version)
@@ -203,7 +214,8 @@ async function isUsable(root: string, version: string): Promise<boolean> {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
-    return (parsed as Record<string, unknown>).version === version
+    const marker = parsed as Record<string, unknown>
+    return marker.version === version && marker.layout === AGENT_INTEGRATION_LAYOUT
   } catch {
     return false
   }
@@ -212,7 +224,7 @@ async function isUsable(root: string, version: string): Promise<boolean> {
 async function writeMarker(root: string, version: string): Promise<void> {
   const path = join(root, MARKER_FILE)
   const temp = `${path}.${process.pid}.tmp`
-  const body = `${JSON.stringify({ plugin: STUDIO_PLUGIN_ID, version, installedAt: new Date().toISOString() }, null, 2)}\n`
+  const body = `${JSON.stringify({ plugin: STUDIO_PLUGIN_ID, version, layout: AGENT_INTEGRATION_LAYOUT, installedAt: new Date().toISOString() }, null, 2)}\n`
   await writeFile(temp, body, 'utf8')
   await rename(temp, path)
 }

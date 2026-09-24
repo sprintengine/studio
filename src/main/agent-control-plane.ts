@@ -170,6 +170,12 @@ type ControlPlaneTerminalPort = {
   write(sessionId: string, data: string): void
   /** Retained scrollback for a live session; undefined when there is no such session. */
   read(sessionId: string): string | undefined
+  /**
+   * Only the output appended after `cursor` (0 for everything retained), and
+   * the cursor to pass next. Optional so a host without a cursor still works:
+   * the pattern wait then falls back to reading the whole scrollback per poll.
+   */
+  readSince?(sessionId: string, cursor: number): { text: string; cursor: number } | undefined
 }
 
 export type ControlPlaneConversationPort = {
@@ -195,6 +201,14 @@ const DEFAULT_READY_TIMEOUT_MS = 30_000
 const DEFAULT_CONFIRM_TIMEOUT_MS = 5_000
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000
 const DEFAULT_POLL_INTERVAL_MS = 100
+/**
+ * How much already-searched output a pattern wait keeps in front of each new
+ * read, so a match that straddles two polls — the prompt half-printed at one
+ * look and finished at the next — is still found. A match that starts more than
+ * this far back from the new output is not; a pattern written for a wait
+ * matches a line or two, not kilobytes.
+ */
+const PATTERN_OVERLAP_CHARS = 4_096
 /**
  * How long after someone else's keystroke an automated send stands down. The
  * race the item names: a queue flush and a human typing in the same pane
@@ -482,6 +496,7 @@ export class AgentControlPlane {
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
     const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
     const deadline = this.now() + timeoutMs
+    const matchesPattern = options.pattern ? this.patternMatcher(session.sessionId, options.pattern) : null
 
     for (;;) {
       const current = this.findSession(session.sessionId)
@@ -494,11 +509,8 @@ export class AgentControlPlane {
         }
       }
 
-      if (options.pattern) {
-        const text = this.deps.terminal.read(session.sessionId)
-        if (text !== undefined && options.pattern.test(text)) {
-          return { ok: true, sessionId: session.sessionId, matched: 'pattern' }
-        }
+      if (matchesPattern?.()) {
+        return { ok: true, sessionId: session.sessionId, matched: 'pattern' }
       }
 
       if (options.idleMs !== undefined && this.isQuietFor(current, options.idleMs)) {
@@ -529,6 +541,40 @@ export class AgentControlPlane {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * A per-wait check for `pattern` in the session's output. The first call
+   * searches everything retained — a pattern already on screen when the wait
+   * starts satisfies it at once, as it always has — and every later call
+   * searches only what arrived since, behind {@link PATTERN_OVERLAP_CHARS} of
+   * what came before. A poll with nothing new costs nothing.
+   */
+  private patternMatcher(sessionId: string, pattern: RegExp): () => boolean {
+    const readSince = this.deps.terminal.readSince?.bind(this.deps.terminal)
+    const test = (text: string): boolean => {
+      // A global or sticky pattern carries `lastIndex` from one test to the
+      // next; each window is a fresh search.
+      pattern.lastIndex = 0
+      return pattern.test(text)
+    }
+    if (!readSince) {
+      return () => {
+        const text = this.deps.terminal.read(sessionId)
+        return text !== undefined && test(text)
+      }
+    }
+    let cursor = 0
+    let carry = ''
+    return () => {
+      const read = readSince(sessionId, cursor)
+      if (!read) return false
+      cursor = read.cursor
+      if (read.text === '') return false
+      const window = carry + read.text
+      carry = window.slice(-PATTERN_OVERLAP_CHARS)
+      return test(window)
+    }
+  }
 
   private async sendTerminalPrompt(
     sessionId: string,

@@ -6,7 +6,6 @@ import {
   buildInstallDescriptor,
   buildProbeDescriptor,
   buildUpdateDescriptor,
-  buildUserShellProbeDescriptor,
   parseProbeOutput,
   resolveInstallPlatform,
 } from './cli-runtime-install'
@@ -81,54 +80,6 @@ test('cli-runtime-install', async () => {
     assert.equal(noVersion.installed, true)
     assert.equal(noVersion.resolvedPath, '/usr/local/bin/codex')
     assert.equal(noVersion.version, null)
-
-    // User-shell fallback probe: consults the user's own zsh/bash as an
-    // interactive login shell (terminal parity — PTYs source the same config),
-    // and only for POSIX-syntax shells on the host platform.
-    const zshFallback = buildUserShellProbeDescriptor({
-      binary: 'claude',
-      versionArgs: ['--version'],
-      target: 'darwin',
-      shell: '/bin/zsh',
-    })
-    assert.ok(zshFallback)
-    assert.equal(zshFallback.file, '/bin/zsh')
-    assert.equal(zshFallback.args[0], '-ilc')
-    assert.match(zshFallback.args[1], /command -v 'claude'/)
-    assert.match(zshFallback.args[1], /exit 3/)
-    // Interactive shells resolve aliases/functions too; only an absolute
-    // executable path may be reported (alias text cannot be spawned headlessly).
-    assert.match(zshFallback.args[1], /case "\$p" in \/\*\)/)
-    assert.match(zshFallback.args[1], /\[ -x "\$p" \]/)
-    const bashFallback = buildUserShellProbeDescriptor({
-      binary: 'claude',
-      versionArgs: [],
-      target: 'linux',
-      shell: '/usr/bin/bash',
-    })
-    assert.equal(bashFallback?.file, '/usr/bin/bash')
-    // fish would misparse the POSIX script; Windows/WSL have no user shell to
-    // consult; a missing $SHELL yields no fallback.
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '/usr/bin/fish' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'win32', shell: '/bin/zsh' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }),
-      null,
-    )
 
     // Update descriptor: the CLI's own updater (manifest update.args) runs
     // against the resolved binary in the target shell, mirroring the probe.

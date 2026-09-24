@@ -13,6 +13,7 @@ import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
 import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { killProcessTree } from './process-tree-kill'
+import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -25,7 +26,9 @@ export type SpawnDescriptor = { file: string; args: string[] }
 // the not-found code (callers that only want a yes/no verdict keep treating it
 // as "absent"), while callers that must distinguish "no such binary" from "the
 // probe never answered" read this flag instead.
-type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean }
+// `spawnFailed` is set when the process never started at all, so its "output"
+// is the error message and must not be read as anything the process printed.
+type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean; spawnFailed?: boolean }
 
 // Maps the OS platform + per-CLI WSL override onto the manifest install bucket.
 // WSL is a logical target (Windows host, POSIX guest) distinct from win32.
@@ -92,53 +95,6 @@ export function buildProbeDescriptor(input: {
     `& ${bin} ${versionPart} 2>&1`,
   ].join('\n')
   return shellDescriptorForScript(target, script)
-}
-
-// True when this setup has a user shell the fallback probe can consult: a POSIX
-// target plus a zsh/bash $SHELL (the probe script uses `command -v` + POSIX
-// quoting, which fish would misparse). Exported because callers that act on a
-// "not installed" verdict need to know whether the full probe chain ran: without
-// the interactive fallback, an absent binary may simply be one the primary
-// `bash -lc` probe cannot see.
-export function userShellProbeSupported(target: PluginInstallPlatform, shell: string | undefined): shell is string {
-  if (target !== 'darwin' && target !== 'linux') return false
-  const shellPath = shell?.trim()
-  if (!shellPath) return false
-  const shellName = shellPath.split('/').pop()
-  return shellName === 'zsh' || shellName === 'bash'
-}
-
-// Fallback probe through the user's own login+interactive shell. The primary
-// probe runs `bash -lc`, which never sources zsh config — so a `claude` whose
-// PATH entry lives only in ~/.zshrc/~/.zprofile (nvm, homebrew) is visible in
-// every PTY terminal (they spawn the user's real shell) but invisible to the
-// probe when the app was launched from the Dock. Returns null when the setup
-// has no such shell to consult (Windows/WSL, fish, no $SHELL), so callers
-// simply keep the primary verdict.
-export function buildUserShellProbeDescriptor(input: {
-  binary: string
-  versionArgs: string[]
-  target: PluginInstallPlatform
-  shell: string | undefined
-}): SpawnDescriptor | null {
-  const { binary, versionArgs, target, shell } = input
-  if (!userShellProbeSupported(target, shell)) return null
-  const shellPath = shell.trim()
-  const bin = posixSingleQuote(binary)
-  const versionPart = versionArgs.map(posixSingleQuote).join(' ')
-  // In an interactive shell `command -v` also matches aliases and functions
-  // (printing the alias text or the bare name, not a path). Those cannot be
-  // spawned headlessly, so the probe only accepts an absolute executable path
-  // — anything else reads as not-found.
-  const script = [
-    `p="$(command -v ${bin})" || exit ${NOT_FOUND_EXIT}`,
-    `case "$p" in /*) [ -x "$p" ] || exit ${NOT_FOUND_EXIT} ;; *) exit ${NOT_FOUND_EXIT} ;; esac`,
-    `printf '${PATH_SENTINEL}%s\\n' "$p"`,
-    `"$p" ${versionPart} 2>&1 || true`,
-  ].join('\n')
-  // -i so interactive-only config (~/.zshrc) is sourced too — that's where
-  // PATH edits usually live; a PTY terminal sources the same files.
-  return { file: shellPath, args: ['-ilc', script] }
 }
 
 // Builds a script that exits NOT_FOUND_EXIT when a prerequisite binary (npm,
@@ -247,7 +203,13 @@ function runDescriptor(
       onData?.(text)
     })
     child.on('error', (error) => {
-      settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)), timedOut: false })
+      settle({
+        code: 1,
+        stdout,
+        stderr: stderr + (error.message ?? String(error)),
+        timedOut: false,
+        spawnFailed: true,
+      })
     })
     child.on('exit', (code) => {
       if (timedOut) {
@@ -283,12 +245,11 @@ function stringProcessEnv(): Record<string, string> {
   )
 }
 
-// Probes run shells whose profiles we do not control; hard deadlines keep a
-// pathological config (a ~/.bash_profile that starts tmux, prompts, or waits
-// on a network mount) from wedging provider listing or availability checks.
-// The primary login probe gets a longer budget than the interactive fallback.
+// Probes run shells whose profiles we do not control, and CLIs whose
+// `--version` we do not control either; a hard deadline keeps a pathological
+// config (a ~/.bash_profile that starts tmux, prompts, or waits on a network
+// mount) or a hung binary from wedging provider listing or availability checks.
 const PROBE_TIMEOUT_MS = 10_000
-const USER_SHELL_PROBE_TIMEOUT_MS = 5_000
 
 function managedInstallEnv(): Record<string, string> | null {
   const runtimeEnv = currentRuntimeEnv()
@@ -305,36 +266,87 @@ export type ProbeVerdict = {
   inconclusive: boolean
 }
 
-// Runs the login-shell probe, then the user's own interactive shell when the
-// binary did not resolve (terminal parity — see buildUserShellProbeDescriptor).
-async function runVersionProbe(input: {
+// The login-shell PATH for the whole app session (see login-shell-path.ts): one
+// shell answers it, every binary lookup after that is done in this process.
+const loginShellPath = createLoginShellPathResolver({
+  run: (descriptor, env) => runDescriptor(descriptor, undefined, env, descriptor.timeoutMs),
+  shell: () => process.env.SHELL,
+})
+
+/**
+ * Drop the session's login-shell PATH so the next probe asks a shell again.
+ * Called on a forced availability refresh and before the re-detect that follows
+ * an install or update: an installer is exactly what appends a directory to
+ * `~/.zshrc`, and the verdict after it must see that directory.
+ */
+export function invalidateLoginShellPath(): void {
+  loginShellPath.invalidate()
+}
+
+// Host macOS/Linux: resolve the binary against the session's login-shell PATH
+// in this process, then run only the binary itself for its version. That is
+// one process per INSTALLED CLI and none for an absent one, where this used to
+// be a login shell per CLI and a second, interactive one for every CLI bash
+// could not see.
+async function runHostVersionProbe(input: {
+  binary: string
+  versionArgs: string[]
+  env: NodeJS.ProcessEnv
+}): Promise<ProbeVerdict> {
+  const { binary, versionArgs, env } = input
+  const loginPath = await loginShellPath.resolve(env)
+  const directories = searchDirectories(loginPath, env.PATH)
+  const resolvedPath = await findExecutable(binary, directories)
+  if (!resolvedPath) {
+    // Absent from the process PATH alone is not a verdict: that PATH is the one
+    // a Dock launch gets, without anything the person's shell config adds.
+    return { parsed: { installed: false, version: null, resolvedPath: null }, inconclusive: loginPath === null }
+  }
+  // The binary is run with the PATH it was found on, so a `#!/usr/bin/env node`
+  // script finds the same `node` a terminal would give it.
+  const outcome = await runDescriptor(
+    { file: resolvedPath, args: versionArgs },
+    undefined,
+    { ...env, PATH: directories.join(':') },
+    PROBE_TIMEOUT_MS,
+  )
+  // Found, whatever `--version` did: the shell probe ignored its exit code too
+  // (`|| true`). A binary that would not start or answered nothing is installed
+  // with no version, never "not installed".
+  const printed = outcome.spawnFailed ? '' : `${outcome.stdout}\n${outcome.stderr}`
+  const parsed = parseProbeOutput(0, `${PATH_SENTINEL}${resolvedPath}\n${printed}`)
+  return { parsed, inconclusive: false }
+}
+
+// Windows and WSL: the shell probe, unchanged: `command -v` inside WSL's login
+// bash, or `Get-Command` in PowerShell.
+async function runShellVersionProbe(input: {
   binary: string
   versionArgs: string[]
   target: PluginInstallPlatform
   env: NodeJS.ProcessEnv
 }): Promise<ProbeVerdict> {
   const { binary, versionArgs, target, env } = input
-  const primary = await runDescriptor(
+  const outcome = await runDescriptor(
     buildProbeDescriptor({ binary, versionArgs, target }),
     undefined,
     env,
     PROBE_TIMEOUT_MS,
   )
-  let parsed = parseProbeOutput(primary.code, primary.stdout)
-  let inconclusive = primary.timedOut
-  if (parsed.installed) return { parsed, inconclusive }
-  const fallback = buildUserShellProbeDescriptor({ binary, versionArgs, target, shell: process.env.SHELL })
-  if (!fallback) return { parsed, inconclusive }
-  const outcome = await runDescriptor(fallback, undefined, env, USER_SHELL_PROBE_TIMEOUT_MS)
-  const fallbackParsed = parseProbeOutput(outcome.code, outcome.stdout)
-  // Only an absolute executable path is accepted (the script enforces it), so
-  // an alias/function-only setup reads as not-found rather than producing a
-  // resolvedPath that cannot be spawned.
-  if (fallbackParsed.installed && fallbackParsed.resolvedPath?.startsWith('/')) {
-    return { parsed: fallbackParsed, inconclusive: false }
-  }
-  if (outcome.timedOut) inconclusive = true
-  return { parsed, inconclusive }
+  return { parsed: parseProbeOutput(outcome.code, outcome.stdout), inconclusive: outcome.timedOut }
+}
+
+function isHostPosixTarget(target: PluginInstallPlatform): boolean {
+  return target === 'darwin' || target === 'linux'
+}
+
+async function runVersionProbe(input: {
+  binary: string
+  versionArgs: string[]
+  target: PluginInstallPlatform
+  env: NodeJS.ProcessEnv
+}): Promise<ProbeVerdict> {
+  return isHostPosixTarget(input.target) ? runHostVersionProbe(input) : runShellVersionProbe(input)
 }
 
 // PATH augmentation matching what terminal launches get (the managed runtime
@@ -438,12 +450,27 @@ export async function detectCli(
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
   try {
     // An explicit caller env still wins over the default probe PATH.
-    const { parsed } = await runVersionProbe({
+    const { parsed, inconclusive } = await runVersionProbe({
       binary,
       versionArgs,
       target,
       env: env ?? defaultProbeEnv(),
     })
+    // On the host, a binary missing while no shell would say what PATH the
+    // person has is a non-answer. Reported as an error, availability leaves it
+    // out (the renderer keeps it visible as "unknown") and does not cache it,
+    // rather than holding a false "not installed" for the length of the cache.
+    if (inconclusive && !parsed.installed && isHostPosixTarget(target)) {
+      return {
+        cli,
+        binary,
+        installed: false,
+        version: null,
+        resolvedPath: null,
+        useWsl,
+        error: 'No login shell answered with a PATH to look the binary up on.',
+      }
+    }
     return {
       cli,
       binary,
@@ -562,7 +589,9 @@ export async function installCli(
   }
 
   // Re-detect regardless of exit code: some installers report a non-zero exit
-  // while still placing the binary (e.g. PATH advisories).
+  // while still placing the binary (e.g. PATH advisories). Against a freshly
+  // asked login PATH, since an installer may have just added to it.
+  invalidateLoginShellPath()
   const detected = await detectCli(input.cli, runtime, installEnv)
   const ok = detected.installed && runError === null
   return {
@@ -638,6 +667,7 @@ export async function updateCli(
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)
     }
+    invalidateLoginShellPath()
     const detected = await detectCli(cli, runtime, updateEnv)
     const ok = detected.installed && runError === null
     return {
@@ -675,6 +705,7 @@ export async function updateCli(
     } catch (error) {
       runError = error instanceof Error ? error.message : String(error)
     }
+    invalidateLoginShellPath()
     const detected = await detectCli(cli, runtime, updateEnv)
     const ok = detected.installed && runError === null
     return {

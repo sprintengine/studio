@@ -127,8 +127,8 @@ function defaultListClis(): RegisteredCli[] {
   }))
 }
 
-// Rides detection's own 60 s cache, so the pass after boot detection reuses
-// its answer instead of spawning another login shell per CLI.
+// Rides detection's own cache, so the pass after boot detection reuses its
+// answer instead of probing every CLI again.
 function defaultDetect(clis: RegisteredCli[], cliRuntimes: CliRuntimes): Promise<AgentCliAvailabilityMap> {
   const ids = new Set(clis.map((cli) => cli.id))
   return detectAgentCliAvailability(

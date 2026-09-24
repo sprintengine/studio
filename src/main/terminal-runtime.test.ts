@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
+import { createAgentPromptStore } from './agent-prompt-store'
 import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createPullRequestRecord } from './pull-request-record'
@@ -680,9 +681,7 @@ test('terminal-runtime', async () => {
       )
 
       // What the conversation peek reads off the session, left there by these same
-      // frames: the transcript the turn end named, and every prompt seen since
-      // launch. The prompt list is the peek's LIVE fallback — the only source for
-      // a runtime that reports prompts but hands us no transcript.
+      // frames: every prompt the session was sent. It is the peek's only source.
       runtime.ingestAgentStateFrame(
         frame({
           phase: 'thinking',
@@ -700,20 +699,8 @@ test('terminal-runtime', async () => {
         }),
       )
       assert.deepEqual(
-        runtime.readConversationPeekSessionState('session-phase'),
+        await runtime.readConversationPeekSessionState('session-phase'),
         {
-          transcriptPath: '/tmp/transcript.jsonl',
-          // The id the CLI reports for itself — for a Claude session it is also
-          // the name of its transcript file, which is how a parked chat recovers
-          // a history no hook has named yet.
-          cliSessionId: 'session-phase',
-          // The LAUNCH directory, not wherever the agent has since cd'd to: the
-          // folder a Claude transcript lives in is fixed when the CLI starts.
-          launchCwd: workspaceRoot,
-          // claude-code's manifest declares harnessId 'claude', so this session
-          // may have a ~/.claude transcript derived for it. Codex and Grok are
-          // false here and must never get one.
-          claudeHarness: true,
           // Claude Code reports messages, so a chat of its that has said nothing
           // yet must never be reported as a runtime that cannot report.
           reportsMessages: true,
@@ -722,10 +709,10 @@ test('terminal-runtime', async () => {
             { text: 'Use the design system for this', at: scheduledAt + 3_000 },
           ],
         },
-        'the peek must see the turn end’s transcript, the launch cwd and every prompt since launch',
+        'the peek must see every prompt the session was sent',
       )
       assert.equal(
-        runtime.readConversationPeekSessionState('session-nonexistent'),
+        await runtime.readConversationPeekSessionState('session-nonexistent'),
         null,
         'a session that does not exist answers null, not an empty peek',
       )
@@ -1732,10 +1719,12 @@ test('terminal-runtime', async () => {
       }
     }
 
+    const agentPromptStore = createAgentPromptStore({ resolveUserDataDir: () => userDataDir })
     const runtimeOptions = {
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
       snapshotSidecars: sidecarStore,
+      agentPrompts: agentPromptStore,
     }
 
     const spawnAgent = async (
@@ -1815,30 +1804,23 @@ test('terminal-runtime', async () => {
     try {
       // The conversation peek answers for a PARKED chat, before anything has
       // rehydrated it — `terminals` is empty here, exactly as after a relaunch,
-      // and this is the case the card is most wanted for. The facts come from the
-      // sidecar: which CLI, its session id, and the directory it was launched in.
-      // Including the prompts. THE DEFECT: they used to be dropped at the app's
-      // door — held in memory and written nowhere — so a parked Codex chat came
-      // back claiming to have no messages, about a chat whose own title was its
-      // first prompt.
-      const parked = runtime2.readConversationPeekSessionState('session-frozen')
+      // and this is the case the card is most wanted for. The CLI comes from the
+      // sidecar and the prompts from the agent's prompt store.
+      const parked = await runtime2.readConversationPeekSessionState('session-frozen')
       assert.deepEqual(
         parked,
         {
-          cliSessionId: '01a09735-0f86-7441-99fa-1af8310d6733',
-          launchCwd: workspaceRoot,
-          claudeHarness: false,
           // codex's manifest declares UserPromptSubmit, so the card must not say
           // this runtime cannot report its messages.
           reportsMessages: true,
           prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }],
         },
-        'a parked session must still answer from its snapshot sidecar',
+        'a parked session must still answer after a restart',
       )
       assert.equal(
-        runtime2.readConversationPeekSessionState('session-never-existed'),
+        await runtime2.readConversationPeekSessionState('session-never-existed'),
         null,
-        'a session with neither a live record nor a sidecar answers null',
+        'a session with no live record, no sidecar and no stored prompts answers null',
       )
 
       assert.deepEqual(
@@ -1900,6 +1882,22 @@ test('terminal-runtime', async () => {
       )
     } finally {
       await runtime2.shutdown()
+    }
+
+    // The sidecar goes at 30 days while the agent stays in the sidebar. Its
+    // prompts do not go with it: the agent's store still names the session.
+    await rm(join(userDataDir, 'terminal-snapshots', 'session-frozen.json'), { force: true })
+    const sweptStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+    assert.equal(sweptStore.read('session-frozen'), null, 'the sidecar is gone')
+    const runtime3 = runtimeModule.createTerminalRuntime({ ...runtimeOptions, snapshotSidecars: sweptStore })
+    try {
+      assert.deepEqual(
+        await runtime3.readConversationPeekSessionState('session-frozen'),
+        { reportsMessages: true, prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }] },
+        'the stored prompts outlive the sidecar',
+      )
+    } finally {
+      await runtime3.shutdown()
     }
   }
 

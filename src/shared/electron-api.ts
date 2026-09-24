@@ -9,12 +9,7 @@ import type {
   AgentLaunchSettingsSnapshot,
   AgentLaunchSettingsWriteAck,
 } from './launch-settings'
-export type {
-  ConversationPeek,
-  ConversationPeekAttachment,
-  ConversationPeekMessage,
-  ConversationPeekSource,
-} from './conversation-peek'
+export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -395,7 +390,6 @@ import type {
   OpenAuxWindowInput,
   OpenAuxWindowResult,
   OpenExternalResult,
-  SplashProgress,
   WindowPlacement,
   WindowState,
 } from './ipc/window'
@@ -550,12 +544,12 @@ export type ElectronApi = {
   canvasWorkerReady: (report: CanvasWorkerReport) => void
   onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
   canvasWorkerRespond: (response: CanvasWorkerResponse) => void
-  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
-  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
-  // window when its first frame is on screen, and is what closes the splash and
-  // reveals the main window (main also holds a hard timeout, so a renderer that
-  // never gets there cannot strand a hidden main window).
-  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  // Splash boot handshake. `notifyBootComplete` is sent once by the primary
+  // workspace window when its first frame is on screen, and is what closes the
+  // splash and reveals the main window (main also holds a hard timeout, so a
+  // renderer that never gets there cannot strand a hidden main window). The
+  // plate's own progress subscription is not here: the plate loads a preload of
+  // its own (`src/preload/splash.ts`).
   notifyBootComplete: () => void
   // Boot measurement, off unless asked for. The flag is resolved in
   // preload from the same environment main reads, so the renderer never reports
@@ -1203,12 +1197,11 @@ export type ElectronApi = {
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
   onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
-  // The conversation peek: what has actually been said in a chat the person is
-  // hovering rather than looking at — the first message, everything since, and
-  // what they attached to the first. `source` says which of the three shapes the
-  // answer is in (the CLI's transcript, the prompts seen since launch, or
-  // neither), because the card is required to say so rather than look broken.
-  // See `shared/conversation-peek.ts`.
+  // The conversation peek: what has been said in a chat the person is hovering
+  // rather than looking at — the first message and everything since, from the
+  // prompts this app captured. `source` says whether there is an answer, a
+  // runtime that reports nothing, or no record at all, because the card is
+  // required to say so rather than look broken. See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
@@ -1228,11 +1221,6 @@ export type ElectronApi = {
   listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
   /** Which conversations' lists moved; the ids only, never the lists. */
   onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
-  // Open an attachment the peek just handed out: an image goes to the OS image
-  // viewer, a file is revealed in the file manager. Takes the attachment's id,
-  // never a path — main resolves it against the peek it produced, so a renderer
-  // cannot name a file of its own.
-  openConversationPeekAttachment: (sessionId: string, attachmentId: string) => Promise<void>
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).
