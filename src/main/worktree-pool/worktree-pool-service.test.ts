@@ -813,17 +813,29 @@ test('pool keys and slot status parsing', () => {
 
   const oid = 'a'.repeat(40)
   const detachedClean = `# branch.oid ${oid}\0# branch.head (detached)\0`
-  assert.deepEqual(parseSlotStatus(detachedClean), { oid, branch: null, changedPaths: 0 })
+  assert.deepEqual(parseSlotStatus(detachedClean), {
+    oid,
+    branch: null,
+    changedPaths: 0,
+    trackedPaths: [],
+    untracked: 0,
+  })
   const busy = [
     `# branch.oid ${oid}`,
     '# branch.head agent/x',
-    '1 .M N... 100644 100644 100644 abc abc src/a.ts',
+    '1 .M N... 100644 100644 100644 abc abc src/a file.ts',
     '2 R. N... 100644 100644 100644 abc abc R100 src/new.ts',
     'src/old.ts',
     '? notes.md',
     '',
   ].join('\0')
-  assert.deepEqual(parseSlotStatus(busy), { oid, branch: 'agent/x', changedPaths: 3 })
+  assert.deepEqual(parseSlotStatus(busy), {
+    oid,
+    branch: 'agent/x',
+    changedPaths: 3,
+    trackedPaths: ['src/a file.ts', 'src/new.ts', 'src/old.ts'],
+    untracked: 1,
+  })
 })
 
 test('an interrupted create is removed, a postponed return retries, and recovery waits for the lock', async () => {
@@ -896,4 +908,88 @@ test('the owner index names every agent, workspace and path the registry points 
     '/Users/dev/.sprintengine-worktrees/app/pool-01',
     '/Users/dev/.sprintengine-worktrees/app/pool-02',
   ])
+})
+
+test('review fixes: a live holder keeps its lock however old, and a lost lock stops the holder', async () => {
+  await mkdir(container, { recursive: true })
+  const first = await acquireInstanceLock(container, 'a', { pidAlive: () => true, host: 'mac-mini' })
+  assert.equal(first.ok, true)
+  const old = new Date(Date.now() - 60 * 60_000)
+  await utimes(join(container, '.pool.lock'), old, old)
+  const second = await acquireInstanceLock(container, 'b', { pidAlive: () => true, host: 'mac-mini' })
+  assert.equal(second.ok, false, 'an alive holder on this machine is never taken over')
+  const remote = await acquireInstanceLock(container, 'c', { pidAlive: () => true, host: 'build-box' })
+  assert.equal(remote.ok, true, 'a silent holder on another machine is')
+
+  const harness = makeService({ instanceId: 'd' })
+  await rm(join(container, '.pool.lock'))
+  await warmPool(harness, 1)
+  // Someone else now holds the container: the pool steps down at once.
+  await rm(join(container, '.pool.lock'))
+  await acquireInstanceLock(container, 'intruder', { pidAlive: () => true })
+  const refused = await harness.service.lease({
+    repoRoot: repo,
+    name: 'x',
+    owner: { agentId: 'agent-1', workspaceId: 'ws' },
+    runtime: 'native',
+  })
+  assert.equal(!refused.ok && refused.reason, 'other-instance')
+})
+
+test('review fixes: a worktree merely named like a slot is never adopted, and a claimed slot is never recycled', async () => {
+  const harness = makeService({ owners: { agents: new Set(), workspaces: new Set(), paths: [] } })
+  await warmPool(harness, 1)
+  const [slot] = (await snapshot(harness)).slots
+  // A person's own worktree that happens to be called pool-07.
+  const impostor = join(container, 'pool-07')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'agent/pool-07', impostor, 'origin/main')
+  await harness.service.shutdown()
+  const restarted = makeService({ owners: { agents: new Set(), workspaces: new Set(), paths: [] } })
+  await restarted.service.start()
+  assert.equal(restarted.service.ownsPath(impostor), false)
+
+  // A lease whose slot a workspace still points into is not recycled by a
+  // held action, a release, or a postponed retry.
+  const leased = await restarted.service.lease({
+    repoRoot: repo,
+    name: 'claimed',
+    owner: { agentId: null, workspaceId: null },
+    runtime: 'native',
+  })
+  assert.ok(leased.ok)
+  assert.equal(leased.slotId, slot.id)
+  restarted.state.owners = { agents: new Set(), workspaces: new Set(), paths: [join(leased.path, 'src')] }
+  await restarted.service.release(leased.leaseId)
+  await restarted.settle()
+  assert.equal((await slotAt(restarted, leased.slotId)).state, 'leased')
+})
+
+test('review fixes: per-agent config is removed on return, and ignored files in the way hold the slot', async () => {
+  const harness = makeService()
+  await warmPool(harness, 1)
+  const leased = await harness.service.lease({
+    repoRoot: repo,
+    name: 'connector',
+    owner: { agentId: 'agent-1', workspaceId: 'ws' },
+    runtime: 'native',
+  })
+  assert.ok(leased.ok)
+  await writeFile(join(leased.path, '.mcp.json'), '{"secret":"token"}\n')
+  await mkdir(join(leased.path, '.claude'), { recursive: true })
+  await writeFile(join(leased.path, '.claude', 'settings.local.json'), '{}\n')
+  await writeFile(join(repo, '.git', 'info', 'exclude'), '.mcp.json\n.codex/config.toml\n.claude/\nlocal.cfg\n', {
+    flag: 'a',
+  })
+  // An ignored file the next base starts tracking: it must not be overwritten.
+  await writeFile(join(leased.path, 'local.cfg'), 'LOCAL=1\n')
+  await harness.service.updateSettings({ warmTarget: 0 })
+  await pushToOrigin('local.cfg', 'TRACKED=1\n')
+  await harness.service.release(leased.leaseId)
+  await harness.settle()
+  assert.equal(await exists(join(leased.path, '.mcp.json')), false)
+  assert.equal(await exists(join(leased.path, '.claude', 'settings.local.json')), false)
+  const after = await slotAt(harness, leased.slotId)
+  assert.equal(after.state, 'held')
+  assert.match(after.held?.detail ?? '', /local\.cfg/)
+  assert.equal(await readFile(join(leased.path, 'local.cfg'), 'utf8'), 'LOCAL=1\n')
 })

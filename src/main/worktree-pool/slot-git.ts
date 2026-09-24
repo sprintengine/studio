@@ -1,4 +1,4 @@
-import { readFile, rm, stat } from 'fs/promises'
+import { readFile, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { GitCommandResult } from '../git'
 import { runGitCommand } from '../git-run'
@@ -21,6 +21,19 @@ export type SlotStatus = {
   branch: string | null
   /** Changed, staged, unmerged and untracked paths. Ignored files never count. */
   changedPaths: number
+  /** The tracked paths among them (changed, staged or unmerged). */
+  trackedPaths: string[]
+  /** How many of them are untracked. */
+  untracked: number
+}
+
+// Fields before the path in each porcelain v2 record kind.
+const PATH_FIELD: Record<string, number> = { '1': 8, '2': 9, u: 10 }
+
+function pathOf(record: string, kind: string): string {
+  let index = 0
+  for (let field = 0; field < PATH_FIELD[kind]; field += 1) index = record.indexOf(' ', index) + 1
+  return record.slice(index)
 }
 
 /**
@@ -33,6 +46,8 @@ export function parseSlotStatus(stdout: string): SlotStatus {
   let oid: string | null = null
   let branch: string | null = null
   let changedPaths = 0
+  let untracked = 0
+  const trackedPaths: string[] = []
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
     if (!record) continue
@@ -48,14 +63,21 @@ export function parseSlotStatus(stdout: string): SlotStatus {
     }
     if (record.startsWith('#')) continue
     const kind = record[0]
-    if (kind === '1' || kind === 'u' || kind === '?') changedPaths += 1
-    else if (kind === '2') {
+    if (kind === '?') {
       changedPaths += 1
+      untracked += 1
+    } else if (kind === '1' || kind === 'u') {
+      changedPaths += 1
+      trackedPaths.push(pathOf(record, kind))
+    } else if (kind === '2') {
+      changedPaths += 1
+      trackedPaths.push(pathOf(record, kind))
       // A rename or copy carries its original path as the next record.
       index += 1
+      if (records[index]) trackedPaths.push(records[index])
     }
   }
-  return { oid, branch, changedPaths }
+  return { oid, branch, changedPaths, trackedPaths, untracked }
 }
 
 export async function readSlotStatus(
@@ -72,6 +94,28 @@ export async function readSlotGitDir(run: SlotGitRunner, slotPath: string): Prom
   const result = await run(slotPath, ['rev-parse', '--absolute-git-dir'])
   const value = result.ok ? result.stdout.trim() : ''
   return value || null
+}
+
+/**
+ * A file the pool leaves in each slot's own gitdir (never in the tree, so no
+ * status sees it). It is the evidence that a `pool-NN` worktree is the pool's:
+ * a person or an agent can name a worktree `pool-01` too, and only a marked
+ * one is ever adopted back into a pool whose record was lost.
+ */
+const SLOT_MARKER = 'sprintengine-pool-slot'
+
+export async function writeSlotMarker(run: SlotGitRunner, slotPath: string): Promise<void> {
+  const gitDir = await readSlotGitDir(run, slotPath)
+  if (gitDir) await writeFile(join(gitDir, SLOT_MARKER), 'This worktree is a pool slot of SprintEngine Studio.\n')
+}
+
+export async function hasSlotMarker(run: SlotGitRunner, slotPath: string): Promise<boolean> {
+  const gitDir = await readSlotGitDir(run, slotPath)
+  if (!gitDir) return false
+  return stat(join(gitDir, SLOT_MARKER)).then(
+    () => true,
+    () => false,
+  )
 }
 
 const OPERATION_MARKERS: Array<[string, string]> = [
@@ -177,6 +221,79 @@ export async function commitIsReachable(run: SlotGitRunner, cwd: string, oid: st
   ])
   // Unreadable is "not reachable": the caller then keeps the commit on a branch.
   return result.ok && result.stdout.trim().length > 0
+}
+
+/**
+ * Ignored files that belong to one agent's run and must not reach the next
+ * agent leased the same slot: the app's managed MCP config (a connector
+ * launch's carries that connector's server, and its credentials) and a CLI's
+ * local permission approvals. Removed on a clean return, and only while git
+ * does not track them.
+ */
+export const PER_AGENT_IGNORED_FILES = ['.mcp.json', '.codex/config.toml', '.claude/settings.local.json'] as const
+
+export async function removePerAgentFiles(run: SlotGitRunner, slotPath: string): Promise<string[]> {
+  const tracked = await run(slotPath, ['ls-files', '-z', '--', ...PER_AGENT_IGNORED_FILES.map((p) => `:(literal)${p}`)])
+  if (!tracked.ok) return []
+  const trackedSet = new Set(tracked.stdout.split('\0').filter(Boolean))
+  const removed: string[] = []
+  for (const relative of PER_AGENT_IGNORED_FILES) {
+    if (trackedSet.has(relative)) continue
+    const full = join(slotPath, ...relative.split('/'))
+    const present = await stat(full).then(
+      (info) => info.isFile(),
+      () => false,
+    )
+    if (!present) continue
+    await rm(full, { force: true })
+    removed.push(relative)
+  }
+  return removed
+}
+
+/**
+ * Ignored files sitting where the move from `fromSha` to `toSha` adds a
+ * tracked file. `read-tree --reset -u` would overwrite them without a word, and
+ * `status` never shows them, so they are looked for explicitly; the caller
+ * holds the slot rather than lose them.
+ */
+export async function ignoredFilesInTheWay(
+  run: SlotGitRunner,
+  slotPath: string,
+  fromSha: string,
+  toSha: string,
+): Promise<string[] | null> {
+  const added = await run(slotPath, ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', fromSha, toSha])
+  if (!added.ok) return null
+  const paths = added.stdout.split('\0').filter(Boolean)
+  const found: string[] = []
+  for (let start = 0; start < paths.length; start += 200) {
+    const chunk = paths.slice(start, start + 200).map((path) => `:(literal)${path}`)
+    const ignored = await run(slotPath, [
+      'ls-files',
+      '-z',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '--',
+      ...chunk,
+    ])
+    if (!ignored.ok) return null
+    found.push(...ignored.stdout.split('\0').filter(Boolean))
+  }
+  return found
+}
+
+/** Every path that differs between two commits. */
+export async function pathsBetween(
+  run: SlotGitRunner,
+  cwd: string,
+  fromSha: string,
+  toSha: string,
+): Promise<Set<string> | null> {
+  const result = await run(cwd, ['diff', '--name-only', '-z', '--no-renames', fromSha, toSha])
+  if (!result.ok) return null
+  return new Set(result.stdout.split('\0').filter(Boolean))
 }
 
 export async function hasFile(slotPath: string, name: string): Promise<boolean> {

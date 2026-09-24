@@ -408,10 +408,14 @@ export async function acquireInstanceLock(
       return { ok: true }
     }
     const age = info ? now() - info.mtimeMs : Number.POSITIVE_INFINITY
-    const deadHere = holder.host === host && typeof holder.pid === 'number' && !pidAlive(holder.pid)
-    // A lock file that is unreadable AND old is debris; an unreadable fresh one
-    // may be a holder mid-write, and is respected.
-    if (deadHere || age > POOL_LOCK_STALE_MS) {
+    const sameHost = holder.host === host && typeof holder.pid === 'number'
+    const deadHere = sameHost && !pidAlive(holder.pid as number)
+    // On this machine the holder's process is the whole truth: a live one keeps
+    // the lock however old its heartbeat is (a laptop asleep for an hour stops
+    // every timer, the holder's included). Age decides only for a holder on
+    // another machine, whose process cannot be asked, and for a lock file too
+    // torn to name anyone; an unreadable fresh one may be a holder mid-write.
+    if (deadHere || (!sameHost && age > POOL_LOCK_STALE_MS)) {
       await rm(lockPath, { force: true })
       continue
     }
@@ -420,17 +424,23 @@ export async function acquireInstanceLock(
   return { ok: false, holder: 'unknown' }
 }
 
-/** Touch the lock so the other instance keeps seeing a live holder. */
-export async function heartbeatInstanceLock(containerPath: string, instanceId: string): Promise<void> {
+/**
+ * Touch the lock so the other instance keeps seeing a live holder, and say
+ * whether it is still ours. A holder that finds the lock gone or naming
+ * someone else has lost the pool and must stop driving it (the caller steps
+ * down to "held by another Studio").
+ */
+export async function heartbeatInstanceLock(containerPath: string, instanceId: string): Promise<boolean> {
   const lockPath = join(containerPath, POOL_LOCK_FILE)
   const text = await readFile(lockPath, 'utf8').catch(() => null)
-  if (!text) return
+  if (!text) return false
   try {
-    if ((JSON.parse(text) as Partial<LockBody>).instanceId !== instanceId) return
+    if ((JSON.parse(text) as Partial<LockBody>).instanceId !== instanceId) return false
   } catch {
-    return
+    return false
   }
   await utimes(lockPath, new Date(), new Date()).catch(() => {})
+  return true
 }
 
 export async function releaseInstanceLock(containerPath: string, instanceId: string): Promise<void> {
