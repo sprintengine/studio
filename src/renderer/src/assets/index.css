@@ -2287,14 +2287,29 @@ samp,
   }
 }
 
-/* The three infinite "something is working" motions above hold still while the
- * window is hidden or in the background (data-window-active, stamped by
- * utils/windowActivity.ts). They exist to catch the eye of someone looking at
- * the window; with nobody looking, every frame they ask for is a compositor
- * wakeup spent on nothing — and on the glass material, a full-window re-blend.
- * Paused rather than removed, so each resumes from the frame it stopped on
- * instead of snapping. */
-:root[data-window-active='false'] :is(.status-dot-pulse, .agent-working-dot, .lifecycle-spin) {
+/* Every infinite "something is working" motion holds still while the window is
+ * hidden or in the background (data-window-active, stamped by
+ * utils/windowActivity.ts): the three above, the working edge and the chat
+ * shimmer below, the skeleton sweep, and Tailwind's `animate-pulse` and
+ * `animate-ping`. They exist to catch the eye of someone looking at the
+ * window; with nobody looking, every frame they ask for is a wakeup spent on
+ * nothing — on the glass material a full-window re-blend, and for the working
+ * edge, whose conic gradient turns a registered custom property, a main-thread
+ * repaint. Paused rather than removed, so each resumes from the frame it
+ * stopped on instead of snapping. The skeleton's sweep is its `::after`, which
+ * `:is()` cannot name, so it has a selector of its own. The rule is checked
+ * against every infinite animation here by assets/idleAnimations.test.ts. */
+:root[data-window-active='false']
+  :is(
+    .status-dot-pulse,
+    .agent-working-dot,
+    .lifecycle-spin,
+    .working-edge,
+    .chat-shimmer,
+    .animate-pulse,
+    .animate-ping
+  ),
+:root[data-window-active='false'] .skeleton-shimmer::after {
   animation-play-state: paused;
 }
 
