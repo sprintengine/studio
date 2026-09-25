@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationActionProvider, AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
@@ -901,36 +901,52 @@ test('executor-local', async () => {
     // shows up in the connector chat's `git status` or commits. Real git worktree.
     const repoRoot = await initWorktreeTestRepo()
     try {
+      // The person's own excludes file (set on the repository so the test never
+      // reads this machine's global one), and the pair an earlier build
+      // appended to the SHARED exclude file.
+      const personalIgnore = join(repoRoot, '..', `personal-ignore-${Date.now()}`)
+      await writeFile(personalIgnore, '*.log\n', 'utf8')
+      assert.ok((await runGitCommand(repoRoot, ['config', 'core.excludesFile', personalIgnore])).ok)
+      const shared = await runGitCommand(repoRoot, ['rev-parse', '--git-path', 'info/exclude'])
+      const sharedPath = resolve(repoRoot, shared.stdout.trim())
+      await mkdir(join(sharedPath, '..'), { recursive: true })
+      await writeFile(sharedPath, '# theirs\nbuild/\n.mcp.json\n.codex/config.toml\n', 'utf8')
+
       const created = await defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-mcp' })
       assert.ok(created, 'worktree created')
       await excludeMcpConfigFromWorktree(created!.worktreePath)
 
-      const resolved = await runGitCommand(created!.worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
-      assert.ok(resolved.ok, 'rev-parse exclude path')
-      const content = await readFile(resolved.stdout.trim(), 'utf8')
-      for (const entry of MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES) {
-        assert.ok(
-          content.split('\n').some((line) => line.trim() === entry),
-          `info/exclude must contain ${entry}, got: ${content}`,
-        )
-      }
+      // The shared file keeps the person's lines and loses only the old pair.
+      assert.equal(await readFile(sharedPath, 'utf8'), '# theirs\nbuild/\n')
 
-      // The excluded files must not surface in git status once present on disk.
+      // The excluded files must not surface in the worktree's git status…
       await writeFile(join(created!.worktreePath, '.mcp.json'), '{"servers":{}}\n', 'utf8')
+      await writeFile(join(created!.worktreePath, 'debug.log'), 'x\n', 'utf8')
       const status = await runGitCommand(created!.worktreePath, ['status', '--porcelain'])
       assert.ok(status.ok)
       assert.ok(!status.stdout.includes('.mcp.json'), `.mcp.json must not appear in git status, got: ${status.stdout}`)
+      assert.ok(!status.stdout.includes('debug.log'), 'the person’s own excludes still apply in the worktree')
+
+      // …while a real `.mcp.json` in the main checkout is still seen.
+      await writeFile(join(repoRoot, '.mcp.json'), '{"mcpServers":{}}\n', 'utf8')
+      const mainStatus = await runGitCommand(repoRoot, ['status', '--porcelain'])
+      assert.ok(
+        mainStatus.stdout.includes('.mcp.json'),
+        `the main checkout's .mcp.json is not hidden: ${mainStatus.stdout}`,
+      )
 
       // Idempotent: a repeat call does not duplicate the entries.
       await excludeMcpConfigFromWorktree(created!.worktreePath)
-      const after = await readFile(resolved.stdout.trim(), 'utf8')
+      const gitDir = (await runGitCommand(created!.worktreePath, ['rev-parse', '--absolute-git-dir'])).stdout.trim()
+      const own = await readFile(join(gitDir, 'sprintengine-exclude'), 'utf8')
       for (const entry of MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES) {
         assert.equal(
-          after.split('\n').filter((line) => line.trim() === entry).length,
+          own.split('\n').filter((line) => line.trim() === entry).length,
           1,
           `${entry} must appear exactly once after repeats`,
         )
       }
+      assert.ok(own.includes('*.log'), 'the copy of the person’s excludes survives a repeat')
     } finally {
       await rm(repoRoot, { recursive: true, force: true })
     }

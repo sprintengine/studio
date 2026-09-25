@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path'
 
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import { deriveStudioPluginRow, studioPluginRowMatches } from '../../shared/studio-plugin'
+import { isLauncherMcpServer } from '../integrations/launcher'
 import { readSkillProvenance, SKILL_PROVENANCE_FILE } from './install'
 import {
   CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH,
@@ -210,7 +211,10 @@ test('studio-plugin', async () => {
     const server = (JSON.parse(mcp) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers[
       'sprintengine-studio'
     ]
-    assert.equal(server.args[0].endsWith('mcp-stdio-bridge.mjs'), true)
+    // The copy stays in the repository after the app has gone, so its gateway
+    // runs the Studio launcher rather than this build's executable and bridge.
+    assert.equal(isLauncherMcpServer(server), true, JSON.stringify(server))
+    assert.equal(JSON.stringify(server).includes('mcp-stdio-bridge.mjs'), false)
     // The materialised hook declaration is EMPTY while native loading is off.
     // Claude Code 2.1.266 registers our directory marketplace into its own
     // user-global registry and loads this plugin's hooks itself, so a declaration
@@ -290,21 +294,18 @@ test('studio-plugin', async () => {
     ])
     const entry = local.hooks.Stop[0].hooks[0]
     assert.equal(entry._sprintengine, 'sprintengine-agent-state')
-    assert.match(entry.command, /^node ".*\/\.sprintengine\/hooks\/agent-state\.mjs" --socket "/)
-    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+    assert.match(entry.command, /\/\.sprintengine\/bin\/studio-run(\.cmd)?["'] agent-state --socket /)
+    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), false, 'nothing copied')
     // PreToolUse is deliberately absent: PostToolUse alone is load-bearing.
     assert.equal('PreToolUse' in local.hooks, false)
 
-    // 4. The two Claude keys, split across the committed and the gitignored file.
+    // 4. Both Claude keys, in the gitignored file only: the committed one is
+    //    never written, so no colleague inherits a plugin their machine lacks.
     assert.equal(result.claudePluginKey, studioClaudePluginKey())
-    const project = JSON.parse(await readFile(resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8')) as {
-      enabledPlugins: Record<string, boolean>
-    }
-    assert.equal(project.enabledPlugins[studioClaudePluginKey()], true)
+    assert.equal(existsSync(resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)), false, 'the tracked file is untouched')
     assert.equal(
-      'extraKnownMarketplaces' in (project as Record<string, unknown>),
-      false,
-      'the machine path must never land in the file a project commits',
+      (local as unknown as { enabledPlugins: Record<string, boolean> }).enabledPlugins[studioClaudePluginKey()],
+      true,
     )
     assert.deepEqual(local.extraKnownMarketplaces[STUDIO_PLUGIN_ID].source, {
       source: 'directory',
@@ -320,7 +321,15 @@ test('studio-plugin', async () => {
     await mkdir(join(workspace, '.claude'), { recursive: true })
     await writeFile(
       resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH),
-      JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, enabledPlugins: { 'theirs@theirs': true } }, null, 2),
+      // Ours too, where an earlier build put it: the install moves it out.
+      JSON.stringify(
+        {
+          permissions: { allow: ['Bash(ls:*)'] },
+          enabledPlugins: { 'theirs@theirs': true, [studioClaudePluginKey()]: true },
+        },
+        null,
+        2,
+      ),
     )
     await writeFile(
       resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH),
@@ -362,19 +371,25 @@ test('studio-plugin', async () => {
     }
     assert.deepEqual(project.permissions.allow, ['Bash(ls:*)'], 'someone else\u2019s settings survive')
     assert.equal(project.enabledPlugins['theirs@theirs'], true, 'someone else\u2019s plugin survives')
-    assert.equal(project.enabledPlugins[studioClaudePluginKey()], true)
+    assert.equal(
+      studioClaudePluginKey() in project.enabledPlugins,
+      false,
+      'the key an earlier build wrote into the committed file is taken back out',
+    )
 
     const local = JSON.parse(await readFile(resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH), 'utf8')) as {
       env: Record<string, string>
       hooks: Record<string, { hooks: { command: string }[] }[]>
       extraKnownMarketplaces: Record<string, unknown>
+      enabledPlugins: Record<string, boolean>
     }
     assert.deepEqual(local.env, { THEIRS: '1' })
     assert.equal('theirs' in local.extraKnownMarketplaces, true)
+    assert.equal(local.enabledPlugins[studioClaudePluginKey()], true, 'enabled from the gitignored file instead')
     const stopCommands = local.hooks.Stop.flatMap((block) => block.hooks.map((hook) => hook.command))
     assert.equal(stopCommands.includes('say done'), true, 'their own hook is preserved')
     assert.equal(
-      stopCommands.filter((command) => command.includes('agent-state.mjs')).length,
+      stopCommands.filter((command) => command.includes(' agent-state --socket ')).length,
       1,
       'a second install registers one reporter, not two',
     )
@@ -405,7 +420,7 @@ test('studio-plugin', async () => {
   async function unreadableSettingsAreLeftAloneNotOverwritten(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     await mkdir(join(workspace, '.claude'), { recursive: true })
-    const path = resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)
+    const path = resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
     await writeFile(path, '{ "permissions": ', 'utf8')
     const result = await installStudioPlugin({
       workspaceRoot: workspace,
@@ -686,16 +701,19 @@ test('studio-plugin', async () => {
       hooksAcknowledged: true,
       registerWithClaude: true,
     }
-    const first = await installStudioPlugin({ ...options })
-    assert.ok(first.ok, first.ok ? '' : first.message)
     const path = resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)
+    await mkdir(join(workspace, '.claude'), { recursive: true })
+    await writeFile(path, `${JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] } }, null, 2)}\n`)
     const before = (await stat(path)).mtimeMs
     await new Promise((done) => setTimeout(done, 20))
+    const first = await installStudioPlugin({ ...options })
+    assert.ok(first.ok, first.ok ? '' : first.message)
     const second = await installStudioPlugin({ ...options })
     assert.ok(second.ok, second.ok ? '' : second.message)
-    // `.claude/settings.json` is a file a project commits; an identical rewrite
-    // would show up as a touched file in everyone's editor for nothing.
-    assert.equal((await stat(path)).mtimeMs, before, 'an unchanged settings file must not be rewritten')
+    // `.claude/settings.json` is a file a project commits; the install has no
+    // business in it, and even an identical rewrite would show up as a touched
+    // file in everyone's editor for nothing.
+    assert.equal((await stat(path)).mtimeMs, before, 'the committed settings file must not be rewritten')
     await rm(workspace, { recursive: true, force: true })
   }
 

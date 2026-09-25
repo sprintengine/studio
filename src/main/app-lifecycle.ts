@@ -25,6 +25,7 @@ import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { detectCliMachines, readCliVersionAdvisories } from './cli-version-advisory-service'
 import { hostRegistry } from './hosts/host-registry'
+import { recordIntegrationWrite } from './integrations/ledger'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
@@ -645,6 +646,17 @@ function registerDeepLinkProtocols(): void {
       app.setAsDefaultProtocolClient(scheme, process.execPath, [app.getAppPath()])
     } else {
       app.setAsDefaultProtocolClient(scheme)
+    }
+    // On Windows the registration is a key under HKCU\Software\Classes and on
+    // Linux a desktop-entry association, and neither leaves with the app; on
+    // macOS it lives in the bundle's Info.plist and does.
+    if (process.platform !== 'darwin') {
+      recordIntegrationWrite({
+        kind: 'protocol-handler',
+        path: process.platform === 'win32' ? `HKCU\\Software\\Classes\\${scheme}` : `x-scheme-handler/${scheme}`,
+        marker: scheme,
+        hostId: 'local',
+      })
     }
   }
 }

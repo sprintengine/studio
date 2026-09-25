@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'vitest'
@@ -18,6 +18,11 @@ import type { LoadedPlugin, PluginAgentStateSpec } from '../shared/plugin-manife
 import type { SkillHarness } from '../shared/skills'
 import {
   AGENT_STATE_HOOK_SCRIPT_REL,
+  buildAgentStateReporterCommand,
+  buildStatusLineForwarderCommand,
+  mergeAgentStateHooks,
+  mergeTomlAgentStateHooks,
+  registeredAgentStateEvents,
   installAgentStateReporter,
   removeWorkspaceAgentStateRegistration,
   STATUS_LINE_HOOK_SCRIPT_REL,
@@ -60,24 +65,52 @@ async function scratch(label: string): Promise<{ root: string; workspace: string
   return { root, workspace, home }
 }
 
-/** Install a CLI's workspace registration the way an earlier build did. */
-async function installTheOldWay(workspace: string, home: string, spec: PluginAgentStateSpec): Promise<void> {
-  const result = await installAgentStateReporter(workspace, spec, {
-    sourceScriptPath: REPORTER_SOURCE,
-    socketPath: '/tmp/sprintengine-test.sock',
-    statusLineScriptPath: STATUS_LINE_SOURCE,
-    homeDir: home,
-    env: {},
-  })
-  assert.equal(result.ok, true, JSON.stringify(result))
+/**
+ * Write a CLI's workspace registration the way a build before the launcher
+ * did: the reporter (and, for Claude, the status-line forwarder) copied under
+ * `.sprintengine/hooks`, which ignores itself, and named by `node "<path>"`.
+ */
+async function installTheOldWay(workspace: string, _home: string, spec: PluginAgentStateSpec): Promise<void> {
+  const hooksDir = join(workspace, '.sprintengine', 'hooks')
+  await mkdir(hooksDir, { recursive: true })
+  await copyFile(REPORTER_SOURCE, join(workspace, AGENT_STATE_HOOK_SCRIPT_REL))
+  await writeFile(join(hooksDir, '.gitignore'), '*\n', { flag: 'w' })
+  const socket = '/tmp/sprintengine-test.sock'
+  const command = buildAgentStateReporterCommand(join(workspace, AGENT_STATE_HOOK_SCRIPT_REL), socket)
+  const events = registeredAgentStateEvents(spec)
+  const target = join(workspace, spec.registration.path)
+  await mkdir(join(target, '..'), { recursive: true })
+  if (spec.registration.kind === 'settings-json') {
+    await mergeAgentStateHooks(target, command, events)
+    await copyFile(STATUS_LINE_SOURCE, join(workspace, STATUS_LINE_HOOK_SCRIPT_REL))
+    const settings = JSON.parse(await readFile(target, 'utf8')) as Record<string, unknown>
+    settings.statusLine = {
+      type: 'command',
+      command: buildStatusLineForwarderCommand(join(workspace, STATUS_LINE_HOOK_SCRIPT_REL), socket, null),
+      _sprintengine: true,
+      _sprintengineWrapped: null,
+    }
+    await writeFile(target, `${JSON.stringify(settings, null, 2)}\n`)
+  } else if (spec.registration.kind === 'toml-block') {
+    const previous = await readFile(target, 'utf8').catch(() => '')
+    await writeFile(target, mergeTomlAgentStateHooks(previous, command, events))
+  } else {
+    throw new Error(`installTheOldWay does not write ${spec.registration.kind}`)
+  }
 }
 
 // ── Agent state ─────────────────────────────────────────────────────────────
 
-test('a workspace hooks directory the app writes ignores itself', async () => {
-  const { workspace, home } = await scratch('self-ignore')
-  await installTheOldWay(workspace, home, await bundledSpec('codex'))
-  assert.equal(await readFile(join(workspace, '.sprintengine', 'hooks', '.gitignore'), 'utf8'), '*\n')
+test('a command-hook install writes nothing into the workspace beside the registration', async () => {
+  const { workspace, home } = await scratch('no-copy')
+  const result = await installAgentStateReporter(workspace, await bundledSpec('codex'), {
+    sourceScriptPath: REPORTER_SOURCE,
+    socketPath: '/tmp/sprintengine-test.sock',
+    homeDir: home,
+    env: {},
+  })
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.deepEqual(await readdir(workspace), ['.codex'], 'the launcher runs the shipped reporter; nothing is copied')
 })
 
 test('the Claude registration comes out, and the shared reporter stays while Codex still runs it', async () => {

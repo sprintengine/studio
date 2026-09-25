@@ -10,6 +10,13 @@ import { parsePullRequestUrl } from '../shared/git/pr-url'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './claude-config-dir'
 import { withConfigFileLock, writeFileAtomically } from './config-file-write'
+import {
+  buildLauncherCommand,
+  launcherCommandPattern,
+  usableLocalLauncherRef,
+  type StudioLauncherRef,
+} from './integrations/launcher'
+import { recordIntegrationWrite } from './integrations/ledger'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -951,6 +958,13 @@ export type AgentStateCommandRuntime = {
    * expanded by it.
    */
   toCommandPath?: (nativePath: string) => string
+  /**
+   * The Studio launcher inside that host (`~/.sprintengine/bin/studio-run`,
+   * as the host names it). Every hook written for the host runs it rather
+   * than `executable` directly, so the hook survives the pinned Node or the
+   * app payload moving (see `integrations/launcher.ts`).
+   */
+  launcher?: StudioLauncherRef
 }
 
 function quotePosixCommandArgument(value: string): string {
@@ -967,6 +981,9 @@ function quoteCommandArgument(value: string, runtime?: AgentStateCommandRuntime)
   return runtime ? quotePosixCommandArgument(value) : `"${value}"`
 }
 
+// This script-path form is for a command only a session the app launched ever
+// reads (the launch-scoped plugin copy under userData). Anything written where
+// it can outlive the app uses `buildLauncherHookCommand` instead.
 export function buildAgentStateReporterCommand(
   scriptPath: string,
   socketPath: string,
@@ -975,6 +992,35 @@ export function buildAgentStateReporterCommand(
   const hostScript = runtime?.toCommandPath ? runtime.toCommandPath(scriptPath) : scriptPath
   const script = quoteCommandArgument(hostScript.split(sep).join('/'), runtime)
   return `${commandRuntimePrefix(runtime)} ${script} --socket ${quoteCommandArgument(socketPath, runtime)}`
+}
+
+/**
+ * The launcher a hook written for this machine (under `homeDir`) or for the
+ * host `runtime` describes should run. Null for a runtime that carries no
+ * launcher, which then keeps the script-path form.
+ */
+export function agentStateLauncherFor(
+  homeDir: string,
+  runtime?: AgentStateCommandRuntime,
+  platform: NodeJS.Platform = process.platform,
+): StudioLauncherRef | null {
+  if (runtime) return runtime.launcher ?? null
+  return usableLocalLauncherRef(homeDir, platform)
+}
+
+/**
+ * A hook command that runs `target` through the Studio launcher: the form every
+ * hook written into a repository or a CLI's user config takes, so a machine with
+ * no Node on PATH, an app that moved, or an app that is gone costs a quiet exit
+ * rather than an error on every event.
+ */
+export function buildLauncherHookCommand(
+  launcher: StudioLauncherRef,
+  target: 'agent-state' | 'status-line',
+  socketPath: string,
+  runtime?: AgentStateCommandRuntime,
+): string {
+  return buildLauncherCommand(launcher, target, ['--socket', socketPath], runtime?.env ?? {})
 }
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {
@@ -998,14 +1044,17 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
 // runtime, then the script path, always forward-slashed and ending in this
 // suffix, immediately followed by `--socket`. Either quote style, because a
 // command run through WSL single-quotes its arguments.
+//
+// A launcher command (`… studio-run' agent-state --socket …`) is claimed the
+// same way: the launcher's path and the target are fixed, and nothing else
+// writes that pair.
 const AGENT_STATE_COMMAND_SIGNATURE = /\/\.sprintengine\/hooks\/agent-state\.mjs(["']) --socket \1/u
+const AGENT_STATE_LAUNCHER_SIGNATURE = launcherCommandPattern('agent-state')
 
-function isAgentStateReporterCommand(command: unknown): boolean {
-  return (
-    typeof command === 'string' &&
-    (command.startsWith('node "') || command.startsWith('env ')) &&
-    AGENT_STATE_COMMAND_SIGNATURE.test(command)
-  )
+export function isAgentStateReporterCommand(command: unknown): boolean {
+  if (typeof command !== 'string') return false
+  if (AGENT_STATE_LAUNCHER_SIGNATURE.test(command)) return true
+  return (command.startsWith('node "') || command.startsWith('env ')) && AGENT_STATE_COMMAND_SIGNATURE.test(command)
 }
 
 function isAgentStateEntry(entry: ClaudeHookEntry): boolean {
@@ -1126,6 +1175,14 @@ export const STATUS_LINE_HOOK_SCRIPT_REL = join('.sprintengine', 'hooks', 'statu
 // that dangles the moment the workspace moves). So ours is claimed by the
 // command's shape too, exactly as buildStatusLineForwarderCommand emits it.
 const STATUS_LINE_COMMAND_SIGNATURE = /\/\.sprintengine\/hooks\/status-line\.mjs(["']) --socket \1/u
+const STATUS_LINE_LAUNCHER_SIGNATURE = launcherCommandPattern('status-line')
+
+export function isStatusLineForwarderCommand(command: unknown): boolean {
+  return (
+    typeof command === 'string' &&
+    (STATUS_LINE_LAUNCHER_SIGNATURE.test(command) || STATUS_LINE_COMMAND_SIGNATURE.test(command))
+  )
+}
 
 // The person's own command, as it rides in our argv: base64 of
 // {"command": "..."}, double-quoted. Read back out of a command string when a
@@ -1177,7 +1234,20 @@ export function buildStatusLineForwarderCommand(
   wrapped: WrappedStatusLine | null,
   runtime?: AgentStateCommandRuntime,
 ): string {
-  const base = buildAgentStateReporterCommand(scriptPath, socketPath, runtime)
+  return withWrapArgument(buildAgentStateReporterCommand(scriptPath, socketPath, runtime), wrapped)
+}
+
+/** The status line written into a settings file: the launcher's `status-line` target. */
+export function buildLauncherStatusLineCommand(
+  launcher: StudioLauncherRef,
+  socketPath: string,
+  wrapped: WrappedStatusLine | null,
+  runtime?: AgentStateCommandRuntime,
+): string {
+  return withWrapArgument(buildLauncherHookCommand(launcher, 'status-line', socketPath, runtime), wrapped)
+}
+
+function withWrapArgument(base: string, wrapped: WrappedStatusLine | null): string {
   const command = typeof wrapped?.statusLine.command === 'string' ? wrapped.statusLine.command : null
   if (!command) return base
   const envelope = Buffer.from(JSON.stringify({ command }), 'utf8').toString('base64')
@@ -1188,7 +1258,7 @@ export function buildStatusLineForwarderCommand(
 function isOurStatusLine(value: unknown): boolean {
   if (!isRecord(value)) return false
   if (value._sprintengine === true) return true
-  return typeof value.command === 'string' && STATUS_LINE_COMMAND_SIGNATURE.test(value.command)
+  return isStatusLineForwarderCommand(value.command)
 }
 
 /**
@@ -1564,6 +1634,8 @@ async function prepareStatusLineForwarder(
     homeDir: string
     env: NodeJS.ProcessEnv
     commandRuntime?: AgentStateCommandRuntime
+    /** Runs the forwarder; see `agentStateLauncherFor`. Null keeps the older copied-script form. */
+    launcher: StudioLauncherRef | null
   },
 ): Promise<StatusLineForwarderInstall | null> {
   try {
@@ -1578,18 +1650,19 @@ async function prepareStatusLineForwarder(
     if (resolved.kind === 'remove') return { action: 'remove' }
     if (!existsSync(options.statusLineScriptPath)) return null
     const destScript = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
-    const command = buildStatusLineForwarderCommand(
-      destScript,
-      options.socketPath,
-      resolved.wrapped,
-      options.commandRuntime,
-    )
+    // The launcher runs the forwarder that ships with the app, so nothing is
+    // copied into the workspace.
+    const command = options.launcher
+      ? buildLauncherStatusLineCommand(options.launcher, options.socketPath, resolved.wrapped, options.commandRuntime)
+      : buildStatusLineForwarderCommand(destScript, options.socketPath, resolved.wrapped, options.commandRuntime)
     // A command the platform will not run is not one to install: cmd.exe caps a
     // command line at 8191 characters, and the base64 envelope is a third longer
     // than what it carries. Their status line stays exactly as it is.
     if (command.length > MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH) return null
-    await mkdir(resolve(destScript, '..'), { recursive: true })
-    await copyFile(options.statusLineScriptPath, destScript)
+    if (!options.launcher) {
+      await mkdir(resolve(destScript, '..'), { recursive: true })
+      await copyFile(options.statusLineScriptPath, destScript)
+    }
     return { action: 'write', command, wrapped: resolved.wrapped }
   } catch {
     return null
@@ -1683,8 +1756,8 @@ async function mergeFlatAgentStateHooks(
 // byte-identical so existing installed blocks are still recognized and replaced.
 // =============================================================================
 
-const AGENT_STATE_TOML_START = '# >>> sprintengine agent-state hooks managed'
-const AGENT_STATE_TOML_END = '# <<< sprintengine agent-state hooks managed'
+export const AGENT_STATE_TOML_START = '# >>> sprintengine agent-state hooks managed'
+export const AGENT_STATE_TOML_END = '# <<< sprintengine agent-state hooks managed'
 
 // TOML basic strings share JSON's escaping (matches the repo's MCP writer), so
 // JSON.stringify yields a valid quoted value — and correctly escapes the Windows
@@ -1858,7 +1931,7 @@ export function renderAgentStatePluginTemplate(template: string, socketPath: str
 // =============================================================================
 
 export type AgentStateInstallResult =
-  { ok: true; settingsPath: string; hookScriptPath: string } | { ok: false; message: string }
+  { ok: true; settingsPath: string; hookScriptPath: string; createdFile?: boolean } | { ok: false; message: string }
 
 // A user-scoped registration (Kimi Code's user-global config.toml) resolves
 // against the home directory instead of the workspace. `homeDir` is injectable
@@ -1888,6 +1961,9 @@ export async function installAgentStateReporter(
     // Environment the Claude settings precedence is read against
     // (CLAUDE_CONFIG_DIR). Injected so tests never read the real one.
     env?: NodeJS.ProcessEnv
+    // For the integration ledger: which CLI this is for, and on which machine.
+    cli?: string
+    hostId?: string
   },
 ): Promise<AgentStateInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
@@ -1903,32 +1979,55 @@ export async function installAgentStateReporter(
     // Under the per-file lock every writer of these CLI configs shares: the MCP
     // sync read-modify-writes `.claude/settings.local.json` and Codex's
     // `config.toml` too, often for a launch in the same checkout at once.
+    const ledgerBase = {
+      hostId: options.hostId ?? 'local',
+      ...(options.cli ? { cli: options.cli } : {}),
+      ...(registration.scope === 'user' ? {} : { repo: workspaceRoot }),
+    }
     return await withConfigFileLock(targetPath, async (): Promise<AgentStateInstallResult> => {
       await mkdir(resolve(targetPath, '..'), { recursive: true })
+      const createdFile = !existsSync(targetPath)
 
       if (registration.kind === 'plugin-file') {
         const template = await readFile(options.sourceScriptPath, 'utf8')
         await writeFileAtomically(targetPath, renderAgentStatePluginTemplate(template, options.socketPath))
+        recordIntegrationWrite({
+          kind: 'agent-state-hooks',
+          path: targetPath,
+          marker: 'plugin-file',
+          createdFile: true,
+          ...ledgerBase,
+        })
         return { ok: true, settingsPath: targetPath, hookScriptPath: targetPath }
       }
 
-      // Command-hook kinds share the stdin-filter reporter, referenced by its
-      // ABSOLUTE path (hook commands run with no guaranteed cwd). The copy lives
-      // where the REGISTRATION lives: a workspace-scoped registration uses the
-      // workspace copy; a user-scoped one (a user-global config like Kimi's)
-      // gets a home-scoped copy (~/.sprintengine/hooks/) — pointing a user-global
-      // config into a workspace would dangle machine-wide the moment that
-      // workspace (or a deleted worktree) goes away, firing
-      // MODULE_NOT_FOUND for every session of that CLI until reinstalled.
-      const destScript =
-        registration.scope === 'user'
-          ? resolve(homeDir, AGENT_STATE_HOOK_SCRIPT_REL)
-          : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-      await mkdir(resolve(destScript, '..'), { recursive: true })
-      await copyFile(options.sourceScriptPath, destScript)
-      if (registration.scope !== 'user') await ensureWorkspaceHooksDirSelfIgnored(resolve(destScript, '..'))
-      const command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
+      // Command-hook kinds run the reporter the app ships, through the Studio
+      // launcher at a path that never moves (`integrations/launcher.ts`), so
+      // nothing is copied next to the registration and a hook outlives the app
+      // quietly. A user-scoped registration (Kimi's user-global config) names
+      // the launcher in the same home it lives in.
+      //
+      // A runtime from before the launcher (none ships today) keeps the older
+      // arrangement: the reporter copied beside the registration and named by
+      // its ABSOLUTE path (hook commands run with no guaranteed cwd).
+      const launcher = agentStateLauncherFor(homeDir, options.commandRuntime)
+      let destScript: string
+      let command: string
+      if (launcher) {
+        destScript = launcher.path
+        command = buildLauncherHookCommand(launcher, 'agent-state', options.socketPath, options.commandRuntime)
+      } else {
+        destScript =
+          registration.scope === 'user'
+            ? resolve(homeDir, AGENT_STATE_HOOK_SCRIPT_REL)
+            : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
+        await mkdir(resolve(destScript, '..'), { recursive: true })
+        await copyFile(options.sourceScriptPath, destScript)
+        if (registration.scope !== 'user') await ensureWorkspaceHooksDirSelfIgnored(resolve(destScript, '..'))
+        command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
+      }
       const events = registeredAgentStateEvents(spec)
+      let wroteStatusLine = false
 
       switch (registration.kind) {
         case 'settings-json': {
@@ -1945,9 +2044,11 @@ export async function installAgentStateReporter(
                   homeDir,
                   env: options.env ?? process.env,
                   commandRuntime: options.commandRuntime,
+                  launcher,
                 })
               : null
           await mergeAgentStateHooks(targetPath, command, events, statusLine)
+          wroteStatusLine = statusLine?.action === 'write'
           break
         }
         case 'flat-hooks-json':
@@ -1967,7 +2068,19 @@ export async function installAgentStateReporter(
           await writeFileAtomically(targetPath, renderOwnedJsonAgentStateHooksConfig(command, events))
           break
       }
-      return { ok: true, settingsPath: targetPath, hookScriptPath: destScript }
+      recordIntegrationWrite(
+        {
+          kind: 'agent-state-hooks',
+          path: targetPath,
+          marker: registration.kind,
+          createdFile: createdFile || registration.kind === 'owned-json',
+          ...ledgerBase,
+        },
+        ...(wroteStatusLine
+          ? [{ kind: 'status-line' as const, path: targetPath, marker: 'statusLine', createdFile, ...ledgerBase }]
+          : []),
+      )
+      return { ok: true, settingsPath: targetPath, hookScriptPath: destScript, createdFile }
     })
   } catch (error) {
     return {
@@ -2124,7 +2237,7 @@ async function workspaceRegistrationsNameReporter(
 }
 
 /** Remove `.sprintengine/hooks` (and an emptied `.sprintengine`) when only our files were in it. */
-async function removeHooksDirIfOnlyOurs(hooksDir: string): Promise<void> {
+export async function removeHooksDirIfOnlyOurs(hooksDir: string): Promise<void> {
   const entries = await readdir(hooksDir).catch(() => null)
   if (entries === null) return
   if (entries.some((name) => name !== HOOKS_DIR_IGNORE_FILE)) return
@@ -2136,4 +2249,109 @@ async function removeHooksDirIfOnlyOurs(hooksDir: string): Promise<void> {
   }
   await rmdir(hooksDir).catch(() => undefined)
   await rmdir(resolve(hooksDir, '..')).catch(() => undefined)
+}
+
+// =============================================================================
+// Taking any registration back out, by kind
+//
+// `removeWorkspaceAgentStateRegistration` above is the launch-time tidy, which
+// only ever has the Claude kind to tidy. This is the general form the
+// integration removal and the user-scoped cleanup use: given the file a
+// registration lives in and its kind, take out exactly what this app wrote
+// there and nothing else.
+// =============================================================================
+
+export type AgentStateRemoval = 'removed' | 'absent' | 'skipped'
+
+/**
+ * Remove this app's agent-state registration from one file.
+ *
+ *   - `settings-json`: our hook entries and our status line (the person's own
+ *     is put back), every other key untouched;
+ *   - `flat-hooks-json`: our entries;
+ *   - `toml-block` / `toml-array-block`: the marked block;
+ *   - `owned-json` / `plugin-file`: the file, when it is still recognisably ours.
+ *
+ * A file this leaves with nothing in it is deleted only when `deleteIfEmpty`
+ * says the app created it; otherwise it is written back empty. 'skipped' means
+ * the file could not be read or parsed, and is left exactly as it was.
+ */
+export async function removeAgentStateRegistrationAt(
+  path: string,
+  kind: PluginAgentStateSpec['registration']['kind'],
+  options: { deleteIfEmpty?: boolean } = {},
+): Promise<AgentStateRemoval> {
+  return withConfigFileLock(path, async (): Promise<AgentStateRemoval> => {
+    const raw = await readTextIfExists(path).catch(() => undefined)
+    if (raw === undefined) return 'skipped'
+    if (raw === null) return 'absent'
+    if (kind === 'owned-json' || kind === 'plugin-file') {
+      const ours = kind === 'plugin-file' ? raw.includes('SPRINTENGINE_AGENT_STATE') : ownedJsonIsOurs(raw)
+      if (!ours) return 'skipped'
+      await rm(path, { force: true })
+      await rmdir(resolve(path, '..')).catch(() => undefined)
+      return 'removed'
+    }
+    if (kind === 'toml-block' || kind === 'toml-array-block') {
+      if (!raw.includes(AGENT_STATE_TOML_START)) return 'absent'
+      const next = replaceTomlAgentStateBlock(raw, '')
+      await writeOrDelete(path, next, next.trim() === '' && options.deleteIfEmpty === true)
+      return 'removed'
+    }
+    let parsed: unknown
+    try {
+      parsed = raw.trim() === '' ? {} : JSON.parse(raw)
+    } catch {
+      return 'skipped'
+    }
+    if (!isRecord(parsed)) return 'skipped'
+    const before = JSON.stringify(parsed)
+    if (kind === 'settings-json') {
+      const settings = parsed as ClaudeSettings
+      if (isRecord(settings.hooks)) {
+        stripAgentStateEntries(settings.hooks)
+        if (Object.keys(settings.hooks).length === 0) delete settings.hooks
+      }
+      if (isOurStatusLine(settings.statusLine)) removeStatusLineForwarder(settings)
+    } else {
+      const file = parsed as FlatHooksFile
+      if (isRecord(file.hooks)) {
+        stripFlatAgentStateEntries(file.hooks as Record<string, FlatHooksEntry[]>)
+        if (Object.keys(file.hooks).length === 0) delete file.hooks
+      }
+      // `version` alone is the scaffold the merge added, not the person's content.
+      if (Object.keys(file).length === 1 && 'version' in file) delete file.version
+    }
+    if (JSON.stringify(parsed) === before) return 'absent'
+    const empty = Object.keys(parsed).length === 0
+    await writeOrDelete(path, `${JSON.stringify(parsed, null, 2)}\n`, empty && options.deleteIfEmpty === true)
+    return 'removed'
+  })
+}
+
+function ownedJsonIsOurs(raw: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed) || !isRecord(parsed.hooks)) return false
+    const commands: unknown[] = []
+    for (const blocks of Object.values(parsed.hooks)) {
+      if (!Array.isArray(blocks)) return false
+      for (const block of blocks) {
+        const hooks = isRecord(block) && Array.isArray(block.hooks) ? block.hooks : []
+        for (const hook of hooks) commands.push(isRecord(hook) ? hook.command : undefined)
+      }
+    }
+    return commands.length > 0 && commands.every((command) => isAgentStateReporterCommand(command))
+  } catch {
+    return false
+  }
+}
+
+async function writeOrDelete(path: string, content: string, remove: boolean): Promise<void> {
+  if (remove) {
+    await rm(path, { force: true })
+    await rmdir(resolve(path, '..')).catch(() => undefined)
+    return
+  }
+  await writeFileAtomically(path, content)
 }

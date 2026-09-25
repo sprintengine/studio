@@ -10,6 +10,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { studioEnvEntry } from '../shared/studio-env'
 import type { AgentStateFrame } from './agent-state'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
+import { localLauncherRef } from './integrations/launcher'
 import { test } from 'vitest'
 
 test('agent-state-service', async () => {
@@ -112,8 +113,10 @@ test('agent-state-service', async () => {
     let resolveCalls = 0
     let templateResolveCalls = 0
     let lastTemplateName: string | null = null
+    const testHome = join(workspaceRoot, 'home')
     const installSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
+      resolveHomeDir: () => testHome,
       resolveAgentStateSpec: resolveSpec,
       resolveReporterScriptPath: () => {
         resolveCalls += 1
@@ -158,14 +161,15 @@ test('agent-state-service', async () => {
 
     // The same workspace can switch from a native Windows launch to WSL. The
     // execution style is part of the install key, so the second launch heals
-    // the command instead of reusing a Windows-only `node C:/...` invocation.
-    // In WSL the hook is the helper's: the pinned Linux Node, the workspace's
-    // script as Linux names it, and the helper's Unix socket. Nothing is a
-    // Windows program, so nothing needs interop or WSLENV.
+    // the command instead of reusing a Windows-only invocation. In WSL the hook
+    // runs the distribution's own Studio launcher and reports to the helper's
+    // Unix socket. Nothing is a Windows program, so nothing needs interop or
+    // WSLENV.
     const wslRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-wsl-'))
     const wslWarnings: string[] = []
     const wslSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
+      resolveHomeDir: () => join(wslRoot, 'native-home'),
       resolveAgentStateSpec: resolveSpec,
       resolveReporterScriptPath: () => reporterSrc,
       resolveReporterTemplatePath: () => null,
@@ -174,9 +178,13 @@ test('agent-state-service', async () => {
     })
     await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'windows' })
     let wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
-    assert.match(wslConfig, /command = "node /u, 'native launch initially uses the CLI-visible Node runtime')
+    const nativeLauncher = localLauncherRef(join(wslRoot, 'native-home')).path
+    assert.ok(wslConfig.includes(nativeLauncher), 'native launch runs this machine’s launcher')
     await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'wsl', hostId: 'wsl:Ubuntu', integration: null })
-    assert.match(wslConfig, /command = "node /u, 'without the helper nothing is written for WSL')
+    assert.ok(
+      (await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')).includes(nativeLauncher),
+      'without the helper nothing is written for WSL',
+    )
     assert.ok(wslWarnings.some((line) => line.includes('WSL helper was not running')))
     const node = '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node'
     await wslSvc.installForWorkspace(wslRoot, 'codex', {
@@ -187,6 +195,7 @@ test('agent-state-service', async () => {
         commandRuntime: {
           executable: node,
           toCommandPath: (nativePath) => nativePath.replace(wslRoot, '/home/dev/repo').split('\\').join('/'),
+          launcher: { path: '/home/dev/.sprintengine/bin/studio-run', shell: 'posix' },
         },
         pluginDirs: [],
         statusLineScriptPath: null,
@@ -197,10 +206,11 @@ test('agent-state-service', async () => {
     wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(
       wslConfig.includes(
-        `env '${node}' '/home/dev/repo/.sprintengine/hooks/agent-state.mjs' --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'`,
+        `/bin/sh '/home/dev/.sprintengine/bin/studio-run' agent-state --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'`,
       ),
-      `the WSL hook runs the pinned Node on the Linux path and reports to the helper: ${wslConfig}`,
+      `the WSL hook runs the distribution's launcher and reports to the helper: ${wslConfig}`,
     )
+    assert.ok(!wslConfig.includes(node), 'no hook names the pinned Node, which a Node update moves')
     assert.doesNotMatch(wslConfig, /WSLENV|ELECTRON_RUN_AS_NODE|\/mnt\//u, 'nothing crosses back into Windows')
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'), 'codex reporter hook not installed')
@@ -304,6 +314,20 @@ test('agent-state-service', async () => {
     assert.ok(kimiConfigOnDisk.includes('event = "Stop"'), 'kimi hooks block not installed under injected home')
     await userScopeSvc.installForWorkspace(wsB, 'kimi-code')
     assert.equal(userScopeResolves, 1, 'user-scoped install must be once per CLI, not per workspace')
+    // It applies to every Kimi session on the machine, and only sessions the
+    // app launched report through it — all of which end with the app. So quit
+    // takes it back out, leaving the rest of the person's config as it was.
+    await writeFile(
+      join(userScopeHome, '.kimi-code', 'config.toml'),
+      `default_model = "k2"\n\n${kimiConfigOnDisk}`,
+      'utf8',
+    )
+    await userScopeSvc.shutdown()
+    assert.equal(
+      await readFile(join(userScopeHome, '.kimi-code', 'config.toml'), 'utf8'),
+      'default_model = "k2"\n',
+      'the user-level hook block is removed at quit',
+    )
 
     // --- missing reporter script: safe no-op, never throws -----------------
     const noScriptWs = await mkdtemp(join(tmpdir(), 'se-agent-state-noscript-'))

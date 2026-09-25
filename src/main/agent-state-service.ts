@@ -6,7 +6,12 @@ import { join } from 'path'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
-import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
+import {
+  installAgentStateReporter,
+  parseAgentStateFrame,
+  removeAgentStateRegistrationAt,
+  removeWorkspaceAgentStateRegistration,
+} from './agent-state'
 import type { HostAgentIntegration } from './hosts/execution-host'
 
 // =============================================================================
@@ -34,6 +39,8 @@ const MAX_POSIX_SOCKET_PATH = 90
 // A reporter frame is tiny; a client that streams an unbounded line without a
 // newline is dropped rather than buffered without limit.
 const MAX_LINE_BYTES = 64 * 1024
+
+const USER_SCOPED_REMOVAL_TIMEOUT_MS = 3_000
 
 export type AgentStateServiceOptions = {
   resolveUserDataDir: () => string
@@ -93,6 +100,16 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   // Workspaces whose stale registration a launch-injected CLI already took out
   // this run, keyed like the install chain (target file + workspace).
   const tidied = new Set<string>()
+  // User-scoped registrations written this run (Kimi Code's user-global
+  // config), by file. They apply to every session of that CLI on the machine,
+  // including ones started outside the app, and the reporter they run only
+  // reports for sessions the app launched — every one of which ends with the
+  // app. So they are taken back out at quit, and written again by the next
+  // launch that needs them.
+  const userScopedWrites = new Map<
+    string,
+    { kind: PluginAgentStateSpec['registration']['kind']; createdFile: boolean }
+  >()
 
   function getSocketPath(): string {
     if (!socketPath) socketPath = resolveAgentStateSocketPath(options.resolveUserDataDir())
@@ -201,6 +218,30 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         // Best-effort cleanup; a stale socket is unlinked on next start.
       }
     }
+    await removeUserScopedRegistrations()
+  }
+
+  // Bounded: quit must not wait on a distribution's file system.
+  async function removeUserScopedRegistrations(timeoutMs = USER_SCOPED_REMOVAL_TIMEOUT_MS): Promise<void> {
+    const writes = [...userScopedWrites]
+    userScopedWrites.clear()
+    if (writes.length === 0) return
+    const removal = Promise.all(
+      writes.map(([path, { kind, createdFile }]) =>
+        removeAgentStateRegistrationAt(path, kind, { deleteIfEmpty: createdFile }).catch((error) => {
+          warn('Agent-state hook not removed at quit', `${path}: ${message(error)}`)
+          return 'skipped' as const
+        }),
+      ),
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      removal,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+    if (timer) clearTimeout(timer)
   }
 
   // Install the reporter into a workspace before an agent launches, entirely
@@ -287,9 +328,19 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         statusLineScriptPath: options.resolveStatusLineScriptPath?.() ?? null,
         ...(integration ? { commandRuntime: integration.commandRuntime } : {}),
         ...(homeDir ? { homeDir } : {}),
+        cli,
+        hostId: execution.hostId ?? 'local',
       })
       if (result.ok) {
         installed.add(key)
+        if (userScoped) {
+          // A file this run created goes entirely if our block was all of it.
+          const previous = userScopedWrites.get(result.settingsPath)
+          userScopedWrites.set(result.settingsPath, {
+            kind: spec.registration.kind,
+            createdFile: previous?.createdFile === true || result.createdFile === true,
+          })
+        }
       } else {
         warn('Agent-state hook install failed', result.message)
       }

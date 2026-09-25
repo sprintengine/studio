@@ -44,7 +44,10 @@ const PLUGIN_COPY: WslPluginCopy = {
   statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio/hooks/status-line.mjs`,
 }
 
-function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin?: WslPluginCopy | null } = {}) {
+function hostWith(
+  handlers: Parameters<typeof stubWslHelper>[1],
+  extra: { plugin?: WslPluginCopy | null; launcher?: 'written' | 'failed' } = {},
+) {
   const helper = stubWslHelper('Debian', handlers)
   const host = createWslHost('Debian', {
     readSettings: () => undefined,
@@ -52,6 +55,9 @@ function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin
     helper,
     buildPluginCopy: async () => (extra.plugin === undefined ? PLUGIN_COPY : extra.plugin),
     survivorDelayMs: 0,
+    ensureLauncher: async () => {
+      if (extra.launcher === 'failed') throw new Error('the distribution refused the write')
+    },
   })
   return { helper, host }
 }
@@ -310,12 +316,19 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
     '/home/dev/repo/x.mjs',
   )
   assert.deepEqual(integration.pluginDirs, PLUGIN_COPY.pluginDirs)
+  // Hooks and the gateway run the distribution's own launcher, never the
+  // pinned Node or this version's payload folder, which an update prunes.
+  assert.deepEqual(integration.commandRuntime.launcher, {
+    path: '/home/dev/.sprintengine/bin/studio-run',
+    shell: 'posix',
+  })
   assert.deepEqual(integration.studioMcpEntry, {
-    command: STUB_HELPER_INFO.nodePath,
-    args: [`${STUB_HELPER_INFO.appDir}/automation/mcp-stdio-bridge.mjs`],
-    env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
+    command: '/bin/sh',
+    args: ['/home/dev/.sprintengine/bin/studio-run', 'mcp'],
+    env: { SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
     envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
   })
+  assert.equal(JSON.stringify(integration.studioMcpEntry).includes(STUB_HELPER_INFO.appDir), false)
   assert.deepEqual(integration.home, {
     host: '/home/dev',
     native: '\\\\wsl.localhost\\Debian\\home\\dev',
@@ -330,6 +343,18 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
   current = true
   await host.prepare()
   assert.equal(trees.length, 2)
+})
+
+test('a launcher that could not be written leaves hooks and the gateway naming the pinned Node', async () => {
+  const { host } = hostWith(
+    { home: () => ({ home: '/home/dev' }), 'files.ensureTree': () => ({ current: true }) },
+    { launcher: 'failed' },
+  )
+  await host.prepare()
+  const integration = host.agentIntegration()
+  assert.ok(integration)
+  assert.equal(integration.commandRuntime.launcher, undefined, 'no command may name a launcher that is not there')
+  assert.equal(integration.studioMcpEntry.command, STUB_HELPER_INFO.nodePath)
 })
 
 test('a helper that cannot start fails prepare with its reason, and one without the copy still launches', async () => {

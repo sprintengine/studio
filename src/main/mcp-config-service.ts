@@ -3,6 +3,8 @@ import { homedir } from 'os'
 import { dirname, join } from 'path'
 
 import { withConfigFileLock, writeFileAtomically } from './config-file-write'
+import { isLauncherMcpServer } from './integrations/launcher'
+import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
 
 // Lazy electron so the module is importable from node-only test bundles.
 function loadElectron(): typeof import('electron') {
@@ -31,8 +33,8 @@ import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 
 export { normalizeMcpClients, normalizeMcpServerConfig }
 
-const MANAGED_START = '# >>> sprintengine mcp managed'
-const MANAGED_END = '# <<< sprintengine mcp managed'
+export const MANAGED_START = '# >>> sprintengine mcp managed'
+export const MANAGED_END = '# <<< sprintengine mcp managed'
 
 /**
  * The id the deleted in-tree Sprint Engine wrote its per-run HTTP server under.
@@ -339,6 +341,7 @@ async function writeCodexConfig(
       : removeCodexManagedServers(base, knownServerIds),
     client,
   )
+  if (!written) recordGatewayWrite(input, resolved, CODEX_GATEWAY_MARKER, servers, prepared.existed)
   return { target, issues: written ? [written] : [] }
 }
 
@@ -417,6 +420,7 @@ async function writeClaudeConfig(
     client,
   )
   if (writeIssue) return [writeIssue]
+  recordGatewayWrite(input, path, CLAUDE_GATEWAY_MARKER, workspaceServers, prepared.existed)
   if (plugin.binary === 'claude' && workspaceServers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) {
     const approvalIssue = await enableStudioMcpForClaudeWorkspace(
       workspaceRoot,
@@ -501,7 +505,45 @@ async function approveStudioMcpInClaudeSettings(
   }
   if (disabled.length > 0) next.disabledMcpjsonServers = disabled
   else delete next.disabledMcpjsonServers
-  return writeIfChanged(settingsPath, prepared, `${JSON.stringify(next, null, 2)}\n`, client)
+  const issue = await writeIfChanged(settingsPath, prepared, `${JSON.stringify(next, null, 2)}\n`, client)
+  if (!issue) {
+    recordIntegrationWrite({
+      kind: 'mcp-approval',
+      path: settingsPath,
+      marker: MCP_APPROVAL_MARKER,
+      hostId: hostIdForPath(settingsPath),
+      cli: client,
+      repo: dirname(dirname(settingsPath)),
+      createdFile: !prepared.existed,
+    })
+  }
+  return issue
+}
+
+/** How the gateway is recognised in each format's file (see `isManagedStudioGatewayEntry`). */
+export const CLAUDE_GATEWAY_MARKER = `mcpServers.${STUDIO_MCP_SERVER_ID}`
+export const OPENCODE_GATEWAY_MARKER = `mcp.${STUDIO_MCP_SERVER_ID}`
+export const CODEX_GATEWAY_MARKER = `${MANAGED_START}#${STUDIO_MCP_SERVER_ID}`
+export const MCP_APPROVAL_MARKER = `enabledMcpjsonServers.${STUDIO_MCP_SERVER_ID}`
+
+/** Record the gateway in the integration ledger when this write carried it. */
+function recordGatewayWrite(
+  input: SyncForFormatInput,
+  path: string,
+  marker: string,
+  servers: readonly McpServerConfig[],
+  existed: boolean,
+): void {
+  if (!servers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) return
+  recordIntegrationWrite({
+    kind: 'mcp-gateway',
+    path,
+    marker,
+    hostId: hostIdForPath(path),
+    cli: input.client,
+    repo: input.workspaceRoot,
+    createdFile: !existed,
+  })
 }
 
 async function syncOpencode(input: SyncForFormatInput): Promise<{
@@ -587,6 +629,7 @@ async function writeOpencodeConfig(
     delete next.mcp
   }
   const writeIssue = await writeIfChanged(path, prepared, `${JSON.stringify(next, null, 2)}\n`, client)
+  if (!writeIssue) recordGatewayWrite(input, path, OPENCODE_GATEWAY_MARKER, writableServers, prepared.existed)
   return writeIssue ? [writeIssue] : []
 }
 
@@ -966,8 +1009,14 @@ export async function removeManagedStudioGatewayFromClaudeWorkspace(workspaceRoo
   return changed
 }
 
-function isManagedStudioGatewayEntry(entry: unknown): boolean {
+/**
+ * Whether an MCP server entry is the app's gateway: the launcher's `mcp`
+ * target, or the older shape — the bundled bridge run by the app's own binary
+ * (`ELECTRON_RUN_AS_NODE`) or a distribution's pinned Node.
+ */
+export function isManagedStudioGatewayEntry(entry: unknown): boolean {
   if (!isPlainRecord(entry)) return false
+  if (isLauncherMcpServer(entry)) return true
   const args = Array.isArray(entry.args) ? entry.args : []
   const script = typeof args[0] === 'string' ? args[0].replace(/\\/g, '/') : ''
   const env = isPlainRecord(entry.env) ? entry.env : {}
