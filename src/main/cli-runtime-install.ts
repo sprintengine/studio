@@ -518,7 +518,15 @@ export type DetectCliBatchDeps = {
   detectOnHost?: (
     hostId: ExecutionHostId,
     requests: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
+    options: { force: boolean },
   ) => Promise<CliDetectResult[]>
+  /**
+   * Look again rather than trust what the machine remembers: a WSL helper keeps
+   * each binary's `--version` while its size and mtime stand still, and an npm
+   * update can leave both of a launcher script unchanged. Re-check and the
+   * detection after an install or update pass it.
+   */
+  force?: boolean
 }
 
 type BatchItem = { index: number; binary: string; versionArgs: string[] }
@@ -609,10 +617,14 @@ export async function detectCliBatch(
   })
 
   const env = deps.env ?? defaultProbeEnv()
+  const force = deps.force === true
   const detectOnHost =
     deps.detectOnHost ??
-    ((hostId: ExecutionHostId, group: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>) =>
-      hostRegistry().get(hostId).detectClis(group))
+    ((
+      hostId: ExecutionHostId,
+      group: ReadonlyArray<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
+      options: { force: boolean },
+    ) => hostRegistry().get(hostId).detectClis(group, options))
   await Promise.all([
     ...posix.map(async (index) => {
       results[index] = await detectCli(requests[index].cli, requests[index].runtime, deps.env)
@@ -638,6 +650,7 @@ export async function detectCliBatch(
         answers = await detectOnHost(
           hostId,
           indexes.map((index) => requests[index]),
+          { force },
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -692,6 +705,7 @@ export async function detectCli(
   cli: AgentCli,
   runtime?: Partial<CliRuntimeSettings>,
   env?: NodeJS.ProcessEnv,
+  options: { force?: boolean } = {},
 ): Promise<CliDetectResult> {
   const manifest = getPluginManifest(cli)
   const hostId = runtimeHostId(runtime)
@@ -711,7 +725,10 @@ export async function detectCli(
   // On Windows a single CLI goes through the batch too, so every probe there
   // is built, run and read one way.
   if (target === 'wsl' || target === 'win32') {
-    const [result] = await detectCliBatch([{ cli, runtime }], env ? { env } : {})
+    const [result] = await detectCliBatch([{ cli, runtime }], {
+      ...(env ? { env } : {}),
+      ...(options.force ? { force: true } : {}),
+    })
     return result
   }
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
@@ -867,7 +884,7 @@ export async function installCli(
   // while still placing the binary (e.g. PATH advisories). Against a freshly
   // asked login PATH, since an installer may have just added to it.
   invalidateLoginShellPath()
-  const detected = await detectCli(input.cli, runtime, installEnv)
+  const detected = await detectCli(input.cli, runtime, installEnv, { force: true })
   const ok = detected.installed && runError === null
   return {
     ok,
@@ -945,7 +962,7 @@ export async function updateCli(
       runError = error instanceof Error ? error.message : String(error)
     }
     invalidateLoginShellPath()
-    const detected = await detectCli(cli, runtime, updateEnv)
+    const detected = await detectCli(cli, runtime, updateEnv, { force: true })
     const ok = detected.installed && runError === null
     return {
       ok,
@@ -987,7 +1004,7 @@ export async function updateCli(
       runError = error instanceof Error ? error.message : String(error)
     }
     invalidateLoginShellPath()
-    const detected = await detectCli(cli, runtime, updateEnv)
+    const detected = await detectCli(cli, runtime, updateEnv, { force: true })
     const ok = detected.installed && runError === null
     return {
       ok,

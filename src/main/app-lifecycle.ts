@@ -23,7 +23,7 @@ import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/pol
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
-import { readCliVersionAdvisories } from './cli-version-advisory-service'
+import { detectCliMachines, readCliVersionAdvisories } from './cli-version-advisory-service'
 import { hostRegistry } from './hosts/host-registry'
 
 type RegisterAppLifecycleOptions = {
@@ -275,6 +275,12 @@ export function registerAppLifecycle({
     // probe delays a warmed cache and never the app.
     void runBootDiscovery({
       onProgress: sendSplashProgress,
+      // The one detection of this machine's CLIs a launch makes (Re-check in
+      // Settings is the only other), with the commands the person set, so the
+      // renderer's first read is answered from it. What it finds schedules the
+      // version check's comparison (app-services), which waits for a window to
+      // say whether checks are on. WSL machines are detected after the reveal.
+      detectClis: () => detectCliMachines({ which: 'local' }),
       // Not awaited, so this mark can (and usually does) land after the reveal —
       // which is the point: it shows how much of the boot the user never waits
       // for, and how much of the CLI probe the splash actually covered.
@@ -287,7 +293,7 @@ export function registerAppLifecycle({
       },
     }).finally(() => {
       markStartup('main.discovery-settled')
-      // Model discovery follows CLI detection, whose 60 s cache it reads, and
+      // Model discovery follows CLI detection, whose held answer it reads, and
       // waits a little longer so the probes do not compete with the renderer's
       // first paint. Each CLI is re-probed only when its catalog is a day old or
       // its version changed, so on most launches this spawns nothing.
@@ -339,6 +345,10 @@ export function registerAppLifecycle({
         await checkPluginSourceUpdates?.().catch(() => undefined)
         if (failures.length > 0) throw failures[0]
       },
+      // Compares the installed versions startup (or the last Re-check) found
+      // against the registry. No detection: nothing is spawned on any machine,
+      // no WSL distribution is started, and a CLI that is not installed is
+      // never asked about.
       refreshVersions: () => readCliVersionAdvisories(),
       isOnline: () => net.isOnline(),
     })
@@ -351,6 +361,11 @@ export function registerAppLifecycle({
     // the boot-reveal timeout), so this runs once.
     function startBootJobsAfterReveal(): void {
       startDeferredBootJobs?.()
+      // Each WSL machine turned on is detected once at startup, like this one,
+      // so its CLI updates badge Settings without the person visiting its list.
+      // After the reveal: asking may start the distribution's helper, which is
+      // not something the first paint should wait behind.
+      void detectCliMachines({ which: 'wsl' }).catch(() => undefined)
       // One-shot cleanup of the retired checkpoint machinery
       // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
       // awaited and deliberately after the window exists: it walks repos with

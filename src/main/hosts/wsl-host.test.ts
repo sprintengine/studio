@@ -272,6 +272,16 @@ test('CLI detection is one request, read with the same parser as every probe', a
   assert.equal(results[1].error, null, 'not found is an answer')
   assert.equal(results[2].error, 'EACCES', 'a failed check is not "not installed"')
   assert.match(results[3].error ?? '', /No plugin manifest/u)
+  assert.equal('force' in (helper.requests[0].params as object), false, 'a plain read may reuse remembered versions')
+})
+
+// The helper keeps each binary's `--version` while its size and mtime stand
+// still, and an npm update can leave both of a launcher script unchanged: the
+// check after an update, and Re-check, must make it run `--version` again.
+test('a forced detection tells the helper to look again', async () => {
+  const { helper, host } = hostWith({ 'cli.detect': () => ({ results: [{ found: false }] }) })
+  await host.detectClis([{ cli: 'claude-code' }], { force: true })
+  assert.equal((helper.requests[0].params as { force?: boolean }).force, true)
 })
 
 test('prepare starts the helper, writes the plugin copy only when it changed, and exposes the integration', async () => {

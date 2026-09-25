@@ -13,6 +13,7 @@ import type {
   MergedCliModelOption,
 } from '../../../../../shared/cli-model-catalog'
 import { NEW_FOR_MS } from '../../../../../shared/new-for-days'
+import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../../../../shared/execution-host'
 
 // What each CLI reported about its own models, keyed by plugin id — the
 // `cliModelCatalog` app setting, passed in rather than read from the store so
@@ -223,6 +224,21 @@ export function cliRuntimeForPlugin(
   const direct = cliRuntimes?.[pluginId]
   const command = (typeof direct?.command === 'string' ? direct.command : undefined) ?? ''
   return { command }
+}
+
+// A CLI's runtime on one machine, as an install, a detection or an update run
+// there is given it: this machine's command from `cliRuntimes`, a WSL
+// distribution's from its own `hosts[id].cliCommands`, with the machine named.
+export function cliRuntimeOnMachine(
+  pluginId: AgentCli,
+  hostId: ExecutionHostId,
+  settings: {
+    cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+    hosts?: Partial<Record<ExecutionHostId, ExecutionHostSettings>>
+  },
+): { command: string; hostId?: ExecutionHostId } {
+  if (!isWslHostId(hostId)) return cliRuntimeForPlugin(pluginId, settings.cliRuntimes)
+  return { command: settings.hosts?.[hostId]?.cliCommands[pluginId] ?? '', hostId }
 }
 
 export function isAgentCliAvailable(cli: AgentCli, catalog: AgentCliCatalogOption[]): boolean {

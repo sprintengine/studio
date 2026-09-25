@@ -724,7 +724,9 @@ test('ProviderRow', async () => {
     // installed count ("3 installed · checked 2m ago"), so match the fact rather
     // than the sentence it used to be.
     assert.match(settings, /checked \$\{freshness\}/i, 'the band carries the freshness meta')
-    assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)/, 'the band re-checks for real')
+    // Re-check has main detect every CLI on every machine again, not only read
+    // the answer startup found.
+    assert.match(settings, /refreshCliVersionAdvisories\(\{ detect: true/, 'the band re-checks for real')
 
     // A failed batch probe is one global fact, stated once, not once per row.
     assert.match(

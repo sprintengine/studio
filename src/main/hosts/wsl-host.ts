@@ -388,7 +388,7 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
         return []
       }
     },
-    async detectClis(requests) {
+    async detectClis(requests, options = {}) {
       const probes = requests.map(({ cli, runtime }) => cliProbeRequest(cli, { ...runtime, hostId: id }))
       const asked = probes.flatMap((probe) => ('error' in probe ? [] : [probe]))
       let answers: HelperProbeAnswer[] = []
@@ -397,7 +397,10 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
         try {
           const reply = await helper.request<{ results: HelperProbeAnswer[] }>(
             'cli.detect',
-            { requests: asked.map((probe) => ({ binary: probe.binary, versionArgs: probe.versionArgs })) },
+            {
+              requests: asked.map((probe) => ({ binary: probe.binary, versionArgs: probe.versionArgs })),
+              ...(options.force ? { force: true } : {}),
+            },
             { timeoutMs: DETECT_TIMEOUT_MS },
           )
           answers = reply.results

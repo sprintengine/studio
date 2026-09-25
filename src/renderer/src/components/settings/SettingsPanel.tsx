@@ -120,6 +120,7 @@ interface Props {
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
+const NO_UPDATE_BADGE_CLIS: ReadonlySet<string> = new Set()
 
 type SettingsTabId =
   | 'general'
@@ -366,12 +367,14 @@ function AgentCliBand({
   now,
   addPending,
   onAdd,
+  rechecking,
   onRecheck,
 }: {
   checkedAt: number | null
   now: number
   addPending: boolean
   onAdd: () => void
+  rechecking: boolean
   onRecheck: () => void
 }) {
   const freshness = formatRelativeMsAgo(checkedAt, now)
@@ -394,8 +397,14 @@ function AgentCliBand({
             </IconButton>
           </Tooltip>
           <Tooltip content="Re-check every CLI now">
-            <IconButton aria-label="Re-check every CLI now" onClick={onRecheck}>
-              <RefreshIcon />
+            <IconButton
+              aria-label={rechecking ? 'Re-checking every CLI' : 'Re-check every CLI now'}
+              disabled={rechecking}
+              onClick={onRecheck}
+            >
+              {/* Detection on every machine can take a few seconds, so the
+                  glyph says it is running rather than the button going quiet. */}
+              {rechecking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
             </IconButton>
           </Tooltip>
         </>
@@ -804,6 +813,23 @@ export default function SettingsPanel({
   )
   const agentsOnWsl = agentsMachine.id !== LOCAL_HOST_ID
   const agentCliRuns = useAgentCliRuns()
+  // Re-check is the one time after startup that detection runs again: main
+  // detects every CLI on every machine the switcher offers, then compares
+  // against the registry, and both lists read that answer back. The hourly
+  // check never detects, so a CLI installed or removed outside the app shows
+  // here once this is pressed.
+  const [agentsRechecking, setAgentsRechecking] = useState(false)
+  const reloadAgentsMachine = agentsMachineCli.reload
+  const recheckAgentClis = useCallback(async () => {
+    setAgentsRechecking(true)
+    try {
+      await refreshCliVersionAdvisories({ detect: true, ...(checkCliVersions ? { force: true } : {}) })
+      await refreshCliAvailability({ cliRuntimes })
+      reloadAgentsMachine()
+    } finally {
+      setAgentsRechecking(false)
+    }
+  }, [checkCliVersions, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories, reloadAgentsMachine])
   // A WSL machine's answer restarts the band's clock the way this machine's does.
   const agentsMachineCheckedAt = agentsMachineCli.availability?.checkedAt ?? null
   useEffect(() => {
@@ -1456,14 +1482,8 @@ export default function SettingsPanel({
             now={agentsFreshnessNow}
             addPending={cliInstallPending}
             onAdd={() => void installCliFromFolder()}
-            onRecheck={() => {
-              if (agentsOnWsl) {
-                agentsMachineCli.recheck()
-                return
-              }
-              void refreshCliAvailability({ force: true, cliRuntimes })
-              if (checkCliVersions) void refreshCliVersionAdvisories({ force: true, cliRuntimes })
-            }}
+            rechecking={agentsRechecking}
+            onRecheck={() => void recheckAgentClis()}
           />
           <AgentsMachineSwitcher
             machines={agentsMachineOptions}
@@ -1471,19 +1491,17 @@ export default function SettingsPanel({
             onChange={selectAgentsMachine}
             badges={updateBadges.machines}
           />
-          {/* The registry comparison is this machine's (main compares the
-              version its own probe found), so a WSL machine's list does not
-              offer the switch that would do nothing for it. */}
-          {agentsOnWsl ? null : (
-            <SettingCard>
-              <SettingToggle
-                label="Check for CLI updates"
-                description="Offers Update when a newer version is published."
-                enabled={checkCliVersions}
-                onChange={setCheckCliVersions}
-              />
-            </SettingCard>
-          )}
+          {/* One switch for every machine: main compares each machine's
+              installed CLIs against the registry, and this turns all of it
+              off. */}
+          <SettingCard>
+            <SettingToggle
+              label="Check for CLI updates"
+              description="Offers Update when a newer version is published."
+              enabled={checkCliVersions}
+              onChange={setCheckCliVersions}
+            />
+          </SettingCard>
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
@@ -1494,10 +1512,10 @@ export default function SettingsPanel({
             runs={agentCliRuns}
             machine={agentsMachine}
             machineAvailability={agentsMachineCli.availability}
-            onMachineRecheck={agentsMachineCli.recheck}
+            onMachineReload={agentsMachineCli.reload}
             showMachine={agentsMachineOptions.length > 1}
             now={agentsFreshnessNow}
-            updateBadgeClis={updateBadges.clis}
+            updateBadgeClis={updateBadges.clis[agentsMachine.id] ?? NO_UPDATE_BADGE_CLIS}
           />
 
           <TextGenerationSettingsSection />

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import type { AppNotification } from '../types/workspace'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
@@ -7,6 +7,44 @@ import type { NotificationActionProvider, RendererHost } from './renderer-host'
 
 // The bell row for a first message that never reached its CLI gives the
 // message back; every other terminal row keeps the shell's generic Open.
+
+const settingsOpens = vi.hoisted(() => [] as unknown[])
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: { getState: () => ({ openSettingsOverlay: (request: unknown) => settingsOpens.push(request) }) },
+}))
+
+function provider(source: string): NotificationActionProvider {
+  const providers: NotificationActionProvider[] = []
+  const host = new Proxy({} as RendererHost, {
+    get: (_target, key) =>
+      key === 'registerNotificationActionProvider'
+        ? (entry: NotificationActionProvider) => providers.push(entry)
+        : () => undefined,
+  })
+  agentRuntimeRendererModule.registerRenderer?.(host)
+  const found = providers.find((candidate) => candidate.source === source)
+  assert.ok(found, `the core registers a ${source} provider`)
+  return found
+}
+
+// A CLI update's bell row opens Agents on the machine the update is for; one
+// that names none is this machine's news.
+test('Open on a CLI update row lands on the machine it names', async () => {
+  settingsOpens.length = 0
+  for (const ref of ['agents@wsl:Ubuntu', 'agents', 'general']) {
+    const context = {
+      notification: row({ source: 'cli', navigationTarget: { kind: 'settings', ref } }),
+      revealWorkspace: () => undefined,
+    }
+    const [open] = provider('cli').resolveActions(context)
+    await open?.run(context)
+  }
+  assert.deepEqual(settingsOpens, [
+    { initialTab: 'agents', agentsMachine: 'wsl:Ubuntu' },
+    { initialTab: 'agents', agentsMachine: 'local' },
+    { initialTab: 'general' },
+  ])
+})
 
 function terminalProvider(): NotificationActionProvider {
   const providers: NotificationActionProvider[] = []

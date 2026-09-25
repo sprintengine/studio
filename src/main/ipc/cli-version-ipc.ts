@@ -9,10 +9,12 @@ export type CliVersionIpcHandlers = {
   setEnabled(enabled: boolean): boolean
 }
 
-// `cli-version:advisories` runs detection (cached a minute) and the registry
-// lookups (cached an hour) and answers with one advisory per CLI. The service
-// pushes `cli-version:advisories-changed` when the set of outdated CLIs moved,
-// so a Settings re-check and the poller reach every window the same way.
+// `cli-version:advisories` answers with one advisory per CLI per machine,
+// comparing the installed versions detection last found against the registry
+// (cached an hour). `detect` is Settings' Re-check: every machine's CLIs are
+// detected again first. The service pushes `cli-version:advisories-changed`
+// when the answer moved, so a Settings re-check, an update and the poller reach
+// every window the same way.
 export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVersionIpcHandlers> = {}): void {
   const read = overrides.read ?? ((input?: CliVersionAdvisoriesInput) => readCliVersionAdvisories(input))
   const setEnabled = overrides.setEnabled ?? setCliVersionChecksEnabled
@@ -21,9 +23,7 @@ export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVe
     const parsed = isRecord(input) ? input : {}
     const request: CliVersionAdvisoriesInput = {
       ...(parsed.force === true ? { force: true } : {}),
-      ...(isRecord(parsed.cliRuntimes)
-        ? { cliRuntimes: parsed.cliRuntimes as CliVersionAdvisoriesInput['cliRuntimes'] }
-        : {}),
+      ...(parsed.detect === true ? { detect: true } : {}),
     }
     try {
       return await read(request)
