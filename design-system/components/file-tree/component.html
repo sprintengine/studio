@@ -1,0 +1,1295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>File tree</title>
+    <link rel="stylesheet" href="../../foundations/tokens.css" />
+    <link rel="stylesheet" href="component.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family: var(--sem-font-family-ui);
+      }
+      .demo-stage {
+        padding: var(--sem-space-3xl);
+        background: var(--sem-color-bg-app);
+        color: var(--sem-color-text-default);
+      }
+      .demo-label {
+        margin: 0 0 var(--sem-space-sm);
+        font-size: var(--sem-font-size-meta);
+        color: var(--sem-color-text-subtle);
+      }
+      .demo-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sem-space-xl);
+        align-items: flex-start;
+      }
+      /* The column the tree lives in: the side-pane's resizable variant, at its
+     default width. */
+      .demo-column {
+        width: 260px;
+        border: 1px solid var(--sem-color-border-subtle);
+        border-radius: var(--sem-radius-shell);
+        background: var(--sem-color-bg-surface);
+        overflow: hidden;
+      }
+      .demo-icon {
+        display: grid;
+        place-items: center;
+        width: var(--sem-size-hit-target-min);
+        height: var(--sem-size-hit-target-min);
+        color: var(--sem-color-text-muted);
+      }
+      .demo-icon svg {
+        width: var(--sem-icon-size-sm);
+        height: var(--sem-icon-size-sm);
+      }
+      /* The kind hue the app's glyph carries for TypeScript. */
+      .demo-ts {
+        color: var(--sem-color-mark-blue);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo-stage" data-mode="light">
+      <p class="demo-label">
+        Light — the banded tree with the tree focused, the same tree while the editor has focus, and a file outside the
+        root pinned above it.
+      </p>
+      <div class="demo-row">
+        <div class="demo-column">
+          <div class="ds-file-tree-band">
+            <span class="ds-file-tree-band-title"
+              ><span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg></span
+              ><span>studio</span></span
+            >
+            <span class="demo-icon" aria-hidden="true"
+              ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke-width="1.5" stroke-linecap="round" /></svg
+            ></span>
+          </div>
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (light, tree focused)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">main</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">app-services.ts</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--selected"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="true"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">window-factory.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--deleted">checkpoint-store.ts</span
+              ><span class="ds-file-tree-badge">D</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">renderer</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--ignored"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">out</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--added">CHANGELOG.md</span
+              ><span class="ds-file-tree-badge">A</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div class="ds-file-tree-band">
+            <span class="ds-file-tree-band-title"
+              ><span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg></span
+              ><span>studio</span></span
+            >
+            <span class="demo-icon" aria-hidden="true"
+              ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke-width="1.5" stroke-linecap="round" /></svg
+            ></span>
+          </div>
+          <div
+            class="ds-file-tree"
+            role="tree"
+            aria-label="Files in studio (light, editor focused — the open file rests)"
+            tabindex="0"
+          >
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">main</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">app-services.ts</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--resting"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="true"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">window-factory.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--deleted">checkpoint-store.ts</span
+              ><span class="ds-file-tree-badge">D</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">renderer</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--ignored"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">out</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--added">CHANGELOG.md</span
+              ><span class="ds-file-tree-badge">A</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div
+            class="ds-file-tree-pinned"
+            role="group"
+            aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
+          >
+            <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
+            <div class="ds-file-tree-pinned-row" title="/Users/dev/tmp/agent-patches/fix.patch">
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-pinned-name">fix.patch</span>
+              <span class="ds-file-tree-pinned-dir" aria-hidden="true"
+                ><span class="ds-file-tree-pinned-dir-head">/Users/dev/tmp</span
+                ><span class="ds-file-tree-pinned-dir-tail">/agent-patches</span></span
+              >
+              <span class="demo-icon" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3.5" r="1.25" />
+                  <circle cx="8" cy="8" r="1.25" />
+                  <circle cx="8" cy="12.5" r="1.25" /></svg
+              ></span>
+            </div>
+          </div>
+          <div
+            class="ds-file-tree"
+            role="tree"
+            aria-label="Files in studio (light, file outside the root)"
+            tabindex="0"
+          >
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-stage" data-mode="dark">
+      <p class="demo-label">
+        Dark — the banded tree with the tree focused, the same tree while the editor has focus, and a file outside the
+        root pinned above it.
+      </p>
+      <div class="demo-row">
+        <div class="demo-column">
+          <div class="ds-file-tree-band">
+            <span class="ds-file-tree-band-title"
+              ><span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg></span
+              ><span>studio</span></span
+            >
+            <span class="demo-icon" aria-hidden="true"
+              ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke-width="1.5" stroke-linecap="round" /></svg
+            ></span>
+          </div>
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, tree focused)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">main</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">app-services.ts</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--selected"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="true"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">window-factory.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--deleted">checkpoint-store.ts</span
+              ><span class="ds-file-tree-badge">D</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">renderer</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--ignored"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">out</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--added">CHANGELOG.md</span
+              ><span class="ds-file-tree-badge">A</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div class="ds-file-tree-band">
+            <span class="ds-file-tree-band-title"
+              ><span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg></span
+              ><span>studio</span></span
+            >
+            <span class="demo-icon" aria-hidden="true"
+              ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke-width="1.5" stroke-linecap="round" /></svg
+            ></span>
+          </div>
+          <div
+            class="ds-file-tree"
+            role="tree"
+            aria-label="Files in studio (dark, editor focused — the open file rests)"
+            tabindex="0"
+          >
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="true"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">main</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">app-services.ts</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--resting"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="true"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">window-factory.ts</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="3"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 2"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph demo-ts" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <rect x="1.6" y="1.6" width="12.8" height="12.8" rx="2.4" stroke-width="1.2" />
+                  <path d="M4.2 6.3h3.4M5.9 6.3v4.4" stroke-width="1.45" stroke-linecap="round" />
+                  <path
+                    d="M11.6 6.3H9.9a1 1 0 0 0 0 2h1.2a1 1 0 0 1 0 2H9.5"
+                    stroke-width="1.45"
+                    stroke-linecap="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--deleted">checkpoint-store.ts</span
+              ><span class="ds-file-tree-badge">D</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="2"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 1"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--modified">renderer</span
+              ><span class="ds-file-tree-badge">M</span>
+            </div>
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder ds-file-tree-row--ignored"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">out</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name ds-file-tree-name--added">CHANGELOG.md</span
+              ><span class="ds-file-tree-badge">A</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+        <div class="demo-column">
+          <div
+            class="ds-file-tree-pinned"
+            role="group"
+            aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
+          >
+            <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
+            <div class="ds-file-tree-pinned-row" title="/Users/dev/tmp/agent-patches/fix.patch">
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-pinned-name">fix.patch</span>
+              <span class="ds-file-tree-pinned-dir" aria-hidden="true"
+                ><span class="ds-file-tree-pinned-dir-head">/Users/dev/tmp</span
+                ><span class="ds-file-tree-pinned-dir-tail">/agent-patches</span></span
+              >
+              <span class="demo-icon" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3.5" r="1.25" />
+                  <circle cx="8" cy="8" r="1.25" />
+                  <circle cx="8" cy="12.5" r="1.25" /></svg
+              ></span>
+            </div>
+          </div>
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, file outside the root)" tabindex="0">
+            <div
+              class="ds-file-tree-row ds-file-tree-row--folder"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              aria-expanded="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path
+                    d="M1.75 4.5c0-.7.55-1.25 1.25-1.25h3.1l1.3 1.5H13c.7 0 1.25.55 1.25 1.25v6.25c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25V4.5Z"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-name">src</span>
+            </div>
+            <div
+              class="ds-file-tree-row"
+              role="treeitem"
+              aria-level="1"
+              aria-selected="false"
+              style="--ds-file-tree-depth: 0"
+            >
+              <span class="ds-file-tree-twisty ds-file-tree-twisty--leaf" aria-hidden="true"
+                ><svg viewBox="0 0 12 12" fill="none" stroke="currentColor">
+                  <path
+                    d="M4.25 2.5 7.75 6l-3.5 3.5"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  /></svg
+              ></span>
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-name">package.json</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

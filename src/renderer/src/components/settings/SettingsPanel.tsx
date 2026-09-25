@@ -695,6 +695,8 @@ export default function SettingsPanel({
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
+  const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
+  const setOpenFilesInExternalWindow = useWorkspaceStore((s) => s.setOpenFilesInExternalWindow)
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const telemetryEnabled = useWorkspaceStore((s) => s.appSettings.telemetryEnabled)
@@ -1277,6 +1279,24 @@ export default function SettingsPanel({
                   ]}
                   value={chatListView}
                   onChange={setChatListView}
+                />
+              </SettingsRow>
+              {/* Where a file opens (owner ruling 2026-09-25). The editor
+                  window is the default: the file on its own, with a tree
+                  beside it that says where it lives. The in-app tab stays a
+                  choice, and this row is the only thing that changes it. */}
+              <SettingsRow
+                label="Open files in"
+                help="The editor window shows the file on its own, beside a file tree. In the app opens it as a tab next to your terminals."
+              >
+                <SegmentedControl<'window' | 'app'>
+                  ariaLabel="Open files in"
+                  items={[
+                    { value: 'window', label: 'Editor window' },
+                    { value: 'app', label: 'In the app' },
+                  ]}
+                  value={openFilesInExternalWindow ? 'window' : 'app'}
+                  onChange={(value) => setOpenFilesInExternalWindow(value === 'window')}
                 />
               </SettingsRow>
               <SettingsRow

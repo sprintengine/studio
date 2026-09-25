@@ -14,7 +14,10 @@ test('FileExplorerRowHeight', async () => {
   // way `designSystemConformance.test.tsx` reads class lists rather than computed
   // boxes. Two rows are held to it: the root row and the entry row.
 
-  const SOURCE = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/FileExplorer.tsx'), 'utf8')
+  // The rows are the kit's (ui/FileTree.tsx), shared with the editor window's
+  // tree; the rename field is still the Files tree's own.
+  const SOURCE = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/FileTree.tsx'), 'utf8')
+  const EXPLORER = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/FileExplorer.tsx'), 'utf8')
 
   const ROW_CLASS =
     /group flex (min-h-\[[^\]]+\]) cursor-pointer select-none items-center gap-2 rounded-md (px-2) (py-[\d.]+) text-meta/g
@@ -51,13 +54,13 @@ test('FileExplorerRowHeight', async () => {
 
   // The rename field replaces the name INSIDE a row, so it has to fit the content
   // box the row leaves — otherwise renaming one file pushes every sibling down.
-  assert.match(SOURCE, /className=\{`h-5 min-w-0 flex-1 px-1\.5 text-meta/, 'the rename field is 20px')
+  assert.match(EXPLORER, /className=\{`h-5 min-w-0 flex-1 px-1\.5 text-meta/, 'the rename field is 20px')
 
   // principles.md asks an indent that aligns to a glyph slot to say what it lines
   // up with. The arithmetic is allowed to stay off the space scale; the silence
   // is not.
-  const indent = SOURCE.indexOf('${8 + (depth + 1) * 14}px')
-  assert.ok(indent > 0, 'the tree still indents by 8 + (depth + 1) * 14')
+  const indent = SOURCE.indexOf('${8 + (depth + indentSteps) * 14}px')
+  assert.ok(indent > 0, 'the tree still indents by 8 + (depth + indentSteps) * 14')
   const preamble = SOURCE.slice(Math.max(0, indent - 900), indent).replace(/\s*\/\/\s*|\s+/g, ' ')
   assert.match(preamble, /12px flow advance/, 'the indent says what its step lines up with')
 

@@ -152,6 +152,7 @@ export default function AuxWindowApp() {
         revealRange: parseRevealRange(params.revealRange),
         revealBackground: params.revealBackground === '1',
         revealByAgent: params.revealByAgent === '1',
+        rootPath: params.rootPath ?? '',
       }
     : null
   return (

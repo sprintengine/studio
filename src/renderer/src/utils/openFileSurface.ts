@@ -25,9 +25,13 @@ export type OpenFileSurfaceInput = {
   range?: EditorRange
   takeFocus?: boolean
   background?: boolean
+  // The folder the editor window's tree shows for this file. Omitted, the
+  // window opener resolves the workspace's working root (its worktree when it
+  // has one), which is what every caller wants unless it knows better.
+  rootPath?: string
 }
 
-// Single routing point for "open this file" actions. Honors the sticky
+// Single routing point for "open this file" actions. Honors the
 // `openFilesInExternalWindow` preference: when on, the file opens as a tab in the
 // external editor window (pop-up); when off, it opens as a workspace editor tab.
 // Migrate file-open call sites here so the preference applies uniformly.
@@ -41,6 +45,7 @@ export function openFileSurface(input: OpenFileSurfaceInput): void {
       ...(input.range ? { range: input.range } : {}),
       ...(input.takeFocus === false ? { takeFocus: false } : {}),
       ...(input.background ? { background: true } : {}),
+      rootPath: input.rootPath,
     })
     return
   }

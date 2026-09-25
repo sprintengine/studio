@@ -20,6 +20,7 @@ test('externalEditorFile', async () => {
       path: '/workspace/logo.svg',
       name: 'logo.svg',
       workspaceId: 'ws-1',
+      rootPath: '',
       kind: 'image',
     })
   }

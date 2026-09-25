@@ -12,19 +12,16 @@ import { getGitStatusAppearance } from '../../utils/gitStatusAppearance'
 import {
   FOLDER_ROLE_LABEL,
   FOLDER_ROLE_ORDER,
-  folderRoleInk,
   resolveFolderRole,
   resolveRowWash,
   rowWashClass,
   type FolderRole,
   type FolderRoleMap,
 } from '../../utils/folderRoles'
-import { useIgnoredPaths } from '../../hooks/useIgnoredPaths'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { isPathOrChild } from '../../utils/paths'
-import { isWatchEventIgnored } from '../../../../shared/file-watch-event'
 import type { FileSearchEngine } from '../../../../shared/ipc/filesystem'
 import { openGitDiff } from '../../utils/openGitDiff'
 import { openFileSurface } from '../../utils/openFileSurface'
@@ -33,7 +30,19 @@ import { setFileDropData } from '../../utils/terminalDrop'
 import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
 import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
 import { IconButton, OutlineButton, PrimaryButton } from '../ui/Buttons'
-import { FileTypeGlyph, FolderGlyph, isTestPath } from '../ui/FileTypeGlyph'
+import { isTestPath } from '../ui/FileTypeGlyph'
+import { FileTreeRootRow, FileTreeRow, FileTreeRows, type FileTreeRowsHandle } from '../ui/FileTree'
+import {
+  buildPathTreeRows,
+  flattenTree,
+  getEntryGitStatus,
+  mergeGitDeletedEntries,
+  parentDirectoriesForPath,
+  pathSeparatorFor,
+  type FileTreeEntry,
+  type FileTreeRowModel,
+} from '../../utils/fileTreeEntries'
+import { useFileTreeModel } from '../../utils/fileTreeModel'
 import { EmptyState } from '../ui/EmptyState'
 import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -46,18 +55,14 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 const EMPTY_EXPANDED_PATHS: string[] = []
 const EMPTY_TREE_ROWS: TreeRow[] = []
 
-type Entry = {
-  name: string
-  isDir: boolean
-  path: string
-  parentPath: string
-  gitDeleted?: boolean
-}
-
-type TreeRow = {
-  entry: Entry
-  depth: number
-}
+// The tree's data half — listings, the watch, ignore checks, reveal — is the
+// shared per-root model (utils/fileTreeModel.ts), and its rows are the kit's
+// FileTree rows (ui/FileTree.tsx), which the editor window's tree renders too.
+// What stays here is what only this tree does: rename, move, create, delete,
+// drag, multi-select, search, folder roles, and the expanded set it persists
+// for the workspace.
+type Entry = FileTreeEntry
+type TreeRow = FileTreeRowModel
 
 type ExplorerClipboard = {
   path: string
@@ -83,48 +88,6 @@ type ExplorerMovePayload = {
   entries: Entry[]
 }
 
-function toEntries(raw: { name: string; isDir: boolean }[], parent: string): Entry[] {
-  const joiner = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
-  return raw
-    .map((entry) => ({
-      ...entry,
-      path: `${parent}${parent.endsWith(joiner) ? '' : joiner}${entry.name}`,
-      parentPath: parent,
-    }))
-    .filter((entry) => entry.name !== 'node_modules')
-    .sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
-}
-
-function isIgnoredExplorerWatchPath(path: string): boolean {
-  return path
-    .split(/[/\\]+/)
-    .filter(Boolean)
-    .some((segment) => segment === 'node_modules')
-}
-
-function flattenTree(
-  entries: Entry[],
-  depth: number,
-  expanded: Record<string, boolean>,
-  childrenByPath: Record<string, Entry[]>,
-): TreeRow[] {
-  const rows: TreeRow[] = []
-
-  for (const entry of entries) {
-    rows.push({ entry, depth })
-    if (entry.isDir && expanded[entry.path]) {
-      rows.push(...flattenTree(childrenByPath[entry.path] ?? [], depth + 1, expanded, childrenByPath))
-    }
-  }
-
-  return rows
-}
-
-type SearchTreeNode = {
-  entry: Entry
-  children: Map<string, SearchTreeNode>
-}
-
 type FileSearchDiagnostics = {
   engine: FileSearchEngine
   elapsedMs: number
@@ -138,163 +101,6 @@ type FileSearchResponse = {
 }
 
 type RefreshTreeCause = 'initial' | 'watch' | 'manual' | 'git-status' | 'reveal'
-
-function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
-  const separator = pathSeparatorFor(rootPath)
-  const rootChildren = new Map<string, SearchTreeNode>()
-
-  const getOrCreateDirectory = (
-    children: Map<string, SearchTreeNode>,
-    name: string,
-    parentPath: string,
-  ): SearchTreeNode => {
-    const path = `${parentPath}${parentPath.endsWith(separator) ? '' : separator}${name}`
-    const existing = children.get(path)
-    if (existing) return existing
-
-    const node: SearchTreeNode = {
-      entry: {
-        name,
-        isDir: true,
-        path,
-        parentPath,
-      },
-      children: new Map(),
-    }
-    children.set(path, node)
-    return node
-  }
-
-  entries.forEach((entry) => {
-    const relativePath = workspaceRelativePath(rootPath, entry.path)
-    if (!relativePath) {
-      rootChildren.set(entry.path, { entry, children: new Map() })
-      return
-    }
-
-    const segments = relativePath.split('/').filter(Boolean)
-    if (segments.length <= 1) {
-      rootChildren.set(entry.path, { entry, children: new Map() })
-      return
-    }
-
-    let parentPath = rootPath
-    let currentChildren = rootChildren
-    segments.slice(0, -1).forEach((segment) => {
-      const directory = getOrCreateDirectory(currentChildren, segment, parentPath)
-      parentPath = directory.entry.path
-      currentChildren = directory.children
-    })
-    currentChildren.set(entry.path, { entry: { ...entry, parentPath }, children: new Map() })
-  })
-
-  const rows: TreeRow[] = []
-  const visit = (nodes: SearchTreeNode[], depth: number) => {
-    nodes
-      .sort((a, b) => {
-        if (a.entry.isDir !== b.entry.isDir) return a.entry.isDir ? -1 : 1
-        return a.entry.name.localeCompare(b.entry.name)
-      })
-      .forEach((node) => {
-        rows.push({ entry: node.entry, depth })
-        if (node.entry.isDir) visit([...node.children.values()], depth + 1)
-      })
-  }
-
-  visit([...rootChildren.values()], 0)
-  return rows
-}
-
-// The file mark is the kit's `FileTypeGlyph` (owner 2026-09-05): one shape per kind in the 16px leading slot every tree
-// row reserves. It replaces the mono letter chip that lived here — a 24×18
-// label box that sat off the icon ramp and read as a badge, not an identity
-// mark.
-//
-// Inked by KIND here (owner, 2026-09-06, principles.md → "Identity colour"):
-// the explorer is the one surface whose rows carry no other colour — no status
-// tint on the name, no tone on the row — so it is where a hue per language
-// lets the tree be scanned by colour before it is read. The Git changes list keeps the glyph
-// in ink, because there the filename's status tint is the row's one colour.
-// Kinds that name no language (config, text, the generic document) stay in the
-// row's ink, as does the folder glyph below; the wrapper declares no ink of its
-// own so those still take the row's three-tier ink.
-//
-// An IGNORED row is the exception: it drops back to `ink` and takes the row's
-// dimmed colour with everything else on it. A full-strength identity hue on a
-// row whose whole point is "you are not looking for this" would be the
-// brightest thing in a tree of build output.
-function FileIcon({ name, dimmed = false }: { name: string; dimmed?: boolean }) {
-  return (
-    <span className="inline-flex size-icon-sm shrink-0 items-center justify-center">
-      <FileTypeGlyph name={name} tone={dimmed ? 'ink' : 'kind'} />
-    </span>
-  )
-}
-
-function ChevronIcon({
-  expanded,
-  onClick,
-}: {
-  expanded: boolean
-  onClick?: React.MouseEventHandler<HTMLButtonElement>
-}) {
-  return (
-    <IconButton
-      size="xs"
-      tabIndex={-1}
-      onClick={onClick}
-      // The kit's `xs` step IS this box — 24x24, `size.hit-target-min` — on a
-      // 12x16 flow advance: the negative margins give back the padding, so the
-      // chevron draws exactly where it did while the box a pointer has to hit
-      // clears the floor. The 16px advance sits level with the 16px folder and
-      // file glyphs beside it, so the row's own 24px floor — not this box — is
-      // what sets its height; drop the negative margins and the row jumps to
-      // 32px. The sibling spacer on file rows is still w-3, so the columns line
-      // up. The ink and the hover step are now the kit's: the chevron lifts under
-      // its own pointer rather than only with the row.
-      className="-mx-1.5 -my-1 shrink-0"
-      aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
-    >
-      <svg
-        viewBox="0 0 12 12"
-        aria-hidden="true"
-        className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`}
-        fill="none"
-      >
-        <path
-          d="M4.25 2.5 7.75 6l-3.5 3.5"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </IconButton>
-  )
-}
-
-// The folder mark is the kit's outlined `FolderGlyph` (owner 2026-09-05), in the same 16px slot as the file glyph so
-// every row's name starts at one x. It takes its ink from the row (default at
-// rest, strong on hover and when selected) rather than from a private palette
-// (ruled 2026-09-02); the wrapper declares no ink of its own, because a
-// `text-*` here would pin the glyph to one tier and the row's three-tier ink
-// would never reach it. The chevron carries expanded state, so the folder reads
-// the same open or closed: expanded state lives on the chevron, not the folder.
-//
-// A folder carrying a declared ROLE is the one case where the mark leaves the
-// row's ink: blue, teal and orange distinguish the roles the person declared. Only the folder
-// the role was declared ON wears it — a whole marked subtree in orange would be
-// a category code on every row rather than a mark on the one that was chosen.
-function FolderIcon({ role }: { role?: FolderRole | null }) {
-  const ink = role ? folderRoleInk(role) : null
-  const badge =
-    role === 'generated' ? 'generated' : role === 'resources' || role === 'test-resources' ? 'resources' : undefined
-  return (
-    <span className={`inline-flex size-icon-sm shrink-0 items-center justify-center ${ink ?? ''}`}>
-      <FolderGlyph badge={badge} />
-    </span>
-  )
-}
 
 function RefreshFilesIcon() {
   return (
@@ -372,10 +178,6 @@ function topLevelEntries(entries: Entry[]): Entry[] {
   )
 }
 
-function pathSeparatorFor(path: string): '\\' | '/' {
-  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
-}
-
 function parseExplorerMovePayload(dataTransfer: DataTransfer): ExplorerMovePayload | null {
   const raw = dataTransfer.getData(SPRINTENGINE_EXPLORER_MOVE_MIME)
   if (!raw) return null
@@ -431,107 +233,12 @@ function collectNativeDropPaths(dataTransfer: DataTransfer): string[] {
     .filter((path): path is string => Boolean(path))
 }
 
-function parentDirectoriesForPath(rootPath: string, filePath: string): string[] {
-  if (!isPathOrChild(filePath, rootPath) || filePath === rootPath) return []
-
-  const separator = pathSeparatorFor(rootPath)
-  const relativePath = filePath.slice(rootPath.length + separator.length)
-  const segments = relativePath.split(separator).filter(Boolean)
-  const parentSegments = segments.slice(0, -1)
-
-  return parentSegments.reduce<string[]>((directories, segment) => {
-    const parent = directories.at(-1) ?? rootPath
-    directories.push(`${parent}${separator}${segment}`)
-    return directories
-  }, [])
-}
-
-function relativeChildPath(parentPath: string, childPath: string): string | null {
-  const normalizedParent = normalizePathKey(parentPath)
-  const normalizedChild = normalizePathKey(childPath)
-  if (normalizedChild === normalizedParent || !normalizedChild.startsWith(`${normalizedParent}/`)) return null
-  const separator = pathSeparatorFor(parentPath)
-  return childPath.slice(parentPath.length + separator.length)
-}
-
-function workspaceRelativePath(rootPath: string, filePath: string): string | null {
-  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normalizedFile = filePath.replace(/\\/g, '/')
-  const rootKey = normalizePathKey(normalizedRoot)
-  const fileKey = normalizePathKey(normalizedFile)
-  if (fileKey === rootKey || !fileKey.startsWith(`${rootKey}/`)) return null
-  return normalizedFile.slice(normalizedRoot.length + 1)
-}
-
 function isHtmlFile(entry: Entry): boolean {
   return !entry.isDir && !entry.gitDeleted && /\.html?$/i.test(entry.name)
 }
 
 function fileActionModuleLabel(moduleId: string): string {
   return ACTIVE_RENDERER_MODULE_MANIFESTS.find((manifest) => manifest.id === moduleId)?.displayName ?? moduleId
-}
-
-function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: GitStatusSnapshot | null): Entry[] {
-  if (!gitStatus) return entries
-
-  const nextEntries = [...entries]
-  const seen = new Set(entries.map((entry) => normalizePathKey(entry.path)))
-
-  Object.values(gitStatus.files).forEach((status) => {
-    if (status.status !== 'deleted') return
-
-    const relativePath = relativeChildPath(dirPath, status.path)
-    if (!relativePath) return
-
-    const separatorMatch = relativePath.match(/[\\/]/)
-    const childName = separatorMatch ? relativePath.slice(0, separatorMatch.index) : relativePath
-    const childPath = `${dirPath}${pathSeparatorFor(dirPath)}${childName}`
-    const key = normalizePathKey(childPath)
-    if (seen.has(key)) return
-
-    seen.add(key)
-    nextEntries.push({
-      name: childName,
-      isDir: Boolean(separatorMatch),
-      path: childPath,
-      parentPath: dirPath,
-      gitDeleted: true,
-    })
-  })
-
-  return nextEntries.sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
-}
-
-function getDirectoryGitStatus(directoryStatus: Record<string, GitFileStatus>, dirPath: string): GitFileStatus | null {
-  return directoryStatus[normalizePathKey(dirPath)] ?? null
-}
-
-function getEntryGitStatus(
-  gitStatus: GitStatusSnapshot | null,
-  directoryStatus: Record<string, GitFileStatus>,
-  entry: Entry,
-): GitFileStatus | null {
-  if (entry.gitDeleted) return 'deleted'
-  const exactStatus = getGitEntry(gitStatus, entry.path)?.status ?? null
-  if (exactStatus) return exactStatus
-  return entry.isDir ? getDirectoryGitStatus(directoryStatus, entry.path) : null
-}
-
-function remapChildrenByPath(
-  childrenByPath: Record<string, Entry[]>,
-  fromPath: string,
-  toPath: string,
-): Record<string, Entry[]> {
-  return Object.fromEntries(
-    Object.entries(childrenByPath).map(([key, entries]) => [
-      remapPath(key, fromPath, toPath),
-      entries.map((entry) => ({
-        ...entry,
-        path: remapPath(entry.path, fromPath, toPath),
-        parentPath: remapPath(entry.parentPath, fromPath, toPath),
-      })),
-    ]),
-  )
 }
 
 function remapExpandedPaths(
@@ -648,6 +355,8 @@ interface ExplorerTreeProps {
   directoryStatus: Record<string, GitFileStatus>
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
+  /** The element the tree scrolls in: reveal and the windowed row list measure against it. */
+  scrollParentRef: React.RefObject<HTMLDivElement | null>
 }
 
 function ExplorerTree({
@@ -662,8 +371,10 @@ function ExplorerTree({
   directoryStatus,
   refreshGitStatus,
   onOpenFile,
+  scrollParentRef,
 }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const rowsHandleRef = useRef<FileTreeRowsHandle>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const openFile = useWorkspaceStore((s) => s.openFile)
@@ -696,8 +407,7 @@ function ExplorerTree({
     [readPersistedExpandedPaths, rootPath],
   )
 
-  const [rootEntries, setRootEntries] = useState<Entry[]>([])
-  const [childrenByPath, setChildrenByPath] = useState<Record<string, Entry[]>>({})
+  const { model, snapshot: tree } = useFileTreeModel(rootPath)
   const [expandedPaths, setExpandedPathsState] = useState<Record<string, boolean>>(() => initialExpandedPaths)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
@@ -710,7 +420,6 @@ function ExplorerTree({
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [rootDropActive, setRootDropActive] = useState(false)
   const [contextMenu, setContextMenu] = useState<ExplorerMenuState | null>(null)
-  const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
   const committingRenameRef = useRef(false)
@@ -726,9 +435,16 @@ function ExplorerTree({
   const dragSelectionRef = useRef<{ kind: 'background'; startY: number; active: boolean } | null>(null)
   const completedDragSelectionRef = useRef(false)
 
+  // Deleted files are merged in at render, from the status this tree already
+  // holds, rather than written into the shared listings: they are a fact about
+  // the repository, not about the folder on disk.
   const visibleRows = useMemo(
-    () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
-    [rootEntries, expandedPaths, childrenByPath],
+    () =>
+      flattenTree(mergeGitDeletedEntries(tree.rootEntries ?? [], rootPath, gitStatus), 0, expandedPaths, (dirPath) => {
+        const children = tree.childrenByPath[dirPath]
+        return children ? mergeGitDeletedEntries(children, dirPath, gitStatus) : undefined
+      }),
+    [tree.rootEntries, tree.childrenByPath, expandedPaths, rootPath, gitStatus],
   )
 
   // The root row (owner 2026-09-05): the folder
@@ -740,7 +456,7 @@ function ExplorerTree({
   const [rootCollapsed, setRootCollapsed] = useState(false)
 
   const isSearching = query.trim().length > 0
-  const searchRows = useMemo(() => buildSearchTreeRows(rootPath, searchResults), [rootPath, searchResults])
+  const searchRows = useMemo(() => buildPathTreeRows(rootPath, searchResults), [rootPath, searchResults])
   const activeRows = isSearching ? searchRows : rootCollapsed ? EMPTY_TREE_ROWS : visibleRows
   const selectedEntries = useMemo(
     () => activeRows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
@@ -862,38 +578,20 @@ function ExplorerTree({
     }, 0)
   }, [renamingPath])
 
-  const { isIgnored, checkDirectory: checkIgnoredDirectory } = useIgnoredPaths(
-    gitStatus?.repoRoot ?? null,
-    refreshToken,
-  )
+  // The ignore answers live on the shared model, asked once per folder
+  // against the repository this tree's status was read from.
+  useEffect(() => {
+    model?.setRepoRoot(gitStatus?.repoRoot ?? null)
+  }, [model, gitStatus?.repoRoot])
+  const isIgnored = useCallback((path: string) => tree.ignoredKeys.has(normalizePathKey(path)), [tree.ignoredKeys])
 
   const loadDirectory = useCallback(
-    async (dirPath: string) => {
-      const raw = await window.api.readdir(dirPath)
-      const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, latestGitStatusRef.current)
-
-      // One `check-ignore` per directory, here rather than per row: the whole
-      // listing is in hand exactly once, which is what keeps this to a single
-      // spawn per folder the person actually opens.
-      checkIgnoredDirectory(
-        dirPath,
-        entries.map((entry) => entry.path),
-      )
-
-      if (dirPath === rootPath) {
-        setRootEntries(entries)
-      } else {
-        setChildrenByPath((current) => ({ ...current, [dirPath]: entries }))
-      }
-
-      return entries
-    },
-    [rootPath, checkIgnoredDirectory],
+    async (dirPath: string): Promise<Entry[]> => (model ? model.loadDirectory(dirPath) : []),
+    [model],
   )
 
   const ensureDirectoryLoaded = async (dirPath: string) => {
-    if (dirPath === rootPath || childrenByPath[dirPath]) return
-    await loadDirectory(dirPath)
+    await model?.ensureLoaded(dirPath)
   }
 
   const focusTree = () => {
@@ -964,61 +662,37 @@ function ExplorerTree({
 
   const refreshTree = useCallback(
     async (cause: RefreshTreeCause = 'manual') => {
+      if (!model) return
       const startedAt = performance.now()
       const expandedDirectories = Object.entries(latestExpandedPathsRef.current)
         .filter(([, expanded]) => expanded)
         .map(([dirPath]) => dirPath)
 
       const directories = Array.from(new Set([rootPath, ...expandedDirectories]))
-      let loadedDirectoryCount = 0
-      await Promise.all(
-        directories.map(async (dirPath) => {
-          try {
-            await loadDirectory(dirPath)
-            loadedDirectoryCount += 1
-          } catch (error) {
-            if (dirPath === rootPath) {
-              throw error
-            }
-
-            setChildrenByPath((current) => {
-              if (!(dirPath in current)) return current
-              const next = { ...current }
-              delete next[dirPath]
-              return next
-            })
-            setExpandedPaths((current) => {
-              if (!(dirPath in current)) return current
-              const next = { ...current }
-              delete next[dirPath]
-              return next
-            })
-          }
-        }),
-      )
+      // A folder that can no longer be read is dropped by the model; its
+      // expanded mark goes with it here, so it does not reopen if the name
+      // comes back.
+      await model.refresh(directories)
+      const gone = expandedDirectories.filter((dirPath) => !model.isLoaded(dirPath))
+      if (gone.length) {
+        setExpandedPaths((current) => {
+          const next = { ...current }
+          for (const dirPath of gone) delete next[dirPath]
+          return next
+        })
+      }
 
       logPerfEvent('FileExplorer', 'refresh-tree', {
         cause,
         rootPath,
         elapsedMs: Math.round(performance.now() - startedAt),
         expandedDirectoryCount: expandedDirectories.length,
-        loadedDirectoryCount,
+        loadedDirectoryCount: directories.length - gone.length,
         isSearching: latestSearchQueryRef.current.trim().length > 0,
       })
     },
-    [loadDirectory, rootPath],
+    [model, rootPath, setExpandedPaths],
   )
-
-  const scheduleRefresh = useCallback(() => {
-    if (refreshTimeoutRef.current) {
-      window.clearTimeout(refreshTimeoutRef.current)
-    }
-
-    refreshTimeoutRef.current = window.setTimeout(() => {
-      refreshTimeoutRef.current = null
-      void refreshTree('watch')
-    }, 150)
-  }, [refreshTree])
 
   const toggleDirectory = async (entry: Entry) => {
     if (!entry.isDir) return
@@ -1120,7 +794,7 @@ function ExplorerTree({
       remapFileTabsForPath(workspaceId, entry.path, nextPath)
 
       if (entry.isDir) {
-        setChildrenByPath((current) => remapChildrenByPath(current, entry.path, nextPath))
+        model?.remap(entry.path, nextPath)
         setExpandedPaths((current) => remapExpandedPaths(current, entry.path, nextPath))
       }
 
@@ -1193,11 +867,7 @@ function ExplorerTree({
         removeFileTabsForPath(workspaceId, entry.path)
       })
 
-      setChildrenByPath((current) =>
-        Object.fromEntries(
-          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path))),
-        ),
-      )
+      topLevelEntries.forEach((entry) => model?.forget(entry.path))
       setExpandedPaths((current) =>
         Object.fromEntries(
           Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path))),
@@ -1321,12 +991,9 @@ function ExplorerTree({
 
       if (!movedEntries.length) return
 
-      setChildrenByPath((current) =>
-        movedEntries.reduce(
-          (next, moved) => (moved.entry.isDir ? remapChildrenByPath(next, moved.entry.path, moved.nextPath) : next),
-          current,
-        ),
-      )
+      movedEntries.forEach((moved) => {
+        if (moved.entry.isDir) model?.remap(moved.entry.path, moved.nextPath)
+      })
       setExpandedPaths((current) => ({
         ...movedEntries.reduce(
           (next, moved) => (moved.entry.isDir ? remapExpandedPaths(next, moved.entry.path, moved.nextPath) : next),
@@ -1640,6 +1307,9 @@ function ExplorerTree({
   }
 
   useEffect(() => {
+    // The model lands a commit after the root does; the restore below starts
+    // once it has.
+    if (!model) return
     let cancelled = false
     const restoredExpandedPaths = expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath)
     // Block selection persistence until the initial restore runs, so the
@@ -1647,8 +1317,6 @@ function ExplorerTree({
     // selection before we read it.
     hasRestoredSelectionRef.current = false
     setLoading(true)
-    setRootEntries([])
-    setChildrenByPath({})
     latestExpandedPathsRef.current = restoredExpandedPaths
     setExpandedPathsState(restoredExpandedPaths)
     setSelectedPath(null)
@@ -1715,57 +1383,72 @@ function ExplorerTree({
     return () => {
       cancelled = true
     }
-  }, [commitExpandedPaths, loadDirectory, readPersistedExpandedPaths, readPersistedSelectedPath, rootPath])
+  }, [commitExpandedPaths, loadDirectory, model, readPersistedExpandedPaths, readPersistedSelectedPath, rootPath])
 
   useEffect(() => {
     if (refreshToken === lastManualRefreshRef.current) return
     lastManualRefreshRef.current = refreshToken
+    model?.recheckIgnored()
     void refreshTree('manual')
     void refreshGitStatus()
-  }, [refreshGitStatus, refreshToken, refreshTree])
+  }, [model, refreshGitStatus, refreshToken, refreshTree])
 
+  // Reveal runs when the TOKEN moves, and only then. `revealPath` follows the
+  // editor's active file, so an effect keyed on it re-revealed on every tab
+  // switch — the tree kept jumping to whatever was open, which is exactly what
+  // the panel's own comment below says it must not do. The path is read when
+  // the token moves; a path change alone does nothing.
+  const lastRevealTokenRef = useRef(0)
+  const revealHandleRef = useRef<{ cancel: () => void } | null>(null)
+  const pendingScrollPathRef = useRef<string | null>(null)
+  const latestRevealPathRef = useRef(revealPath)
+  latestRevealPathRef.current = revealPath
   useEffect(() => {
-    if (!revealToken || !revealPath || !isPathOrChild(revealPath, rootPath)) return
+    if (!model || !revealToken || revealToken === lastRevealTokenRef.current) return
+    lastRevealTokenRef.current = revealToken
+    const target = latestRevealPathRef.current
+    if (!target || !isPathOrChild(target, rootPath)) return
 
-    let cancelled = false
-
-    const revealFile = async () => {
-      const startedAt = performance.now()
-      const parentDirectories = parentDirectoriesForPath(rootPath, revealPath)
-
-      for (const directory of parentDirectories) {
-        await loadDirectory(directory)
-        if (cancelled) return
-      }
-
-      setExpandedPaths((current) => ({
-        ...current,
-        ...Object.fromEntries(parentDirectories.map((directory) => [directory, true])),
-      }))
-      setSelectedPath(revealPath)
-      setSelectedPaths(new Set([revealPath]))
-      selectionAnchorPathRef.current = revealPath
-      logPerfEvent('FileExplorer', 'refresh-tree', {
-        cause: 'reveal',
-        rootPath,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        expandedDirectoryCount: parentDirectories.length,
-        loadedDirectoryCount: parentDirectories.length,
-        isSearching: false,
+    revealHandleRef.current?.cancel()
+    const startedAt = performance.now()
+    const handle = model.reveal(target)
+    revealHandleRef.current = handle
+    void handle.done
+      .then((parentDirectories) => {
+        if (!parentDirectories) return
+        setExpandedPaths((current) => ({
+          ...current,
+          ...Object.fromEntries(parentDirectories.map((directory) => [directory, true])),
+        }))
+        setRootCollapsed(false)
+        setSelectedPath(target)
+        setSelectedPaths(new Set([target]))
+        selectionAnchorPathRef.current = target
+        pendingScrollPathRef.current = target
+        logPerfEvent('FileExplorer', 'refresh-tree', {
+          cause: 'reveal',
+          rootPath,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          expandedDirectoryCount: parentDirectories.length,
+          loadedDirectoryCount: parentDirectories.length,
+          isSearching: false,
+        })
       })
+      .catch(() => {
+        // A folder on the way vanished; the tree shows what it can.
+      })
+  }, [model, revealToken, rootPath, setExpandedPaths])
 
-      window.setTimeout(() => {
-        if (cancelled) return
-        rowRefs.current[revealPath]?.scrollIntoView({ block: 'nearest' })
-      }, 0)
-    }
-
-    void revealFile()
-
-    return () => {
-      cancelled = true
-    }
-  }, [loadDirectory, revealPath, revealToken, rootPath])
+  useEffect(
+    () => () => {
+      revealHandleRef.current?.cancel()
+      if (searchTimeoutRef.current) {
+        window.clearTimeout(searchTimeoutRef.current)
+        searchTimeoutRef.current = null
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     void refreshTree('git-status')
@@ -1820,43 +1503,16 @@ function ExplorerTree({
     }
   }, [applySearchResponse, rootPath, query, isSearching])
 
+  // The revealed row scrolls into view once it is actually a row: the reveal
+  // sets the expanded set, and the rows that follow from it land a render later.
   useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => Promise<void>) | undefined
-
-    window.api
-      .watchPath(rootPath, (event) => {
-        // A burst naming only dependency churn is skipped; one that names
-        // nothing (the OS gave no filename, or it overflowed) still refreshes.
-        if (isWatchEventIgnored(event, isIgnoredExplorerWatchPath)) return
-        scheduleRefresh()
-      })
-      .then((cleanup) => {
-        if (disposed) {
-          void cleanup()
-          return
-        }
-        unsubscribe = cleanup
-      })
-      .catch(() => {
-        // Some filesystems do not support watch events reliably.
-      })
-
-    return () => {
-      disposed = true
-      if (refreshTimeoutRef.current) {
-        window.clearTimeout(refreshTimeoutRef.current)
-        refreshTimeoutRef.current = null
-      }
-      if (searchTimeoutRef.current) {
-        window.clearTimeout(searchTimeoutRef.current)
-        searchTimeoutRef.current = null
-      }
-      if (unsubscribe) {
-        void unsubscribe()
-      }
-    }
-  }, [rootPath, scheduleRefresh])
+    const target = pendingScrollPathRef.current
+    if (!target) return
+    const index = activeRows.findIndex((row) => row.entry.path === target)
+    if (index < 0) return
+    pendingScrollPathRef.current = null
+    rowsHandleRef.current?.scrollToIndex(index)
+  }, [activeRows])
 
   useEffect(() => {
     if (!activeRows.length) {
@@ -1918,6 +1574,9 @@ function ExplorerTree({
     const moveSelection = (nextIndex: number) => {
       const nextRow = activeRows[nextIndex]
       setSelectedPath(nextRow.entry.path)
+      // Keep the cursor in view — past the windowing threshold a row that is
+      // off-screen is not mounted at all.
+      rowsHandleRef.current?.scrollToIndex(nextIndex)
 
       if (event.shiftKey) {
         const anchorPath = selectionAnchorPathRef.current ?? currentEntry.path
@@ -2065,180 +1724,111 @@ function ExplorerTree({
         onDragOver={handleRootDragOver}
         onDragLeave={handleRootDragLeave}
         onDrop={handleRootDrop}
-        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus-visible:focus-ring ${
+        className={`flex min-h-full flex-col rounded-md px-1 py-1.5 outline-none focus-visible:focus-ring ${
           rootDropActive ? 'ring-1 ring-inset ring-[color:var(--accent-primary)]' : ''
         }`}
       >
-        <div
-          role="treeitem"
-          // A row, so a press on it never starts the background rubber-band.
-          data-file-explorer-row="true"
-          aria-expanded={isSearching || !rootCollapsed}
-          aria-selected={false}
-          aria-label={rootName}
-          onClick={() => {
+        {/* The root row (owner 2026-09-05): the folder heads the tree and its
+            chevron folds the whole of it. A search ignores the fold, since a
+            search that returns nothing on purpose is a lie. */}
+        <FileTreeRootRow
+          name={rootName}
+          path={rootPath}
+          expanded={isSearching || !rootCollapsed}
+          onToggle={() => {
             if (!isSearching) setRootCollapsed((current) => !current)
             focusTree()
           }}
-          // 24px at rest: `size.hit-target-min`, the floor the epic brought the
-          // tree to (git-commit-window, 2026-09-09).
-          // The two pixels come out of the VERTICAL PADDING — the 16px glyph
-          // slot is untouched, so the chevron, the folder mark and the file
-          // mark still line up with every other rail in the app.
-          className="group flex min-h-[var(--hit-target-min)] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-0.5 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-        >
-          <ChevronIcon
-            expanded={isSearching || !rootCollapsed}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              if (!isSearching) setRootCollapsed((current) => !current)
-            }}
-          />
-          <FolderIcon />
-          <span className="shrink-0 font-medium text-[color:var(--text-strong)]">{rootName}</span>
-          <span className="min-w-0 truncate text-micro text-[color:var(--text-muted)]">{rootPath}</span>
-        </div>
-        {activeRows.map(({ entry, depth }) => {
-          const isSelected = selectedPaths.has(entry.path)
-          const isFocused = entry.path === selectedPath
-          const isExpanded = entry.isDir && (isSearching || expandedPaths[entry.path])
-          const isRenaming = renameDraft?.entry.path === entry.path
-          const isDropTarget = dropTargetPath === entry.path
-          const gitStatusKind = getEntryGitStatus(gitStatus, directoryStatus, entry)
-          const gitAppearance = getGitStatusAppearance(gitStatusKind)
-          const nameClassName = gitAppearance.textClass
+        />
+        <FileTreeRows
+          ref={rowsHandleRef}
+          rows={activeRows}
+          scrollParent={scrollParentRef}
+          rowKey={(row) => row.entry.path}
+          renderRow={({ entry, depth }) => {
+            const isSelected = selectedPaths.has(entry.path)
+            const isFocused = entry.path === selectedPath
+            const isExpanded = entry.isDir && Boolean(isSearching || expandedPaths[entry.path])
+            const isRenaming = renameDraft?.entry.path === entry.path
+            const isDropTarget = dropTargetPath === entry.path
+            const gitAppearance = getGitStatusAppearance(getEntryGitStatus(gitStatus, directoryStatus, entry))
 
-          // The three cues, each on its own channel so none can overwrite
-          // another: the declared role inks the FOLDER MARK, the wash paints the
-          // ROW, and being ignored dims the ROW'S INK.
-          const declaredRole = folderRoles ? resolveFolderRole(folderRoles, entry.path, rootPath) : null
-          // isTestPath wants a path relative to the root — an absolute one drags
-          // in the machine's own directory names, and a checkout living under
-          // ~/testing would answer yes for every file in it.
-          const isTestRow = !entry.isDir && isTestPath(entry.path.slice(rootPath.length))
-          const wash = resolveRowWash(declaredRole, isTestRow)
-          // A wash is a property of the file; selection is a state of the
-          // keyboard. Selection wins, so the class comes off entirely — leaving
-          // it on would tint the one row the person has actually picked.
-          const washClassName = isSelected || isDropTarget ? '' : rowWashClass(wash)
-          const ignored = isIgnored(entry.path)
+            // The three cues, each on its own channel so none can overwrite
+            // another: the declared role inks the FOLDER MARK, the wash paints
+            // the ROW, and being ignored dims the ROW'S INK.
+            const declaredRole = folderRoles ? resolveFolderRole(folderRoles, entry.path, rootPath) : null
+            // isTestPath wants a path relative to the root — an absolute one
+            // drags in the machine's own directory names, and a checkout living
+            // under ~/testing would answer yes for every file in it.
+            const isTestRow = !entry.isDir && isTestPath(entry.path.slice(rootPath.length))
+            const wash = resolveRowWash(declaredRole, isTestRow)
+            const ignored = isIgnored(entry.path)
 
-          return (
-            <div
-              key={entry.path}
-              ref={(node) => {
-                rowRefs.current[entry.path] = node
-              }}
-              role="treeitem"
-              data-file-explorer-row="true"
-              // Read by the file-tree cue checks. The cues are colour and a
-              // screenshot cannot assert on colour, so the row states what it
-              // decided.
-              data-row-wash={wash ?? undefined}
-              data-row-ignored={ignored ? 'true' : undefined}
-              aria-selected={isSelected}
-              aria-expanded={entry.isDir ? isExpanded : undefined}
-              draggable={!entry.gitDeleted && !isRenaming}
-              onDragStart={(event) => handleDragStart(event, entry)}
-              onDragOver={(event) => handleFolderDragOver(event, entry)}
-              onDragLeave={(event) => handleFolderDragLeave(event, entry)}
-              onDrop={(event) => handleFolderDrop(event, entry)}
-              onDragEnd={handleDragEnd}
-              onClick={(event) => {
-                if (isRenaming) return
-                if (completedDragSelectionRef.current) {
-                  event.preventDefault()
-                  return
-                }
-                selectEntry(entry, event)
-                focusTree()
-              }}
-              onDoubleClick={() => {
-                if (isRenaming) return
-                if (entry.gitDeleted) {
-                  selectOnlyEntry(entry)
+            return (
+              <FileTreeRow
+                rowRef={(node) => {
+                  rowRefs.current[entry.path] = node
+                }}
+                name={entry.name}
+                isDir={entry.isDir}
+                depth={depth}
+                expanded={isExpanded}
+                onToggleExpanded={() => {
+                  if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
+                }}
+                // A multi-selection has one cursor row and the rest: the cursor
+                // takes the full-strength fill, its companions the resting tier —
+                // the same two tokens a resting PANE uses, because the question
+                // is the same one ("which of these is the keyboard on?").
+                selection={isSelected ? (isFocused ? 'cursor' : 'companion') : null}
+                dropTarget={isDropTarget}
+                ignored={ignored}
+                nameClassName={gitAppearance.textClass}
+                badge={gitAppearance.badge}
+                // A wash is a property of the file; selection is a state of the
+                // keyboard. Selection wins, so the class comes off entirely.
+                washClassName={isSelected || isDropTarget ? '' : rowWashClass(wash)}
+                folderRole={entry.isDir ? (folderRoles?.[entry.path] ?? null) : null}
+                // The tallest thing a row can hold is the 20px rename field,
+                // which still clears the 20px content box the row leaves, so a
+                // row being renamed does not push its siblings.
+                nameSlot={isRenaming ? renderRenameInput(entry.isDir ? 'font-medium' : '') : undefined}
+                data-file-explorer-row="true"
+                // Read by the file-tree cue checks. The cues are colour and a
+                // screenshot cannot assert on colour, so the row states what it
+                // decided.
+                data-row-wash={wash ?? undefined}
+                data-row-ignored={ignored ? 'true' : undefined}
+                draggable={!entry.gitDeleted && !isRenaming}
+                onDragStart={(event) => handleDragStart(event, entry)}
+                onDragOver={(event) => handleFolderDragOver(event, entry)}
+                onDragLeave={(event) => handleFolderDragLeave(event, entry)}
+                onDrop={(event) => handleFolderDrop(event, entry)}
+                onDragEnd={handleDragEnd}
+                onClick={(event) => {
+                  if (isRenaming) return
+                  if (completedDragSelectionRef.current) {
+                    event.preventDefault()
+                    return
+                  }
+                  selectEntry(entry, event)
                   focusTree()
-                  return
-                }
-                void activateEntry(entry)
-                focusTree()
-              }}
-              onContextMenu={(event) => openContextMenu(event, entry)}
-              // A multi-selection has one cursor row and the rest: the cursor
-              // takes the full-strength fill, its companions the resting tier —
-              // the same two tokens a resting PANE uses, because the question is
-              // the same one ("which of these is the keyboard on?"). They used
-              // to take `--bg-hover`, which made a selected row and a pointed-at
-              // row the same picture (design-system/patterns/selection.html).
-              // 24px at rest, matching the root row above: the floor is
-              // `size.hit-target-min` and the two pixels came out of `py`, not
-              // out of the 16px glyph slot. The tallest thing a row can hold is
-              // the 20px rename field, which still clears the 20px content box
-              // this leaves, so a row being renamed does not push its siblings.
-              className={`group flex min-h-[var(--hit-target-min)] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-0.5 text-meta transition-colors ${
-                isDropTarget
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
-                  : isSelected
-                    ? isFocused
-                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                      : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
-                    : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
-              }`}
-              // The indent, said out loud rather than left as arithmetic
-              // (principles.md: an indent that aligns to a reserved glyph slot
-              // is structure, not rhythm — it keeps its computed value, off the
-              // space scale, with a line saying what it lines up with). 8px is
-              // the root row's own `px-2` inset, so depth 0 starts one step in
-              // from it. Each further level adds 14px: the chevron's 12px flow
-              // advance — the kit's 24px `xs` button pulled back by `-mx-1.5` —
-              // plus 2px, so a child's disclosure column clears its parent's
-              // instead of sitting directly under it. A file row's `w-3` spacer
-              // is that same 12px, which is what keeps files and folders on one
-              // glyph column at every depth.
-              style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
-            >
-              {entry.isDir ? (
-                <>
-                  <ChevronIcon
-                    expanded={isExpanded}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      if (!isSearching && !entry.gitDeleted) void toggleDirectory(entry)
-                    }}
-                  />
-                  <FolderIcon role={folderRoles?.[entry.path] ?? null} />
-                  {isRenaming ? (
-                    renderRenameInput('font-medium')
-                  ) : (
-                    <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
-                  )}
-                  {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">
-                      {gitAppearance.badge}
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className="w-3 shrink-0" />
-                  <FileIcon name={entry.name} dimmed={ignored} />
-                  {isRenaming ? (
-                    renderRenameInput('')
-                  ) : (
-                    <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
-                  )}
-                  {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">
-                      {gitAppearance.badge}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          )
-        })}
+                }}
+                onDoubleClick={() => {
+                  if (isRenaming) return
+                  if (entry.gitDeleted) {
+                    selectOnlyEntry(entry)
+                    focusTree()
+                    return
+                  }
+                  void activateEntry(entry)
+                  focusTree()
+                }}
+                onContextMenu={(event) => openContextMenu(event, entry)}
+              />
+            )
+          }}
+        />
       </div>
       {contextMenu ? (
         <ContextMenu
@@ -2415,6 +2005,7 @@ export default function FileExplorer({ workspaceId }: Props) {
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null,
   )
   const [query, setQuery] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [revealToken, setRevealToken] = useState(0)
   // An explicit reveal target from outside the panel (the terminal link chooser).
@@ -2443,7 +2034,7 @@ export default function FileExplorer({ workspaceId }: Props) {
         content = ''
       }
     }
-    // Routes to the external editor pop-up or a workspace tab per the sticky
+    // Routes to the external editor pop-up or a workspace tab per the
     // openFilesInExternalWindow preference.
     openFileSurface({ workspaceId, path, name, content })
   }
@@ -2552,9 +2143,10 @@ export default function FileExplorer({ workspaceId }: Props) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {folderReadyPath ? (
           <ExplorerTree
+            scrollParentRef={scrollRef}
             workspaceId={workspaceId}
             rootPath={folderReadyPath}
             query={query}

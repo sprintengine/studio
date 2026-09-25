@@ -6,6 +6,8 @@ export type ExternalFileTab = {
   path: string
   name: string
   workspaceId: string
+  /** The folder the window's tree shows while this tab is active; empty when the opener knew none. */
+  rootPath: string
   kind: ExternalFileKind
 }
 
@@ -35,9 +37,15 @@ function classifyExternalFile(path: string, name: string): ExternalFileKind {
   return isImageFile(path || name) ? 'image' : 'text'
 }
 
-export function createExternalFileTab(input: { path: string; name: string; workspaceId: string }): ExternalFileTab {
+export function createExternalFileTab(input: {
+  path: string
+  name: string
+  workspaceId: string
+  rootPath?: string
+}): ExternalFileTab {
   return {
     ...input,
+    rootPath: input.rootPath ?? '',
     kind: classifyExternalFile(input.path, input.name),
   }
 }

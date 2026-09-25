@@ -41,6 +41,9 @@
     color: var(--sem-color-text-subtle);
     font-size: var(--sem-font-size-meta);
   }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
   .demo-body {
     flex: 1;
     min-height: 0;
@@ -91,6 +94,20 @@
       </div>
     </aside>
   </div>
+
+  <p class="demo-label demo-label--second">Light — the resizable variant on the left, at rest: hover or focus the edge to see the guideline.</p>
+  <div class="demo-panel">
+    <aside class="ds-side-pane ds-side-pane--left ds-side-pane--resizable" style="width: 260px" aria-label="Files">
+      <div class="demo-body">
+        <div class="demo-row"><span class="demo-key">src</span></div>
+        <div class="demo-row"><span class="demo-key">package.json</span></div>
+      </div>
+      <div class="ds-side-pane-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize files" aria-valuenow="260" aria-valuemin="180" aria-valuemax="480" tabindex="0">
+        <span class="ds-side-pane-resize-line" aria-hidden="true"></span>
+      </div>
+    </aside>
+    <div class="demo-board">Editor</div>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -114,6 +131,20 @@
         <div class="demo-row"><span class="demo-key">design-system/tokens.tokens.json</span><span class="demo-value">+12 −0</span></div>
       </div>
     </aside>
+  </div>
+
+  <p class="demo-label demo-label--second">Dark — the resizable variant on the left, mid-drag: the guideline at full strength.</p>
+  <div class="demo-panel">
+    <aside class="ds-side-pane ds-side-pane--left ds-side-pane--resizable" style="width: 260px" aria-label="Files">
+      <div class="demo-body">
+        <div class="demo-row"><span class="demo-key">src</span></div>
+        <div class="demo-row"><span class="demo-key">package.json</span></div>
+      </div>
+      <div class="ds-side-pane-resize-handle ds-side-pane-resize-handle--active" role="separator" aria-orientation="vertical" aria-label="Resize files" aria-valuenow="260" aria-valuemin="180" aria-valuemax="480" tabindex="0">
+        <span class="ds-side-pane-resize-line" aria-hidden="true"></span>
+      </div>
+    </aside>
+    <div class="demo-board">Editor</div>
   </div>
 </div>
 

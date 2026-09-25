@@ -352,7 +352,27 @@ test('persistenceSlice', async () => {
   )
   assert.equal(migratedTransportReset.appSettings.lastSelectedCli, 'codex', 'v67 leaves other persisted settings alone')
 
-  assert.equal(WORKSPACE_STORE_VERSION, 76, 'the Reviews extraction is the newest step, at store v76')
+  assert.equal(WORKSPACE_STORE_VERSION, 77, 'the editor-window default is the newest step, at store v77')
+
+  // v77: files open in the editor window by default. A stored `false` was
+  // never a choice (docking one file back flipped it), so every profile below
+  // v77 is set to the window; a v77 profile keeps whatever Settings wrote.
+  {
+    const dockedOnce = migratePersistedWorkspaceState(
+      { workspaces: [], activeWorkspaceId: null, openFilesInExternalWindow: false },
+      76,
+    ) as { openFilesInExternalWindow: boolean }
+    assert.equal(dockedOnce.openFilesInExternalWindow, true, 'a pre-v77 in-app value flips to the window')
+    const neverSet = migratePersistedWorkspaceState({ workspaces: [], activeWorkspaceId: null }, 76) as {
+      openFilesInExternalWindow: boolean
+    }
+    assert.equal(neverSet.openFilesInExternalWindow, true, 'a profile that never stored it lands on the window')
+    const chosenInApp = migratePersistedWorkspaceState(
+      { workspaces: [], activeWorkspaceId: null, openFilesInExternalWindow: false },
+      77,
+    ) as { openFilesInExternalWindow: boolean }
+    assert.equal(chosenInApp.openFilesInExternalWindow, false, 'a choice made in Settings at v77 is kept')
+  }
 
   // v74: the workspace Backlog left the FlexLayout rail for the pane. A v73
   // envelope — which already carries a pane record — still docking `backlog`

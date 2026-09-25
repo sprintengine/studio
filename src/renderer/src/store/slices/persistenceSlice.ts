@@ -21,7 +21,7 @@ import { dedupeAutomationsHostWorkspaces, dropRetiredModeWorkspaces, mapMigratio
 
 export const WORKSPACE_STORAGE_KEY = 'sprintengine-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'sprintengine-app-settings'
-export const WORKSPACE_STORE_VERSION = 76
+export const WORKSPACE_STORE_VERSION = 77
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -36,6 +36,7 @@ export type WorkspaceMigrationState = {
     cliCommands?: Partial<Record<AgentCli, string>>
   }
   sidebarCollapsed?: boolean
+  openFilesInExternalWindow?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
 }
 
@@ -685,6 +686,17 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
   }
   // v76 hoisted the in-tree sprint engine's remaining workspace fields into
   // the per-module state bag. Retired with the engine (2026-09-16).
+  if (version < 77) {
+    // Files open in the editor window by default (owner ruling 2026-09-25), and
+    // the window now carries a file tree beside the file. The preference was
+    // already `true` out of the box, but it was STICKY: docking one file back
+    // into the workspace flipped it to in-app for good, which is how most
+    // profiles came to be on `false` without anyone having chosen it. Nothing
+    // before this version offered the choice in Settings, so no stored `false`
+    // is a decision — every profile is set to the window once, here. From now
+    // on the value only moves when the person picks it in Settings.
+    migrationState.openFilesInExternalWindow = true
+  }
 
   return state as never
 }

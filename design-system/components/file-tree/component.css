@@ -1,0 +1,254 @@
+/* File tree — a folder tree of files, one 24px row per entry.
+ *
+ * The workspace's Files tree and the editor window's tree are the same rows:
+ * an indent, a disclosure chevron, a 16px glyph slot, the name in its git
+ * tint, a one-letter status. What differs is what a tree lets you DO with a
+ * row (rename and move in one, read and open in the other), and that is the
+ * surface's business, not the row's.
+ *
+ * Every row is exactly the hit-target floor tall. That is not only rhythm: it
+ * is what lets a folder of thousands of entries be windowed by arithmetic
+ * rather than by measuring each row.
+ *
+ * Selection is the system's two tiers (patterns/selection): the row the
+ * keyboard is on takes the full fill and the 2px inset edge while the tree
+ * holds focus, and drops to the resting fill with no edge when focus is
+ * elsewhere — in the editor beside it, say. */
+
+.ds-file-tree {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sem-space-xs) var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  color: var(--sem-color-text-default);
+}
+
+/* One tab stop; the ring turns inward because the tree touches the edges of
+ * the column that clips it. */
+.ds-file-tree:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* ── Band ────────────────────────────────────────────────────────────────
+ * The one chrome row over a tree that has no root row: the root it shows,
+ * then its filter and its collapse-all. Same geometry as the panel bands. */
+.ds-file-tree-band {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  /* The panel bands' 36px: the row floor plus one step of breathing room. */
+  min-height: calc(var(--sem-size-hit-target-min) + var(--sem-space-lg));
+  padding: 0 var(--sem-space-xs) 0 var(--sem-space-sm);
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+.ds-file-tree-band-title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-file-tree-band-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Row ─────────────────────────────────────────────────────────────────── */
+.ds-file-tree-row {
+  /* The indent is a level, not a pixel value: the host sets the depth and
+   * the row multiplies it. One level is the chevron's flow advance plus a
+   * hair, so a child's disclosure column clears its parent's. */
+  --ds-file-tree-depth: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  box-sizing: border-box;
+  height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  padding-left: calc(var(--sem-space-sm) + var(--ds-file-tree-depth) * (var(--sem-space-lg) + var(--sem-space-3xs)));
+  border-radius: var(--sem-radius-control);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-file-tree-row:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* The keyboard's row, in the tree being driven: the fill AND the edge. */
+.ds-file-tree-row--selected {
+  background: var(--sem-color-bg-selected);
+  box-shadow: inset 0 0 0 2px var(--ds-selection-edge, var(--sem-color-accent-primary));
+  color: var(--sem-color-text-primary);
+}
+
+.ds-file-tree-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+/* The same row while focus is elsewhere (the editor beside the tree has the
+ * keyboard), and the companions of a multi-selection: the quieter fill and no
+ * edge, so exactly one edge is ever on screen. */
+.ds-file-tree-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-primary);
+}
+
+/* Ignored by the repository: the whole row drops, glyph included. */
+.ds-file-tree-row--ignored {
+  color: var(--sem-color-text-disabled);
+}
+
+/* ── Parts ───────────────────────────────────────────────────────────────── */
+.ds-file-tree-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-muted);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-file-tree-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-file-tree-row[aria-expanded='true'] > .ds-file-tree-twisty {
+  transform: rotate(90deg);
+}
+
+/* A file keeps the chevron's slot and drops its mark, so files and folders
+ * share one glyph column at every depth. */
+.ds-file-tree-twisty--leaf svg {
+  visibility: hidden;
+}
+
+.ds-file-tree-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-file-tree-glyph svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-file-tree-row--folder .ds-file-tree-name {
+  font-weight: var(--sem-font-weight-medium);
+}
+
+/* The git status tints the NAME, never the row: modified, added, deleted. */
+.ds-file-tree-name--modified {
+  color: var(--sem-color-status-warn);
+}
+
+.ds-file-tree-name--added {
+  color: var(--sem-color-status-good);
+}
+
+.ds-file-tree-name--deleted {
+  color: var(--sem-color-status-danger);
+  text-decoration: line-through;
+}
+
+/* Display only: the one-letter status. Never a control. */
+.ds-file-tree-badge {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  opacity: 0.8;
+}
+
+/* ── Pinned row ──────────────────────────────────────────────────────────
+ * The open file when it is NOT under the root, for as long as it is the open
+ * file. It sits between the band and the tree, outside the tree's scroll, so
+ * no row ever slides under it. A caption, then one row: the file's glyph and
+ * NAME as the primary text, its folder muted and truncated in the middle so
+ * both the path's start and the folder nearest the file stay readable.
+ *
+ * It is the open file, not a keyboard cursor, so it wears the open file's
+ * resting fill — the neutral fill a tree row wears while the editor has
+ * focus — and never the accent edge. */
+.ds-file-tree-pinned {
+  flex-shrink: 0;
+  padding: 0 var(--sem-space-2xs) var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-file-tree-pinned-label {
+  margin: 0;
+  padding: var(--sem-space-2xs) var(--sem-space-sm) var(--sem-space-3xs);
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-file-tree-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  box-sizing: border-box;
+  height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-file-tree-pinned-name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-file-tree-pinned-dir {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  white-space: nowrap;
+}
+
+.ds-file-tree-pinned-dir-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-file-tree-pinned-dir-tail {
+  flex: none;
+}

@@ -1038,8 +1038,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
           }
         : undefined
       // Dragging a file-editor tab out of the app window pops the file into the
-      // external editor window and flips the sticky preference to pop-up mode.
-      // Drops inside the window fall through to FlexLayout's own tab handling.
+      // external editor window. Drops inside the window fall through to
+      // FlexLayout's own tab handling.
       const handleTabDragEnd =
         canDragOut && node.getComponent() === 'file-editor'
           ? (event: React.DragEvent<HTMLSpanElement>) => {
@@ -1054,8 +1054,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
               const config = node.getConfig() as { filePath?: string } | undefined
               const filePath = config?.filePath
               if (!filePath) return
+              // Moves this file; where files open next is Settings' call.
               void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
-              useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
               deleteTabPreservingRails(node.getModel(), node.getId())
             }
           : undefined
