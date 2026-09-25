@@ -3773,6 +3773,9 @@ async function spawnTerminalFromIpc(
           cliReasoning,
           resolvedBinaryPath,
           launchFor,
+          // An agent bound to a workspace reaches the editor tools through its
+          // gateway connection, so its host context says when to use them.
+          { editorTools: Boolean(workspaceId && agentId) },
         )
     unownedLaunchPromptPath = launchPromptPath
     // A WSL launch's startup script (and host-context file) are written inside

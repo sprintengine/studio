@@ -26,6 +26,7 @@ import {
   FileTypeGlyph,
   GearGlyph,
   InlineNotice,
+  LinkButton,
   MenuItem,
   MicroChip,
   NextDifferenceGlyph,
@@ -53,6 +54,9 @@ import { openDiffWindow } from './openDiffWindow'
 import { openExternalFileWindow } from './openFileWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
+import { revealEditorRange } from '../../utils/agentEditorReveal'
+import type { EditorRange } from '../../../../shared/editor-reveal'
+import type { BranchStepSelection } from '../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { writeAuxWindowSetting } from './auxSettingsWrite'
 import { getGitEntry } from '../../hooks/useGitStatus'
@@ -121,6 +125,19 @@ type Props = {
    * step through.
    */
   branchSteps?: boolean
+  /**
+   * An agent's reveal (editor.open_diff): show only these repo-relative paths,
+   * with a "Showing 3 of 40 changed files · Show all" line as the way back.
+   * Null shows every file, which is every diff a person opens.
+   */
+  pathsFilter?: readonly string[] | null
+  /** The lines of `focusPath` to land on and briefly highlight, on `focusSide`. */
+  focusRange?: EditorRange | null
+  focusSide?: 'modified' | 'original'
+  /** The branch step to open on (pane only); applied again whenever `revealKey` changes. */
+  focusStep?: BranchStepSelection | null
+  /** Changes with every agent reveal, so the same range or filter can be shown twice. */
+  revealKey?: string | null
 }
 
 type DiffContent =
@@ -490,6 +507,11 @@ export function DiffViewer({
   variant = 'window',
   onItemCountChange,
   branchSteps = false,
+  pathsFilter = null,
+  focusRange = null,
+  focusSide = 'modified',
+  focusStep = null,
+  revealKey = null,
 }: Props) {
   const { status, repoState, repoRoot: gitRoot, refresh: refreshGitStatus } = useGitStatus(repoRoot)
   // Ticks once per completed status read of this repository — the cue that the
@@ -503,7 +525,12 @@ export function DiffViewer({
   // status snapshot is the revision token: a rebase or a commit changes it, and
   // a strip held across one would be confidently wrong about hashes that no
   // longer exist.
-  const steps = useBranchSteps(repoRoot, branchSteps, status)
+  const steps = useBranchSteps(
+    repoRoot,
+    branchSteps,
+    status,
+    focusStep && revealKey ? { selection: focusStep, key: revealKey } : null,
+  )
   const stripEntries = useMemo(() => stripEntriesFrom(steps.snapshot), [steps.snapshot])
   const stepNote = useMemo(() => scopeNote(steps.snapshot), [steps.snapshot])
   // ── The changelist filter ───────────────────────────────────────────────
@@ -581,7 +608,22 @@ export function DiffViewer({
   // Whether what the pane is showing is the working tree at all — the one step
   // the filter can empty honestly.
   const branchShowsWorktree = unfilteredBranchItems.some((item) => item.modifiedRev === 'worktree')
-  const items = branchSteps ? branchItems : workingItems
+  const unnarrowedItems = branchSteps ? branchItems : workingItems
+  // The agent's `paths` narrowing. The person owns it from the first click on
+  // "Show all"; a new reveal (a new key) narrows again.
+  const pathsKey = pathsFilter && pathsFilter.length > 0 ? `${revealKey ?? ''}\n${pathsFilter.join('\n')}` : null
+  const [pathsShownAll, setPathsShownAll] = useState<string | null>(null)
+  const narrowing = pathsKey !== null && pathsShownAll !== pathsKey
+  const items = useMemo(() => {
+    if (!narrowing || !pathsFilter) return unnarrowedItems
+    const wanted = new Set(pathsFilter.map(normalizeChangelistPath))
+    return unnarrowedItems.filter((item) => wanted.has(normalizeChangelistPath(item.relativePath)))
+  }, [narrowing, pathsFilter, unnarrowedItems])
+  const narrowedCounts = useMemo(() => {
+    if (!narrowing) return null
+    const distinct = (list: DiffFileItem[]): number => new Set(list.map((item) => item.relativePath)).size
+    return { shown: distinct(items), total: distinct(unnarrowedItems) }
+  }, [narrowing, items, unnarrowedItems])
 
   useEffect(() => {
     onItemCountChange?.(items.length)
@@ -805,6 +847,38 @@ export function DiffViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // An agent's range on the focus file, waiting for that file's diff to be on
+  // screen. Consumed once — after the viewer's own "land on the first hunk" —
+  // so the lines the agent means are what the person sees, highlighted for a
+  // beat, with the caret and the keyboard left alone.
+  const pendingRangeRef = useRef<{ path: string; range: EditorRange; side: 'modified' | 'original' } | null>(null)
+  const clearRangeHighlightRef = useRef<(() => void) | null>(null)
+  const landPendingRange = useCallback(() => {
+    const pending = pendingRangeRef.current
+    const editor = diffEditorRef.current
+    const item = currentItemRef.current
+    if (!pending || !editor || !item) return
+    if (item.path.replace(/\\/g, '/').toLowerCase() !== pending.path.replace(/\\/g, '/').toLowerCase()) return
+    pendingRangeRef.current = null
+    const side = pending.side === 'original' ? editor.getOriginalEditor() : editor.getModifiedEditor()
+    window.requestAnimationFrame(() => {
+      clearRangeHighlightRef.current?.()
+      clearRangeHighlightRef.current = revealEditorRange(side, pending.range, { highlight: true, moveCaret: false })
+    })
+  }, [])
+  // Keyed on the reveal alone: the range props are re-created by every host
+  // render, and a new object is not a new request.
+  const rangeRequestRef = useRef({ focusPath, focusRange, focusSide })
+  rangeRequestRef.current = { focusPath, focusRange, focusSide }
+  useEffect(() => {
+    const request = rangeRequestRef.current
+    if (!revealKey || !request.focusRange || !request.focusPath) return
+    pendingRangeRef.current = { path: request.focusPath, range: request.focusRange, side: request.focusSide }
+    // Already on screen (a retarget to the file that is showing): land now.
+    if (contentRef.current.state === 'ready') landPendingRange()
+  }, [revealKey, landPendingRange])
+  useEffect(() => () => clearRangeHighlightRef.current?.(), [])
+
   const handleDiffMount = useCallback<DiffOnMount>(
     (editor, monaco) => {
       diffEditorRef.current = editor
@@ -860,9 +934,10 @@ export function DiffViewer({
         } else {
           revealHunk(hunkIndexRef.current)
         }
+        landPendingRange()
       })
     },
-    [revealHunk],
+    [revealHunk, landPendingRange],
   )
 
   const navigate = useCallback(
@@ -1597,6 +1672,22 @@ export function DiffViewer({
         <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
           {bandError}
         </InlineNotice>
+      ) : null}
+
+      {narrowedCounts ? (
+        // The agent's narrowing, said once and undone in one click: the rest of
+        // the change is still here, one link away.
+        <div
+          role="status"
+          className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] px-3 text-meta text-[color:var(--text-muted)]"
+        >
+          <span className="truncate">
+            Showing {narrowedCounts.shown} of {narrowedCounts.total} changed{' '}
+            {narrowedCounts.total === 1 ? 'file' : 'files'}
+          </span>
+          <span aria-hidden="true">·</span>
+          <LinkButton onClick={() => setPathsShownAll(pathsKey)}>Show all</LinkButton>
+        </div>
       ) : null}
 
       <div

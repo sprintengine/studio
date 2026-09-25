@@ -1,5 +1,6 @@
 import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
+import { EDITOR_MUTATION_TOOL_NAMES } from './editor-tools'
 import type { McpToolContribution } from '../module-host/main-host'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
@@ -11,6 +12,10 @@ const APP_MUTATION_TOOLS = new Set([
   // `canvas.describe`, `canvas.find`, `canvas.list` and `canvas.screenshot`
   // only look, and stay on the read scope.
   ...CANVAS_MUTATION_TOOL_NAMES,
+  // Putting a file or a diff in front of the person changes their screen, so
+  // `editor.open` and `editor.open_diff` are audited and need
+  // `workspace:operate` from a paired device. `editor.state` only looks.
+  ...EDITOR_MUTATION_TOOL_NAMES,
   'agent.launch',
   'automation.create',
   'automation.run',

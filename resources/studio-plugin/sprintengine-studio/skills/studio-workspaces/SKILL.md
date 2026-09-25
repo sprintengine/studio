@@ -1,6 +1,6 @@
 ---
 name: studio-workspaces
-description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the workspace browser pane through the workspace_*, agent_*, terminal_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or attach to a terminal on this machine, to inspect a workspace's branches and worktrees, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
+description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, terminal_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or attach to a terminal on this machine, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
 ---
 
 # Workspaces and terminals
@@ -74,6 +74,41 @@ find an element.
 `browser_actions` reports what has been driven. `browser_evaluate` runs an
 expression in the page — use it when the DOM holds an answer the snapshot does
 not, not as a substitute for clicking.
+
+## Showing files and diffs
+
+When you want the person to look at specific code, open it for them instead of
+pasting paths into your reply. `editor_open` takes up to eight `files`, each a
+`path` (absolute, or relative to your working directory) with an optional
+1-based `range` (`startLine`, `endLine`); the editor scrolls there and briefly
+highlights the lines. Add a `note` of one line saying why. Pick the few files
+that matter — three out of forty — rather than everything you touched.
+
+`editor_open_diff` opens the diff viewer on your own changes: by default only
+the files in your changelist, `only: "all"` for every change in your checkout.
+`changes` picks the view (`uncommitted`, `staged`, `unstaged`, `branch`, or
+`commit` with `commit`), `paths` narrows it to named files with a "Show all"
+way back, and `focus` lands on one file at a `range`.
+
+Neither ever takes the keyboard or raises a window. Read the answer:
+
+- `shown: "foreground"` — it is in front of them.
+- `shown: "background"` — they were typing, so it opened behind their tab;
+  tell them it is there.
+- `shown: "not_visible"` — no window shows this workspace. It opens when they
+  switch to it. Say so in your reply and **do not retry**: retrying cannot
+  make them look.
+
+Each file comes back `opened`, `awaiting_owner` or `refused` with a `reason`.
+A file outside the workspace, your worktree and the files you wrote is
+`awaiting_owner`: the person is asked whether to open it. Credential stores
+(`~/.ssh`, `~/.aws` and the like) are always refused. A patch you wrote to
+`/tmp` for them to copy opens directly, because you wrote it.
+
+`editor_state` says whether a window shows the workspace, which file is
+active with its visible lines and selection, and how many reveals are still
+waiting for them. Check it before talking about what they can see — not in a
+loop.
 
 ## The mobile companion and the tailnet
 

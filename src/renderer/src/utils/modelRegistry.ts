@@ -512,28 +512,28 @@ function firstEditorSurfaceTabset(model: Model): TabSetNode | null {
   return targetTabset
 }
 
-function addEditorSurfaceNode(model: Model, tabJson: Record<string, unknown>): boolean {
+function addEditorSurfaceNode(model: Model, tabJson: Record<string, unknown>, select = true): boolean {
   const editorTabset = firstEditorSurfaceTabset(model)
   if (editorTabset) {
-    model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, true))
+    model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, select))
     return true
   }
 
   const navTabset = findRailTabset(model, 'left')
   if (navTabset) {
-    model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, true))
+    model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, select))
     return true
   }
 
   const terminalHost = firstTerminalLikeTabset(model)
   if (terminalHost) {
-    model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, true))
+    model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, select))
     return true
   }
 
   const target = model.getActiveTabset() ?? firstTabset(model)
   if (!target) return false
-  model.doAction(Actions.addNode(tabJson, target.getId(), DockLocation.CENTER, -1, true))
+  model.doAction(Actions.addNode(tabJson, target.getId(), DockLocation.CENTER, -1, select))
   return true
 }
 
@@ -838,9 +838,17 @@ export function removeFileTabsForPath(workspaceId: string, path: string): boolea
   return tabIds.length > 0
 }
 
-export function focusOrAddFileTab(workspaceId: string, filePath: string, name: string): boolean {
+export function focusOrAddFileTab(
+  workspaceId: string,
+  filePath: string,
+  name: string,
+  // `select: false` adds (or leaves) the tab behind the current one: an agent's
+  // reveal while the person is typing must not swap the file under the cursor.
+  options: { select?: boolean } = {},
+): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
+  const select = options.select !== false
 
   let targetTabId: string | null = null
   model.visitNodes((node) => {
@@ -853,18 +861,22 @@ export function focusOrAddFileTab(workspaceId: string, filePath: string, name: s
     if (node instanceof TabNode && node.getName() !== name) {
       model.doAction(Actions.renameTab(targetTabId, name))
     }
-    model.doAction(Actions.selectTab(targetTabId))
+    if (select) model.doAction(Actions.selectTab(targetTabId))
     return true
   }
 
-  return addEditorSurfaceNode(model, {
-    type: 'tab',
-    id: fileTabId(filePath),
-    name,
-    component: 'file-editor',
-    enableClose: true,
-    config: { filePath },
-  })
+  return addEditorSurfaceNode(
+    model,
+    {
+      type: 'tab',
+      id: fileTabId(filePath),
+      name,
+      component: 'file-editor',
+      enableClose: true,
+      config: { filePath },
+    },
+    select,
+  )
 }
 
 function gitConflictTabId(repoRoot: string, filePath: string): string {

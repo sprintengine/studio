@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
@@ -55,6 +55,7 @@ import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
+import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
 import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import {
@@ -62,6 +63,7 @@ import {
   createDiagnosticsWindow,
   createMainWindow,
   isAuxWindow,
+  isWorkspaceWindowWebContents,
   openAuxWindow,
 } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -94,6 +96,14 @@ export function registerCoreIpc(
   registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers, {
     pickExportDirectory: pickCanvasExportDirectory,
     revealFile: revealCanvasBoardFile,
+  })
+  registerEditorRevealIpc(ipcMain, services.editorRevealBroker, {
+    // The answering window, never a name the message carries; only workspace
+    // windows show a workspace, so only they are heard.
+    senderId: (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return win && isWorkspaceWindowWebContents(event.sender) ? win : null
+    },
   })
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,

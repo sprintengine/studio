@@ -1144,6 +1144,8 @@ export function resolveHostContextDelivery(input: {
   memoryRelativeRoot?: string
   moduleSections?: Array<{ heading: string; body: string }>
   onHost?: { dir: string; files: HostLaunchFile[] }
+  /** The session is an agent bound to a workspace, so it can call the editor tools. */
+  editorTools?: boolean
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
@@ -1164,6 +1166,11 @@ export function resolveHostContextDelivery(input: {
         }
       : {}),
     ...(input.moduleSections && input.moduleSections.length > 0 ? { moduleSections: input.moduleSections } : {}),
+    // Out-of-band channels only. On the prompt fallback the document is pasted
+    // after the person's first message, and four lines of tool advice are not
+    // worth putting in their words; those CLIs learn the editor tools from the
+    // tool descriptions and the studio-workspaces skill instead.
+    ...(input.editorTools && mode !== 'prompt' ? { editorTools: true } : {}),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
   if (input.onHost) {
@@ -1496,6 +1503,10 @@ export function getShellLaunchConfig(
   // The machine this runs on (its host's `launchTarget()`). Absent is this
   // machine as the platform runs it, which is all macOS and Linux ever have.
   launchHost: HostLaunchTarget = defaultLaunchTarget(),
+  // What else the host context says about this launch. `editorTools`: the
+  // session is an agent bound to a workspace, so it can open files and diffs
+  // for the person through the app's gateway.
+  hostContextOptions: { editorTools?: boolean } = {},
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -1528,6 +1539,7 @@ export function getShellLaunchConfig(
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
     ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
     ...(onHost ? { onHost } : {}),
+    ...(hostContextOptions.editorTools ? { editorTools: true } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined

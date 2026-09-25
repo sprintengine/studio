@@ -7,6 +7,7 @@ import {
   HOST_CONTEXT_CLOSE_TAG,
   HOST_CONTEXT_OPEN_TAG,
   CURSOR_HOST_CONTEXT_PLUGIN_NAME,
+  EDITOR_TOOLS_HOST_CONTEXT_SECTION,
   buildCursorHostContextPluginManifest,
   buildCursorHostContextRuleFile,
   buildHostContextDocument,
@@ -141,4 +142,17 @@ test('document', async () => {
   })
 
   console.log('host-context document tests passed')
+})
+
+test('an agent bound to a workspace is told when to open files instead of pasting paths', () => {
+  const doc = buildHostContextDocument({ editorTools: true })
+  assert.ok(doc)
+  assert.equal(doc.split('\n')[0], HOST_CONTEXT_BOUNDARY_LINE)
+  assert.ok(doc.includes('## Showing files and diffs'))
+  assert.ok(doc.includes('editor_open'))
+  assert.ok(doc.includes('do not retry'))
+  // Short on purpose: the section is read on every turn.
+  assert.ok(EDITOR_TOOLS_HOST_CONTEXT_SECTION.split('\n').length <= 4)
+  // A launch without the tools says nothing new.
+  assert.equal(buildHostContextDocument({ editorTools: false }), null)
 })

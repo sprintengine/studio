@@ -82,6 +82,25 @@ function defaultWorkspacePaneState(): WorkspacePaneState {
   return { open: false, activeTabId: null, tabs: [] }
 }
 
+type DiffReveal = NonNullable<NonNullable<WorkspacePaneTab['diff']>['reveal']>
+
+function normalizeDiffReveal(input: unknown): DiffReveal | null {
+  if (!input || typeof input !== 'object') return null
+  const raw = input as Partial<DiffReveal>
+  if (typeof raw.key !== 'string' || !raw.key) return null
+  const reveal: DiffReveal = { key: raw.key }
+  if (Array.isArray(raw.paths)) reveal.paths = raw.paths.filter((path): path is string => typeof path === 'string')
+  if (raw.step && typeof raw.step === 'object') {
+    if (raw.step.kind === 'span' || raw.step.kind === 'uncommitted') reveal.step = { kind: raw.step.kind }
+    else if (raw.step.kind === 'commit' && typeof raw.step.hash === 'string') {
+      reveal.step = { kind: 'commit', hash: raw.step.hash }
+    }
+  }
+  if (raw.range && typeof raw.range === 'object' && typeof raw.range.startLine === 'number') reveal.range = raw.range
+  if (raw.side === 'modified' || raw.side === 'original') reveal.side = raw.side
+  return reveal
+}
+
 function normalizeTab(input: unknown): WorkspacePaneTab | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Partial<WorkspacePaneTab>
@@ -123,7 +142,20 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     const focusPath = typeof raw.diff.focusPath === 'string' && raw.diff.focusPath ? raw.diff.focusPath : null
     const focusKind = raw.diff.focusKind === 'staged' || raw.diff.focusKind === 'unstaged' ? raw.diff.focusKind : null
     const repoRoot = typeof raw.diff.repoRoot === 'string' && raw.diff.repoRoot ? raw.diff.repoRoot : undefined
-    tab.diff = { ...(repoRoot ? { repoRoot } : {}), focusPath, focusKind }
+    const changelistId =
+      typeof raw.diff.changelistId === 'string' && raw.diff.changelistId ? raw.diff.changelistId : undefined
+    // An agent's reveal (editor.open_diff) rides the tab for this session only
+    // — `partializeWorkspacePaneState` drops it — and is carried through here
+    // because every pane write normalizes, and dropping it here dropped the
+    // agent's narrowing, range and step before the viewer ever saw them.
+    const reveal = normalizeDiffReveal(raw.diff.reveal)
+    tab.diff = {
+      ...(repoRoot ? { repoRoot } : {}),
+      focusPath,
+      focusKind,
+      ...(changelistId ? { changelistId } : {}),
+      ...(reveal ? { reveal } : {}),
+    }
   }
   return tab
 }
@@ -223,8 +255,12 @@ export function partializeWorkspacePaneState(input: unknown): WorkspacePaneState
     tabs: normalized.tabs.map((tab) => {
       // `floating` is session-only alongside the favicon: the rect persists,
       // the "is it floating right now" does not.
-      if (!tab.faviconUrl && !tab.floating) return tab
-      const { faviconUrl: _faviconUrl, floating: _floating, ...rest } = tab
+      // So is an agent's reveal on a Diff tab: a restart must not re-narrow the
+      // viewer or re-highlight lines nobody asked about today.
+      const withoutReveal =
+        tab.diff?.reveal !== undefined ? { ...tab, diff: (({ reveal: _reveal, ...diff }) => diff)(tab.diff) } : tab
+      if (!withoutReveal.faviconUrl && !withoutReveal.floating) return withoutReveal
+      const { faviconUrl: _faviconUrl, floating: _floating, ...rest } = withoutReveal
       return rest
     }),
   }

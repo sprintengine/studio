@@ -368,7 +368,11 @@ test('freshInstallWalkSeam', async () => {
       // The permission flag sits between the binary and --session-id since
       // An unnamed preset resolves to `manual`, which for Claude Code is
       // an explicit `--permission-mode default` rather than no flag at all.
-      script.includes(`${NVM_CLAUDE_PATH} --permission-mode default --session-id zshrc-only-launch`),
+      // An agent bound to a workspace also carries its host context (the
+      // editor tools section) as a file flag before the session id.
+      new RegExp(
+        `${NVM_CLAUDE_PATH} --permission-mode default (--append-system-prompt-file \\S+ )?--session-id zshrc-only-launch`,
+      ).test(script),
       `the launch must invoke the probed path: ${script}`,
     )
     assert.ok(/exit 127; fi;/.test(script), `the guard must exit rather than fall through: ${script}`)

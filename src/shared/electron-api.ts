@@ -1,3 +1,4 @@
+import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
@@ -553,6 +554,17 @@ export type ElectronApi = {
   canvasWorkerReady: (report: CanvasWorkerReport) => void
   onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
   canvasWorkerRespond: (response: CanvasWorkerResponse) => void
+  // The editor reveal (editor.* tools): main asks every workspace window to
+  // open a file or diff an agent means; the window showing that workspace
+  // does, and says how. `editorRevealClaim` takes the reveal that waited for a
+  // workspace no window was showing.
+  onEditorRevealRequest: (cb: (request: EditorRevealRequest) => void) => () => void
+  ackEditorReveal: (ack: EditorRevealAck) => void
+  onEditorRevealPending: (cb: (payload: { workspaceIds: string[] }) => void) => () => void
+  editorRevealClaim: (workspaceId: string) => Promise<EditorRevealRequest | null>
+  editorRevealListPending: () => Promise<string[]>
+  onEditorStateQuery: (cb: (query: EditorStateQuery) => void) => () => void
+  replyEditorState: (reply: EditorStateReply) => void
   // Splash boot handshake. `notifyBootComplete` is sent once by the primary
   // workspace window when its first frame is on screen, and is what closes the
   // splash and reveals the main window (main also holds a hard timeout, so a

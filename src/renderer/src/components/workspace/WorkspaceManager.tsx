@@ -38,6 +38,7 @@ import {
   reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
+import { useAgentEditorReveal } from '../../hooks/useAgentEditorReveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
@@ -536,6 +537,9 @@ export default function WorkspaceManager() {
         currentWorkspaceWindow.activeWorkspaceId
       : (railWorkspaces[0]?.id ?? null)
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+  // An agent's editor.open / open_diff: this window opens it when the
+  // workspace is the one it shows, and claims what waited for it otherwise.
+  useAgentEditorReveal(windowActiveWorkspaceId)
   // Whether the workspace pane column stands at the window's right edge. On
   // win/linux the floating caption buttons sit over whichever top strip owns
   // that corner, and that strip leaves them room (WindowCaptionReserve): the

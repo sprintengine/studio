@@ -1,3 +1,5 @@
+import type { EditorRange } from '../../../shared/editor-reveal'
+import type { BranchStepSelection } from '../../../shared/electron-api'
 import type { IJsonModel } from 'flexlayout-react'
 import type { BrowserViewport } from '../../../shared/browser-devices'
 import type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
@@ -640,6 +642,18 @@ export type WorkspacePaneTab = {
     focusKind: 'staged' | 'unstaged' | null
     /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
     changelistId?: string
+    /**
+     * An agent's reveal (editor.open_diff), session-only — the normalizer
+     * drops these on restore. `reveal.key` is new per request, so the same
+     * narrowing or range can be asked for twice.
+     */
+    reveal?: {
+      key: string
+      paths?: string[]
+      step?: BranchStepSelection
+      range?: EditorRange
+      side?: 'modified' | 'original'
+    }
   }
   // Canvas only: the board the tab is drawing on, project-relative and
   // normalized (`normalizeCanvasPath`). Absent is a real state, not a broken

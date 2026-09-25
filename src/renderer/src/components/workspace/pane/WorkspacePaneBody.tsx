@@ -124,6 +124,13 @@ function PaneDiffTab({
       // The pane is the only host with a branch to step through; the aux
       // window opens on one file of the working tree.
       branchSteps
+      // An agent's editor.open_diff: its narrowing, the step it named, and the
+      // lines to land on. Absent for every diff a person opens.
+      pathsFilter={tab.diff?.reveal?.paths ?? null}
+      focusStep={tab.diff?.reveal?.step ?? null}
+      focusRange={tab.diff?.reveal?.range ?? null}
+      focusSide={tab.diff?.reveal?.side ?? 'modified'}
+      revealKey={tab.diff?.reveal?.key ?? null}
     />
   )
 }

@@ -42,6 +42,7 @@ import { Modal, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExtensionsRail } from './ExtensionsRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { type LayoutTemplate, type Workspace, type WorkspaceId } from '../../types/workspace'
+import { usePendingEditorReveal } from '../../utils/agentEditorReveal'
 import { hasHighlightOverride, isStarred } from '../../utils/highlight'
 import { projectColorKey, projectHue, resolveProjectColor, type ProjectColor } from '../../utils/projectColor'
 import { useProjectColors } from '../../hooks/useProjectColors'
@@ -2810,6 +2811,8 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     renameInputRef,
   } = handlers
   const now = useRelativeNow()
+  // An agent's editor reveal waiting for this workspace to be shown.
+  const revealPending = usePendingEditorReveal(workspace.id)
   const flatProject = options?.flatProject ?? null
   // The machine a chat born over there runs on, read off its own provenance
   // rather than passed down: the row no longer comes from a band that knew,
@@ -3258,6 +3261,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           in words, since no state may be carried by colour alone. */}
       {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
       {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
+      {revealPending ? <span className="sr-only"> (an agent opened something for you here)</span> : null}
       {options?.settled ? <span className="sr-only"> (settled)</span> : null}
       {options?.snoozed ? <span className="sr-only"> (snoozed)</span> : null}
     </>
@@ -3386,6 +3390,10 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       ) : null}
       <AttentionPulse active={needsAttention} resetKey={workspace.id} />
       <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
+      {/* An agent opened a file or diff here while no window showed it: the
+          row's own flash says something is waiting, and switching to the
+          workspace opens it. Nothing else moves. */}
+      <AttentionPulse active={revealPending} resetKey={workspace.id} />
       {dropMark === 'before' ? (
         <span
           aria-hidden="true"
