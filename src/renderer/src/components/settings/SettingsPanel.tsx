@@ -90,6 +90,7 @@ import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry
 import { TicketTrackersTab } from './TicketTrackersTab'
 import { UpdateChannelSettings } from './UpdateChannelSettings'
 import { AppVersionRow } from './AppVersionRow'
+import { RemoveIntegrationsSection } from './RemoveIntegrationsSection'
 import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
 import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
@@ -1384,6 +1385,8 @@ export default function SettingsPanel({
               />
             ) : null}
           </SettingCard>
+
+          <RemoveIntegrationsSection />
         </div>
       ) : null}
 

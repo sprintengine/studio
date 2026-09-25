@@ -139,7 +139,7 @@ function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platform): s
 }
 
 /** Directory holding the managed `node`/`npm` shims. */
-function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform): string {
+export function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32') {
     return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'SprintEngine', 'runtime-bin')
   }

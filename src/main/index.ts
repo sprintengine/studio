@@ -2,6 +2,7 @@ import { app, ipcMain, protocol } from 'electron'
 import { MODULE_ASSET_SCHEME } from '../shared/modules/assets'
 import { claimAppInstance, configureDevUserData } from './app-instance'
 import { attachStartupTimeline } from './startup-timeline'
+import { REMOVE_INTEGRATIONS_FLAG } from '../shared/integration-removal'
 
 // The entry, kept deliberately small. Everything it imports is evaluated before
 // its first line runs, so the only things here are what must happen before the
@@ -24,10 +25,21 @@ attachStartupTimeline(ipcMain)
 // pinned to its own profile must have moved there first.
 configureDevUserData(app)
 
+// `--remove-integrations` (the Windows uninstaller, or a person scripting an
+// uninstall): the removal Settings runs, with no window and none of the app's
+// services, so nothing writes an integration back while it is taken out. A
+// running Studio holds the lock; the removal refuses rather than race it.
+const headlessRemoval = process.argv.includes(REMOVE_INTEGRATIONS_FLAG)
+
 if (!claimAppInstance(app)) {
+  if (headlessRemoval) process.stdout.write('failed\tremoval\tSprintEngine Studio is running. Quit it first.\n')
   // `exit`, not `quit`: nothing has been built, so there is nothing for the
   // quit path to shut down, and no window may flash up on the way out.
-  app.exit(0)
+  app.exit(headlessRemoval ? 4 : 0)
+} else if (headlessRemoval) {
+  import('./integrations/remove-integrations-cli')
+    .then(({ runHeadlessRemoval }) => runHeadlessRemoval(app))
+    .catch(() => app.exit(3))
 } else {
   // Must be registered before the app is ready.
   protocol.registerSchemesAsPrivileged([

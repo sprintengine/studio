@@ -50,6 +50,9 @@ function run(
     })
     child.on('error', reject)
     child.on('close', (code) => resolveRun({ code, stdout }))
+    // A script may finish before it reads everything we send; that is its
+    // business, and a closed pipe is not a test failure.
+    child.stdin.on('error', () => undefined)
     child.stdin.end(input)
   })
 }

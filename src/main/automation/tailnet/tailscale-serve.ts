@@ -220,6 +220,17 @@ export async function readServedPorts(deps: TailscaleServeDeps = {}): Promise<Ma
 }
 
 /**
+ * `readServedPorts`, but null when Tailscale did not answer — for a caller
+ * that must not read "could not ask" as "nothing is served" (the removal of
+ * the app's own shares, which would otherwise forget a share that is live).
+ */
+export async function readServedPortsOrNull(deps: TailscaleServeDeps = {}): Promise<Map<number, number> | null> {
+  const read = deps.read ?? runTailscale
+  const raw = await read(['serve', 'status', '--json'], SERVE_STATUS_TIMEOUT_MS)
+  return raw === null ? null : parseServedPorts(raw)
+}
+
+/**
  * Exported for the test: the shape is Tailscale's, so pinning our reading of it
  * is the only way to notice if we are reading it wrong.
  *

@@ -269,7 +269,7 @@ target=\${1:-}
 [ $# -gt 0 ] && shift
 case "$target" in
 ${cases}
-  *) exit 0 ;;
+  *) cat >/dev/null 2>&1; exit 0 ;;
 esac
 dir=$(dirname "$0")
 node=''
@@ -316,6 +316,9 @@ export function renderWindowsLauncher(): string {
     ...Object.entries(LAUNCHER_TARGETS).map(
       ([target, script]) => `if /i "%SE_TARGET%"=="${target}" set "SE_SCRIPT=${script.split('/').join('\\')}"`,
     ),
+    // A target this launcher does not know (one a later build added) still
+    // reads its input before it exits, like every other quiet path.
+    'if not defined SE_SCRIPT findstr "^" >nul 2>&1',
     'if not defined SE_SCRIPT exit /b 0',
     'set "SE_NODE="',
     'set "SE_PAYLOAD="',

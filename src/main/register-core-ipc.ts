@@ -10,6 +10,7 @@ import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
+import { registerIntegrationsIpc } from './ipc/integrations-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
@@ -126,6 +127,7 @@ export function registerCoreIpc(
   registerAuthIpc(ipcMain, services.sprintengineAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
+  registerIntegrationsIpc(ipcMain, services.integrationRemoval, () => app.quit())
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)

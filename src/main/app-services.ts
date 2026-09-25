@@ -167,6 +167,20 @@ import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
 import { prepareStudioIntegrations, wslLedgerMirrorPath } from './integrations/integration-boot'
+import { scheduleAppDataDeletion } from './integrations/app-data-deletion'
+import { wslHomesFromLedger } from './integrations/removal-sources'
+import {
+  planIntegrationRemoval,
+  removeIntegrations,
+  type IntegrationRemovalDeps,
+} from './integrations/remove-integrations'
+import { readServedPortsOrNull, unshareServePort } from './automation/tailnet/tailscale-serve'
+import { getManagedRuntimeShimDir } from './managed-runtime'
+import type { IntegrationRemovalOptions, IntegrationRemovalReport } from '../shared/integration-removal'
+
+// Long enough for the dialog to show the result before Studio quits to delete its data.
+const APP_DATA_QUIT_DELAY_MS = 2_500
+import type { ExecutionHostId } from '../shared/execution-host'
 import {
   createIntegrationLedger,
   hostIdForPath,
@@ -1634,7 +1648,64 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
   }
 
+  // Settings ▸ General ▸ Remove integrations, and Machines' clean-up of one
+  // distribution: the ledger replayed in reverse (integrations/remove-integrations.ts).
+  const integrationRemovalDeps = (): IntegrationRemovalDeps => ({
+    ledger: integrationLedgerStore,
+    listRoots: () =>
+      workspaceRegistry
+        .getState()
+        .workspaces.flatMap((workspace) =>
+          workspace.folderPath ? [{ path: workspace.folderPath, hostId: hostIdForPath(workspace.folderPath) }] : [],
+        ),
+    listHomes: async () => [
+      { native: homedir(), hostId: 'local' },
+      ...wslHomesFromLedger(await integrationLedgerStore.list()),
+    ],
+    readServedPorts: () => readServedPortsOrNull(),
+    unsharePort: (servePort) => unshareServePort({ servePort }),
+    // A development build registered itself with its app path as an argument,
+    // and only the same pair unregisters it.
+    removeProtocolClient: (scheme) =>
+      app.isPackaged
+        ? app.removeAsDefaultProtocolClient(scheme)
+        : app.removeAsDefaultProtocolClient(scheme, process.execPath, [app.getAppPath()]),
+    appDataPaths: () => [app.getPath('userData'), getManagedRuntimeShimDir()],
+    scheduleAppDataDeletion: (paths) => scheduleAppDataDeletion(paths),
+  })
+  // One removal at a time: Settings and Machines can both start one.
+  let removalInFlight: Promise<IntegrationRemovalReport> | null = null
+  const integrationRemoval = {
+    plan: (options: IntegrationRemovalOptions) => planIntegrationRemoval(integrationRemovalDeps(), options),
+    remove(options: IntegrationRemovalOptions): Promise<IntegrationRemovalReport> {
+      if (removalInFlight) return removalInFlight
+      removalInFlight = (async () => {
+        // Each distribution being cleaned stops its helper first: the helper
+        // runs from the folder the clean-up deletes. Only distributions the
+        // ledger has written into — never one the renderer merely named.
+        const written = new Set((await integrationLedgerStore.list()).map((entry) => entry.hostId))
+        for (const hostId of written) {
+          if (hostId === 'local' || (options.hostId && options.hostId !== hostId)) continue
+          await hosts
+            .get(hostId as ExecutionHostId)
+            .dispose()
+            .catch(() => undefined)
+        }
+        const report = await removeIntegrations(integrationRemovalDeps(), options)
+        // The data is deleted by a process that waits for this one to exit,
+        // so it goes now — not at some later quit the person did not connect
+        // with the checkbox.
+        if (report.appDataScheduled) setTimeout(() => app.quit(), APP_DATA_QUIT_DELAY_MS)
+        return report
+      })().finally(() => {
+        removalInFlight = null
+      })
+      return removalInFlight
+    },
+  }
+
   return {
+    integrationRemoval,
     startDeferredBootJobs,
     agentConfigImportService,
     agentStateService,

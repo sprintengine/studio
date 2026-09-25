@@ -8,6 +8,9 @@
 ;   customInit    end of .onInit, after initMultiUser has chosen $INSTDIR (installer.nsi)
 ;   customInstall end of the install section, after files, registry and shortcuts (installSection.nsh)
 ;   customUnInit  end of un.onInit, after initMultiUser (uninstaller.nsh)
+;   customUnInstall  start of the uninstall section, before any file is removed (uninstaller.nsh)
+;
+; customUnInstall is described where it is defined, at the end of this file.
 ;
 ; What it is for: an update installs over the installation that is running,
 ; wherever that is (owner ruling 2026-09-24). The installer is one-click and
@@ -301,6 +304,84 @@
         StrCpy $installMode all
         SetShellVarContext all
         StrCpy $INSTDIR $R1
+      ${EndIf}
+    ${EndIf}
+  !macroend
+
+  ; Uninstalling for good: take Studio's integrations back out before its files
+  ; go, and ask whether its data goes too.
+  ;
+  ; An update runs this uninstaller as well — the new installer runs the OLD
+  ; one, always with --updated (installUtil.nsh uninstallOldVersion) — and must
+  ; leave every integration and all data exactly where they are, so none of this
+  ; runs under ${isUpdated}.
+  ;
+  ; The installed app does the removal itself (--remove-integrations: the same
+  ; code as Settings > General > Remove integrations), before the files it runs
+  ; from are deleted. It bounds itself with --timeout and exits whatever
+  ; happens; its exit code is only logged, because nothing here may stop the
+  ; uninstall. un.onInit has already closed a running app (CHECK_APP_RUNNING).
+  !macro customUnInstall
+    ${IfNot} ${isUpdated}
+      ; Asked only when a person started the uninstall. An explicit /S (a
+      ; package manager, a script) keeps the data, the stock default. The
+      ; one-click uninstaller turns silent itself after its confirmation, so
+      ; the command line is what says which it was.
+      StrCpy $R8 "0"
+      ${GetParameters} $R0
+      ClearErrors
+      ${GetOptions} $R0 "/S" $R1
+      ${If} ${Errors}
+        ${If} ${Cmd} `MessageBox MB_YESNO|MB_ICONQUESTION "Also delete SprintEngine Studio's settings, logs and downloaded runtimes?$\r$\n$\r$\nYour repositories, your extensions and the agent CLIs you installed are kept either way." IDYES`
+          StrCpy $R8 "1"
+        ${EndIf}
+      ${EndIf}
+
+      ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+        DetailPrint "Removing SprintEngine Studio's integrations..."
+        ; Bounded twice: the app ends itself at --timeout, and PowerShell stops
+        ; waiting (and ends it) a little after that, so an app that hangs
+        ; before its own timer starts cannot hold the uninstall. The small
+        ; pause lets the processes it started let go of the install folder.
+        ClearErrors
+        nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$p = Start-Process -FilePath '$INSTDIR\${APP_EXECUTABLE_FILENAME}' -ArgumentList '--remove-integrations','--timeout=90000' -PassThru -WindowStyle Hidden; if (-not $$p.WaitForExit(120000)) { $$p.Kill(); exit 3 }; exit $$p.ExitCode"`
+        Pop $R2
+        DetailPrint "Integration removal finished: $R2."
+        Sleep 1000
+      ${EndIf}
+
+      ; The link handler the app registers for itself: Electron writes it under
+      ; the person's own classes, so the stock uninstaller never knew about it.
+      ; The step above removes it too; this covers an app that could not run.
+      ; Only when it still opens THIS installation: another copy (a second
+      ; install, a development build) may have claimed it since.
+      ReadRegStr $R3 HKCU "Software\Classes\sprintengine\shell\open\command" ""
+      StrLen $R5 "$INSTDIR"
+      StrCpy $R4 $R3 $R5 1
+      StrCpy $R6 $R3 $R5
+      ${If} $R4 == "$INSTDIR"
+      ${OrIf} $R6 == "$INSTDIR"
+        DeleteRegKey HKCU "Software\Classes\sprintengine"
+      ${EndIf}
+
+      ${If} $R8 == "1"
+        ; The profile directories the stock --delete-app-data removes, and the
+        ; runtime shims Studio downloaded.
+        ${If} $installMode == "all"
+          SetShellVarContext current
+        ${EndIf}
+        RMDir /r "$APPDATA\${APP_FILENAME}"
+        !ifdef APP_PRODUCT_FILENAME
+          RMDir /r "$APPDATA\${APP_PRODUCT_FILENAME}"
+        !endif
+        !ifdef APP_PACKAGE_NAME
+          RMDir /r "$APPDATA\${APP_PACKAGE_NAME}"
+        !endif
+        RMDir /r "$LOCALAPPDATA\SprintEngine\runtime-bin"
+        RMDir "$LOCALAPPDATA\SprintEngine"
+        ${If} $installMode == "all"
+          SetShellVarContext all
+        ${EndIf}
       ${EndIf}
     ${EndIf}
   !macroend

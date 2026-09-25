@@ -793,7 +793,7 @@ function replaceManagedBlock(previous: string, block: string): string {
   return `${trimmed}${trimmed ? '\n\n' : ''}${block}\n`
 }
 
-function removeCodexManagedServers(previous: string, serverIds: string[]): string {
+export function removeCodexManagedServers(previous: string, serverIds: string[]): string {
   const ids = new Set(serverIds)
   if (ids.size === 0) return previous
   const pattern = new RegExp(`${escapeRegExp(MANAGED_START)}[\\s\\S]*?${escapeRegExp(MANAGED_END)}\\n?`, 'm')
