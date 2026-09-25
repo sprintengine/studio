@@ -55,6 +55,47 @@ installer and the MCP sync all ask this one question, so none of them can write
 a workspace copy of something the launch is also carrying, or skip one it is
 not.
 
+## What outlives the app
+
+Everything below that is still written into a repository or a CLI's user
+configuration can outlive the app: it is uninstalled, it moves, or an update
+prunes the version folder a command named. So none of it names the app
+directly any more.
+
+- **The launcher.** Every hook command and every MCP gateway entry runs
+  `~/.sprintengine/bin/studio-run` (a POSIX `sh` script, run as `/bin/sh
+  <path> <target> …`) or, on Windows, `studio-run.cmd` beside it — inside a
+  WSL distribution, the same script under that distribution's home. The app
+  rewrites a small pointer file beside it (`current`: the Node to run, and the
+  directory holding `hooks/` and `automation/`) on every start, and a WSL
+  distribution's whenever its helper is prepared. When the app is gone the
+  launcher does the harmless thing: a hook drains its input and exits 0, and
+  the MCP target answers `initialize` with a server that has no tools, which
+  Claude Code and OpenCode report as connected rather than failed
+  (`src/main/integrations/launcher.ts`). Nothing is copied into a repository
+  for a hook to run any more; the reporter and the status-line forwarder that
+  ship with the app are what the launcher runs.
+- **The ledger.** Every file, entry and piece of machine state the app writes
+  outside userData — hook blocks, gateway entries, settings keys, plugin and
+  skill copies, git excludes, worktree locks, tailnet shares, the protocol
+  registration, the launcher — is recorded in `integration-ledger.json` in
+  userData as it is written, with how our part is recognised
+  (`src/main/integrations/ledger.ts`). A WSL distribution's entries are
+  mirrored into its own `~/.sprintengine/integration-ledger.json`. The first
+  start of a build that keeps a ledger scans the workspaces it knows (and their
+  worktrees) and the home for what an earlier build wrote
+  (`integration-scan.ts`), and every start moves any listed entry still in the
+  older form onto the launcher, in place (`integration-migrate.ts`).
+- **Kimi Code's user-level hook** is written when a Kimi Code session is
+  launched and taken back out when the app quits: it applies to every Kimi Code
+  session on the machine, and only sessions the app launched ever report
+  through it.
+- **Connector worktrees' excludes** go into that worktree's own
+  `config.worktree` (`core.excludesFile`, with `extensions.worktreeConfig` on),
+  never the repository's shared `info/exclude`, which hid a real `.mcp.json` in
+  the main checkout. The pair an earlier build appended there is taken back
+  out (`src/main/integrations/worktree-exclude.ts`).
+
 ## Inventory
 
 Every path the main process writes inside a workspace on behalf of agent
@@ -70,8 +111,8 @@ receives the same thing from the command line the app built.
 | `.sprintengine/studio-plugin/` | Materialised studio plugin (absolute paths substituted in) | Claude Code, via the two settings keys below | `--plugin-dir` | Written only when the launch does **not** carry the plugin; removed otherwise. The other harnesses' skill copies are taken from the bundled template, whose skills carry no tokens. |
 | `.claude/settings.local.json` → agent-state hook entries | Agent phase reporting | Claude Code, Z.AI, Kimi Claude | `--plugin-dir` (the plugin's `hooks/hooks.json`) | Removed when the launch carries the plugin (already true before this change); the removal now shares one implementation with the launch-time tidy. |
 | `.claude/settings.local.json` → `extraKnownMarketplaces` | Points Claude Code at the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin (already true). |
-| `.claude/settings.json` → `enabledPlugins` | Enables the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin (already true). |
-| `.sprintengine/hooks/agent-state.mjs` | The reporter the hook entries run | Every command-hook CLI in the workspace | `--plugin-dir` for Claude only | Removed when the launch carries the plugin **and** no other CLI's registration in the workspace still names it. Before this change it was removed unconditionally, which broke a Codex, Cursor or Grok hook in the same checkout. |
+| `.claude/settings.local.json` → `enabledPlugins` | Enables the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin. Written to the gitignored file; an earlier build wrote it into the committed `.claude/settings.json`, and the install takes that key back out. |
+| `.sprintengine/hooks/agent-state.mjs` | The reporter older hook entries ran | Every command-hook CLI in the workspace | The launcher (see above) | No longer written: every hook runs the launcher, which runs the reporter the app ships. A copy an earlier build left is removed once no registration in the checkout names it. |
 | `.claude/skills/studio-*` | Studio skills | Claude Code | `--plugin-dir` | Not copied, and earlier copies with our provenance removed, when the launch carries the plugin (already true). |
 | `.agents/skills/studio-*`, `.codex/skills/studio-*`, `.opencode/skills/studio-*`, `.grok/skills/studio-*` | Studio skills | Codex, OpenCode, Grok and any CLI that reads `.agents/skills` | None known; see Remaining | Unchanged. |
 
@@ -98,9 +139,9 @@ way, which keeps agent state working.
 | `.cursor/hooks.json` | Agent phase | Cursor | See Remaining | Unchanged. |
 | `.grok/hooks/sprintengine-agent-state.json` | Agent phase | Grok | See Remaining | Unchanged. |
 | `.opencode/plugin/sprintengine-agent-state.js` | Agent phase | OpenCode | See Remaining | Unchanged. |
-| `~/.kimi-code/config.toml` hooks block, `~/.sprintengine/hooks/agent-state.mjs` | Agent phase | Kimi Code | See Remaining | Unchanged. Not in the repository, but it applies to every Kimi Code session on the machine. |
+| `~/.kimi-code/config.toml` hooks block | Agent phase | Kimi Code | See Remaining | Written when a Kimi Code session launches and removed when the app quits; it runs the launcher, so one a crash left behind exits quietly. |
 | `.sprintengine/hooks/.gitignore` | Keeps the reporter copies out of `git status` | git | — | **New.** Written once (never over an existing file) wherever the app still copies a reporter into a workspace, the same self-ignore the backlog cache and browser captures already use. Removed with the directory when the last registration goes. |
-| `<git dir>/info/exclude` | Keeps `.mcp.json` / `.codex/config.toml` out of a connector worktree's git | git | — | Unchanged (connector launches only). |
+| `<worktree git dir>/sprintengine-exclude`, named by that worktree's `config.worktree` | Keeps `.mcp.json` / `.codex/config.toml` out of a connector worktree's git | git | — | Per worktree (connector launches only), never the shared `info/exclude`. |
 
 Nothing else the launch produces touches the repository. The host-context
 document every launch writes (and the one-session plugin directory Cursor

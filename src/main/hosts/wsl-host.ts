@@ -18,6 +18,8 @@
 // the launch's MCP channel token as `export` lines.
 
 import { EventEmitter } from 'node:events'
+import { existsSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 
 import type { CliDetectResult, CliRuntimeSettings } from '../../shared/electron-api'
 import {
@@ -45,6 +47,11 @@ import type { WslHelperClient, WslHelperInfo } from './wsl-helper-client'
 import { createDefaultWslHelperClient, wslHelperEnvironment } from './wsl-helper-runtime'
 import { buildWslPluginCopy, type WslPluginCopy } from './wsl-plugin-copy'
 import { WslSetupError } from './wsl-setup-error'
+import { WSL_DATA_REL } from './wsl-install'
+import { migrateHostEntries } from '../integrations/integration-boot'
+import { scanHomeIntegrations } from '../integrations/integration-scan'
+import { buildLauncherMcpServer, ensureStudioLauncher, launcherRefForHome } from '../integrations/launcher'
+import { integrationLedger, recordIntegrationWrite } from '../integrations/ledger'
 
 /**
  * A git argument as Linux git reads it: a native absolute path (a worktree to
@@ -118,6 +125,13 @@ export type WslHostDeps = {
   buildPluginCopy?: (info: WslHelperInfo) => Promise<WslPluginCopy | null>
   /** How long the survivor kill waits for a killed pty's children to go on their own. */
   survivorDelayMs?: number
+  /** Writes the distribution's Studio launcher and its pointer; tests pass a stand-in. */
+  ensureLauncher?: (home: HostHome, info: WslHelperInfo) => Promise<void>
+}
+
+// `electron .` (a development run) sets `defaultApp`; a packaged build does not.
+function isPackagedProcess(): boolean {
+  return (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp !== true
 }
 
 type HelperRunOutcome = RunOutcome & { truncated?: boolean }
@@ -161,7 +175,8 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   const toNativePath = (hostPath: string) => wslToWindowsPath(hostPath, { distro })
 
   // Per running helper: what `home` said, and the plugin copy it holds.
-  let prepared: { info: WslHelperInfo; home: HostHome; plugin: WslPluginCopy | null } | null = null
+  let prepared: { info: WslHelperInfo; home: HostHome; plugin: WslPluginCopy | null; launcherReady: boolean } | null =
+    null
   // The preparation in flight, and the helper it is for.
   let preparing: { info: WslHelperInfo; done: Promise<void> } | null = null
 
@@ -176,6 +191,51 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
       if (typeof value === 'string' && value.startsWith('/')) env[name] = toNativePath(value)
     }
     return { host: answer.home, native: toNativePath(answer.home), env }
+  }
+
+  // Whether the distribution's launcher is on disk: only then do the hooks and
+  // the gateway written for it name the launcher. Without it they keep the
+  // form that names the pinned Node, which works while this version is
+  // installed — better than a launcher path that fails on every event.
+  async function ensureLauncher(home: HostHome, info: WslHelperInfo): Promise<boolean> {
+    if (deps.ensureLauncher) {
+      await deps.ensureLauncher(home, info)
+      return true
+    }
+    // A distribution's home only opens as an absolute `\\wsl.localhost` path on
+    // Windows; anything else (a test faking the platform) is not a place to write.
+    if (process.platform !== 'win32' || !isAbsolute(home.native)) return false
+    const result = await ensureStudioLauncher({
+      nativeHome: home.native,
+      shell: 'posix',
+      pointer: { node: info.nodePath, runAsNode: false, payload: info.appDir, packaged: isPackagedProcess() },
+      pointerTargetExists: (pointer) => existsSync(toNativePath(pointer.node)),
+    })
+    recordIntegrationWrite(
+      { kind: 'launcher', path: result.dir, marker: 'owned', hostId: id, createdFile: true },
+      {
+        kind: 'wsl-data',
+        path: join(home.native, ...WSL_DATA_REL.split('/')),
+        marker: 'owned',
+        hostId: id,
+        createdFile: true,
+        detail: { hostHome: home.host },
+      },
+    )
+    // What an earlier build wrote in this distribution: its home's hook and,
+    // for every listed entry, the move onto the launcher written just above.
+    // In the background: it reads files across the distribution boundary, and
+    // a launch has no need to wait for it.
+    const ledger = integrationLedger()
+    if (ledger) {
+      void (async () => {
+        await ledger.record(await scanHomeIntegrations({ native: home.native, hostId: id }))
+        // A bare `node` command here was written for this distribution's own
+        // shell, so it moves to this distribution's launcher.
+        await migrateHostEntries(ledger, id, { localLauncher: launcherRefForHome(home.host, 'posix') })
+      })().catch(() => undefined)
+    }
+    return true
   }
 
   async function ensurePluginCopy(info: WslHelperInfo): Promise<WslPluginCopy | null> {
@@ -195,11 +255,14 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
     if (preparing?.info === info) return preparing.done
     const done = (async () => {
       const home = await readHome()
+      // The launcher and its pointer, before anything that names them is
+      // written. A failure is not the launch's: its hooks keep the older form.
+      const launcherReady = await ensureLauncher(home, info).catch(() => false)
       // The copy is what lets a WSL Claude take `--plugin-dir`; without it
       // that CLI falls back to the workspace install, so a failure here is
       // not the launch's failure.
       const plugin = await ensurePluginCopy(info).catch(() => null)
-      if (helper.info() === info) prepared = { info, home, plugin }
+      if (helper.info() === info) prepared = { info, home, plugin, launcherReady }
     })()
     const entry = { info, done }
     preparing = entry
@@ -233,18 +296,30 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   function integration(): HostAgentIntegration | null {
     const info = helper.info()
     if (!info || !prepared || prepared.info !== info) return null
+    // The distribution's own Studio launcher: hooks and the gateway written for
+    // this machine name it, never the pinned Node or this version's payload
+    // folder, which the next update prunes (see `integrations/launcher.ts`).
+    // Only once it is on disk; until then, the older form that names them.
+    const launcher = prepared.launcherReady ? launcherRefForHome(prepared.home.host, 'posix') : null
     return {
       agentStateSocketPath: info.agentSocket,
-      commandRuntime: { executable: info.nodePath, toCommandPath: (nativePath) => toWslPath(nativePath) },
+      commandRuntime: {
+        executable: info.nodePath,
+        toCommandPath: (nativePath) => toWslPath(nativePath),
+        ...(launcher ? { launcher } : {}),
+      },
       pluginDirs: prepared.plugin?.pluginDirs ?? [],
       statusLineScriptPath: prepared.plugin?.statusLineScriptPath ?? null,
       studioMcpEntry: {
-        command: info.nodePath,
-        args: [`${info.appDir}/automation/mcp-stdio-bridge.mjs`],
-        // Linux Node ignores ELECTRON_RUN_AS_NODE. It stays because it is how the
-        // workspace tidy recognises this entry as the app's own gateway
-        // (`removeManagedStudioGatewayFromClaudeWorkspace`), on any machine.
-        env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: info.userDataDir },
+        ...(launcher
+          ? buildLauncherMcpServer(launcher)
+          : { command: info.nodePath, args: [`${info.appDir}/automation/mcp-stdio-bridge.mjs`] }),
+        // ELECTRON_RUN_AS_NODE is meaningless to Linux Node; the older form
+        // carries it because that is how the workspace tidy recognises it.
+        env: {
+          ...(launcher ? {} : { ELECTRON_RUN_AS_NODE: '1' }),
+          SPRINTENGINE_USER_DATA_DIR: info.userDataDir,
+        },
         // The launch token is never written into a config file; the bridge
         // inherits it from the CLI, which inherits it from the startup script.
         envVarNames: [MCP_CHANNEL_TOKEN_ENV],

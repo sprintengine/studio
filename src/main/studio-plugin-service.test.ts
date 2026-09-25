@@ -75,7 +75,11 @@ test('studio-plugin-service', async () => {
     assert.equal(record?.skillDirNames.length, bundledSkills.length)
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
     assert.equal(existsSync(join(workspace, '.sprintengine', 'studio-plugin')), true)
-    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(
+      existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
+      false,
+      'the launcher runs the shipped reporter',
+    )
     assert.equal(record?.hookSettingsPath, resolve(workspace, '.claude/settings.local.json'))
     assert.deepEqual(warnings, [], 'a clean open warns about nothing')
 
@@ -337,7 +341,7 @@ test('studio-plugin-service', async () => {
     await service.ensureInstalledForRoots([built.workspace])
     const before = service.installed(built.workspace)
     assert.ok(before?.hookSettingsPath, 'the early open registers the hook in the workspace')
-    assert.equal(existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(existsSync(join(built.workspace, '.claude', 'settings.local.json')), true)
 
     active = true
     await service.ensureInstalledForRoots([built.workspace])

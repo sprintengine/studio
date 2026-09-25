@@ -16,6 +16,7 @@ import {
   unshareServePort,
   type TailscaleServeDeps,
 } from './tailscale-serve'
+import { integrationLedger, recordIntegrationWrite, type IntegrationWrite } from '../../integrations/ledger'
 
 // The service the IPC layer calls: one place that turns the serve wrapper's
 // primitives into the status document every client reads.
@@ -29,6 +30,17 @@ export type TailnetShareService = {
   readStatus: () => Promise<TailnetShareStatus>
   share: (localPort: number) => Promise<TailnetShareResult>
   unshare: (servePort: number) => Promise<TailnetShareResult>
+}
+
+/** The ledger's record of one `tailscale serve --bg` mapping this app published. */
+export function tailnetShareLedgerWrite(servePort: number, localPort: number): IntegrationWrite {
+  return {
+    kind: 'tailnet-share',
+    path: `tailscale-serve:https:${servePort}`,
+    marker: `http://127.0.0.1:${localPort}`,
+    hostId: 'local',
+    detail: { servePort, localPort },
+  }
 }
 
 function isUsablePort(port: unknown): port is number {
@@ -73,6 +85,9 @@ export function createTailnetShareService(deps: TailscaleServeDeps = {}): Tailne
       }
       const result = await shareLocalPort({ localPort, servePort }, deps)
       if (!result.ok) return refuse(result.message)
+      // `--bg` outlives the app, so the mapping is listed for the removal of the
+      // app's integrations — which takes down only ports recorded here.
+      recordIntegrationWrite(tailnetShareLedgerWrite(servePort, localPort))
       return { ok: true, share: result.share, status: await readStatus() }
     },
 
@@ -86,6 +101,9 @@ export function createTailnetShareService(deps: TailscaleServeDeps = {}): Tailne
       }
       const result = await unshareServePort({ servePort }, deps)
       if (!result.ok) return refuse(result.message)
+      void integrationLedger()
+        ?.forgetWhere((entry) => entry.kind === 'tailnet-share' && entry.detail?.servePort === servePort)
+        .catch(() => undefined)
       return { ok: true, share: null, status: await readStatus() }
     },
   }

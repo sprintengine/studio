@@ -3,6 +3,17 @@ import { existsSync, watch as fsWatch, type FSWatcher } from 'fs'
 import { copyFile, mkdir, readFile, readdir, writeFile, rm } from 'fs/promises'
 import { join, resolve, sep } from 'path'
 import { open as fsOpen, type FileHandle } from 'fs/promises'
+import { homedir } from 'os'
+import type { ExecutionHostId } from '../shared/execution-host'
+import { withConfigFileLock, writeFileAtomically } from './config-file-write'
+import { hostRegistry } from './hosts/host-registry'
+import {
+  buildLauncherCommand,
+  launcherCommandPattern,
+  usableLocalLauncherRef,
+  type StudioLauncherRef,
+} from './integrations/launcher'
+import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
 
 // =============================================================================
 // Types
@@ -116,12 +127,35 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
   }
 }
 
-function buildHookCommand(memoryRelativeRoot: string): string {
-  // Quote both arguments so paths with spaces survive the shell. Forward
-  // slashes work on every platform Node will accept the path.
-  const scriptRel = HOOK_SCRIPT_REL.split(sep).join('/')
+// Run through the Studio launcher (`integrations/launcher.ts`) of the machine
+// the workspace is on — this one, or the WSL distribution a `\\wsl.localhost`
+// folder is inside — which runs the hook that ships with the app: nothing is
+// copied into the workspace, no Node on PATH is assumed, and the entry is a
+// quiet no-op once the app is gone. The knowledge root stays relative — the
+// hook resolves it against the session's working directory, the workspace.
+function knowledgeLauncherFor(workspaceRoot: string): StudioLauncherRef | null {
+  const hostId = hostIdForPath(workspaceRoot)
+  if (hostId === 'local') return usableLocalLauncherRef(homedir())
+  const host = hostRegistry().get(hostId as ExecutionHostId)
+  return host.kind === 'wsl' ? (host.agentIntegration()?.commandRuntime.launcher ?? null) : null
+}
+
+// Without a launcher (a distribution whose helper is not up, or a launcher
+// that could not be written): the older form, a copy of the hook in the
+// workspace run by the `node` of whichever machine the CLI runs on.
+function buildHookCommand(memoryRelativeRoot: string, launcher: StudioLauncherRef | null): string {
   const memoryRel = memoryRelativeRoot.split(sep).join('/')
-  return `node "${scriptRel}" --knowledge-root "${memoryRel}"`
+  if (!launcher) return `node "${HOOK_SCRIPT_REL.split(sep).join('/')}" --knowledge-root "${memoryRel}"`
+  return buildLauncherCommand(launcher, 'knowledge-activity', ['--knowledge-root', memoryRel])
+}
+
+/** Whether a hook command is this feature's, in the launcher form or the copied-script form before it. */
+function isKnowledgeActivityCommand(command: unknown): boolean {
+  return (
+    typeof command === 'string' &&
+    (launcherCommandPattern('knowledge-activity').test(command) ||
+      /\.sprintengine\/hooks\/knowledge-activity\.mjs["'] --knowledge-root /u.test(command))
+  )
 }
 
 function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string): ClaudeMatcherBlock {
@@ -136,10 +170,17 @@ function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string): Clau
 }
 
 function isSprintEngineEntry(entry: ClaudeHookEntry): boolean {
-  return entry?._sprintengine === HOOK_TAG
+  return entry?._sprintengine === HOOK_TAG || isKnowledgeActivityCommand(entry?.command)
 }
 
-async function mergeSprintEngineHook(settingsPath: string, hookCommand: string): Promise<void> {
+// Under the per-file lock every writer of this settings file shares (the MCP
+// sync, the agent-state install, the start-up migration), and written through a
+// temporary file, so neither this nor they lose the other's change.
+function mergeSprintEngineHook(settingsPath: string, hookCommand: string): Promise<void> {
+  return withConfigFileLock(settingsPath, () => mergeSprintEngineHookLocked(settingsPath, hookCommand))
+}
+
+async function mergeSprintEngineHookLocked(settingsPath: string, hookCommand: string): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {}
@@ -160,10 +201,14 @@ async function mergeSprintEngineHook(settingsPath: string, hookCommand: string):
   block.hooks = filtered
 
   await mkdir(resolve(settingsPath, '..'), { recursive: true })
-  await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(settingsPath, JSON.stringify(settings, null, 2) + '\n')
 }
 
-async function unmergeSprintEngineHook(settingsPath: string): Promise<void> {
+function unmergeSprintEngineHook(settingsPath: string): Promise<void> {
+  return withConfigFileLock(settingsPath, () => unmergeSprintEngineHookLocked(settingsPath))
+}
+
+async function unmergeSprintEngineHookLocked(settingsPath: string): Promise<void> {
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing?.hooks?.PostToolUse) return
   const blocks = existing.hooks.PostToolUse as ClaudeMatcherBlock[]
@@ -176,7 +221,7 @@ async function unmergeSprintEngineHook(settingsPath: string): Promise<void> {
   if (existing.hooks.PostToolUse.length === 0) delete existing.hooks.PostToolUse
   if (Object.keys(existing.hooks).length === 0) delete existing.hooks
 
-  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
+  await writeFileAtomically(settingsPath, JSON.stringify(existing, null, 2) + '\n')
 }
 
 // =============================================================================
@@ -200,15 +245,31 @@ export async function installMemoryActivityHook(
   try {
     const hookDir = resolve(workspaceRoot, '.sprintengine', 'hooks')
     await mkdir(hookDir, { recursive: true })
-    const destScript = resolve(workspaceRoot, HOOK_SCRIPT_REL)
-    await copyFile(sourceScript, destScript)
+    const launcher = knowledgeLauncherFor(workspaceRoot)
+    if (launcher) {
+      // The copy an earlier build made is no longer run by anything.
+      await rm(resolve(workspaceRoot, HOOK_SCRIPT_REL), { force: true }).catch(() => undefined)
+    } else {
+      await copyFile(sourceScript, resolve(workspaceRoot, HOOK_SCRIPT_REL))
+    }
 
     const traceDir = resolve(workspaceRoot, TRACE_DIR_REL)
     await mkdir(traceDir, { recursive: true })
 
     const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
-    const command = buildHookCommand(memoryRelativeRoot)
+    const createdFile = !existsSync(settingsPath)
+    const command = buildHookCommand(memoryRelativeRoot, launcher)
     await mergeSprintEngineHook(settingsPath, command)
+    recordIntegrationWrite({
+      kind: 'knowledge-activity-hook',
+      path: settingsPath,
+      marker: HOOK_TAG,
+      hostId: hostIdForPath(settingsPath),
+      cli: 'claude-code',
+      repo: workspaceRoot,
+      createdFile,
+      detail: { record: resolve(workspaceRoot, INSTALLED_RECORD_REL) },
+    })
 
     const installedRecord = {
       installedAt: new Date().toISOString(),
@@ -227,7 +288,7 @@ export async function installMemoryActivityHook(
     const state = ensureWorkspaceState(workspaceRoot, memoryRelativeRoot)
     state.isInstalled = true
 
-    return { ok: true, settingsPath, hookScriptPath: destScript }
+    return { ok: true, settingsPath, hookScriptPath: sourceScript }
   } catch (error) {
     return {
       ok: false,

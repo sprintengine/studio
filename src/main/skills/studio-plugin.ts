@@ -20,16 +20,17 @@
 //     ordinary skill installer, so each copy carries a provenance marker and
 //     Sync can tell an app-shipped copy from someone's own edit.
 //   - The agent-state hook, merged into `.claude/settings.local.json` — the
-//     path the claude-code manifest names — from the command and event set the
-//     plugin's OWN `hooks/hooks.json` declares. The plugin is the declaration;
-//     the merge is how a workspace gets it while Claude Code is not loading the
-//     plugin natively (see STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT).
-//   - `enabledPlugins` into `.claude/settings.json` (tracked by git in a normal
-//     project, and portable: it names a plugin, not a path) and
-//     `extraKnownMarketplaces` into `.claude/settings.local.json` (gitignored,
-//     because a directory marketplace's source is an absolute machine path that
-//     must never be committed). That split is why this module does not call
-//     `enableClaudePlugin`, which writes both keys into one file.
+//     path the claude-code manifest names — for the event set the plugin's OWN
+//     `hooks/hooks.json` declares. The plugin is the declaration; the merge is
+//     how a workspace gets it while Claude Code is not loading the plugin
+//     natively (see STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT). The command is the
+//     Studio launcher's (`integrations/launcher.ts`), as is the gateway in the
+//     copy's `.mcp.json`, so neither fails once the app has moved or gone.
+//   - `enabledPlugins` and `extraKnownMarketplaces`, both into
+//     `.claude/settings.local.json` (gitignored). `enabledPlugins` used to go
+//     into the tracked `.claude/settings.json`; see
+//     `enableStudioPluginInClaudeSettings` for why it moved. This module still
+//     does not call `enableClaudePlugin`, which writes the tracked file.
 //
 // All of that describes a workspace whose Claude sessions still read the plugin
 // from the workspace. Where the launch hands Claude Code the app-owned copy
@@ -44,14 +45,21 @@
 
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+
+import { STUDIO_MCP_SERVER_ID } from '../../shared/product-identity'
+import { buildLauncherMcpServer, usableLocalLauncherRef, type StudioLauncherRef } from '../integrations/launcher'
+import { hostIdForPath, recordIntegrationWrite } from '../integrations/ledger'
 
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import type { SkillHarness } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import type { PluginAgentStateSpec } from '../../shared/plugin-manifest'
-import { mergeAgentStateHooks, removeWorkspaceAgentStateRegistration } from '../agent-state'
+import { buildLauncherHookCommand, mergeAgentStateHooks, removeWorkspaceAgentStateRegistration } from '../agent-state'
+import { resolveClaudeConfigDir } from '../claude-config-dir'
 import { withConfigFileLock } from '../config-file-write'
+import { runGitCommand } from '../git-utils'
 import { installSkillDirectory, readSkillProvenance } from './install'
 import { CLAUDE_SETTINGS_RELATIVE_PATH } from './install-plugin'
 import { isRecord } from '../../shared/records'
@@ -86,7 +94,7 @@ export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
 export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
 
 /** The marketplace that lists it. */
-const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
+export const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
 
 /**
  * The provenance `sourceId` every installed copy of a studio skill carries.
@@ -574,6 +582,12 @@ export type StudioPluginInstallOptions = {
    * never ran it to inherit.
    */
   registerWithClaude: boolean
+  /**
+   * The Studio launcher the hook and gateway written here run (see
+   * `integrations/launcher.ts`). Absent: this machine's, under the home
+   * directory. Tests pass one under a temporary home.
+   */
+  launcher?: StudioLauncherRef
 }
 
 export type StudioPluginInstallResult =
@@ -611,10 +625,18 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
   // launch carries it, the reporter the session runs is the copy inside the
   // app's own plugin directory, and writing a second one here would put back
   // the very file the migration above just removed.
-  if (options.registerWithClaude) {
-    if (!existsSync(options.agentStateReporterSourcePath)) {
-      return { ok: false, message: 'The agent-state reporter is missing from this build.' }
-    }
+  //
+  // The hook runs the reporter that ships with the app, through the Studio
+  // launcher, so nothing is copied beside it; the check stays because a build
+  // without the reporter has nothing for that hook to run.
+  if (options.registerWithClaude && !existsSync(options.agentStateReporterSourcePath)) {
+    return { ok: false, message: 'The agent-state reporter is missing from this build.' }
+  }
+  const launcher = options.launcher ?? usableLocalLauncherRef(homedir())
+  const ledgerBase = { hostId: hostIdForPath(workspaceRoot), repo: workspaceRoot }
+  // A launcher that could not be written this run: the older arrangement,
+  // with the reporter copied beside the hook that names it.
+  if (options.registerWithClaude && !launcher) {
     try {
       await mkdir(dirname(options.tokens.agentStateReporterPath), { recursive: true })
       await copyFile(options.agentStateReporterSourcePath, options.tokens.agentStateReporterPath)
@@ -636,6 +658,18 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
     if (!materialised.ok) return materialised
     materialisedRoot = materialised.root
     skillsSourceRoot = join(materialised.root, STUDIO_PLUGIN_ID, 'skills')
+    // Claude Code loads this copy's `.mcp.json` itself. Its gateway runs the
+    // launcher, not this build's executable, so a workspace the app has left
+    // behind starts an empty server rather than failing to start one.
+    if (launcher) await pointMaterialisedGatewayAtLauncher(materialised.root, launcher, options.tokens.userDataDir)
+    recordIntegrationWrite({
+      kind: 'studio-plugin-copy',
+      path: materialised.root,
+      marker: 'owned',
+      cli: 'claude-code',
+      createdFile: true,
+      ...ledgerBase,
+    })
   } else {
     await rm(resolve(workspaceRoot, STUDIO_PLUGIN_WORKSPACE_DIR), { recursive: true, force: true }).catch(
       () => undefined,
@@ -669,6 +703,15 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
     }
     copied.push(result.dirName)
     for (const harness of result.harnesses) harnessesThatTook.add(harness)
+    recordIntegrationWrite(
+      ...result.harnesses.map((harness) => ({
+        kind: 'skill-copy' as const,
+        path: resolve(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills', result.dirName),
+        marker: `provenance:${STUDIO_PLUGIN_SOURCE_ID}`,
+        createdFile: true,
+        ...ledgerBase,
+      })),
+    )
   }
   if (copied.length === 0) {
     return { ok: false, message: warnings[0] ?? 'No SprintEngine Studio skill could be copied into this workspace.' }
@@ -698,9 +741,23 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
       )
     } else {
       const path = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
+      // The template declares WHICH events; the command written is the
+      // launcher's, whatever the template's (a copied script run by `node`).
+      const command = launcher
+        ? buildLauncherHookCommand(launcher, 'agent-state', options.tokens.agentStateSocketPath)
+        : registration.command
       try {
-        await withConfigFileLock(path, () => mergeAgentStateHooks(path, registration.command, registration.events))
+        const createdFile = !existsSync(path)
+        await withConfigFileLock(path, () => mergeAgentStateHooks(path, command, registration.events))
         hookSettingsPath = path
+        recordIntegrationWrite({
+          kind: 'agent-state-hooks',
+          path,
+          marker: 'settings-json',
+          cli: 'claude-code',
+          createdFile,
+          ...ledgerBase,
+        })
       } catch (error) {
         warnings.push(`The agent-state hook could not be registered: ${describe(error)}`)
       }
@@ -816,6 +873,12 @@ export async function removeStudioPluginClaudeRegistration(
   if (await removeSettingsKey(localPath, 'extraKnownMarketplaces', STUDIO_PLUGIN_MARKETPLACE_NAME)) {
     removed.push(CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
   }
+  if (
+    (await removeSettingsKey(localPath, 'enabledPlugins', studioClaudePluginKey())) &&
+    !removed.includes(CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
+  ) {
+    removed.push(CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
+  }
 
   // The hook entries, the status line, and the scripts they named — scripts
   // after entries, so a failure half-way never leaves a registration pointing
@@ -863,7 +926,7 @@ export async function removeStudioPluginClaudeRegistration(
  * an unparseable file is left exactly as it is — it is someone's work in
  * progress, and this is a tidy-up, not a repair.
  */
-async function removeSettingsKey(path: string, record: string, key: string): Promise<boolean> {
+export async function removeSettingsKey(path: string, record: string, key: string): Promise<boolean> {
   // Under the same per-file lock as the MCP sync and the hook installer, which
   // read-modify-write `.claude/settings.local.json` too.
   return withConfigFileLock(path, async () => {
@@ -881,17 +944,20 @@ async function removeSettingsKey(path: string, record: string, key: string): Pro
 }
 
 /**
- * Name the plugin in the workspace's Claude settings, across the two files
- * Claude Code merges.
+ * Name the plugin in the workspace's Claude settings.
  *
- * `enabledPlugins` goes in `.claude/settings.json`, which a project normally
- * commits: it names a plugin and nothing else, so it means the same thing on
- * every machine that opens this repository. `extraKnownMarketplaces` goes in
- * `.claude/settings.local.json`, which is gitignored: a directory marketplace's
- * source is this machine's absolute path, and committing it would hand everyone
- * else a path that does not exist.
+ * Both keys go in `.claude/settings.local.json`, the gitignored half, which
+ * Claude Code merges over `.claude/settings.json` key by key. An earlier build
+ * put `enabledPlugins` in `.claude/settings.json` because the key names a
+ * plugin rather than a path — but that file is committed, so every colleague
+ * who pulled it was asked to enable a plugin their machine does not have, and
+ * the entry outlived the app on every clone. The local file is where anything
+ * this machine's app decides belongs; the earlier key is taken back out of the
+ * tracked file here, as the migration.
  *
- * Both files are merged, never replaced, and only these two keys are touched.
+ * `extraKnownMarketplaces` was always local: a directory marketplace's source
+ * is this machine's absolute path. Only these keys are touched, and the files
+ * are merged, never replaced.
  */
 async function enableStudioPluginInClaudeSettings(input: {
   workspaceRoot: string
@@ -899,20 +965,10 @@ async function enableStudioPluginInClaudeSettings(input: {
   marketplacePath: string
 }): Promise<{ ok: true; pluginKey: string } | { ok: false; message: string }> {
   const pluginKey = studioClaudePluginKey()
-  const projectPath = resolve(input.workspaceRoot, CLAUDE_SETTINGS_RELATIVE_PATH)
-  const wroteProject = await withConfigFileLock(projectPath, async () => {
-    const project = await readJsonObject(projectPath)
-    if (!project.ok) return project
-    const enabledPlugins = isRecord(project.value.enabledPlugins) ? project.value.enabledPlugins : {}
-    enabledPlugins[pluginKey] = true
-    project.value.enabledPlugins = enabledPlugins
-    return writeJsonObject(projectPath, project.value, project.raw)
-  })
-  if (!wroteProject.ok) return wroteProject
-
   // Under the same per-file lock as the MCP sync and the hook installer, which
   // read-modify-write this file too.
   const localPath = resolve(input.workspaceRoot, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
+  const createdFile = !existsSync(localPath)
   const wroteLocal = await withConfigFileLock(localPath, async () => {
     const local = await readJsonObject(localPath)
     if (!local.ok) return local
@@ -923,10 +979,72 @@ async function enableStudioPluginInClaudeSettings(input: {
       source: { source: 'directory', path: input.marketplacePath },
     }
     local.value.extraKnownMarketplaces = marketplaces
+    const enabledPlugins = isRecord(local.value.enabledPlugins) ? local.value.enabledPlugins : {}
+    enabledPlugins[pluginKey] = true
+    local.value.enabledPlugins = enabledPlugins
     return writeJsonObject(localPath, local.value, local.raw)
   })
   if (!wroteLocal.ok) return wroteLocal
+  const base = { hostId: hostIdForPath(localPath), repo: input.workspaceRoot, cli: 'claude-code', createdFile }
+  recordIntegrationWrite(
+    {
+      kind: 'claude-plugin-setting',
+      path: localPath,
+      marker: `extraKnownMarketplaces.${STUDIO_PLUGIN_MARKETPLACE_NAME}`,
+      ...base,
+    },
+    { kind: 'claude-plugin-setting', path: localPath, marker: `enabledPlugins.${pluginKey}`, ...base },
+    // Claude Code copies a directory marketplace a project names into its own
+    // user-global registry (measured 2026-09-09, see
+    // STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT). The app never writes that file,
+    // but the entry exists because of the key above, so it is listed for the
+    // removal to take back out.
+    {
+      kind: 'claude-known-marketplace',
+      path: join(resolveClaudeConfigDir(homedir(), process.env), 'plugins', 'known_marketplaces.json'),
+      marker: STUDIO_PLUGIN_MARKETPLACE_NAME,
+      hostId: base.hostId,
+      cli: 'claude-code',
+    },
+  )
+
+  // The key an earlier build wrote into the tracked file — unless the project
+  // committed it, when taking it out would leave a local change in every
+  // checkout. Best-effort: a file that cannot be read keeps it, and the local
+  // key says the same thing anyway.
+  if (!(await committedFileMentions(input.workspaceRoot, CLAUDE_SETTINGS_RELATIVE_PATH, pluginKey))) {
+    await removeSettingsKey(resolve(input.workspaceRoot, CLAUDE_SETTINGS_RELATIVE_PATH), 'enabledPlugins', pluginKey)
+  }
   return { ok: true, pluginKey }
+}
+
+/** Whether the committed version (`HEAD`) of a file in a checkout contains `text`. False outside git. */
+async function committedFileMentions(workspaceRoot: string, relativePath: string, text: string): Promise<boolean> {
+  const committed = await runGitCommand(workspaceRoot, ['show', `HEAD:./${relativePath}`]).catch(() => null)
+  return committed?.ok === true && committed.stdout.includes(text)
+}
+
+/**
+ * Point the materialised plugin's gateway at the Studio launcher. The template
+ * names this build's executable and bridge, which is right for the app-owned
+ * copy a launch passes (it lives and dies with the build) and wrong for a copy
+ * in a repository, which Claude Code keeps loading after the app has gone.
+ */
+async function pointMaterialisedGatewayAtLauncher(
+  root: string,
+  launcher: StudioLauncherRef,
+  userDataDir: string,
+): Promise<void> {
+  const path = join(root, STUDIO_PLUGIN_ID, '.mcp.json')
+  const read = await readJsonObject(path)
+  if (!read.ok || !isRecord(read.value.mcpServers)) return
+  const servers = read.value.mcpServers
+  if (!isRecord(servers[STUDIO_MCP_SERVER_ID])) return
+  servers[STUDIO_MCP_SERVER_ID] = {
+    ...buildLauncherMcpServer(launcher),
+    env: { SPRINTENGINE_USER_DATA_DIR: userDataDir.split('\\').join('/') },
+  }
+  await writeJsonObject(path, read.value, read.raw)
 }
 
 async function readJsonObject(

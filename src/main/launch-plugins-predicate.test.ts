@@ -145,5 +145,9 @@ test('on Windows the workspace keeps its Claude hook when the plugin copy has la
   const record = service.installed(workspace)
   assert.ok(record?.hookSettingsPath, 'the Claude hook is registered in the workspace')
   assert.equal(existsSync(join(workspace, '.claude', 'settings.local.json')), true)
-  assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+  assert.equal(
+    existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
+    false,
+    'the launcher runs the shipped reporter',
+  )
 })

@@ -1,10 +1,10 @@
 import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
-import { hostname } from 'os'
+import { homedir, hostname } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import {
   ensureAgentIntegrationHome,
@@ -165,6 +165,14 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
+import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
+import { prepareStudioIntegrations, wslLedgerMirrorPath } from './integrations/integration-boot'
+import {
+  createIntegrationLedger,
+  hostIdForPath,
+  installIntegrationLedger,
+  INTEGRATION_LEDGER_FILE,
+} from './integrations/ledger'
 
 const execFileAsync = promisify(execFile)
 
@@ -177,6 +185,27 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   primeDefaultWslDistro()
   const sprintengineAuth = new SprintEngineAuthBridge()
   const mcpConfigService = createMcpConfigService()
+  // Every file, entry and piece of machine state the app writes outside
+  // userData is recorded here as it is written (integrations/ledger.ts), so it
+  // can all be taken back out. Installed before anything that writes.
+  const integrationLedgerStore = createIntegrationLedger({
+    path: join(app.getPath('userData'), INTEGRATION_LEDGER_FILE),
+    // A distribution's entries are mirrored into it while its helper is up.
+    mirrorPathFor: (hostId) => {
+      const host = hostRegistry().get(hostId)
+      const home = host.kind === 'wsl' ? host.agentIntegration()?.home.native : null
+      return home ? wslLedgerMirrorPath(home) : null
+    },
+    onError: (error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Integration ledger not written',
+        message: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    },
+  })
+  installIntegrationLedger(integrationLedgerStore)
   const resolveStudioMcpBridgeScriptPath = () =>
     app.isPackaged
       ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
@@ -264,10 +293,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     if (host.kind === 'wsl') {
       return (integration === undefined ? host.agentIntegration() : integration)?.studioMcpEntry ?? null
     }
+    // Through the Studio launcher, so the entry this writes into a repository
+    // keeps working when the app moves or updates, and serves an empty MCP
+    // server rather than failing to start once the app is gone.
+    const launcher = usableLocalLauncherRef(homedir())
+    if (!launcher) {
+      // The launcher could not be written this run: name this build directly,
+      // which works for as long as it stays installed.
+      return {
+        command: process.execPath,
+        args: [resolveStudioMcpBridgeScriptPath()],
+        env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
+      }
+    }
     return {
-      command: process.execPath,
-      args: [resolveStudioMcpBridgeScriptPath()],
-      env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
+      ...buildLauncherMcpServer(launcher),
+      env: { SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
     }
   }
   // Bundled skills arrive in the `studio-skills` directory of that same copy.
@@ -353,6 +394,51 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // workspace installer instead of losing agent state.
   const agentIntegrationReady = (async () => {
     await bootJobsGate
+    // The Studio launcher every hook and gateway entry runs, pointed at this
+    // build — before any launch, because a launch writes commands that name
+    // it. Then, in the background, the one-time list of what earlier builds
+    // wrote and every listed entry moved onto the launcher.
+    let launcherReady: () => void = () => undefined
+    const launcherWritten = new Promise<void>((resolve) => {
+      launcherReady = resolve
+    })
+    void prepareStudioIntegrations({
+      onLauncherReady: () => launcherReady(),
+      ledger: integrationLedgerStore,
+      home: homedir(),
+      shell: process.platform === 'win32' ? 'windows' : 'posix',
+      pointer: {
+        node: process.execPath,
+        runAsNode: true,
+        payload: app.isPackaged
+          ? process.resourcesPath
+          : dirname(getBundledResourceDir('hooks') ?? join(app.getAppPath(), 'resources', 'hooks')),
+        packaged: app.isPackaged,
+      },
+      // This machine's checkouts only: reading a `\\wsl.localhost` folder
+      // would boot a stopped distribution just to look.
+      listRoots: () =>
+        workspaceRegistry
+          .getState()
+          .workspaces.flatMap((workspace) =>
+            workspace.folderPath && hostIdForPath(workspace.folderPath) === 'local'
+              ? [{ path: workspace.folderPath, hostId: 'local' }]
+              : [],
+          ),
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'Integrations', message, source: 'workspace' })
+      },
+    }).catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Studio integrations not prepared',
+        message:
+          'The launcher, or the pass over what earlier builds wrote, failed. A hook naming a missing launcher fails until it is written; the pass is tried again next start.',
+        details: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    })
+    await launcherWritten
     const home = await ensureAgentIntegrationHome({
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
