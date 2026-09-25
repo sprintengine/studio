@@ -34,9 +34,11 @@ import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
 // same as a local one. Provenance did not go to a tooltip — it is on the tab
 // chip, where it does not repeat.
 //
-// Reconnection is handled in main and narrated here. A dropped socket re-dials;
-// the listener answers a fresh attach with the retained scrollback, which the
-// replay gate repaints — so a Wi-Fi handover costs a repaint, not a screen.
+// Reconnection is handled in main and narrated here. A dropped socket re-dials
+// from where this pane stands, and what it missed arrives as ordinary output —
+// so a Wi-Fi handover costs nothing visible. When the far end no longer holds
+// that, it answers with the retained scrollback, which the replay gate
+// repaints — a repaint, never a lost screen.
 
 interface Props {
   /** Local id for this attachment, stable for the pane's life. The event channel is keyed by it. */

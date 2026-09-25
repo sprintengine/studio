@@ -8,7 +8,12 @@ import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createAgentPromptStore } from './agent-prompt-store'
-import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
+import {
+  TERMINAL_REMOTE_CATCH_UP_BUDGET_BYTES,
+  TERMINAL_REMOTE_FRAME_CHUNK_CHARS,
+  TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES,
+  TERMINAL_REMOTE_TRANSPORT_LOW_WATER_BYTES,
+} from './terminal-remote-attach'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createPullRequestRecord } from './pull-request-record'
 import { readPullRequestState } from './github/branch-pull-request'
@@ -155,6 +160,10 @@ test('terminal-runtime', async () => {
       await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
       await assertRemoteFramesNeverExceedTheWireCap(runtimeModule)
       await assertALargeReplayDoesNotTriggerItsOwnResync(runtimeModule)
+      await assertRemoteReattachResumesFromItsPosition(runtimeModule)
+      await assertUnresumableReattachGetsAFullReplay(runtimeModule)
+      await assertABehindViewerIsCaughtUpNotRepainted(runtimeModule)
+      await assertAttachIsRaceFree(runtimeModule)
       await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
       await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
       await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
@@ -1977,6 +1986,16 @@ test('terminal-runtime', async () => {
       await delay(20)
       assert.ok((listed(runtime)?.retainedOutputBytes ?? 0) > 100_000, 'a live agent retains its stream')
 
+      // A remote viewer watching when it is paused, to resume from afterwards.
+      const watching = createRecordingViewer('release-watcher')
+      const watched = runtime.remoteHost.attach({
+        sessionId: 'session-release',
+        scope: 'observe',
+        transport: watching.transport,
+      })
+      assert.equal(watched.ok, true)
+      const heldBeforePause = streamPositionOf(watching.frames)
+
       runtime.ipcHandlers.suspendTerminal('session-release')
       pty.emitExit({ exitCode: 0 })
       const start = Date.now()
@@ -2008,6 +2027,39 @@ test('terminal-runtime', async () => {
         runtime.readTerminalOutput('session-release')?.includes('the last thing the agent painted'),
         'the agent control plane still reads what the paused agent printed',
       )
+
+      // A paused agent has no live stream to continue, only its frozen screen:
+      // a remote viewer resuming from where it stood before the pause is sent
+      // that screen whole, positioned where the stream stopped, in a stream it
+      // can resume later only from that screen.
+      assert.equal(
+        watching.frames.some((frame) => frame.type === 'ended'),
+        true,
+        'the watcher was told the pause ended its stream',
+      )
+      const afterPause = createRecordingViewer('release-after-pause')
+      const reattached = runtime.remoteHost.attach({
+        sessionId: 'session-release',
+        scope: 'observe',
+        transport: afterPause.transport,
+        resume: heldBeforePause,
+      })
+      assert.equal(reattached.ok, true)
+      assert.equal(afterPause.frames[0]?.type, 'replay', 'the frozen screen is a full replay')
+      assert.equal(
+        afterPause.frames.some((frame) => frame.type === 'resumed'),
+        false,
+      )
+      assert.ok(
+        afterPause.frames
+          .map((frame) => String(frame.data ?? ''))
+          .join('')
+          .includes('the last thing the agent painted'),
+        'the replay is the frozen screen',
+      )
+      const heldAfterPause = streamPositionOf(afterPause.frames)
+      assert.equal(heldAfterPause.position, heldBeforePause.position, 'positioned where the stream stopped')
+      assert.notEqual(heldAfterPause.stream, heldBeforePause.stream, 'released behind the snapshot, it is a new stream')
     } finally {
       await runtime.shutdown()
     }
@@ -2810,12 +2862,14 @@ test('terminal-runtime', async () => {
       if (!attached.ok) return
 
       // Replay first, and it carries what the session printed before the attach.
-      assert.deepEqual(watcher.frames, [{ type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' }])
+      assert.deepEqual(unpositioned(watcher.frames), [
+        { type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' },
+      ])
 
       watcher.frames = []
       pty.emitData('live line\r\n')
       await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'live line\r\n' }])
+      assert.deepEqual(unpositioned(watcher.frames), [{ type: 'output', data: 'live line\r\n' }])
 
       // A second concurrent viewer joins and sees the same stream.
       const second = createRecordingViewer('second')
@@ -2833,8 +2887,8 @@ test('terminal-runtime', async () => {
       mockSender.sent = []
       pty.emitData('seen by both\r\n')
       await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'seen by both\r\n' }])
-      assert.deepEqual(second.frames, [{ type: 'output', data: 'seen by both\r\n' }])
+      assert.deepEqual(unpositioned(watcher.frames), [{ type: 'output', data: 'seen by both\r\n' }])
+      assert.deepEqual(unpositioned(second.frames), [{ type: 'output', data: 'seen by both\r\n' }])
       assert.equal(
         mockSender.sent.some(
           (event) => event.channel === `terminal:data:${sessionId}` && event.payload === 'seen by both\r\n',
@@ -2850,8 +2904,8 @@ test('terminal-runtime', async () => {
       mockSender.sent = []
       pty.emitData('printed while the tab is hidden\r\n')
       await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
-      assert.deepEqual(second.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
+      assert.deepEqual(unpositioned(watcher.frames), [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
+      assert.deepEqual(unpositioned(second.frames), [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
       assert.equal(
         mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
         false,
@@ -2874,8 +2928,9 @@ test('terminal-runtime', async () => {
       assert.equal(accepted.ok, true, JSON.stringify(accepted))
       assert.equal(pty.writes[pty.writes.length - 1], 'echo hi\n')
 
-      // Backpressure: a consumer that stops draining loses bytes and is repainted
-      // from the retained replay. The pty and the local renderer are untouched.
+      // Backpressure: a consumer that stops draining is sent nothing more until
+      // it drains, and is then caught up from where it stopped. The pty and the
+      // local renderer are untouched.
       watcher.frames = []
       mockSender.sent = []
       watcher.queued = 4 * 1024 * 1024
@@ -2891,13 +2946,15 @@ test('terminal-runtime', async () => {
       watcher.queued = 0
       pty.emitData('after the drain\r\n')
       await delay(30)
-      assert.equal(watcher.frames.length, 1)
-      assert.equal(watcher.frames[0]?.type, 'replay')
-      assert.equal((watcher.frames[0] as { reason?: unknown }).reason, 'resync')
-      const resynced = String((watcher.frames[0] as { data?: unknown }).data ?? '')
-      assert.ok(
-        resynced.includes('dropped by the slow consumer') && resynced.includes('after the drain'),
-        'the resync replay carries both the dropped bytes and the batch that triggered it',
+      assert.equal(
+        watcher.frames.some((frame) => frame.type === 'replay'),
+        false,
+        'a viewer that fell behind is not repainted from the top',
+      )
+      assert.equal(
+        watcher.frames.map((frame) => String(frame.data)).join(''),
+        'dropped by the slow consumer\r\nafter the drain\r\n',
+        'the catch-up carries exactly the withheld bytes and the batch that followed them',
       )
 
       // Detaching stops delivery without touching the other viewer or the pane.
@@ -2907,7 +2964,7 @@ test('terminal-runtime', async () => {
       pty.emitData('after the second viewer left\r\n')
       await delay(30)
       assert.equal(second.frames.length, 0, 'a detached viewer receives nothing')
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'after the second viewer left\r\n' }])
+      assert.deepEqual(unpositioned(watcher.frames), [{ type: 'output', data: 'after the second viewer left\r\n' }])
 
       // A real pty exit is reported; closing the session ends the stream with a reason.
       watcher.frames = []
@@ -2993,6 +3050,28 @@ test('terminal-runtime', async () => {
         printed,
         'the slices add up to exactly the retained output',
       )
+      // The client holds the replay's position only once the whole of it has
+      // arrived: the stream on the first slice, the position on the last, and
+      // none in between for a client to resume from half a screen.
+      const last = viewer.frames[viewer.frames.length - 1]
+      assert.equal(typeof viewer.frames[0]?.stream, 'string', 'the first slice names the stream')
+      assert.equal(viewer.frames[0]?.position, undefined, 'the first slice carries no position')
+      for (const frame of viewer.frames.slice(1, -1)) assert.equal(frame.position, undefined)
+      assert.equal(last?.position, Buffer.byteLength(printed, 'utf8'), 'the last slice carries the end of the stream')
+
+      // Live output sliced the same way is positioned slice by slice, each at
+      // the stream offset just past it, so a client may resume between them.
+      viewer.frames = []
+      pty.emitData(printed)
+      await delay(60)
+      assert.ok(viewer.frames.length >= 3, 'the live output arrived in slices')
+      let expectedEnd = Buffer.byteLength(printed, 'utf8')
+      for (const frame of viewer.frames) {
+        assert.equal(frame.type, 'output')
+        expectedEnd += Buffer.byteLength(String(frame.data), 'utf8')
+        assert.equal(frame.position, expectedEnd, 'each live slice is positioned just past itself')
+      }
+      assert.equal(expectedEnd, 2 * Buffer.byteLength(printed, 'utf8'))
     } finally {
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })
@@ -3055,7 +3134,7 @@ test('terminal-runtime', async () => {
         pty.emitData(`progress ${step}\r\n`)
         await delay(30)
         assert.deepEqual(
-          viewer.frames,
+          unpositioned(viewer.frames),
           [{ type: 'output', data: `progress ${step}\r\n` }],
           `output ${step} is streamed while the replay drains, not dropped and repainted from the top`,
         )
@@ -3074,21 +3153,390 @@ test('terminal-runtime', async () => {
     frames: RecordedFrame[]
     queued: number
     open: boolean
+    /** Runs whenever the runtime asks how far behind the viewer is. */
+    onQueuedBytes: (() => void) | null
   } {
     const viewer = {
       frames: [] as RecordedFrame[],
       queued: 0,
       open: true,
+      onQueuedBytes: null as (() => void) | null,
       transport: {
         viewerId,
         send: (frame: unknown) => {
           viewer.frames.push(frame as RecordedFrame)
         },
         isOpen: () => viewer.open,
-        queuedBytes: () => viewer.queued,
+        queuedBytes: () => {
+          viewer.onQueuedBytes?.()
+          return viewer.queued
+        },
       },
     }
     return viewer
+  }
+
+  /** Frames as a client that predates positions reads them. */
+  function unpositioned(frames: RecordedFrame[]): RecordedFrame[] {
+    return frames.map((frame) => {
+      const { stream: _stream, position: _position, ...rest } = frame
+      return rest as RecordedFrame
+    })
+  }
+
+  /** What a positioned client holds after these frames: the stream, and how far into it. */
+  function streamPositionOf(frames: RecordedFrame[]): { stream: string; position: number } {
+    let stream: string | null = null
+    let position: number | null = null
+    for (const frame of frames) {
+      if ((frame.type === 'replay' || frame.type === 'resumed') && typeof frame.stream === 'string') {
+        stream = frame.stream
+      }
+      if (typeof frame.position === 'number') position = frame.position
+    }
+    assert.ok(stream !== null && position !== null, 'the frames carried a stream and a position')
+    return { stream, position }
+  }
+
+  async function spawnRemoteTestSession(
+    runtimeModule: RuntimeModule,
+    sessionId: string,
+  ): Promise<{ runtime: TerminalRuntime; pty: MockPtyProcess; workspaceRoot: string }> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-resume-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: true,
+    })
+    assert.equal(spawned.ok, true, JSON.stringify(spawned))
+    const pty = mockPty.spawnCalls[0]?.process
+    assert.ok(pty, 'the session spawned a pty')
+    return { runtime, pty, workspaceRoot }
+  }
+
+  // A remote viewer that lost its socket — a laptop lid closing, a Wi-Fi
+  // handover — reattaches naming where its screen stands. When the host still
+  // holds everything after that, it is sent only what it missed, appended, and
+  // then the live stream: no replay, no repaint of the history it already shows.
+  async function assertRemoteReattachResumesFromItsPosition(runtimeModule: RuntimeModule): Promise<void> {
+    const sessionId = 'session_remote_resume'
+    const { runtime, pty, workspaceRoot } = await spawnRemoteTestSession(runtimeModule, sessionId)
+    try {
+      pty.emitData('history the pane already shows\r\n')
+      await delay(30)
+
+      const first = createRecordingViewer('resume-first')
+      const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: first.transport })
+      assert.equal(attached.ok, true, JSON.stringify(attached))
+      if (!attached.ok) return
+      pty.emitData('seen live\r\n')
+      await delay(30)
+      const held = streamPositionOf(first.frames)
+      assert.equal(held.position, Buffer.byteLength('history the pane already shows\r\nseen live\r\n', 'utf8'))
+
+      // The socket drops; the agent keeps printing.
+      attached.attachment.detach()
+      pty.emitData('missed while away 1\r\n')
+      pty.emitData('missed while away 2\r\n')
+      await delay(30)
+
+      const again = createRecordingViewer('resume-again')
+      const reattached = runtime.remoteHost.attach({
+        sessionId,
+        scope: 'observe',
+        transport: again.transport,
+        resume: held,
+      })
+      assert.equal(reattached.ok, true, JSON.stringify(reattached))
+      const missed = 'missed while away 1\r\nmissed while away 2\r\n'
+      const end = held.position + Buffer.byteLength(missed, 'utf8')
+      assert.deepEqual(
+        again.frames,
+        [
+          { type: 'resumed', stream: held.stream, position: held.position },
+          { type: 'output', data: missed, position: end },
+        ],
+        'only the tail it missed, positioned, and no replay',
+      )
+
+      again.frames = []
+      pty.emitData('live again\r\n')
+      await delay(30)
+      assert.deepEqual(again.frames, [
+        { type: 'output', data: 'live again\r\n', position: end + Buffer.byteLength('live again\r\n', 'utf8') },
+      ])
+
+      // Nothing missed at all: resumed, and not a byte resent.
+      const now = end + Buffer.byteLength('live again\r\n', 'utf8')
+      const upToDate = createRecordingViewer('resume-up-to-date')
+      runtime.remoteHost.attach({
+        sessionId,
+        scope: 'observe',
+        transport: upToDate.transport,
+        resume: { stream: held.stream, position: now },
+      })
+      assert.deepEqual(upToDate.frames, [{ type: 'resumed', stream: held.stream, position: now }])
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A resume point the host can no longer honour is answered with the full
+  // replay a fresh attach gets, never with a partial stream that would leave a
+  // hole: cut from the head of the retained window, beyond the catch-up
+  // budget, past the end of the stream, or in a different stream altogether
+  // (a session restored under the same id after a restart). A client that
+  // names no position at all — every client before resuming existed — gets
+  // exactly today's replay.
+  async function assertUnresumableReattachGetsAFullReplay(runtimeModule: RuntimeModule): Promise<void> {
+    const sessionId = 'session_remote_unresumable'
+    const { runtime, pty, workspaceRoot } = await spawnRemoteTestSession(runtimeModule, sessionId)
+    try {
+      pty.emitData('the start of the session\r\n')
+      await delay(30)
+      const first = createRecordingViewer('unresumable-first')
+      const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: first.transport })
+      assert.equal(attached.ok, true)
+      if (!attached.ok) return
+      const held = streamPositionOf(first.frames)
+      attached.attachment.detach()
+
+      const attachWith = (viewerId: string, resume?: { stream: string; position: number }) => {
+        const viewer = createRecordingViewer(viewerId)
+        const result = runtime.remoteHost.attach({
+          sessionId,
+          scope: 'observe',
+          transport: viewer.transport,
+          ...(resume ? { resume } : {}),
+        })
+        assert.equal(result.ok, true, JSON.stringify(result))
+        if (result.ok) result.attachment.detach()
+        return viewer.frames
+      }
+
+      const legacy = attachWith('unresumable-legacy')
+      assert.equal(legacy[0]?.type, 'replay', 'a client naming no position gets the full replay')
+      assert.equal(legacy[0]?.reason, 'attach')
+      assert.equal(legacy.length, 1)
+
+      const otherStream = attachWith('unresumable-other-stream', {
+        stream: 'a-stream-from-before-a-restart',
+        position: 0,
+      })
+      assert.equal(otherStream[0]?.type, 'replay', 'a position in another stream is not continued')
+      assert.equal(
+        otherStream.some((frame) => frame.type === 'resumed'),
+        false,
+      )
+
+      const pastTheEnd = attachWith('unresumable-past-end', { stream: held.stream, position: held.position + 10_000 })
+      assert.equal(pastTheEnd[0]?.type, 'replay', 'a position past the end of the stream is not continued')
+
+      // More than the catch-up budget since: a repaint is the better answer.
+      const line = 'y'.repeat(1023) + '\n'
+      pty.emitData(line.repeat(Math.ceil((TERMINAL_REMOTE_CATCH_UP_BUDGET_BYTES + 64 * 1024) / line.length)))
+      await delay(60)
+      const overBudget = attachWith('unresumable-over-budget', held)
+      assert.equal(overBudget[0]?.type, 'replay', 'a tail past the budget is replaced by a replay')
+      assert.equal(
+        overBudget.some((frame) => frame.type === 'resumed'),
+        false,
+      )
+
+      // Cut from the head of the retained window entirely.
+      for (let round = 0; round < 3; round += 1) pty.emitData(line.repeat(1024))
+      await delay(60)
+      const trimmed = attachWith('unresumable-trimmed', held)
+      assert.equal(trimmed[0]?.type, 'replay', 'a position cut from the retained window gets the full replay')
+      assert.equal(trimmed[0]?.stream, held.stream, 'the replay is in the same stream')
+      assert.equal(
+        streamPositionOf(trimmed).position,
+        held.position +
+          Buffer.byteLength(line, 'utf8') *
+            (Math.ceil((TERMINAL_REMOTE_CATCH_UP_BUDGET_BYTES + 64 * 1024) / line.length) + 3 * 1024),
+        'the replay is positioned at the end of the stream',
+      )
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A viewer that falls behind is not repainted when it recovers: it is sent
+  // what it missed, from the last byte it was sent. And it recovers on its own
+  // once its link drains, even if the session has gone quiet in the meantime —
+  // waiting for the next output would leave its pane stale indefinitely.
+  async function assertABehindViewerIsCaughtUpNotRepainted(runtimeModule: RuntimeModule): Promise<void> {
+    const sessionId = 'session_remote_behind'
+    const { runtime, pty, workspaceRoot } = await spawnRemoteTestSession(runtimeModule, sessionId)
+    try {
+      pty.emitData('before the link slowed\r\n')
+      await delay(30)
+      const viewer = createRecordingViewer('behind')
+      const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: viewer.transport })
+      assert.equal(attached.ok, true)
+      if (!attached.ok) return
+      const start = streamPositionOf(viewer.frames).position
+
+      viewer.frames = []
+      viewer.queued = TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES + 1
+      pty.emitData('withheld 1\r\n')
+      await delay(30)
+      assert.deepEqual(viewer.frames, [], 'a viewer past the high water is sent nothing')
+
+      // Below the high water but not yet the low: still withheld, so a link
+      // hovering at the bound is not caught up a few bytes at a time.
+      viewer.queued = TERMINAL_REMOTE_TRANSPORT_LOW_WATER_BYTES + 1
+      pty.emitData('withheld 2\r\n')
+      await delay(30)
+      assert.deepEqual(viewer.frames, [], 'a viewer between the marks is still behind')
+
+      // It drains while the session is quiet, and is caught up without any new
+      // output to prompt it.
+      viewer.queued = 0
+      const deadline = Date.now() + 2_000
+      while (viewer.frames.length === 0 && Date.now() < deadline) await delay(20)
+      const withheld = 'withheld 1\r\nwithheld 2\r\n'
+      assert.deepEqual(
+        viewer.frames,
+        [{ type: 'output', data: withheld, position: start + Buffer.byteLength(withheld, 'utf8') }],
+        'the drained viewer is sent exactly what it missed, and no replay',
+      )
+
+      // Output that lands just as the catch-up is taken is carried by it, and
+      // the batch that was queued for it is not sent a second time.
+      viewer.frames = []
+      viewer.queued = TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES + 1
+      pty.emitData('withheld 3\r\n')
+      await delay(30)
+      let raced = false
+      viewer.onQueuedBytes = () => {
+        if (raced || viewer.queued !== 0) return
+        raced = true
+        pty.emitData('landed as it drained\r\n')
+      }
+      viewer.queued = 0
+      const raceDeadline = Date.now() + 2_000
+      while (viewer.frames.length === 0 && Date.now() < raceDeadline) await delay(20)
+      await delay(60)
+      viewer.onQueuedBytes = null
+      assert.ok(raced, 'output landed during the catch-up')
+      assert.equal(
+        viewer.frames.map((frame) => String(frame.data)).join(''),
+        'withheld 3\r\nlanded as it drained\r\n',
+        'every byte arrives exactly once',
+      )
+      assert.equal(
+        viewer.frames.some((frame) => frame.type === 'replay'),
+        false,
+      )
+
+      // A burst larger than the pending bound inside one batch window loses the
+      // batch's head; the viewer is caught up from its position instead of
+      // being sent the cut batch or a replay.
+      viewer.frames = []
+      const burst = ['a', 'b', 'c'].map((letter) => letter.repeat(100 * 1024))
+      for (const chunk of burst) pty.emitData(chunk)
+      await delay(60)
+      assert.equal(
+        viewer.frames.map((frame) => String(frame.data)).join(''),
+        burst.join(''),
+        'the whole burst arrives, head included',
+      )
+      assert.equal(
+        viewer.frames.some((frame) => frame.type === 'replay'),
+        false,
+      )
+
+      // The session ends while the viewer is behind: its last output is sent
+      // before the exit, not withheld until after it.
+      viewer.frames = []
+      viewer.queued = TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES + 1
+      pty.emitData('last words\r\n')
+      await delay(30)
+      assert.deepEqual(viewer.frames, [], 'withheld while behind')
+      pty.emitExit({ exitCode: 0 })
+      await delay(30)
+      assert.deepEqual(
+        unpositioned(viewer.frames).map((frame) => frame.type),
+        ['output', 'exit'],
+        'the withheld output, then the exit',
+      )
+      assert.equal(unpositioned(viewer.frames)[0]?.data, 'last words\r\n')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Output that lands while an attach is still sending its replay (or its
+  // resumed tail) belongs to the live stream after it: the viewer is
+  // subscribed before the replay is taken, so it is neither lost in the gap
+  // nor painted twice.
+  async function assertAttachIsRaceFree(runtimeModule: RuntimeModule): Promise<void> {
+    const sessionId = 'session_remote_attach_race'
+    const { runtime, pty, workspaceRoot } = await spawnRemoteTestSession(runtimeModule, sessionId)
+    try {
+      pty.emitData('before the attach\r\n')
+      await delay(30)
+
+      const attachRacing = (viewerId: string, racing: string, resume?: { stream: string; position: number }) => {
+        const viewer = createRecordingViewer(viewerId)
+        const send = viewer.transport.send
+        let raced = false
+        viewer.transport.send = (frame) => {
+          send(frame)
+          if (raced) return
+          raced = true
+          pty.emitData(racing)
+        }
+        const result = runtime.remoteHost.attach({
+          sessionId,
+          scope: 'observe',
+          transport: viewer.transport,
+          ...(resume ? { resume } : {}),
+        })
+        assert.equal(result.ok, true, JSON.stringify(result))
+        return viewer
+      }
+
+      const fresh = attachRacing('race-fresh', 'printed during the replay\r\n')
+      await delay(30)
+      assert.equal(
+        fresh.frames.map((frame) => String(frame.data ?? '')).join(''),
+        'before the attach\r\nprinted during the replay\r\n',
+        'the replay, then what landed while it was sent, each once',
+      )
+      const held = streamPositionOf(fresh.frames)
+
+      pty.emitData('missed\r\n')
+      await delay(30)
+      const resumed = attachRacing('race-resumed', 'printed during the catch-up\r\n', {
+        stream: held.stream,
+        position: held.position,
+      })
+      await delay(30)
+      assert.equal(resumed.frames[0]?.type, 'resumed')
+      assert.equal(
+        resumed.frames.map((frame) => String(frame.data ?? '')).join(''),
+        'missed\r\nprinted during the catch-up\r\n',
+        'the tail, then what landed while it was sent, each once',
+      )
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
   }
 
   // Phase 2 of the Backlog item ↔ agent link: a launched agent terminal carries

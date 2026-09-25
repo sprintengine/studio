@@ -512,6 +512,13 @@ export async function openRemoteTerminalSocket(input: {
   endpoint: TailnetEndpoint
   token: string
   sessionId: string
+  /**
+   * Where this pane's screen already stands in the session's output, from an
+   * earlier dial. A host that still retains what follows sends only that; any
+   * other host — including one from before resuming existed, which ignores
+   * the parameters — sends the full replay.
+   */
+  resume?: { stream: string; position: number } | null
   handlers: RemoteTerminalSocketHandlers
 }): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
   // The upgrade carries a 30-second single-use ticket, never the device token:
@@ -539,7 +546,12 @@ export async function openRemoteTerminalSocket(input: {
     }
   }
 
-  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_TERMINAL_PATH, { sessionId: input.sessionId })
+  const query: Record<string, string> = { sessionId: input.sessionId }
+  if (input.resume) {
+    query.stream = input.resume.stream
+    query.after = String(input.resume.position)
+  }
+  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_TERMINAL_PATH, query)
   if (!upgraded.ok) return upgraded
 
   return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }

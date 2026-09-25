@@ -5,6 +5,7 @@ import type {
   TerminalAttachScope,
   TerminalAttachment,
   TerminalRemoteHost,
+  TerminalStreamPosition,
 } from '../../terminal-remote-attach'
 import { tailnetScopeGrantsAccess, type TailnetScope } from '../../../shared/tailnet'
 import { terminalRenderContract } from '../../../shared/terminal-options'
@@ -49,6 +50,8 @@ export type TailnetTerminalStreamOptions = {
   deviceName: string
   scopes: readonly TailnetScope[]
   terminals: TerminalRemoteHost
+  /** Where the client's screen stands, when it is reattaching (see {@link terminalResumeFromQuery}). */
+  resume?: TerminalStreamPosition
   /** Called once when the socket is finished, so the server can forget it. */
   onClosed: () => void
   log?: (message: string) => void
@@ -115,6 +118,7 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
   const attached = options.terminals.attach({
     sessionId: options.sessionId,
     scope,
+    ...(options.resume ? { resume: options.resume } : {}),
     transport: {
       viewerId: `tailnet:${options.deviceId}:${options.sessionId}:${nextViewerSequence()}`,
       send: (frame: TerminalAttachFrame) => send({ ...frame }),
@@ -132,9 +136,9 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
   }
   attachment = attached.attachment
 
-  // Sent AFTER the attach replay so the client's first frame is always the
-  // scrollback: a header arriving first would tempt a client to paint an empty
-  // screen and then be repainted.
+  // Sent AFTER the attach replay (or a resumed attach's catch-up) so the
+  // client's first frame is always the scrollback: a header arriving first
+  // would tempt a client to paint an empty screen and then be repainted.
   //
   // `render` is how THIS process measures a cell (`terminal-options.ts`). A
   // remote renderer paints the same bytes into its own xterm on its own release
@@ -252,6 +256,28 @@ let viewerSequence = 0
 function nextViewerSequence(): number {
   viewerSequence += 1
   return viewerSequence
+}
+
+/** The longest stream id a resume may name; the host's are UUIDs. */
+const MAX_TERMINAL_STREAM_ID_LENGTH = 64
+
+/**
+ * The resume point an attach's query asks for: `stream` and `after`, both or
+ * neither. Read off the upgrade URL rather than sent as a first frame because
+ * the host answers the attach with its replay before it reads a single frame,
+ * and the answer is exactly what the resume point changes.
+ *
+ * Anything malformed is no resume at all — the full replay a client that sent
+ * nothing gets — never a refusal: the worst a bad resume point can cost is a
+ * repaint.
+ */
+export function terminalResumeFromQuery(query: URLSearchParams): TerminalStreamPosition | undefined {
+  const stream = query.get('stream')
+  const after = query.get('after')
+  if (!stream || stream.length > MAX_TERMINAL_STREAM_ID_LENGTH || after === null || !/^\d{1,15}$/.test(after)) {
+    return undefined
+  }
+  return { stream, position: Number(after) }
 }
 
 function asClientFrame(value: unknown): TerminalClientFrame | null {

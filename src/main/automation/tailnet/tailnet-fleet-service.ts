@@ -60,10 +60,12 @@ import { asRecord } from '../../../shared/records'
 //
 // The reconnect loop is the part that earns its keep. A laptop lid closing, a
 // Wi-Fi handover, a peer that sleeps: none of them are errors, and none of them
-// should cost a person their scrollback. A dropped socket re-dials, and the
-// listener answers a fresh attach with a `replay` — the retained scrollback,
-// which is a superset of whatever was missed — so the pane repaints rather than
-// showing a hole.
+// should cost a person their scrollback. A dropped socket re-dials naming where
+// the pane's screen stands in the session's output, and the listener sends only
+// what came after it — appended, with no repaint. When that is no longer
+// retained (or the listener predates resuming) it answers with a `replay`
+// instead — the retained scrollback, a superset of whatever was missed — so the
+// pane repaints rather than showing a hole.
 
 /** First retry is fast (a Wi-Fi blip), then backs off to a quiet poll for a sleeping peer. */
 const RECONNECT_BASE_MS = 500
@@ -286,6 +288,15 @@ type Attachment = {
   retryTimer: ReturnType<typeof setTimeout> | null
   /** Last known size, replayed after a reconnect so the remote pty matches the pane. */
   size: { cols: number; rows: number } | null
+  /**
+   * Which output stream the pane is showing, and how far into it (see
+   * `TerminalStreamPosition`). Kept across dials — it is what the next dial
+   * resumes from — and null until a host that positions its frames has sent a
+   * whole replay, or when the pane's screen is not known to match any point
+   * in the stream.
+   */
+  stream: string | null
+  position: number | null
   /** The last status frame's state, so a snapshot can say what the pane was last told. */
   state: FleetLinkState
   detail: string
@@ -1301,6 +1312,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       attempts: 0,
       retryTimer: null,
       size: null,
+      stream: null,
+      position: null,
       state: 'connecting',
       detail: `Connecting to ${machineName}.`,
     }
@@ -1332,6 +1345,14 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       endpoint: endpointOf(connection),
       token: connection.deviceToken,
       sessionId: attachment.sessionId,
+      // A pane that already shows the session up to a point asks for what came
+      // after it — a laptop waking from sleep appends the output it missed
+      // rather than repainting the whole history over the link it just got
+      // back. The host answers with a full replay whenever it cannot.
+      resume:
+        attachment.stream !== null && attachment.position !== null
+          ? { stream: attachment.stream, position: attachment.position }
+          : null,
       handlers: {
         onFrame: (frame) => handleFrame(attachment, frame),
         onClosed: ({ code, reason }) => {
@@ -1396,11 +1417,29 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     if (attachment.released) return
     const type = frame.type
     if (type === 'replay' && typeof frame.data === 'string') {
+      // The pane is repainted from scratch, so whatever it held before says
+      // nothing about where it stands now. A sliced replay's position arrives
+      // on its last slice; a host that does not position frames sends none,
+      // and the pane stays unpositioned — every reconnect a full replay, as
+      // it always was.
+      attachment.stream = typeof frame.stream === 'string' ? frame.stream : null
+      attachment.position = attachment.stream !== null ? positionOf(frame.position) : null
       attachment.emit({ type: 'replay', data: frame.data, reason: frame.reason === 'resync' ? 'resync' : 'attach' })
       return
     }
+    if (type === 'resumed') {
+      // The host still had everything after where this pane stands: keep the
+      // screen, and let the tail that follows append to it.
+      const position = positionOf(frame.position)
+      if (typeof frame.stream === 'string' && position !== null) {
+        attachment.stream = frame.stream
+        attachment.position = position
+      }
+      return
+    }
     if (type === 'output' && typeof frame.data === 'string') {
-      attachment.emit({ type: 'output', data: frame.data })
+      const data = unseenOutput(attachment, frame.data, positionOf(frame.position))
+      if (data) attachment.emit({ type: 'output', data })
       return
     }
     if (type === 'attached') {
@@ -1653,6 +1692,49 @@ function defaultDeviceName(): string {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
+}
+
+/** A stream offset off the wire, or null when the frame carries none this build can read. */
+function positionOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+/**
+ * The part of an output frame the pane does not already show, advancing the
+ * attachment's position past it.
+ *
+ * A frame ending at or before the pane's position is one it already has — the
+ * overlap between a catch-up and live output that was queued behind it — and
+ * is dropped whole; one straddling the position keeps only the bytes past it,
+ * which is safe because the host only ever positions frames on a code point.
+ * An unpositioned frame (a replay's middle slice, or any frame from a host
+ * that predates positions) is shown as it is, exactly as before.
+ */
+function unseenOutput(
+  attachment: { stream: string | null; position: number | null },
+  data: string,
+  position: number | null,
+): string {
+  if (position === null || attachment.stream === null) return data
+  const held = attachment.position
+  if (held !== null && position <= held) return ''
+  attachment.position = position
+  if (held === null) return data
+  const start = position - Buffer.byteLength(data, 'utf8')
+  if (start > held) {
+    // A hole: bytes between what the pane holds and this frame never came.
+    // Shown anyway, but the pane no longer matches any point in the stream,
+    // so the next dial asks for a full replay rather than resuming past it —
+    // and forgetting the stream too keeps a later frame from re-establishing a
+    // position on top of the hole.
+    attachment.stream = null
+    attachment.position = null
+    return data
+  }
+  if (start === held) return data
+  return Buffer.from(data, 'utf8')
+    .subarray(held - start)
+    .toString('utf8')
 }
 
 function message(error: unknown): string {

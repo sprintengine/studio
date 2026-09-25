@@ -7,7 +7,12 @@ import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { TailnetScope } from '../../shared/tailnet'
 import type { FleetEvent, FleetTerminalEvent } from '../../shared/tailnet-fleet'
-import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
+import type {
+  TerminalAttachFrame,
+  TerminalAttachTransport,
+  TerminalRemoteHost,
+  TerminalStreamPosition,
+} from '../terminal-remote-attach'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
 import { TAILNET_FLEET_FILENAME } from './tailnet/tailnet-fleet-store'
@@ -57,11 +62,11 @@ test('tailnet-fleet', async () => {
     close(): Promise<void>
   }
 
-  async function startHarness(): Promise<Harness> {
+  async function startHarness(options: { positioned?: boolean } = {}): Promise<Harness> {
     const remoteDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-remote-'))
     const localDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-local-'))
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => remoteDir })
-    const terminals = createStubTerminalHost()
+    const terminals = createStubTerminalHost(options)
 
     const build = (port: number): TailnetGatewayServer =>
       createTailnetGatewayServer({
@@ -231,13 +236,28 @@ test('tailnet-fleet', async () => {
     emit(sessionId: string, data: string): void
     create(sessionId: string): void
     attachedCount(): number
+    /** What each attach asked to resume from, in order (undefined: a fresh attach). */
+    resumes: Array<TerminalStreamPosition | undefined>
+    /** Send one frame as it is to every viewer of a session, for what the stub would not produce itself. */
+    sendFrame(sessionId: string, frame: TerminalAttachFrame): void
   }
 
-  function createStubTerminalHost(): StubTerminalHost {
+  /**
+   * A stand-in terminal host. By default it speaks the stream as a host from
+   * before resuming did — no positions, a full replay on every attach — which
+   * is what keeps the older peer's behaviour under test. `positioned` makes it
+   * speak the current stream: positions on every frame, and a resumed attach
+   * answered with only the tail.
+   */
+  function createStubTerminalHost(options: { positioned?: boolean } = {}): StubTerminalHost {
+    const positioned = options.positioned === true
     const replay = new Map<string, string>([['session_one', 'scrollback so far\r\n']])
     const attached = new Map<string, { sessionId: string; transport: TerminalAttachTransport }>()
     const writes: Array<{ sessionId: string; data: string }> = []
     const resizes: Array<{ sessionId: string; cols: number; rows: number }> = []
+    const resumes: Array<TerminalStreamPosition | undefined> = []
+    const streamOf = (sessionId: string) => `stub-stream-${sessionId}`
+    const endOf = (sessionId: string) => Buffer.byteLength(replay.get(sessionId) ?? '', 'utf8')
 
     const snapshotFor = (sessionId: string): TerminalSessionSnapshot =>
       ({
@@ -252,28 +272,46 @@ test('tailnet-fleet', async () => {
         activity: { kind: 'working', since: 0 },
       }) as unknown as TerminalSessionSnapshot
 
+    const sendFrame = (sessionId: string, frame: TerminalAttachFrame): void => {
+      for (const viewer of attached.values()) {
+        if (viewer.sessionId === sessionId && viewer.transport.isOpen()) viewer.transport.send(frame)
+      }
+    }
+
     return {
       writes,
       resizes,
+      resumes,
+      sendFrame,
       attachedCount: () => attached.size,
       create(sessionId) {
         replay.set(sessionId, '')
       },
       emit(sessionId, data) {
         replay.set(sessionId, `${replay.get(sessionId) ?? ''}${data}`)
-        for (const viewer of attached.values()) {
-          if (viewer.sessionId === sessionId && viewer.transport.isOpen()) {
-            viewer.transport.send({ type: 'output', data })
-          }
-        }
+        sendFrame(
+          sessionId,
+          positioned ? { type: 'output', data, position: endOf(sessionId) } : { type: 'output', data },
+        )
       },
       listSessions: () => [...replay.keys()].map(snapshotFor),
-      attach({ sessionId, scope, transport }) {
+      attach({ sessionId, scope, transport, resume }) {
         if (!replay.has(sessionId)) {
           return { ok: false, code: 'unknown_terminal', message: `No terminal session "${sessionId}".` }
         }
+        resumes.push(resume)
         attached.set(transport.viewerId, { sessionId, transport })
-        transport.send({ type: 'replay', data: replay.get(sessionId) ?? '', reason: 'attach' })
+        const text = replay.get(sessionId) ?? ''
+        const end = endOf(sessionId)
+        if (!positioned) {
+          transport.send({ type: 'replay', data: text, reason: 'attach' })
+        } else if (resume && resume.stream === streamOf(sessionId) && resume.position <= end) {
+          transport.send({ type: 'resumed', stream: resume.stream, position: resume.position })
+          const tail = Buffer.from(text, 'utf8').subarray(resume.position).toString('utf8')
+          if (tail) transport.send({ type: 'output', data: tail, position: end })
+        } else {
+          transport.send({ type: 'replay', data: text, reason: 'attach', stream: streamOf(sessionId), position: end })
+        }
         const refuse = (verb: string) => ({
           ok: false as const,
           code: 'terminal_control_required',
@@ -750,6 +788,9 @@ test('tailnet-fleet', async () => {
 
   // The acceptance the item names: kill the network mid-session, and the pane
   // reconnects and resyncs from the retained scrollback instead of losing it.
+  // The stub here is a host from before resuming — no positions — so this is
+  // also the older peer's path: it is never asked to resume, and every
+  // reconnect is the full replay it always sent.
   test('a dropped link reconnects and resyncs from the remote replay', async () => {
     const harness = await startHarness()
     try {
@@ -787,6 +828,11 @@ test('tailnet-fleet', async () => {
       assert.ok(replays.length >= 2, 'the reconnect brought a fresh replay')
       const last = replays[replays.length - 1]
       assert.ok(last.type === 'replay' && last.data.includes('work done while you were away'))
+      assert.deepEqual(
+        harness.terminals.resumes,
+        [undefined, undefined],
+        'a host that never positioned its frames is never asked to resume',
+      )
 
       // And the recovered link is a working one, not just a connected socket —
       // including the pane's size, which the remote pty would otherwise keep from
@@ -795,6 +841,153 @@ test('tailnet-fleet', async () => {
       harness.fleet.sendInput('pane-5', 'echo back\r')
       await waitUntil(() => harness.terminals.writes.length > 0, 'typing to work after the reconnect')
       harness.fleet.detachTerminal('pane-5')
+    } finally {
+      await harness.close()
+    }
+  })
+
+  // Against a host that positions its frames, the same drop costs no repaint:
+  // the pane re-dials naming where its screen stands, and what it missed
+  // arrives as ordinary output appended to what it already shows.
+  test('a dropped link resumes from where the pane stood instead of repainting', async () => {
+    const harness = await startHarness({ positioned: true })
+    try {
+      const connectionId = await harness.pair(['terminal:control'])
+      const recorder = createRecorder()
+      await harness.fleet.attachTerminal({
+        attachId: 'pane-resume',
+        connectionId,
+        sessionId: 'session_one',
+        emit: recorder.emit,
+      })
+      await recorder.waitFor((event) => event.type === 'replay', 'the first replay')
+      await recorder.waitFor((event) => event.type === 'attached', 'the attach header')
+      harness.terminals.emit('session_one', 'seen live\r\n')
+      await recorder.waitFor((event) => event.type === 'output' && event.data === 'seen live\r\n', 'live output')
+
+      await harness.stopServer()
+      await recorder.waitFor(
+        (event) => event.type === 'status' && (event.state === 'reconnecting' || event.state === 'offline'),
+        'the pane to report the drop',
+      )
+      harness.terminals.emit('session_one', 'work done while you were away\r\n')
+      await harness.restartServer()
+
+      await recorder.waitFor(
+        (event) => event.type === 'output' && event.data === 'work done while you were away\r\n',
+        'the missed output, appended',
+      )
+      assert.equal(
+        recorder.events.filter((event) => event.type === 'replay').length,
+        1,
+        'the reconnect did not repaint the pane',
+      )
+      assert.deepEqual(harness.terminals.resumes, [
+        undefined,
+        {
+          stream: 'stub-stream-session_one',
+          position: Buffer.byteLength('scrollback so far\r\nseen live\r\n', 'utf8'),
+        },
+      ])
+
+      // And it goes on streaming, still positioned, from there.
+      harness.terminals.emit('session_one', 'and after\r\n')
+      await recorder.waitFor((event) => event.type === 'output' && event.data === 'and after\r\n', 'live again')
+      harness.fleet.detachTerminal('pane-resume')
+    } finally {
+      await harness.close()
+    }
+  })
+
+  // A pane asks to resume only when its screen is known to match a point in the
+  // stream. Each case here leaves it not knowing, and the next dial must ask
+  // for a full replay: a replay whose last slice (the one carrying its
+  // position) never arrived, a frame that leaves a hole, and a host that stops
+  // positioning its frames (downgraded between dials).
+  test('a pane that cannot vouch for its screen asks for a full replay', async () => {
+    const harness = await startHarness({ positioned: true })
+    try {
+      const connectionId = await harness.pair(['terminal:observe'])
+      const recorder = createRecorder()
+      await harness.fleet.attachTerminal({
+        attachId: 'pane-unvouched',
+        connectionId,
+        sessionId: 'session_one',
+        emit: recorder.emit,
+      })
+      let dials = 1
+      const redial = async (): Promise<void> => {
+        // Counted by the host's attaches rather than by status frames, which
+        // `waitFor` would answer from the history of the earlier drops.
+        await harness.stopServer()
+        await harness.restartServer()
+        dials += 1
+        await waitUntil(() => harness.terminals.resumes.length >= dials, 'the next dial')
+        await waitUntil(
+          () => recorder.events.filter((event) => event.type === 'attached').length >= dials,
+          'the next attach header',
+        )
+      }
+      await recorder.waitFor((event) => event.type === 'attached', 'the attach header')
+
+      const unvouched = [
+        // The first slice of a replay, and nothing after it.
+        { type: 'replay', data: 'half a screen', reason: 'resync', stream: 'stub-stream-session_one' },
+        // A frame starting well past what the pane holds.
+        {
+          type: 'output',
+          data: 'after a hole',
+          position: Buffer.byteLength('scrollback so far\r\n', 'utf8') + 1_000,
+        },
+        // A replay from a host that no longer positions its frames.
+        { type: 'replay', data: 'from an older build', reason: 'attach' },
+      ] satisfies TerminalAttachFrame[]
+      for (const frame of unvouched) {
+        const seen = recorder.events.length
+        harness.terminals.sendFrame('session_one', frame)
+        await waitUntil(() => recorder.events.length > seen, `the pane to be shown ${frame.data}`)
+        await redial()
+        assert.equal(harness.terminals.resumes.at(-1), undefined, `after "${frame.data}" the dial asked to resume`)
+        // And the full replay that answered it is a point to resume from again.
+        await redial()
+        assert.notEqual(harness.terminals.resumes.at(-1), undefined, `after "${frame.data}" the replay was not trusted`)
+      }
+      harness.fleet.detachTerminal('pane-unvouched')
+    } finally {
+      await harness.close()
+    }
+  })
+
+  // A catch-up and the live output queued behind it can overlap. The pane is
+  // shown every byte exactly once: a frame it already holds is dropped, and one
+  // that straddles its position keeps only the part past it.
+  test('output the pane already holds is not shown twice', async () => {
+    const harness = await startHarness({ positioned: true })
+    try {
+      const connectionId = await harness.pair(['terminal:observe'])
+      const recorder = createRecorder()
+      await harness.fleet.attachTerminal({
+        attachId: 'pane-dedupe',
+        connectionId,
+        sessionId: 'session_one',
+        emit: recorder.emit,
+      })
+      await recorder.waitFor((event) => event.type === 'attached', 'the attach header')
+      const base = Buffer.byteLength('scrollback so far\r\n', 'utf8')
+
+      harness.terminals.sendFrame('session_one', { type: 'output', data: 'abc', position: base + 3 })
+      harness.terminals.sendFrame('session_one', { type: 'output', data: 'abc', position: base + 3 })
+      harness.terminals.sendFrame('session_one', { type: 'output', data: 'bcdé', position: base + 6 })
+      harness.terminals.sendFrame('session_one', { type: 'output', data: 'é!', position: base + 7 })
+      harness.terminals.sendFrame('session_one', { type: 'output', data: 'end', position: base + 10 })
+      await recorder.waitFor((event) => event.type === 'output' && event.data === 'end', 'the last frame')
+
+      assert.deepEqual(
+        recorder.events.flatMap((event) => (event.type === 'output' ? [event.data] : [])),
+        ['abc', 'dé', '!', 'end'],
+        'duplicates dropped, overlaps trimmed to what is new',
+      )
+      harness.fleet.detachTerminal('pane-dedupe')
     } finally {
       await harness.close()
     }

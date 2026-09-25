@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 /**
  * The retained pty stream of one terminal, held as UTF-8 bytes.
  *
@@ -39,6 +41,16 @@ export class TerminalReplayBuffer {
   retainedBytes = 0
   retainedUnits = 0
   endOffset = 0
+  /**
+   * Which stream the offsets count in. An offset means something only inside
+   * the stream that handed it out: a session restored under the same id after
+   * a restart starts again at zero, and a reader outside this process (a remote
+   * viewer resuming after a reconnect) could otherwise be sent the bytes after
+   * its offset in a DIFFERENT stream. Changes whenever the retained bytes are
+   * dropped wholesale, because what follows a clear is a new screen behind a
+   * snapshot, not a continuation of what a reader was sent.
+   */
+  streamId: string = randomUUID()
   /**
    * UTF-16 units ever appended, never decreased by an eviction: the cursor a
    * reader polling for new text counts in (readTerminalOutputSince).
@@ -140,8 +152,11 @@ export class TerminalReplayBuffer {
   /**
    * Everything appended since stream offset `offset`, or null when some of it
    * has already been cut from the head (the caller then needs the whole window,
-   * resynced). `offset` must be one this buffer handed out — a chunk boundary —
-   * so the slice never starts inside a code point.
+   * resynced). `offset` must be one this buffer handed out — a chunk boundary,
+   * or a code point boundary inside one — so the slice never starts inside a
+   * code point. A remote viewer's resume point is the one offset that comes
+   * from outside; a forged one only garbles the head of that viewer's own
+   * catch-up, which it could read whole from a replay anyway.
    */
   readFrom(offset: number): string | null {
     if (offset < this.startOffset || offset > this.endOffset) return null
@@ -157,9 +172,14 @@ export class TerminalReplayBuffer {
     return { text: this.decodeFrom(this.endOffset - maxBytes, true), cut: true }
   }
 
-  /** Drop every retained byte. The stream offset is kept, so a stale reader still falls off the head. */
+  /**
+   * Drop every retained byte. The stream offset is kept, so a stale reader still
+   * falls off the head; the stream id changes, so a reader resuming from another
+   * process by offset is repainted rather than continued.
+   */
   clear(): void {
     if (this.retainedBytes > 0) this.truncated = true
+    this.streamId = randomUUID()
     this.blocks = []
     this.used = []
     this.units = []
