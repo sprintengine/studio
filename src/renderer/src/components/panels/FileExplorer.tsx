@@ -25,6 +25,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { isPathOrChild } from '../../utils/paths'
 import { isWatchEventIgnored } from '../../../../shared/file-watch-event'
+import type { FileSearchEngine } from '../../../../shared/ipc/filesystem'
 import { openGitDiff } from '../../utils/openGitDiff'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
@@ -125,7 +126,7 @@ type SearchTreeNode = {
 }
 
 type FileSearchDiagnostics = {
-  engine: 'ripgrep'
+  engine: FileSearchEngine
   elapsedMs: number
   resultCount: number
   truncated: boolean

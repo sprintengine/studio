@@ -30,12 +30,19 @@ export type FileSearchEntry = {
   isDir: false
 }
 
+/**
+ * What listed the files: ripgrep, or — when the install's ripgrep cannot be
+ * found or will not start — a plain directory walk that skips hidden entries
+ * and the built-in excludes but reads no ignore files.
+ */
+export type FileSearchEngine = 'ripgrep' | 'walker'
+
 export type FileSearchResult =
   | {
       ok: true
       results: FileSearchEntry[]
       truncated: boolean
-      engine: 'ripgrep'
+      engine: FileSearchEngine
       elapsedMs: number
       resultCount: number
     }
