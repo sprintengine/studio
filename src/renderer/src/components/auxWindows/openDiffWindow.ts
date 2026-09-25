@@ -1,3 +1,4 @@
+import type { EditorRange } from '../../../../shared/editor-reveal'
 import { readAuxWindowBounds } from './auxWindowPlacement'
 
 // Opens (or retargets the singleton) diff viewer window for a changed file.
@@ -15,6 +16,15 @@ export async function openDiffWindow(input: {
   // Show only this changelist's files. Absent = all changes (the behaviour
   // every caller had before agent changelists).
   changelistId?: string
+  // An agent's reveal (editor.open_diff), all optional: narrow to `paths`,
+  // land on `range` of the focus file, and never take focus or come forward.
+  reveal?: {
+    key: string
+    paths?: string[]
+    range?: EditorRange
+    side?: 'modified' | 'original'
+  }
+  takeFocus?: boolean
 }): Promise<void> {
   await window.api.openAuxWindow({
     kind: 'diff',
@@ -26,7 +36,16 @@ export async function openDiffWindow(input: {
       scope: input.scope,
       ...(input.changelistId ? { changelistId: input.changelistId } : {}),
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(input.reveal
+        ? {
+            revealKey: input.reveal.key,
+            ...(input.reveal.paths ? { revealPaths: JSON.stringify(input.reveal.paths) } : {}),
+            ...(input.reveal.range ? { revealRange: JSON.stringify(input.reveal.range) } : {}),
+            ...(input.reveal.side ? { revealSide: input.reveal.side } : {}),
+          }
+        : {}),
     },
     bounds: readAuxWindowBounds('diff'),
+    ...(input.takeFocus === false ? { focus: false } : {}),
   })
 }

@@ -132,13 +132,18 @@ import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
 import { createCanvasTools } from './automation/canvas-tools'
+import { createEditorTools } from './automation/editor-tools'
+import { createAgentWrittenFiles } from './editor-reveal/agent-written-files'
+import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
+import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
+import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
 import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-fs'
 import { createCanvasSubscriberRegistry } from './canvas/canvas-subscribers'
 import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents } from './window-factory'
+import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
@@ -574,6 +579,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     userDataDir: app.getPath('userData'),
     broadcast: broadcastGitChangelistsChanged,
   })
+  // What each agent wrote, for the editor reveal: a file outside the workspace
+  // that the asking agent wrote itself may be shown without asking the person.
+  const agentWrittenFiles = createAgentWrittenFiles()
 
   // The conversation peek's durable history: each agent's captured prompts,
   // kept beside the agent's record in userData so they outlive the session,
@@ -610,7 +618,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // The three agent-changelist seams. Fire-and-forget by contract: the feed
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
-    onAgentFileEdit: (input) => agentChangelistFeed.onAgentFileEdit(input),
+    onAgentFileEdit: (input) => {
+      agentWrittenFiles.note(input.session.agentId, input.path)
+      agentChangelistFeed.onAgentFileEdit(input)
+    },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
     // The hook capture of a pull request the agent just opened (epic
     // `pull-request-marks`, decision 8b). The record is built below — this
@@ -1067,6 +1078,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the `canvas.*` tools call it directly, so a board has one merge and one
   // revision however it was edited. The hidden worker window behind it is built
   // lazily on the first call that needs a DOM and disposed when it goes idle.
+  // The editor reveal's main half (editor.* tools): asks the windows to open a
+  // file or diff, and keeps what no window could show for when one does.
+  const editorRevealBroker = createEditorRevealBroker({
+    targets: () =>
+      listWorkspaceWindows().map((window) => ({
+        id: window,
+        isDestroyed: () => window.isDestroyed() || window.webContents.isDestroyed(),
+        send: (channel: string, payload: unknown) => window.webContents.send(channel, payload),
+      })),
+    broadcastPending: (workspaceIds) => broadcastToWorkspaceWindows(EDITOR_REVEAL_PENDING_CHANNEL, { workspaceIds }),
+  })
+
   const canvasSubscribers = createCanvasSubscriberRegistry()
   const canvasService = createCanvasService({
     fs: createNodeCanvasFs(),
@@ -1189,6 +1212,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
           isCanvasEnabled,
         }),
+        ...createEditorTools(
+          createEditorToolBackends({
+            findWorkspace: (workspaceId) =>
+              workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
+              null,
+            listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+            agentWrittenFiles,
+            broker: editorRevealBroker,
+            userDataDir: () => app.getPath('userData'),
+            isAppFocused: () =>
+              BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+          }),
+        ),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -1523,6 +1559,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     conversationPeek,
     terminalRuntime,
     agentChangelistFeed,
+    editorRevealBroker,
     pullRequestRecord,
     broadcastGitChangelistsChanged,
     updateService,

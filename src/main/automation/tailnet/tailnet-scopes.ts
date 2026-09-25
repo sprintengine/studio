@@ -32,7 +32,9 @@ export function isLocalOnlyGatewayTool(toolName: string): boolean {
  *
  * `workspace` is the deliberate catch-all for the app-wide families
  * (`workspace.*`, `agent.*`, `cli.*`, `module.*`, `marketplace.*`,
- * `automation.*`, `review_*`) and for any tool this mapping has not been taught.
+ * `automation.*`, `editor.*`, `review_*`) and for any tool this mapping has not
+ * been taught. `editor.open` and `editor.open_diff` change what is on the
+ * person's screen, so they are mutations and need `workspace:operate`.
  * Unknown does not mean unrestricted: an unmapped mutation still requires
  * `workspace:operate`, so a device without it is refused rather than served.
  *

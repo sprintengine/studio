@@ -5083,7 +5083,11 @@ test('terminal-runtime', async () => {
         // The permission flag sits between the binary and --session-id since
         // An unnamed preset resolves to `manual`, which for Claude Code
         // is an explicit `--permission-mode default` rather than no flag at all.
-        startupScript.includes(`${probedPath} --permission-mode default --session-id session-preflight-resolved`),
+        // An agent bound to a workspace also carries its host context (the
+        // editor tools section) as a file flag before the session id.
+        new RegExp(
+          `${probedPath} --permission-mode default (--append-system-prompt-file \\S+ )?--session-id session-preflight-resolved`,
+        ).test(startupScript),
         `the launch must execute the probed path: ${startupScript}`,
       )
       assert.ok(

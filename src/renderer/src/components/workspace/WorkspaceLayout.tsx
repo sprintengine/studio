@@ -21,6 +21,7 @@ import {
 // rule with hardcoded dark color variables that painted over our theme
 // tokens on every non-dark theme — the dark horizontal bars in light mode.
 import 'flexlayout-react/style/combined.css'
+import { AgentRevealStrip } from './AgentRevealStrip'
 import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
@@ -1513,21 +1514,28 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
   }
 
   return (
-    <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>
-      <Layout
-        model={modelRef.current}
-        factory={factory}
-        icons={FLEX_LAYOUT_ICONS}
-        onAction={handleAction}
-        onAuxMouseClick={handleAuxMouseClick}
-        onContextMenu={handleContextMenu}
-        onRenderTab={renderTab}
-        onRenderTabSet={renderTabSet}
-        onModelChange={(model) => {
-          updateLayout(workspaceId, model.toJson())
-          followSelectedAgentTab(model)
-        }}
-      />
+    // A column so an agent's note (AgentRevealStrip) takes its own line above
+    // the layout rather than covering its tab strips. The layout's own box is
+    // always the same element, whether or not a note is showing, so a note
+    // arriving never remounts a terminal.
+    <div className="relative flex h-full flex-col" onMouseDownCapture={handleMouseDownCapture}>
+      <AgentRevealStrip workspaceId={workspaceId} />
+      <div className="relative min-h-0 flex-1">
+        <Layout
+          model={modelRef.current}
+          factory={factory}
+          icons={FLEX_LAYOUT_ICONS}
+          onAction={handleAction}
+          onAuxMouseClick={handleAuxMouseClick}
+          onContextMenu={handleContextMenu}
+          onRenderTab={renderTab}
+          onRenderTabSet={renderTabSet}
+          onModelChange={(model) => {
+            updateLayout(workspaceId, model.toJson())
+            followSelectedAgentTab(model)
+          }}
+        />
+      </div>
       {tabMenu ? (
         <ContextMenu
           x={tabMenu.x}

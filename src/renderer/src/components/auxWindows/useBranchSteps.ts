@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { selectedEntry, stripEntriesFrom } from './branchSteps'
 import { isWindowVisible, onWindowVisibilityChange } from '../../utils/windowActivity'
@@ -33,7 +33,15 @@ export type BranchStepsState = {
 
 const SPAN: BranchStepSelection = { kind: 'span' }
 
-export function useBranchSteps(repoRoot: string | null, enabled: boolean, revision: unknown): BranchStepsState {
+export function useBranchSteps(
+  repoRoot: string | null,
+  enabled: boolean,
+  revision: unknown,
+  // A step someone outside the strip asked for — an agent's editor.open_diff
+  // naming the branch, the uncommitted tail or one commit. Applied once per
+  // `key`, after which the strip is the person's again.
+  requested: { selection: BranchStepSelection; key: string } | null = null,
+): BranchStepsState {
   const [snapshot, setSnapshot] = useState<BranchStepsSnapshot | null>(null)
   const [diff, setDiff] = useState<BranchStepDiff | null>(null)
   const [selection, setSelection] = useState<BranchStepSelection>(SPAN)
@@ -88,6 +96,15 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
     setSnapshot(null)
     setSelection(SPAN)
   }, [repoRoot])
+
+  // After the repo reset above, so a request that arrives with a new repository
+  // is not immediately undone by it.
+  const requestedKey = requested?.key ?? null
+  const requestedRef = useRef(requested)
+  requestedRef.current = requested
+  useEffect(() => {
+    if (requestedKey && requestedRef.current) setSelection(requestedRef.current.selection)
+  }, [requestedKey, repoRoot])
 
   // A selection can stop existing under us — a rebase drops the hash a person
   // had open. Resolving through the strip's own entries means the surface falls

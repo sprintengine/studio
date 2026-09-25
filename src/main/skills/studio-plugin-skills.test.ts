@@ -15,6 +15,7 @@ import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { createAutomationTools } from '../automation/automation-tools'
 import { createBrowserTools } from '../automation/browser-tools'
 import { createCanvasTools } from '../automation/canvas-tools'
+import { createEditorTools } from '../automation/editor-tools'
 import { createTailnetTools } from '../automation/tailnet/tailnet-tools'
 import { STUDIO_PLUGIN_ID } from './studio-plugin'
 import { test } from 'vitest'
@@ -44,6 +45,8 @@ test('studio-plugin-skills', async () => {
     // A canvas error code, not a tool: the board file on disk is unreadable, so
     // nothing was written over it.
     'invalid_scene',
+    // An editor.open file status: the person is asked whether to open it.
+    'awaiting_owner',
     'needs_input',
     'node_modules',
     'not_found',
@@ -69,6 +72,7 @@ test('studio-plugin-skills', async () => {
       ...createAutomationTools({} as never),
       ...createBrowserTools({} as never),
       ...createCanvasTools({} as never),
+      ...createEditorTools({} as never),
       ...createTailnetTools({ resolveTailnet: () => null }),
     ]
     return new Set(registrations.map((registration) => registration.name.replace(/\./g, '_')))
@@ -86,6 +90,7 @@ test('studio-plugin-skills', async () => {
     assert.equal(registered.has('browser_open'), true)
     assert.equal(registered.has('canvas_edit'), true)
     assert.equal(registered.has('tailnet_status'), true)
+    assert.equal(registered.has('editor_open'), true)
     const families = new Set([...registered].map((name) => name.split('_')[0]))
     for (const family of RETIRED_TOOL_FAMILIES) families.add(family)
     const bareMention = new RegExp(`\\b(?:${[...families].join('|')})_[a-z_]*[a-z]\\b`, 'g')

@@ -1724,6 +1724,39 @@ samp,
   }
 }
 
+/* The lines an agent opened a file at (editor.open / open_diff): a "just
+   changed" tint that fades over one pulse, the same grammar and the same
+   duration as the row pulse above, in the accent's soft tint because it marks
+   WHERE rather than a status. The decoration is removed when the fade ends
+   (agentEditorReveal.revealEditorRange). Under reduced motion nothing fades:
+   the tint holds, steady, until the person's next click or keystroke in that
+   editor clears it. */
+@keyframes agent-reveal-range {
+  0% {
+    background-color: var(--accent-primary-soft);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.monaco-editor .agent-reveal-range {
+  animation: agent-reveal-range var(--motion-pulse) var(--motion-ease) forwards;
+}
+
+.monaco-editor .agent-reveal-range-steady,
+.monaco-editor .agent-reveal-range.agent-reveal-range-steady {
+  animation: none;
+  background-color: var(--accent-primary-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monaco-editor .agent-reveal-range {
+    animation: none;
+    background-color: var(--accent-primary-soft);
+  }
+}
+
 .interactive {
   transition-property: background-color, border-color, color, transform, box-shadow, opacity;
   transition-duration: var(--motion-fast);

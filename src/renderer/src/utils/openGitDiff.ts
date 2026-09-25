@@ -1,5 +1,7 @@
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { openDiffWindow } from '../components/auxWindows/openDiffWindow'
+import type { EditorRange } from '../../../shared/editor-reveal'
+import type { BranchStepSelection } from '../../../shared/electron-api'
 
 export type OpenGitDiffInput = {
   /** The workspace the row was activated in: the pane the diff docks into. */
@@ -21,6 +23,21 @@ export type OpenGitDiffInput = {
    * a default the viewer invents for itself.
    */
   changelistId?: string
+  /**
+   * An agent's reveal (editor.open_diff). `step` names a branch view only the
+   * pane's viewer can step through, so it opens there whatever the window
+   * preference says. `takeFocus: false` never takes the keyboard or raises the
+   * window; `background` leaves the pane on the tab the person has in front.
+   */
+  reveal?: {
+    key: string
+    paths?: string[]
+    step?: BranchStepSelection
+    range?: EditorRange
+    side?: 'modified' | 'original'
+  }
+  takeFocus?: boolean
+  background?: boolean
 }
 
 // Single routing point for "show me this file's diff". Honours the sticky
@@ -32,13 +49,26 @@ export type OpenGitDiffInput = {
 // the explorer to the window, with no setting between them).
 export function openGitDiff(input: OpenGitDiffInput): void {
   const store = useWorkspaceStore.getState()
-  if (store.diffOpensInWindow) {
+  // Only the working tree has a window viewer; a branch or commit step is the pane's.
+  const needsPane = input.reveal?.step !== undefined && input.reveal.step.kind !== 'uncommitted'
+  if (store.diffOpensInWindow && !needsPane) {
     void openDiffWindow({
       workspaceId: input.workspaceId,
       repoRoot: input.repoRoot,
       focusPath: input.focusPath,
       scope: input.scope,
       ...(input.changelistId ? { changelistId: input.changelistId } : {}),
+      ...(input.reveal
+        ? {
+            reveal: {
+              key: input.reveal.key,
+              ...(input.reveal.paths ? { paths: input.reveal.paths } : {}),
+              ...(input.reveal.range ? { range: input.reveal.range } : {}),
+              ...(input.reveal.side ? { side: input.reveal.side } : {}),
+            },
+          }
+        : {}),
+      ...(input.takeFocus === false ? { takeFocus: false } : {}),
     })
     return
   }
@@ -49,6 +79,10 @@ export function openGitDiff(input: OpenGitDiffInput): void {
       focusPath: input.focusPath,
       focusKind: input.scope,
       ...(input.changelistId ? { changelistId: input.changelistId } : {}),
+      ...(input.reveal ? { reveal: input.reveal } : {}),
     },
+    ...(input.background ? { activate: false } : {}),
   })
+  // A reveal behind the person's tab still leaves the pane as they had it; one
+  // in front opens the pane on it (openPaneTab does, when it activates).
 }

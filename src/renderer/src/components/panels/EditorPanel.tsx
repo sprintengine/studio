@@ -10,6 +10,13 @@ import { basename, isPathOrChild, trimPath } from '../../utils/paths'
 import { getEditorBuffer, hasEditorBuffer, setEditorBuffer, subscribeEditorBuffer } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
+import {
+  onEditorLandingQueued,
+  peekEditorLanding,
+  registerMountedEditor,
+  revealEditorRange,
+  takeEditorLanding,
+} from '../../utils/agentEditorReveal'
 import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { configureMonacoLanguages } from '../../utils/patchLanguage'
@@ -95,6 +102,10 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const [restoringFilePath, setRestoringFilePath] = useState<string | null>(null)
   const [editorMenu, setEditorMenu] = useState<EditorMenuState | null>(null)
+  // Bumped on every Monaco mount, so the landing effect below runs once the
+  // editor it drives exists.
+  const [editorMountTick, setEditorMountTick] = useState(0)
+  const unregisterEditorRef = useRef<(() => void) | null>(null)
   const isMarkdown = activeFile?.language === 'markdown'
   const markdownPreviewTooLarge = isMarkdown && activeContent.length > MARKDOWN_PREVIEW_MAX_CHARS
   const showPreview = isMarkdown && markdownMode === 'preview' && !markdownPreviewTooLarge
@@ -172,14 +183,79 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   useEffect(() => {
     if (activeFile?.language === 'markdown') {
-      setMarkdownMode('preview')
+      // A file an agent opened AT LINES lands in the source, where lines are;
+      // the rendered preview has none to scroll to.
+      setMarkdownMode(activeFilePath && peekEditorLanding(workspaceId, activeFilePath) ? 'source' : 'preview')
     }
-  }, [activeFilePath, activeFile?.language])
+  }, [activeFilePath, activeFile?.language, workspaceId])
+
+  // Where an agent's reveal asked this file to land (agentEditorReveal). Taken
+  // once the editor has the file: now, when the tab was already open, or on the
+  // mount that follows the person switching to a tab that opened behind theirs.
+  // It never takes focus — that is the rule for everything an agent opens —
+  // and the highlight is the short "just changed" tint.
+  useEffect(() => {
+    if (showPreview || !activeFilePath || !activeFileContentReady) return
+    let clearHighlight: (() => void) | null = null
+    let waitForLayout: { dispose(): void } | null = null
+    const land = (): void => {
+      const editor = editorRef.current
+      if (!editor || !editor.getModel()) return
+      // A tab behind another is mounted at zero size: landing there would spend
+      // the highlight where nobody can see it. Wait until it is laid out.
+      if (editor.getLayoutInfo().height <= 0) {
+        waitForLayout ??= editor.onDidLayoutChange((layout) => {
+          if (layout.height <= 0) return
+          waitForLayout?.dispose()
+          waitForLayout = null
+          land()
+        })
+        return
+      }
+      const landing = takeEditorLanding(workspaceId, activeFilePath)
+      if (!landing) return
+      window.requestAnimationFrame(() => {
+        if (editorRef.current !== editor) return
+        clearHighlight?.()
+        clearHighlight = revealEditorRange(editor, landing.range, {
+          highlight: landing.highlight,
+          moveCaret: landing.takeFocus,
+        })
+        if (landing.takeFocus) editor.focus()
+      })
+    }
+    land()
+    const stop = onEditorLandingQueued(land)
+    return () => {
+      stop()
+      waitForLayout?.dispose()
+      clearHighlight?.()
+    }
+  }, [activeFileContentReady, activeFilePath, editorMountTick, showPreview, workspaceId])
+
+  useEffect(
+    () => () => {
+      unregisterEditorRef.current?.()
+      unregisterEditorRef.current = null
+    },
+    [],
+  )
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
     monacoRef.current = monaco
     gitDecorationsRef.current = editor.createDecorationsCollection()
+    // Known to the agent reveal: whether the person is typing here, and what
+    // editor.state reports as visible.
+    unregisterEditorRef.current?.()
+    const mountedPath =
+      filePath ?? useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.editorState?.activeFilePath
+    unregisterEditorRef.current = mountedPath ? registerMountedEditor(workspaceId, mountedPath, editor) : null
+    editor.onDidDispose(() => {
+      unregisterEditorRef.current?.()
+      unregisterEditorRef.current = null
+    })
+    setEditorMountTick((tick) => tick + 1)
     // An editor opened early in the window's life may have measured a fallback
     // face; see `remeasureWhenMonoFontLoads` for why the caret drifts until then.
     remeasureMonacoFontsOnLoad(editor, monaco)

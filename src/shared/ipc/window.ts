@@ -55,6 +55,12 @@ export type OpenAuxWindowInput = {
   // window at a time); file uses the file path (one window per file).
   singletonKey: string
   bounds?: WindowBounds | null
+  /**
+   * False for an agent's reveal: the window is retargeted where it stands, or
+   * shown inactive when new, and never takes the keyboard or comes forward.
+   * Absent (the person's own click) brings it forward as always.
+   */
+  focus?: boolean
 }
 
 export type OpenAuxWindowResult = { ok: true; retargeted: boolean } | { ok: false; message: string }

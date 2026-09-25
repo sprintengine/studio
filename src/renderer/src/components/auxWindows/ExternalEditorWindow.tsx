@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
+import type * as Monaco from 'monaco-editor'
 import { detectLanguage } from '../../utils/files'
+import {
+  isEditorBeingTyped,
+  onEditorLandingQueued,
+  peekEditorLanding,
+  queueEditorLanding,
+  revealEditorRange,
+  takeEditorLanding,
+} from '../../utils/agentEditorReveal'
+import type { EditorRange } from '../../../../shared/editor-reveal'
 import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
@@ -32,6 +42,9 @@ import {
 // markdown renderer.
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
+// This window has no workspace shell, so its reveal landings share one key.
+const EXTERNAL_WINDOW_LANDING_SCOPE = 'external-editor'
+
 // One open file in the external editor window. Content is read off disk and
 // edited in place; `saved` is the on-disk baseline used to derive the dirty dot.
 type FileTab = ExternalFileTab
@@ -41,6 +54,12 @@ type IncomingFile = {
   filePath: string
   fileName: string
   workspaceId: string
+  // An agent's reveal: the lines to land on (highlighted, caret untouched),
+  // and whether to add the tab behind the one the person is on.
+  revealRange?: EditorRange | null
+  revealBackground?: boolean
+  /** An agent's open rather than the person's own. */
+  revealByAgent?: boolean
 }
 
 type Props = {
@@ -66,6 +85,23 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const tabsRef = useRef<FileTab[]>([])
   tabsRef.current = tabs
+  const activePathRef = useRef<string | null>(null)
+  activePathRef.current = activePath
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const lastKeyAtRef = useRef(0)
+  // Land an agent's range on the file on screen: now, when it is already
+  // mounted, or from the mount that follows it becoming the active tab.
+  const landActive = useCallback(() => {
+    const editor = editorRef.current
+    const path = activePathRef.current
+    if (!editor || !path || !editor.getModel()) return
+    const landing = takeEditorLanding(EXTERNAL_WINDOW_LANDING_SCOPE, path)
+    if (!landing) return
+    window.requestAnimationFrame(() => {
+      if (editorRef.current === editor) revealEditorRange(editor, landing.range, { highlight: true, moveCaret: false })
+    })
+  }, [])
+  useEffect(() => onEditorLandingQueued(landActive), [landActive])
   const buffersRef = useRef<Record<string, FileBuffer>>({})
   buffersRef.current = buffers
 
@@ -80,7 +116,22 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   useEffect(() => {
     if (!incoming) return
     const { filePath, fileName, workspaceId } = incoming
-    setActivePath(filePath)
+    if (incoming.revealRange) {
+      queueEditorLanding(EXTERNAL_WINDOW_LANDING_SCOPE, filePath, {
+        range: incoming.revealRange,
+        takeFocus: false,
+        highlight: true,
+      })
+    }
+    // Behind the person's tab when they are typing — in the main window (the
+    // opener says so) or here, in this window's own editor, which the opener
+    // cannot see. In front otherwise.
+    const typingHere = isEditorBeingTyped(editorRef.current, lastKeyAtRef.current)
+    const keepCurrent =
+      (incoming.revealBackground || (incoming.revealByAgent && typingHere)) &&
+      activePathRef.current !== null &&
+      activePathRef.current !== filePath
+    if (!keepCurrent) setActivePath(filePath)
     if (!tabsRef.current.some((tab) => tab.path === filePath)) {
       const tab = createExternalFileTab({ path: filePath, name: fileName, workspaceId })
       setTabs((prev) => [...prev, tab])
@@ -99,7 +150,10 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   // Land on the rendered preview each time a markdown file becomes active, so
   // opening one shows the formatted document rather than the last source view.
   useEffect(() => {
-    if (isMarkdown) setMarkdownMode('preview')
+    // A file an agent opened at lines lands in the source, where lines are.
+    if (isMarkdown) {
+      setMarkdownMode(activePath && peekEditorLanding(EXTERNAL_WINDOW_LANDING_SCOPE, activePath) ? 'source' : 'preview')
+    }
   }, [activePath, isMarkdown])
 
   const closeTab = useCallback((path: string) => {
@@ -320,7 +374,13 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
             </Tooltip>
           </div>
         ) : null}
-        {renderBody(activeTab, activeBuffer, activePath, setBuffers, showPreview, monacoTheme)}
+        {renderBody(activeTab, activeBuffer, activePath, setBuffers, showPreview, monacoTheme, (editor) => {
+          editorRef.current = editor
+          editor.onKeyDown(() => {
+            lastKeyAtRef.current = Date.now()
+          })
+          landActive()
+        })}
       </div>
     </div>
   )
@@ -342,6 +402,7 @@ function renderBody(
   setBuffers: React.Dispatch<React.SetStateAction<Record<string, FileBuffer>>>,
   showPreview: boolean,
   monacoTheme: 'vs' | 'vs-dark',
+  onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor) => void,
 ): React.ReactNode {
   // Kit states, not the window's own dialect: the sentences a person
   // reads are `EmptyState` copy rather than `--text-disabled` mono, and a read
@@ -395,7 +456,10 @@ function renderBody(
       value={buffer.value}
       // A window opened moments ago may have measured a fallback face; see
       // `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
-      onMount={remeasureMonacoFontsOnLoad}
+      onMount={(editor, monaco) => {
+        remeasureMonacoFontsOnLoad(editor, monaco)
+        onEditorMount?.(editor)
+      }}
       options={{
         fontSize: 13,
         fontFamily: MONO_FONT_STACK,

@@ -43,6 +43,7 @@ import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { browserApi } from './api/browser'
 import { canvasApi } from './api/canvas'
+import { editorRevealApi } from './api/editor-reveal'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
@@ -58,6 +59,7 @@ const api = {
   ...windowApi,
   ...browserApi,
   ...canvasApi,
+  ...editorRevealApi,
   ...splashApi,
   ...startupApi,
   ...buildStampApi,

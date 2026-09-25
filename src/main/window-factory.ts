@@ -363,6 +363,14 @@ type CreateAuxWindowOptions = {
   singletonKey: string
   params: Record<string, string>
   bounds?: { x: number; y: number; width: number; height: number } | null
+  /**
+   * Whether the window may take the keyboard. True (the default) for the
+   * person's own clicks: they asked for the window, so it comes forward. False
+   * for an agent's reveal, which must never take focus or raise a window: an
+   * open window is retargeted where it stands (a minimized one stays
+   * minimized), and a new one is shown inactive.
+   */
+  focus?: boolean
 }
 
 /** Is this window one this process opened as an aux window? The registry is
@@ -373,15 +381,15 @@ export function isAuxWindow(win: BrowserWindow): boolean {
   return false
 }
 
-export function openAuxWindow({ kind, singletonKey, params, bounds = null }: CreateAuxWindowOptions): {
+export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus = true }: CreateAuxWindowOptions): {
   retargeted: boolean
 } {
   const registryKey = `${kind}:${singletonKey}`
   const existing = auxWindows.get(registryKey)
   if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore()
+    if (focus && existing.isMinimized()) existing.restore()
     existing.webContents.send('aux:retarget', { kind, params })
-    existing.focus()
+    if (focus) existing.focus()
     return { retargeted: true }
   }
 
@@ -414,6 +422,10 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
   auxWindows.set(registryKey, win)
 
   win.on('ready-to-show', () => {
+    if (!focus) {
+      win.showInactive()
+      return
+    }
     win.show()
     win.focus()
   })
@@ -494,6 +506,11 @@ function normalizeWindowBounds(
 
 // Push a main→renderer event to every workspace window (the embedded browser's
 // open/viewport requests, which any window hosting the workspace may answer).
+/** The live workspace windows — never an aux window, the splash or the canvas worker. */
+export function listWorkspaceWindows(): BrowserWindow[] {
+  return [...workspaceWindows].filter((win) => !win.isDestroyed())
+}
+
 export function broadcastToWorkspaceWindows(channel: string, payload: unknown): void {
   for (const win of workspaceWindows) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)
