@@ -1,8 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
-import { stat } from 'fs/promises'
+import { opendir, stat } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
-import { rgPath } from '@vscode/ripgrep'
-import type { ContentSearchEntry, ContentSearchResult, FileSearchEntry, FileSearchResult } from '../shared/electron-api'
+import type {
+  ContentSearchEntry,
+  ContentSearchResult,
+  FileSearchEngine,
+  FileSearchEntry,
+  FileSearchResult,
+} from '../shared/electron-api'
+import { describeRipgrepSpawnFailure, markRipgrepUnusable, ripgrepBinary, type RipgrepBinary } from './ripgrep-binary'
 import { watchEventPaths } from '../shared/file-watch-event'
 import { getWatchHub, type WatchHub, type WatchSubscription } from './workspace-watch-hub'
 
@@ -19,7 +25,7 @@ type FileSearchEngineResult =
       ok: true
       results: FileSearchEntry[]
       truncated: boolean
-      engine: 'ripgrep'
+      engine: FileSearchEngine
     }
   | {
       ok: false
@@ -131,8 +137,36 @@ export function cancelActiveContentSearch(senderId: number): void {
   }
 }
 
+/**
+ * The message for a ripgrep that failed to start, giving up on the binary
+ * when the failure says it cannot run at all.
+ */
+function ripgrepStartFailed(binaryPath: string, error: unknown): string {
+  const failure = describeRipgrepSpawnFailure(binaryPath, error)
+  if (failure.unusable) markRipgrepUnusable(failure.message)
+  return failure.message
+}
+
+/**
+ * `spawn` for ripgrep, with the failure a POSIX spawn throws synchronously (a
+ * path that cannot be executed, ENOTDIR) turned into the same value Windows
+ * reports through the child's `error` event.
+ */
+function spawnRipgrep(
+  binaryPath: string,
+  args: string[],
+  cwd: string,
+): { ok: true; child: ChildProcessWithoutNullStreams } | { ok: false; message: string } {
+  try {
+    return { ok: true, child: spawn(binaryPath, args, { cwd, windowsHide: true }) }
+  } catch (error) {
+    return { ok: false, message: ripgrepStartFailed(binaryPath, error) }
+  }
+}
+
 async function searchFilesWithRipgrep(
   senderId: number,
+  binaryPath: string,
   rootPath: string,
   query: string,
   limit: number,
@@ -144,13 +178,12 @@ async function searchFilesWithRipgrep(
   let truncated = false
   const excludeArgs = builtinExcludeArgs()
 
+  const spawned = spawnRipgrep(binaryPath, ['--files', '--color', 'never', '--no-messages', ...excludeArgs], rootPath)
+  if (!spawned.ok) return { ok: false, message: spawned.message, engine: 'ripgrep' }
+  const child = spawned.child
+
   return new Promise<FileSearchEngineResult>((resolve) => {
     let settled = false
-    const child = spawn(rgPath, ['--files', '--color', 'never', '--no-messages', ...excludeArgs], {
-      cwd: rootPath,
-      windowsHide: true,
-    })
-
     activeFileSearches.set(senderId, child)
 
     const finish = (result: FileSearchEngineResult) => {
@@ -193,16 +226,14 @@ async function searchFilesWithRipgrep(
     })
 
     child.on('error', (error) => {
+      // Settled already: a kill after enough results failed, not a start.
+      if (settled) return
       if (cancelledFileSearches.has(child)) {
         finish({ ok: true, results: [], truncated: false, engine: 'ripgrep' })
         return
       }
 
-      finish({
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-        engine: 'ripgrep',
-      })
+      finish({ ok: false, message: ripgrepStartFailed(binaryPath, error), engine: 'ripgrep' })
     })
 
     child.on('close', (code) => {
@@ -278,6 +309,7 @@ function toContentSearchEntry(rootPath: string, message: unknown): ContentSearch
 
 async function searchContentWithRipgrep(
   senderId: number,
+  binaryPath: string,
   rootPath: string,
   query: string,
   limit: number,
@@ -287,29 +319,28 @@ async function searchContentWithRipgrep(
   let stderrBuffer = ''
   let truncated = false
 
+  const spawned = spawnRipgrep(
+    binaryPath,
+    [
+      '--json',
+      '--color',
+      'never',
+      '--no-messages',
+      '--line-number',
+      '--column',
+      '--fixed-strings',
+      ...builtinExcludeArgs(),
+      '--',
+      query,
+      '.',
+    ],
+    rootPath,
+  )
+  if (!spawned.ok) return { ok: false, message: spawned.message, engine: 'ripgrep' }
+  const child = spawned.child
+
   return new Promise<ContentSearchEngineResult>((resolve) => {
     let settled = false
-    const child = spawn(
-      rgPath,
-      [
-        '--json',
-        '--color',
-        'never',
-        '--no-messages',
-        '--line-number',
-        '--column',
-        '--fixed-strings',
-        ...builtinExcludeArgs(),
-        '--',
-        query,
-        '.',
-      ],
-      {
-        cwd: rootPath,
-        windowsHide: true,
-      },
-    )
-
     activeContentSearches.set(senderId, child)
 
     const finish = (result: ContentSearchEngineResult) => {
@@ -360,16 +391,14 @@ async function searchContentWithRipgrep(
     })
 
     child.on('error', (error) => {
+      // Settled already: a kill after enough results failed, not a start.
+      if (settled) return
       if (cancelledContentSearches.has(child)) {
         finish({ ok: true, results: [], truncated: false, engine: 'ripgrep' })
         return
       }
 
-      finish({
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-        engine: 'ripgrep',
-      })
+      finish({ ok: false, message: ripgrepStartFailed(binaryPath, error), engine: 'ripgrep' })
     })
 
     child.on('close', (code) => {
@@ -428,24 +457,47 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   cancelActiveFileSearch(senderId)
   const ticket = (fileSearchTickets.get(senderId) ?? 0) + 1
   fileSearchTickets.set(senderId, ticket)
+  const superseded = () => fileSearchTickets.get(senderId) !== ticket
 
   const listing = await fileListCache.list(rootPath)
-  if (listing) {
-    // A newer query from the same window arrived while the list was being
-    // built: answer this one empty, exactly as a cancelled walk used to.
-    if (fileSearchTickets.get(senderId) !== ticket) {
-      return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
-    }
-    return withFileSearchDiagnostics(filterFileList(rootPath, listing, query, limit), startedAt)
-  }
+  // Read after the listing, which is where a binary that will not start is
+  // found out and given up on.
+  const rg = await ripgrepBinary()
+  const engine = fileSearchEngine(rg)
+  // A newer query from the same window arrived while the list was being
+  // built: answer this one empty, exactly as a cancelled walk used to.
+  if (superseded()) return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine }, startedAt)
+  if (listing) return withFileSearchDiagnostics(filterFileList(rootPath, listing, query, limit, engine), startedAt)
 
   // Too large to hold, or the listing failed: walk for this query alone.
-  const ripgrepResult = await searchFilesWithRipgrep(senderId, rootPath, query, limit)
-  if (ripgrepResult.ok) return withFileSearchDiagnostics(ripgrepResult, startedAt)
-  return ripgrepResult
+  if (rg.ok) {
+    const result = await searchFilesWithRipgrep(senderId, rg.path, rootPath, query, limit)
+    // A ripgrep that could not start has just been given up on; walk instead.
+    const after = await ripgrepBinary()
+    if (result.ok || after.ok) return withFileSearchDiagnostics(result, startedAt)
+    fileSearchEngine(after) // for its one-time note that the walker took over
+  }
+  return withFileSearchDiagnostics(await searchFilesWithWalker(rootPath, query, limit, superseded), startedAt)
 }
 
 const fileSearchTickets = new Map<number, number>()
+
+let reportedWalkerFallback = false
+
+/**
+ * File-name search does not need ripgrep to be useful, so an install whose
+ * binary cannot be found, or will not start, lists files with a directory walk
+ * instead of finding nothing. Text search has no such fallback and reports
+ * the failure.
+ */
+function fileSearchEngine(rg: RipgrepBinary): FileSearchEngine {
+  if (rg.ok) return 'ripgrep'
+  if (!reportedWalkerFallback) {
+    reportedWalkerFallback = true
+    console.warn(`[search] ${rg.message} File-name search is walking directories instead.`)
+  }
+  return 'walker'
+}
 
 /** The same match and ranking the streaming walk applies, over a held list. */
 export function filterFileList(
@@ -453,6 +505,7 @@ export function filterFileList(
   files: readonly string[],
   query: string,
   limit: number,
+  engine: FileSearchEngine = 'ripgrep',
 ): FileSearchEngineResult & { ok: true } {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
@@ -465,7 +518,7 @@ export function filterFileList(
     }
     results.push(toFileSearchEntry(rootPath, relativePath))
   }
-  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'ripgrep' }
+  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine }
 }
 
 /**
@@ -518,7 +571,7 @@ export function createFileListCache(
     idleMs?: number
   } = {},
 ) {
-  const listFiles = deps.listFiles ?? listFilesWithRipgrep
+  const listFiles = deps.listFiles ?? listFilesWithBestEngine
   const hub = deps.hub ?? getWatchHub
   const now = deps.now ?? Date.now
   const maxAgeMs = deps.maxAgeMs ?? FILE_LIST_MAX_AGE_MS
@@ -616,15 +669,37 @@ export function createFileListCache(
 
 const fileListCache = createFileListCache()
 
+async function listFilesWithBestEngine(
+  rootPath: string,
+  maxFiles: number,
+): Promise<string[] | typeof FILE_LIST_TOO_LARGE | null> {
+  const rg = await ripgrepBinary()
+  if (rg.ok) {
+    const listed = await listFilesWithRipgrep(rg.path, rootPath, maxFiles)
+    // Null for a ripgrep that ran and failed, which the per-query search
+    // reports; a ripgrep that could not start at all is walked around.
+    if (listed !== null || (await ripgrepBinary()).ok) return listed
+  }
+  return listFilesWithWalker(rootPath, maxFiles)
+}
+
 /**
  * Every file `rg` would list under `rootPath`, root-relative; `too-large` when
  * the walk passed `maxFiles` (it is stopped there rather than finished); null
  * when it failed.
  */
 function listFilesWithRipgrep(
+  binaryPath: string,
   rootPath: string,
   maxFiles: number,
 ): Promise<string[] | typeof FILE_LIST_TOO_LARGE | null> {
+  const spawned = spawnRipgrep(
+    binaryPath,
+    ['--files', '--color', 'never', '--no-messages', ...builtinExcludeArgs()],
+    rootPath,
+  )
+  if (!spawned.ok) return Promise.resolve(null)
+  const child = spawned.child
   return new Promise((resolve) => {
     const files: string[] = []
     let buffered = ''
@@ -634,10 +709,6 @@ function listFilesWithRipgrep(
       settled = true
       resolve(value)
     }
-    const child = spawn(rgPath, ['--files', '--color', 'never', '--no-messages', ...builtinExcludeArgs()], {
-      cwd: rootPath,
-      windowsHide: true,
-    })
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
       if (settled) return
@@ -655,12 +726,83 @@ function listFilesWithRipgrep(
       }
     })
     child.stderr.resume()
-    child.on('error', () => finish(null))
+    child.on('error', (error) => {
+      if (settled) return
+      ripgrepStartFailed(binaryPath, error)
+      finish(null)
+    })
     child.on('close', (code) => {
       if (buffered) files.push(buffered)
       finish(code === 0 || code === 1 ? files : null)
     })
   })
+}
+
+const WALKER_EXCLUDED_NAMES = new Set(FILE_SEARCH_DEFAULT_EXCLUDES)
+
+/**
+ * The files under `rootPath`, root-relative, as close to `rg --files` as a
+ * walk without ignore-file parsing gets: hidden entries and the built-in
+ * excludes are skipped, and symlinks are not followed. What it cannot skip is
+ * a directory only a `.gitignore` names, which is why it is the fallback and
+ * not the engine.
+ */
+async function* walkFiles(rootPath: string): AsyncGenerator<string> {
+  const pending = ['']
+  while (pending.length > 0) {
+    const relativeDir = pending.pop()!
+    let dir
+    try {
+      dir = await opendir(join(rootPath, relativeDir))
+    } catch {
+      continue
+    }
+    const found: string[] = []
+    try {
+      for await (const entry of dir) {
+        if (entry.name.startsWith('.')) continue
+        const relativePath = relativeDir ? join(relativeDir, entry.name) : entry.name
+        // The excludes name directories, as ripgrep's `!**/build/**` does: a
+        // file called `build` is still listed.
+        if (entry.isDirectory()) {
+          if (!WALKER_EXCLUDED_NAMES.has(entry.name)) pending.push(relativePath)
+        } else if (entry.isFile()) found.push(relativePath)
+      }
+    } catch {
+      // A directory that fails mid-read keeps what it gave.
+    }
+    yield* found
+  }
+}
+
+async function listFilesWithWalker(rootPath: string, maxFiles: number): Promise<string[] | typeof FILE_LIST_TOO_LARGE> {
+  const files: string[] = []
+  for await (const relativePath of walkFiles(rootPath)) {
+    files.push(relativePath)
+    if (files.length > maxFiles) return FILE_LIST_TOO_LARGE
+  }
+  return files
+}
+
+async function searchFilesWithWalker(
+  rootPath: string,
+  query: string,
+  limit: number,
+  superseded: () => boolean,
+): Promise<FileSearchEngineResult> {
+  const normalizedQuery = normalizeSearchPath(query)
+  const results: FileSearchEntry[] = []
+  let truncated = false
+  for await (const relativePath of walkFiles(rootPath)) {
+    if (superseded()) return { ok: true, results: [], truncated: false, engine: 'walker' }
+    if (!normalizeSearchPath(relativePath).includes(normalizedQuery)) continue
+    if (results.length === limit) {
+      truncated = true
+      break
+    }
+    results.push(toFileSearchEntry(rootPath, relativePath))
+  }
+  return { ok: true, results: sortFileSearchResults(results, query), truncated, engine: 'walker' }
 }
 
 export async function searchContent(senderId: number, input: ContentSearchRequest): Promise<ContentSearchResult> {
@@ -686,5 +828,10 @@ export async function searchContent(senderId: number, input: ContentSearchReques
   }
 
   cancelActiveContentSearch(senderId)
-  return withContentSearchDiagnostics(await searchContentWithRipgrep(senderId, rootPath, query, limit), startedAt)
+  const rg = await ripgrepBinary()
+  if (!rg.ok) return { ok: false, message: rg.message, engine: 'ripgrep' }
+  return withContentSearchDiagnostics(
+    await searchContentWithRipgrep(senderId, rg.path, rootPath, query, limit),
+    startedAt,
+  )
 }

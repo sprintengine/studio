@@ -76,6 +76,9 @@
       "out/**/*",
       "!out/**/*.map"
     ],
+    "asarUnpack": [
+      "node_modules/@vscode/ripgrep-*/bin/**"
+    ],
     "extraResources": [
       {
         "from": "resources/runtime/npm",
