@@ -135,16 +135,17 @@ test('a file outside the root is pinned above the tree, with its folder and its 
 
   // The caption is drawn over the row; the row itself names the whole thing.
   assert.ok(host.textContent?.includes('Outside this workspace'), 'the caption is shown')
-  const pinned = Array.from(host.querySelectorAll<HTMLElement>('[role="treeitem"]')).find((item) =>
+  const pinned = Array.from(host.querySelectorAll<HTMLElement>('[role="group"]')).find((item) =>
     item.getAttribute('aria-label')?.includes('outside this workspace'),
   )
   assert.ok(pinned, 'one pinned row')
+  assert.ok(pinned?.textContent?.includes('fix.patch'), 'the file name is the primary text')
   assert.ok(pinned?.textContent?.includes('/Users/dev/tmp/agent-patches'), 'naming the folder the file is in')
-  assert.equal(pinned?.getAttribute('aria-selected'), 'true', 'selected, because it is the open file')
+  assert.ok(!pinned?.closest('[role="tree"]'), 'outside the tree, which the keyboard walks')
   assert.ok(!reads.includes('/Users/dev/tmp/agent-patches'), 'the outside folder is never listed')
 
   await act(async () => {
-    pinned?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
+    pinned?.lastElementChild?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
   })
   const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) =>
     item.textContent?.trim(),

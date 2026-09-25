@@ -3289,25 +3289,21 @@ code {
 }
 
 /* ── Pinned row ──────────────────────────────────────────────────────────
- * The open file when it is NOT under the root: one row above the tree, for as
- * long as it is the open file, saying where it is. Sticky, on the column's own
- * ground, so the tree scrolls beneath it. The folder truncates from its start:
- * the end of a path is the informative end. */
+ * The open file when it is NOT under the root, for as long as it is the open
+ * file. It sits between the band and the tree, outside the tree's scroll, so
+ * no row ever slides under it. A caption, then one row: the file's glyph and
+ * NAME as the primary text, its folder muted and truncated in the middle so
+ * both the path's start and the folder nearest the file stay readable.
+ *
+ * It is the open file, not a keyboard cursor, so it wears the open file's
+ * resting fill — the neutral fill a tree row wears while the editor has
+ * focus — and never the accent edge. */
 .ds-file-tree-pinned {
-  position: sticky;
-  top: 0;
-  z-index: var(--sem-z-sticky);
-  padding-bottom: var(--sem-space-2xs);
-  background: var(--sem-color-bg-surface);
+  flex-shrink: 0;
+  padding: 0 var(--sem-space-2xs) var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
 }
 
-.ds-file-tree-pinned .ds-file-tree-row {
-  cursor: default;
-}
-
-/* The label is a caption over the row, not a word in it: at the column's
- * default width the row belongs to the folder, the part that says where the
- * file is. */
 .ds-file-tree-pinned-label {
   margin: 0;
   padding: var(--sem-space-2xs) var(--sem-space-sm) var(--sem-space-3xs);
@@ -3316,14 +3312,45 @@ code {
   font-weight: var(--sem-font-weight-medium);
 }
 
-.ds-file-tree-pinned-dir {
-  flex: 1;
-  min-width: 0;
+.ds-file-tree-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  box-sizing: border-box;
+  height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-file-tree-pinned-name {
+  flex: none;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-file-tree-pinned-dir {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  white-space: nowrap;
+}
+
+.ds-file-tree-pinned-dir-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-file-tree-pinned-dir-tail {
+  flex: none;
 }
 
 /* components/glyphs/component.css */
@@ -20739,34 +20766,36 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
         </div>
         <div class="demo-column">
           <div
+            class="ds-file-tree-pinned"
+            role="group"
+            aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
+          >
+            <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
+            <div class="ds-file-tree-pinned-row" title="/Users/dev/tmp/agent-patches/fix.patch">
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-pinned-name">fix.patch</span>
+              <span class="ds-file-tree-pinned-dir" aria-hidden="true"
+                ><span class="ds-file-tree-pinned-dir-head">/Users/dev/tmp</span
+                ><span class="ds-file-tree-pinned-dir-tail">/agent-patches</span></span
+              >
+              <span class="demo-icon" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3.5" r="1.25" />
+                  <circle cx="8" cy="8" r="1.25" />
+                  <circle cx="8" cy="12.5" r="1.25" /></svg
+              ></span>
+            </div>
+          </div>
+          <div
             class="ds-file-tree"
             role="tree"
             aria-label="Files in studio (light, file outside the root)"
             tabindex="0"
           >
-            <div class="ds-file-tree-pinned">
-              <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
-              <div
-                class="ds-file-tree-row ds-file-tree-row--selected"
-                role="treeitem"
-                aria-level="1"
-                aria-selected="true"
-                aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
-              >
-                <span class="ds-file-tree-glyph" aria-hidden="true"
-                  ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                    <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
-                    <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
-                ></span>
-                <span class="ds-file-tree-pinned-dir"><bdi>/Users/dev/tmp/agent-patches</bdi></span>
-                <span class="demo-icon" aria-hidden="true"
-                  ><svg viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="3.5" r="1.25" />
-                    <circle cx="8" cy="8" r="1.25" />
-                    <circle cx="8" cy="12.5" r="1.25" /></svg
-                ></span>
-              </div>
-            </div>
             <div
               class="ds-file-tree-row ds-file-tree-row--folder"
               role="treeitem"
@@ -21357,30 +21386,32 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
           </div>
         </div>
         <div class="demo-column">
-          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, file outside the root)" tabindex="0">
-            <div class="ds-file-tree-pinned">
-              <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
-              <div
-                class="ds-file-tree-row ds-file-tree-row--selected"
-                role="treeitem"
-                aria-level="1"
-                aria-selected="true"
-                aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
+          <div
+            class="ds-file-tree-pinned"
+            role="group"
+            aria-label="fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches"
+          >
+            <p class="ds-file-tree-pinned-label" aria-hidden="true">Outside this workspace</p>
+            <div class="ds-file-tree-pinned-row" title="/Users/dev/tmp/agent-patches/fix.patch">
+              <span class="ds-file-tree-glyph" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                  <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
+                  <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
+              ></span>
+              <span class="ds-file-tree-pinned-name">fix.patch</span>
+              <span class="ds-file-tree-pinned-dir" aria-hidden="true"
+                ><span class="ds-file-tree-pinned-dir-head">/Users/dev/tmp</span
+                ><span class="ds-file-tree-pinned-dir-tail">/agent-patches</span></span
               >
-                <span class="ds-file-tree-glyph" aria-hidden="true"
-                  ><svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                    <path d="M4 1.75h5.5l2.75 2.75v9.75H4z" stroke-width="1.3" stroke-linejoin="round" />
-                    <path d="M9.5 1.75V4.5h2.75" stroke-width="1.3" stroke-linejoin="round" /></svg
-                ></span>
-                <span class="ds-file-tree-pinned-dir"><bdi>/Users/dev/tmp/agent-patches</bdi></span>
-                <span class="demo-icon" aria-hidden="true"
-                  ><svg viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="3.5" r="1.25" />
-                    <circle cx="8" cy="8" r="1.25" />
-                    <circle cx="8" cy="12.5" r="1.25" /></svg
-                ></span>
-              </div>
+              <span class="demo-icon" aria-hidden="true"
+                ><svg viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3.5" r="1.25" />
+                  <circle cx="8" cy="8" r="1.25" />
+                  <circle cx="8" cy="12.5" r="1.25" /></svg
+              ></span>
             </div>
+          </div>
+          <div class="ds-file-tree" role="tree" aria-label="Files in studio (dark, file outside the root)" tabindex="0">
             <div
               class="ds-file-tree-row ds-file-tree-row--folder"
               role="treeitem"
@@ -21442,14 +21473,15 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Why not <code>check-row --tree</code>.</strong> [check-row](../check-row/component.md) is the pick-_and_-mark row: it spends its fifth element on a checkbox, because in the Git changes list the tick is the index. A file tree marks nothing — picking a row is the whole interaction — so it has no box, and its rows can stay at four elements (chevron, glyph, name, status) under the ceiling without an amendment.</p>
 <p>In the app: <code>FileTreeRow</code>, <code>FileTreeRootRow</code>, <code>FileTreePinnedRow</code> and <code>FileTreeRows</code> in <code>src/renderer/src/components/ui/FileTree.tsx</code>.</p>
 <h4>Anatomy</h4>
-<p>| Part       | Class                      | Required                                                                                            | | ---------- | -------------------------- | --------------------------------------------------------------------------------------------------- | | Tree       | <code>.ds-file-tree</code>            | yes — <code>role=&quot;tree&quot;</code>, one tab stop, <code>aria-label</code> naming the root                                     | | Band       | <code>.ds-file-tree-band</code>       | no — the chrome row over a tree with no root row: the root's name, then the filter and collapse-all | | Band title | <code>.ds-file-tree-band-title</code> | with the band — folder glyph and the root's name; the full path is its tooltip                      | | Row        | <code>.ds-file-tree-row</code>        | yes — <code>role=&quot;treeitem&quot;</code>, <code>aria-level</code>, <code>aria-selected</code>, <code>aria-expanded</code> on folders                  | | Depth      | <code>--ds-file-tree-depth</code>     | yes — a unitless level; one level is <code>space.lg + space.3xs</code>, the chevron's advance plus a hair      | | Twisty     | <code>.ds-file-tree-twisty</code>     | yes — the chevron; <code>--leaf</code> on a file keeps the slot and drops the mark                             | | Glyph      | <code>.ds-file-tree-glyph</code>      | yes — the reserved 16px slot: the file's kind glyph, or the folder glyph                            | | Name       | <code>.ds-file-tree-name</code>       | yes — truncates from the end; tinted by git status (<code>--modified</code>, <code>--added</code>, <code>--deleted</code>)           | | Badge      | <code>.ds-file-tree-badge</code>      | no — display-only status letter: <code>A</code>, <code>M</code>, <code>R</code>, <code>D</code>, <code>!</code>                                            | | Pinned     | <code>.ds-file-tree-pinned</code>     | no — the open file when it lies outside the root (below)                                            |</p>
+<p>| Part       | Class                      | Required                                                                                            | | ---------- | -------------------------- | --------------------------------------------------------------------------------------------------- | | Tree       | <code>.ds-file-tree</code>            | yes — <code>role=&quot;tree&quot;</code>, one tab stop, <code>aria-label</code> naming the root                                     | | Band       | <code>.ds-file-tree-band</code>       | no — the chrome row over a tree with no root row: the root's name, then the filter and collapse-all | | Band title | <code>.ds-file-tree-band-title</code> | with the band — folder glyph and the root's name; the full path is its tooltip                      | | Row        | <code>.ds-file-tree-row</code>        | yes — <code>role=&quot;treeitem&quot;</code>, <code>aria-level</code>, <code>aria-selected</code>, <code>aria-expanded</code> on folders                  | | Depth      | <code>--ds-file-tree-depth</code>     | yes — a unitless level; one level is <code>space.lg + space.3xs</code>, the chevron's advance plus a hair      | | Twisty     | <code>.ds-file-tree-twisty</code>     | yes — the chevron; <code>--leaf</code> on a file keeps the slot and drops the mark                             | | Glyph      | <code>.ds-file-tree-glyph</code>      | yes — the reserved 16px slot: the file's kind glyph, or the folder glyph                            | | Name       | <code>.ds-file-tree-name</code>       | yes — truncates from the end; tinted by git status (<code>--modified</code>, <code>--added</code>, <code>--deleted</code>)           | | Badge      | <code>.ds-file-tree-badge</code>      | no — display-only status letter: <code>A</code>, <code>M</code>, <code>R</code>, <code>D</code>, <code>!</code>                                            | | Pinned     | <code>.ds-file-tree-pinned</code>     | no — the open file when it lies outside the root (below); <code>role=&quot;group&quot;</code>, outside the tree          |</p>
 <h4>Variants</h4>
 <ul><li><strong>Rooted</strong> — the workspace pane's tree: the first row is the root folder itself, name strong and path muted, and its chevron folds the whole tree. Depth 0 sits one level in from it.</li><li><strong>Banded</strong> — the editor window's tree: a band names the root and carries the view controls, and the first level of the tree is depth 0 with no row above it. The band is the root row's job done once, as chrome.</li><li><strong>Changed files</strong> — a view of the banded tree, not a separate component: only the files git reports as changed, with the folders between them and the root synthesised from their paths. Nothing is read from disk to show it.</li><li><code>.ds-file-tree-row--folder</code> — a folder's name is set at <code>font.weight.medium</code>.</li><li><code>.ds-file-tree-row--ignored</code> — a path the repository ignores: the whole row, glyph included, drops to <code>text.disabled</code>.</li></ul>
 <h4>States</h4>
 <p>| State                      | Treatment                                                  | | -------------------------- | ---------------------------------------------------------- | | Rest                       | <code>text.default</code>; the glyph in its kind hue                  | | Hover                      | <code>bg.hover</code>, name to <code>text.primary</code> — background only       | | Selected (tree has focus)  | <code>--selected</code>: <code>bg.selected</code> plus the 2px inset edge        | | Selected (focus elsewhere) | <code>--resting</code>: <code>bg.selected-resting</code>, no edge                | | Multi-select companion     | <code>--resting</code> — the cursor row alone is <code>--selected</code>         | | Expanded                   | chevron rotated 90°; <code>aria-expanded=&quot;true&quot;</code>                | | Drop target                | <code>bg.selected</code> plus a 1px accent ring (workspace tree only) |</p>
 <p>The two selection tiers are <code>patterns/selection</code> exactly. In the editor window the open file's row is selected; while Monaco has the keyboard it rests, and it takes the full fill and the edge only when the tree itself is being driven. Exactly one edge is ever on screen.</p>
 <h5>Outside the root</h5>
-<p>When the open file is not under the tree's root — an agent's patch written to a scratch folder, a file in the home directory — the tree cannot show it, and saying nothing would leave the person exactly as lost as before. It shows one <strong>pinned</strong> row above the tree, for as long as that file is the open one: a caption, _Outside this workspace_ (<code>.ds-file-tree-pinned-label</code>), over one row holding the file's glyph and the folder it is in (<code>.ds-file-tree-pinned-dir</code>), truncated from the start so the folder nearest the file stays in view. The label is a caption rather than a word in the row because at the column's default width the row belongs to the folder — the part that says where the file is. The row is selected, because it is the open file. Its menu (the trailing overflow button and the right-click) has two items: _Reveal in Finder_ (_Show in Explorer_ on Windows, _Show in file manager_ elsewhere) and _Copy path_.</p>
+<p>When the open file is not under the tree's root — an agent's patch written to a scratch folder, a file in the home directory — the tree cannot show it, and saying nothing would leave the person exactly as lost as before. A <strong>pinned</strong> block shows between the band and the tree, for as long as that file is the open one: a caption, _Outside this workspace_ (<code>.ds-file-tree-pinned-label</code>), over one row (<code>.ds-file-tree-pinned-row</code>) holding the file's glyph, its <strong>name</strong> as the primary text (<code>-name</code>), and its folder as muted secondary text (<code>-dir</code>) truncated in the middle — the head of the path gives way, the folder nearest the file stays. The full path is the row's tooltip.</p>
+<p>It sits outside the tree's scroll, so no row slides under it, and outside the tree's keyboard walk. It is the open file, not a keyboard cursor, so it wears the open file's <strong>resting</strong> fill (<code>bg.selected-resting</code>) and never the accent edge. Its menu (a trailing overflow button, and right-click) has two items: _Reveal in Finder_ (_Show in Explorer_ on Windows, _Show in file manager_ elsewhere) and _Copy path_.</p>
 <h4>Usage</h4>
 <p><strong>Every row is exactly 24px.</strong> <code>size.hit-target-min</code>, reached through the vertical padding — the glyph slot stays 16px so the chevron, folder and file marks line up with every rail in the app. Nothing a row holds may make it taller; the rename field that replaces a name is 20px for that reason. The fixed pitch is also what lets a folder past a thousand rows be windowed by arithmetic instead of measurement.</p>
 <p><strong>Colour has three channels, one each.</strong> The glyph's hue is the file's kind; the name's tint is its git status; the row's ink is whether it is ignored. Selection lifts the fill and the ink, and removes any wash, but never repaints the glyph or the status tint.</p>
@@ -21457,7 +21489,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>The tree that only reads writes nothing shared.</strong> The editor window's tree keeps its own expanded folders, and its column's width and visibility live in that window's own storage — never in the workspace's remembered state, which belongs to the workspace tree.</p>
 <p><strong>Rebuilding it in a framework:</strong> what must survive is the fixed 24px pitch, the one glyph column (the leaf keeps the chevron's slot), the three colour channels, the two selection tiers, and the one-tab-stop keyboard contract.</p>
 <h4>Accessibility</h4>
-<ul><li>The tree is <strong>one tab stop</strong>. ↑/↓ move the selection, Home/End jump to the ends, → opens a folder (or steps into it when open), ← closes it (or steps to its parent), Enter opens a file or toggles a folder.</li><li><strong>Escape returns focus to the editor</strong> in the editor window, and must not reach the window's own Escape (which closes it).</li><li>Every row carries <code>aria-level</code>; folders carry <code>aria-expanded</code>; the selected row carries <code>aria-selected=&quot;true&quot;</code>. The chevron is <code>tabindex=&quot;-1&quot;</code> — the keyboard reaches folders through the tree, not through the chevron.</li><li>The status letter is display-only and duplicated in the name's tint; it is never the only carrier of the state.</li><li>The pinned row names itself in full — file, _outside this workspace_, and the folder — since its visible folder may be truncated.</li></ul>
+<ul><li>The tree is <strong>one tab stop</strong>. ↑/↓ move the selection, Home/End jump to the ends, → opens a folder (or steps into it when open), ← closes it (or steps to its parent), Enter opens a file or toggles a folder.</li><li><strong>Escape returns focus to the editor</strong> in the editor window, and must not reach the window's own Escape (which closes it).</li><li>Every row carries <code>aria-level</code>; folders carry <code>aria-expanded</code>; the selected row carries <code>aria-selected=&quot;true&quot;</code>. The chevron is <code>tabindex=&quot;-1&quot;</code> — the keyboard reaches folders through the tree, not through the chevron.</li><li>The status letter is display-only and duplicated in the name's tint; it is never the only carrier of the state.</li><li>The pinned block is a <code>role=&quot;group&quot;</code> beside the tree, not a treeitem, and names itself in full — file, _outside this workspace_, and the folder — since its visible folder may be truncated.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/file-tree/component.css</summary><pre><code>/* File tree — a folder tree of files, one 24px row per entry.
@@ -21651,25 +21683,21 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 }
 
 /* ── Pinned row ──────────────────────────────────────────────────────────
- * The open file when it is NOT under the root: one row above the tree, for as
- * long as it is the open file, saying where it is. Sticky, on the column's own
- * ground, so the tree scrolls beneath it. The folder truncates from its start:
- * the end of a path is the informative end. */
+ * The open file when it is NOT under the root, for as long as it is the open
+ * file. It sits between the band and the tree, outside the tree's scroll, so
+ * no row ever slides under it. A caption, then one row: the file's glyph and
+ * NAME as the primary text, its folder muted and truncated in the middle so
+ * both the path's start and the folder nearest the file stay readable.
+ *
+ * It is the open file, not a keyboard cursor, so it wears the open file's
+ * resting fill — the neutral fill a tree row wears while the editor has
+ * focus — and never the accent edge. */
 .ds-file-tree-pinned {
-  position: sticky;
-  top: 0;
-  z-index: var(--sem-z-sticky);
-  padding-bottom: var(--sem-space-2xs);
-  background: var(--sem-color-bg-surface);
+  flex-shrink: 0;
+  padding: 0 var(--sem-space-2xs) var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
 }
 
-.ds-file-tree-pinned .ds-file-tree-row {
-  cursor: default;
-}
-
-/* The label is a caption over the row, not a word in it: at the column's
- * default width the row belongs to the folder, the part that says where the
- * file is. */
 .ds-file-tree-pinned-label {
   margin: 0;
   padding: var(--sem-space-2xs) var(--sem-space-sm) var(--sem-space-3xs);
@@ -21678,14 +21706,45 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   font-weight: var(--sem-font-weight-medium);
 }
 
-.ds-file-tree-pinned-dir {
-  flex: 1;
-  min-width: 0;
+.ds-file-tree-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  box-sizing: border-box;
+  height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-file-tree-pinned-name {
+  flex: none;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-file-tree-pinned-dir {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  white-space: nowrap;
+}
+
+.ds-file-tree-pinned-dir-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-file-tree-pinned-dir-tail {
+  flex: none;
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/file-tree/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -22281,34 +22340,36 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
         &lt;/div&gt;
         &lt;div class=&quot;demo-column&quot;&gt;
           &lt;div
+            class=&quot;ds-file-tree-pinned&quot;
+            role=&quot;group&quot;
+            aria-label=&quot;fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches&quot;
+          &gt;
+            &lt;p class=&quot;ds-file-tree-pinned-label&quot; aria-hidden=&quot;true&quot;&gt;Outside this workspace&lt;/p&gt;
+            &lt;div class=&quot;ds-file-tree-pinned-row&quot; title=&quot;/Users/dev/tmp/agent-patches/fix.patch&quot;&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path d=&quot;M4 1.75h5.5l2.75 2.75v9.75H4z&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M9.5 1.75V4.5h2.75&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-pinned-name&quot;&gt;fix.patch&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-pinned-dir&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;span class=&quot;ds-file-tree-pinned-dir-head&quot;&gt;/Users/dev/tmp&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-pinned-dir-tail&quot;&gt;/agent-patches&lt;/span&gt;&lt;/span
+              &gt;
+              &lt;span class=&quot;demo-icon&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;3.5&quot; r=&quot;1.25&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.25&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;12.5&quot; r=&quot;1.25&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div
             class=&quot;ds-file-tree&quot;
             role=&quot;tree&quot;
             aria-label=&quot;Files in studio (light, file outside the root)&quot;
             tabindex=&quot;0&quot;
           &gt;
-            &lt;div class=&quot;ds-file-tree-pinned&quot;&gt;
-              &lt;p class=&quot;ds-file-tree-pinned-label&quot; aria-hidden=&quot;true&quot;&gt;Outside this workspace&lt;/p&gt;
-              &lt;div
-                class=&quot;ds-file-tree-row ds-file-tree-row--selected&quot;
-                role=&quot;treeitem&quot;
-                aria-level=&quot;1&quot;
-                aria-selected=&quot;true&quot;
-                aria-label=&quot;fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches&quot;
-              &gt;
-                &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
-                  &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
-                    &lt;path d=&quot;M4 1.75h5.5l2.75 2.75v9.75H4z&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
-                    &lt;path d=&quot;M9.5 1.75V4.5h2.75&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg
-                &gt;&lt;/span&gt;
-                &lt;span class=&quot;ds-file-tree-pinned-dir&quot;&gt;&lt;bdi&gt;/Users/dev/tmp/agent-patches&lt;/bdi&gt;&lt;/span&gt;
-                &lt;span class=&quot;demo-icon&quot; aria-hidden=&quot;true&quot;
-                  &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;3.5&quot; r=&quot;1.25&quot; /&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.25&quot; /&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;12.5&quot; r=&quot;1.25&quot; /&gt;&lt;/svg
-                &gt;&lt;/span&gt;
-              &lt;/div&gt;
-            &lt;/div&gt;
             &lt;div
               class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
               role=&quot;treeitem&quot;
@@ -22899,30 +22960,32 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class=&quot;demo-column&quot;&gt;
-          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (dark, file outside the root)&quot; tabindex=&quot;0&quot;&gt;
-            &lt;div class=&quot;ds-file-tree-pinned&quot;&gt;
-              &lt;p class=&quot;ds-file-tree-pinned-label&quot; aria-hidden=&quot;true&quot;&gt;Outside this workspace&lt;/p&gt;
-              &lt;div
-                class=&quot;ds-file-tree-row ds-file-tree-row--selected&quot;
-                role=&quot;treeitem&quot;
-                aria-level=&quot;1&quot;
-                aria-selected=&quot;true&quot;
-                aria-label=&quot;fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches&quot;
+          &lt;div
+            class=&quot;ds-file-tree-pinned&quot;
+            role=&quot;group&quot;
+            aria-label=&quot;fix.patch, outside this workspace, in /Users/dev/tmp/agent-patches&quot;
+          &gt;
+            &lt;p class=&quot;ds-file-tree-pinned-label&quot; aria-hidden=&quot;true&quot;&gt;Outside this workspace&lt;/p&gt;
+            &lt;div class=&quot;ds-file-tree-pinned-row&quot; title=&quot;/Users/dev/tmp/agent-patches/fix.patch&quot;&gt;
+              &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
+                  &lt;path d=&quot;M4 1.75h5.5l2.75 2.75v9.75H4z&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
+                  &lt;path d=&quot;M9.5 1.75V4.5h2.75&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-pinned-name&quot;&gt;fix.patch&lt;/span&gt;
+              &lt;span class=&quot;ds-file-tree-pinned-dir&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;span class=&quot;ds-file-tree-pinned-dir-head&quot;&gt;/Users/dev/tmp&lt;/span
+                &gt;&lt;span class=&quot;ds-file-tree-pinned-dir-tail&quot;&gt;/agent-patches&lt;/span&gt;&lt;/span
               &gt;
-                &lt;span class=&quot;ds-file-tree-glyph&quot; aria-hidden=&quot;true&quot;
-                  &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
-                    &lt;path d=&quot;M4 1.75h5.5l2.75 2.75v9.75H4z&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;
-                    &lt;path d=&quot;M9.5 1.75V4.5h2.75&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg
-                &gt;&lt;/span&gt;
-                &lt;span class=&quot;ds-file-tree-pinned-dir&quot;&gt;&lt;bdi&gt;/Users/dev/tmp/agent-patches&lt;/bdi&gt;&lt;/span&gt;
-                &lt;span class=&quot;demo-icon&quot; aria-hidden=&quot;true&quot;
-                  &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;3.5&quot; r=&quot;1.25&quot; /&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.25&quot; /&gt;
-                    &lt;circle cx=&quot;8&quot; cy=&quot;12.5&quot; r=&quot;1.25&quot; /&gt;&lt;/svg
-                &gt;&lt;/span&gt;
-              &lt;/div&gt;
+              &lt;span class=&quot;demo-icon&quot; aria-hidden=&quot;true&quot;
+                &gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;currentColor&quot;&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;3.5&quot; r=&quot;1.25&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;1.25&quot; /&gt;
+                  &lt;circle cx=&quot;8&quot; cy=&quot;12.5&quot; r=&quot;1.25&quot; /&gt;&lt;/svg
+              &gt;&lt;/span&gt;
             &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-file-tree&quot; role=&quot;tree&quot; aria-label=&quot;Files in studio (dark, file outside the root)&quot; tabindex=&quot;0&quot;&gt;
             &lt;div
               class=&quot;ds-file-tree-row ds-file-tree-row--folder&quot;
               role=&quot;treeitem&quot;

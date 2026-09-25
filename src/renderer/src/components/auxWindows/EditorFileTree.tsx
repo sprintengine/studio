@@ -428,6 +428,23 @@ export function EditorFileTree({
           </IconButton>
         </Tooltip>
       </div>
+      {/* Outside the scrolling tree, between the band and it: the rows scroll
+          beneath nothing, and the open file's own row never scrolls away. */}
+      {outside ? (
+        <div className="shrink-0 px-1 pb-1">
+          <FileTreePinnedRow
+            label={outsideLabel}
+            directory={outside.directory}
+            fileName={outside.name}
+            title={activePath ?? undefined}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setPinnedMenu({ x: event.clientX, y: event.clientY })
+            }}
+            trailing={<OverflowMenu ariaLabel={`Actions for ${outside.name}`} items={pinnedItems} />}
+          />
+        </div>
+      ) : null}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div
           ref={treeRef}
@@ -447,22 +464,6 @@ export function EditorFileTree({
           onKeyDown={onKeyDown}
           className="flex min-h-full flex-col px-1 py-1.5 outline-none focus-visible:focus-ring-inset"
         >
-          {outside ? (
-            <div className="sticky top-0 z-[var(--z-sticky)] bg-[color:var(--bg-surface)] pb-1">
-              <FileTreePinnedRow
-                label={outsideLabel}
-                directory={outside.directory}
-                fileName={outside.name}
-                selected
-                title={activePath ?? undefined}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setPinnedMenu({ x: event.clientX, y: event.clientY })
-                }}
-                trailing={<OverflowMenu ariaLabel={`Actions for ${outside.name}`} items={pinnedItems} />}
-              />
-            </div>
-          ) : null}
           {body}
         </div>
       </div>

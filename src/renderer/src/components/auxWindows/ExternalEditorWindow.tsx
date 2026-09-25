@@ -421,7 +421,10 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
                 key={tab.path}
                 className={`app-no-drag group/tab flex h-[28px] min-w-0 shrink-0 items-center gap-1.5 self-center rounded-md px-2 text-meta transition-colors ${
                   selected
-                    ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                    ? // The neutral selected fill, as every other selection: the
+                      // raised surface it used was the strip's own ground in the
+                      // light themes, so the active tab could not be told apart.
+                      'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
                 }`}
               >

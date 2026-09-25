@@ -33,7 +33,7 @@ In the app: `FileTreeRow`, `FileTreeRootRow`, `FileTreePinnedRow` and
 | Glyph      | `.ds-file-tree-glyph`      | yes — the reserved 16px slot: the file's kind glyph, or the folder glyph                            |
 | Name       | `.ds-file-tree-name`       | yes — truncates from the end; tinted by git status (`--modified`, `--added`, `--deleted`)           |
 | Badge      | `.ds-file-tree-badge`      | no — display-only status letter: `A`, `M`, `R`, `D`, `!`                                            |
-| Pinned     | `.ds-file-tree-pinned`     | no — the open file when it lies outside the root (below)                                            |
+| Pinned     | `.ds-file-tree-pinned`     | no — the open file when it lies outside the root (below); `role="group"`, outside the tree          |
 
 ## Variants
 
@@ -72,16 +72,20 @@ being driven. Exactly one edge is ever on screen.
 
 When the open file is not under the tree's root — an agent's patch written to
 a scratch folder, a file in the home directory — the tree cannot show it, and
-saying nothing would leave the person exactly as lost as before. It shows one
-**pinned** row above the tree, for as long as that file is the open one: a
-caption, _Outside this workspace_ (`.ds-file-tree-pinned-label`), over one row
-holding the file's glyph and the folder it is in (`.ds-file-tree-pinned-dir`),
-truncated from the start so the folder nearest the file stays in view. The
-label is a caption rather than a word in the row because at the column's
-default width the row belongs to the folder — the part that says where the
-file is. The row is selected, because it is the open file. Its menu (the trailing overflow
-button and the right-click) has two items: _Reveal in Finder_ (_Show in
-Explorer_ on Windows, _Show in file manager_ elsewhere) and _Copy path_.
+saying nothing would leave the person exactly as lost as before. A **pinned**
+block shows between the band and the tree, for as long as that file is the
+open one: a caption, _Outside this workspace_ (`.ds-file-tree-pinned-label`),
+over one row (`.ds-file-tree-pinned-row`) holding the file's glyph, its
+**name** as the primary text (`-name`), and its folder as muted secondary text
+(`-dir`) truncated in the middle — the head of the path gives way, the folder
+nearest the file stays. The full path is the row's tooltip.
+
+It sits outside the tree's scroll, so no row slides under it, and outside the
+tree's keyboard walk. It is the open file, not a keyboard cursor, so it wears
+the open file's **resting** fill (`bg.selected-resting`) and never the accent
+edge. Its menu (a trailing overflow button, and right-click) has two items:
+_Reveal in Finder_ (_Show in Explorer_ on Windows, _Show in file manager_
+elsewhere) and _Copy path_.
 
 ## Usage
 
@@ -123,5 +127,6 @@ channels, the two selection tiers, and the one-tab-stop keyboard contract.
   keyboard reaches folders through the tree, not through the chevron.
 - The status letter is display-only and duplicated in the name's tint; it is
   never the only carrier of the state.
-- The pinned row names itself in full — file, _outside this workspace_, and
+- The pinned block is a `role="group"` beside the tree, not a treeitem, and
+  names itself in full — file, _outside this workspace_, and
   the folder — since its visible folder may be truncated.

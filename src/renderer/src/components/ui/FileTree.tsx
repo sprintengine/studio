@@ -276,58 +276,59 @@ export function FileTreeRootRow({
   )
 }
 
+/** A folder path split so it can truncate in the MIDDLE: the head gives way, the last folder stays. */
+function splitDirectoryForDisplay(directory: string): { head: string; tail: string } {
+  const trimmed = directory.replace(/[\\/]+$/, '')
+  const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  if (index <= 0) return { head: '', tail: trimmed || directory }
+  return { head: trimmed.slice(0, index), tail: trimmed.slice(index) }
+}
+
 /**
  * A file that is open but not under the tree's root — an agent's patch in a
  * scratch folder, a config file in the home directory — pinned above the tree
- * for as long as it is the open file. It says where the file IS, because the
- * tree below cannot: one row, the label and the folder, and the actions a
- * person needs to go and find it.
+ * for as long as it is the open file. It says what the file is and where it
+ * lives, because the tree below cannot: a caption, then one row with the
+ * file's glyph and NAME as the primary text and its folder as muted secondary
+ * text, truncated in the middle so both the start of the path and the folder
+ * nearest the file stay readable. The full path is the row's tooltip.
+ *
+ * It sits outside the tree (the tree's keyboard never lands on it) and it is
+ * the open file, not a keyboard cursor, so it wears the open file's RESTING
+ * fill — the same neutral fill a tree row wears while the editor has focus —
+ * and never the accent edge.
  */
 export function FileTreePinnedRow({
   label,
   directory,
   fileName,
-  selected,
   trailing,
   ...rest
 }: {
   label: string
   directory: string
   fileName: string
-  selected: boolean
   trailing?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>): JSX.Element {
+  const { head, tail } = splitDirectoryForDisplay(directory)
   return (
-    <>
-      {/* The label is a caption over the row rather than a word in it: at a
-          260px column the row's width belongs to the folder, which is the
-          part that says where the file is. The row's accessible name carries
-          the label, so the caption is not read twice. */}
+    <div role="group" aria-label={`${fileName}, ${label.toLowerCase()}, in ${directory}`}>
       <p aria-hidden="true" className="px-2 pb-0.5 pt-1 text-micro font-medium text-[color:var(--text-muted)]">
         {label}
       </p>
       <div
-        role="treeitem"
-        aria-selected={selected}
-        aria-level={1}
-        aria-label={`${fileName}, ${label.toLowerCase()}, in ${directory}`}
-        className={`group flex min-h-[var(--hit-target-min)] cursor-default select-none items-center gap-2 rounded-md px-2 py-0.5 text-meta ${
-          selected
-            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]'
-            : 'text-[color:var(--text-default)]'
-        }`}
+        className="group flex min-h-[var(--hit-target-min)] cursor-default select-none items-center gap-2 rounded-md bg-[color:var(--bg-selected-resting)] px-2 py-0.5 text-meta text-[color:var(--text-strong)]"
         {...rest}
       >
         <FileTreeFileIcon name={fileName} />
-        {/* `dir="rtl"` truncates from the START, keeping the folder nearest
-            the file — the informative end of a long path — in view. The bidi
-            isolate stops the path's own slashes being reordered. */}
-        <span className="min-w-0 flex-1 truncate text-left" dir="rtl">
-          <bdi>{directory}</bdi>
+        <span className="max-w-[60%] shrink-0 truncate font-medium">{fileName}</span>
+        <span aria-hidden="true" className="flex min-w-0 flex-1 text-micro text-[color:var(--text-muted)]">
+          <span className="min-w-0 truncate">{head}</span>
+          <span className="shrink-0">{tail}</span>
         </span>
         {trailing}
       </div>
-    </>
+    </div>
   )
 }
 
@@ -405,12 +406,20 @@ function FileTreeRowsInner<T>(
         const parent = scrollParent.current
         const list = listRef.current
         if (!parent || !list || index < 0) return
-        const top = listOffsetWithin(list, parent) + index * FILE_TREE_ROW_HEIGHT
+        const offset = listOffsetWithin(list, parent)
+        const top = offset + index * FILE_TREE_ROW_HEIGHT
         const bottom = top + FILE_TREE_ROW_HEIGHT
         // `block: 'nearest'`: move only as far as it takes, and not at all when
-        // the row is already in view.
-        if (top < parent.scrollTop) parent.scrollTop = top
-        else if (bottom > parent.scrollTop + parent.clientHeight) parent.scrollTop = bottom - parent.clientHeight
+        // the row is already in view. Moving down lands on a row boundary, so
+        // the top of the view starts on a whole row rather than a sliver of one
+        // peeking out under the band above.
+        if (top < parent.scrollTop) {
+          parent.scrollTop = top
+        } else if (bottom > parent.scrollTop + parent.clientHeight) {
+          const minimum = bottom - parent.clientHeight
+          const rowsAbove = Math.ceil((minimum - offset) / FILE_TREE_ROW_HEIGHT)
+          parent.scrollTop = Math.min(top, Math.max(minimum, offset + rowsAbove * FILE_TREE_ROW_HEIGHT))
+        }
         if (virtual) measure()
       },
     }),
