@@ -514,6 +514,14 @@ type RemoteTerminalViewer = {
   scope: TerminalAttachScope
   /** Set when this viewer's bytes were dropped; the next batch repaints it from the replay. */
   desynced: boolean
+  /**
+   * How much of the transport's queue is the last replay still draining. Only
+   * bytes queued beyond it count as falling behind: a long session's replay
+   * alone exceeds the high water, and counting it made every replay cause the
+   * next resync — a remote pane repainting its whole history on a loop. It
+   * only ever shrinks, following the queue down as the link drains.
+   */
+  replayBacklogBytes: number
   /** Built once at attach rather than per output chunk. */
   sink?: TerminalOutputSink
 }
@@ -561,7 +569,9 @@ function forwardToRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer, 
   // The pty NEVER waits on a socket. A transport that has stopped draining
   // loses this batch and is repainted later from the retained scrollback; the
   // local renderer and the process itself are untouched either way.
-  if (viewer.transport.queuedBytes() > TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES) {
+  const queued = viewer.transport.queuedBytes()
+  viewer.replayBacklogBytes = Math.min(viewer.replayBacklogBytes, queued)
+  if (queued - viewer.replayBacklogBytes > TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES) {
     viewer.desynced = true
     return
   }
@@ -571,7 +581,7 @@ function forwardToRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer, 
     // The replay is materialized now, so it already CONTAINS `data` — sending
     // both would duplicate the tail.
     const replay = session ? materializeTerminalReplay(session) : ''
-    sendToRemoteViewer(viewer, { type: 'replay', data: replay, reason: 'resync' })
+    sendReplayToRemoteViewer(viewer, replay, 'resync')
     return
   }
   sendToRemoteViewer(viewer, { type: 'output', data })
@@ -580,6 +590,12 @@ function forwardToRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer, 
 /** Every frame to a remote viewer goes through the chunker, so none can exceed the wire's cap. */
 function sendToRemoteViewer(viewer: RemoteTerminalViewer, frame: TerminalAttachFrame): void {
   for (const part of splitTerminalAttachFrame(frame)) viewer.transport.send(part)
+}
+
+/** A replay, with what it leaves queued recorded as the backlog the viewer is draining. */
+function sendReplayToRemoteViewer(viewer: RemoteTerminalViewer, data: string, reason: 'attach' | 'resync'): void {
+  sendToRemoteViewer(viewer, { type: 'replay', data, reason })
+  viewer.replayBacklogBytes = viewer.transport.queuedBytes()
 }
 
 /** Tell every remote viewer of this session that nothing more is coming, and drop them. */
@@ -615,7 +631,12 @@ function attachRemoteTerminalViewer(input: {
       message: `No terminal session "${input.sessionId}" is open in this app. Call terminal.list for the sessions it holds.`,
     }
   }
-  const viewer: RemoteTerminalViewer = { transport: input.transport, scope: input.scope, desynced: false }
+  const viewer: RemoteTerminalViewer = {
+    transport: input.transport,
+    scope: input.scope,
+    desynced: false,
+    replayBacklogBytes: 0,
+  }
   const viewers = remoteTerminalViewers.get(input.sessionId) ?? new Map<string, RemoteTerminalViewer>()
   remoteTerminalViewers.set(input.sessionId, viewers)
   viewers.set(input.transport.viewerId, viewer)
@@ -626,7 +647,7 @@ function attachRemoteTerminalViewer(input: {
   // exactly once. A suspended session prefers its faithful screen snapshot, as
   // the local reveal path does.
   const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
-  sendToRemoteViewer(viewer, { type: 'replay', data: replay, reason: 'attach' })
+  sendReplayToRemoteViewer(viewer, replay, 'attach')
 
   const detach = (): void => {
     const current = remoteTerminalViewers.get(input.sessionId)
