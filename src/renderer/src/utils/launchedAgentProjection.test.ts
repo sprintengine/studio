@@ -5,11 +5,15 @@ import type { AgentLaunchRecord } from '../../../shared/agent-launch'
 import {
   agentStateFromLaunchRecord,
   markLaunchedAgentProjected,
+  noteLaunchedAgentArrived,
   projectedLaunchedAgents,
   projectionKey,
+  layoutHasAgentTab,
   resetLaunchedAgentProjectionForTest,
   retiredLaunchedAgents,
+  unrevealedLaunchedAgents,
 } from './launchedAgentProjection'
+import type { AgentState, Workspace } from '../types/workspace'
 import { test } from 'vitest'
 
 test('launchedAgentProjection', async () => {
@@ -202,4 +206,164 @@ test('launchedAgentProjection', async () => {
   }
 
   main()
+})
+
+// Main registers a launched agent in the workspace registry itself, so the
+// record usually reaches the window before the session does. These cases are
+// the window's half of that: the tab still appears, once, and retires with the
+// session.
+
+function launchedSession(overrides: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot {
+  return {
+    sessionId: 'session-remote',
+    processAlive: true,
+    kind: 'agent',
+    workspaceId: 'ws-1',
+    agentId: 'agent-claude-code-4f2a1c',
+    agentRecord: {
+      agentId: 'agent-claude-code-4f2a1c',
+      name: 'Scout',
+      cli: 'claude-code',
+      cliPermissionPreset: 'auto',
+    },
+    visible: false,
+    suspended: false,
+    reapExempt: false,
+    startedAt: 0,
+    lastOutputAt: null,
+    lastInputAt: null,
+    lastVisibleAt: null,
+    activity: { kind: 'idle', since: 0 },
+    exitedAt: null,
+    outputBufferLength: 0,
+    fileChanges: [],
+    activeSubagents: 0,
+    contextUsage: null,
+    retainedOutputBytes: 0,
+    ...overrides,
+  }
+}
+
+function layoutWith(agentIds: string[]): Workspace['layoutModel'] {
+  return {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          children: agentIds.map((agentId) => ({
+            type: 'tab',
+            component: 'agent',
+            name: agentId,
+            config: { agentId },
+          })),
+        },
+      ],
+    },
+  }
+}
+
+function hostWorkspace(layoutAgentIds: string[]): Pick<Workspace, 'id' | 'agents' | 'layoutModel'> {
+  return {
+    id: 'ws-1',
+    agents: {
+      'agent-1': { name: 'Ada' } as AgentState,
+      'agent-claude-code-4f2a1c': { name: 'Scout' } as AgentState,
+    },
+    layoutModel: layoutWith(layoutAgentIds),
+  }
+}
+
+test('an agent main registered while the window ran is revealed once, and retires with its session', () => {
+  resetLaunchedAgentProjectionForTest()
+  const sessions = [launchedSession()]
+  const workspaces = [hostWorkspace(['agent-1'])]
+  // Main's registration reached the window on the bus before the session did.
+  noteLaunchedAgentArrived('ws-1', 'agent-claude-code-4f2a1c')
+  assert.deepEqual(unrevealedLaunchedAgents({ sessions: [], workspaces }), [], 'no session yet, nothing to show')
+  // Nothing to project: the record is already in the store.
+  assert.deepEqual(
+    projectedLaunchedAgents({
+      sessions,
+      knownWorkspaceIds: new Set(['ws-1']),
+      existing: new Set([projectionKey('ws-1', 'agent-claude-code-4f2a1c')]),
+    }),
+    [],
+  )
+  // But it has no tab, so it is revealed under its registered name.
+  assert.deepEqual(unrevealedLaunchedAgents({ sessions, workspaces }), [
+    { workspaceId: 'ws-1', agentId: 'agent-claude-code-4f2a1c', name: 'Scout' },
+  ])
+  markLaunchedAgentProjected('ws-1', 'agent-claude-code-4f2a1c')
+  assert.deepEqual(unrevealedLaunchedAgents({ sessions, workspaces }), [], 'the next tick reveals nothing again')
+  // And it retires with its session like a projected agent.
+  assert.deepEqual(retiredLaunchedAgents([]), [{ workspaceId: 'ws-1', agentId: 'agent-claude-code-4f2a1c' }])
+})
+
+test('a window reveals nothing it loaded with, so a hidden tab stays hidden across a reload', () => {
+  resetLaunchedAgentProjectionForTest()
+  // A live launched agent whose tab the person hid: record and session kept,
+  // no tab. It came in with the snapshot, never on the bus, so it is not news.
+  assert.deepEqual(unrevealedLaunchedAgents({ sessions: [launchedSession()], workspaces: [hostWorkspace([])] }), [])
+})
+
+test('an arrived agent that already has a tab is not revealed, and is not considered again', () => {
+  resetLaunchedAgentProjectionForTest()
+  noteLaunchedAgentArrived('ws-1', 'agent-claude-code-4f2a1c')
+  assert.deepEqual(
+    unrevealedLaunchedAgents({
+      sessions: [launchedSession()],
+      workspaces: [hostWorkspace(['agent-1', 'agent-claude-code-4f2a1c'])],
+    }),
+    [],
+  )
+  // The person hides the tab afterwards: it stays hidden.
+  assert.deepEqual(unrevealedLaunchedAgents({ sessions: [launchedSession()], workspaces: [hostWorkspace([])] }), [])
+})
+
+test('only live launched sessions whose record the store holds are revealed', () => {
+  resetLaunchedAgentProjectionForTest()
+  for (const agentId of ['agent-claude-code-4f2a1c', 'agent-1', 'agent-new']) noteLaunchedAgentArrived('ws-1', agentId)
+  noteLaunchedAgentArrived('ws-unknown', 'agent-claude-code-4f2a1c')
+  assert.deepEqual(
+    unrevealedLaunchedAgents({
+      sessions: [
+        launchedSession({ processAlive: false }),
+        // No launch record: a window's own agent, whose tab it manages itself.
+        launchedSession({ sessionId: 'own', agentId: 'agent-1', agentRecord: undefined }),
+        // A record the store does not hold yet is the projection's to create.
+        launchedSession({
+          sessionId: 'new',
+          agentRecord: { agentId: 'agent-new', name: 'New', cli: 'claude-code', cliPermissionPreset: 'auto' },
+        }),
+        launchedSession({ sessionId: 'elsewhere', workspaceId: 'ws-unknown' }),
+      ],
+      workspaces: [hostWorkspace([])],
+    }),
+    [],
+  )
+})
+
+test('layoutHasAgentTab finds an agent tab anywhere in the model, borders included', () => {
+  assert.equal(layoutHasAgentTab(layoutWith(['a']), 'a'), true)
+  assert.equal(layoutHasAgentTab(layoutWith(['a']), 'b'), false)
+  const inBorder = {
+    global: {},
+    borders: [
+      { type: 'border', location: 'right', children: [{ type: 'tab', component: 'agent', config: { agentId: 'b' } }] },
+    ],
+    layout: { type: 'row', children: [] },
+  }
+  assert.equal(layoutHasAgentTab(inBorder, 'b'), true)
+  assert.equal(
+    layoutHasAgentTab(
+      { layout: { type: 'row', children: [{ type: 'tab', component: 'file', config: { agentId: 'a' } }] } },
+      'a',
+    ),
+    false,
+    'only an agent tab counts',
+  )
+  assert.equal(layoutHasAgentTab(undefined, 'a'), false)
 })

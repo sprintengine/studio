@@ -107,7 +107,11 @@ import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
-import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
+import {
+  markLaunchedAgentProjected,
+  retiredLaunchedAgents,
+  unrevealedLaunchedAgents,
+} from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { useWindowPageVisible, windowActivity } from '../../utils/windowActivity'
 import { startTerminalSessionRecovery } from '../../hooks/terminalSessionRecovery'
@@ -2036,20 +2040,28 @@ export default function WorkspaceManager() {
       //
       // The store is idempotent (an agent it already holds is untouched), so the
       // only per-tick work is revealing the tabs it just created.
-      for (const projected of projectLaunchedAgentSessions(sessions)) {
-        markLaunchedAgentProjected(projected.workspaceId, projected.agentId)
-        const host = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === projected.workspaceId)
+      const revealLaunched = (target: { workspaceId: string; agentId: string; name: string }) => {
+        markLaunchedAgentProjected(target.workspaceId, target.agentId)
+        const host = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === target.workspaceId)
         revealAgentTerminalTab(
-          {
-            workspaceId: projected.workspaceId,
-            agentId: projected.agentId,
-            name: projected.agent.name,
-          },
+          target,
           // A launch into a standard workspace is something the operator asked
           // for and gets the view; a launch into a rail-hidden host (Automations,
           // a module's background host) gets its tab without moving anyone into it.
           { activateWorkspace: !host || !isHiddenFromRail(host, moduleEnablement) },
         )
+      }
+      for (const projected of projectLaunchedAgentSessions(sessions)) {
+        revealLaunched({ workspaceId: projected.workspaceId, agentId: projected.agentId, name: projected.agent.name })
+      }
+      // Main registers a launched agent in the registry itself, so the record
+      // often reaches this window on the sync bus before the session does and
+      // there is nothing left to project. Its tab still has to appear here.
+      for (const adopted of unrevealedLaunchedAgents({
+        sessions,
+        workspaces: useWorkspaceStore.getState().workspaces,
+      })) {
+        revealLaunched(adopted)
       }
 
       // The renderer half of `agent.dispose`. Main kills a finished run's agent
