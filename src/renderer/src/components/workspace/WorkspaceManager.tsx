@@ -334,14 +334,14 @@ export default function WorkspaceManager() {
   const dialog = useConfirmDialog()
   const workspaceWindowId = useMemo(() => getWorkspaceWindowIdFromLocation(), [])
   // Dock-back from the external editor window: the window owning that workspace's
-  // FlexLayout model reopens the file as a tab and flips the sticky preference
-  // back to tabs; windows that do not own the workspace no-op.
+  // FlexLayout model reopens the file as a tab; windows that do not own the
+  // workspace no-op. It moves that one file and does NOT change where files
+  // open next — that is a Settings choice, and a preference that flipped on
+  // one dock is how profiles ended up on in-app without anyone choosing it.
   useEffect(() => {
     if (typeof window.api.onDockFileToWorkspace !== 'function') return
     return window.api.onDockFileToWorkspace(({ workspaceId, path, name }) => {
-      if (focusOrAddFileTab(workspaceId, path, name)) {
-        useWorkspaceStore.getState().setOpenFilesInExternalWindow(false)
-      }
+      focusOrAddFileTab(workspaceId, path, name)
     })
   }, [])
   // The same hand-off for a diff (git-commit-window T3): the diff window's

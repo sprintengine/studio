@@ -810,9 +810,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   }
 }
 
-// First-run surface for opening files. Defaults to the external pop-up window;
-// it is sticky thereafter (docking a file back flips it to workspace tabs).
-// Flip this one constant to make tabs the out-of-the-box default instead.
+// Where files open: the editor window, beside its own file tree (owner ruling
+// 2026-09-25: the in-app editor tab is too much going on around the file). The
+// in-app editor stays a choice in Settings → Appearance, and Settings is the
+// only thing that moves this value — docking one file back, or dragging one
+// tab out, moves that file and leaves the preference alone.
 export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
 // Where a Git diff opens (git-commit-window T3). A separate OS window is
 // the default; the

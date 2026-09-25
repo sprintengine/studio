@@ -117,7 +117,7 @@ export function TerminalLinkMenu({ workspaceId, target, x, y, line, column, onCl
               if (target.kind !== 'file') return
               // Both editor rows bypass `openFileSurface` on purpose: the whole
               // point of the menu is that the destination is chosen per click, not
-              // inherited from the sticky openFilesInExternalWindow preference.
+              // inherited from the openFilesInExternalWindow preference.
               const name = basename(target.resolvedPath)
               const content = isImageFile(target.resolvedPath) ? '' : await window.api.readfile(target.resolvedPath)
               useWorkspaceStore.getState().openFile(workspaceId, target.resolvedPath, name, content)
