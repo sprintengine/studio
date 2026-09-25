@@ -2289,7 +2289,16 @@ export async function removeAgentStateRegistrationAt(
       const ours = kind === 'plugin-file' ? raw.includes('SPRINTENGINE_AGENT_STATE') : ownedJsonIsOurs(raw)
       if (!ours) return 'skipped'
       await rm(path, { force: true })
-      await rmdir(resolve(path, '..')).catch(() => undefined)
+      // `.grok/hooks`, `.opencode/plugin` and their parents, when this was all
+      // they held — the install made them. Never a directory with anything left.
+      if (
+        await rmdir(resolve(path, '..')).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        await rmdir(resolve(path, '..', '..')).catch(() => undefined)
+      }
       return 'removed'
     }
     if (kind === 'toml-block' || kind === 'toml-array-block') {

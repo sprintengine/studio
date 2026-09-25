@@ -11,6 +11,7 @@ import { useExecutionHosts } from '../../hooks/useExecutionHosts'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { WslMachineGlyph } from '../AppIcons'
 import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Textarea } from '../ui'
+import { RemoveIntegrationsDialog } from './RemoveIntegrationsDialog'
 import { SettingCard, SettingsPageHeader, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 
 const ROW_FIELD = 'w-60 max-w-full font-mono'
@@ -76,6 +77,9 @@ export function MachinesSettingsTab({
   const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
   const setHostSettings = useWorkspaceStore((s) => s.setHostSettings)
   const [expanded, setExpanded] = useState<ExecutionHostId | null>(null)
+  // The distribution just turned off, offered a clean-up; and the one being cleaned.
+  const [offered, setOffered] = useState<{ hostId: ExecutionHostId; label: string } | null>(null)
+  const [cleaning, setCleaning] = useState<{ hostId: ExecutionHostId; label: string } | null>(null)
 
   const wslHosts = (listing?.hosts ?? []).filter((host) => host.kind === 'wsl')
   const settingsOf = (id: ExecutionHostId): ExecutionHostSettings => hostSettings?.[id] ?? emptyExecutionHostSettings()
@@ -130,7 +134,12 @@ export function MachinesSettingsTab({
                 version={host.isDefaultDistro ? 'default' : null}
                 stateLine={machineStateWords(host)}
                 enabled={own.enabled}
-                onEnabledChange={(enabled) => write(host.id, { enabled })}
+                onEnabledChange={(enabled) => {
+                  write(host.id, { enabled })
+                  // Turning a distribution off only stops offering it; what
+                  // Studio wrote inside it stays until someone takes it out.
+                  setOffered(enabled ? null : { hostId: host.id, label: host.label })
+                }}
                 expanded={isOpen}
                 onExpandedChange={(next) => setExpanded(next ? host.id : null)}
                 // Only a machine that is on is one the Agents tab offers, so
@@ -144,6 +153,26 @@ export function MachinesSettingsTab({
             )
           })}
         </SettingCard>
+        {offered ? (
+          <InlineNotice
+            tone="warn"
+            title={`${offered.label} is off.`}
+            hint="The hooks, MCP entries and files Studio put inside it are still there."
+            action={
+              <OutlineButton size="md" onClick={() => setCleaning(offered)}>
+                Remove them…
+              </OutlineButton>
+            }
+          />
+        ) : null}
+        <RemoveIntegrationsDialog
+          open={cleaning !== null}
+          scope={cleaning ?? undefined}
+          onClose={() => {
+            setCleaning(null)
+            setOffered(null)
+          }}
+        />
         {listing?.wsl?.available && wslHosts.length === 0 ? (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">
             No WSL distributions are installed. Install one with <ProviderStateId>wsl --install</ProviderStateId>.

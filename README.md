@@ -24,6 +24,31 @@ and `npm run dev`. No account is needed to run it.
 
 Prebuilt installers for macOS, Windows and Linux are not published yet.
 
+### Uninstalling
+
+Studio writes a few things outside its own data so the agent CLIs it launches
+can report to it: hooks and an MCP server entry in the repositories you open,
+a hook in Kimi Code's user config, `tailscale serve` mappings for ports you
+shared, locks on agent worktrees, and the same inside any WSL distribution it
+ran agents in. Each one runs a small launcher at `~/.sprintengine/bin`, so a
+leftover never breaks a CLI — but you will want them gone.
+
+- **Windows.** Uninstall Studio from Settings > Apps. The uninstaller removes
+  all of it first, and asks whether to delete Studio's settings and logs too.
+- **macOS and Linux.** Open Settings > General > Studio's integrations >
+  Remove… first. It lists everything it will take out, grouped by where it is,
+  removes only what Studio wrote (your own hooks, servers and settings around it
+  stay), and can delete Studio's data when it quits. Then delete the app (or the
+  AppImage). The same removal runs without a window when the app's binary is
+  started with `--remove-integrations` — on macOS
+  `"/Applications/SprintEngine Studio.app/Contents/MacOS/SprintEngine Studio" --remove-integrations`,
+  on Linux the AppImage with the same flag. It exits 0 when everything was
+  removed and 2 when something could not be, and refuses (exit 4) while
+  Studio is running.
+
+Every run of the removal is recorded in `integration-removal.log` in Studio's
+data folder, and it is safe to run again.
+
 ## The agent CLIs it drives
 
 Each of these ships as a plugin manifest under `resources/plugins/`, which is

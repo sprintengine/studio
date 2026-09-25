@@ -1,4 +1,5 @@
 import type { AgentPhaseEvent } from '../shared/agent-runtime'
+import { REMOVE_INTEGRATIONS_FLAG } from '../shared/integration-removal'
 
 // =============================================================================
 // Agent attention — how a background agent asks for the person without taking
@@ -138,5 +139,12 @@ export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
  * own `.js` entry point is deliberately not matched.
  */
 export function isScriptSecondLaunch(argv: readonly string[]): boolean {
-  return argv.slice(1).some((arg) => arg === '--socket' || /\.mjs$/iu.test(arg.replace(/["']/gu, '')))
+  return argv.slice(1).some(
+    (arg) =>
+      arg === '--socket' ||
+      // The uninstaller's removal, refused because this instance is running:
+      // not a person asking for the window.
+      arg === REMOVE_INTEGRATIONS_FLAG ||
+      /\.mjs$/iu.test(arg.replace(/["']/gu, '')),
+  )
 }
