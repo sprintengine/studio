@@ -167,10 +167,13 @@ test('the hourly poll compares against the registry and never detects', async ()
   type Timer = { at: number; handler: () => void }
   let now = 0
   const timers: Timer[] = []
+  // Each tick's read is awaited before the clock moves on: it writes the
+  // announced file, and a tick still writing reschedules nothing yet.
+  let tick: Promise<unknown> = Promise.resolve()
   const poller = createHostedFeedPoller({
     checkUpdates: async () => undefined,
     refreshFeed: async () => undefined,
-    refreshVersions: () => readCliVersionAdvisories(),
+    refreshVersions: () => (tick = readCliVersionAdvisories()),
     setTimer: (handler, ms) => {
       const timer = { at: now + ms, handler }
       timers.push(timer)
@@ -192,7 +195,9 @@ test('the hourly poll compares against the registry and never detects', async ()
     timers.shift()
     now = next.at
     next.handler()
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve))
+    await tick
+    // The poller reschedules in the leg's `finally`, a few microtasks later.
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
   }
   poller.stop()
 
@@ -289,10 +294,19 @@ test('before a window says whether checks are on, a read waits for it instead of
   assert.deepEqual(fetched, [], 'and no registry request for someone who may have turned checks off')
   assert.equal(pushed.length, 0)
 
+  // The waiting read is fire-and-forget, and it reads and writes the announced
+  // file, so the case waits for its broadcast rather than for a number of turns.
+  const broadcastSeen = new Promise<CliVersionAdvisoriesResult>((resolve) => {
+    configureCliVersionService({
+      broadcast: (result) => {
+        pushed.push(result)
+        resolve(result)
+      },
+    })
+  })
   setCliVersionChecksEnabled(true)
-  for (let i = 0; i < 20 && pushed.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve))
+  const first = await broadcastSeen
   assert.equal(pushed.length, 1, 'the waiting read runs once the window has subscribed and said yes')
-  const first = pushed[0]
   assert.ok(first.ok)
   assert.deepEqual(
     first.newlyOutdated?.map((advisory) => `${advisory.hostId}/${advisory.cli}`),
@@ -306,8 +320,10 @@ test('a window that says checks are off gets no comparison and no registry reque
   configure(BOTH)
   await detectCliMachines()
   await readCliVersionAdvisories()
+  // Off starts no read at all, so there is nothing to wait for: a read that
+  // did start would ask the registry before its first await.
   setCliVersionChecksEnabled(false)
-  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve))
+  await Promise.resolve()
   assert.deepEqual(fetched, [])
   assert.equal(pushed.length, 0)
 })
