@@ -3,6 +3,7 @@ import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
 import { EDITOR_MUTATION_TOOL_NAMES } from './editor-tools'
 import type { McpToolContribution } from '../module-host/main-host'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
+import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
 import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 
 const APP_MUTATION_TOOLS = new Set([
@@ -35,6 +36,10 @@ const APP_MUTATION_TOOLS = new Set([
   // than the watch-only `terminal:observe` — and what makes every attempt,
   // including a refused one, land in the audit with the device that made it.
   'terminal.create',
+  // Diff tours: each one writes a tour file in the app's data folder, docks a
+  // tab in the person's window, or types a question into an agent's terminal
+  // on the owner's behalf. `tour.status` only reads.
+  ...TOUR_MUTATION_TOOL_NAMES,
   'workspace.create',
   // The mobile companion's command envelope over the gateway
   // (tailnet-mobile-transport). A mutation for both of its consequences: a

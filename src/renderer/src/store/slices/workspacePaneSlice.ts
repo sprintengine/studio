@@ -149,12 +149,21 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     // because every pane write normalizes, and dropping it here dropped the
     // agent's narrowing, range and step before the viewer ever saw them.
     const reveal = normalizeDiffReveal(raw.diff.reveal)
+    const rawTour = (raw.diff as { tour?: unknown }).tour
+    const tour =
+      rawTour && typeof rawTour === 'object' && typeof (rawTour as { id?: unknown }).id === 'string'
+        ? { id: (rawTour as { id: string }).id, playing: (rawTour as { playing?: unknown }).playing === true }
+        : null
+    const rawOffer = (raw.diff as { tourOffer?: unknown }).tourOffer
+    const tourOffer = typeof rawOffer === 'string' && rawOffer ? rawOffer : null
     tab.diff = {
       ...(repoRoot ? { repoRoot } : {}),
       focusPath,
       focusKind,
       ...(changelistId ? { changelistId } : {}),
       ...(reveal ? { reveal } : {}),
+      ...(tour ? { tour } : {}),
+      ...(tourOffer ? { tourOffer } : {}),
     }
   }
   return tab
@@ -470,7 +479,17 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
             : undefined
         if (existing) {
           if (input.title !== undefined) existing.title = input.title
-          if (input.diff !== undefined) existing.diff = input.diff
+          if (input.diff !== undefined) {
+            // Retargeting a Diff tab (a Git row, an agent's reveal) says where
+            // to look, not "forget the tour": the tour the viewer has open and
+            // an agent's waiting offer ride along unless the input names its own.
+            const { tour, tourOffer } = existing.diff ?? {}
+            existing.diff = {
+              ...(tour ? { tour } : {}),
+              ...(tourOffer ? { tourOffer } : {}),
+              ...input.diff,
+            }
+          }
           opened = existing.id
         } else {
           if (pane.tabs.length >= MAX_PANE_TABS) return

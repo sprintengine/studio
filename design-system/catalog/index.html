@@ -140,6 +140,7 @@
   --sem-motion-duration-deliberate: 260ms;
   --sem-motion-duration-pulse: 620ms;
   --sem-motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sem-opacity-dimmed: 0.42;
   --sem-space-3xs: 2px;
   --sem-space-2xs: 4px;
   --sem-space-xs: 6px;
@@ -224,6 +225,7 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-opacity-dimmed: 0.38;
   --sem-glass-blur: 16px;
   --sem-glass-saturation: 1.08;
   --sem-tinted-wash: 0.014;
@@ -282,6 +284,7 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-opacity-dimmed: 0.38;
   --sem-glass-blur: 16px;
   --sem-glass-saturation: 1.08;
   --sem-tinted-wash: 0.014;
@@ -337,6 +340,7 @@
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
   --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
+  --sem-opacity-dimmed: 0.42;
   --sem-glass-blur: 12px;
   --sem-glass-saturation: 1.14;
   --sem-tinted-wash: 0.02;
@@ -685,6 +689,10 @@ code {
 #ds-view-component-toolbar:checked ~ .ds-catalog #component-toolbar { display: block; }
 #ds-view-component-tooltip:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-tooltip:checked ~ .ds-catalog #component-tooltip { display: block; }
+#ds-view-component-tour-callout:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-tour-callout:checked ~ .ds-catalog #component-tour-callout { display: block; }
+#ds-view-component-tour-strip:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-tour-strip:checked ~ .ds-catalog #component-tour-strip { display: block; }
 #ds-view-component-trigger-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-trigger-button:checked ~ .ds-catalog #component-trigger-button { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #components { display: block; }
@@ -799,6 +807,10 @@ code {
 #ds-view-component-toolbar:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-toolbar"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-tooltip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-tour-callout:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tour-callout"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-tour-callout:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tour-callout"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-tour-strip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tour-strip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-tour-strip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tour-strip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-trigger-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-trigger-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-trigger-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-trigger-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -8251,6 +8263,312 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   font-weight: var(--sem-font-weight-medium);
 }
 
+/* components/tour-callout/component.css */
+/* Tour callout — one step of a diff tour, in a view zone under the code it is
+ * about (src/renderer/src/components/ui/TourCallout.tsx), and the three
+ * treatments of the code around it while it shows (src/renderer/src/assets/
+ * tours.css in the app).
+ *
+ * `--tour-dim` is registered so it can be transitioned: the host eases it from
+ * 1 to sem.opacity.dimmed and every dimmed line reads it. */
+
+@property --tour-dim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.ds-tour-host {
+  --tour-dim: 1;
+  transition: --tour-dim var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-host--dimmed {
+  --tour-dim: var(--sem-opacity-dimmed);
+}
+
+.ds-tour-dim {
+  opacity: var(--tour-dim);
+}
+
+.ds-tour-step-line {
+  background: var(--sem-color-bg-selected);
+}
+
+/* The accent, as a hairline in the gutter. ds-lint-allow: a 2px rule is the
+ * hairline's drawn width here, not spacing. */
+.ds-tour-step-rail {
+  box-shadow: inset 2px 0 0 var(--sem-color-border-focus); /* ds-lint-allow: gutter hairline */
+}
+
+.ds-tour-callout-frame {
+  box-sizing: border-box;
+  padding: var(--sem-space-sm) var(--sem-space-2xl) var(--sem-space-md) var(--sem-space-md);
+  transition: opacity var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-callout-frame[data-visible='false'] {
+  opacity: 0;
+  transition-duration: var(--sem-motion-duration-fast);
+}
+
+.ds-tour-callout {
+  position: relative;
+  max-width: 76ch;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+}
+
+.ds-tour-callout-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+.ds-tour-callout-index {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-callout-location {
+  margin: var(--sem-space-3xs) 0 0;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-body {
+  margin-top: var(--sem-space-sm);
+}
+
+.ds-tour-callout-body p {
+  margin: 0 0 var(--sem-space-sm);
+}
+
+.ds-tour-callout-body code {
+  font-family: var(--sem-font-family-mono);
+}
+
+.ds-tour-callout-ask {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-tour-host,
+  .ds-tour-callout-frame {
+    transition: none;
+  }
+}
+
+/* components/tour-strip/component.css */
+/* Tour strip — the band a diff tour plays under, and its two disclosures: the
+ * step list and the card a tour waits behind until Start
+ * (src/renderer/src/components/ui/TourStrip.tsx, ui/TourStepList.tsx).
+ *
+ * The pager, the switch, the chip and the buttons inside it are their own
+ * components; this file draws only what is the strip's: the band, its title,
+ * the progress edge, the step list's rows and the ready card. */
+
+.ds-tour-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: var(--sem-size-control-lg);
+  padding: 0 var(--sem-space-lg);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-strip-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-strip-position {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-strip-spacer {
+  flex: 1;
+}
+
+.ds-tour-strip-follow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}
+
+/* The band's bottom edge, drawn as the tour. 2px where a hairline would sit:
+ * it carries a position, which a hairline cannot. ds-lint-allow: the edge's
+ * thickness is structure the space scale does not describe. */
+.ds-tour-strip-progress {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  gap: 1px; /* ds-lint-allow: a hairline between segments, not rhythm */
+  height: 2px; /* ds-lint-allow: progress edge thickness, not spacing */
+}
+
+.ds-tour-strip-progress > span {
+  flex: 1;
+  background: var(--sem-color-border-subtle);
+}
+
+.ds-tour-strip-progress > [data-mark='visited'] {
+  background: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-progress > [data-mark='current'] {
+  background: var(--sem-color-text-primary);
+}
+
+/* ── Step list ─────────────────────────────────────────────────────────── */
+
+.ds-tour-step-list {
+  display: flex;
+  flex-direction: column;
+  width: 15rem;
+  padding: var(--sem-space-2xs) 0;
+  border-right: 1px solid var(--sem-color-border-subtle);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-step:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-tour-step[aria-current='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-step-number {
+  flex: none;
+  width: 20px; /* ds-lint-allow: a slot two digits right-align in, not rhythm */
+  text-align: right;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--sem-font-size-body);
+}
+
+.ds-tour-step-file {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark--moved {
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Ready card ────────────────────────────────────────────────────────── */
+
+.ds-tour-ready {
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--sem-space-2xl);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  font-family: var(--sem-font-family-ui);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-ready-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-title {
+  margin: var(--sem-space-sm) 0 0;
+  font-size: var(--sem-font-size-title);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-ready-meta {
+  margin: var(--sem-space-2xs) 0 0;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-actions {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-xl);
+}
+
 /* components/trigger-button/component.css */
 /* Trigger button — the bordered control that shows a value and opens a surface
  * to change it. Extracted from the shipped `TriggerButton` primitive
@@ -10803,6 +11121,82 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-tooltip .ds-tooltip.demo-parked {
     position: static;
   }
+.ds-embed-component-tour-callout {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-tour-callout .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-tour-callout .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-tour-callout .demo-code {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    overflow: hidden;
+  }
+.ds-embed-component-tour-callout .demo-line {
+    display: flex;
+    gap: var(--sem-space-lg);
+    padding: 0 var(--sem-space-md);
+  }
+.ds-embed-component-tour-callout .demo-line > .num {
+    width: 2ch;
+    text-align: right;
+    color: var(--sem-color-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+.ds-embed-component-tour-callout .demo-line > .text {
+    white-space: pre;
+  }
+.ds-embed-component-tour-strip {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-tour-strip .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+.ds-embed-component-tour-strip .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-tour-strip .demo-frame {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    overflow: hidden;
+    max-width: 760px;
+  }
+.ds-embed-component-tour-strip .demo-body {
+    display: flex;
+    min-height: 180px;
+    background: var(--sem-color-bg-app);
+  }
+.ds-embed-component-tour-strip .demo-divider {
+    width: 1px;
+    height: var(--sem-icon-size-sm);
+    background: var(--sem-color-border-subtle);
+  }
+.ds-embed-component-tour-strip .demo-ready-stage {
+    display: flex;
+    justify-content: center;
+    padding: var(--sem-space-2xl);
+    background: var(--sem-color-bg-app);
+  }
 .ds-embed-component-trigger-button {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -11573,6 +11967,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toast" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toolbar" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tour-callout" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tour-strip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-trigger-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-truncated-text" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-working-edge" />
@@ -11650,6 +12046,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-toast">Toast</label>
 <label class="catalog-nav-item" for="ds-view-component-toolbar">Toolbar</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
+<label class="catalog-nav-item" for="ds-view-component-tour-callout">Tour callout</label>
+<label class="catalog-nav-item" for="ds-view-component-tour-strip">Tour strip</label>
 <label class="catalog-nav-item" for="ds-view-component-trigger-button">Trigger button</label>
 <label class="catalog-nav-item" for="ds-view-component-truncated-text">Truncated text</label>
 <label class="catalog-nav-item" for="ds-view-component-working-edge">Working edge</label>
@@ -11806,6 +12204,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.pulse</code><code class="catalog-token-value">620ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">A one-shot attention pulse. Not a transition step. The single play of a change pulse — a count that just moved, a status icon that just flipped. Long enough to be noticed after the eye arrives, where a transition only has to keep up with a pointer already there. Value taken from the shipped .status-icon-pulse, which hard-coded 620ms. <strong>Do not:</strong> Transitions and state changes — those take fast / normal / deliberate. A 620ms hover is a control that feels broken. Never loop it either: the pulse means &quot;this just changed&quot;, and a loop means &quot;this is still happening&quot;.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.opacity.dimmed</code><code class="catalog-token-value">0.42</code><span class="catalog-badge">emphasis</span></p><p class="catalog-token-meta">How much of itself content keeps when it is set back so one region can lead — the code around a diff tour step. Ink opacity of content that stays readable but steps back while a guided walkthrough points at one region (a diff tour: every line outside the step). Reached as the resting value of an animated custom property, so the dim eases in rather than snapping. <strong>Do not:</strong> Disabled controls (they take text.disabled), placeholder text, or hiding anything: dimmed content is still content and must stay legible. Never on the region being pointed at.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label. <strong>Do not:</strong> Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">30px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes. <strong>Do not:</strong> Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs.</p></div></div>
@@ -11926,6 +12325,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M9.5 4 12 6.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
 </svg><figcaption>open-in-editor</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M5.75 3.75v8.5M10.25 3.75v8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+</svg><figcaption>pause</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M5.25 3.9v8.2a.6.6 0 0 0 .92.5l6.2-4.1a.6.6 0 0 0 0-1l-6.2-4.1a.6.6 0 0 0-.92.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+</svg><figcaption>play</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M8 13V6.25M4.9 9.4 8 6.25l3.1 3.15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M3.5 3.1h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>previous-difference</figcaption></figure>
@@ -11985,6 +12390,17 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M2.6 2.9h10.8a.7.7 0 0 1 .7.7v2H1.9v-2a.7.7 0 0 1 .7-.7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
   <path d="M6.5 8.75h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>stash</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="3.5" cy="4.5" r="0.95" fill="currentColor"/>
+  <circle cx="3.5" cy="8" r="0.95" fill="currentColor"/>
+  <circle cx="3.5" cy="11.5" r="0.95" fill="currentColor"/>
+  <path d="M6.5 4.5h6.25M6.5 8h6.25M6.5 11.5h6.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>step-list</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="3.75" cy="11.75" r="1.6" stroke="currentColor" stroke-width="1.4"/>
+  <circle cx="12.25" cy="4.25" r="1.6" stroke="currentColor" stroke-width="1.4"/>
+  <path d="M5.35 11.75H9a2 2 0 0 0 0-4H7a1.75 1.75 0 0 1 0-3.5h3.65" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tour</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.3"/>
 </svg><figcaption>unified</figcaption></figure>
@@ -23452,7 +23868,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-eight SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The forty-three SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -40709,6 +41125,747 @@ window.addEventListener('resize', hide)
 surfacesOut.textContent = String(document.querySelectorAll('.ds-tooltip').length)
 triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-tour-callout" class="catalog-view catalog-component">
+<h3>Tour callout</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-tour-callout">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a step on three lines of the new side, the rest set back, the callout in the code.</p>
+  <div class="demo-code ds-tour-host ds-tour-host--dimmed">
+    <div class="demo-line"><span class="num">18</span><span class="text ds-tour-dim">  for (let attempt = 0; attempt &lt; options.attempts; attempt += 1) {</span></div>
+    <div class="demo-line"><span class="num">19</span><span class="text ds-tour-dim">    try {</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">20</span><span class="text">      lastError = error</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">21</span><span class="text">      if (options.shouldRetry &amp;&amp; !options.shouldRetry(error)) break</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">22</span><span class="text">      if (attempt &lt; options.attempts - 1) await sleep(backoffDelay(attempt, options))</span></div>
+    <div class="ds-tour-callout-frame" data-visible="true">
+      <section class="ds-tour-callout" aria-label="Step 2 of 5: Stop early on permanent failures">
+        <header class="ds-tour-callout-head">
+          <span class="ds-tour-callout-index">2/5</span>
+          <h3 class="ds-tour-callout-title">Stop early on permanent failures</h3>
+          <span class="ds-micro-chip">Caveat</span>
+        </header>
+        <p class="ds-tour-callout-location">src/queue/retry.ts L20–22 (new)</p>
+        <div class="ds-tour-callout-body">
+          <p>A job that throws <code>PermanentJobError</code> is not retried at all — waiting cannot fix a bad payload. The last attempt no longer sleeps before giving up.</p>
+        </div>
+        <div class="ds-tour-callout-ask">
+          <input class="ds-input" placeholder="Ask about this…" aria-label="Ask about step 2" />
+          <button type="button" class="ds-button ds-button--outline">Ask</button>
+        </div>
+      </section>
+    </div>
+    <div class="demo-line"><span class="num">23</span><span class="text ds-tour-dim">    }</span></div>
+    <div class="demo-line"><span class="num">24</span><span class="text ds-tour-dim">  }</span></div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same step from the same tokens.</p>
+  <div class="demo-code ds-tour-host ds-tour-host--dimmed">
+    <div class="demo-line"><span class="num">19</span><span class="text ds-tour-dim">    try {</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">20</span><span class="text">      lastError = error</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">21</span><span class="text">      if (options.shouldRetry &amp;&amp; !options.shouldRetry(error)) break</span></div>
+    <div class="ds-tour-callout-frame" data-visible="true">
+      <section class="ds-tour-callout" aria-label="Step 2 of 5: Stop early on permanent failures">
+        <header class="ds-tour-callout-head">
+          <span class="ds-tour-callout-index">2/5</span>
+          <h3 class="ds-tour-callout-title">Stop early on permanent failures</h3>
+        </header>
+        <p class="ds-tour-callout-location">src/queue/retry.ts L20–21 (new)</p>
+        <div class="ds-tour-callout-body">
+          <p>Waiting cannot fix a bad payload, so a permanent failure ends the loop at once.</p>
+        </div>
+        <div class="ds-tour-callout-ask">
+          <input class="ds-input" placeholder="Ask about this…" aria-label="Ask about step 2" />
+          <button type="button" class="ds-button ds-button--outline">Ask</button>
+        </div>
+      </section>
+    </div>
+    <div class="demo-line"><span class="num">22</span><span class="text ds-tour-dim">    }</span></div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>One step of a diff tour, said beside the code it is about. Shipped as <code>TourCallout</code> (<code>src/renderer/src/components/ui/TourCallout.tsx</code>); the [tour strip](../tour-strip/component.md) is the band the tour plays under.</p>
+<p>In the diff the callout lives <strong>in the code</strong>, not over it: a Monaco view zone under the step's last line, sized to the callout, so the lines below move down to make room and nothing is ever covered. The step's lines themselves are marked, and everything else is set back, by three treatments that belong to this entry because they only exist while a callout is showing.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Frame | <code>.ds-tour-callout-frame</code> | yes — the zone's content box: <code>space.sm</code> above, <code>space.md</code> below, the code's own left edge | | Card | <code>.ds-tour-callout</code> | yes — <code>bg.surface-raised</code>, 1px <code>border.default</code>, <code>radius.control</code>, <code>space.md</code> × <code>space.lg</code>, at most <code>76ch</code> | | Position | <code>.ds-tour-callout-index</code> | yes — <code>3/7</code> in <code>font.family.mono</code>, <code>tabular-nums</code>, <code>text.subtle</code> | | Title | <code>.ds-tour-callout-title</code> | yes — <code>font.size.body</code>, <code>font.weight.medium</code>, <code>tracking.tight</code>, <code>text.primary</code> | | Kind | [micro chip](../micro-chip/component.md) | no — &quot;Context&quot; or &quot;Caveat&quot;; an explaining step carries none | | Steppers | button <code>--icon</code> <code>xs</code> | no — previous / next step, the diff's own step glyphs | | Location | <code>.ds-tour-callout-location</code> | yes — <code>src/queue/retry.ts L40–43 (new)</code> in mono at <code>font.size.micro</code>, <code>tracking.wide</code> | | Notice | [inline notice](../inline-notice/component.md) <code>--warn</code> | no — only for a moved or gone step, with the excerpt inside | | Body | <code>.ds-tour-callout-body</code> | yes — the agent's markdown at the compact density | | Ask | [input](../input/component.md) + [button](../button/component.md) <code>--outline</code> | yes — &quot;Ask about this…&quot; and <strong>Ask</strong> | | Working edge | [working edge](../working-edge/component.md) | no — while the agent answers a question from this step |</p>
+<h5>The code around it</h5>
+<p>| Treatment | How | |---|---| | The step's lines | a whole-line <code>bg.selected</code> wash — neutral, never a diff hue, never the accent | | The step's gutter | a 2px <code>border.focus</code> hairline in the line-decorations lane: the accent, spent as a hairline and nowhere else | | Everything else | text at <code>opacity: var(--tour-dim)</code>, where <code>--tour-dim</code> is a registered property the host eases from 1 to <strong><code>sem.opacity.dimmed</code></strong> | | The overview ruler | a mark per step in the file; the current one in <code>border.focus</code>, the rest in <code>text.subtle</code> |</p>
+<p>In side-by-side view the diff pads the other side by the callout's height on its own, so the two sides stay line for line. A step on the <strong>old</strong> side plays side by side (unified view draws removed lines as inline zones, which cannot be pointed into); a <strong>deleted</strong> file plays as its old text, whole, unified.</p>
+<h4>Variants</h4>
+<ul><li><strong>In the diff</strong> (<code>data-variant=&quot;zone&quot;</code>) — the default: in a view zone under the step.</li><li><strong>Card</strong> (<code>data-variant=&quot;card&quot;</code>) — a file with no text to point into (binary, too large) has nowhere to hang a zone, so the same callout stands alone, centred, where the editor would be.</li></ul>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Arriving | One motion at a time: the old callout and highlight fade out (<code>motion.duration.fast</code>), the editor scrolls to the new lines, then the highlight fades in and the callout follows (<code>normal</code>) as the dim settles | | Moved | The code changed after the tour was written and the lines could not be found again: a warn notice, &quot;This code changed after the tour was written&quot;, with the excerpt the step pointed at. Its text is kept; it is never skipped | | Gone | The file left the diff: the same notice, &quot;This file is no longer in the diff&quot;, and the excerpt | | Queued | A question waiting for the agent's turn to end: &quot;Queued · sends when the agent is ready&quot; and Cancel, in place of the field | | Answering | The working edge runs round the card; one line says the agent is answering in its terminal | | Author gone | &quot;The agent that wrote this tour has exited.&quot; and <strong>Ask a new agent</strong> | | Reduced motion | No fades, no eased dim, no smooth scroll: every step is a jump |</p>
+<h4>Usage</h4>
+<ul><li>A callout is the agent's voice, so it says <strong>why</strong>, not what — the diff is already on screen. Its body is markdown and renders at the compact density.</li><li>The callout never takes focus, and nothing about a step does. A person reads it, or clicks into its field, and only then does the keyboard go there.</li><li>One callout at a time. The step list and the strip's pager are how the other steps are reached.</li><li>Pointer over the callout, or focus in its field, holds the strip's Play.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The card is a <code>section</code> named &quot;Step 3 of 7: &lt;title&gt;&quot;. It does not announce itself: the strip's pager already says which step this is.</li><li>The ask field is named &quot;Ask about step 3&quot;; Enter sends, Escape clears and leaves the field. Keys typed there are the field's — <code>[</code> and <code>]</code> never step the tour from inside it.</li><li>The moved/gone notice is a <code>status</code>, with its words; the excerpt's <code>+</code> / <code>-</code> lines keep their diff colours but the text is readable without them.</li><li>The working edge is <code>aria-hidden</code> and speaks through its own <code>status</code> phrase.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/tour-callout/component.css</summary><pre><code>/* Tour callout — one step of a diff tour, in a view zone under the code it is
+ * about (src/renderer/src/components/ui/TourCallout.tsx), and the three
+ * treatments of the code around it while it shows (src/renderer/src/assets/
+ * tours.css in the app).
+ *
+ * `--tour-dim` is registered so it can be transitioned: the host eases it from
+ * 1 to sem.opacity.dimmed and every dimmed line reads it. */
+
+@property --tour-dim {
+  syntax: '&lt;number&gt;';
+  inherits: true;
+  initial-value: 1;
+}
+
+.ds-tour-host {
+  --tour-dim: 1;
+  transition: --tour-dim var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-host--dimmed {
+  --tour-dim: var(--sem-opacity-dimmed);
+}
+
+.ds-tour-dim {
+  opacity: var(--tour-dim);
+}
+
+.ds-tour-step-line {
+  background: var(--sem-color-bg-selected);
+}
+
+/* The accent, as a hairline in the gutter. ds-lint-allow: a 2px rule is the
+ * hairline's drawn width here, not spacing. */
+.ds-tour-step-rail {
+  box-shadow: inset 2px 0 0 var(--sem-color-border-focus); /* ds-lint-allow: gutter hairline */
+}
+
+.ds-tour-callout-frame {
+  box-sizing: border-box;
+  padding: var(--sem-space-sm) var(--sem-space-2xl) var(--sem-space-md) var(--sem-space-md);
+  transition: opacity var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-callout-frame[data-visible='false'] {
+  opacity: 0;
+  transition-duration: var(--sem-motion-duration-fast);
+}
+
+.ds-tour-callout {
+  position: relative;
+  max-width: 76ch;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+}
+
+.ds-tour-callout-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+.ds-tour-callout-index {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-callout-location {
+  margin: var(--sem-space-3xs) 0 0;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-body {
+  margin-top: var(--sem-space-sm);
+}
+
+.ds-tour-callout-body p {
+  margin: 0 0 var(--sem-space-sm);
+}
+
+.ds-tour-callout-body code {
+  font-family: var(--sem-font-family-mono);
+}
+
+.ds-tour-callout-ask {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-tour-host,
+  .ds-tour-callout-frame {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/tour-callout/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Tour callout&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../input/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../micro-chip/component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A stand-in for the diff editor: numbered lines of code, the step's lines
+     marked, the rest dimmed, and the callout in the gap under them. */
+  .demo-code {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    overflow: hidden;
+  }
+  .demo-line {
+    display: flex;
+    gap: var(--sem-space-lg);
+    padding: 0 var(--sem-space-md);
+  }
+  .demo-line &gt; .num {
+    width: 2ch;
+    text-align: right;
+    color: var(--sem-color-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .demo-line &gt; .text {
+    white-space: pre;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a step on three lines of the new side, the rest set back, the callout in the code.&lt;/p&gt;
+  &lt;div class=&quot;demo-code ds-tour-host ds-tour-host--dimmed&quot;&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;18&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;  for (let attempt = 0; attempt &amp;lt; options.attempts; attempt += 1) {&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;19&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;    try {&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line ds-tour-step-line ds-tour-step-rail&quot;&gt;&lt;span class=&quot;num&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;text&quot;&gt;      lastError = error&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line ds-tour-step-line ds-tour-step-rail&quot;&gt;&lt;span class=&quot;num&quot;&gt;21&lt;/span&gt;&lt;span class=&quot;text&quot;&gt;      if (options.shouldRetry &amp;amp;&amp;amp; !options.shouldRetry(error)) break&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line ds-tour-step-line ds-tour-step-rail&quot;&gt;&lt;span class=&quot;num&quot;&gt;22&lt;/span&gt;&lt;span class=&quot;text&quot;&gt;      if (attempt &amp;lt; options.attempts - 1) await sleep(backoffDelay(attempt, options))&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;ds-tour-callout-frame&quot; data-visible=&quot;true&quot;&gt;
+      &lt;section class=&quot;ds-tour-callout&quot; aria-label=&quot;Step 2 of 5: Stop early on permanent failures&quot;&gt;
+        &lt;header class=&quot;ds-tour-callout-head&quot;&gt;
+          &lt;span class=&quot;ds-tour-callout-index&quot;&gt;2/5&lt;/span&gt;
+          &lt;h3 class=&quot;ds-tour-callout-title&quot;&gt;Stop early on permanent failures&lt;/h3&gt;
+          &lt;span class=&quot;ds-micro-chip&quot;&gt;Caveat&lt;/span&gt;
+        &lt;/header&gt;
+        &lt;p class=&quot;ds-tour-callout-location&quot;&gt;src/queue/retry.ts L20–22 (new)&lt;/p&gt;
+        &lt;div class=&quot;ds-tour-callout-body&quot;&gt;
+          &lt;p&gt;A job that throws &lt;code&gt;PermanentJobError&lt;/code&gt; is not retried at all — waiting cannot fix a bad payload. The last attempt no longer sleeps before giving up.&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-tour-callout-ask&quot;&gt;
+          &lt;input class=&quot;ds-input&quot; placeholder=&quot;Ask about this…&quot; aria-label=&quot;Ask about step 2&quot; /&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot;&gt;Ask&lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;23&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;    }&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;24&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;  }&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same step from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-code ds-tour-host ds-tour-host--dimmed&quot;&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;19&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;    try {&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line ds-tour-step-line ds-tour-step-rail&quot;&gt;&lt;span class=&quot;num&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;text&quot;&gt;      lastError = error&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;demo-line ds-tour-step-line ds-tour-step-rail&quot;&gt;&lt;span class=&quot;num&quot;&gt;21&lt;/span&gt;&lt;span class=&quot;text&quot;&gt;      if (options.shouldRetry &amp;amp;&amp;amp; !options.shouldRetry(error)) break&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;ds-tour-callout-frame&quot; data-visible=&quot;true&quot;&gt;
+      &lt;section class=&quot;ds-tour-callout&quot; aria-label=&quot;Step 2 of 5: Stop early on permanent failures&quot;&gt;
+        &lt;header class=&quot;ds-tour-callout-head&quot;&gt;
+          &lt;span class=&quot;ds-tour-callout-index&quot;&gt;2/5&lt;/span&gt;
+          &lt;h3 class=&quot;ds-tour-callout-title&quot;&gt;Stop early on permanent failures&lt;/h3&gt;
+        &lt;/header&gt;
+        &lt;p class=&quot;ds-tour-callout-location&quot;&gt;src/queue/retry.ts L20–21 (new)&lt;/p&gt;
+        &lt;div class=&quot;ds-tour-callout-body&quot;&gt;
+          &lt;p&gt;Waiting cannot fix a bad payload, so a permanent failure ends the loop at once.&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-tour-callout-ask&quot;&gt;
+          &lt;input class=&quot;ds-input&quot; placeholder=&quot;Ask about this…&quot; aria-label=&quot;Ask about step 2&quot; /&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline&quot;&gt;Ask&lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-line&quot;&gt;&lt;span class=&quot;num&quot;&gt;22&lt;/span&gt;&lt;span class=&quot;text ds-tour-dim&quot;&gt;    }&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-tour-strip" class="catalog-view catalog-component">
+<h3>Tour strip</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-tour-strip">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a tour on step 3 of 7, the agent pointing at step 5, the step list open.</p>
+  <div class="demo-frame">
+    <div class="ds-tour-strip">
+      <svg class="ds-tour-strip-mark" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="3.75" cy="11.75" r="1.6" stroke="currentColor" stroke-width="1.4" /><circle cx="12.25" cy="4.25" r="1.6" stroke="currentColor" stroke-width="1.4" /><path d="M5.35 11.75H9a2 2 0 0 0 0-4H7a1.75 1.75 0 0 1 0-3.5h3.65" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <span class="ds-tour-strip-title">Retry with backoff</span>
+      <nav class="ds-pager ds-pager--inline" aria-label="Tour steps">
+        <button type="button" class="ds-pager-step" aria-label="Previous step"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <span class="ds-pager-position" role="status" aria-live="polite" aria-label="Step 3 of 7">3/7</span>
+        <button type="button" class="ds-pager-step" aria-label="Next step"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      </nav>
+      <span class="ds-tour-strip-spacer"></span>
+      <button type="button" class="ds-chip-button">Agent points to step 5 →</button>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Play tour" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M5.25 3.9v8.2a.6.6 0 0 0 .92.5l6.2-4.1a.6.6 0 0 0 0-1l-6.2-4.1a.6.6 0 0 0-.92.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /></svg></button>
+      <span class="ds-tour-strip-follow">
+        <button type="button" role="switch" aria-checked="false" aria-labelledby="follow-light" class="ds-switch"><span aria-hidden="true" class="ds-switch-thumb"></span></button>
+        <span id="follow-light">Follow agent</span>
+      </span>
+      <span class="demo-divider" aria-hidden="true"></span>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Steps" aria-pressed="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><circle cx="3.5" cy="4.5" r="0.95" fill="currentColor" /><circle cx="3.5" cy="8" r="0.95" fill="currentColor" /><circle cx="3.5" cy="11.5" r="0.95" fill="currentColor" /><path d="M6.5 4.5h6.25M6.5 8h6.25M6.5 11.5h6.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg></button>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Leave the tour"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg></button>
+      <div class="ds-tour-strip-progress" aria-hidden="true">
+        <span data-mark="visited"></span><span data-mark="visited"></span><span data-mark="current"></span><span data-mark="ahead"></span><span data-mark="ahead"></span><span data-mark="ahead"></span><span data-mark="ahead"></span>
+      </div>
+    </div>
+    <div class="demo-body">
+      <nav class="ds-tour-step-list" aria-label="Tour steps">
+        <div class="ds-tour-step"><span class="ds-tour-step-number">1</span><span class="ds-tour-step-text">The new options<span class="ds-tour-step-file">retry.ts</span></span><svg class="ds-tour-step-mark" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
+        <div class="ds-tour-step"><span class="ds-tour-step-number">2</span><span class="ds-tour-step-text">Jittered backoff<span class="ds-tour-step-file">retry.ts</span></span><svg class="ds-tour-step-mark" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
+        <div class="ds-tour-step" aria-current="true"><span class="ds-tour-step-number">3</span><span class="ds-tour-step-text">Stop on permanent failures<span class="ds-tour-step-file">worker.ts</span></span><span class="ds-tour-step-mark"></span></div>
+        <div class="ds-tour-step"><span class="ds-tour-step-number">4</span><span class="ds-tour-step-text">The old backoff goes<span class="ds-tour-step-file">legacy-backoff.ts</span></span><span class="ds-tour-step-mark"></span></div>
+      </nav>
+    </div>
+  </div>
+
+  <p class="demo-label">Light — before Start: the tour waits behind its card.</p>
+  <div class="demo-ready-stage">
+    <section class="ds-tour-ready" aria-label="Tour ready: Retry with backoff">
+      <div class="ds-tour-ready-eyebrow">Tour ready</div>
+      <h2 class="ds-tour-ready-title">Retry with backoff</h2>
+      <p class="ds-tour-ready-meta">7 steps · 4 files · by an agent</p>
+      <div class="ds-tour-ready-actions">
+        <button type="button" class="ds-button ds-button--primary ds-button--md">Start</button>
+        <button type="button" class="ds-button ds-button--ghost ds-button--md">Not now</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same band and card from the same tokens.</p>
+  <div class="demo-frame">
+    <div class="ds-tour-strip">
+      <span class="ds-tour-strip-title">Retry with backoff</span>
+      <nav class="ds-pager ds-pager--inline" aria-label="Tour steps">
+        <button type="button" class="ds-pager-step" aria-label="Previous step"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <span class="ds-pager-position" role="status" aria-live="polite" aria-label="Step 3 of 7">3/7</span>
+        <button type="button" class="ds-pager-step" aria-label="Next step"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      </nav>
+      <span class="ds-tour-strip-spacer"></span>
+      <span class="ds-tour-strip-follow">
+        <button type="button" role="switch" aria-checked="true" aria-labelledby="follow-dark" class="ds-switch"><span aria-hidden="true" class="ds-switch-thumb"></span></button>
+        <span id="follow-dark">Follow agent</span>
+      </span>
+      <div class="ds-tour-strip-progress" aria-hidden="true">
+        <span data-mark="visited"></span><span data-mark="visited"></span><span data-mark="current"></span><span data-mark="ahead"></span><span data-mark="ahead"></span><span data-mark="ahead"></span><span data-mark="ahead"></span>
+      </div>
+    </div>
+  </div>
+  <div class="demo-ready-stage">
+    <section class="ds-tour-ready" aria-label="Tour ready: Retry with backoff">
+      <div class="ds-tour-ready-eyebrow">Tour ready</div>
+      <h2 class="ds-tour-ready-title">Retry with backoff</h2>
+      <p class="ds-tour-ready-meta">7 steps · 4 files</p>
+      <div class="ds-tour-ready-actions">
+        <button type="button" class="ds-button ds-button--primary ds-button--md">Resume at step 3</button>
+        <button type="button" class="ds-button ds-button--ghost ds-button--md">Not now</button>
+      </div>
+    </section>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The band a diff tour plays under: the tour's name, where you are in it, and the few controls that act on the tour and nothing else. Shipped as <code>TourStrip</code> (<code>src/renderer/src/components/ui/TourStrip.tsx</code>), with its two disclosures — the step list (<code>TourStepList</code>) and the card a tour waits behind until it is started (<code>TourReadyCard</code>, <code>ui/TourStepList.tsx</code>).</p>
+<p>A diff tour is an agent walking the owner through the changes it made, one step at a time, inside the Diff viewer. The strip is the tour's chrome; what the agent says about each step is the [tour callout](../tour-callout/component.md).</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-tour-strip</code> | yes — <code>size.control.lg</code> tall, <code>bg.surface</code>, <code>space.lg</code> inline padding | | Mark | <code>.ds-tour-strip-mark</code> | yes — the <code>tour</code> glyph at <code>icon.size.sm</code>, <code>text.subtle</code>, <code>aria-hidden</code> | | Title | <code>.ds-tour-strip-title</code> | yes — <code>font.size.body</code>, <code>font.weight.medium</code>, <code>tracking.tight</code>, <code>text.primary</code>, truncates | | Position | [pager](../pager/component.md) <code>--inline</code> | yes — &quot;3/7 steps&quot; between two chevrons; the sentence &quot;Step 3 of 7&quot; is its polite live name | | Pointer | [chip button](../chip-button/component.md) | no — &quot;Agent points to step 4 →&quot;, only while the agent points somewhere Follow did not take you | | Play | [button](../button/component.md) <code>--icon</code>, pressed | yes — <code>play</code> / <code>pause</code> glyph; <code>aria-pressed</code> while playing | | Follow | [switch](../switch/component.md) + label | yes — &quot;Follow agent&quot;, <code>font.size.meta</code>, <code>text.muted</code> | | Divider | the [toolbar](../toolbar/component.md) divider | yes — between the tour's controls and the view's | | Steps | button <code>--icon</code>, pressed | yes — the <code>step-list</code> glyph; pressed while the list shows | | Leave | close button | yes — &quot;Leave the tour&quot; | | Progress | <code>.ds-tour-strip-progress</code> | yes — the band's bottom edge, one segment per step |</p>
+<p>The progress edge is the band's only rule. It is 2px, where a plain hairline would sit, because it carries a position and a hairline carries none: one segment per step, <code>border.subtle</code> ahead, <code>text.subtle</code> visited, <code>text.primary</code> for the current step, a 1px gap between. Neutral ink throughout — the accent is the Start button's and the step's gutter hairline's, and a moved or gone step is said by the step list in glyphs and words, never by a hue on this edge.</p>
+<h5>Step list (disclosure)</h5>
+<p>A column on the diff's leading edge, <code>15rem</code> wide, <code>bg.surface</code>, with a 1px <code>border.subtle</code> between it and the diff. One [row button](../row-button/component.md) <code>--bleed</code> per step: the step number in <code>font.family.mono</code>, <code>tabular-nums</code>, right-aligned in a 20px slot; the title; the file's name in mono at <code>font.size.micro</code>; and one trailing mark — a tick for visited, the warning triangle in <code>status.warn</code> for moved, a short dash for gone. The current step takes the neutral selection fill. A step's <code>hoverTip</code> is its row's tooltip.</p>
+<h5>Ready card (disclosure)</h5>
+<p>Before Start the strip is not drawn: a card stands where the diff will play, on <code>bg.app</code>, centred, <code>max-width: 28rem</code>. <code>bg.surface-raised</code>, a 1px <code>border.default</code> edge, <code>radius.shell</code>, <code>space.2xl</code> padding, no shadow. From the top: the <code>tour</code> glyph and &quot;Tour ready&quot; in <code>text.muted</code> meta; the title at <code>font.size.title</code>; one meta line (&quot;7 steps · 3 files · by &lt;agent&gt;&quot;); the agent's overview, if any, as compact markdown; then <strong>Start</strong> — the [button](../button/component.md) <code>--primary</code> at <code>size.control.md</code>, the one accented action in the view — and a ghost &quot;Not now&quot;. A tour that was played before offers &quot;Resume at step N&quot; in Start's place.</p>
+<h4>Variants</h4>
+<p>None. There is one tour strip. What it shows changes with the tour — the pointer chip exists only while the agent is pointing somewhere else.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Ready | No strip: the ready card stands in the body | | Playing | The strip, the pager on the current step, Play at rest | | Auto-advancing | Play pressed (<code>pause</code> glyph); holds while the pointer is over the callout or its field has focus | | Follow on | Switch on. The agent's <code>tour.goto</code> moves the view; the pointer chip never shows | | Follow off, agent pointing | The pointer chip, until the step it names has been visited | | Step list open | Steps pressed; the list stands on the leading edge |</p>
+<h4>Usage</h4>
+<ul><li>It takes the <strong>commit step strip's slot</strong> above the diff toolbar while a tour plays, so the region keeps one band above its own toolbar, not two. Leaving the tour gives the slot back.</li><li>The strip holds more than the pane-chrome ceiling of five because every control on it acts on the tour and nothing else — the band is the tour's own header (<code>principles.md</code> → the five-controls amendment), grouped by the divider into &quot;where in the tour&quot; and &quot;how the tour is shown&quot;.</li><li><strong>Nothing plays until Start.</strong> An agent finishing a tour docks the Diff tab without selecting it; the tab wears the corner count and the owner opens it when they choose. The strip never appears on its own.</li><li><code>]</code> and <code>[</code> step while focus is in the diff (the editor, the strip, the list) and nowhere else. They never replace F7, ⇧F7, ⌘↑ or ⌘↓.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The pager's sentence (&quot;Step 3 of 7&quot;) is its polite live name, so each step is announced once — the callout does not announce itself as well.</li><li>Play is a toggle and says so (<code>aria-pressed</code>); its name changes with it (&quot;Play tour&quot; / &quot;Pause tour&quot;).</li><li>The step list is a <code>nav</code> named &quot;Tour steps&quot; holding an ordered list; each row's accessible name carries its state in words (&quot;visited&quot;, &quot;code has changed&quot;, &quot;file no longer in the diff&quot;), because the trailing mark is <code>aria-hidden</code>.</li><li>The ready card is a named <code>section</code>; Start takes no focus on arrival. Nothing about a tour moves focus: it is reached by Tab like anything else.</li><li>Under <code>prefers-reduced-motion: reduce</code> nothing on the strip animates, and Play still advances — it is a timer, not a motion.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/tour-strip/component.css</summary><pre><code>/* Tour strip — the band a diff tour plays under, and its two disclosures: the
+ * step list and the card a tour waits behind until Start
+ * (src/renderer/src/components/ui/TourStrip.tsx, ui/TourStepList.tsx).
+ *
+ * The pager, the switch, the chip and the buttons inside it are their own
+ * components; this file draws only what is the strip's: the band, its title,
+ * the progress edge, the step list's rows and the ready card. */
+
+.ds-tour-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: var(--sem-size-control-lg);
+  padding: 0 var(--sem-space-lg);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-strip-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-strip-position {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-strip-spacer {
+  flex: 1;
+}
+
+.ds-tour-strip-follow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}
+
+/* The band's bottom edge, drawn as the tour. 2px where a hairline would sit:
+ * it carries a position, which a hairline cannot. ds-lint-allow: the edge's
+ * thickness is structure the space scale does not describe. */
+.ds-tour-strip-progress {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  gap: 1px; /* ds-lint-allow: a hairline between segments, not rhythm */
+  height: 2px; /* ds-lint-allow: progress edge thickness, not spacing */
+}
+
+.ds-tour-strip-progress &gt; span {
+  flex: 1;
+  background: var(--sem-color-border-subtle);
+}
+
+.ds-tour-strip-progress &gt; [data-mark='visited'] {
+  background: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-progress &gt; [data-mark='current'] {
+  background: var(--sem-color-text-primary);
+}
+
+/* ── Step list ─────────────────────────────────────────────────────────── */
+
+.ds-tour-step-list {
+  display: flex;
+  flex-direction: column;
+  width: 15rem;
+  padding: var(--sem-space-2xs) 0;
+  border-right: 1px solid var(--sem-color-border-subtle);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-step:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-tour-step[aria-current='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-step-number {
+  flex: none;
+  width: 20px; /* ds-lint-allow: a slot two digits right-align in, not rhythm */
+  text-align: right;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--sem-font-size-body);
+}
+
+.ds-tour-step-file {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark--moved {
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Ready card ────────────────────────────────────────────────────────── */
+
+.ds-tour-ready {
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--sem-space-2xl);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  font-family: var(--sem-font-family-ui);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-ready-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-title {
+  margin: var(--sem-space-sm) 0 0;
+  font-size: var(--sem-font-size-title);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-ready-meta {
+  margin: var(--sem-space-2xs) 0 0;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-actions {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-xl);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/tour-strip/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Tour strip&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../pager/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../switch/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../chip-button/component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-frame {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    overflow: hidden;
+    max-width: 760px;
+  }
+  .demo-body {
+    display: flex;
+    min-height: 180px;
+    background: var(--sem-color-bg-app);
+  }
+  .demo-divider {
+    width: 1px;
+    height: var(--sem-icon-size-sm);
+    background: var(--sem-color-border-subtle);
+  }
+  .demo-ready-stage {
+    display: flex;
+    justify-content: center;
+    padding: var(--sem-space-2xl);
+    background: var(--sem-color-bg-app);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a tour on step 3 of 7, the agent pointing at step 5, the step list open.&lt;/p&gt;
+  &lt;div class=&quot;demo-frame&quot;&gt;
+    &lt;div class=&quot;ds-tour-strip&quot;&gt;
+      &lt;svg class=&quot;ds-tour-strip-mark&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;circle cx=&quot;3.75&quot; cy=&quot;11.75&quot; r=&quot;1.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;&lt;circle cx=&quot;12.25&quot; cy=&quot;4.25&quot; r=&quot;1.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;&lt;path d=&quot;M5.35 11.75H9a2 2 0 0 0 0-4H7a1.75 1.75 0 0 1 0-3.5h3.65&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;
+      &lt;span class=&quot;ds-tour-strip-title&quot;&gt;Retry with backoff&lt;/span&gt;
+      &lt;nav class=&quot;ds-pager ds-pager--inline&quot; aria-label=&quot;Tour steps&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous step&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+        &lt;span class=&quot;ds-pager-position&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; aria-label=&quot;Step 3 of 7&quot;&gt;3/7&lt;/span&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next step&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;/nav&gt;
+      &lt;span class=&quot;ds-tour-strip-spacer&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-chip-button&quot;&gt;Agent points to step 5 →&lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Play tour&quot; aria-pressed=&quot;false&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M5.25 3.9v8.2a.6.6 0 0 0 .92.5l6.2-4.1a.6.6 0 0 0 0-1l-6.2-4.1a.6.6 0 0 0-.92.5Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;span class=&quot;ds-tour-strip-follow&quot;&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-labelledby=&quot;follow-light&quot; class=&quot;ds-switch&quot;&gt;&lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;&lt;/button&gt;
+        &lt;span id=&quot;follow-light&quot;&gt;Follow agent&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;demo-divider&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Steps&quot; aria-pressed=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;circle cx=&quot;3.5&quot; cy=&quot;4.5&quot; r=&quot;0.95&quot; fill=&quot;currentColor&quot; /&gt;&lt;circle cx=&quot;3.5&quot; cy=&quot;8&quot; r=&quot;0.95&quot; fill=&quot;currentColor&quot; /&gt;&lt;circle cx=&quot;3.5&quot; cy=&quot;11.5&quot; r=&quot;0.95&quot; fill=&quot;currentColor&quot; /&gt;&lt;path d=&quot;M6.5 4.5h6.25M6.5 8h6.25M6.5 11.5h6.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Leave the tour&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4 4l8 8M12 4l-8 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;div class=&quot;ds-tour-strip-progress&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;span data-mark=&quot;visited&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;visited&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;current&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-body&quot;&gt;
+      &lt;nav class=&quot;ds-tour-step-list&quot; aria-label=&quot;Tour steps&quot;&gt;
+        &lt;div class=&quot;ds-tour-step&quot;&gt;&lt;span class=&quot;ds-tour-step-number&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;ds-tour-step-text&quot;&gt;The new options&lt;span class=&quot;ds-tour-step-file&quot;&gt;retry.ts&lt;/span&gt;&lt;/span&gt;&lt;svg class=&quot;ds-tour-step-mark&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.5 8.5l3 3 6-7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-tour-step&quot;&gt;&lt;span class=&quot;ds-tour-step-number&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;ds-tour-step-text&quot;&gt;Jittered backoff&lt;span class=&quot;ds-tour-step-file&quot;&gt;retry.ts&lt;/span&gt;&lt;/span&gt;&lt;svg class=&quot;ds-tour-step-mark&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.5 8.5l3 3 6-7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-tour-step&quot; aria-current=&quot;true&quot;&gt;&lt;span class=&quot;ds-tour-step-number&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;ds-tour-step-text&quot;&gt;Stop on permanent failures&lt;span class=&quot;ds-tour-step-file&quot;&gt;worker.ts&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;ds-tour-step-mark&quot;&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-tour-step&quot;&gt;&lt;span class=&quot;ds-tour-step-number&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;ds-tour-step-text&quot;&gt;The old backoff goes&lt;span class=&quot;ds-tour-step-file&quot;&gt;legacy-backoff.ts&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;ds-tour-step-mark&quot;&gt;&lt;/span&gt;&lt;/div&gt;
+      &lt;/nav&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Light — before Start: the tour waits behind its card.&lt;/p&gt;
+  &lt;div class=&quot;demo-ready-stage&quot;&gt;
+    &lt;section class=&quot;ds-tour-ready&quot; aria-label=&quot;Tour ready: Retry with backoff&quot;&gt;
+      &lt;div class=&quot;ds-tour-ready-eyebrow&quot;&gt;Tour ready&lt;/div&gt;
+      &lt;h2 class=&quot;ds-tour-ready-title&quot;&gt;Retry with backoff&lt;/h2&gt;
+      &lt;p class=&quot;ds-tour-ready-meta&quot;&gt;7 steps · 4 files · by an agent&lt;/p&gt;
+      &lt;div class=&quot;ds-tour-ready-actions&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Start&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost ds-button--md&quot;&gt;Not now&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same band and card from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-frame&quot;&gt;
+    &lt;div class=&quot;ds-tour-strip&quot;&gt;
+      &lt;span class=&quot;ds-tour-strip-title&quot;&gt;Retry with backoff&lt;/span&gt;
+      &lt;nav class=&quot;ds-pager ds-pager--inline&quot; aria-label=&quot;Tour steps&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Previous step&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M10 3.5 5.5 8 10 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+        &lt;span class=&quot;ds-pager-position&quot; role=&quot;status&quot; aria-live=&quot;polite&quot; aria-label=&quot;Step 3 of 7&quot;&gt;3/7&lt;/span&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-pager-step&quot; aria-label=&quot;Next step&quot;&gt;&lt;svg class=&quot;ds-pager-icon&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M6 3.5 10.5 8 6 12.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;&lt;/svg&gt;&lt;/button&gt;
+      &lt;/nav&gt;
+      &lt;span class=&quot;ds-tour-strip-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-tour-strip-follow&quot;&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-labelledby=&quot;follow-dark&quot; class=&quot;ds-switch&quot;&gt;&lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;&lt;/button&gt;
+        &lt;span id=&quot;follow-dark&quot;&gt;Follow agent&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;div class=&quot;ds-tour-strip-progress&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;span data-mark=&quot;visited&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;visited&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;current&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;&lt;span data-mark=&quot;ahead&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-ready-stage&quot;&gt;
+    &lt;section class=&quot;ds-tour-ready&quot; aria-label=&quot;Tour ready: Retry with backoff&quot;&gt;
+      &lt;div class=&quot;ds-tour-ready-eyebrow&quot;&gt;Tour ready&lt;/div&gt;
+      &lt;h2 class=&quot;ds-tour-ready-title&quot;&gt;Retry with backoff&lt;/h2&gt;
+      &lt;p class=&quot;ds-tour-ready-meta&quot;&gt;7 steps · 4 files&lt;/p&gt;
+      &lt;div class=&quot;ds-tour-ready-actions&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Resume at step 3&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost ds-button--md&quot;&gt;Not now&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

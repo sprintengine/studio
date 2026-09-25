@@ -1565,6 +1565,27 @@
         }
       }
     },
+    "opacity": {
+      "dimmed": {
+        "$type": "number",
+        "$value": 0.42,
+        "$description": "How much of itself content keeps when it is set back so one region can lead \u2014 the code around a diff tour step.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "emphasis",
+            "use": "Ink opacity of content that stays readable but steps back while a guided walkthrough points at one region (a diff tour: every line outside the step). Reached as the resting value of an animated custom property, so the dim eases in rather than snapping.",
+            "doNotUse": "Disabled controls (they take text.disabled), placeholder text, or hiding anything: dimmed content is still content and must stay legible. Never on the region being pointed at.",
+            "components": [
+              "tour-callout"
+            ],
+            "modes": {
+              "light": 0.42,
+              "dark": 0.38
+            }
+          }
+        }
+      }
+    },
     "space": {
       "3xs": {
         "$type": "dimension",

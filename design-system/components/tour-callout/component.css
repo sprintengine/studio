@@ -1,0 +1,116 @@
+/* Tour callout — one step of a diff tour, in a view zone under the code it is
+ * about (src/renderer/src/components/ui/TourCallout.tsx), and the three
+ * treatments of the code around it while it shows (src/renderer/src/assets/
+ * tours.css in the app).
+ *
+ * `--tour-dim` is registered so it can be transitioned: the host eases it from
+ * 1 to sem.opacity.dimmed and every dimmed line reads it. */
+
+@property --tour-dim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.ds-tour-host {
+  --tour-dim: 1;
+  transition: --tour-dim var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-host--dimmed {
+  --tour-dim: var(--sem-opacity-dimmed);
+}
+
+.ds-tour-dim {
+  opacity: var(--tour-dim);
+}
+
+.ds-tour-step-line {
+  background: var(--sem-color-bg-selected);
+}
+
+/* The accent, as a hairline in the gutter. ds-lint-allow: a 2px rule is the
+ * hairline's drawn width here, not spacing. */
+.ds-tour-step-rail {
+  box-shadow: inset 2px 0 0 var(--sem-color-border-focus); /* ds-lint-allow: gutter hairline */
+}
+
+.ds-tour-callout-frame {
+  box-sizing: border-box;
+  padding: var(--sem-space-sm) var(--sem-space-2xl) var(--sem-space-md) var(--sem-space-md);
+  transition: opacity var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-tour-callout-frame[data-visible='false'] {
+  opacity: 0;
+  transition-duration: var(--sem-motion-duration-fast);
+}
+
+.ds-tour-callout {
+  position: relative;
+  max-width: 76ch;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+}
+
+.ds-tour-callout-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+.ds-tour-callout-index {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-callout-location {
+  margin: var(--sem-space-3xs) 0 0;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-callout-body {
+  margin-top: var(--sem-space-sm);
+}
+
+.ds-tour-callout-body p {
+  margin: 0 0 var(--sem-space-sm);
+}
+
+.ds-tour-callout-body code {
+  font-family: var(--sem-font-family-mono);
+}
+
+.ds-tour-callout-ask {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-tour-host,
+  .ds-tour-callout-frame {
+    transition: none;
+  }
+}

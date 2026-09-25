@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -84,11 +84,13 @@ function PaneDiffTab({
   workspaceId,
   repoRoot,
   tab,
+  active,
   onDiffCountChange,
 }: {
   workspaceId: string
   repoRoot: string
   tab: WorkspacePaneTab
+  active: boolean
   onDiffCountChange?: (count: number | null) => void
 }) {
   const lastActiveAgentId = useWorkspaceStore(
@@ -101,6 +103,43 @@ function PaneDiffTab({
   // a Git row exactly the diff it was before.
   const { changelists } = useChangelists(wantsDefault ? repoRoot : null)
   const changelistId = asked ?? (wantsDefault ? defaultDiffChangelistId({ lastActiveAgentId }, changelists) : null)
+  // Diff tours. The tab keeps what the viewer has open (so a tab switch does
+  // not lose a playing tour) and a tour an agent has offered; the viewer tells
+  // it when either changes.
+  const tourCurrent = tab.diff?.tour ?? null
+  const tourOffer = tab.diff?.tourOffer ?? null
+  const tourHost = useMemo(
+    () => ({ current: tourCurrent, offer: tourOffer }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tourCurrent?.id, tourCurrent?.playing, tourOffer],
+  )
+  const writeTourFields = useCallback(
+    (patch: (diff: NonNullable<WorkspacePaneTab['diff']>) => NonNullable<WorkspacePaneTab['diff']>) => {
+      const store = useWorkspaceStore.getState()
+      const current = store.workspaces.find((w) => w.id === workspaceId)?.paneState?.tabs.find((t) => t.id === tab.id)
+      if (!current?.diff) return
+      const next = patch(current.diff)
+      if (JSON.stringify(next) === JSON.stringify(current.diff)) return
+      store.updatePaneTab(workspaceId, tab.id, { diff: next })
+    },
+    [workspaceId, tab.id],
+  )
+  const takeOffer = useCallback(
+    () =>
+      writeTourFields((diff) => {
+        const { tourOffer: _taken, ...rest } = diff
+        return rest
+      }),
+    [writeTourFields],
+  )
+  const keepCurrent = useCallback(
+    (current: { id: string; playing: boolean } | null) =>
+      writeTourFields((diff) => {
+        const { tour: _previous, ...rest } = diff
+        return current ? { ...rest, tour: current } : rest
+      }),
+    [writeTourFields],
+  )
 
   return (
     <DiffViewer
@@ -131,6 +170,10 @@ function PaneDiffTab({
       focusRange={tab.diff?.reveal?.range ?? null}
       focusSide={tab.diff?.reveal?.side ?? 'modified'}
       revealKey={tab.diff?.reveal?.key ?? null}
+      tourHost={tourHost}
+      onTourOfferTaken={takeOffer}
+      onTourCurrentChange={keepCurrent}
+      visible={active}
     />
   )
 }
@@ -201,7 +244,13 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
       // own + menu, which names no repository at all.
       const repoRoot = tab.diff?.repoRoot ?? diffRepoRoot
       return repoRoot && selectModuleEnabled(moduleOverrides, 'git') ? (
-        <PaneDiffTab workspaceId={workspaceId} repoRoot={repoRoot} tab={tab} onDiffCountChange={onDiffCountChange} />
+        <PaneDiffTab
+          workspaceId={workspaceId}
+          repoRoot={repoRoot}
+          tab={tab}
+          active={active}
+          onDiffCountChange={onDiffCountChange}
+        />
       ) : (
         <PaneUnavailable />
       )

@@ -654,6 +654,14 @@ export type WorkspacePaneTab = {
       range?: EditorRange
       side?: 'modified' | 'original'
     }
+    /**
+     * Diff tours. `tour` is the tour the viewer has open and whether it was
+     * playing, so switching tabs does not lose it; `tourOffer` is a tour an
+     * agent has just written (`tour.create`) and the owner has not yet seen —
+     * the tab's "tour ready" mark.
+     */
+    tour?: { id: string; playing: boolean }
+    tourOffer?: string
   }
   // Canvas only: the board the tab is drawing on, project-relative and
   // normalized (`normalizeCanvasPath`). Absent is a real state, not a broken
