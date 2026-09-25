@@ -25,7 +25,7 @@ import {
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
-import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalFileLinkProvider, terminalWslDistro } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { createSessionAckReporter } from '../../utils/terminalOutputAck'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
@@ -583,6 +583,15 @@ export default function TerminalView({
             // A thunk, so the correction the launch path makes below reaches the links
             // already on screen without re-registering the provider.
             executionRoot: () => launchExecutionRoot,
+            // An agent under WSL prints Linux paths; the provider needs the
+            // distribution to hand Windows a path it can open. Read late, like
+            // the root.
+            wslDistro: () =>
+              terminalWslDistro({
+                platform: window.api.platform,
+                hostId: currentContext().hostId,
+                roots: [launchExecutionRoot, linkRoots.workspaceRoot],
+              }),
             inspectPath,
             // The click no longer decides anything — it opens the chooser.
             onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
