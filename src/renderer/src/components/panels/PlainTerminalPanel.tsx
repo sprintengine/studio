@@ -14,7 +14,7 @@ import {
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalFileLinkProvider, terminalWslDistro } from '../../utils/terminalFileLinks'
 import { parseTerminalOscCwd } from '../../utils/terminalOscLinks'
 import { registerMountedTerminalPromptNavigation } from '../../utils/terminalPromptNavigation'
 import {
@@ -302,6 +302,13 @@ export default function PlainTerminalPanel({
             // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
             // links already on screen without re-registering the provider.
             executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
+            // A shell under WSL reports its cwd and prints its paths the Linux
+            // way; a folder inside a distribution's share says which one.
+            wslDistro: () =>
+              terminalWslDistro({
+                platform: window.api.platform,
+                roots: [oscExecutionRoot ?? launchExecutionRoot, surfaceLinkRoots.workspaceRoot],
+              }),
             inspectPath,
             onActivate: openFileLinkMenu,
             onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
