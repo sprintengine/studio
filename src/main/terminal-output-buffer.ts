@@ -22,7 +22,14 @@ export type TerminalOutputSink = {
   /** Unique within a session. The renderer's is `TERMINAL_RENDERER_SINK_ID`. */
   id: string
   shouldForward(session: TerminalSession | undefined): boolean
-  forward(data: string): void
+  /**
+   * `extent` places the batch in the session's output stream: `endOffset` is
+   * the offset just past it and `bytes` its UTF-8 length, so a batch that does
+   * not start where the sink's last one ended — its head was dropped at the
+   * bound — can be told from one that does. `bytes` counts a `droppedNotice`
+   * too, which is why only a sink without one may rely on it.
+   */
+  forward(data: string, extent: TerminalOutputExtent): void
   /** Bound on bytes buffered but not yet forwarded, per sink. */
   pendingLimitBytes: number
   /** Text put in place of the bytes dropped at the bound; omit for a sink that resyncs instead. */
@@ -30,6 +37,8 @@ export type TerminalOutputSink = {
   /** Called when the bound was hit and older bytes were dropped. */
   onDropped?(): void
 }
+
+export type TerminalOutputExtent = { endOffset: number; bytes: number }
 
 const TERMINAL_RENDERER_SINK_ID = 'renderer'
 
@@ -132,7 +141,7 @@ export function createTerminalOutputBuffer({
       const data = pending.chunks.length === 1 ? (pending.chunks[0] as string) : pending.chunks.join('')
       const isRenderer = pending.sink.id === TERMINAL_RENDERER_SINK_ID
       if (pending.sink.shouldForward(session)) {
-        pending.sink.forward(data)
+        pending.sink.forward(data, { endOffset: pending.endOffset, bytes: pending.bytes })
         if (isRenderer && session) {
           session.rendererDeliveredOffset = pending.endOffset
           session.rendererDeliveredTo = session.sender

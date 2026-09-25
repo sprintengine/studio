@@ -79,8 +79,16 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * was named here the route was undiscoverable, and a phone's only way to find
  * out was to send the file and read the 404 at the end of the transfer — the
  * one failure a 25MB upload must not have.
+ *
+ * `terminal-resume`: the terminal stream positions its `replay` and `output`
+ * frames in the session's output stream, and an attach that names a position
+ * (`stream` and `after` on the upgrade URL) is answered with `resumed` and only
+ * the missing tail when it is still retained. A client needs no check before
+ * asking — a host without it ignores the two parameters and sends the full
+ * replay, whose missing `position` says so — but may read it to know whether a
+ * reconnect will repaint.
  */
-export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload'] as const
+export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload', 'terminal-resume'] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
 

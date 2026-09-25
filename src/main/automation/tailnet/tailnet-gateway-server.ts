@@ -43,6 +43,7 @@ import { resolveUploadDestination, UPLOAD_MAX_BYTES } from './tailnet-uploads'
 import {
   createTailnetTerminalStream,
   terminalAttachScopeFor,
+  terminalResumeFromQuery,
   type TailnetTerminalStream,
 } from './tailnet-terminal-stream'
 import type { TerminalRemoteHost } from '../../terminal-remote-attach'
@@ -868,9 +869,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // reference through a box rather than closing over a `const` that is
       // still in its temporal dead zone.
       const registration: { stream: TailnetTerminalStream | null } = { stream: null }
+      const resume = terminalResumeFromQuery(query)
       const stream = createTailnetTerminalStream({
         socket,
         sessionId,
+        ...(resume ? { resume } : {}),
         deviceId: device.id,
         deviceName: device.name,
         scopes: device.scopes,
