@@ -120,7 +120,7 @@ import {
   notePullRequestRecordChanged,
   resolveSpawnEventSink,
 } from './terminal-runtime'
-import { setSessionPullRequestReader } from './terminal-session'
+import { isTerminalProcessAlive, setSessionPullRequestReader } from './terminal-session'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
 import { createPullRequestRecord } from './pull-request-record'
 import { createBrowserManager } from './browser/browser-manager'
@@ -136,6 +136,7 @@ import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canv
 import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
+import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
@@ -884,6 +885,39 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // The launched agent is registered in the workspace registry here, in main,
+  // at launch — not left for a window to project from the session list. Every
+  // launch main composes (a paired machine over the tailnet, the MCP tools,
+  // backlog work, automations, a module's agent sessions) comes through this
+  // door, and the registry broadcast is what tells every window and every
+  // paired device. An agent a window creates itself is in the registry already.
+  const launchedAgentRegistration = createLaunchedAgentRegistration({
+    registry: workspaceRegistry,
+    workspaceSync: workspaceSyncService,
+    // The live session objects, not `listTerminals()` snapshots: this runs on
+    // every session-list beat and reads a handful of fields.
+    listLaunchedSessions: () =>
+      listLiveTerminalSessions()
+        .filter((session) => session.agentRecord !== undefined)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          kind: session.kind,
+          processAlive: isTerminalProcessAlive(session),
+          workspaceId: session.workspaceId,
+          agentRecord: session.agentRecord,
+          worktreeId: session.worktreeId,
+          cliSessionId: session.cliSessionId,
+        })),
+    hasSession: (sessionId) => {
+      const session = getTerminalSessionById(sessionId)
+      return session !== null && !session.isDisposed
+    },
+  })
+  const registeredAgentLaunchService = withLaunchedAgentRegistration(
+    composedAgentLaunchService,
+    launchedAgentRegistration,
+  )
+
   // Telemetry rides on the OUTSIDE of the composed service rather than inside
   // it. `createAgentLaunchService` is a pure composer with its own tests; a
   // measurement is not part of what it composes, and every caller — agent.launch,
@@ -894,9 +928,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // prompt, name, worktree path and cwd do not: they are the user's words and
   // the user's disk (see the boundary in shared/telemetry.ts).
   const agentLaunchService: typeof composedAgentLaunchService = {
-    ...composedAgentLaunchService,
+    ...registeredAgentLaunchService,
     async launch(request) {
-      const result = await composedAgentLaunchService.launch(request)
+      const result = await registeredAgentLaunchService.launch(request)
       if (result.ok) {
         analytics.record('agent.launched', {
           cli: result.cli,
@@ -1371,6 +1405,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // each, and a device re-reads only when told to. Both are throttled in the
   // listener, so a burst here is one push there.
   terminalRuntime.subscribeSessionsChanged(() => automationService.notifyTerminalsChanged())
+  // A live launched session whose agent is missing from its workspace is
+  // adopted, so a launch-time write that did not land is not the end of it.
+  terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
   // The app's own plugin goes into every workspace it opens, at the two moments
   // a workspace becomes real to main: the roots the registry already holds when

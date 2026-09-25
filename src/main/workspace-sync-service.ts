@@ -246,14 +246,21 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     )
   }
 
+  /**
+   * Record a main-originated agent change. `configEditedAt` defaults to now;
+   * a caller writing something no person decided (main registering an agent it
+   * launched) passes 0, so any window's edit to that agent — even one stamped
+   * before this write arrived — still wins over it.
+   */
   function updateWorkspaceAgent(
     workspaceId: WorkspaceId,
     agentId: string,
     patch: Partial<AgentState> | null,
     actor: WorkspaceMutationActor,
+    configEditedAt: number = now(),
   ): WorkspaceSyncCommandResult {
     return emit(
-      { type: 'workspace.update_agent', payload: { workspaceId, agentId, patch, configEditedAt: now() } },
+      { type: 'workspace.update_agent', payload: { workspaceId, agentId, patch, configEditedAt } },
       registry.getState().primaryWorkspaceWindowId,
       actor,
     )

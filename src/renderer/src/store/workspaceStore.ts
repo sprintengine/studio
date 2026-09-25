@@ -29,7 +29,7 @@ import type {
   McpServerConfig,
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
-import type { LaunchedAgentProjection } from '../utils/launchedAgentProjection'
+import { noteLaunchedAgentArrived, type LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
@@ -1741,6 +1741,10 @@ function initWorkspaceSyncClient(): void {
             const { [apply.agentId]: _removed, ...agents } = workspace.agents
             return { ...workspace, agents }
           }
+          // An agent that arrives on the bus while this window runs may be one
+          // main just launched and registered; the session tick decides whether
+          // it gets a tab. A snapshot never counts, so a reload reveals nothing.
+          if (!workspace.agents[apply.agentId]) noteLaunchedAgentArrived(workspace.id, apply.agentId)
           const existing = workspace.agents[apply.agentId] ?? defaultAgent(apply.agentId)
           return {
             ...workspace,
