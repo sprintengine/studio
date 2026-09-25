@@ -137,6 +137,8 @@ import { createAgentWrittenFiles } from './editor-reveal/agent-written-files'
 import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
 import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
 import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
+import { createTourTools } from './automation/tour-tools'
+import { createAppTourService } from './tours/tour-app'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
 import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-fs'
@@ -1125,6 +1127,32 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       })
     },
   })
+  // Diff tours (tour.* tools, the Diff viewer's tour mode). One owner for
+  // every tour: the gateway writes them, the viewer plays them, and an owner's
+  // question is typed into the author's terminal from here.
+  const tours = createAppTourService({
+    userDataDir: app.getPath('userData'),
+    resolveWorkspaceRoot: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
+        ?.folderPath ?? null,
+    listTerminals: () => terminalRuntime.ipcHandlers.listTerminals(),
+    writeTerminal: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+    launchAgent: async (request) => {
+      const launched = await agentLaunchService.launch(request)
+      return launched.ok ? { ok: true, agentId: launched.agentId } : { ok: false, message: launched.message }
+    },
+    broadcastToWorkspaceWindows,
+    broadcastToViewers: (channel, payload) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed() || isCanvasWorkerWindow(window)) continue
+        window.webContents.send(channel, payload)
+      }
+    },
+    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+  })
+  const tourService = tours.service
+  terminalRuntime.registerAgentPhaseListener((event) => tourService.onAgentPhase(event))
+
   /**
    * Whether the Canvas module is on.
    *
@@ -1225,6 +1253,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
           }),
         ),
+        ...createTourTools({
+          service: tourService,
+          hasWorkspace: (workspaceId) =>
+            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+        }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -1543,6 +1576,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    tourService,
+    setTourAttention: tours.setAttention,
     builtinSkillManager,
     studioPluginService,
     conversationRuntime,

@@ -1,7 +1,7 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The thirty-eight SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The forty-three SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
 the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
@@ -10,7 +10,8 @@ pull-request-closed — and the
 nineteen Commit-window action marks — rollback, move-to-changelist, stash,
 group-by, expand-all, collapse-all, next-difference, previous-difference,
 show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
-new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are
+new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and
+the diff tour's four — tour, play, pause, step-list) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,

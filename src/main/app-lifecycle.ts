@@ -35,6 +35,8 @@ type RegisterAppLifecycleOptions = {
     // taskbar or dock (agent-attention.ts) and never by raising a window.
     registerAgentPhaseListener?(listener: AgentPhaseListener): () => void
   }
+  /** Handed the one attention channel once it exists, for asks that are not a turn (a diff tour). */
+  onAgentAttentionReady?(attention: { notify(key: string): void }): void
   // Conversation-agent runtime: quit must dispose its headless child
   // processes too — they live outside the PTY reaper's sight.
   conversationRuntime?: {
@@ -128,6 +130,7 @@ export function registerAppLifecycle({
   backgroundMode,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
+  onAgentAttentionReady,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
@@ -403,6 +406,7 @@ export function registerAppLifecycle({
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
+    onAgentAttentionReady?.(agentAttention)
     app.on('browser-window-focus', (_event, win) => {
       if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()
     })

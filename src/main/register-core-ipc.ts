@@ -56,6 +56,7 @@ import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
 import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
+import { registerToursIpc } from './ipc/tours-ipc'
 import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import {
@@ -105,6 +106,7 @@ export function registerCoreIpc(
       return win && isWorkspaceWindowWebContents(event.sender) ? win : null
     },
   })
+  registerToursIpc(ipcMain, services.tourService)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,
   })

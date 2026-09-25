@@ -39,6 +39,13 @@ export type AgentAttentionDeps = {
 
 export type AgentAttention = {
   onAgentPhase(event: AgentPhaseEvent): void
+  /**
+   * Something other than a turn wants the person once — a diff tour an agent
+   * just wrote. The same one flash, bounce or badge a finished turn gets, and
+   * the same rule: nothing when a window already has focus. `key` counts once
+   * however many times it asks.
+   */
+  notify(key: string): void
   /** A window of the app took focus: the person is looking, so stand down. */
   onWindowFocused(): void
   /** How many agents are waiting on the person. Exposed for tests. */
@@ -79,6 +86,20 @@ export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
     for (const win of liveWindows()) win.flashFrame(flag)
   }
 
+  function raise(key: string): void {
+    const windows = liveWindows()
+    // The person is already looking at the app, and the sidebar shows the
+    // agent's state; a badge they would have to clear by hand is noise.
+    if (windows.some((win) => win.isFocused())) return
+    pending.add(key)
+    publishBadge()
+    if (deps.platform === 'win32') {
+      for (const win of windows) win.flashFrame(true)
+    } else if (deps.platform === 'darwin') {
+      deps.bounceDock?.()
+    }
+  }
+
   function onAgentPhase(event: AgentPhaseEvent): void {
     if (WORKING_PHASES.has(event.phase)) {
       if (pending.delete(event.agentId)) {
@@ -88,17 +109,7 @@ export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
       return
     }
     if (!isAttentionEvent(event)) return
-    const windows = liveWindows()
-    // The person is already looking at the app, and the sidebar shows the
-    // agent's state; a badge they would have to clear by hand is noise.
-    if (windows.some((win) => win.isFocused())) return
-    pending.add(event.agentId)
-    publishBadge()
-    if (deps.platform === 'win32') {
-      for (const win of windows) win.flashFrame(true)
-    } else if (deps.platform === 'darwin') {
-      deps.bounceDock?.()
-    }
+    raise(event.agentId)
   }
 
   function onWindowFocused(): void {
@@ -108,7 +119,7 @@ export function createAgentAttention(deps: AgentAttentionDeps): AgentAttention {
     flash(false)
   }
 
-  return { onAgentPhase, onWindowFocused, pendingCount: () => pending.size }
+  return { onAgentPhase, notify: raise, onWindowFocused, pendingCount: () => pending.size }
 }
 
 /**

@@ -156,3 +156,19 @@ test('a hook that reached the binary as a second launch is told apart from a per
   assert.equal(isScriptSecondLaunch([exe, 'sprintengine://auth/callback?code=abc']), false, 'a deep link still does')
   assert.equal(isScriptSecondLaunch(['/usr/bin/electron', '/Users/dev/studio/out/main/index.js']), false)
 })
+
+test('a tour an agent wrote asks for the person once, the same way a turn does, and never raises a window', () => {
+  const win = fakeWindow(false)
+  const { attention, bounces, badges } = harness('darwin', [win])
+  attention.notify('tour:t1')
+  attention.notify('tour:t1')
+  assert.equal(bounces.length, 2, 'a bounce per ask, but…')
+  assert.deepEqual(badges, [1, 1], '…one waiting item, however many times it asks')
+  assert.deepEqual(win.raised, [])
+
+  const focused = fakeWindow(true)
+  const quiet = harness('win32', [focused])
+  quiet.attention.notify('tour:t2')
+  assert.deepEqual(focused.flashes, [], 'a person already looking gets nothing')
+  assert.equal(quiet.attention.pendingCount(), 0)
+})

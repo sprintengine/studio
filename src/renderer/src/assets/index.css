@@ -10,6 +10,8 @@
    stamped together by applyThemeAttributes() in src/renderer/src/hooks/
    useAppTheme.ts, and pre-paint by the boot script in src/renderer/index.html. */
 @import "../../../../design-system/foundations/tokens.css";
+/* Diff tours: the classes Monaco hangs on its own nodes while a tour plays. */
+@import "./tours.css";
 
 /* The Tailwind mapping layer design-system/USAGE.md asks for: "map the token
  * variables into your Tailwind config instead of restating their values".

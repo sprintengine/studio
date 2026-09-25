@@ -66,6 +66,17 @@ export {
 // The changelist quartet (git-commit-window T6): new, delete, edit, and the
 // patch a selection is written out as.
 export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChangelistGlyph } from './GitActionGlyphs'
+// The diff tour's marks (design-system/components/tour-strip): the tour itself,
+// Play and Pause, and the step list's toggle.
+export { PauseGlyph, PlayGlyph, StepListGlyph, TourGlyph } from './TourGlyphs'
+// The diff tour's surfaces (design-system/components/tour-strip, tour-callout):
+// the band, the callout a step is said in, the step list and the Start card.
+export { TourProgress, TourStrip } from './TourStrip'
+export type { TourProgressMark, TourStripProps } from './TourStrip'
+export { TourCallout } from './TourCallout'
+export type { TourCalloutAskState, TourCalloutProps } from './TourCallout'
+export { TourReadyCard, TourStepList } from './TourStepList'
+export type { TourStepListItem } from './TourStepList'
 // The overflow mark, one drawing. Two surfaces drew it privately at two
 // pitches until 2026-09-09 — `OverflowMenu`'s own trigger and the Git panel's
 // group band — which is exactly the drift `design-system/glyphs/` exists to

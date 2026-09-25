@@ -1,4 +1,15 @@
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
+import type {
+  LiveTour,
+  TourAsk,
+  TourChangedEvent,
+  TourGotoAnswer,
+  TourGotoRequest,
+  TourPlayback,
+  TourResult,
+  TourRevealRequest,
+  TourSummary,
+} from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
@@ -542,6 +553,30 @@ export type ElectronApi = {
   onCanvasPresence: (cb: (presence: CanvasBoardRef & CanvasPresence) => void) => () => void
   /** An agent asked for a board in this workspace's pane (canvas.open); the tab opens docked. */
   onCanvasOpenRequest: (cb: (ref: CanvasBoardRef) => void) => () => void
+  // Diff tours (src/main/tours). The Diff viewer reads and plays them; the
+  // workspace window docks a tour's Diff tab when an agent writes one.
+  tourList: (workspaceId: string) => Promise<TourSummary[]>
+  tourRead: (workspaceId: string, tourId: string) => Promise<TourResult<LiveTour>>
+  tourReportPlayback: (workspaceId: string, tourId: string, playback: TourPlayback) => Promise<void>
+  tourAsk: (
+    workspaceId: string,
+    tourId: string,
+    stepId: string,
+    question: string,
+  ) => Promise<TourResult<TourAsk> & { authorGone?: boolean }>
+  tourCancelAsk: (workspaceId: string, tourId: string, askId: string) => Promise<void>
+  tourAskNewAgent: (
+    workspaceId: string,
+    tourId: string,
+    stepId: string,
+    question: string,
+  ) => Promise<TourResult<{ agentId: string }>>
+  /** This window docked the tour's tab: `tour.create` answers `revealed: true`. */
+  tourAcknowledgeReveal: (requestId: string) => void
+  tourAnswerGoto: (answer: TourGotoAnswer) => void
+  onTourChanged: (cb: (event: TourChangedEvent) => void) => () => void
+  onTourRevealRequest: (cb: (request: TourRevealRequest) => void) => () => void
+  onTourGotoRequest: (cb: (request: TourGotoRequest) => void) => () => void
   // The hidden canvas worker window's half of the same surface. Only that window
   // uses these three: it announces itself once its editor instance has mounted,
   // then answers requests until main disposes it.

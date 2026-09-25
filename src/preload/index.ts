@@ -44,6 +44,7 @@ import { windowApi } from './api/window'
 import { browserApi } from './api/browser'
 import { canvasApi } from './api/canvas'
 import { editorRevealApi } from './api/editor-reveal'
+import { toursApi } from './api/tours'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
@@ -60,6 +61,7 @@ const api = {
   ...browserApi,
   ...canvasApi,
   ...editorRevealApi,
+  ...toursApi,
   ...splashApi,
   ...startupApi,
   ...buildStampApi,

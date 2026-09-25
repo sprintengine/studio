@@ -4,7 +4,7 @@ import { browserTabLabel } from '../../../../../shared/browser'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspacePaneTab, WorkspacePaneTabKind } from '../../../types/workspace'
-import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
+import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, TourGlyph, type TabItem } from '../../ui'
 import { composePaneKinds, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
@@ -165,13 +165,22 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
   const items: TabItem[] = tabs.map((tab) => {
     const label = paneTabLabel(tab)
     const { Glyph } = paneKindDefinition(tab.kind)
+    const tourOffered = tab.kind === 'diff' && Boolean(tab.diff?.tourOffer)
     return {
       id: tab.id,
       label,
       closeLabel: `Close ${label}`,
       ...(tab.kind === 'diff' && diffCount !== null ? { count: diffCount } : {}),
+      // An agent wrote a tour and docked this tab with it. The strip draws no
+      // corner count on a closable tab (its close glyph owns that corner), so
+      // the tab wears the tour mark in its glyph slot instead, in the accent
+      // ink a live mark may take, and says so in its name. Nothing moves until
+      // the owner looks.
+      ...(tourOffered ? { ariaLabel: `${label}: a tour is ready` } : {}),
       icon: tab.faviconUrl ? (
         <img src={tab.faviconUrl} alt="" className="size-icon-xs shrink-0 rounded-[3px]" />
+      ) : tourOffered ? (
+        <TourGlyph className="size-icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       ) : (
         <Glyph className="size-icon-xs shrink-0" />
       ),
