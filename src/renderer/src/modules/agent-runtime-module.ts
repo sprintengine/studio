@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { LOCAL_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_HOST_ID, normalizeExecutionHostId } from '../../../shared/execution-host'
 import type { RendererModule } from './renderer-host'
 import {
   agentBacklogOpenPorts,
@@ -70,14 +70,19 @@ export const agentRuntimeRendererModule: RendererModule = {
               label: 'Open',
               run: async () => {
                 const { useWorkspaceStore } = await import('../store/workspaceStore')
-                const tab = target.ref || 'agents'
-                // A CLI update and model news are this machine's (the version
-                // check and model discovery run here), so they land on This PC
-                // rather than on whichever machine the Agents tab last showed.
+                // `agents@<host>` names the machine a CLI update is for (a host id
+                // is `local` or `wsl:<distro>`, and no distribution name holds
+                // an `@`, so the first one splits it). Without
+                // one the news is this machine's (model discovery runs here),
+                // so it lands on This PC rather than on whichever machine the
+                // Agents tab last showed.
+                const [tab = 'agents', machine] = (target.ref || 'agents').split('@')
                 useWorkspaceStore
                   .getState()
                   .openSettingsOverlay(
-                    tab === 'agents' ? { initialTab: tab, agentsMachine: LOCAL_HOST_ID } : { initialTab: tab },
+                    tab === 'agents'
+                      ? { initialTab: tab, agentsMachine: normalizeExecutionHostId(machine) ?? LOCAL_HOST_ID }
+                      : { initialTab: tab },
                   )
               },
             },

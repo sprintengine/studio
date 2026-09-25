@@ -6,12 +6,14 @@
 //   Settings ▸ General    the app update
 //   Settings ▸ Agents     the CLI updates
 //   machine switcher      the CLI updates on that machine
-//   a CLI's row           that CLI, beside its Update button
+//   a CLI's row           that CLI on that machine, beside its Update button
 //
 // One derivation feeds all five, so the glyph, the nav and the rows can never
-// disagree about how many there are. Every one is the kit's count badge, named
-// ("2 updates available") so the number is never the only thing a screen reader
-// or a person who does not see the accent gets.
+// disagree about how many there are. A CLI behind on two machines is two
+// updates: each is its own Update button, on its own machine's list. Every one
+// is the kit's count badge, named ("2 updates available") so the number is
+// never the only thing a screen reader or a person who does not see the accent
+// gets.
 //
 // An update stops being counted when it is installed (the advisory stops saying
 // `behind_latest`; the app state stops offering a version) or when the person
@@ -22,7 +24,7 @@
 //
 // Pure: the hook that reads the stores is `useSettingsUpdateBadges`.
 
-import type { AppUpdateState, CliVersionAdvisory, CliVersionAdvisoryMap } from '../../../shared/electron-api'
+import type { AppUpdateState, CliVersionAdvisory, CliVersionHostAdvisories } from '../../../shared/electron-api'
 import { LOCAL_HOST_ID, type ExecutionHostId } from '../../../shared/execution-host'
 import type { Tone } from '../components/ui/tokens'
 
@@ -38,9 +40,14 @@ export type SettingsUpdateBadge = {
 // News, not trouble: the accent, the tone the rail gives plain news.
 const UPDATE_TONE: Tone = 'accent'
 
-/** The dismissal key for one CLI's one release. */
-export function cliUpdateKey(advisory: Pick<CliVersionAdvisory, 'cli' | 'latestVersion'>): string {
-  return `cli:${advisory.cli}@${advisory.latestVersion ?? ''}`
+/**
+ * The dismissal key for one CLI's one release on one machine. This machine's
+ * keeps the spelling it had before other machines were checked, so a version
+ * already dismissed here stays dismissed.
+ */
+export function cliUpdateKey(advisory: Pick<CliVersionAdvisory, 'cli' | 'latestVersion' | 'hostId'>): string {
+  const machine = advisory.hostId === LOCAL_HOST_ID ? '' : `${advisory.hostId}|`
+  return `cli:${machine}${advisory.cli}@${advisory.latestVersion ?? ''}`
 }
 
 /**
@@ -57,31 +64,32 @@ export function appUpdateKey(version: string | null, stage: AppUpdateStage): str
 }
 
 /**
- * The CLIs with a newer release the person has not dismissed.
+ * The CLIs with a newer release the person has not dismissed, on every machine
+ * main checks — this one and each WSL distribution turned on.
  *
  * Only what the Agents rows would offer Update for: version checks on, the
- * advisory behind with a version to name, and the CLI detected on this machine
+ * advisory behind with a version to name, and the CLI detected on that machine
  * (a stale advisory for a CLI since removed must not count a row that shows no
- * Update). The advisories are this machine's — main compares the version its
- * own probe found, and there is no per-distribution check — so every one of
- * these is This PC's.
+ * Update).
  */
 export function outstandingCliUpdates(input: {
-  advisories: CliVersionAdvisoryMap
+  advisories: CliVersionHostAdvisories
   checkCliVersions: boolean
-  installed: (cli: string) => boolean
+  installed: (hostId: ExecutionHostId, cli: string) => boolean
   dismissed: readonly string[]
 }): CliVersionAdvisory[] {
   if (!input.checkCliVersions) return []
   const dismissed = new Set(input.dismissed)
-  return Object.values(input.advisories).filter(
-    (advisory): advisory is CliVersionAdvisory =>
-      advisory !== undefined &&
-      advisory.status === 'behind_latest' &&
-      Boolean(advisory.latestVersion) &&
-      input.installed(advisory.cli) &&
-      !dismissed.has(cliUpdateKey(advisory)),
-  )
+  return Object.values(input.advisories)
+    .flatMap((map) => Object.values(map ?? {}))
+    .filter(
+      (advisory): advisory is CliVersionAdvisory =>
+        advisory !== undefined &&
+        advisory.status === 'behind_latest' &&
+        Boolean(advisory.latestVersion) &&
+        input.installed(advisory.hostId, advisory.cli) &&
+        !dismissed.has(cliUpdateKey(advisory)),
+    )
 }
 
 /**
@@ -135,8 +143,8 @@ export type SettingsUpdateBadges = {
   agents: SettingsUpdateBadge | null
   /** Per machine on the Agents switcher; a machine with none is absent. */
   machines: Readonly<Partial<Record<ExecutionHostId, SettingsUpdateBadge>>>
-  /** The CLIs whose rows wear a badge beside Update. */
-  clis: ReadonlySet<string>
+  /** Per machine, the CLIs whose rows on its list wear a badge beside Update. */
+  clis: Readonly<Partial<Record<ExecutionHostId, ReadonlySet<string>>>>
 }
 
 export function settingsUpdateBadges(input: {
@@ -144,9 +152,21 @@ export function settingsUpdateBadges(input: {
   appUpdate: { version: string | null; stage?: AppUpdateStage } | null
 }): SettingsUpdateBadges {
   const cliCount = input.cliUpdates.length
-  const cliDetail = plural(cliCount, 'CLI update available', 'CLI updates available')
+  const cliDetailFor = (count: number): string => plural(count, 'CLI update available', 'CLI updates available')
+  const cliDetail = cliDetailFor(cliCount)
   const agents: SettingsUpdateBadge | null =
     cliCount > 0 ? { count: cliCount, tone: UPDATE_TONE, label: `Agents: ${cliDetail}`, detail: cliDetail } : null
+  const byMachine = new Map<ExecutionHostId, CliVersionAdvisory[]>()
+  for (const advisory of input.cliUpdates) {
+    byMachine.set(advisory.hostId, [...(byMachine.get(advisory.hostId) ?? []), advisory])
+  }
+  const machines: Partial<Record<ExecutionHostId, SettingsUpdateBadge>> = {}
+  const clis: Partial<Record<ExecutionHostId, ReadonlySet<string>>> = {}
+  for (const [hostId, updates] of byMachine) {
+    const detail = cliDetailFor(updates.length)
+    machines[hostId] = { count: updates.length, tone: UPDATE_TONE, label: `Agents: ${detail}`, detail }
+    clis[hostId] = new Set(updates.map((advisory) => advisory.cli))
+  }
   // Once it is on disk the news is that it is ready, which is what General's
   // version row is then asking about (Restart to update).
   const appDetail = input.appUpdate?.stage === 'ready' ? 'Update ready to install' : 'Update available'
@@ -159,9 +179,7 @@ export function settingsUpdateBadges(input: {
     rail: total > 0 ? { count: total, tone: UPDATE_TONE, label: totalDetail, detail: totalDetail } : null,
     general,
     agents,
-    // Every advisory is this machine's (see `outstandingCliUpdates`), so the
-    // switcher badges This PC and never a distribution.
-    machines: agents ? { [LOCAL_HOST_ID]: agents } : {},
-    clis: new Set(input.cliUpdates.map((advisory) => advisory.cli)),
+    machines,
+    clis,
   }
 }

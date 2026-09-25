@@ -88,28 +88,30 @@ export type MachineCliAvailability = {
 const COMMAND_PROBE_DELAY_MS = 500
 
 /**
- * A WSL machine's agent CLIs, through the same batch probe this machine's list
+ * A WSL machine's agent CLIs, through the same batch read this machine's list
  * uses (`pluginsDetectAvailability`), with every CLI's runtime naming the
- * machine and that machine's own command override. Asked when the machine is
- * shown, when an override changes, and on `recheck` — never on window focus,
- * because listing a distribution's CLIs starts a process in it.
+ * machine and that machine's own command override. Main detected them at
+ * startup and holds the answer, so asking here probes only a CLI whose command
+ * is new. Asked when the machine is shown, when an override changes, and on
+ * `reload` — after a Re-check or an install main ran, which have already
+ * detected what changed — and never on window focus.
  *
  * Null for this machine: its answer is the store's, as it always was.
  */
 export function useMachineCliAvailability(
   hostId: ExecutionHostId,
   cliIds: readonly string[],
-): { availability: MachineCliAvailability | null; recheck: () => void } {
+): { availability: MachineCliAvailability | null; reload: () => void } {
   const commands = useWorkspaceStore((s) => (isWslHostId(hostId) ? s.appSettings.hosts?.[hostId]?.cliCommands : null))
   const [availability, setAvailability] = useState<MachineCliAvailability | null>(null)
-  const [forceToken, setForceToken] = useState(0)
+  const [reloadToken, setReloadToken] = useState(0)
   const idsKey = cliIds.join('\u0000')
   const commandsKey = JSON.stringify(commands ?? {})
   const lastProbe = useRef<{
     hostId: ExecutionHostId
     idsKey: string
     commandsKey: string
-    forceToken: number
+    reloadToken: number
   } | null>(null)
 
   useEffect(() => {
@@ -119,12 +121,12 @@ export function useMachineCliAvailability(
       return
     }
     // Only an override edit waits for typing to stop; a new machine, a new
-    // list or a re-check asks at once.
+    // list or a reload asks at once.
     const previous = lastProbe.current
     const sameTarget = previous?.hostId === hostId && previous.idsKey === idsKey
-    const force = sameTarget && previous.forceToken !== forceToken
+    const reloaded = sameTarget && previous.reloadToken !== reloadToken
     const edited = sameTarget && previous.commandsKey !== commandsKey
-    lastProbe.current = { hostId, idsKey, commandsKey, forceToken }
+    lastProbe.current = { hostId, idsKey, commandsKey, reloadToken }
     let cancelled = false
     setAvailability((current) =>
       current?.hostId === hostId
@@ -140,7 +142,7 @@ export function useMachineCliAvailability(
           .map((cli) => [cli, { command: own[cli] ?? '', hostId }]),
       )
       void window.api
-        .pluginsDetectAvailability({ cliRuntimes, ...(force ? { force: true } : {}) })
+        .pluginsDetectAvailability({ cliRuntimes })
         .then((result) => {
           if (cancelled) return
           setAvailability(
@@ -155,14 +157,14 @@ export function useMachineCliAvailability(
           setAvailability({ hostId, map: {}, status: 'error', error: message, checkedAt: null })
         })
     }
-    const timer = edited && !force ? setTimeout(probe, COMMAND_PROBE_DELAY_MS) : null
+    const timer = edited && !reloaded ? setTimeout(probe, COMMAND_PROBE_DELAY_MS) : null
     if (timer === null) probe()
     return () => {
       cancelled = true
       if (timer !== null) clearTimeout(timer)
     }
-  }, [hostId, idsKey, commandsKey, forceToken])
+  }, [hostId, idsKey, commandsKey, reloadToken])
 
-  const recheck = useCallback(() => setForceToken((token) => token + 1), [])
-  return { availability: availability?.hostId === hostId ? availability : null, recheck }
+  const reload = useCallback(() => setReloadToken((token) => token + 1), [])
+  return { availability: availability?.hostId === hostId ? availability : null, reload }
 }

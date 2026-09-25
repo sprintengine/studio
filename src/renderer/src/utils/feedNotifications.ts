@@ -66,14 +66,16 @@ export function newModelsNotice(input: {
   }
 }
 
-// The CLI-update toast's copy: "Update available: Codex 0.153.3".
+// The CLI-update toast's copy: "Update available: Codex 0.153.3", with the
+// machine after it when it is not this one — "(WSL: Ubuntu)" — since the same
+// CLI may be current here and behind there.
 export function cliUpdateNotice(
   advisory: CliVersionAdvisory,
   displayName: (cli: string) => string,
+  machineLabel: string | null = null,
 ): Pick<Notice, 'title'> {
-  return {
-    title: `Update available: ${displayName(advisory.cli)} ${advisory.latestVersion ?? ''}`.trim(),
-  }
+  const title = `Update available: ${displayName(advisory.cli)} ${advisory.latestVersion ?? ''}`.trim()
+  return { title: machineLabel ? `${title} (${machineLabel})` : title }
 }
 
 export function updateReadyNotice(appName: string, version: string | null, requiresAdmin = false): Notice {

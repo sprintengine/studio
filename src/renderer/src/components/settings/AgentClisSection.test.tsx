@@ -20,6 +20,8 @@ const { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } = await impor
 // The panel holds the runs; so does this harness.
 const NO_BADGES: ReadonlySet<string> = new Set()
 
+const reloads = { count: 0 }
+
 function Section({
   machine,
   availability,
@@ -34,7 +36,9 @@ function Section({
     <AgentClisSection
       machine={machine}
       machineAvailability={availability}
-      onMachineRecheck={() => {}}
+      onMachineReload={() => {
+        reloads.count += 1
+      }}
       showMachine
       now={2}
       runs={runs}
@@ -59,11 +63,18 @@ let host: HTMLDivElement
 const hostWrites: Array<[string, ExecutionHostSettings | null]> = []
 const runtimeWrites: Array<[string, unknown]> = []
 const detectCalls: unknown[][] = []
+const updateCalls: unknown[][] = []
+const availabilityReads: unknown[] = []
+const advisoryReads: unknown[] = []
 
 beforeEach(() => {
   hostWrites.length = 0
   runtimeWrites.length = 0
   detectCalls.length = 0
+  updateCalls.length = 0
+  availabilityReads.length = 0
+  advisoryReads.length = 0
+  reloads.count = 0
   fixtures.state = {
     appSettings: {
       cliRuntimes: { claude: { command: '/usr/local/bin/claude' } },
@@ -76,7 +87,7 @@ beforeEach(() => {
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
     refreshPluginCatalog: async () => {},
-    refreshCliAvailability: async () => {},
+    refreshCliAvailability: async (options: unknown) => void availabilityReads.push(options),
     // This PC has Gemini and Codex; Claude Code is not installed here.
     cliAvailability: {
       claude: { cli: 'claude', installed: false, resolvedPath: null, version: null },
@@ -86,7 +97,7 @@ beforeEach(() => {
     cliAvailabilityStatus: 'ready',
     cliAvailabilityError: null,
     cliVersionAdvisories: {},
-    refreshCliVersionAdvisories: async () => {},
+    refreshCliVersionAdvisories: async (options: unknown) => void advisoryReads.push(options),
     checkCliVersions: false,
     setCliRuntime: (cli: string, update: unknown) => runtimeWrites.push([cli, update]),
     forgetCliModels: () => {},
@@ -99,6 +110,10 @@ beforeEach(() => {
       return { installed: false }
     },
     cliInstallMethods: async () => [],
+    cliUpdate: async (...args: unknown[]) => {
+      updateCalls.push(args)
+      return { ok: true, cli: args[0], installed: true, version: '0.41.0', resolvedPath: null, log: '', error: null }
+    },
   }
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -262,19 +277,22 @@ test('a WSL machine still being asked reads as checking, not as missing', async 
 // CLI updates (owner ruling 2026-09-25)
 // ---------------------------------------------------------------------------
 
+function behind(cli: string, hostId: ExecutionHostId, currentVersion: string) {
+  return {
+    cli,
+    hostId,
+    status: 'behind_latest',
+    currentVersion,
+    latestVersion: '0.41.0',
+    updateCommand: null,
+    checkedAt: '2026-09-25T00:00:00.000Z',
+  }
+}
+
 function behindCodex(): void {
   Object.assign(fixtures.state, {
     checkCliVersions: true,
-    cliVersionAdvisories: {
-      codex: {
-        cli: 'codex',
-        status: 'behind_latest',
-        currentVersion: '0.40.0',
-        latestVersion: '0.41.0',
-        updateCommand: null,
-        checkedAt: '2026-09-25T00:00:00.000Z',
-      },
-    },
+    cliVersionAdvisories: { local: { codex: behind('codex', 'local', '0.40.0') } },
   })
 }
 
@@ -301,11 +319,42 @@ test('a dismissed update keeps its Update button and loses only the badge', asyn
   expect(codexRow.querySelector('[role="status"]')).toBe(null)
 })
 
-test('a WSL machine offers no Update and wears no update badge: the version check is this PC’s', async () => {
+test('this PC’s update runs this PC’s command and reads the result back without a re-scan', async () => {
   behindCodex()
-  await renderSection(UBUNTU, ubuntuProbe, new Set(['codex']))
-  expect(host.querySelector('[role="status"]')).toBe(null)
-  expect(Array.from(host.querySelectorAll('button')).some((button) => button.textContent === 'Update')).toBe(false)
+  await renderSection(LOCAL, null, new Set(['codex']))
+  const codexRow = nameSpan('Codex').closest('li')!
+  const update = Array.from(codexRow.querySelectorAll('button')).find((button) => button.textContent === 'Update')
+  await act(async () => update!.click())
+  expect(updateCalls).toEqual([['codex', { command: '' }]])
+  // Main recorded what the update found; nothing here forces a probe.
+  expect(availabilityReads).toEqual([{ cliRuntimes: { claude: { command: '/usr/local/bin/claude' } } }])
+  expect(advisoryReads).toEqual([undefined])
+  expect(reloads.count).toBe(0)
+})
+
+test('a WSL machine’s own advisories: its rows offer Update, wear their badge, and update on that machine', async () => {
+  Object.assign(fixtures.state, {
+    checkCliVersions: true,
+    cliVersionAdvisories: {
+      // This PC's codex is behind; that is not Ubuntu's news.
+      local: { codex: behind('codex', 'local', '0.40.0') },
+      'wsl:Ubuntu': { claude: behind('claude', 'wsl:Ubuntu', '2.0.1') },
+    },
+  })
+  await renderSection(UBUNTU, ubuntuProbe, new Set(['claude']))
+  const claudeRow = nameSpan('Claude Code').closest('li')!
+  expect(claudeRow.textContent).toContain('0.41.0 available')
+  expect(claudeRow.querySelector('[role="status"][aria-label="Claude Code — update available: 0.41.0"]')).toBeTruthy()
+  const buttons = Array.from(host.querySelectorAll('button')).filter((button) => button.textContent === 'Update')
+  expect(buttons).toHaveLength(1)
+  // Codex is not installed on Ubuntu, so this PC's advisory for it does not leak in.
+  expect(nameSpan('Codex').closest('li')!.textContent).not.toContain('available')
+
+  await act(async () => buttons[0].click())
+  expect(updateCalls).toEqual([['claude', { command: '', hostId: 'wsl:Ubuntu' }]])
+  expect(reloads.count).toBe(1)
+  // This PC's list is not read again for a WSL update.
+  expect(availabilityReads).toEqual([])
 })
 
 // ---------------------------------------------------------------------------
@@ -333,7 +382,7 @@ test('two machines draw the segmented control, and a pick names the machine', as
   expect(picks).toEqual(['wsl:Ubuntu'])
 })
 
-test('the machine with a CLI update wears the count on its segment, and only that machine', async () => {
+test('each machine with a CLI update wears its own count on its segment', async () => {
   await act(async () =>
     root.render(
       <AgentsMachineSwitcher
@@ -347,6 +396,12 @@ test('the machine with a CLI update wears the count on its segment, and only tha
             label: 'Agents: 2 CLI updates available',
             detail: '2 CLI updates available',
           },
+          'wsl:Ubuntu': {
+            count: 1,
+            tone: 'accent',
+            label: 'Agents: 1 CLI update available',
+            detail: '1 CLI update available',
+          },
         }}
       />,
     ),
@@ -354,6 +409,6 @@ test('the machine with a CLI update wears the count on its segment, and only tha
   const options = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="radio"]'))
   expect(options[0].getAttribute('aria-label')).toBe('This PC (Windows), 2 CLI updates available')
   expect(options[0].querySelector('[role="status"]')?.textContent).toBe('2')
-  expect(options[1].getAttribute('aria-label')).toBe(null)
-  expect(options[1].querySelector('[role="status"]')).toBe(null)
+  expect(options[1].getAttribute('aria-label')).toBe('WSL: Ubuntu, 1 CLI update available')
+  expect(options[1].querySelector('[role="status"]')?.textContent).toBe('1')
 })

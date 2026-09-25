@@ -5,6 +5,7 @@ import type { AgentCliAvailabilityMap } from '../../../../shared/electron-api'
 import {
   emptyExecutionHostSettings,
   isWslHostId,
+  LOCAL_HOST_ID,
   type ExecutionHostId,
   type ExecutionHostSettings,
 } from '../../../../shared/execution-host'
@@ -24,7 +25,11 @@ import {
   SegmentedControl,
   Spinner,
 } from '../ui'
-import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
+import {
+  cliRuntimeForPlugin,
+  cliRuntimeOnMachine,
+  orderInstalledPlugins,
+} from '../workspace/newWorkspace/cliRuntimeOptions'
 import { orderInstalledFirst, type AgentsMachine, type MachineCliAvailability } from './agentsMachine'
 import { CliInstallControl } from './CliInstallControl'
 import { modelDiscoveryLine } from './modelDiscoveryLine'
@@ -62,9 +67,8 @@ export function AgentsMachineSwitcher({
   onChange: (id: ExecutionHostId) => void
   /**
    * The CLI updates waiting on each machine (owner ruling 2026-09-25), worn on
-   * that machine's segment only. Today only This PC can have one: the version
-   * check compares what this machine's probe found, and nothing checks a
-   * distribution's CLIs against their registries.
+   * that machine's segment only: main checks each WSL distribution's installed
+   * CLIs against the registry as it does this machine's.
    */
   badges?: Readonly<Partial<Record<ExecutionHostId, SettingsUpdateBadge>>>
 }): React.JSX.Element | null {
@@ -99,11 +103,25 @@ export function AgentsMachineSwitcher({
 type OpenCliRow = { machineId: string; cliId: string; install: boolean }
 type CliUpdateRun = { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }
 
+/** Where one CLI's Update on one machine keeps its progress in `cliUpdateRuns`. */
+export function cliUpdateRunKey(hostId: ExecutionHostId, cli: string): string {
+  return hostId === LOCAL_HOST_ID ? cli : `${hostId}|${cli}`
+}
+
+export type CliUpdateRequest = {
+  cli: AgentCli
+  hostId: ExecutionHostId
+  /** The version the machine's list shows now, to tell an update that did nothing. */
+  before: string | null
+  /** Reads the machine's list again once main has recorded the new version. */
+  onSettled?: () => void
+}
+
 export type AgentCliRuns = {
   modelRefresh: { running: boolean; errors: Record<string, string> }
   refreshCliModels: () => Promise<void>
   cliUpdateRuns: Record<string, CliUpdateRun>
-  runCliUpdate: (cli: AgentCli) => Promise<void>
+  runCliUpdate: (request: CliUpdateRequest) => Promise<void>
   open: OpenCliRow | null
   setOpen: (open: OpenCliRow | null) => void
 }
@@ -116,8 +134,8 @@ export type AgentCliRuns = {
  */
 export function useAgentCliRuns(): AgentCliRuns {
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const hosts = useWorkspaceStore((s) => s.appSettings.hosts)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const localAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
   const setCliModelCatalog = useWorkspaceStore((s) => s.setCliModelCatalog)
@@ -153,18 +171,19 @@ export function useAgentCliRuns(): AgentCliRuns {
     }
   }, [cliRuntimes, pluginCatalogEntries, setCliModelCatalog])
 
-  // Per-CLI Update runs (the version advisory's button). `running` while the
-  // command is in flight; afterwards the notice says what happened when the
-  // version did not move or the command failed. A clean success needs no
-  // notice: the row's version changes and the advisory goes away.
+  // Per-CLI, per-machine Update runs (the version advisory's button).
+  // `running` while the command is in flight; afterwards the notice says what
+  // happened when the version did not move or the command failed. A clean
+  // success needs no notice: the row's version changes and the advisory goes
+  // away.
   const [cliUpdateRuns, setCliUpdateRuns] = useState<Record<string, CliUpdateRun>>({})
   const runCliUpdate = useCallback(
-    async (cli: AgentCli) => {
+    async ({ cli, hostId, before, onSettled }: CliUpdateRequest) => {
       const api = window.api
       if (typeof api.cliUpdate !== 'function') return
-      const runtime = cliRuntimeForPlugin(cli, cliRuntimes)
-      const before = localAvailability[cli]?.version ?? null
-      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: true, notice: null } }))
+      const runtime = cliRuntimeOnMachine(cli, hostId, { cliRuntimes, hosts })
+      const key = cliUpdateRunKey(hostId, cli)
+      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: true, notice: null } }))
       let notice: { tone: 'warn' | 'error'; text: string } | null = null
       try {
         const result = await api.cliUpdate(cli, runtime)
@@ -179,11 +198,15 @@ export function useAgentCliRuns(): AgentCliRuns {
       } catch (error) {
         notice = { tone: 'error', text: error instanceof Error ? error.message : String(error) }
       }
-      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: false, notice } }))
-      await refreshCliAvailability({ force: true, cliRuntimes })
-      void refreshCliVersionAdvisories({ force: true, cliRuntimes })
+      setCliUpdateRuns((prev) => ({ ...prev, [key]: { running: false, notice } }))
+      // Main detected this CLI again on this machine when the update finished
+      // and recorded it, so these reads pick the new version up without a
+      // re-scan of every CLI.
+      if (hostId === LOCAL_HOST_ID) await refreshCliAvailability({ cliRuntimes })
+      onSettled?.()
+      void refreshCliVersionAdvisories()
     },
-    [localAvailability, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories],
+    [cliRuntimes, hosts, refreshCliAvailability, refreshCliVersionAdvisories],
   )
 
   // The CLI row whose detail is open, and whether its Install button opened it
@@ -212,7 +235,7 @@ export function useAgentCliRuns(): AgentCliRuns {
 export function AgentClisSection({
   machine,
   machineAvailability,
-  onMachineRecheck,
+  onMachineReload,
   showMachine,
   now,
   runs,
@@ -223,14 +246,16 @@ export function AgentClisSection({
   runs: AgentCliRuns
   /** The WSL machine's probe; null for this machine, whose answer is the store's. */
   machineAvailability: MachineCliAvailability | null
-  onMachineRecheck: () => void
+  /** Reads the WSL machine's list again, after main recorded a change to it. */
+  onMachineReload: () => void
   /** A switcher is on screen, so a state line names the machine it found the CLI on. */
   showMachine: boolean
   now: number
   /**
-   * The CLIs whose update is still news — not installed, not dismissed — and so
-   * wear a count beside their Update button (useSettingsUpdateBadges). A CLI
-   * whose update was dismissed keeps its Update; only the badge goes.
+   * The CLIs on this machine whose update is still news — not installed, not
+   * dismissed — and so wear a count beside their Update button
+   * (useSettingsUpdateBadges). A CLI whose update was dismissed keeps its
+   * Update; only the badge goes.
    */
   updateBadgeClis: ReadonlySet<string>
 }): React.JSX.Element {
@@ -249,9 +274,9 @@ export function AgentClisSection({
   const localAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const localAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const localAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
-  // Installed version against the registry's newest, per CLI. Main computes it
-  // hourly and on Re-check, for this machine.
-  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
+  // Installed version against the registry's newest, per CLI, for the machine
+  // shown. Main compares hourly, on Re-check and after an update it ran.
+  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories[machine.id])
   const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
@@ -357,11 +382,11 @@ export function AgentClisSection({
                   : declaredModels
               const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
               const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
-              // The registry advisory is this machine's: main compares the
-              // version its own probe found, so a WSL machine's row has none.
-              const advisory = checkCliVersions && !wsl ? cliVersionAdvisories[plugin.id] : undefined
+              // The registry advisory for this CLI on the machine shown: main
+              // compares the version detection found there.
+              const advisory = checkCliVersions ? cliVersionAdvisories?.[plugin.id] : undefined
               const behind = state.installed && advisory?.status === 'behind_latest' && !!advisory.latestVersion
-              const updateRun = wsl ? undefined : cliUpdateRuns[plugin.id]
+              const updateRun = cliUpdateRuns[cliUpdateRunKey(machine.id, plugin.id)]
               const commandFieldId = wsl ? `machine-cli-${wsl}-${plugin.id}` : `cli-command-${plugin.id}`
               return (
                 <ProviderRow
@@ -450,7 +475,14 @@ export function AgentClisSection({
                         <PrimaryButton
                           size="xs"
                           disabled={updateRun?.running === true}
-                          onClick={() => void runCliUpdate(plugin.id)}
+                          onClick={() =>
+                            void runCliUpdate({
+                              cli: plugin.id,
+                              hostId: machine.id,
+                              before: state.version ?? null,
+                              ...(wsl ? { onSettled: onMachineReload } : {}),
+                            })
+                          }
                         >
                           {updateRun?.running ? <Spinner className="icon-sm" /> : null}
                           Update
@@ -491,16 +523,17 @@ export function AgentClisSection({
                         if (result.resolvedPath && !command) {
                           writeHostCommands({ ...ownSettings.cliCommands, [plugin.id]: result.resolvedPath })
                         }
-                        onMachineRecheck()
+                        onMachineReload()
                         return
                       }
                       if (result.resolvedPath && !localCommand) {
                         setCliRuntime(plugin.id, { command: result.resolvedPath })
                       }
                       void refreshPluginCatalog()
-                      // Force-refresh availability so the freshly installed CLI
-                      // shows as detected on its row and in deployment pickers.
-                      void refreshCliAvailability({ force: true, cliRuntimes })
+                      // Main recorded what the install found for this CLI, so
+                      // this read shows it on its row and in the deployment
+                      // pickers without probing every other CLI again.
+                      void refreshCliAvailability({ cliRuntimes })
                     }}
                   />
 

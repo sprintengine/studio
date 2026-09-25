@@ -229,8 +229,12 @@ export interface ExecutionHost {
 
   // ── Tooling ────────────────────────────────────────────────────────────────
 
-  /** Finds CLIs on this host's PATH, in one process where the host allows. (Helper: `cli.detect`.) */
-  detectClis(requests: readonly HostCliDetectRequest[]): Promise<CliDetectResult[]>
+  /**
+   * Finds CLIs on this host's PATH, in one process where the host allows.
+   * (Helper: `cli.detect`.) `force` runs every found binary's `--version` again
+   * rather than reusing what the host remembers of it.
+   */
+  detectClis(requests: readonly HostCliDetectRequest[], options?: { force?: boolean }): Promise<CliDetectResult[]>
   /** Runs an argv on this host with a deadline. Never a shell string. (Helper: `run`.) */
   runCommand(argv: readonly string[], options: { timeoutMs: number; cwd?: string }): Promise<RunOutcome>
   /**

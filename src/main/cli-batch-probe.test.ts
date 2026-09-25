@@ -151,6 +151,25 @@ test('detectCliBatch starts one process per machine, whatever the CLI count', as
   )
 })
 
+test('force reaches each WSL machine’s helper, and a plain read does not ask for it', async () => {
+  const forced: boolean[] = []
+  const deps = {
+    platform: 'win32' as NodeJS.Platform,
+    env: {},
+    detectOnHost: async (
+      hostId: ExecutionHostId,
+      group: ReadonlyArray<{ cli: AgentCli }>,
+      options: { force: boolean },
+    ) => {
+      forced.push(options.force)
+      return group.map((request) => found(request.cli, hostId))
+    },
+  }
+  await detectCliBatch([{ cli: 'codex', runtime: { hostId: 'wsl:Ubuntu' } }], deps)
+  await detectCliBatch([{ cli: 'codex', runtime: { hostId: 'wsl:Ubuntu' } }], { ...deps, force: true })
+  assert.deepEqual(forced, [false, true])
+})
+
 test('a WSL machine whose helper could not answer reports every CLI there as unanswered', async () => {
   const results = await detectCliBatch(
     [
