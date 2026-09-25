@@ -168,7 +168,7 @@ test('this machine is never probed here — its answer is the store’s', async 
   expect(seen?.availability).toBe(null)
 })
 
-test('a WSL machine is probed with its own commands, and a re-check forces a fresh answer', async () => {
+test('a WSL machine is read with its own commands, and a reload reads again without forcing a probe', async () => {
   await act(async () => root.render(<Probe hostId="wsl:Ubuntu" />))
   await settle()
   expect(probes).toEqual([
@@ -183,8 +183,10 @@ test('a WSL machine is probed with its own commands, and a re-check forces a fre
   expect(seen?.availability?.map.claude?.version).toBe('2.0.1')
   expect(seen?.availability?.checkedAt).toEqual(expect.any(Number))
 
-  await act(async () => seen!.recheck())
+  // Re-check and an install have already detected in main; reading again
+  // picks that answer up, and forcing here would probe every CLI a second time.
+  await act(async () => seen!.reload())
   await settle()
   expect(probes).toHaveLength(2)
-  expect(probes[1]).toMatchObject({ force: true })
+  expect(probes[1]).not.toHaveProperty('force')
 })

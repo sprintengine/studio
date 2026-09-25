@@ -154,6 +154,7 @@ test('terminal-runtime', async () => {
       await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
       await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
       await assertRemoteFramesNeverExceedTheWireCap(runtimeModule)
+      await assertALargeReplayDoesNotTriggerItsOwnResync(runtimeModule)
       await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
       await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
       await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
@@ -2992,6 +2993,73 @@ test('terminal-runtime', async () => {
         printed,
         'the slices add up to exactly the retained output',
       )
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A viewer joining a long session is sent megabytes of replay, and a socket
+  // queues those bytes until the link drains them. Counting that backlog as the
+  // viewer falling behind made the next output batch drop and resync — another
+  // full replay, which queued megabytes again — so a remote pane on a slow link
+  // repainted the whole history from the top, over and over, for as long as the
+  // agent printed. The replay's own bytes are a debt the viewer is paying off,
+  // not a sign it has stalled.
+  async function assertALargeReplayDoesNotTriggerItsOwnResync(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-backlog-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+
+    try {
+      const sessionId = 'session_remote_backlog'
+      const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId,
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+      assert.equal(spawned.ok, true, JSON.stringify(spawned))
+      const pty = mockPty.spawnCalls[0]?.process
+      assert.ok(pty, 'the session spawned a pty')
+
+      const line = 'x'.repeat(1023) + '\n'
+      pty.emitData(line.repeat(2 * 1024))
+      await delay(60)
+
+      // A socket: every frame sent sits in the queue until the link drains it.
+      const viewer = createRecordingViewer('slow-link')
+      const send = viewer.transport.send
+      viewer.transport.send = (frame) => {
+        send(frame)
+        viewer.queued += 'data' in frame ? frame.data.length : 0
+      }
+
+      const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: viewer.transport })
+      assert.equal(attached.ok, true, JSON.stringify(attached))
+      if (!attached.ok) return
+      assert.ok(viewer.queued > 1024 * 1024, 'the attach replay is still queued on the slow link')
+
+      // The agent keeps printing while the link works through the replay.
+      for (let step = 0; step < 8; step += 1) {
+        viewer.frames = []
+        viewer.queued = Math.max(0, viewer.queued - 256 * 1024)
+        pty.emitData(`progress ${step}\r\n`)
+        await delay(30)
+        assert.deepEqual(
+          viewer.frames,
+          [{ type: 'output', data: `progress ${step}\r\n` }],
+          `output ${step} is streamed while the replay drains, not dropped and repainted from the top`,
+        )
+      }
     } finally {
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })

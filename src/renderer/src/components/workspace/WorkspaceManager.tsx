@@ -1586,10 +1586,8 @@ export default function WorkspaceManager() {
     const api = typeof window === 'undefined' ? null : window.api
     if (api && typeof api.cliVersionChecksSetEnabled === 'function')
       void api.cliVersionChecksSetEnabled(checkCliVersions)
-    if (checkCliVersions) {
-      const store = useWorkspaceStore.getState()
-      void store.refreshCliVersionAdvisories({ cliRuntimes: store.appSettings.cliRuntimes })
-    }
+    // The read compares what startup detection found; it probes nothing.
+    if (checkCliVersions) void useWorkspaceStore.getState().refreshCliVersionAdvisories()
   }, [checkCliVersions])
   useEffect(
     () =>

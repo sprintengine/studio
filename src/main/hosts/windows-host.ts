@@ -62,10 +62,10 @@ export function createWindowsHost(): ExecutionHost {
     },
     killSessionSurvivors: (cliSessionId) =>
       killCliSessionSurvivors(cliSessionId, { platform: 'win32', host: { pathStyle: 'windows' } }),
-    detectClis: (requests) =>
+    detectClis: (requests, options = {}) =>
       detectCliBatch(
         requests.map(({ cli, runtime }) => ({ cli, runtime: localCliRuntime(runtime) })),
-        { platform: 'win32' },
+        { platform: 'win32', ...(options.force ? { force: true } : {}) },
       ),
     runCommand: (argv, options) =>
       runSpawnDescriptor(

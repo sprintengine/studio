@@ -15,33 +15,82 @@ import { listPluginRegistryEntries } from './plugin-registry-instance'
 
 // Binary detection starts a process per installed CLI (its `--version`) on macOS
 // and Linux, after one login shell per app session has said what PATH the
-// person has; on Windows it is one process per target (see `detectCliBatch`).
-// Probing every registered agent CLI on each renderer focus refresh would be
-// heavy either way. We cache successful probes, keyed by the exact (cli,
-// command, machine) the probe ran against, and bypass the cache on `force`
-// (used right after an install) so a freshly installed CLI appears immediately.
+// person has; on Windows it is one process per target (see `detectCliBatch`),
+// and on a WSL machine one request to its helper. None of that is worth
+// repeating to learn nothing, so detection runs at startup, when the person
+// presses Re-check in Settings ▸ Agents (`force`), and for one CLI after an
+// install or update the app ran, or when that CLI's own row asks
+// (`recordCliDetection`) — and at no other time.
 //
-// macOS and Linux hold the answer for fifteen minutes. The refreshes come from
-// window focus and visibility, so a shorter life meant a person switching
-// between this window and another re-ran every `--version` (a Node start
-// each, for most CLIs) about once a minute to learn nothing: a CLI installed
-// from the app forces its own refresh, and one installed from a terminal is
-// rare enough to wait, or to be picked up by the re-check button in Settings.
+// Every definitive probe is therefore held until something says it is stale,
+// keyed by the exact (cli, command, machine) it ran against: a forced refresh,
+// an install, a WSL helper reporting that a PATH directory changed. Window
+// focus and visibility refresh the pickers in every window, model discovery
+// and text generation ask as well, and all of them read this answer rather than
+// starting a process. The hourly version check does not even do that much: it
+// reads the last answer each machine gave (`knownCliAvailability`) and asks
+// only the package registry.
 //
-// Windows holds the answer longer. There a probe is a `powershell.exe` (or a
-// `wsl.exe` login shell), each one boots for a second or more, and
-// Windows can show its working-in-background cursor over the app while a
-// process it started is still starting. At a minute, a person moving between
-// this window and another paid for that burst every minute. An
-// install from the app still shows at once (it forces), and one made outside
-// it waits five minutes instead of one.
-const DEFAULT_CACHE_TTL_MS = process.platform === 'win32' ? 5 * 60_000 : 15 * 60_000
+// A CLI installed from a terminal after startup therefore waits for Re-check.
+// That was already the case for the fifteen minutes a probe used to be held,
+// and a launch of a CLI believed missing looks again before refusing (see
+// `preflightAgentCliLaunch`).
+const DEFAULT_CACHE_TTL_MS = Number.POSITIVE_INFINITY
 
 const KEY_SEP = '\0'
 
 type CacheEntry = { availability: CliAvailability; expiresAt: number }
 
 const cache = new Map<string, CacheEntry>()
+
+// The last definitive answer per key, kept when the cache entry is invalidated.
+// The cache decides whether a caller's read probes; this is what the version
+// check compares against the registry, and it must not forget a machine's
+// installed versions only because a PATH directory there changed. A probe
+// replaces it; nothing else does.
+const known = new Map<string, CliAvailability>()
+
+// Bumped per (cli, machine) each time `recordCliDetection` writes an answer. A
+// probe that started before it — a Re-check still running when an update from
+// a toast finishes — answers for the binary as it was, and must not write that
+// over the newer one.
+const recorded = new Map<string, number>()
+
+function recordedGeneration(cli: AgentCli, hostId: ExecutionHostId): number {
+  return recorded.get(`${cli}${KEY_SEP}${hostId}`) ?? 0
+}
+
+// Told when what detection knows about a machine's CLIs changed — a CLI found,
+// gone, or at another version — however that detection came about: startup,
+// Re-check, a WSL list opened for the first time, a row's own check. The
+// version service compares again then, so a badge follows the answer without
+// waiting for the hourly check.
+const knownListeners = new Set<(hostId: ExecutionHostId) => void>()
+
+export function subscribeKnownCliAvailability(listener: (hostId: ExecutionHostId) => void): () => void {
+  knownListeners.add(listener)
+  return () => knownListeners.delete(listener)
+}
+
+function setKnown(key: string, hostId: ExecutionHostId, availability: CliAvailability): void {
+  const previous = known.get(key)
+  known.set(key, availability)
+  if (
+    previous &&
+    previous.installed === availability.installed &&
+    previous.version === availability.version &&
+    previous.resolvedPath === availability.resolvedPath
+  ) {
+    return
+  }
+  for (const listener of knownListeners) {
+    try {
+      listener(hostId)
+    } catch {
+      // A listener's failure is its own.
+    }
+  }
+}
 
 // Probes still running, keyed like the cache. A probe is a process start per CLI
 // — on Windows a `powershell.exe` or `wsl.exe`, each of which takes a second or
@@ -97,9 +146,64 @@ export function invalidateCliAvailabilityOnHost(hostId: ExecutionHostId): void {
   }
 }
 
+// What a detection of one CLI on one machine found outside a full refresh —
+// after an install or update the app ran, or a row's own Re-check: its answer
+// replaces every earlier one for that CLI on that machine (whatever command it
+// was asked under), so the row, the pickers and the version check see the new
+// version without a re-scan of every CLI. Other machines keep theirs: a CLI
+// installed here says nothing about a distribution. A result that could not
+// decide (`error`) only drops the old answers, so the next read looks again.
+export function recordCliDetection(
+  runtime: Partial<CliRuntimeSettings> | undefined,
+  detected: CliDetectResult,
+  deps: { now?: () => number; ttlMs?: number } = {},
+): void {
+  const hostId = hostIdOf(runtime)
+  recorded.set(`${detected.cli}${KEY_SEP}${hostId}`, recordedGeneration(detected.cli, hostId) + 1)
+  const prefix = `${detected.cli}${KEY_SEP}`
+  const suffix = `${KEY_SEP}${hostId}`
+  for (const map of [cache, inFlight]) {
+    for (const key of [...map.keys()]) {
+      if (key.startsWith(prefix) && key.endsWith(suffix)) map.delete(key)
+    }
+  }
+  if (detected.error !== null) return
+  const key = cacheKey(detected.cli, normalizeCommand(runtime), hostId)
+  const availability: CliAvailability = {
+    cli: detected.cli,
+    installed: detected.installed,
+    resolvedPath: detected.resolvedPath,
+    version: detected.version,
+  }
+  const now = deps.now ?? Date.now
+  cache.set(key, { availability, expiresAt: now() + (deps.ttlMs ?? DEFAULT_CACHE_TTL_MS) })
+  setKnown(key, hostId, availability)
+}
+
+// The last answer detection gave for each registered CLI under these runtimes,
+// WITHOUT probing: a CLI never detected under its current command is simply
+// absent. The hourly version check reads this, so it starts no process on any
+// machine, and never starts a stopped WSL distribution.
+export function knownCliAvailability(
+  input?: Pick<PluginDetectAvailabilityInput, 'cliRuntimes'>,
+  deps: Pick<DetectAgentCliAvailabilityDeps, 'listEntries'> = {},
+): AgentCliAvailabilityMap {
+  const listEntries = deps.listEntries ?? listPluginRegistryEntries
+  const runtimes = input?.cliRuntimes ?? {}
+  const result: AgentCliAvailabilityMap = {}
+  for (const entry of listEntries()) {
+    const runtime = runtimes[entry.id]
+    const answer = known.get(cacheKey(entry.id, normalizeCommand(runtime), hostIdOf(runtime)))
+    if (answer) result[entry.id] = answer
+  }
+  return result
+}
+
 // Test seam: reset module state between cases.
 export function clearCliAvailabilityCache(): void {
   cache.clear()
+  known.clear()
+  recorded.clear()
   inFlight.clear()
   maxConcurrentProbes = DEFAULT_MAX_CONCURRENT_PROBES
 }
@@ -157,12 +261,17 @@ function trackInFlight(key: string, running: Promise<CliDetectResult>): Promise<
 
 export type DetectAgentCliAvailabilityDeps = {
   listEntries?: () => PluginRegistryListEntry[]
-  detect?: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
+  detect?: (
+    cli: AgentCli,
+    runtime?: Partial<CliRuntimeSettings>,
+    options?: { force?: boolean },
+  ) => Promise<CliDetectResult>
   // Probes many CLIs of one target in one process. Used on Windows, where each
   // probe process costs a second or more; a caller that injects only `detect`
   // (a test) keeps the per-CLI path.
   detectBatch?: (
     requests: Array<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }>,
+    options?: { force?: boolean },
   ) => Promise<CliDetectResult[]>
   platform?: NodeJS.Platform
   now?: () => number
@@ -199,11 +308,14 @@ export async function detectAgentCliAvailability(
   deps: DetectAgentCliAvailabilityDeps = {},
 ): Promise<AgentCliAvailabilityMap> {
   const listEntries = deps.listEntries ?? listPluginRegistryEntries
-  const detect = deps.detect ?? detectCli
+  const detect =
+    deps.detect ??
+    ((cli: AgentCli, runtime?: Partial<CliRuntimeSettings>, options?: { force?: boolean }) =>
+      detectCli(cli, runtime, undefined, options))
   const platform = deps.platform ?? process.platform
   const detectBatch =
     platform === 'win32'
-      ? (deps.detectBatch ?? (deps.detect ? undefined : (requests) => detectCliBatch(requests)))
+      ? (deps.detectBatch ?? (deps.detect ? undefined : (requests, options) => detectCliBatch(requests, options)))
       : undefined
   const now = deps.now ?? Date.now
   const ttlMs = deps.ttlMs ?? DEFAULT_CACHE_TTL_MS
@@ -217,7 +329,20 @@ export async function detectAgentCliAvailability(
   // this refresh shares the one shell that answers it.
   if (force) invalidateLoginShellPath()
 
-  const record = (cli: AgentCli, key: string, detected: CliDetectResult): void => {
+  const record = (
+    cli: AgentCli,
+    key: string,
+    detected: CliDetectResult,
+    hostId: ExecutionHostId,
+    generation: number,
+  ): void => {
+    // Something newer was recorded for this CLI on this machine while the
+    // probe ran: serve that, and keep it.
+    if (recordedGeneration(cli, hostId) !== generation) {
+      const newer = cache.get(key)?.availability
+      if (newer) result[cli] = newer
+      return
+    }
     // A transient probe failure (shell spawn error, not a clean "not found")
     // reports installed:false, which the renderer cannot distinguish from a
     // real absence. Treating it as "not installed" would wrongly HIDE an
@@ -234,16 +359,27 @@ export async function detectAgentCliAvailability(
     }
     result[cli] = availability
     cache.set(key, { availability, expiresAt: now() + ttlMs })
+    setKnown(key, hostId, availability)
   }
 
   const tasks: Promise<void>[] = []
-  const batches = new Map<string, Array<{ cli: AgentCli; runtime?: Partial<CliRuntimeSettings>; key: string }>>()
+  const batches = new Map<
+    string,
+    Array<{
+      cli: AgentCli
+      runtime?: Partial<CliRuntimeSettings>
+      key: string
+      hostId: ExecutionHostId
+      generation: number
+    }>
+  >()
   for (const entry of entries) {
     const cli = entry.id
     const runtime = runtimes[cli]
     const command = normalizeCommand(runtime)
     const hostId = hostIdOf(runtime)
     const key = cacheKey(cli, command, hostId)
+    const generation = recordedGeneration(cli, hostId)
 
     if (!force) {
       const cached = cache.get(key)
@@ -253,7 +389,7 @@ export async function detectAgentCliAvailability(
       }
       const running = inFlight.get(key)
       if (running) {
-        tasks.push(running.then((detected) => record(cli, key, detected)))
+        tasks.push(running.then((detected) => record(cli, key, detected, hostId, generation)))
         continue
       }
     }
@@ -261,16 +397,25 @@ export async function detectAgentCliAvailability(
     if (detectBatch) {
       const group = hostId
       const members = batches.get(group) ?? []
-      members.push({ cli, ...(runtime ? { runtime } : {}), key })
+      members.push({ cli, ...(runtime ? { runtime } : {}), key, hostId, generation })
       batches.set(group, members)
       continue
     }
 
-    tasks.push(probeOnce(key, force, () => detect(cli, runtime)).then((detected) => record(cli, key, detected)))
+    tasks.push(
+      probeOnce(key, force, () => detect(cli, runtime, force ? { force: true } : undefined)).then((detected) =>
+        record(cli, key, detected, hostId, generation),
+      ),
+    )
   }
 
   for (const members of batches.values()) {
-    const batch = withProbeSlot(() => detectBatch!(members.map(({ cli, runtime }) => ({ cli, runtime }))))
+    const batch = withProbeSlot(() =>
+      detectBatch!(
+        members.map(({ cli, runtime }) => ({ cli, runtime })),
+        force ? { force: true } : undefined,
+      ),
+    )
     for (const member of members) {
       const probe = batch
         .then(
@@ -280,7 +425,7 @@ export async function detectAgentCliAvailability(
         )
         .catch((error: unknown) => probeFailure(member.cli, member.runtime, error))
       trackInFlight(member.key, probe)
-      tasks.push(probe.then((detected) => record(member.cli, member.key, detected)))
+      tasks.push(probe.then((detected) => record(member.cli, member.key, detected, member.hostId, member.generation)))
     }
   }
 
@@ -312,7 +457,7 @@ export type AgentCliLaunchPreflight =
 //
 // The verdict rides `detectAgentCliAvailability`'s cache (invalidated after an
 // install), so repeat spawns do not re-probe; only this CLI is probed on a
-// cache miss.
+// cache miss, or when the cache says it is missing.
 export async function preflightAgentCliLaunch(
   input: {
     cli: AgentCli
@@ -334,10 +479,14 @@ export async function preflightAgentCliLaunch(
   const entry = listEntries().find((candidate) => candidate.id === input.cli)
   if (!entry) return { status: 'unknown' }
 
-  const availability = await detectAgentCliAvailability(
-    { cliRuntimes: input.cliRuntimes },
-    { ...deps, listEntries: () => [entry] },
-  )
+  const onlyThis = { ...deps, listEntries: () => [entry] }
+  let availability = await detectAgentCliAvailability({ cliRuntimes: input.cliRuntimes }, onlyThis)
+  // The cache holds an answer until Re-check, so "not installed" may be from
+  // before the person installed it in a terminal. Refusing a launch is worth
+  // one probe of this CLI to be sure; a found CLI launches from the cache.
+  if (availability[input.cli]?.installed === false) {
+    availability = await detectAgentCliAvailability({ cliRuntimes: input.cliRuntimes, force: true }, onlyThis)
+  }
   const detected = availability[input.cli]
   // Absent from the map means the probe errored (see above) — never a verdict.
   if (!detected) return { status: 'unknown' }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import type { AppUpdateState, CliVersionAdvisory, CliVersionAdvisoryMap } from '../../../shared/electron-api'
+import type { AppUpdateState, CliVersionAdvisory, CliVersionHostAdvisories } from '../../../shared/electron-api'
 import {
   appUpdateKey,
   cliUpdateKey,
@@ -18,6 +18,7 @@ import {
 function advisory(cli: string, over: Partial<CliVersionAdvisory> = {}): CliVersionAdvisory {
   return {
     cli: cli as CliVersionAdvisory['cli'],
+    hostId: 'local',
     status: 'behind_latest',
     currentVersion: '1.0.0',
     latestVersion: '1.1.0',
@@ -52,12 +53,13 @@ function appState(over: Partial<AppUpdateState> = {}): AppUpdateState {
 const everyCliInstalled = (): boolean => true
 
 test('a CLI update counts while it is behind, installed here, checked for and not dismissed', () => {
-  const advisories: CliVersionAdvisoryMap = {
+  const local = {
     codex: advisory('codex'),
     gemini: advisory('gemini', { status: 'current', latestVersion: '1.0.0' }),
     opencode: advisory('opencode', { status: 'unknown' }),
     cursor: advisory('cursor', { latestVersion: null }),
   }
+  const advisories: CliVersionHostAdvisories = { local }
   const base = { advisories, checkCliVersions: true, installed: everyCliInstalled, dismissed: [] }
   assert.deepEqual(
     outstandingCliUpdates(base).map((entry) => entry.cli),
@@ -66,29 +68,64 @@ test('a CLI update counts while it is behind, installed here, checked for and no
   )
   assert.deepEqual(outstandingCliUpdates({ ...base, checkCliVersions: false }), [], 'checks off, nothing counted')
   assert.deepEqual(
-    outstandingCliUpdates({ ...base, installed: (cli) => cli !== 'codex' }),
+    outstandingCliUpdates({ ...base, installed: (_host, cli) => cli !== 'codex' }),
     [],
     'a CLI no longer detected here offers no Update, so it wears no badge',
   )
   assert.deepEqual(
-    outstandingCliUpdates({ ...base, dismissed: [cliUpdateKey(advisories.codex!)] }),
+    outstandingCliUpdates({ ...base, dismissed: [cliUpdateKey(local.codex)] }),
     [],
     'a dismissed version is not counted',
   )
   assert.deepEqual(
     outstandingCliUpdates({
       ...base,
-      advisories: { codex: advisory('codex', { latestVersion: '1.2.0' }) },
-      dismissed: [cliUpdateKey(advisories.codex!)],
+      advisories: { local: { codex: advisory('codex', { latestVersion: '1.2.0' }) } },
+      dismissed: [cliUpdateKey(local.codex)],
     }).map((entry) => entry.latestVersion),
     ['1.2.0'],
     'a newer release than the dismissed one badges again',
   )
   assert.deepEqual(
-    outstandingCliUpdates({ ...base, advisories: { codex: advisory('codex', { status: 'current' }) } }),
+    outstandingCliUpdates({ ...base, advisories: { local: { codex: advisory('codex', { status: 'current' }) } } }),
     [],
     'installed: the advisory stops saying behind, and the badge goes',
   )
+})
+
+test('a WSL machine’s CLI updates count on their own, and are dismissed on their own', () => {
+  const wsl = advisory('codex', { hostId: 'wsl:Ubuntu', currentVersion: '0.9.0' })
+  const advisories: CliVersionHostAdvisories = {
+    local: { codex: advisory('codex'), gemini: advisory('gemini', { status: 'current' }) },
+    'wsl:Ubuntu': { codex: wsl, gemini: advisory('gemini', { hostId: 'wsl:Ubuntu' }) },
+  }
+  const base = { advisories, checkCliVersions: true, installed: everyCliInstalled, dismissed: [] }
+  assert.deepEqual(
+    outstandingCliUpdates(base).map((entry) => `${entry.hostId}/${entry.cli}`),
+    ['local/codex', 'wsl:Ubuntu/codex', 'wsl:Ubuntu/gemini'],
+    'the same CLI behind on two machines is two updates',
+  )
+  assert.equal(cliUpdateKey(advisories.local!.codex!), 'cli:codex@1.1.0', 'this machine keeps the key it always had')
+  assert.equal(cliUpdateKey(wsl), 'cli:wsl:Ubuntu|codex@1.1.0')
+  assert.deepEqual(
+    outstandingCliUpdates({ ...base, dismissed: [cliUpdateKey(wsl)] }).map((entry) => `${entry.hostId}/${entry.cli}`),
+    ['local/codex', 'wsl:Ubuntu/gemini'],
+    'dismissing the WSL notice leaves this machine’s update counted',
+  )
+  assert.deepEqual(
+    outstandingCliUpdates({ ...base, installed: (host) => host === 'local' }).map((entry) => entry.hostId),
+    ['local'],
+    'installed is asked per machine',
+  )
+
+  const badges = settingsUpdateBadges({ cliUpdates: outstandingCliUpdates(base), appUpdate: null })
+  assert.equal(badges.rail?.count, 3, 'the gear counts every machine')
+  assert.equal(badges.agents?.count, 3, 'and so does Agents')
+  assert.equal(badges.machines.local?.count, 1)
+  assert.equal(badges.machines['wsl:Ubuntu']?.count, 2, 'the distribution’s segment wears its own count')
+  assert.equal(badges.machines['wsl:Ubuntu']?.detail, '2 CLI updates available')
+  assert.deepEqual([...(badges.clis.local ?? [])], ['codex'])
+  assert.deepEqual([...(badges.clis['wsl:Ubuntu'] ?? [])], ['codex', 'gemini'], 'rows badge on their own machine')
 })
 
 test('the app update counts at every step to the restart, and clears when installed or dismissed', () => {
@@ -158,7 +195,7 @@ test('one derivation feeds the gear, General, Agents, the switcher and the rows'
   assert.equal(none.general, null)
   assert.equal(none.agents, null)
   assert.deepEqual(none.machines, {})
-  assert.equal(none.clis.size, 0)
+  assert.deepEqual(none.clis, {})
 
   const cliOnly = settingsUpdateBadges({ cliUpdates: [advisory('codex'), advisory('gemini')], appUpdate: null })
   assert.deepEqual(cliOnly.agents, {
@@ -168,8 +205,8 @@ test('one derivation feeds the gear, General, Agents, the switcher and the rows'
     detail: '2 CLI updates available',
   })
   assert.equal(cliOnly.general, null, 'General only badges for the app')
-  assert.deepEqual(cliOnly.machines, { local: cliOnly.agents }, 'the advisories are this PC’s, so only This PC badges')
-  assert.deepEqual([...cliOnly.clis], ['codex', 'gemini'])
+  assert.deepEqual(cliOnly.machines, { local: cliOnly.agents }, 'this PC’s updates badge This PC only')
+  assert.deepEqual([...(cliOnly.clis.local ?? [])], ['codex', 'gemini'])
   assert.equal(cliOnly.rail?.count, 2)
   assert.equal(cliOnly.rail?.label, '2 updates available')
 

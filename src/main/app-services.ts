@@ -16,7 +16,7 @@ import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
-import { invalidateCliAvailabilityOnHost } from './cli-availability'
+import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
 import { wslHostId } from '../shared/execution-host'
 import {
   appLaunchPluginsActive,
@@ -94,6 +94,11 @@ import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
 import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
+import {
+  configureCliVersionService,
+  launchSettingsCliMachines,
+  scheduleCliVersionRead,
+} from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -485,6 +490,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // A model-discovery pass main starts itself (boot, after an install) probes
   // with the same per-CLI command overrides a launch would use.
   setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
+  // The version check asks about the same machines, with the same commands,
+  // that Settings ▸ Agents lists: this one and each WSL distribution turned on.
+  configureCliVersionService({ machines: launchSettingsCliMachines(() => agentLaunchSettings.get()) })
+  // It compares again whenever detection learns something new about a machine
+  // — startup, Re-check, a WSL list opened for the first time — and when the
+  // machines change (below), so a badge follows without the hourly wait.
+  subscribeKnownCliAvailability(() => scheduleCliVersionRead())
 
   // The machines this computer offers (shared/execution-host.ts): this one,
   // and on Windows each WSL distribution. One registry, installed for the whole
@@ -500,6 +512,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     if (next === lastHostSettings) return
     lastHostSettings = next
     hosts.notifyChanged()
+    // A distribution turned on or off adds or drops its CLI updates.
+    scheduleCliVersionRead()
   })
   // Git for a repository on a WSL machine runs in that distribution: a folder
   // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that

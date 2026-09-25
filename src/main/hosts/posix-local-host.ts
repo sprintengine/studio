@@ -65,10 +65,10 @@ export function createPosixLocalHost(platform: NodeJS.Platform = process.platfor
     },
     killSessionSurvivors: (cliSessionId) =>
       killCliSessionSurvivors(cliSessionId, { platform, host: { pathStyle: 'posix' } }),
-    detectClis: (requests) =>
+    detectClis: (requests, options = {}) =>
       detectCliBatch(
         requests.map(({ cli, runtime }) => ({ cli, runtime: localCliRuntime(runtime) })),
-        { platform },
+        { platform, ...(options.force ? { force: true } : {}) },
       ),
     runCommand: (argv, options) =>
       runSpawnDescriptor(
