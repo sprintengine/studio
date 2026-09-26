@@ -46,6 +46,7 @@ export function isLocalOnlyGatewayTool(toolName: string): boolean {
  */
 export function requiredScopeForTool(toolName: string, isMutation: boolean): TailnetScope {
   if (toolName.startsWith('terminal.')) return isMutation ? 'terminal:control' : 'terminal:observe'
+  if (toolName.startsWith('conversation.')) return isMutation ? 'conversation:operate' : 'conversation:read'
   return `${toolFamily(toolName)}:${isMutation ? 'operate' : 'read'}` as TailnetScope
 }
 

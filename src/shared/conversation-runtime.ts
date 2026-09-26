@@ -1,3 +1,14 @@
+import type {
+  ConversationJsonValue,
+  ConversationToolKind,
+  ConversationToolStatus,
+} from '../../packages/conversation-protocol/src/tool-types'
+export type {
+  ConversationJsonValue,
+  ConversationToolKind,
+  ConversationToolStatus,
+} from '../../packages/conversation-protocol/src/tool-types'
+
 export type ConversationSessionStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
 
 export type ConversationEventType =
@@ -254,21 +265,6 @@ export type ConversationSessionActionResult =
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }
 
-export type ConversationJsonValue =
-  null | boolean | number | string | ConversationJsonValue[] | { [key: string]: ConversationJsonValue }
-export type ConversationToolKind =
-  | 'command'
-  | 'file_edit'
-  | 'file_read'
-  | 'file_write'
-  | 'search'
-  | 'list'
-  | 'web'
-  | 'mcp'
-  | 'subagent'
-  | 'todo'
-  | 'other'
-export type ConversationToolStatus = 'ok' | 'error' | 'declined' | 'stopped'
 export type ConversationToolDetail = {
   input: ConversationJsonValue
   output: ConversationJsonValue

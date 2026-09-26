@@ -38,5 +38,6 @@
     "tailwindcss",
     // The pack check installs the freshly packed tarball and imports it by name.
     "@sprintengine/mobile-control-protocol",
+    "@sprintengine/conversation-protocol",
   ],
 }

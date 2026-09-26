@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
-import { TAILNET_STRUCTURED_SCOPES } from '../../shared/tailnet'
 import type { FleetEvent } from '../../shared/tailnet-fleet'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
@@ -263,7 +262,12 @@ test('tailnet-fleet-reachability', async () => {
         const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
         assert.ok(asked.ok, asked.ok ? '' : asked.message)
         const pending = mini2.devices.listPairRequests()
-        assert.deepEqual(pending[0]?.requestedScopes, [...TAILNET_STRUCTURED_SCOPES])
+        assert.deepEqual(pending[0]?.requestedScopes, [
+          'workspace:read',
+          'workspace:operate',
+          'backlog:read',
+          'backlog:operate',
+        ])
         laptop2.fleet.cancelPairing(asked.request.requestId)
       } finally {
         await laptop2.close()

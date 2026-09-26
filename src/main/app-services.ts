@@ -150,6 +150,8 @@ import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
@@ -517,6 +519,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // dispose its child processes and diagnostics can inventory them.
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
+    approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
     prepareStudioMcp: async ({ workspaceRoot }) => {
       await whenAgentLaunchReady()
       const result = await syncStudioMcpConfig(
@@ -1312,6 +1315,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.
     resolveTerminalHost: () => terminalRuntime.remoteHost,
+    resolveConversationHost: () =>
+      createConversationGatewayHost(
+        conversationRuntime,
+        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+        () =>
+          workspaceRegistry
+            .getRecords()
+            .filter((record) => Boolean(record.folderPath))
+            .map((record) => ({
+              workspaceId: record.id,
+              workspaceRoot: record.folderPath!,
+            })),
+      ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.

@@ -19,6 +19,8 @@ export const TAILNET_SCOPES = [
   'workspace:operate',
   'backlog:read',
   'backlog:operate',
+  'conversation:read',
+  'conversation:operate',
   'terminal:observe',
   'terminal:control',
 ] as const
@@ -29,6 +31,14 @@ export type TailnetScope = (typeof TAILNET_SCOPES)[number]
 export const TAILNET_STRUCTURED_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
   (scope) => !scope.startsWith('terminal:'),
 )
+
+/** Missing scope lists in older pairing requests must not grant features added later. */
+export const TAILNET_LEGACY_REQUEST_SCOPES: readonly TailnetScope[] = [
+  'workspace:read',
+  'workspace:operate',
+  'backlog:read',
+  'backlog:operate',
+]
 
 export function isTailnetScope(value: unknown): value is TailnetScope {
   return typeof value === 'string' && (TAILNET_SCOPES as readonly string[]).includes(value)

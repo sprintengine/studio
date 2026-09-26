@@ -58,7 +58,7 @@ test('scopePickerModel', async () => {
   })
 
   check('read only is every :read plus terminal:observe', () => {
-    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'terminal:observe'])
+    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'conversation:read', 'terminal:observe'])
   })
 
   check('standard is every scope, terminal:control included', () => {
@@ -71,7 +71,7 @@ test('scopePickerModel', async () => {
   check('presetFor names a set, whatever order it arrived in', () => {
     assert.equal(presetFor(scopesForPreset('standard')), 'standard')
     assert.equal(presetFor(scopesForPreset('read-only')), 'read-only')
-    const shuffled: TailnetScope[] = ['terminal:observe', 'backlog:read', 'workspace:read']
+    const shuffled: TailnetScope[] = ['terminal:observe', 'conversation:read', 'backlog:read', 'workspace:read']
     assert.equal(presetFor(shuffled), 'read-only')
   })
 
@@ -91,7 +91,12 @@ test('scopePickerModel', async () => {
   })
 
   check('missingScopes is the complement, in vocabulary order', () => {
-    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), ['workspace:operate', 'backlog:operate', 'terminal:control'])
+    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), [
+      'workspace:operate',
+      'backlog:operate',
+      'conversation:operate',
+      'terminal:control',
+    ])
     assert.deepEqual(missingScopes(STANDARD_SCOPES), [])
   })
 

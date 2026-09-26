@@ -22,6 +22,7 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
 import { createTailnetRemoteService, type TailnetRemoteService } from './tailnet/tailnet-service'
 import type { TerminalRemoteHost } from '../terminal-remote-attach'
+import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 
 // Owns the always-on Studio MCP gateway lifecycle, local socket endpoint, and
 // discovery files external clients read to find it. The old enabled setting is
@@ -58,6 +59,7 @@ type AutomationServiceOptions = {
    * cross a network. Absent leaves that route refusing with a stated reason.
    */
   resolveTerminalHost?: () => TerminalRemoteHost
+  resolveConversationHost?: () => ConversationGatewayHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
   /**
@@ -166,6 +168,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
       resolveTools: options.resolveGatewayTools,
       isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
       terminals: options.resolveTerminalHost?.(),
+      conversations: options.resolveConversationHost?.(),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
         if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })

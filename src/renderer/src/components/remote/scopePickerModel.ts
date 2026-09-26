@@ -56,6 +56,18 @@ export const SCOPE_ROWS: readonly ScopeRow[] = [
     description: 'Edit, assign and set status.',
   },
   {
+    scope: 'conversation:read',
+    title: 'View conversations',
+    code: 'conversation:read',
+    description: 'Read chat transcripts, tool details and diffs.',
+  },
+  {
+    scope: 'conversation:operate',
+    title: 'Operate conversations',
+    code: 'conversation:operate',
+    description: 'Send, stop and answer requests in chats.',
+  },
+  {
     scope: 'terminal:observe',
     title: 'Watch chats & terminals',
     code: 'terminal:observe',

@@ -1,0 +1,170 @@
+import type { ConversationJsonValue, ConversationToolKind, ConversationToolStatus } from './tool-types.js'
+import { inferConversationToolKind } from './toolKind.js'
+
+export type PresentableTool = {
+  kind?: ConversationToolKind
+  name: string
+  input?: ConversationJsonValue
+  status?: ConversationToolStatus | 'running' | 'done'
+  exitCode?: number
+  summary?: string
+  subagentType?: string
+}
+export type ToolPresentation = {
+  icon: ConversationToolKind
+  verb: string
+  title: string
+  subtitle?: string
+  tone: 'neutral' | 'running' | 'ok' | 'error' | 'declined'
+}
+const verbs: Record<ConversationToolKind, [string, string]> = {
+  command: ['Ran', 'Running'],
+  file_read: ['Read', 'Reading'],
+  file_edit: ['Edited', 'Editing'],
+  file_write: ['Wrote', 'Writing'],
+  search: ['Searched', 'Searching'],
+  list: ['Listed', 'Listing'],
+  web: ['Fetched', 'Fetching'],
+  mcp: ['Called', 'Calling'],
+  subagent: ['Ran', 'Running'],
+  todo: ['Updated', 'Updating'],
+  other: ['Called', 'Calling'],
+}
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+function read(input: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) if (typeof input[key] === 'string') return input[key]
+  return ''
+}
+function basename(path: string) {
+  return path.split(/[\\/]/).at(-1) || path
+}
+function shorten(value: string, maximum = 72) {
+  if (value.length <= maximum) return value
+  return value.slice(0, Math.max(1, maximum - 1)) + '…'
+}
+
+/** Presentation is shared by desktop and remote clients; malformed tools stay readable. */
+export function presentToolItem(
+  item: PresentableTool,
+  labelCommand?: (command: string) => { title: string } | string,
+): ToolPresentation {
+  const safe = record(item)
+  const name = typeof safe.name === 'string' ? safe.name : 'Tool'
+  const kind =
+    safe.kind && Object.hasOwn(verbs, String(safe.kind))
+      ? (safe.kind as ConversationToolKind)
+      : inferConversationToolKind(name)
+  const input = record(safe.input)
+  const live = safe.status === 'running'
+  const verb = verbs[kind][live ? 1 : 0]
+  const path = read(input, 'path', 'file_path', 'filePath')
+  const legacy =
+    typeof safe.summary === 'string'
+      ? safe.summary.replace(new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '')
+      : ''
+  let title: string
+  switch (kind) {
+    case 'command': {
+      const command = read(input, 'command', 'cmd') || legacy
+      const label = labelCommand?.(command)
+      title =
+        typeof label === 'string' ? label : label?.title || `${verb} ${command.trim().split(/\s/)[0] || 'command'}`
+      break
+    }
+    case 'file_read':
+    case 'file_edit':
+    case 'file_write':
+      title = `${verb} ${basename(path || legacy) || 'file'}`
+      break
+    case 'search':
+      title = `${verb} for “${read(input, 'pattern', 'query') || legacy}”`
+      break
+    case 'list':
+      title = `${verb} ${read(input, 'path', 'directory') || legacy || 'files'}`
+      break
+    case 'web': {
+      const query = read(input, 'query')
+      const url = read(input, 'url')
+      let host = url
+      try {
+        host = new URL(url).host
+      } catch {
+        /* A malformed URL still has a readable label. */
+      }
+      title = query
+        ? `${live ? 'Searching' : 'Searched'} the web for “${query}”`
+        : `${verb} ${host || legacy || 'web page'}`
+      break
+    }
+    case 'mcp':
+      title = name.replace(/^mcp__/, '').replace(/__/g, ': ')
+      break
+    case 'subagent':
+      title = `${safe.subagentType || read(input, 'subagent_type') || 'Agent'}: ${read(input, 'description', 'prompt') || legacy}`
+      break
+    case 'todo':
+      title = `${verb} plan`
+      break
+    default:
+      title = name
+  }
+  const exitCode = typeof safe.exitCode === 'number' ? safe.exitCode : undefined
+  const tone = live
+    ? 'running'
+    : safe.status === 'declined' || safe.status === 'stopped'
+      ? 'declined'
+      : safe.status === 'error' && exitCode === undefined
+        ? 'error'
+        : exitCode
+          ? 'neutral'
+          : safe.status === 'ok'
+            ? 'ok'
+            : 'neutral'
+  const subtitlePath = path || (kind === 'file_read' || kind === 'file_edit' || kind === 'file_write' ? legacy : '')
+  return {
+    icon: kind,
+    verb,
+    title: shorten(title),
+    ...(exitCode ? { subtitle: `exit ${exitCode}` } : subtitlePath ? { subtitle: subtitlePath } : {}),
+    tone,
+  }
+}
+
+export function toolActionVerb(name: string, live: boolean): string {
+  if (name === 'WebSearch') return live ? 'Searching' : 'Searched'
+  const kind = inferConversationToolKind(name)
+  return kind === 'other' || kind === 'mcp' ? `${live ? 'Calling' : 'Called'} ${name}` : verbs[kind][live ? 1 : 0]
+}
+
+export function summarizeToolGroup(items: PresentableTool[]): string {
+  const counts = new Map<ConversationToolKind, number>()
+  for (const item of items) {
+    const kind = presentToolItem(item).icon
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  const nouns: Record<ConversationToolKind, string> = {
+    command: 'command',
+    file_read: 'file',
+    file_edit: 'file',
+    file_write: 'file',
+    search: 'query',
+    list: 'directory',
+    web: 'page',
+    mcp: 'tool',
+    subagent: 'agent',
+    todo: 'plan',
+    other: 'tool',
+  }
+  const clauses = [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(
+      ([kind, count]) =>
+        `${verbs[kind][0].toLowerCase()} ${count} ${count > 1 && kind === 'list' ? 'directories' : nouns[kind] + (count === 1 ? '' : 's')}`,
+    )
+  const joined =
+    clauses.length > 1 ? `${clauses.slice(0, -1).join(', ')} and ${clauses.at(-1)}` : clauses[0] || 'No tool calls'
+  return joined[0].toUpperCase() + joined.slice(1)
+}

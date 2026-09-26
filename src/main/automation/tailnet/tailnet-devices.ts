@@ -6,7 +6,7 @@ import { hashSecret } from '../../mobile/bridge/crypto'
 import {
   normalizeTailnetScopes,
   PAIR_REQUEST_CODE_ATTEMPTS,
-  TAILNET_STRUCTURED_SCOPES,
+  TAILNET_LEGACY_REQUEST_SCOPES,
   type TailnetDevice,
   type TailnetDeviceOrigin,
   type TailnetPairingState,
@@ -664,9 +664,9 @@ export function createTailnetDeviceStore(options: {
  * asking for no access at all.
  */
 function readRequestedScopes(value: unknown): TailnetScope[] {
-  if (value === undefined || value === null) return [...TAILNET_STRUCTURED_SCOPES]
+  if (value === undefined || value === null) return [...TAILNET_LEGACY_REQUEST_SCOPES]
   const named = normalizeTailnetScopes(value)
-  return named.length > 0 ? named : [...TAILNET_STRUCTURED_SCOPES]
+  return named.length > 0 ? named : [...TAILNET_LEGACY_REQUEST_SCOPES]
 }
 
 function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {
