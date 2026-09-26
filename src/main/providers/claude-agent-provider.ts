@@ -15,6 +15,7 @@
 import { spawn } from 'child_process'
 import { asRecord } from '../../shared/records'
 import { isWslHostId } from '../../shared/execution-host'
+import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 
 import type {
   Options,
@@ -43,7 +44,7 @@ import type {
   MockAdapterPermissionInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
-} from './mock-conversation-provider'
+} from './conversation-provider-adapter'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
 // The CLI accepts these on --model regardless of account tier; they track the
@@ -109,6 +110,7 @@ type SessionState = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
+  skillIds?: string[]
   providerSessionId: string | null
   query: Query | null
   inputQueue: PushStream<SDKUserMessage> | null
@@ -359,6 +361,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
+      ...(state.skillIds?.length ? { skills: state.skillIds, settingSources: ['user', 'project', 'local'] } : {}),
       env,
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
@@ -451,6 +454,22 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   const adapter: ClaudeAgentProviderAdapter = {
     id: CLAUDE_AGENT_PROVIDER_ID,
+    displayName: 'Claude Code',
+    capabilities: {
+      tools: true,
+      approvals: true,
+      questions: true,
+      planMode: true,
+      images: true,
+      skills: 'native',
+      reasoningEfforts: null,
+      interrupt: true,
+      resume: true,
+      subagents: true,
+      cost: true,
+      contextMeter: false,
+      liveModelSwitch: false,
+    },
     sessions: 'stateful',
     listModels: () => [...CLAUDE_AGENT_MODELS],
 
@@ -498,6 +517,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       yield eventFor(state, 'turn_started', { turnId: input.turnId })
       try {
+        const skillIds = [...new Set(input.skills ?? [])].sort()
+        if (JSON.stringify(skillIds) !== JSON.stringify(state.skillIds ?? [])) {
+          disposeChild(state)
+          state.skillIds = skillIds
+        }
         await ensureQuery(state)
       } catch (error) {
         yield eventFor(state, 'turn_failed', {
@@ -535,7 +559,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       state.inputQueue?.push({
         type: 'user',
-        message: { role: 'user', content: buildUserMessageContent(input.message, input.attachments) },
+        message: {
+          role: 'user',
+          content: buildUserMessageContent(
+            input.skills?.length
+              ? `Use the attached skills: ${input.skills.join(', ')}.\n\n${input.message}`
+              : input.message,
+            input.attachments,
+          ),
+        },
         parent_tool_use_id: null,
         session_id: state.providerSessionId ?? '',
       })
@@ -921,6 +953,17 @@ export function mapSdkMessage(
           turnId,
           toolCallId: typeof block.id === 'string' ? block.id : undefined,
           tool: block.name,
+          toolUseId: typeof block.id === 'string' ? block.id : undefined,
+          name: block.name,
+          kind: inferConversationToolKind(block.name),
+          input: JSON.parse(
+            JSON.stringify({
+              ...toolInput,
+              ...(typeof toolInput.file_path === 'string' ? { path: toolInput.file_path } : {}),
+              ...(typeof toolInput.old_string === 'string' ? { oldText: toolInput.old_string } : {}),
+              ...(typeof toolInput.new_string === 'string' ? { newText: toolInput.new_string } : {}),
+            }),
+          ),
           summary: summarizeToolInput(block.name, toolInput),
           ...computeEditDiffCounts(block.name, toolInput),
           ...(parentToolUseId ? { parentToolUseId } : {}),
@@ -937,10 +980,22 @@ export function mapSdkMessage(
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_result') continue
+        const binary = Array.isArray(block.content)
+          ? block.content.map(asRecord).find((entry) => entry?.type === 'image' || entry?.type === 'document')
+          : undefined
+        const source = asRecord(binary?.source)
         const payload: ConversationToolOutputPayload = {
           turnId,
           toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-          output: truncate(extractResultText(block.content), 4000),
+          toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
+          output: extractResultText(block.content),
+          status: block.is_error === true ? 'error' : 'ok',
+          ...(typeof source?.media_type === 'string'
+            ? {
+                mime: source.media_type,
+                totalBytes: typeof source.data === 'string' ? Buffer.byteLength(source.data, 'base64') : 0,
+              }
+            : {}),
           isError: block.is_error === true,
           ...(parentToolUseId ? { parentToolUseId } : {}),
         }
@@ -977,7 +1032,14 @@ export function mapSdkMessage(
           }),
         )
       } else {
-        events.push(eventFor(state, 'turn_completed', { turnId }))
+        events.push(
+          eventFor(state, 'turn_completed', {
+            turnId,
+            ...(typeof message.total_cost_usd === 'number' ? { costUsd: message.total_cost_usd } : {}),
+            ...(typeof message.duration_ms === 'number' ? { durationMs: message.duration_ms } : {}),
+            ...(typeof message.num_turns === 'number' ? { numTurns: message.num_turns } : {}),
+          }),
+        )
       }
       break
     }

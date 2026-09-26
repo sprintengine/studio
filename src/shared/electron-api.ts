@@ -171,6 +171,12 @@ import type {
   ConversationStopSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationSubscribeInput,
+  ConversationLoadEarlierInput,
+  ConversationSessionFrame,
+  ConversationPageResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
 import type { ModuleEventEnvelope } from './modules/events'
@@ -925,6 +931,12 @@ export type ElectronApi = {
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
+  conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
+  conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
+  onConversationSession: (
+    input: ConversationSubscribeInput,
+    cb: (frame: ConversationSessionFrame) => void,
+  ) => () => void
   onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>

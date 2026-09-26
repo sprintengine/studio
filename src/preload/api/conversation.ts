@@ -27,9 +27,29 @@ import type {
   ConversationProvidersListInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationSubscribeInput,
+  ConversationLoadEarlierInput,
+  ConversationSessionFrame,
+  ConversationPageResult,
 } from '../../shared/conversation-runtime'
 
 type ConversationIpcRenderer = {
+  invoke(
+    channel: 'conversation:session:subscribe',
+    input: ConversationSubscribeInput & { subscriptionId: string },
+  ): Promise<{ ok: boolean; subscriptionId?: string; message?: string }>
+  invoke(channel: 'conversation:session:unsubscribe', input: { subscriptionId: string }): Promise<{ ok: boolean }>
+  invoke(channel: 'conversation:session:earlier', input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
+  on(
+    channel: 'conversation:session-event',
+    listener: (event: IpcRendererEvent, payload: { subscriptionId: string; frame: ConversationSessionFrame }) => void,
+  ): void
+  removeListener(
+    channel: 'conversation:session-event',
+    listener: (event: IpcRendererEvent, payload: { subscriptionId: string; frame: ConversationSessionFrame }) => void,
+  ): void
   invoke(
     channel: 'conversation:providers:list',
     input?: ConversationProvidersListInput,
@@ -76,6 +96,7 @@ type ConversationIpcRenderer = {
     input?: ConversationListSessionsInput,
   ): Promise<ConversationListSessionsResult>
   invoke(channel: 'conversation:transcript', input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
+  invoke(channel: 'conversation:tool-detail', input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
   invoke(channel: 'conversation:events:subscribe'): Promise<{ ok: true; subscriptionId: string }>
   invoke(
     channel: 'conversation:events:unsubscribe',
@@ -89,6 +110,18 @@ type ConversationIpcRenderer = {
 }
 
 export function createConversationApi(renderer: ConversationIpcRenderer) {
+  const callbacks = new Set<(event: ConversationEvent) => void>()
+  let subscription: Promise<{ ok: true; subscriptionId: string }> | undefined
+  const listener = (_event: IpcRendererEvent, payload: ConversationEvent) => {
+    for (const callback of callbacks) {
+      try {
+        callback(payload)
+      } catch {
+        callbacks.delete(callback)
+      }
+    }
+  }
+  let nextScopedId = 0
   return {
     conversationProvidersList: (input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> =>
       renderer.invoke('conversation:providers:list', input),
@@ -118,14 +151,59 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:sessions:list', input),
     conversationTranscript: (input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> =>
       renderer.invoke('conversation:transcript', input),
-    onConversationEvent: (cb: (event: ConversationEvent) => void): (() => void) => {
-      const listener = (_event: IpcRendererEvent, payload: ConversationEvent) => cb(payload)
-      renderer.on('conversation:event', listener)
-      const subscription = renderer.invoke('conversation:events:subscribe')
+    conversationToolDetail: (input: ConversationToolDetailInput): Promise<ConversationToolDetailResult> =>
+      renderer.invoke('conversation:tool-detail', input),
+    conversationLoadEarlier: (input: ConversationLoadEarlierInput): Promise<ConversationPageResult> =>
+      renderer.invoke('conversation:session:earlier', input),
+    onConversationSession: (
+      input: ConversationSubscribeInput,
+      cb: (frame: ConversationSessionFrame) => void,
+    ): (() => void) => {
+      const subscriptionId = `panel-${Date.now()}-${++nextScopedId}`
+      let disposed = false
+      const receive = (
+        _event: IpcRendererEvent,
+        payload: { subscriptionId: string; frame: ConversationSessionFrame },
+      ) => {
+        if (!disposed && payload.subscriptionId === subscriptionId) cb(payload.frame)
+      }
+      renderer.on('conversation:session-event', receive)
+      const subscribed = renderer.invoke('conversation:session:subscribe', { ...input, subscriptionId })
+      void subscribed
+        .then((result) => {
+          if (!disposed && !result.ok)
+            cb({ type: 'error', message: result.message ?? 'Conversation subscription failed.' })
+        })
+        .catch((error) => {
+          if (!disposed) cb({ type: 'error', message: String(error) })
+        })
       return () => {
+        if (disposed) return
+        disposed = true
+        renderer.removeListener('conversation:session-event', receive)
+        void subscribed
+          .then(() => renderer.invoke('conversation:session:unsubscribe', { subscriptionId }))
+          .catch(() => undefined)
+      }
+    },
+    onConversationEvent: (cb: (event: ConversationEvent) => void): (() => void) => {
+      callbacks.add(cb)
+      if (!subscription) {
+        renderer.on('conversation:event', listener)
+        subscription = renderer.invoke('conversation:events:subscribe')
+        void subscription.catch(() => undefined)
+      }
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        callbacks.delete(cb)
+        if (callbacks.size > 0) return
         renderer.removeListener('conversation:event', listener)
-        void subscription
-          .then((result) => {
+        const pending = subscription
+        subscription = undefined
+        void pending
+          ?.then((result) => {
             void renderer.invoke('conversation:events:unsubscribe', { subscriptionId: result.subscriptionId })
           })
           .catch(() => undefined)
@@ -146,6 +224,9 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionStop'
     | 'conversationSessionsList'
     | 'conversationTranscript'
+    | 'conversationToolDetail'
+    | 'conversationLoadEarlier'
+    | 'onConversationSession'
     | 'onConversationEvent'
   >
 }

@@ -25,6 +25,8 @@ export type ConversationEventType =
 
 export type ConversationEvent = {
   id: string
+  // Absent only on legacy events and provider events before runtime stamping.
+  seq?: number
   sessionId: string
   workspaceId: string
   agentId: string
@@ -44,6 +46,12 @@ export type ConversationSessionSummary = {
   status: ConversationSessionStatus
   createdAt: number
   updatedAt: number
+  displayName?: string
+  capabilities?: ConversationCapabilities
+  phase?: import('./conversation/phase').ConversationPhase
+  firstUserText?: string
+  lastUserText?: string
+  lastAssistantText?: string
   // The preset currently in force, when the session carries one. Absent means
   // the session never set one and the provider's own default ('default', ask
   // per tool) applies. Changing it mid-conversation goes through
@@ -112,6 +120,8 @@ export type ConversationImageAttachment = {
 }
 
 export type ConversationSendTurnInput = {
+  commandId?: string
+  skills?: ConversationSkillRef[]
   sessionId: string
   message: string
   // Renderer-generated id of the optimistic user bubble for this send; echoed
@@ -125,10 +135,12 @@ export type ConversationSendTurnInput = {
 }
 
 export type ConversationInterruptInput = {
+  commandId?: string
   sessionId: string
 }
 
 export type ConversationRespondToRequestInput = {
+  commandId?: string
   sessionId: string
   requestId: string
   approved: boolean
@@ -144,6 +156,11 @@ export type ConversationRespondToRequestInput = {
 // group them under that parent instead of flattening them into the turn (or,
 // as before, dropping them). Absent means an ordinary top-level tool call.
 export type ConversationToolStartedPayload = {
+  toolUseId?: string
+  kind?: ConversationToolKind
+  name?: string
+  input?: ConversationJsonValue
+  inputTruncated?: boolean
   turnId?: string
   toolCallId?: string
   tool: string
@@ -165,6 +182,13 @@ export type ConversationToolStartedPayload = {
 // Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
 // so a child call's completion lands in the same lane as its start.
 export type ConversationToolOutputPayload = {
+  toolUseId?: string
+  preview?: string
+  totalBytes?: number
+  truncated?: boolean
+  status?: ConversationToolStatus
+  exitCode?: number
+  mime?: string
   turnId?: string
   toolCallId?: string
   output: string
@@ -196,6 +220,7 @@ export type ConversationQuestion = {
 // effect on its next tool call, without recreating the session or losing
 // history. The automation MCP surface still refuses `bypass` outright.
 export type ConversationSetPermissionInput = {
+  commandId?: string
   sessionId: string
   permissionPreset: ConversationPermissionPreset
 }
@@ -221,3 +246,79 @@ export type ConversationSessionActionResult =
 
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }
+
+export type ConversationJsonValue =
+  null | boolean | number | string | ConversationJsonValue[] | { [key: string]: ConversationJsonValue }
+export type ConversationToolKind =
+  | 'command'
+  | 'file_edit'
+  | 'file_read'
+  | 'file_write'
+  | 'search'
+  | 'list'
+  | 'web'
+  | 'mcp'
+  | 'subagent'
+  | 'todo'
+  | 'other'
+export type ConversationToolStatus = 'ok' | 'error' | 'declined' | 'stopped'
+export type ConversationToolDetail = {
+  input: ConversationJsonValue
+  output: ConversationJsonValue
+  status: ConversationToolStatus
+  exitCode?: number
+  mime?: string
+  totalBytes?: number
+  clipped: boolean
+}
+export type ConversationToolDetailInput = ConversationTranscriptInput & { toolUseId: string }
+export type ConversationToolEvent =
+  | (Omit<ConversationEvent, 'type' | 'payload'> & {
+      type: 'tool_started'
+      payload: ConversationToolStartedPayload & {
+        toolUseId: string
+        kind: ConversationToolKind
+        name: string
+        input: ConversationJsonValue
+      }
+    })
+  | (Omit<ConversationEvent, 'type' | 'payload'> & {
+      type: 'tool_output'
+      payload: ConversationToolOutputPayload & {
+        toolUseId: string
+        preview: string
+        totalBytes: number
+        truncated: boolean
+        status: ConversationToolStatus
+      }
+    })
+export type ConversationToolDetailResult =
+  | { ok: true; detail: ConversationToolDetail }
+  | { ok: false; code: 'not_found' | 'invalid_input' | 'unavailable'; message: string }
+export type ConversationCapabilities = {
+  tools: boolean
+  approvals: boolean
+  questions: boolean
+  planMode: boolean
+  images: boolean
+  skills: 'native' | 'context' | 'none'
+  reasoningEfforts: string[] | null
+  interrupt: boolean
+  resume: boolean
+  subagents: boolean
+  cost: boolean
+  contextMeter: boolean
+  liveModelSwitch: boolean
+}
+export type ConversationSkillRef = { id: string; sourcePath?: string }
+
+export type ConversationKey = ConversationTranscriptInput
+export type ConversationSubscribeInput = { key: ConversationKey; afterSeq?: number; turnLimit?: number }
+export type ConversationPage = { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
+export type ConversationLoadEarlierInput = { key: ConversationKey; beforeCursor: number; turnLimit?: number }
+export type ConversationPageResult = { ok: true; page: ConversationPage } | { ok: false; message: string }
+export type ConversationSessionFrame =
+  | { type: 'event'; event: ConversationEvent }
+  | { type: 'snapshot'; page: ConversationPage }
+  | { type: 'synchronized'; seq: number }
+  | { type: 'error'; message: string }

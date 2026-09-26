@@ -23,6 +23,7 @@ test('claude-agent-provider', async () => {
     testMapSdkMessageCoversCanonicalShapes()
     await testTurnStreamsDeltasToolsUsageAndCompletion()
     await testImageAttachmentsBecomeMultimodalContent()
+    await testNativeSkillSelectionReachesSdk()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
@@ -150,6 +151,20 @@ test('claude-agent-provider', async () => {
       now: () => 1000,
     })
     return { adapter, capturedOptions: sdk.capturedOptions, permissionModes: sdk.permissionModes }
+  }
+
+  async function testNativeSkillSelectionReachesSdk(): Promise<void> {
+    const { adapter, capturedOptions } = createAdapter((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'native-skills' })
+    })
+    const input = turnInput()
+    await adapter.startSession(input)
+    for await (const _event of adapter.sendTurn({ ...input, skills: ['example'] })) {
+      /* drain the turn */
+    }
+    assert.deepEqual(capturedOptions[0]?.skills, ['example'])
+    assert.deepEqual(capturedOptions[0]?.settingSources, ['user', 'project', 'local'])
+    adapter.disposeAll?.()
   }
 
   const SESSION_INPUT = {
@@ -419,6 +434,9 @@ test('claude-agent-provider', async () => {
     assert.equal('subagentType' in (nestedLane[0]?.payload ?? {}), false, 'no invented type when the call names none')
 
     const success = mapSdkMessage(state, {
+      total_cost_usd: 0.025,
+      duration_ms: 1234,
+      num_turns: 2,
       type: 'result',
       subtype: 'success',
       is_error: false,
@@ -431,6 +449,7 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(success[0]?.payload?.inputTokens, 15)
     assert.equal(success[0]?.payload?.outputTokens, 3)
+    assert.deepEqual(success[1]?.payload, { turnId: 'turn_9', costUsd: 0.025, durationMs: 1234, numTurns: 2 })
 
     const failure = mapSdkMessage(state, {
       type: 'result',

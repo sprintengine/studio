@@ -29,6 +29,12 @@ import type {
   ConversationStopSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationSubscribeInput,
+  ConversationLoadEarlierInput,
+  ConversationSessionFrame,
+  ConversationPageResult,
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import {
@@ -37,6 +43,7 @@ import {
   MAX_ATTACHMENT_BYTES,
 } from '../../shared/conversation-attachments'
 import { ConversationRuntime } from '../conversation-runtime'
+import { ConversationSessionApi } from '../conversation-session-api'
 import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
@@ -57,6 +64,12 @@ export type ConversationIpcHandlers = {
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
+  getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
+  subscribe?(
+    input: ConversationSubscribeInput,
+    listener: (frame: ConversationSessionFrame) => void,
+  ): { dispose: () => void; ready: Promise<void> }
+  loadEarlier?(input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
@@ -81,6 +94,7 @@ export function createConversationIpcHandlers(
   runtime: ConversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() }),
 ): ConversationIpcHandlers {
   const secretStore = getSharedCredentialStore()
+  const sessions = new ConversationSessionApi(runtime)
   const cliChecks = new Map<string, { at: number; installed: boolean }>()
 
   async function isHarnessCliInstalled(
@@ -168,6 +182,15 @@ export function createConversationIpcHandlers(
     readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
       return runtime.readTranscript(input)
     },
+    getToolDetail(input) {
+      return runtime.getToolDetail(input)
+    },
+    subscribe(input, listener) {
+      return sessions.subscribe(input, listener)
+    },
+    loadEarlier(input) {
+      return sessions.loadEarlier(input)
+    },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
     },
@@ -186,6 +209,59 @@ export function registerConversationIpc(
       removeDestroyedListener: () => void
     }
   >()
+  const scopedSubscriptions = new Map<string, { senderId: number; dispose: () => void }>()
+  ipcMain.handle('conversation:session:subscribe', (event, input: unknown) => {
+    if (!isRecord(input) || typeof input.subscriptionId !== 'string' || !isRecord(input.key))
+      return { ok: false, message: 'Subscription identity is required.' }
+    const parsed = parseTranscriptInput(input.key)
+    if (!parsed.ok) return parsed
+    if (input.afterSeq !== undefined && (!Number.isSafeInteger(input.afterSeq) || Number(input.afterSeq) < 0))
+      return { ok: false, message: 'afterSeq must be a nonnegative integer.' }
+    if (input.turnLimit !== undefined && (!Number.isSafeInteger(input.turnLimit) || Number(input.turnLimit) < 1))
+      return { ok: false, message: 'turnLimit must be a positive integer.' }
+    if (!handlers.subscribe) return { ok: false, message: 'Conversation subscriptions are unavailable.' }
+    const subscriptionId = input.subscriptionId
+    const key = `${event.sender.id}:${subscriptionId}`
+    scopedSubscriptions.get(key)?.dispose()
+    const subscription = handlers.subscribe(
+      {
+        key: parsed.input,
+        afterSeq: input.afterSeq as number | undefined,
+        turnLimit: input.turnLimit as number | undefined,
+      },
+      (frame) => {
+        if (!event.sender.isDestroyed()) event.sender.send('conversation:session-event', { subscriptionId, frame })
+      },
+    )
+    const dispose = () => {
+      subscription.dispose()
+      event.sender.removeListener('destroyed', dispose)
+      scopedSubscriptions.delete(key)
+    }
+    event.sender.once('destroyed', dispose)
+    scopedSubscriptions.set(key, { senderId: event.sender.id, dispose })
+    return { ok: true, subscriptionId }
+  })
+  ipcMain.handle('conversation:session:unsubscribe', (event, input: unknown) => {
+    if (isRecord(input) && typeof input.subscriptionId === 'string')
+      scopedSubscriptions.get(`${event.sender.id}:${input.subscriptionId}`)?.dispose()
+    return { ok: true }
+  })
+  ipcMain.handle('conversation:session:earlier', async (_, input: unknown): Promise<ConversationPageResult> => {
+    if (!isRecord(input) || !Number.isSafeInteger(input.beforeCursor) || Number(input.beforeCursor) < 1)
+      return { ok: false, message: 'beforeCursor must be a positive integer.' }
+    const parsed = parseTranscriptInput(input.key)
+    if (!parsed.ok) return parsed
+    if (input.turnLimit !== undefined && (!Number.isSafeInteger(input.turnLimit) || Number(input.turnLimit) < 1))
+      return { ok: false, message: 'turnLimit must be a positive integer.' }
+    return (
+      handlers.loadEarlier?.({
+        key: parsed.input,
+        beforeCursor: Number(input.beforeCursor),
+        turnLimit: input.turnLimit as number | undefined,
+      }) ?? { ok: false, message: 'Conversation history is unavailable.' }
+    )
+  })
 
   ipcMain.handle('conversation:providers:list', async (_, input: unknown): Promise<ConversationProviderListResult> => {
     if (input !== undefined && !isRecord(input)) return { ok: false, message: 'Provider list input must be an object.' }
@@ -318,6 +394,19 @@ export function registerConversationIpc(
     } catch (err) {
       return { ok: false, message: formatError(err) }
     }
+  })
+
+  ipcMain.handle('conversation:tool-detail', async (_, input: unknown): Promise<ConversationToolDetailResult> => {
+    const parsed = parseTranscriptInput(input)
+    if (!parsed.ok || !isRecord(input) || typeof input.toolUseId !== 'string' || !input.toolUseId.trim())
+      return { ok: false, code: 'invalid_input', message: 'Conversation and tool identity are required.' }
+    return (
+      handlers.getToolDetail?.({ ...parsed.input, toolUseId: input.toolUseId }) ?? {
+        ok: false,
+        code: 'unavailable',
+        message: 'Tool details are unavailable.',
+      }
+    )
   })
 
   ipcMain.handle('conversation:transcript', async (_, input: unknown): Promise<ConversationTranscriptResult> => {
@@ -515,6 +604,18 @@ function parseSendTurnInput(
     return { ok: false, message: 'localTurnId must be a string when present.' }
   }
   let attachments: ConversationImageAttachment[] | undefined
+  if (
+    input.skills !== undefined &&
+    (!Array.isArray(input.skills) ||
+      input.skills.length > 32 ||
+      input.skills.some(
+        (skill) =>
+          !isRecord(skill) ||
+          typeof skill.id !== 'string' ||
+          (skill.sourcePath !== undefined && typeof skill.sourcePath !== 'string'),
+      ))
+  )
+    return { ok: false, message: 'skills must contain skill identities and optional source paths.' }
   if ('attachments' in input && input.attachments !== undefined) {
     const parsed = parseImageAttachments(input.attachments)
     if (!parsed.ok) return parsed
@@ -523,10 +624,11 @@ function parseSendTurnInput(
   return {
     ok: true,
     input: {
-      sessionId: session.input.sessionId,
+      ...session.input,
       message: input.message,
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
       ...(attachments ? { attachments } : {}),
+      ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
     },
   }
 }
@@ -535,7 +637,19 @@ function parseSessionIdInput(
   input: unknown,
 ): { ok: true; input: ConversationInterruptInput } | { ok: false; message: string } {
   if (!isRecord(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
-  return { ok: true, input: { sessionId: input.sessionId } }
+  if (
+    input.commandId !== undefined &&
+    (typeof input.commandId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.commandId))
+  )
+    return { ok: false, message: 'commandId must be a UUID.' }
+  return {
+    ok: true,
+    input: {
+      sessionId: input.sessionId,
+      ...(typeof input.commandId === 'string' ? { commandId: input.commandId } : {}),
+    },
+  }
 }
 
 const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto, or bypass.'
@@ -551,7 +665,7 @@ function parseSetPermissionInput(
   if (!session.ok) return session
   const permissionPreset = isRecord(input) ? input.permissionPreset : undefined
   if (!isPermissionPreset(permissionPreset)) return { ok: false, message: PERMISSION_PRESET_ERROR }
-  return { ok: true, input: { sessionId: session.input.sessionId, permissionPreset } }
+  return { ok: true, input: { ...session.input, permissionPreset } }
 }
 
 function parseRespondToRequestInput(
@@ -571,7 +685,7 @@ function parseRespondToRequestInput(
   return {
     ok: true,
     input: {
-      sessionId: session.input.sessionId,
+      ...session.input,
       requestId: input.requestId,
       approved: input.approved,
       ...(answers ? { answers } : {}),

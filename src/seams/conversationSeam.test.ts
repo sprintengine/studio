@@ -25,7 +25,7 @@ vi.mock('electron', () => import('../../tests/stubs/electron'))
 test('conversationSeam', async () => {
   // The input each stubbed IPC handler is handed, read off the real handler
   // surface so a stub cannot drift from the channel it stands in for.
-  type HandlerInput<K extends keyof ConversationIpcHandlers> = Parameters<ConversationIpcHandlers[K]>[0]
+  type HandlerInput<K extends keyof ConversationIpcHandlers> = Parameters<NonNullable<ConversationIpcHandlers[K]>>[0]
 
   // ── Seam: the conversation composer and its runtime (T4 → T5, items 1798/1809/1810)
   //

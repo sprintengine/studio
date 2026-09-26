@@ -34,7 +34,7 @@ import type { ConversationEvent } from '../shared/conversation-runtime'
 export const DEFAULT_DELTA_FLUSH_MS = 300
 
 /** `[event id, createdAt, text length]` for one delta folded into a merged record. */
-type DeltaPart = [string, number, number]
+type DeltaPart = [string, number, number, number?]
 
 type PersistedEvent = ConversationEvent & { parts?: DeltaPart[] }
 
@@ -87,11 +87,11 @@ export class ConversationEventLog {
       const text = deltaText(event)
       if (log.run && text !== null && canExtend(log.run, event)) {
         log.run.text += text
-        log.run.parts.push([event.id, event.createdAt, text.length])
+        log.run.parts.push([event.id, event.createdAt, text.length, event.seq])
       } else {
         this.endRun(log)
         if (text === null) log.queued.push(serialize(event))
-        else log.run = { event, text, parts: [[event.id, event.createdAt, text.length]] }
+        else log.run = { event, text, parts: [[event.id, event.createdAt, text.length, event.seq]] }
       }
       if (!log.timer) {
         log.timer = setTimeout(() => {
@@ -210,11 +210,12 @@ export function expandCoalescedDeltas(record: ConversationEvent): ConversationEv
   if (parts.reduce((sum, part) => sum + part[2], 0) !== text.length) return [event]
   const expanded: ConversationEvent[] = []
   let offset = 0
-  for (const [id, createdAt, length] of parts) {
+  for (const [id, createdAt, length, seq] of parts) {
     expanded.push({
       ...event,
       id,
       createdAt,
+      ...(typeof seq === 'number' ? { seq } : {}),
       payload: { ...event.payload, text: text.slice(offset, offset + length) },
     })
     offset += length
@@ -264,7 +265,7 @@ function serializeRun(run: DeltaRun): string {
 function isDeltaPart(value: unknown): value is DeltaPart {
   return (
     Array.isArray(value) &&
-    value.length === 3 &&
+    (value.length === 3 || value.length === 4) &&
     typeof value[0] === 'string' &&
     typeof value[1] === 'number' &&
     typeof value[2] === 'number' &&
