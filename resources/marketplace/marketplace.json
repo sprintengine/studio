@@ -193,6 +193,24 @@
       }
     },
     {
+      "id": "cursor-agent",
+      "name": "Cursor",
+      "publisher": {
+        "name": "SprintEngine Labs",
+        "verified": true
+      },
+      "summary": "Cursor conversations through the Agent Client Protocol.",
+      "category": "Agent Runtime",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNwcmludEVuZ2luZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg2NCA2NCkgc2NhbGUoNykgdHJhbnNsYXRlKC0xMiAtMTIpIiBmaWxsPSJub25lIiBzdHJva2U9IiNlNmU5ZWUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHBhdGggZD0iTTkuMjUgNy43NUwxNS41IDEyLjFMMTIuNCAxM0wxMS4yIDE2LjI1TDkuMjUgNy43NVoiLz4KICA8L2c+Cjwvc3ZnPgo=",
+      "latest": 1,
+      "provides": [
+        "cli"
+      ],
+      "cli": {
+        "pluginId": "cursor-agent"
+      }
+    },
+    {
       "id": "generic-shell",
       "name": "Generic Shell",
       "publisher": {
@@ -226,6 +244,24 @@
       ],
       "cli": {
         "pluginId": "grok"
+      }
+    },
+    {
+      "id": "grok-agent",
+      "name": "Grok",
+      "publisher": {
+        "name": "SprintEngine Labs",
+        "verified": true
+      },
+      "summary": "Grok conversations through the Agent Client Protocol.",
+      "category": "Agent Runtime",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNwcmludEVuZ2luZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg2NCA2NCkgc2NhbGUoNykgdHJhbnNsYXRlKC0xMiAtMTIpIiBmaWxsPSJub25lIiBzdHJva2U9IiNlNmU5ZWUiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHBhdGggZD0iTTE0Ljc1IDcuNzVMOS4yNSAxNi4yNU05LjI1IDcuNzVMMTIgMTIiLz4KICA8L2c+Cjwvc3ZnPgo=",
+      "latest": 1,
+      "provides": [
+        "cli"
+      ],
+      "cli": {
+        "pluginId": "grok-agent"
       }
     },
     {
@@ -298,6 +334,24 @@
       ],
       "cli": {
         "pluginId": "opencode"
+      }
+    },
+    {
+      "id": "opencode-agent",
+      "name": "OpenCode",
+      "publisher": {
+        "name": "SprintEngine Labs",
+        "verified": true
+      },
+      "summary": "OpenCode conversations through the Agent Client Protocol.",
+      "category": "Agent Runtime",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IlNwcmludEVuZ2luZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMxMDE4MjAiLz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyOCAyMCkgc2NhbGUoMC4yNSkgdHJhbnNsYXRlKC0xMTIgLTgwKSIgZmlsbD0iI2U2ZTllZSI+CiAgICA8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTM4NCA0MTZIMTI4Vjk2SDM4NFY0MTZaTTMyMCAxNjBIMTkyVjM1MkgzMjBWMTYwWiIvPgogICAgPHBhdGggZD0iTTMyMCAyMjRWMzUySDE5MlYyMjRIMzIwWiIvPgogIDwvZz4KPC9zdmc+Cg==",
+      "latest": 1,
+      "provides": [
+        "cli"
+      ],
+      "cli": {
+        "pluginId": "opencode-agent"
       }
     },
     {

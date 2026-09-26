@@ -40,7 +40,8 @@ test('closed history extends the chat stream and deletion requires confirmation'
   Object.assign(dom.window, {
     api: {
       platform: 'darwin',
-      conversationThreads: async () => ({ ok: true, threads }),
+      conversationThreads: async ({ workspaceId }: { workspaceId: string }) =>
+        workspaceId === 'missing' ? { ok: false, message: 'Workspace is unavailable.' } : { ok: true, threads },
       conversationDelete: remove,
       onConversationEvent: () => () => undefined,
     },
@@ -57,7 +58,10 @@ test('closed history extends the chat stream and deletion requires confirmation'
       root.render(
         <ConfirmDialogProvider>
           <ConversationHistoryRows
-            workspaces={[{ id: 'workspace', name: 'Project', folderPath: '/project' } as Workspace]}
+            workspaces={[
+              { id: 'workspace', name: 'Project', folderPath: '/project' } as Workspace,
+              { id: 'missing', name: 'Offline project', folderPath: '/missing' } as Workspace,
+            ]}
             sessions={[]}
           />
         </ConfirmDialogProvider>,

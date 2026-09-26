@@ -30,6 +30,7 @@ import type {
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { readToolDetail, writeToolDetail, redactConversationValue } from './conversation-tool-details'
 import { createConversationSkillsResolver, type ConversationSkillsResolver } from './conversation-skills'
+import { resolveConversationMentions } from './conversation-mentions'
 import { ConversationCheckpoints } from './conversation-checkpoints'
 import { ConversationIndex } from './conversation-index'
 import type {
@@ -331,7 +332,8 @@ export class ConversationRuntime {
     const message = input.message.trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
-    if (!message && attachments.length === 0) return { ok: false, message: 'Conversation turn message is required.' }
+    if (!message && attachments.length === 0 && !input.mentions?.length)
+      return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
@@ -340,11 +342,18 @@ export class ConversationRuntime {
       return { ok: false, message: 'This provider does not support plan mode.' }
 
     let skills: Awaited<ReturnType<ConversationSkillsResolver>>
+    let mentions: Awaited<ReturnType<typeof resolveConversationMentions>>
     try {
       skills = await this.resolveSkills({
         workspaceRoot: session.workspaceRoot,
         skills: input.skills ?? [],
         mode: adapter.capabilities?.skills ?? 'none',
+      })
+      mentions = await resolveConversationMentions({
+        workspaceRoot: session.workspaceRoot,
+        mentions: input.mentions ?? [],
+        providerId: session.providerId,
+        tools: session.capabilities?.tools === true,
       })
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Attached skills could not be loaded.' }
@@ -382,6 +391,7 @@ export class ConversationRuntime {
           text: message,
           ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
           ...(skills.ids.length ? { skills: skills.ids } : {}),
+          ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
         }),
         { turnId },
       )
@@ -394,7 +404,7 @@ export class ConversationRuntime {
             ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
             ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
             ...session.history,
-            { role: 'user', content: message },
+            { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
           ]
       // Attachments are carried live into the turn call; only vision-capable
       // adapters read them. They are not persisted into history (v1 is
@@ -405,7 +415,7 @@ export class ConversationRuntime {
           ...session,
           turnId,
           requestId,
-          message: [session.stateful ? skills.context : undefined, session.revertedNote, message]
+          message: [session.stateful ? skills.context : undefined, session.revertedNote, message, mentions.context]
             .filter(Boolean)
             .join('\n\n'),
           skills: skills.ids,

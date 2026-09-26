@@ -121,6 +121,7 @@ export type ConversationImageAttachment = {
 }
 
 export type ConversationSendTurnInput = {
+  mentions?: import('./conversation/mentions').ConversationMentionRef[]
   reasoningEffort?: string
   mode?: 'default' | 'plan' | 'ask'
   commandId?: string

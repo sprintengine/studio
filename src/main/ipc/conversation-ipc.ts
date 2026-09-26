@@ -63,6 +63,7 @@ import { getConversationProviderById, listConversationProviderRegistryEntries } 
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
 import { isRecord } from '../../shared/records'
+import { parseConversationMentions } from '../../shared/conversation/mentions'
 
 export type ConversationIpcHandlers = {
   listThreads?(input: ConversationWorkspaceKey): Promise<ConversationThreadsResult>
@@ -767,6 +768,8 @@ function parseSendTurnInput(
   if (input.mode !== undefined && !['default', 'plan', 'ask'].includes(String(input.mode)))
     return { ok: false, message: 'Invalid conversation mode.' }
   let attachments: ConversationImageAttachment[] | undefined
+  const mentions = input.mentions === undefined ? undefined : parseConversationMentions(input.mentions)
+  if (mentions === null) return { ok: false, message: 'Mention references are invalid.' }
   if (
     input.skills !== undefined &&
     (!Array.isArray(input.skills) ||
@@ -791,6 +794,7 @@ function parseSendTurnInput(
       message: input.message,
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
       ...(attachments ? { attachments } : {}),
+      ...(mentions ? { mentions } : {}),
       ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
       ...(typeof input.reasoningEffort === 'string' ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.mode ? { mode: input.mode as ConversationSendTurnInput['mode'] } : {}),

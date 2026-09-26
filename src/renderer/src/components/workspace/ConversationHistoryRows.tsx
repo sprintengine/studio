@@ -38,20 +38,22 @@ export function ConversationHistoryRows({
   const refresh = useCallback(async () => {
     if (typeof window.api.conversationThreads !== 'function') return
     const current = ++generation.current
-    try {
-      const next: HistoryRow[] = []
-      for (const key of keys) {
-        const result = await window.api.conversationThreads(key)
-        if (!result.ok) throw new Error(result.message)
-        next.push(...result.threads.map((thread) => ({ ...key, thread })))
-      }
-      if (current === generation.current) {
-        setRows(next.sort((a, b) => b.thread.updatedAt - a.thread.updatedAt))
-        setError(null)
-      }
-    } catch (failure) {
-      if (current === generation.current)
-        setError(failure instanceof Error ? failure.message : 'Could not load conversation history.')
+    const next: HistoryRow[] = []
+    const unavailable: string[] = []
+    await Promise.all(
+      keys.map(async (key) => {
+        try {
+          const result = await window.api.conversationThreads(key)
+          if (!result.ok) throw new Error(result.message)
+          next.push(...result.threads.map((thread) => ({ ...key, thread })))
+        } catch {
+          unavailable.push(key.workspaceName)
+        }
+      }),
+    )
+    if (current === generation.current) {
+      setRows(next.sort((a, b) => b.thread.updatedAt - a.thread.updatedAt))
+      setError(unavailable.length ? `History unavailable for ${unavailable.join(', ')}.` : null)
     }
   }, [keys])
   useEffect(() => {

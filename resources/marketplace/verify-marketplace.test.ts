@@ -229,10 +229,10 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
     [...kinds.entries()].sort(),
     [
       ['automation', 5],
-      ['cli', 13],
+      ['cli', 17],
       ['module', 1],
     ],
-    'the registry is 13 agent CLIs, 5 automation starters and 1 capability module (Reviews)'
+    'the registry is 17 agent CLI integrations, 5 automation starters and 1 capability module (Reviews)'
   )
 }
 

@@ -10,9 +10,14 @@ import {
 } from './conversationTimeline'
 import { type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
-import { TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton, Tooltip } from '../../ui'
+import { Badge, TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton, Tooltip } from '../../ui'
 import { ChatGlyph } from './modelPicker'
-import { ConversationMarkdown, conversationText, useConversationLinkContext } from './conversationLinks'
+import {
+  ConversationFileLink,
+  ConversationMarkdown,
+  conversationText,
+  useConversationLinkContext,
+} from './conversationLinks'
 import { ToolRow, toolPresentationInput } from './toolRows/ToolRow'
 import { useConversationDisclosure } from './conversationViewState'
 import { summarizeToolGroup } from '../../../../../shared/conversation/presentation'
@@ -88,6 +93,28 @@ export function UserTimelineRow({
             {attachments.map((attachment) => (
               <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-16 w-16" />
             ))}
+          </div>
+        ) : null}
+        {entry.mentions?.length || entry.skills?.length ? (
+          <div className="mb-2 flex flex-wrap justify-end gap-1.5" aria-label="Attached context">
+            {entry.skills?.map((skill) => (
+              <Badge key={`skill:${skill}`} ariaLabel={`Skill: ${skill}`}>
+                {skill}
+              </Badge>
+            ))}
+            {entry.mentions?.map((mention) =>
+              mention.kind === 'folder' ? (
+                <Badge key={`folder:${mention.path}`} ariaLabel={`Folder: ${mention.path}`}>
+                  {mention.path}/
+                </Badge>
+              ) : (
+                <ConversationFileLink
+                  key={`${mention.path}:${mention.line ?? ''}`}
+                  token={`./${mention.path}${mention.line ? `:${mention.line}` : ''}`}
+                  source="inlineCode"
+                />
+              ),
+            )}
           </div>
         ) : null}
         {entry.text ? (

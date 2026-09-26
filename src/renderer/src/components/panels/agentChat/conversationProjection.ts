@@ -11,6 +11,7 @@ import type {
   ConversationToolKind,
   ConversationToolStatus,
 } from '../../../../../shared/conversation-runtime'
+import { parseConversationMentions, type ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ export type TranscriptEntry =
       // from the local send, never from the replayed transcript, so a bubble
       // restored after a restart is text-only by design.
       attachments?: ConversationImageAttachment[]
+      mentions?: ConversationMentionRef[]
+      skills?: string[]
     }
   | {
       kind: 'assistant'
@@ -112,7 +115,13 @@ export type TranscriptEntry =
       answers?: Record<string, string>
     }
 
-export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
+export type UserTurn = {
+  id: string
+  text: string
+  attachments?: ConversationImageAttachment[]
+  mentions?: ConversationMentionRef[]
+  skills?: string[]
+}
 
 /** Token counts the session has reported so far; null until the first report. */
 export type ConversationUsage = { inputTokens: number; outputTokens: number }
@@ -321,6 +330,8 @@ export function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEn
     id: userTurn.id,
     text: userTurn.text,
     ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
+    ...(userTurn.mentions?.length ? { mentions: userTurn.mentions } : {}),
+    ...(userTurn.skills?.length ? { skills: userTurn.skills } : {}),
   }
 }
 
@@ -330,7 +341,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // User bubbles recorded in the event stream itself (persisted transcript);
   // when present these are authoritative and the locally tracked userTurns
   // only fill the optimistic gap between a send and its first event.
-  const eventUserTurns = new Map<string, { id: string; text: string; seq?: number; localTurnId?: string }>()
+  const eventUserTurns = new Map<string, UserTurn & { seq?: number; localTurnId?: string }>()
   const representedLocalTurnIds = new Set<string>()
   // Attachments are live-only (D3/1774): the persisted `user_message` event
   // carries text alone, so the images a bubble shows are looked up from the
@@ -409,6 +420,10 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
             text: readString(event.payload, 'text') ?? '',
             ...(event.seq !== undefined ? { seq: event.seq } : {}),
             ...(localTurnId ? { localTurnId } : {}),
+            mentions: parseConversationMentions(event.payload?.mentions) ?? undefined,
+            skills: Array.isArray(event.payload?.skills)
+              ? event.payload.skills.filter((id): id is string => typeof id === 'string')
+              : undefined,
           })
           ensureTurn(turnId).seq = event.seq
           if (localTurnId) representedLocalTurnIds.add(localTurnId)
@@ -611,6 +626,8 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           id: eventUserTurn.id,
           ...(eventUserTurn.seq !== undefined ? { seq: eventUserTurn.seq } : {}),
           text: eventUserTurn.text,
+          mentions: eventUserTurn.mentions,
+          skills: eventUserTurn.skills,
           ...(attachments ? { attachments } : {}),
         })
       }
