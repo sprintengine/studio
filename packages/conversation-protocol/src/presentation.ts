@@ -40,8 +40,13 @@ function read(input: Record<string, unknown>, ...keys: string[]): string {
 function basename(path: string) {
   return path.split(/[\\/]/).at(-1) || path
 }
-function shorten(value: string, maximum = 72) {
+function shorten(value: string, maximum = 72, keepEnd = 0) {
   if (value.length <= maximum) return value
+  if (keepEnd > 0) {
+    // Keep the action verb even for a directory name longer than the budget.
+    const tail = Math.min(keepEnd, maximum - 8)
+    return `${value.slice(0, maximum - tail - 1)}…${value.slice(-tail)}`
+  }
   return value.slice(0, Math.max(1, maximum - 1)) + '…'
 }
 
@@ -126,7 +131,7 @@ export function presentToolItem(
   return {
     icon: kind,
     verb,
-    title: shorten(title),
+    title: shorten(title, 72, kind === 'list' ? basename(title).length : 0),
     ...(exitCode ? { subtitle: `exit ${exitCode}` } : subtitlePath ? { subtitle: subtitlePath } : {}),
     tone,
   }

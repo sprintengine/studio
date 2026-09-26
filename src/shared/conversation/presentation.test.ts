@@ -56,3 +56,17 @@ test('malformed data and unknown names stay readable', () => {
     'Read file.ts',
   )
 })
+
+test('long directory titles retain their basename inside the title budget', () => {
+  for (const suffix of ['', '/']) {
+    const title = presentToolItem({
+      kind: 'list',
+      name: 'List',
+      input: { path: `/workspace/${'parent/'.repeat(20)}source-files${suffix}` },
+    }).title
+    expect(title).toHaveLength(72)
+    expect(title).toMatch(/^Listed /)
+    expect(title).toContain('…')
+    expect(title.endsWith(`source-files${suffix}`)).toBe(true)
+  }
+})
