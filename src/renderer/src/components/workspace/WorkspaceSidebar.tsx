@@ -3,6 +3,7 @@ import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { conversationLineText } from './sidebar/conversationLines'
+import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
@@ -1909,6 +1910,7 @@ function WorkspaceSidebar({
             flatProject: flatProjectOfRemote(conversation),
           }),
         )}
+        <ConversationHistoryRows workspaces={localRailWorkspaces} sessions={conversationSessions} />
         {snoozedRows.length > 0 ? (
           <>
             <ShelfFoldRow
