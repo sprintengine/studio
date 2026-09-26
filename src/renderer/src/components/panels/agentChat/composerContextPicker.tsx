@@ -39,6 +39,7 @@ export function fileMentionCandidates(root: string, files: FileSearchEntry[], qu
 }
 
 export function useFileMentionSearch(workspaceRoot: string | null, query: string | null) {
+  const channel = `mention:${useId()}`
   const [state, setState] = useState<{ rows: ConversationMentionRef[]; loading: boolean; error: string | null }>({
     rows: [],
     loading: false,
@@ -52,7 +53,7 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     const timer = window.setTimeout(() => {
       started = true
       void window.api
-        .searchFiles(workspaceRoot, query, { limit: 50, purpose: 'mention' })
+        .searchFiles(workspaceRoot, query, { limit: 50, purpose: 'mention', channel })
         .then((result) => {
           if (cancelled) return
           setState(
@@ -69,9 +70,9 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     return () => {
       cancelled = true
       window.clearTimeout(timer)
-      if (started) void window.api.cancelFileSearch?.().catch(() => undefined)
+      if (started) void window.api.cancelFileSearch?.(channel).catch(() => undefined)
     }
-  }, [query, workspaceRoot])
+  }, [query, workspaceRoot, channel])
   return state
 }
 

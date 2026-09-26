@@ -19,7 +19,8 @@ vi.mock('./ripgrep-binary', async (importActual) => {
   }
 })
 
-const { searchContent, searchFiles, cancelActiveFileSearch } = await import('./filesystem-search')
+const { searchContent, searchFiles, cancelActiveFileSearch, cancelAllFileSearches } =
+  await import('./filesystem-search')
 
 let scratch = ''
 let sender = 1000
@@ -65,6 +66,28 @@ test('explicit cancellation fences a file search even while its root is being ch
   assert.deepEqual(result.ok ? result.results : null, [])
   const fresh = await searchFiles(owner, { rootPath: root, query: 'app' })
   assert.ok(fresh.ok && fresh.results.length === 2)
+})
+
+test('mention channels neither supersede default file search nor cancel another panel', async () => {
+  binary.current = null
+  const root = await project('isolated-channels')
+  const owner = ++sender
+  const regular = searchFiles(owner, { rootPath: root, query: 'app' })
+  const mentionA = searchFiles(owner, { rootPath: root, query: 'app', purpose: 'mention', channel: 'panel-a' })
+  const mentionB = searchFiles(owner, { rootPath: root, query: 'app', purpose: 'mention', channel: 'panel-b' })
+  cancelActiveFileSearch(owner, 'panel-a')
+  const [normal, cancelled, surviving] = await Promise.all([regular, mentionA, mentionB])
+  assert.ok(normal.ok && normal.results.length === 2)
+  assert.ok(cancelled.ok && cancelled.results.length === 0)
+  assert.ok(surviving.ok && surviving.results.length === 2)
+  const all = [undefined, 'panel-a', 'panel-b'].map((channel) =>
+    searchFiles(owner, { rootPath: root, query: 'app', channel }),
+  )
+  const otherWindow = searchFiles(++sender, { rootPath: root, query: 'app', channel: 'panel-b' })
+  cancelAllFileSearches(owner)
+  for (const result of await Promise.all(all)) assert.ok(result.ok && result.results.length === 0)
+  const unaffected = await otherWindow
+  assert.ok(unaffected.ok && unaffected.results.length === 2)
 })
 
 test('mention search ranks past the first fifty matches, supports subsequences and empty folders', async () => {

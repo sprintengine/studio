@@ -846,11 +846,11 @@ export type ElectronApi = {
   searchFiles: (
     rootPath: string,
     query: string,
-    options?: { limit?: number; purpose?: 'mention' },
+    options?: { limit?: number; purpose?: 'mention'; channel?: string },
   ) => Promise<FileSearchResult>
   searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>
-  cancelFileSearch: () => Promise<void>
+  cancelFileSearch: (channel?: string) => Promise<void>
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>

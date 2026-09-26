@@ -7,6 +7,7 @@ type FileSearchRequest = {
   query: string
   limit?: number
   purpose?: 'mention'
+  channel?: string
 }
 
 type ContentSearchRequest = FileSearchRequest
@@ -22,7 +23,8 @@ type FilesystemWatchSearchIpcDependencies = {
   searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult>
   searchContent(senderId: number, input: ContentSearchRequest): Promise<ContentSearchResult>
   cancelActiveContentSearch(senderId: number): void
-  cancelActiveFileSearch(senderId: number): void
+  cancelActiveFileSearch(senderId: number, channel?: string): void
+  cancelAllFileSearches(senderId: number): void
   /** Injectable for tests; the process-wide hub otherwise. */
   watchHub?: WatchHub
 }
@@ -37,6 +39,16 @@ export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: Filesys
   const fileWatchers = new Map<string, FileWatcherRecord>()
   const trackedWatcherSenders = new Set<number>()
   let nextFileWatcherId = 0
+  const trackedSearchSenders = new Set<number>()
+  const trackSearchSender = (sender: Electron.WebContents) => {
+    if (trackedSearchSenders.has(sender.id)) return
+    trackedSearchSenders.add(sender.id)
+    sender.once('destroyed', () => {
+      trackedSearchSenders.delete(sender.id)
+      deps.cancelAllFileSearches(sender.id)
+      deps.cancelActiveContentSearch(sender.id)
+    })
+  }
 
   const disposeFileWatcher = (watchId: string): void => {
     const fileWatcher = fileWatchers.get(watchId)
@@ -93,17 +105,19 @@ export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: Filesys
   })
 
   ipcMain.handle('fs:search-files', async (event, input: FileSearchRequest): Promise<FileSearchResult> => {
+    trackSearchSender(event.sender)
     return deps.searchFiles(event.sender.id, input)
   })
 
   ipcMain.handle('fs:search-content', async (event, input: ContentSearchRequest): Promise<ContentSearchResult> => {
+    trackSearchSender(event.sender)
     return deps.searchContent(event.sender.id, input)
   })
 
   ipcMain.handle('fs:cancel-content-search', (event): void => {
     deps.cancelActiveContentSearch(event.sender.id)
   })
-  ipcMain.handle('fs:cancel-file-search', (event): void => {
-    deps.cancelActiveFileSearch(event.sender.id)
+  ipcMain.handle('fs:cancel-file-search', (event, channel?: string): void => {
+    deps.cancelActiveFileSearch(event.sender.id, channel)
   })
 }

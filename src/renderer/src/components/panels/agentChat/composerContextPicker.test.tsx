@@ -91,9 +91,14 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1)
     })
-    expect(searchFiles).toHaveBeenCalledWith('/Users/dev/project', 'fi', { limit: 50, purpose: 'mention' })
+    expect(searchFiles).toHaveBeenCalledWith('/Users/dev/project', 'fi', {
+      limit: 50,
+      purpose: 'mention',
+      channel: expect.stringMatching(/^mention:/),
+    })
     await act(async () => root.render(createElement(Harness, { query: 'file' })))
     expect(cancelFileSearch).toHaveBeenCalledOnce()
+    expect(cancelFileSearch).toHaveBeenCalledWith(expect.stringMatching(/^mention:/))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120)
     })

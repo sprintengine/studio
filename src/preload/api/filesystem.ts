@@ -23,13 +23,19 @@ export const filesystemApi = {
   searchFiles: (
     rootPath: string,
     query: string,
-    options?: { limit?: number; purpose?: 'mention' },
+    options?: { limit?: number; purpose?: 'mention'; channel?: string },
   ): Promise<FileSearchResult> =>
-    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit, purpose: options?.purpose }),
+    ipcRenderer.invoke('fs:search-files', {
+      rootPath,
+      query,
+      limit: options?.limit,
+      purpose: options?.purpose,
+      channel: options?.channel,
+    }),
   searchContent: (rootPath: string, query: string, options?: { limit?: number }): Promise<ContentSearchResult> =>
     ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit }),
   cancelContentSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-content-search'),
-  cancelFileSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-file-search'),
+  cancelFileSearch: (channel?: string): Promise<void> => ipcRenderer.invoke('fs:cancel-file-search', channel),
   readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
   readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),

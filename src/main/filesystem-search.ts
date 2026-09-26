@@ -20,6 +20,7 @@ export type FileSearchRequest = {
   query: string
   limit?: number
   purpose?: 'mention'
+  channel?: string
 }
 
 export type ContentSearchRequest = FileSearchRequest
@@ -67,7 +68,7 @@ const FILE_SEARCH_DEFAULT_EXCLUDES = [
   'coverage',
 ]
 
-const activeFileSearches = new Map<number, ChildProcessWithoutNullStreams>()
+const activeFileSearches = new Map<string, ChildProcessWithoutNullStreams>()
 const cancelledFileSearches = new WeakSet<ChildProcessWithoutNullStreams>()
 const activeContentSearches = new Map<number, ChildProcessWithoutNullStreams>()
 const cancelledContentSearches = new WeakSet<ChildProcessWithoutNullStreams>()
@@ -117,11 +118,25 @@ function sortFileSearchResults(results: FileSearchEntry[], query: string): FileS
   })
 }
 
-export function cancelActiveFileSearch(senderId: number): void {
-  fileSearchTickets.set(senderId, (fileSearchTickets.get(senderId) ?? 0) + 1)
-  const activeSearch = activeFileSearches.get(senderId)
+function fileSearchKey(senderId: number, channel?: string): string {
+  return `${senderId}:${typeof channel === 'string' && channel.length <= 200 ? channel : ''}`
+}
+
+export function cancelActiveFileSearch(senderId: number, channel?: string): void {
+  cancelFileSearchKey(fileSearchKey(senderId, channel))
+}
+
+export function cancelAllFileSearches(senderId: number): void {
+  for (const key of new Set([...fileSearchTickets.keys(), ...activeFileSearches.keys()])) {
+    if (key.startsWith(`${senderId}:`)) cancelFileSearchKey(key)
+  }
+}
+
+function cancelFileSearchKey(key: string): void {
+  fileSearchTickets.delete(key)
+  const activeSearch = activeFileSearches.get(key)
   if (!activeSearch) return
-  activeFileSearches.delete(senderId)
+  activeFileSearches.delete(key)
   cancelledFileSearches.add(activeSearch)
   try {
     activeSearch.kill()
@@ -170,7 +185,7 @@ function spawnRipgrep(
 }
 
 async function searchFilesWithRipgrep(
-  senderId: number,
+  senderId: string,
   binaryPath: string,
   rootPath: string,
   query: string,
@@ -439,9 +454,11 @@ function withContentSearchDiagnostics(result: ContentSearchEngineResult, started
 
 export async function searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult> {
   const startedAt = Date.now()
-  cancelActiveFileSearch(senderId)
-  const ticket = fileSearchTickets.get(senderId)
-  const superseded = () => fileSearchTickets.get(senderId) !== ticket
+  const key = fileSearchKey(senderId, input.channel)
+  cancelFileSearchKey(key)
+  const ticket = Symbol()
+  fileSearchTickets.set(key, ticket)
+  const superseded = () => fileSearchTickets.get(key) !== ticket
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
@@ -480,7 +497,7 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
 
   // Too large to hold, or the listing failed: walk for this query alone.
   if (rg.ok) {
-    const result = await searchFilesWithRipgrep(senderId, rg.path, rootPath, query, limit)
+    const result = await searchFilesWithRipgrep(key, rg.path, rootPath, query, limit)
     // A ripgrep that could not start has just been given up on; walk instead.
     const after = await ripgrepBinary()
     if (result.ok || after.ok) return withFileSearchDiagnostics(result, startedAt)
@@ -489,7 +506,7 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   return withFileSearchDiagnostics(await searchFilesWithWalker(rootPath, query, limit, superseded), startedAt)
 }
 
-const fileSearchTickets = new Map<number, number>()
+const fileSearchTickets = new Map<string, symbol>()
 
 let reportedWalkerFallback = false
 
