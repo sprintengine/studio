@@ -41,13 +41,30 @@ type DraftState = {
 
 /** Like other renderer view stores, only a validated, versioned data envelope persists. */
 export function createComposerDraftStore(storage: StateStorage, now = Date.now) {
+  // Keep a total access order even when several drafts are touched in one
+  // millisecond, or the device clock moves backwards after a restart.
+  const nextAccess = (records: Record<string, ComposerDraft>) =>
+    Math.max(now(), ...Object.values(records).map((draft) => draft.updatedAt + 1))
   return createStore<DraftState>()(
     persist(
       (set, get) => ({
         drafts: {},
-        read: (workspaceId, agentId) => get().drafts[keyOf(workspaceId, agentId)] ?? EMPTY_DRAFT,
+        read: (workspaceId, agentId) => {
+          const key = keyOf(workspaceId, agentId)
+          const records = get().drafts
+          const saved = records[key]
+          if (!saved) return EMPTY_DRAFT
+          const touched = { ...saved, updatedAt: nextAccess(records) }
+          try {
+            set({ drafts: { ...records, [key]: touched } })
+          } catch {
+            // Reading an existing draft must still work if storage is full.
+            // Actual edits surface persistence failures through the composer.
+          }
+          return touched
+        },
         put: (workspaceId, agentId, draft) => {
-          const value = normalizeDraft({ ...draft, updatedAt: now() })!
+          const value = normalizeDraft({ ...draft, updatedAt: nextAccess(get().drafts) })!
           if (!value.text && !value.skillIds.length && !value.mentions.length) {
             get().remove(workspaceId, agentId)
             return

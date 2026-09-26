@@ -59,8 +59,9 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
     [key, initial, update],
   )
   const setDraftMetadata = useCallback(
-    (metadata: ComposerDraftMetadata) => {
-      update({ ...(values.current.get(key) ?? initial), ...metadata })
+    (metadata: SetStateAction<ComposerDraftMetadata>) => {
+      const previous = values.current.get(key) ?? initial
+      update({ ...previous, ...(typeof metadata === 'function' ? metadata(previous) : metadata) })
     },
     [key, initial, update],
   )

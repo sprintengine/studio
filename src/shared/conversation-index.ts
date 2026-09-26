@@ -12,6 +12,7 @@ export type ConversationThread = {
   providerId: string
   lastSeq: number
   firstUserText: string
+  totalCostUsd?: number
 }
 export type ConversationSearchInput = ConversationWorkspaceKey & { query: string; requestId?: string }
 export type ConversationSearchHit = { agentId: string; seq: number; turnId?: string; snippet: string }

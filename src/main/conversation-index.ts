@@ -13,7 +13,7 @@ import type {
 } from '../shared/conversation-index'
 
 type Fingerprint = { file: string; size: number; mtime: number }
-type Index = { version: 1; threads: ConversationThread[]; files: Fingerprint[] }
+type Index = { version: 2; threads: ConversationThread[]; files: Fingerprint[] }
 const segment = (value: string) => {
   const encoded = encodeURIComponent(value.trim().replace(/[\\/]/g, '-'))
   return encoded === '.' || encoded === '..' ? encoded.replace(/\./g, '%2E') : encoded
@@ -55,7 +55,7 @@ export class ConversationIndex {
         const thread = await readThread(join(directory(key), file.file))
         if (thread) threads.push(thread)
       }
-      await saveIndex(directory(key), { version: 1, threads, files })
+      await saveIndex(directory(key), { version: 2, threads, files })
       return sorted(threads)
     })
   }
@@ -75,7 +75,7 @@ export class ConversationIndex {
         files.sort((a, b) => a.file.localeCompare(b.file))
         const threads = cache.threads.filter((entry) => entry.agentId !== key.agentId)
         if (thread) threads.push(thread)
-        await saveIndex(directory(key), { version: 1, threads, files })
+        await saveIndex(directory(key), { version: 2, threads, files })
       } else {
         const files = await this.files(key)
         const threads: ConversationThread[] = []
@@ -83,7 +83,7 @@ export class ConversationIndex {
           const entry = await readThread(join(directory(key), file.file))
           if (entry) threads.push(entry)
         }
-        await saveIndex(directory(key), { version: 1, threads, files })
+        await saveIndex(directory(key), { version: 2, threads, files })
       }
       return thread
     })
@@ -228,6 +228,7 @@ async function* readEvents(path: string, signal?: AbortSignal): AsyncIterable<Co
 async function readThread(path: string): Promise<ConversationThread | null> {
   let thread: ConversationThread | null = null
   const turns = new Set<string>()
+  const costs = new Map<string, number>()
   for await (const event of readEvents(path)) {
     thread ??= {
       agentId: event.agentId,
@@ -249,6 +250,11 @@ async function readThread(path: string): Promise<ConversationThread | null> {
       ? parts.flatMap((part) => (Array.isArray(part) && typeof part[3] === 'number' ? [part[3]] : []))
       : []
     thread.lastSeq = Math.max(thread.lastSeq, event.seq ?? thread.lastSeq + 1, ...partSeqs)
+    if (event.type === 'turn_completed') {
+      const cost = event.payload?.costUsd
+      if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0)
+        costs.set(text(event.payload?.turnId) || event.id, cost)
+    }
     if (event.type === 'user_message') {
       turns.add(text(event.payload?.turnId) || event.id)
       if (!thread.firstUserText) {
@@ -264,7 +270,10 @@ async function readThread(path: string): Promise<ConversationThread | null> {
       }
     }
   }
-  if (thread) thread.turnCount = turns.size
+  if (thread) {
+    thread.turnCount = turns.size
+    if (costs.size) thread.totalCostUsd = [...costs.values()].reduce((sum, cost) => sum + cost, 0)
+  }
   return thread
 }
 /** A generated-title service can replace this ladder rung without changing index ownership. */
@@ -277,7 +286,7 @@ async function readIndex(path: string): Promise<Index | null> {
     const file = join(path, 'index.json')
     if ((await lstat(file)).isSymbolicLink()) return null
     const value = record(JSON.parse(await readFile(file, 'utf8')))
-    if (value.version !== 1 || !Array.isArray(value.threads) || !Array.isArray(value.files)) return null
+    if (value.version !== 2 || !Array.isArray(value.threads) || !Array.isArray(value.files)) return null
     if (
       !value.threads.every((thread) => {
         const item = record(thread)
@@ -291,6 +300,8 @@ async function readIndex(path: string): Promise<Index | null> {
           Number.isFinite(item.updatedAt) &&
           Number.isSafeInteger(item.turnCount) &&
           Number.isSafeInteger(item.lastSeq) &&
+          (item.totalCostUsd === undefined ||
+            (typeof item.totalCostUsd === 'number' && Number.isFinite(item.totalCostUsd) && item.totalCostUsd >= 0)) &&
           ['first-message', 'user', 'generated'].includes(text(item.titleSource))
         )
       })

@@ -3,7 +3,12 @@ import { test } from 'vitest'
 import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
 import { projectConversation } from './conversationProjection'
 import { deriveConversationTimelineRows } from './conversationTimeline'
-import { applyEvent, createConversationProjectionState, prependEvents } from './incrementalConversationProjection'
+import {
+  applyEvent,
+  createConversationProjectionState,
+  prependEvents,
+  syncConversationProjection,
+} from './incrementalConversationProjection'
 
 function event(type: ConversationEventType, index: number, payload: Record<string, unknown>): ConversationEvent {
   return {
@@ -18,6 +23,30 @@ function event(type: ConversationEventType, index: number, payload: Record<strin
     payload,
   }
 }
+
+test('initial snapshots and reconnect batches fold once while preserving settled entry identities', () => {
+  const userTurns: [] = []
+  const events: ConversationEvent[] = []
+  for (let i = 0; i < 5000; i++) {
+    events.push(event('user_message', i * 4, { turnId: `turn-${i}`, text: `Prompt ${i}` }))
+    events.push(event('turn_started', i * 4 + 1, { turnId: `turn-${i}` }))
+    events.push(event('content_delta', i * 4 + 2, { turnId: `turn-${i}`, text: 'Answer' }))
+    events.push(event('turn_completed', i * 4 + 3, { turnId: `turn-${i}` }))
+  }
+  const snapshot = syncConversationProjection(createConversationProjectionState([], userTurns), events, userTurns)
+  assert.equal(snapshot.projection.entries.length, 10_000)
+  const nextEvents = [
+    ...events,
+    event('user_message', 20_001, { turnId: 'next', text: 'Follow up' }),
+    event('turn_started', 20_002, { turnId: 'next' }),
+    event('content_delta', 20_003, { turnId: 'next', text: 'New answer' }),
+  ]
+  const continued = syncConversationProjection(snapshot, nextEvents, userTurns)
+  assert.equal(continued.projection.entries[0], snapshot.projection.entries[0])
+  assert.equal(continued.projection.entries[9_999], snapshot.projection.entries[9_999])
+  assert.deepEqual(continued.projection, projectConversation(nextEvents, userTurns))
+  assert.equal(syncConversationProjection(continued, nextEvents, userTurns), continued)
+})
 
 test('incremental projection equals the reference fold after every event', () => {
   const events = [
@@ -194,10 +223,11 @@ test('checkpoint metadata and revert marks survive replay and undo', () => {
   assert.equal(firstAssistant?.kind === 'assistant' && firstAssistant.reverted, true)
   assert.equal(secondUser?.kind === 'user' && secondUser.reverted, true)
   assert.equal(secondAssistant?.kind === 'assistant' && secondAssistant.reverted, true)
-  assert.deepEqual(
-    firstAssistant?.kind === 'assistant' ? firstAssistant.checkpointSummary : undefined,
-    { files: 2, addedLines: 3, removedLines: 1 },
-  )
+  assert.deepEqual(firstAssistant?.kind === 'assistant' ? firstAssistant.checkpointSummary : undefined, {
+    files: 2,
+    addedLines: 3,
+    removedLines: 1,
+  })
   const restored = projectConversation([...events, event('session_updated', 8, { revertedAfterSeq: 10, undo: true })])
   assert.equal(
     restored.entries.some((entry) => (entry.kind === 'user' || entry.kind === 'assistant') && entry.reverted),

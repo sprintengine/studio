@@ -57,7 +57,22 @@ test('missing, corrupt and old-version caches rebuild from authoritative events'
       await writeFile(cache, invalid)
       expect((await index.list(key))[0]?.title).toBe('Build a useful chat')
     }
-    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(1)
+    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(2)
+  }))
+
+test('conversation cost includes old turns and deduplicates completion records', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+        event(2, 'turn_completed', { turnId: 'second', costUsd: 0.5 }),
+        event(3, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+        event(4, 'turn_completed', { turnId: 'third', costUsd: -1 }),
+      ]),
+    )
+    expect((await new ConversationIndex().list(key))[0]?.totalCostUsd).toBe(0.75)
+    expect((await new ConversationIndex().list(key))[0]?.totalCostUsd).toBe(0.75)
   }))
 
 test('user rename survives rebuild and always wins over a generated title', async () =>

@@ -36,7 +36,7 @@ test('drafts survive a store remount with metadata but never serialize image pay
   expect(createComposerDraftStore(memory).getState().read('workspace', 'agent').text).toBe('')
 })
 
-test('draft sizes and least-recently-written retention are bounded', () => {
+test('draft sizes and least-recently-used retention are bounded', () => {
   const memory = storage()
   let now = 0
   const store = createComposerDraftStore(memory, () => ++now)
@@ -49,4 +49,14 @@ test('draft sizes and least-recently-written retention are bounded', () => {
   store.getState().put('workspace', 'new', { text: 'new', skillIds: [], mentions: [] })
   expect(store.getState().read('workspace', 'agent-1').text).toHaveLength(MAX_DRAFT_CHARS)
   expect(store.getState().read('workspace', 'agent-2').text).toBe('')
+})
+
+test('opening an old draft protects it from eviction even within the same millisecond', () => {
+  const store = createComposerDraftStore(storage(), () => 1)
+  for (let i = 0; i < MAX_COMPOSER_DRAFTS; i++)
+    store.getState().put('workspace', `agent-${i}`, { text: 'draft', skillIds: [], mentions: [] })
+  expect(store.getState().read('workspace', 'agent-0').text).toBe('draft')
+  store.getState().put('workspace', 'new', { text: 'new', skillIds: [], mentions: [] })
+  expect(store.getState().read('workspace', 'agent-0').text).toBe('draft')
+  expect(store.getState().read('workspace', 'agent-1').text).toBe('')
 })

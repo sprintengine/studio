@@ -234,3 +234,27 @@ export function prependEvents(
   const entries = reconcileEntries(state.projection.entries, rebuilt.projection.entries)
   return { ...rebuilt, projection: { ...rebuilt.projection, entries }, entryIndexes: indexEntries(entries) }
 }
+
+/** Reconcile a paged snapshot or live window without replaying each snapshot event. */
+export function syncConversationProjection(
+  state: IncrementalConversationState,
+  events: ConversationEvent[],
+  userTurns: UserTurn[],
+): IncrementalConversationState {
+  const oldLength = state.history?.length ?? 0
+  if (state.userTurns !== userTurns) return createConversationProjectionState(events, userTurns)
+  if (oldLength > 0 && events.length > oldLength && events[oldLength - 1] === state.history?.event) {
+    const appended = events.slice(oldLength)
+    if (appended.length === 1) return applyEvent(state, appended[0])
+    // A reconnect can deliver many structural events at once. Fold that batch
+    // once, retaining existing row identities, instead of refolding per event.
+    const rebuilt = createConversationProjectionState(events, userTurns)
+    const entries = reconcileEntries(state.projection.entries, rebuilt.projection.entries)
+    return { ...rebuilt, projection: { ...rebuilt.projection, entries }, entryIndexes: indexEntries(entries) }
+  }
+  if (oldLength > 0 && events.length > oldLength && events.at(-1) === state.history?.event)
+    return prependEvents(state, events.slice(0, events.length - oldLength))
+  if (events.length !== oldLength || (oldLength > 0 && events.at(-1) !== state.history?.event))
+    return createConversationProjectionState(events, userTurns)
+  return state
+}
