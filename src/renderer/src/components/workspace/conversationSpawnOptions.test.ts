@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
+  conversationLaunchDraftPatch,
   resolveDefaultConversationOption,
 } from './conversationSpawnOptions'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
@@ -256,6 +257,16 @@ test('conversationSpawnOptions', async () => {
   assert.equal('cliSessionId' in patch && patch.cliSessionId, undefined, 'no terminal session id is assigned')
   assert.equal(patch.cli, undefined, 'no CLI is selected for a conversation agent')
   assert.equal(patch.cliStartupPrompt, undefined, 'no startup prompt is queued')
+  assert.deepEqual(
+    conversationLaunchDraftPatch([{ id: 'review' }, { id: 'tests' }], 'Check this change'),
+    { conversationSkills: ['review', 'tests'], chatComposerPrefill: 'Check this change' },
+    'two launch skills persist as chips while the typed prompt remains separate',
+  )
+  assert.deepEqual(
+    conversationLaunchDraftPatch([{ id: 'review' }]),
+    { conversationSkills: ['review'] },
+    'a skill-only launch does not fabricate prompt text',
+  )
 
   console.log('conversationSpawnOptions tests passed')
 })

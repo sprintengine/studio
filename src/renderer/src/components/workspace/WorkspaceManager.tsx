@@ -60,7 +60,7 @@ import {
   workspaceProjectRootOf,
   worktreeIdFromPath,
 } from '../../utils/workspaceWorktree'
-import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
+import { ensureSkillForAgent, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
 import { resolveCliPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
@@ -182,6 +182,7 @@ import {
 import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
+  conversationLaunchDraftPatch,
   resolveDefaultConversationOption,
   type ConversationSpawnOption,
 } from './conversationSpawnOptions'
@@ -2517,10 +2518,8 @@ export default function WorkspaceManager() {
     const newId = `conversation-${providerId}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
-    // Skill-at-spawn on the conversation transport: make the skill present in
-    // the workspace (best-effort) and seed the chat composer draft with the
-    // invocation — prefilled, never auto-sent.
-    const firstSkill = skills?.[0]
+    // Keep launch skills as agent state: the chat composer displays them as
+    // persistent chips, while a typed prompt remains its own text draft.
     if (activeWorkspace.folderPath) {
       for (const skill of skills ?? []) void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
     }
@@ -2532,23 +2531,10 @@ export default function WorkspaceManager() {
       // app-wide default is what it starts on. AgentChatView reads this record
       // field and lets the user change it mid-conversation.
       cliPermissionPreset: agentSpawnPermissionPreset,
-      // The chat prefill is one sentence opener; with several skills the first
-      // leads and the rest are named after it.
-      ...(firstSkill
-        ? {
-            chatComposerPrefill:
-              (skills ?? []).length > 1
-                ? `${renderChatSkillPrefill(firstSkill)}(also ${(skills ?? [])
-                    .slice(1)
-                    .map((skill) => skill.id)
-                    .join(', ')}) `
-                : renderChatSkillPrefill(firstSkill),
-          }
-        : {}),
+      ...conversationLaunchDraftPatch(skills, placement?.prompt),
       // A conversation has no CLI to hand a startup prompt to, so the launch
       // surface's prompt lands in its composer, typed and unsent — the same
       // place a skill invocation lands.
-      ...(placement?.prompt ? { chatComposerPrefill: placement.prompt } : {}),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     setLastSelectedConversationModel({ providerId, modelId })
@@ -2605,7 +2591,11 @@ export default function WorkspaceManager() {
   // the chat composer, typed and unsent — a conversation has no startup prompt
   // to hand a process, and auto-sending someone's first line is not the same
   // action as starting a chat.
-  const openConversationInNewChat = (folderPath?: string | null, startupPrompt?: string) => {
+  const openConversationInNewChat = (
+    folderPath?: string | null,
+    startupPrompt?: string,
+    skills?: WorkspaceSkill[],
+  ) => {
     if (!conversationDefaultOption) return
     const { providerId, modelId, modelLabel } = conversationDefaultOption
     const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', {})
@@ -2617,7 +2607,7 @@ export default function WorkspaceManager() {
           name: tabName,
           ...conversationAgentRuntimePatch(providerId, modelId),
           cliPermissionPreset: agentSpawnPermissionPreset,
-          ...(startupPrompt ? { chatComposerPrefill: startupPrompt } : {}),
+          ...conversationLaunchDraftPatch(skills, startupPrompt),
         },
       },
     })
@@ -3341,7 +3331,7 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, startupPrompt)
+        openConversationInNewChat(folderPath, startupPrompt, confirm.skills)
         break
     }
     closeNewChatPanel()

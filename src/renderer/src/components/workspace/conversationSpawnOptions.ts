@@ -1,4 +1,4 @@
-import type { ConversationProviderListResult } from '../../../../shared/electron-api'
+import type { ConversationProviderListResult, WorkspaceSkill } from '../../../../shared/electron-api'
 import type { ConversationProviderType } from '../../../../shared/plugin-manifest'
 import type { AgentConversationRuntime, AgentState } from '../../types/workspace'
 
@@ -54,6 +54,17 @@ export function conversationAgentRuntimePatch(providerId: string, modelId: strin
     cliHasLaunched: false,
     cliResumeAvailable: false,
     cliSessionId: undefined,
+  }
+}
+
+/** Skill chips and typed text travel independently through either launch door. */
+export function conversationLaunchDraftPatch(
+  skills?: readonly Pick<WorkspaceSkill, 'id'>[],
+  prompt?: string,
+): Partial<AgentState> {
+  return {
+    ...(skills?.length ? { conversationSkills: skills.map((skill) => skill.id) } : {}),
+    ...(prompt ? { chatComposerPrefill: prompt } : {}),
   }
 }
 
