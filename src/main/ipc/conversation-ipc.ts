@@ -1,4 +1,12 @@
 import type { IpcMain } from 'electron'
+import type {
+  ConversationWorkspaceKey,
+  ConversationThreadsResult,
+  ConversationSearchInput,
+  ConversationSearchResult,
+  ConversationRenameInput,
+} from '../../shared/conversation-index'
+import type { ConversationSearchHit } from '../../shared/conversation-index'
 
 import type {
   ConversationProviderListResult,
@@ -57,6 +65,13 @@ import { getSharedCredentialStore } from '../secret-store'
 import { isRecord } from '../../shared/records'
 
 export type ConversationIpcHandlers = {
+  listThreads?(input: ConversationWorkspaceKey): Promise<ConversationThreadsResult>
+  searchThreads?(
+    input: ConversationSearchInput,
+    options: { signal: AbortSignal; onBatch?: (hits: ConversationSearchHit[]) => void },
+  ): Promise<ConversationSearchResult>
+  renameThread?(input: ConversationRenameInput): Promise<{ ok: true } | { ok: false; message: string }>
+  deleteThread?(input: ConversationTranscriptInput): Promise<{ ok: true } | { ok: false; message: string }>
   listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
@@ -86,9 +101,12 @@ export type ConversationIpcHandlers = {
 // Agent-harness conversation providers ride a local CLI; when that CLI is not
 // installed the provider is hidden from the picker instead of failing at
 // session start.
-const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, 'claude-code' | 'codex'> = {
+const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, string> = {
   'claude-agent': 'claude-code',
   'codex-agent': 'codex',
+  'cursor-agent': 'cursor',
+  'opencode-agent': 'opencode',
+  'grok-agent': 'grok',
 }
 
 const CLI_AVAILABLE_TTL_MS = 60_000
@@ -108,10 +126,7 @@ export function createConversationIpcHandlers(
   const sessions = new ConversationSessionApi(runtime)
   const cliChecks = new Map<string, { at: number; installed: boolean }>()
 
-  async function isHarnessCliInstalled(
-    cli: 'claude-code' | 'codex',
-    cliRuntimes?: ConversationCliRuntimeOverrides,
-  ): Promise<boolean> {
+  async function isHarnessCliInstalled(cli: string, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<boolean> {
     const override = cliRuntimes?.[cli]
     const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.hostId ?? 'local'}`
     const cached = cliChecks.get(cacheKey)
@@ -131,6 +146,10 @@ export function createConversationIpcHandlers(
   }
 
   return {
+    listThreads: (input) => runtime.listThreads(input),
+    searchThreads: (input, options) => runtime.searchThreads(input, options),
+    renameThread: (input) => runtime.renameThread(input),
+    deleteThread: (input) => runtime.deleteTranscript(input),
     async listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> {
       try {
         const providers = listConversationProviderRegistryEntries().map((provider) => ({
@@ -236,6 +255,68 @@ export function registerConversationIpc(
     }
   >()
   const scopedSubscriptions = new Map<string, { senderId: number; dispose: () => void }>()
+  const searches = new Map<string, AbortController>()
+  ipcMain.handle('conversation:threads', (_, input: unknown) => {
+    const parsed = parseTranscriptInput(isRecord(input) ? { ...input, agentId: 'history' } : input)
+    if (!parsed.ok) return parsed
+    return handlers.listThreads?.(parsed.input) ?? { ok: false, message: 'Conversation history is unavailable.' }
+  })
+  ipcMain.handle('conversation:search', async (event, input: unknown) => {
+    const parsed = parseTranscriptInput(isRecord(input) ? { ...input, agentId: 'history' } : input)
+    if (!parsed.ok) return parsed
+    if (
+      !isRecord(input) ||
+      typeof input.query !== 'string' ||
+      input.query.length > 1000 ||
+      (input.requestId !== undefined && (typeof input.requestId !== 'string' || input.requestId.length > 200))
+    )
+      return { ok: false, message: 'Search query and optional request identity are required.' }
+    const key = `${event.sender.id}:${input.requestId ?? ++nextSubscriptionId}`
+    searches.get(key)?.abort()
+    const controller = new AbortController()
+    searches.set(key, controller)
+    const dispose = () => controller.abort()
+    event.sender.once('destroyed', dispose)
+    try {
+      return (
+        (await handlers.searchThreads?.(
+          { ...parsed.input, query: input.query, requestId: input.requestId as string | undefined },
+          {
+            signal: controller.signal,
+            onBatch: (hits) => {
+              if (typeof input.requestId === 'string' && !controller.signal.aborted && !event.sender.isDestroyed())
+                event.sender.send('conversation:search:batch', { requestId: input.requestId, hits })
+            },
+          },
+        )) ?? { ok: false, message: 'Conversation search is unavailable.' }
+      )
+    } finally {
+      event.sender.removeListener('destroyed', dispose)
+      if (searches.get(key) === controller) searches.delete(key)
+    }
+  })
+  ipcMain.handle('conversation:search:cancel', (event, input: unknown) => {
+    if (!isRecord(input) || typeof input.requestId !== 'string') return { ok: false }
+    searches.get(`${event.sender.id}:${input.requestId}`)?.abort()
+    return { ok: true }
+  })
+  ipcMain.handle('conversation:rename', (_, input: unknown) => {
+    const parsed = parseTranscriptInput(input)
+    if (!parsed.ok) return parsed
+    if (!isRecord(input) || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 200)
+      return { ok: false, message: 'A title of 1–200 characters is required.' }
+    return (
+      handlers.renameThread?.({ ...parsed.input, title: input.title }) ?? {
+        ok: false,
+        message: 'Conversation history is unavailable.',
+      }
+    )
+  })
+  ipcMain.handle('conversation:delete', (_, input: unknown) => {
+    const parsed = parseTranscriptInput(input)
+    if (!parsed.ok) return parsed
+    return handlers.deleteThread?.(parsed.input) ?? { ok: false, message: 'Conversation history is unavailable.' }
+  })
   ipcMain.handle(
     'conversation:approval-rules:list',
     () => handlers.listApprovalRules?.() ?? { ok: false, message: 'Permission rules are unavailable.' },
@@ -676,6 +757,13 @@ function parseSendTurnInput(
   if ('localTurnId' in input && input.localTurnId !== undefined && typeof input.localTurnId !== 'string') {
     return { ok: false, message: 'localTurnId must be a string when present.' }
   }
+  if (
+    input.reasoningEffort !== undefined &&
+    (typeof input.reasoningEffort !== 'string' || !/^[a-z0-9_-]{1,40}$/i.test(input.reasoningEffort))
+  )
+    return { ok: false, message: 'Invalid reasoning effort.' }
+  if (input.mode !== undefined && !['default', 'plan', 'ask'].includes(String(input.mode)))
+    return { ok: false, message: 'Invalid conversation mode.' }
   let attachments: ConversationImageAttachment[] | undefined
   if (
     input.skills !== undefined &&
@@ -702,6 +790,8 @@ function parseSendTurnInput(
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
       ...(attachments ? { attachments } : {}),
       ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
+      ...(typeof input.reasoningEffort === 'string' ? { reasoningEffort: input.reasoningEffort } : {}),
+      ...(input.mode ? { mode: input.mode as ConversationSendTurnInput['mode'] } : {}),
     },
   }
 }

@@ -1,4 +1,12 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type {
+  ConversationWorkspaceKey,
+  ConversationThreadsResult,
+  ConversationSearchInput,
+  ConversationSearchResult,
+  ConversationRenameInput,
+} from '../../shared/conversation-index'
+import type { ConversationSearchHit } from '../../shared/conversation-index'
 
 import type {
   ConversationProviderListResult,
@@ -42,6 +50,25 @@ import type {
 } from '../../shared/conversation-runtime'
 
 type ConversationIpcRenderer = {
+  on(
+    channel: 'conversation:search:batch',
+    listener: (event: IpcRendererEvent, batch: { requestId: string; hits: ConversationSearchHit[] }) => void,
+  ): void
+  removeListener(
+    channel: 'conversation:search:batch',
+    listener: (event: IpcRendererEvent, batch: { requestId: string; hits: ConversationSearchHit[] }) => void,
+  ): void
+  invoke(channel: 'conversation:threads', input: ConversationWorkspaceKey): Promise<ConversationThreadsResult>
+  invoke(channel: 'conversation:search', input: ConversationSearchInput): Promise<ConversationSearchResult>
+  invoke(channel: 'conversation:search:cancel', input: { requestId: string }): Promise<{ ok: boolean }>
+  invoke(
+    channel: 'conversation:rename',
+    input: ConversationRenameInput,
+  ): Promise<{ ok: true } | { ok: false; message: string }>
+  invoke(
+    channel: 'conversation:delete',
+    input: ConversationTranscriptInput,
+  ): Promise<{ ok: true } | { ok: false; message: string }>
   invoke(channel: 'conversation:approval-rules:list'): Promise<ConversationApprovalRulesResult>
   invoke(
     channel: 'conversation:approval-rules:revoke',
@@ -136,6 +163,17 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
   }
   let nextScopedId = 0
   return {
+    conversationThreads: (input: ConversationWorkspaceKey) => renderer.invoke('conversation:threads', input),
+    conversationSearch: (input: ConversationSearchInput) => renderer.invoke('conversation:search', input),
+    onConversationSearchBatch: (callback: (batch: { requestId: string; hits: ConversationSearchHit[] }) => void) => {
+      const receive = (_event: IpcRendererEvent, batch: { requestId: string; hits: ConversationSearchHit[] }) =>
+        callback(batch)
+      renderer.on('conversation:search:batch', receive)
+      return () => renderer.removeListener('conversation:search:batch', receive)
+    },
+    conversationCancelSearch: (input: { requestId: string }) => renderer.invoke('conversation:search:cancel', input),
+    conversationRename: (input: ConversationRenameInput) => renderer.invoke('conversation:rename', input),
+    conversationDelete: (input: ConversationTranscriptInput) => renderer.invoke('conversation:delete', input),
     conversationApprovalRules: (): Promise<ConversationApprovalRulesResult> =>
       renderer.invoke('conversation:approval-rules:list'),
     conversationRevokeApprovalRule: (input: { ruleId: string }): Promise<ConversationApprovalRuleRevokeResult> =>
@@ -233,6 +271,12 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
   } satisfies Pick<
     ElectronApi,
     | 'conversationProvidersList'
+    | 'conversationThreads'
+    | 'conversationSearch'
+    | 'onConversationSearchBatch'
+    | 'conversationCancelSearch'
+    | 'conversationRename'
+    | 'conversationDelete'
     | 'conversationProviderModels'
     | 'conversationSecretStatus'
     | 'conversationSecretSet'

@@ -113,6 +113,8 @@ type SessionState = {
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
   skillIds?: string[]
+  mode?: 'default' | 'plan' | 'ask'
+  reasoningEffort?: string
   onBeforeTool?: (name: string) => Promise<void>
   providerSessionId: string | null
   query: Query | null
@@ -354,11 +356,13 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     })
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
-    const permissionMode = SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    const permissionMode =
+      state.mode === 'plan' || state.mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
     const queryOptions: Options = {
       cwd: state.workspaceRoot,
       pathToClaudeCodeExecutable: executablePath,
       model: state.modelId,
+      ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
       permissionMode,
       ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
@@ -374,7 +378,20 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           {
             hooks: [
               async (input) => {
-                if (input.hook_event_name === 'PreToolUse') await state.onBeforeTool?.(input.tool_name)
+                if (input.hook_event_name === 'PreToolUse') {
+                  if (
+                    state.mode === 'ask' &&
+                    !['file_read', 'search', 'list', 'web'].includes(inferConversationToolKind(input.tool_name))
+                  )
+                    return {
+                      hookSpecificOutput: {
+                        hookEventName: 'PreToolUse' as const,
+                        permissionDecision: 'deny' as const,
+                        permissionDecisionReason: 'Ask mode permits read-only tools only.',
+                      },
+                    }
+                  await state.onBeforeTool?.(input.tool_name)
+                }
                 return {}
               },
             ],
@@ -480,7 +497,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       planMode: true,
       images: true,
       skills: 'native',
-      reasoningEfforts: null,
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       interrupt: true,
       resume: true,
       subagents: true,
@@ -536,6 +553,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       yield eventFor(state, 'turn_started', { turnId: input.turnId })
       try {
+        if (state.mode !== (input.mode ?? 'default') || state.reasoningEffort !== input.reasoningEffort) {
+          disposeChild(state)
+          state.mode = input.mode ?? 'default'
+          state.reasoningEffort = input.reasoningEffort
+        }
         const skillIds = [...new Set(input.skills ?? [])].sort()
         if (JSON.stringify(skillIds) !== JSON.stringify(state.skillIds ?? [])) {
           disposeChild(state)
@@ -630,6 +652,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (state.mode === 'ask' || state.mode === 'plan') {
+        state.permissionPreset = input.permissionPreset
+        return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
+      }
       if (state.query && input.permissionPreset === 'bypass' && !state.queryAllowsBypass) {
         state.permissionPreset = input.permissionPreset
         state.lastActivityAt = now()

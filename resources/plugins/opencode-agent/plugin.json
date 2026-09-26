@@ -1,0 +1,13 @@
+{
+  "kind": "provider",
+  "id": "opencode-agent",
+  "displayName": "OpenCode",
+  "publisher": "sprintengine",
+  "version": 1,
+  "summary": "OpenCode conversations through the Agent Client Protocol.",
+  "category": "Agent Runtime",
+  "icon": "icon.svg",
+  "providerType": "agent-harness",
+  "models": [{ "id": "default", "displayName": "CLI default" }],
+  "adapter": { "kind": "declarative" }
+}

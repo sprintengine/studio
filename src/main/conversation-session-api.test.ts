@@ -199,12 +199,60 @@ test('concurrent duplicate commands and receipts after restart produce one user 
   }
 })
 
+test('first subscription pages even a small transcript while reconnects keep exact sequence replay', async () => {
+  const f = await fixture({
+    ...createMockConversationProvider(),
+    sendTurn: (input) => [
+      event(input, 'content_delta', { turnId: input.turnId, text: 'answer' }),
+      event(input, 'turn_completed', { turnId: input.turnId }),
+    ],
+  })
+  try {
+    for (let index = 0; index < 12; index++)
+      await f.runtime.sendTurn({ sessionId: f.sessionId, message: `Question ${index}` })
+    const frames: ConversationSessionFrame[] = []
+    const subscription = new ConversationSessionApi(f.runtime).subscribe({ key: f.key, turnLimit: 3 }, (frame) =>
+      frames.push(frame),
+    )
+    await subscription.ready
+    const first = frames[0]
+    assert.equal(first.type, 'snapshot')
+    if (first.type === 'snapshot') {
+      assert.equal(first.page.events.filter((event) => event.type === 'user_message').length, 3)
+      assert.equal(first.page.hasMore, true)
+    }
+    subscription.dispose()
+    const renamed = await f.runtime.renameThread({ ...f.key, title: 'My durable name' })
+    assert.equal(renamed.ok, true)
+    await f.runtime.renameThread({ ...f.key, title: 'Generated name' }, 'generated')
+    const listed = await f.runtime.listThreads(f.key)
+    assert.equal(listed.ok && listed.threads[0].title, 'My durable name')
+    const search = await f.runtime.searchThreads({ ...f.key, query: 'Question 11' })
+    assert.equal(search.ok && search.hits.length, 1)
+    const controller = new AbortController()
+    controller.abort()
+    assert.equal(
+      (await f.runtime.searchThreads({ ...f.key, query: 'Question' }, { signal: controller.signal })).ok,
+      false,
+    )
+    const replay = await f.runtime.readTranscript(f.key, { all: true })
+    assert.ok(replay.ok)
+    assert.equal(replay.events.filter((event) => event.payload?.titleSource).length, 1)
+    assert.deepEqual(
+      replay.events.map((event) => event.seq),
+      replay.events.map((_, index) => index + 1),
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('reconnecting after a sequence returns exactly the missed events and no unrelated agent', async () => {
   const f = await fixture()
   try {
     const api = new ConversationSessionApi(f.runtime)
     const frames: ConversationSessionFrame[] = []
-    const joined = api.subscribe({ key: f.key }, (frame) => frames.push(frame))
+    const joined = api.subscribe({ key: f.key, afterSeq: 0 }, (frame) => frames.push(frame))
     await joined.ready
     const afterSeq = frames.filter((frame) => frame.type === 'event').at(-1)
     assert.ok(afterSeq?.type === 'event')
@@ -304,6 +352,7 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
     resolveRead = resolve
   })
   const runtime = {
+    recoverTranscript: async () => undefined,
     onEvent(listener: (event: ConversationEvent) => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -316,7 +365,7 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
   const first = { ...event(envelope, 'content_delta', { text: 'a' }), seq: 1 }
   const second = { ...event(envelope, 'content_delta', { text: 'b' }), seq: 2 }
   const frames: ConversationSessionFrame[] = []
-  const subscription = api.subscribe({ key }, (frame) => frames.push(frame))
+  const subscription = api.subscribe({ key, afterSeq: 0 }, (frame) => frames.push(frame))
   for (const listener of listeners) listener(second)
   resolveRead({ ok: true, events: [first, second] })
   await subscription.ready
@@ -333,6 +382,75 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
   })
   await throwing.ready
   assert.equal(listeners.size, 0)
+})
+
+test('cold subscriptions persist crash recovery exactly once before snapshots and reconnects', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'conversation-recovery-'))
+  const key = { workspaceRoot: root, workspaceId: 'workspace', agentId: 'agent' }
+  const path = workspaceSidecarPath(root, 'conversations', 'workspace', 'agent.jsonl')
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+  })
+  try {
+    await mkdir(dirname(path), { recursive: true })
+    const input = { ...key, sessionId: 'crashed', providerId: 'mock-provider', modelId: 'mock-model' }
+    await writeFile(
+      path,
+      [
+        event(input, 'user_message', { text: 'Interrupted question', turnId: 'lost' }),
+        event(input, 'turn_started', { turnId: 'lost' }),
+      ]
+        .map((item, index) => JSON.stringify({ ...item, seq: index + 1 }))
+        .join('\n') + '\n',
+    )
+    const api = new ConversationSessionApi(runtime)
+    const frames: ConversationSessionFrame[] = []
+    const a = api.subscribe({ key }, (frame) => frames.push(frame)),
+      b = api.subscribe({ key, afterSeq: 2 }, () => undefined)
+    await Promise.all([a.ready, b.ready])
+    const snapshot = frames.find((frame) => frame.type === 'snapshot')
+    assert.equal(snapshot?.type === 'snapshot' && snapshot.page.events.at(-1)?.type, 'turn_failed')
+    const persisted = await runtime.readTranscript(key, { all: true, closeOpenTurns: false })
+    assert.ok(persisted.ok)
+    assert.equal(persisted.events.filter((item) => item.type === 'turn_failed').length, 1)
+    a.dispose()
+    b.dispose()
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok)
+    assert.equal((await runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })).ok, true)
+  } finally {
+    await runtime.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('deleting an idle live thread disposes its identity and starts fresh without resurrecting a native cursor', async () => {
+  const adapter = {
+    ...createMockConversationProvider(),
+    sendTurn: (input: Parameters<ConversationProviderAdapter['sendTurn']>[0]) => [
+      event(input, 'turn_completed', { turnId: input.turnId }),
+    ],
+  }
+  const f = await fixture(adapter)
+  try {
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'Finished' })
+    assert.equal((await f.runtime.deleteTranscript(f.key)).ok, true)
+    assert.equal((await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'Must fail' })).ok, false)
+    const listed = await f.runtime.listThreads(f.key)
+    assert.equal(listed.ok && listed.threads.length, 0)
+    const restarted = await f.runtime.startSession({ ...f.key, providerId: adapter.id, modelId: 'mock-model' })
+    assert.ok(restarted.ok)
+    const transcript = await f.runtime.readTranscript(f.key, { all: true })
+    assert.ok(transcript.ok)
+    assert.equal(
+      transcript.events.some((item) => item.type === 'user_message'),
+      false,
+    )
+    assert.equal(transcript.events[0].seq, 1)
+  } finally {
+    await f.cleanup()
+  }
 })
 
 test('failed startup does not leave a zombie and a rejecting persister clears a busy turn', async () => {

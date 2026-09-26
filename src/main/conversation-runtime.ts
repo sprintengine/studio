@@ -31,6 +31,13 @@ import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { readToolDetail, writeToolDetail, redactConversationValue } from './conversation-tool-details'
 import { createConversationSkillsResolver, type ConversationSkillsResolver } from './conversation-skills'
 import { ConversationCheckpoints } from './conversation-checkpoints'
+import { ConversationIndex } from './conversation-index'
+import type {
+  ConversationWorkspaceKey,
+  ConversationSearchInput,
+  ConversationSearchHit,
+  ConversationRenameInput,
+} from '../shared/conversation-index'
 import { presentToolItem } from '../shared/conversation/presentation'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
@@ -47,6 +54,7 @@ import { createMockConversationProvider } from './providers/mock-conversation-pr
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
 import { createCodexConversationProvider } from './providers/codex-conversation-provider'
+import { ACP_PROFILES, createAcpConversationProvider } from './providers/acp-conversation-provider'
 import { workspaceSidecarPath } from './workspace-sidecar'
 import { ConversationEventLog, expandCoalescedDeltas, type ConversationEventLogOptions } from './conversation-event-log'
 
@@ -123,6 +131,7 @@ export class ConversationRuntime {
   private readonly getProviderById: typeof getConversationProviderById
   private readonly stat: typeof stat
   private readonly eventLog: ConversationEventLog
+  private readonly threadIndex: ConversationIndex
   private readonly readFile: typeof readFile
   private readonly now: () => number
   private readonly randomId: () => string
@@ -131,6 +140,9 @@ export class ConversationRuntime {
   private readonly checkpoints = new ConversationCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
   private readonly sessions = new Map<string, RuntimeSession>()
+  private readonly deletingTranscripts = new Set<string>()
+  private readonly startingTranscripts = new Set<string>()
+  private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
   private readonly emissionTails = new Map<string, Promise<unknown>>()
@@ -155,6 +167,7 @@ export class ConversationRuntime {
       }),
       createClaudeAgentProvider(),
       createCodexConversationProvider(),
+      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile)),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)
@@ -170,6 +183,10 @@ export class ConversationRuntime {
       ...options.eventLog,
     })
     this.readFile = options.readFile ?? readFile
+    this.threadIndex = new ConversationIndex({
+      flush: (path) => this.eventLog.flush(path),
+      close: (path) => this.eventLog.close(path),
+    })
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
     this.prepareStudioMcp = options.prepareStudioMcp
@@ -189,6 +206,20 @@ export class ConversationRuntime {
   }
 
   async startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
+    if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())
+      return { ok: false, message: 'Conversation identity is required.' }
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
+      return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
+    this.startingTranscripts.add(path)
+    try {
+      return await this.startSessionNow(input)
+    } finally {
+      this.startingTranscripts.delete(path)
+    }
+  }
+
+  private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
@@ -242,6 +273,7 @@ export class ConversationRuntime {
     const previousTranscript = await this.readTranscript(input, { all: true, closeOpenTurns: false })
     if (previousTranscript.ok) {
       for (const event of previousTranscript.events) this.updateExcerpts(session, event)
+      session.history = completedHistory(previousTranscript.events)
     }
     this.sessions.set(sessionId, session)
 
@@ -256,6 +288,7 @@ export class ConversationRuntime {
         validation.adapter.startSession({
           ...session,
           resumeSessionId,
+          fallbackHistory: session.history,
           // Continuation channel: the adapter opens a mirror turn here when its
           // child resumes after a `result` (background subagents completing).
           onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
@@ -278,6 +311,8 @@ export class ConversationRuntime {
       return this.runCommand(input.sessionId, input.commandId, () => this.sendTurn({ ...input, commandId: undefined }))
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
+      return { ok: false, message: 'Conversation is being deleted.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     if (isSessionBusy(session)) {
       return {
@@ -295,6 +330,9 @@ export class ConversationRuntime {
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
+    if (input.mode === 'plan' && !session.capabilities?.planMode)
+      return { ok: false, message: 'This provider does not support plan mode.' }
+
     let skills: Awaited<ReturnType<ConversationSkillsResolver>>
     try {
       skills = await this.resolveSkills({
@@ -307,6 +345,12 @@ export class ConversationRuntime {
     }
     // Resolving a skill may await disk or installation; another send can take
     // the session while that happens, so acquire the turn only after rechecking.
+    if (
+      this.sessions.get(input.sessionId)?.status === 'stopped' ||
+      this.sessions.get(input.sessionId) !== session ||
+      this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    )
+      return { ok: false, message: 'Conversation is no longer available.' }
     if (isSessionBusy(session)) return { ok: false, message: 'Conversation turn is already in progress.' }
 
     const turnId = `turn_${this.randomId()}`
@@ -342,6 +386,7 @@ export class ConversationRuntime {
         ? undefined
         : [
             ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
+            ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
             ...session.history,
             { role: 'user', content: message },
           ]
@@ -354,8 +399,12 @@ export class ConversationRuntime {
           ...session,
           turnId,
           requestId,
-          message: session.revertedNote ? `${session.revertedNote}\n\n${message}` : message,
+          message: [session.stateful ? skills.context : undefined, session.revertedNote, message]
+            .filter(Boolean)
+            .join('\n\n'),
           skills: skills.ids,
+          reasoningEffort: input.reasoningEffort,
+          mode: input.mode,
           ...(attachments.length > 0 ? { attachments } : {}),
           messages,
           signal: turnAbort.signal,
@@ -843,11 +892,24 @@ export class ConversationRuntime {
       return stamped
     }
     await this.persistEvent(session, stamped)
+    if (stamped.type === 'turn_completed' && session.status !== 'stopped')
+      await this.threadIndex.refresh(session).catch(() => undefined)
+    // Publish status at the same boundary as the terminal notification, after
+    // persistence. Pollers and event-driven consumers must observe one state.
+    if (session.status !== 'stopped' && (stamped.type === 'turn_completed' || stamped.type === 'turn_failed')) {
+      session.status = stamped.type === 'turn_completed' ? 'ready' : 'failed'
+      session.updatedAt = this.now()
+    }
     this.notify(stamped)
     return stamped
   }
 
   private updateExcerpts(session: RuntimeSession, event: ConversationEvent): void {
+    if ((event.type === 'session_started' || event.type === 'session_updated') && event.payload?.capabilities)
+      session.capabilities = {
+        ...session.capabilities,
+        ...(event.payload.capabilities as import('../shared/conversation-runtime').ConversationCapabilities),
+      }
     if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
       session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
     if (event.type === 'tool_started')
@@ -1097,29 +1159,106 @@ export class ConversationRuntime {
   }
 
   /** Explicit deletion removes the paired detail store as well as the transcript. */
+  async listThreads(input: ConversationWorkspaceKey) {
+    try {
+      await this.eventLog.flush()
+      return { ok: true as const, threads: await this.threadIndex.list(input) }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
+  async searchThreads(
+    input: ConversationSearchInput,
+    options: { signal?: AbortSignal; onBatch?: (hits: ConversationSearchHit[]) => void } = {},
+  ) {
+    try {
+      await this.eventLog.flush()
+      return { ok: true as const, hits: await this.threadIndex.search(input, options) }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
+  async renameThread(input: ConversationRenameInput, titleSource: 'user' | 'generated' = 'user') {
+    if (this.deletingTranscripts.has(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)))
+      return { ok: false as const, message: 'Conversation is being deleted.' }
+    const title = input.title.trim().slice(0, 200)
+    if (!title) return { ok: false as const, message: 'A conversation title is required.' }
+    try {
+      const threads = await this.threadIndex.list(input)
+      const thread = threads.find((entry) => entry.agentId === input.agentId)
+      if (!thread) return { ok: false as const, message: 'Conversation was not found.' }
+      if (titleSource === 'generated' && thread.titleSource === 'user') return { ok: true as const }
+      const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+      const pending = (this.emissionTails.get(path) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(async () => {
+          const replay = await this.readTranscript(input, { all: true, closeOpenTurns: false })
+          if (!replay.ok) throw new Error(replay.message)
+          const previous = replay.events.at(-1)
+          if (!previous) throw new Error('Conversation was not found.')
+          // The source event is authoritative even if another rename raced the index lookup.
+          if (titleSource === 'generated' && replay.events.some((event) => event.payload?.titleSource === 'user'))
+            return
+          const event: ConversationEvent = {
+            ...previous,
+            id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+            seq: Math.max(this.sequences.get(path) ?? 0, previous.seq ?? 0) + 1,
+            createdAt: this.now(),
+            type: 'session_updated',
+            payload: { conversationTitle: title, titleSource },
+          }
+          this.sequences.set(path, event.seq!)
+          await this.eventLog.append(path, event)
+          this.notify(event)
+        })
+      this.emissionTails.set(path, pending)
+      await pending
+      await this.threadIndex.refresh(input)
+      return { ok: true as const }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
   async deleteTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())
       return { ok: false, message: 'Conversation identity is required.' }
-    for (const session of this.sessions.values()) {
-      if (
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
+      return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
+    const matching = Array.from(this.sessions.values()).filter(
+      (session) =>
         session.workspaceRoot === input.workspaceRoot &&
         session.workspaceId === input.workspaceId &&
-        session.agentId === input.agentId &&
-        session.status !== 'stopped'
-      )
-        return { ok: false, message: 'Stop the conversation before deleting it.' }
+        session.agentId === input.agentId,
+    )
+    if (matching.some((session) => isSessionBusy(session) || session.status === 'starting'))
+      return { ok: false, message: 'Stop the active conversation turn before deleting it.' }
+    this.deletingTranscripts.add(path)
+    try {
+      for (const session of matching)
+        if (session.status !== 'stopped') await this.stopSession({ sessionId: session.sessionId })
+      await this.emissionTails.get(path)
+      for (const session of matching) await session.continuationTail
+      await this.threadIndex.delete(input)
+      await this.checkpoints.deleteConversation(input)
+      await rm(path, { force: true })
+      await rm(path.replace(/\.jsonl$/, '.tools'), { recursive: true, force: true })
+      const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
+      await this.receiptWrites.get(receiptsPath)
+      await rm(receiptsPath, { force: true })
+      this.receipts.delete(receiptsPath)
+      this.sequences.delete(path)
+      this.emissionTails.delete(path)
+      for (const session of matching) this.sessions.delete(session.sessionId)
+      return { ok: true, events: [] }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    } finally {
+      this.deletingTranscripts.delete(path)
     }
-    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
-    await this.eventLog.close(path)
-    await this.checkpoints.deleteConversation(input)
-    await rm(path, { force: true })
-    await rm(path.replace(/\.jsonl$/, '.tools'), { recursive: true, force: true })
-    const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
-    await this.receiptWrites.get(receiptsPath)
-    await rm(receiptsPath, { force: true })
-    this.receipts.delete(receiptsPath)
-    this.sequences.delete(path)
-    return { ok: true, events: [] }
   }
 
   private async prepareToolEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationEvent> {
@@ -1237,7 +1376,26 @@ export class ConversationRuntime {
     }
   }
 
+  async recoverTranscript(input: ConversationTranscriptInput): Promise<void> {
+    if (this.deletingTranscripts.has(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)))
+      throw new Error('Conversation is being deleted.')
+    await this.initializeSequence(input)
+  }
+
   private async initializeSequence(input: ConversationTranscriptInput): Promise<void> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    const existing = this.sequenceInitializations.get(path)
+    if (existing) return existing
+    const pending = this.initializeSequenceNow(input)
+    this.sequenceInitializations.set(path, pending)
+    try {
+      await pending
+    } finally {
+      if (this.sequenceInitializations.get(path) === pending) this.sequenceInitializations.delete(path)
+    }
+  }
+
+  private async initializeSequenceNow(input: ConversationTranscriptInput): Promise<void> {
     const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
     if (this.sequences.has(path)) return
     const transcript = await this.readTranscript(input, { all: true })
@@ -1361,6 +1519,29 @@ export class ConversationRuntime {
 // came from `sendTurn` or from the adapter's continuation channel. A
 // continuation turn clears `pendingRequestId`, so that field alone would report
 // an occupied session as free and let a second turn take it over.
+function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
+  const history: ConversationMessage[] = []
+  let user: string | undefined
+  let assistant = ''
+  for (const event of events) {
+    if (event.type === 'user_message') {
+      user = typeof event.payload?.text === 'string' ? event.payload.text : undefined
+      assistant = ''
+    } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string')
+      assistant += event.payload.text
+    else if (event.type === 'turn_completed' && user !== undefined) {
+      history.push({ role: 'user', content: user })
+      if (assistant) history.push({ role: 'assistant', content: assistant })
+      user = undefined
+      assistant = ''
+    } else if (event.type === 'turn_failed') {
+      user = undefined
+      assistant = ''
+    }
+  }
+  return history
+}
+
 function isSessionBusy(session: RuntimeSession): boolean {
   return session.activeTurnId !== null || session.pendingRequestId !== null
 }

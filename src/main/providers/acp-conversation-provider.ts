@@ -1,0 +1,692 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { Readable, Writable } from 'node:stream'
+import { constants } from 'node:fs'
+import { lstat, open, realpath } from 'node:fs/promises'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+import type {
+  ClientSideConnection,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionUpdate,
+  ToolKind,
+} from '@agentclientprotocol/sdk'
+import type {
+  ConversationCapabilities,
+  ConversationEvent,
+  ConversationToolKind,
+} from '../../shared/conversation-runtime'
+import type {
+  ConversationProviderAdapter,
+  MockAdapterSessionInput,
+  MockAdapterTurnInput,
+} from './conversation-provider-adapter'
+
+export type AcpProfile = {
+  id: string
+  displayName: string
+  cli: string
+  argv: string[]
+  authHint: string
+  authenticate?: string
+  images: boolean
+  planMode: boolean
+}
+
+/** Profiles are protocol observations, not guesses based on a CLI's terminal features. */
+export const ACP_PROFILES: AcpProfile[] = [
+  {
+    id: 'cursor-agent',
+    displayName: 'Cursor',
+    cli: 'cursor',
+    argv: ['acp'],
+    authHint: 'Run agent login in a terminal.',
+    authenticate: 'cursor_login',
+    images: true,
+    planMode: true,
+  },
+  {
+    id: 'opencode-agent',
+    displayName: 'OpenCode',
+    cli: 'opencode',
+    argv: ['acp'],
+    authHint: 'Run opencode auth login in a terminal and configure a working model.',
+    images: true,
+    planMode: true,
+  },
+  {
+    id: 'grok-agent',
+    displayName: 'Grok',
+    cli: 'grok',
+    argv: ['agent', '--no-leader', 'stdio'],
+    authHint: 'Run grok login in a terminal.',
+    images: false,
+    planMode: false,
+  },
+]
+
+const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
+  permissionPresets: profile.cli === 'opencode' ? ['none', 'manual'] : ['none'],
+  tools: true,
+  approvals: true,
+  questions: false,
+  planMode: profile.planMode,
+  images: profile.images,
+  skills: 'context',
+  reasoningEfforts: null,
+  interrupt: true,
+  resume: true,
+  subagents: false,
+  cost: false,
+  contextMeter: false,
+  liveModelSwitch: false,
+})
+export const acpToolKind = (kind?: ToolKind | null): ConversationToolKind =>
+  ({
+    read: 'file_read',
+    edit: 'file_edit',
+    delete: 'file_edit',
+    move: 'file_edit',
+    search: 'search',
+    execute: 'command',
+    fetch: 'web',
+    think: 'other',
+    switch_mode: 'other',
+    other: 'other',
+  })[kind ?? 'other'] as ConversationToolKind
+
+class Queue implements AsyncIterable<ConversationEvent> {
+  private items: ConversationEvent[] = []
+  private wake?: () => void
+  private ended = false
+  push(event: ConversationEvent) {
+    if (!this.ended) {
+      this.items.push(event)
+      this.wake?.()
+    }
+  }
+  end() {
+    this.ended = true
+    this.wake?.()
+  }
+  async *[Symbol.asyncIterator]() {
+    while (!this.ended || this.items.length) {
+      const next = this.items.shift()
+      if (next) yield next
+      else
+        await new Promise<void>((resolve) => {
+          this.wake = resolve
+        })
+    }
+  }
+}
+type Pending = { options: RequestPermissionRequest['options']; resolve: (value: RequestPermissionResponse) => void }
+type State = {
+  input: MockAdapterSessionInput
+  child?: ChildProcessWithoutNullStreams
+  connection?: ClientSideConnection
+  starting?: Promise<void>
+  nativeId?: string
+  closed: boolean
+  loading: boolean
+  loadSupported: boolean
+  queue?: Queue
+  turn?: MockAdapterTurnInput
+  cancelled: boolean
+  pending: Map<string, Pending>
+  toolCalls: Map<string, Record<string, unknown>>
+  lastActivityAt: number
+  spawnedAt: number | null
+  capabilities: ConversationCapabilities
+  modes: string[]
+  defaultMode?: string
+  modeConfigId?: string
+  history: Array<{ user: string; assistant: string }>
+  replayHistory: boolean
+  assistantText: string
+}
+type Options = {
+  detect?: (input: MockAdapterSessionInput) => Promise<string>
+  buildEnv?: (input: MockAdapterSessionInput) => Promise<NodeJS.ProcessEnv>
+  startupTimeoutMs?: number
+}
+
+/** Text helpers refuse symlinks in every path component, not only the leaf. */
+export async function confinedAcpPath(cwd: string, requested: string, writing = false): Promise<string> {
+  const root = await realpath(cwd)
+  const target = resolve(root, requested)
+  const suffix = relative(root, target)
+  if (!suffix || suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix))
+    throw new Error('File path is outside the conversation workspace.')
+  const parts = suffix.split(sep)
+  let current = root
+  for (let index = 0; index < parts.length; index++) {
+    current = resolve(current, parts[index])
+    try {
+      const entry = await lstat(current)
+      if (entry.isSymbolicLink()) throw new Error('Symbolic links are not available through conversation file access.')
+      if (index < parts.length - 1 && !entry.isDirectory()) throw new Error('File parent is not a directory.')
+      if (index === parts.length - 1 && !entry.isFile())
+        throw new Error('Only regular files are available through conversation file access.')
+    } catch (error) {
+      if (writing && index === parts.length - 1 && (error as NodeJS.ErrnoException).code === 'ENOENT') break
+      throw error
+    }
+  }
+  return target
+}
+
+export function createAcpConversationProvider(profile: AcpProfile, options: Options = {}): ConversationProviderAdapter {
+  const sessions = new Map<string, State>()
+  let requestSequence = 0
+  const event = (
+    state: State,
+    type: ConversationEvent['type'],
+    payload: Record<string, unknown> = {},
+  ): ConversationEvent => ({
+    id: '',
+    sessionId: state.input.sessionId,
+    workspaceId: state.input.workspaceId,
+    agentId: state.input.agentId,
+    providerId: profile.id,
+    modelId: state.input.modelId,
+    createdAt: Date.now(),
+    type,
+    payload: { ...(state.turn ? { turnId: state.turn.turnId } : {}), ...payload },
+  })
+  const emit = (state: State, type: ConversationEvent['type'], payload: Record<string, unknown>) => {
+    state.lastActivityAt = Date.now()
+    if (!state.loading) state.queue?.push(event(state, type, payload))
+  }
+  const cancelPermissions = (state: State) => {
+    for (const pending of state.pending.values()) pending.resolve({ outcome: { outcome: 'cancelled' } })
+    state.pending.clear()
+  }
+  const dispose = (state: State) => {
+    cancelPermissions(state)
+    const child = state.child
+    state.child = undefined
+    state.connection = undefined
+    if (child && child.exitCode === null) {
+      child.stdin.end()
+      child.kill('SIGTERM')
+      const timeout = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }, 2000)
+      timeout.unref()
+    }
+  }
+  const permission = (state: State, params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
+    if (!state.turn || state.cancelled || state.closed || params.sessionId !== state.nativeId)
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    if (state.turn.mode === 'ask' && !['read', 'search', 'fetch'].includes(params.toolCall.kind ?? 'other'))
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    const requestId = `acp_permission_${++requestSequence}`
+    const result = new Promise<RequestPermissionResponse>((resolve) =>
+      state.pending.set(requestId, { options: params.options, resolve }),
+    )
+    emit(state, 'approval_requested', {
+      requestId,
+      kind: 'tool',
+      action: params.toolCall.name ?? params.toolCall.title ?? params.toolCall.kind ?? 'Tool',
+      input: params.toolCall.rawInput,
+      toolKind: acpToolKind(params.toolCall.kind),
+      toolUseId: params.toolCall.toolCallId,
+      cwd: state.input.workspaceRoot,
+    })
+    return result
+  }
+  const update = (state: State, value: SessionUpdate) => {
+    if (state.loading || !state.turn) return
+    if (value.sessionUpdate === 'agent_message_chunk' || value.sessionUpdate === 'agent_thought_chunk') {
+      if (value.content.type === 'text')
+        emit(state, value.sessionUpdate === 'agent_message_chunk' ? 'content_delta' : 'reasoning_delta', {
+          text: value.content.text,
+        })
+      if (value.sessionUpdate === 'agent_message_chunk' && value.content.type === 'text')
+        state.assistantText += value.content.text
+    } else if (value.sessionUpdate === 'tool_call' || value.sessionUpdate === 'tool_call_update') {
+      const prior = state.toolCalls.get(value.toolCallId)
+      const tool = { ...prior, ...value }
+      state.toolCalls.set(value.toolCallId, tool)
+      const content = value.content ?? []
+      const diff = content.find((entry) => entry.type === 'diff')
+      if (!prior || value.rawInput !== undefined || diff)
+        emit(state, 'tool_started', {
+          toolUseId: value.toolCallId,
+          toolCallId: value.toolCallId,
+          kind: acpToolKind(tool.kind as ToolKind | undefined),
+          name: tool.name ?? tool.title ?? tool.kind ?? 'Tool',
+          input: diff
+            ? {
+                ...(tool.rawInput && typeof tool.rawInput === 'object' ? tool.rawInput : {}),
+                path: diff.path,
+                oldText: diff.oldText ?? '',
+                newText: diff.newText,
+              }
+            : tool.rawInput,
+        })
+      const output =
+        value.rawOutput ??
+        content
+          .map((entry) =>
+            entry.type === 'content' && entry.content.type === 'text'
+              ? entry.content.text
+              : entry.type === 'diff'
+                ? { path: entry.path, oldText: entry.oldText, newText: entry.newText }
+                : '',
+          )
+          .filter(Boolean)
+      if (value.status === 'completed' || value.status === 'failed' || value.rawOutput !== undefined || content.length)
+        emit(state, 'tool_output', {
+          toolUseId: value.toolCallId,
+          toolCallId: value.toolCallId,
+          output,
+          status: value.status === 'failed' ? 'error' : value.status === 'completed' ? 'success' : 'running',
+          isError: value.status === 'failed',
+          partial: value.status !== 'completed' && value.status !== 'failed',
+        })
+    } else if (value.sessionUpdate === 'plan') {
+      const toolUseId = `plan_${state.turn.turnId}`
+      emit(state, 'tool_started', {
+        toolUseId,
+        toolCallId: toolUseId,
+        kind: 'todo',
+        name: 'Plan',
+        input: { todos: value.entries.map((entry) => ({ content: entry.content, status: entry.status })) },
+      })
+      emit(state, 'tool_output', { toolUseId, toolCallId: toolUseId, output: '', status: 'success' })
+    } else if (value.sessionUpdate === 'usage_update') {
+      emit(state, 'usage_updated', {
+        contextWindow: value.size,
+        contextUsed: value.used,
+        ...(value.cost?.currency === 'USD' ? { costUsd: value.cost.amount } : {}),
+      })
+    }
+  }
+  const ensure = async (state: State) => {
+    if (state.connection) return
+    if (state.starting) return state.starting
+    state.starting = (async () => {
+      const command = await (
+        options.detect ??
+        (async (input) => {
+          const { detectCli } = await import('../cli-runtime-install')
+          const result = await detectCli(profile.cli, input.cliRuntimes?.[profile.cli])
+          if (!result.installed || !result.resolvedPath)
+            throw new Error(
+              `${profile.displayName} CLI was not found. Install it or configure its command in Settings.`,
+            )
+          return result.resolvedPath
+        })
+      )(state.input)
+      const env = await (
+        options.buildEnv ??
+        (async () => {
+          const { getTerminalEnv } = await import('../terminal-launch')
+          return Object.fromEntries(
+            Object.entries(getTerminalEnv()).filter(
+              ([key]) => !/^(SPRINTENGINE_|MULTICODE_|CODEX_|CLAUDECODE$|ELECTRON_)/.test(key),
+            ),
+          )
+        })
+      )(state.input)
+      if (profile.cli === 'opencode' && state.input.permissionPreset === 'manual')
+        env.OPENCODE_PERMISSION = JSON.stringify({ '*': 'ask' })
+      if (state.closed) throw new Error('Conversation was stopped during startup.')
+      const sdk = await import('@agentclientprotocol/sdk')
+      if (state.closed) throw new Error('Conversation was stopped during startup.')
+      const child = spawn(command, profile.argv, {
+        cwd: state.input.workspaceRoot,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      state.child = child
+      state.spawnedAt = Date.now()
+      child.stderr.on('data', () => undefined)
+      child.on('error', () => {
+        /* The stream closure rejects pending protocol requests. */
+      })
+      child.stdin.on('error', () => undefined)
+      child.on('close', () => {
+        if (state.child !== child) return
+        state.child = undefined
+        state.connection = undefined
+        cancelPermissions(state)
+        if (state.queue) {
+          emit(state, 'turn_failed', { message: `${profile.displayName} process exited.` })
+          state.queue.end()
+        }
+      })
+      let frameBytes = 0
+      const boundedInput = (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>).pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            for (const byte of chunk) {
+              frameBytes = byte === 10 ? 0 : frameBytes + 1
+              if (frameBytes > 16 * 1024 * 1024) {
+                dispose(state)
+                throw new Error('ACP protocol frame exceeds the size limit.')
+              }
+            }
+            controller.enqueue(chunk)
+          },
+        }),
+      )
+      const connection = new sdk.ClientSideConnection(
+        () => ({
+          requestPermission: (params) => permission(state, params),
+          sessionUpdate: async (params) => {
+            if (params.sessionId === state.nativeId || state.loading) update(state, params.update)
+          },
+          readTextFile: async (params) => {
+            if (!state.turn || params.sessionId !== state.nativeId) throw new Error('No active conversation turn.')
+            const path = await confinedAcpPath(state.input.workspaceRoot!, params.path)
+            const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+            try {
+              if ((await file.stat()).size > 2 * 1024 * 1024)
+                throw new Error('File exceeds the conversation read limit.')
+              const content = await file.readFile('utf8')
+              if (content.includes('\0')) throw new Error('Binary files are not supported.')
+              const lines = content.split('\n'),
+                start = Math.max(0, (params.line ?? 1) - 1)
+              return {
+                content:
+                  params.line || params.limit
+                    ? lines.slice(start, params.limit ? start + params.limit : undefined).join('\n')
+                    : content,
+              }
+            } finally {
+              await file.close()
+            }
+          },
+          writeTextFile: async (params) => {
+            if (!state.turn || params.sessionId !== state.nativeId) throw new Error('No active conversation turn.')
+            if (state.turn.mode === 'ask' || state.turn.mode === 'plan')
+              throw new Error('This conversation mode is read-only.')
+            if (Buffer.byteLength(params.content) > 2 * 1024 * 1024)
+              throw new Error('File exceeds the conversation write limit.')
+            const path = await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
+            const decision = await permission(state, {
+              sessionId: params.sessionId,
+              toolCall: { toolCallId: `write_${++requestSequence}`, kind: 'edit', name: 'Write', rawInput: { path } },
+              options: [{ optionId: 'once', name: 'Allow once', kind: 'allow_once' }],
+            })
+            if (decision.outcome.outcome !== 'selected') throw new Error('File write was not approved.')
+            await state.input.onBeforeTool?.('Write')
+            await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
+            const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600)
+            try {
+              await file.truncate(0)
+              await file.writeFile(params.content, 'utf8')
+            } finally {
+              await file.close()
+            }
+          },
+        }),
+        sdk.ndJsonStream(Writable.toWeb(child.stdin), boundedInput),
+      )
+      const initialize = async () => {
+        const hello = await connection.initialize({
+          protocolVersion: sdk.PROTOCOL_VERSION,
+          clientInfo: { name: 'sprintengine-studio', version: '1' },
+          clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
+        })
+        if (hello.protocolVersion !== sdk.PROTOCOL_VERSION) throw new Error('ACP protocol version is incompatible.')
+        state.loadSupported = hello.agentCapabilities?.loadSession === true
+        state.capabilities = {
+          ...baseCapabilities(profile),
+          resume: state.loadSupported,
+          images: hello.agentCapabilities?.promptCapabilities?.image === true,
+        }
+        if (profile.authenticate && hello.authMethods?.some((method) => method.id === profile.authenticate))
+          await connection.authenticate({ methodId: profile.authenticate })
+        state.loading = true
+        const resumeId = state.nativeId ?? state.input.resumeSessionId
+        state.replayHistory = Boolean(resumeId && !state.loadSupported)
+        const session =
+          resumeId && state.loadSupported
+            ? await connection.loadSession({ sessionId: resumeId, cwd: state.input.workspaceRoot!, mcpServers: [] })
+            : await connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers: [] })
+        state.nativeId = 'sessionId' in session ? String(session.sessionId) : resumeId
+        state.modes = session.modes?.availableModes.map((mode) => mode.id) ?? []
+        state.defaultMode = session.modes?.currentModeId
+        const modeConfig = session.configOptions?.find((option) => option.category === 'mode')
+        state.modeConfigId = modeConfig?.id
+        if (!state.modes.length && modeConfig && 'options' in modeConfig) {
+          state.modes = modeConfig.options.flatMap((option) =>
+            'value' in option ? [option.value] : option.options.map((entry) => entry.value),
+          )
+          state.defaultMode = modeConfig.currentValue
+        }
+        state.capabilities.planMode = state.modes.includes('plan')
+        if (state.input.modelId !== 'default') {
+          const modelConfig = session.configOptions?.find((option) => option.category === 'model')
+          if (modelConfig)
+            await connection.setSessionConfigOption({
+              sessionId: state.nativeId!,
+              configId: modelConfig.id,
+              value: state.input.modelId,
+            })
+          else throw new Error('This ACP agent does not expose model selection. Choose the default model.')
+        }
+        state.loading = false
+        if (state.closed || state.child !== child || child.exitCode !== null)
+          throw new Error('Conversation was stopped during startup.')
+        state.connection = connection
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          initialize(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('ACP startup timed out.')), options.startupTimeoutMs ?? 30_000)
+          }),
+        ])
+      } catch (error) {
+        dispose(state)
+        throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    })().finally(() => {
+      state.starting = undefined
+    })
+    return state.starting
+  }
+  return {
+    id: profile.id,
+    displayName: profile.displayName,
+    capabilities: baseCapabilities(profile),
+    sessions: 'stateful',
+    listModels: () => ['default'],
+    async startSession(input) {
+      if (input.permissionPreset && !baseCapabilities(profile).permissionPresets!.includes(input.permissionPreset))
+        throw new Error(
+          `${profile.displayName} ACP cannot enforce the ${input.permissionPreset} permission preset. Choose CLI-managed permissions explicitly.`,
+        )
+      const state: State = {
+        input,
+        closed: false,
+        loading: false,
+        loadSupported: false,
+        cancelled: false,
+        pending: new Map(),
+        toolCalls: new Map(),
+        lastActivityAt: Date.now(),
+        spawnedAt: null,
+        capabilities: baseCapabilities(profile),
+        modes: [],
+        history: [],
+        replayHistory: false,
+        assistantText: '',
+      }
+      sessions.set(input.sessionId, state)
+      try {
+        await ensure(state)
+      } catch (error) {
+        sessions.delete(input.sessionId)
+        throw error
+      }
+      return [event(state, 'session_started', { providerSessionId: state.nativeId, capabilities: state.capabilities })]
+    },
+    sendTurn(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state || state.closed) throw new Error('ACP session is unavailable.')
+      if (state.turn) throw new Error('ACP turn is already active.')
+      const queue = new Queue()
+      state.queue = queue
+      state.turn = input
+      state.cancelled = false
+      state.toolCalls.clear()
+      state.assistantText = ''
+      const abort = () => {
+        state.cancelled = true
+        cancelPermissions(state)
+        if (state.nativeId) void state.connection?.cancel({ sessionId: state.nativeId }).catch(() => dispose(state))
+      }
+      input.signal?.addEventListener('abort', abort, { once: true })
+      void (async () => {
+        try {
+          await ensure(state)
+          if (input.signal?.aborted || state.cancelled) throw new Error('interrupted')
+          if (input.mode || state.defaultMode) {
+            const desired = !input.mode || input.mode === 'default' ? state.defaultMode : input.mode
+            if (!desired || !state.modes.includes(desired))
+              throw new Error('This mode is unavailable from the ACP agent.')
+            if (state.modeConfigId)
+              await state.connection!.setSessionConfigOption({
+                sessionId: state.nativeId!,
+                configId: state.modeConfigId,
+                value: desired,
+              })
+            else await state.connection!.setSessionMode({ sessionId: state.nativeId!, modeId: desired })
+          }
+          await state.input.onBeforeTool?.('ACP agent turn')
+          emit(state, 'turn_started', { providerSessionId: state.nativeId })
+          const prior = state.replayHistory
+            ? [
+                ...(state.input.fallbackHistory ?? []).map((message) => `${message.role}: ${message.content}`),
+                ...state.history.map((turn) => `User: ${turn.user}\nAssistant: ${turn.assistant}`),
+              ].join('\n\n')
+            : ''
+          const prompt: Parameters<ClientSideConnection['prompt']>[0]['prompt'] = [
+            {
+              type: 'text',
+              text: prior ? `Previous conversation:\n${prior}\n\nUser: ${input.message}` : input.message,
+            },
+          ]
+          state.replayHistory = false
+          if (input.attachments?.length && !state.capabilities.images)
+            throw new Error('This ACP agent does not support images.')
+          for (const attachment of input.attachments ?? [])
+            prompt.push({ type: 'image', data: attachment.dataBase64, mimeType: attachment.mediaType })
+          const result = await state.connection!.prompt({ sessionId: state.nativeId!, prompt })
+          if (result.usage)
+            emit(state, 'usage_updated', {
+              inputTokens: result.usage.inputTokens,
+              outputTokens: result.usage.outputTokens,
+            })
+          if (!state.cancelled && result.stopReason !== 'cancelled')
+            state.history.push({ user: input.message, assistant: state.assistantText })
+          emit(
+            state,
+            state.cancelled || result.stopReason === 'cancelled' ? 'turn_failed' : 'turn_completed',
+            state.cancelled || result.stopReason === 'cancelled'
+              ? { reason: 'interrupted' }
+              : { stopReason: result.stopReason },
+          )
+        } catch (error) {
+          emit(state, 'turn_failed', {
+            message: state.cancelled ? 'interrupted' : error instanceof Error ? error.message : String(error),
+          })
+        } finally {
+          input.signal?.removeEventListener('abort', abort)
+          cancelPermissions(state)
+          state.turn = undefined
+          state.queue = undefined
+          queue.end()
+        }
+      })()
+      return queue
+    },
+    resolveApproval(input) {
+      const state = sessions.get(input.sessionId),
+        pending = state?.pending.get(input.requestId)
+      if (!state || !pending) return []
+      const selected = pending.options.find((option) => option.kind === (input.approved ? 'allow_once' : 'reject_once'))
+      // Never convert a once-only approval into an agent-wide persistent grant.
+      pending.resolve(
+        selected
+          ? { outcome: { outcome: 'selected', optionId: selected.optionId } }
+          : { outcome: { outcome: 'cancelled' } },
+      )
+      state.pending.delete(input.requestId)
+      return [
+        event(state, 'approval_resolved', {
+          requestId: input.requestId,
+          approved: input.approved && Boolean(selected),
+        }),
+      ]
+    },
+    async setPermissionPreset(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'ACP session is unavailable.' }
+      if (!baseCapabilities(profile).permissionPresets!.includes(input.permissionPreset))
+        return {
+          ok: false,
+          message: `${profile.displayName} ACP cannot enforce this permission preset. Choose CLI-managed permissions explicitly.`,
+        }
+      if (state.turn) return { ok: false, message: 'Wait for the active turn before changing ACP permissions.' }
+      state.input.permissionPreset = input.permissionPreset
+      dispose(state)
+      return { ok: true }
+    },
+    async interrupt(input) {
+      const state = sessions.get(input.sessionId)
+      if (state) {
+        state.cancelled = true
+        cancelPermissions(state)
+        if (state.nativeId) await state.connection?.cancel({ sessionId: state.nativeId })
+        dispose(state)
+      }
+      return []
+    },
+    stopSession(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return []
+      state.closed = true
+      dispose(state)
+      sessions.delete(input.sessionId)
+      return []
+    },
+    disposeAll() {
+      for (const state of sessions.values()) {
+        state.closed = true
+        dispose(state)
+      }
+      sessions.clear()
+    },
+    disposeChildProcess(sessionId) {
+      const state = sessions.get(sessionId)
+      if (!state || state.turn || state.pending.size) return false
+      dispose(state)
+      return true
+    },
+    listLiveSessions() {
+      return Array.from(sessions.values(), (state) => ({
+        sessionId: state.input.sessionId,
+        workspaceId: state.input.workspaceId,
+        agentId: state.input.agentId,
+        workspaceRoot: state.input.workspaceRoot!,
+        providerSessionId: state.nativeId ?? null,
+        hasChildProcess: Boolean(state.child),
+        childPid: state.child?.pid ?? null,
+        turnActive: Boolean(state.turn),
+        pendingApproval: state.pending.size > 0,
+        lastActivityAt: state.lastActivityAt,
+        spawnedAt: state.spawnedAt,
+      }))
+    },
+  }
+}

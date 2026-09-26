@@ -69,6 +69,7 @@ export type MockAdapterSessionInput = {
   // live session; they are optional so stateless adapters/tests stay minimal.
   workspaceRoot?: string
   resumeSessionId?: string
+  fallbackHistory?: ConversationMessage[]
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
@@ -103,6 +104,8 @@ export type ConversationMessage = {
 }
 
 export type MockAdapterTurnInput = MockAdapterSessionInput & {
+  reasoningEffort?: string
+  mode?: 'default' | 'plan' | 'ask'
   turnId: string
   requestId: string
   message: string

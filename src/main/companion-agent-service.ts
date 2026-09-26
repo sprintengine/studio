@@ -214,7 +214,13 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
         if (requestId && entry.sessionId) {
           const sessionId = entry.sessionId
           queueMicrotask(() => {
-            void runtime.respondToRequest({ sessionId, requestId, approved: true }).catch(() => undefined)
+            const prior = entry.pendingSend
+            const response = runtime.respondToRequest({ sessionId, requestId, approved: true })
+            // A stateless approval opens a separate continuation stream. The
+            // next validation retry must wait for both streams to drain.
+            entry.pendingSend = Promise.all([prior, response])
+              .then(() => undefined)
+              .catch(() => undefined)
           })
         }
       } else if (event.type === 'turn_completed') {

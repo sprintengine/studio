@@ -121,6 +121,8 @@ export type ConversationImageAttachment = {
 }
 
 export type ConversationSendTurnInput = {
+  reasoningEffort?: string
+  mode?: 'default' | 'plan' | 'ask'
   commandId?: string
   skills?: ConversationSkillRef[]
   sessionId: string
@@ -300,6 +302,7 @@ export type ConversationToolDetailResult =
   | { ok: true; detail: ConversationToolDetail }
   | { ok: false; code: 'not_found' | 'invalid_input' | 'unavailable'; message: string }
 export type ConversationCapabilities = {
+  permissionPresets?: ConversationPermissionPreset[]
   tools: boolean
   approvals: boolean
   questions: boolean

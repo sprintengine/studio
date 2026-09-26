@@ -24,6 +24,7 @@ test('claude-agent-provider', async () => {
     await testTurnStreamsDeltasToolsUsageAndCompletion()
     await testImageAttachmentsBecomeMultimodalContent()
     await testNativeSkillSelectionReachesSdk()
+    await testAskModeReadOnlyAndEffort()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
@@ -165,6 +166,34 @@ test('claude-agent-provider', async () => {
     assert.deepEqual(capturedOptions[0]?.skills, ['example'])
     assert.deepEqual(capturedOptions[0]?.settingSources, ['user', 'project', 'local'])
     adapter.disposeAll?.()
+  }
+
+  async function testAskModeReadOnlyAndEffort(): Promise<void> {
+    const { adapter, capturedOptions } = createAdapter((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'ask-mode' })
+    })
+    const input = turnInput()
+    await adapter.startSession(input)
+    for await (const _event of await adapter.sendTurn({ ...input, mode: 'ask', reasoningEffort: 'high' })) {
+      /* drain */
+    }
+    assert.equal(capturedOptions[0]?.permissionMode, 'plan')
+    assert.equal(capturedOptions[0]?.effort, 'high')
+    const hooks = capturedOptions[0]?.hooks as {
+      PreToolUse: Array<{ hooks: Array<(input: unknown) => Promise<unknown>> }>
+    }
+    const hook = hooks.PreToolUse[0].hooks[0]
+    const denied = (await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash' })) as {
+      hookSpecificOutput?: { permissionDecision: string }
+    }
+    assert.equal(denied.hookSpecificOutput?.permissionDecision, 'deny')
+    assert.deepEqual(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Read' }), {})
+    await adapter.setPermissionPreset({ ...input, permissionPreset: 'bypass' })
+    for await (const _event of await adapter.sendTurn({ ...input, turnId: 'default', mode: 'default' })) {
+      /* drain */
+    }
+    assert.equal(capturedOptions[1]?.permissionMode, 'bypassPermissions')
+    adapter.disposeAll()
   }
 
   const SESSION_INPUT = {

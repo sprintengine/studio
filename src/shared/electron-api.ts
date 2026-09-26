@@ -185,6 +185,14 @@ import type {
   ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type {
+  ConversationWorkspaceKey,
+  ConversationThreadsResult,
+  ConversationSearchInput,
+  ConversationSearchResult,
+  ConversationRenameInput,
+} from './conversation-index'
+import type { ConversationSearchHit } from './conversation-index'
 import type { ModuleEventEnvelope } from './modules/events'
 import type {
   ThirdPartyModuleInstallResult,
@@ -942,6 +950,14 @@ export type ElectronApi = {
   conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
   conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
   conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
+  conversationThreads: (input: ConversationWorkspaceKey) => Promise<ConversationThreadsResult>
+  conversationSearch: (input: ConversationSearchInput) => Promise<ConversationSearchResult>
+  onConversationSearchBatch: (
+    callback: (batch: { requestId: string; hits: ConversationSearchHit[] }) => void,
+  ) => () => void
+  conversationCancelSearch: (input: { requestId: string }) => Promise<{ ok: boolean }>
+  conversationRename: (input: ConversationRenameInput) => Promise<{ ok: true } | { ok: false; message: string }>
+  conversationDelete: (input: ConversationTranscriptInput) => Promise<{ ok: true } | { ok: false; message: string }>
   conversationRevokeApprovalRule: (input: { ruleId: string }) => Promise<ConversationApprovalRuleRevokeResult>
   onConversationSession: (
     input: ConversationSubscribeInput,

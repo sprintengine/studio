@@ -67,6 +67,7 @@ export class ConversationSessionApi {
     // Subscribe before any asynchronous read so the join has no blind window.
     unsubscribe = this.runtime.onEvent(live)
     const ready = (async () => {
+      await this.runtime.recoverTranscript(input.key)
       const transcript = await this.runtime.readTranscript(input.key, { all: true, closeOpenTurns: false })
       if (disposed) return
       if (!transcript.ok) {
@@ -75,7 +76,11 @@ export class ConversationSessionApi {
         return
       }
       const after = transcript.events.filter((event) => (event.seq ?? 0) > seen)
-      if (after.length <= 1000 && Buffer.byteLength(JSON.stringify(after)) <= 8 * 1024 * 1024) {
+      if (
+        input.afterSeq !== undefined &&
+        after.length <= 1000 &&
+        Buffer.byteLength(JSON.stringify(after)) <= 8 * 1024 * 1024
+      ) {
         for (const event of after) deliver({ type: 'event', event })
       } else {
         deliver({ type: 'snapshot', page: pageTurns(transcript.events, input.turnLimit) })
@@ -96,6 +101,7 @@ export class ConversationSessionApi {
   }
 
   async loadEarlier(input: ConversationLoadEarlierInput): Promise<ConversationPageResult> {
+    await this.runtime.recoverTranscript(input.key)
     const transcript = await this.runtime.readTranscript(input.key, { all: true, closeOpenTurns: false })
     if (!transcript.ok) return transcript
     return {
