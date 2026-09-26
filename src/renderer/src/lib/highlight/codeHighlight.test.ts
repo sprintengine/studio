@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { afterEach, beforeEach, test, expect, vi } from 'vitest'
 import {
   cachedCodeLines,
   HIGHLIGHT_LINE_LIMIT,
@@ -6,6 +6,15 @@ import {
   loadCodeLanguage,
   normalizeCodeLanguage,
 } from './codeHighlight'
+
+// Grammar parity is independent of how long a shared runner is descheduled.
+// Exercise the production deadline separately with an explicitly advancing clock.
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(0)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const fixtures = [
   ['typescript', 'const answer: number = 42\nconsole.log(answer)'],
@@ -50,6 +59,18 @@ test('normalizes aliases and rejects prototype keys or unsupported languages', (
   expect(normalizeCodeLanguage('zsh')).toBe('bash')
   expect(normalizeCodeLanguage('constructor')).toBeNull()
   expect(normalizeCodeLanguage('')).toBeNull()
+})
+
+test('the production tokenizer retains its 50 ms deadline and preserves text when time expires', async () => {
+  const engine = await loadCodeLanguage('typescript')
+  const tokenize = vi.spyOn(engine, 'codeToTokensBase')
+  let clock = 0
+  vi.mocked(Date.now).mockImplementation(() => (clock += 30))
+  const code = 'const answer: number = 42\nconsole.log(answer)'
+  const lines = new IncrementalCodeTokenizer(engine, 'typescript').update(code, true)
+  expect(tokenize).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ tokenizeTimeLimit: 50 }))
+  expect(lines.map((line) => line.tokens.map((token) => token.content).join('')).join('\n')).toBe(code)
+  expect(lines[0].tokens.length).toBeLessThan(9)
 })
 
 test('large code retains source beyond the highlighting limit', async () => {
