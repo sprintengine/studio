@@ -1,6 +1,7 @@
 import type { ConversationClientFrame, ConversationWireThread } from '../../../../packages/conversation-protocol/src'
 import type {
   ConversationKey,
+  ConversationImageAttachment,
   ConversationSessionFrame,
   ConversationSessionSummary,
 } from '../../../shared/conversation-runtime'
@@ -239,7 +240,7 @@ export function createConversationGatewayHost(
               }
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
-            const attachments = []
+            const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
               const upload = uploads.get(id)
               if (

@@ -57,6 +57,12 @@ images of 5 MB each per turn, with JPEG, PNG, GIF, and WebP media types. Upload
 references are device/session scoped and expire. A remote send refuses an
 unsafe desktop permission preset rather than silently changing that preset.
 
+Reconnect replaces the cached transcript window with an authoritative bounded
+snapshot before live events continue. Sequence numbers alone cannot prove that
+a cached event survived a desktop crash; older turns remain available through
+paging. Command identifiers remain stable across retries to prevent duplicate
+accepted sends.
+
 The portable protocol lives in `packages/conversation-protocol`. Its source
 mirror and digest in the companion must be updated together until the companion
 adopts a published package version. Building this branch does not publish that
