@@ -54,7 +54,9 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { RemoteMachineGlyph } from '../AppIcons'
+import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -79,6 +81,7 @@ const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type
 
 interface Props {
   workspaceId: string
+  conversationSessions?: ConversationSessionSummary[]
   // The tab strip's "+": opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
@@ -305,7 +308,7 @@ function WorkspaceLayout(props: Props) {
   return <WorkspaceLayoutBody {...props} />
 }
 
-function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Props) {
+function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, conversationSessions = [] }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
@@ -1075,7 +1078,16 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
         const sId = cfg?.sessionId ?? workspaceAgents[aId]?.cliSessionId
         liveTabSession = sId ? terminalSessions.find((s) => s.sessionId === sId) : undefined
       }
-      const isLiveTab = Boolean(liveTabSession?.processAlive)
+      const tabConversation =
+        tabComponentId === 'agent'
+          ? conversationSessions.find(
+              (session) =>
+                session.agentId === ((node.getConfig() as { agentId?: string } | undefined)?.agentId ?? node.getId()),
+            )
+          : undefined
+      const isLiveTab = Boolean(
+        liveTabSession?.processAlive || (tabConversation && tabConversation.status !== 'stopped'),
+      )
 
       const tabNameSpan = (
         <span
@@ -1183,12 +1195,30 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
       const config = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
-      const agentSessionId = config?.sessionId ?? agent?.cliSessionId
+      const conversation = conversationSessions.find((session) => session.agentId === agentId)
+      const conversationPhase = conversation ? conversationSummaryPhase(conversation) : null
+      const agentSessionId = conversation?.sessionId ?? config?.sessionId ?? agent?.cliSessionId
       const agentSession = agentSessionId ? terminalSessions.find((s) => s.sessionId === agentSessionId) : undefined
-      const isWorking = isSessionWorking(agentSession)
-      const activityDot: AgentTabActivityDot | null = agentTabStatusDot(agentSession)
+      const isWorking =
+        conversationPhase === 'running' || conversationPhase === 'starting' || isSessionWorking(agentSession)
+      const activityDot: AgentTabActivityDot | null =
+        conversationPhase === 'waiting_for_approval'
+          ? { tone: 'warn', pulse: false, label: 'Needs approval' }
+          : conversationPhase === 'waiting_for_input'
+            ? { tone: 'warn', pulse: false, label: 'Asked a question' }
+            : conversationPhase === 'failed'
+              ? { tone: 'error', pulse: false, label: 'Failed' }
+              : isWorking
+                ? { tone: 'good', pulse: true, label: 'Working' }
+                : agentTabStatusDot(agentSession)
 
-      if (agent?.cli) {
+      if (agent?.runtimeKind === 'conversation') {
+        renderValues.leading = (
+          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} aria-label="Chat agent">
+            <ChatGlyph className={TAB_CHIP_GLYPH_CLASS} />
+          </span>
+        )
+      } else if (agent?.cli) {
         // The tab's otherwise-empty leading slot carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
         // at-a-glance "which harness" signal. The exact model lives in the hover
         // popout, since models carry no icon.
@@ -1235,12 +1265,14 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
         (agentCheckout?.kind === 'worktree' &&
           worktreeMissing &&
           (!agentCheckout.observed || observedAtWorkspaceWorktree))
-      renderValues.leading = withWorktreeGlyph(
-        renderValues.leading,
-        agentWorktree,
-        agentWorktreeMissing,
-        agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
-      )
+      if (agent?.runtimeKind !== 'conversation') {
+        renderValues.leading = withWorktreeGlyph(
+          renderValues.leading,
+          agentWorktree,
+          agentWorktreeMissing,
+          agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
+        )
+      }
 
       // Recency only when NOT working: an active agent shows the pulsing green
       // dot instead.
@@ -1347,7 +1379,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
           // Whose changelist the card's "open the diff" filters to.
           agentId,
           cli: agent?.cli ?? null,
-          model: agent?.cliModel ?? null,
+          model: conversation?.modelId ?? agent?.cliModel ?? null,
           fileChanges: agentSnapshot?.fileChanges ?? [],
           // The tab anchor shows the same head as the sidebar anchor because
           // both feed one card: the pull requests are this agent's session's,
@@ -1403,6 +1435,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel }
       startRename,
       remoteAttachedSessions,
       terminalSessions,
+      conversationSessions,
       workspaceAgents,
       worktreeBranch,
       worktreeGitRoot,

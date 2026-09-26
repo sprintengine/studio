@@ -22,6 +22,8 @@ import {
   PermissionPresetMenuRows,
 } from '../../workspace/agentComposer/agentSpawnShared'
 import { LockGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
+import { ChatGlyph } from '../../AppIcons'
+export { ChatGlyph } from '../../AppIcons'
 import { useState, useEffect, useCallback } from 'react'
 
 // The in-composer model selector. Before the conversation starts it is a pill
@@ -463,19 +465,6 @@ export function ModelPickerPill({
         </div>
       </div>
     </Popover>
-  )
-}
-
-export function ChatGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }
 

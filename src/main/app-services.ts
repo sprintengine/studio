@@ -1580,6 +1580,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // testable.
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
+    readConversationEvents: async (sessionId) => {
+      const listed = conversationRuntime.listSessions()
+      const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
+      if (!summary) return null
+      const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
+      if (!workspaceRoot) return []
+      const transcript = await conversationRuntime.readTranscript(
+        {
+          workspaceRoot,
+          workspaceId: summary.workspaceId,
+          agentId: summary.agentId,
+        },
+        { all: true },
+      )
+      return transcript.ok ? transcript.events : []
+    },
   })
 
   // The change feed (2026-09-05): paired devices used to poll terminal.list

@@ -11,6 +11,7 @@ import type { ConversationEventType, ConversationSessionSummary } from '../../..
 const STATUS_EVENT_TYPES: ReadonlySet<ConversationEventType> = new Set<ConversationEventType>([
   'session_started',
   'session_ready',
+  'session_updated',
   'session_closed',
   'turn_started',
   'approval_requested',

@@ -590,13 +590,13 @@ export function normalizeConversationModel(
 
 // Persisted "New chat in project" agent choice. Anything that is not one of the
 // three spawn kinds — a malformed blob, a shape from an older build — falls
-// back to the General agent here.
+// back to Chat. A remembered explicit choice still wins.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
-  if (!input || typeof input !== 'object') return { kind: 'general' }
+  if (!input || typeof input !== 'object') return { kind: 'conversation' }
   const choice = input as Partial<NewChatAgentChoice>
   if (choice.kind === 'terminal') return { kind: 'terminal' }
   if (choice.kind === 'conversation') return { kind: 'conversation' }
-  return { kind: 'general' }
+  return choice.kind === 'general' ? { kind: 'general' } : { kind: 'conversation' }
 }
 
 // Module-contributed settings sections persist their values in a `module:<id>`
@@ -692,7 +692,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
   lastSelectedConversationModel: null,
   textGeneration: { enabled: true, engine: null },
-  lastNewChatAgent: { kind: 'general' },
+  lastNewChatAgent: { kind: 'conversation' },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,

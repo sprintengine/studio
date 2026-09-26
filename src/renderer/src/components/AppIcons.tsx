@@ -10,6 +10,19 @@ type IconProps = {
 
 const iconStroke = 1.7
 
+export function ChatGlyph({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 // Resolve a workspace mode to its registered type definition, but only when the
 // owning module is enabled. Disabled or unknown modes (and shell-owned
 // 'standard') resolve to undefined so callers degrade to the generic/standard

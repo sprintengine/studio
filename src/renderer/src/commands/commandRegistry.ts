@@ -78,6 +78,20 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+N'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel()' },
   }),
+  command({
+    id: 'chat.newConversation',
+    title: 'New Conversation',
+    category: 'workspace',
+    scopes: ['global'],
+    handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "conversation" })' },
+  }),
+  command({
+    id: 'chat.newTerminalAgent',
+    title: 'New Terminal Agent',
+    category: 'workspace',
+    scopes: ['global'],
+    handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "general" })' },
+  }),
   // The chat composer's model picker (remote-sessions-ux / selector-menus-
   // premium). Works from inside the
   // composer's textarea — that is where a person is when they want to change

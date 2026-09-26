@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { ConversationPeek } from '../../shared/conversation-peek'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 import { MAX_PEEK_FIRST_CHARS, MAX_PEEK_MESSAGE_CHARS, MAX_PEEK_MESSAGES } from '../../shared/conversation-peek'
 import { registerConversationPeekIpc } from '../ipc/conversation-peek-ipc'
 import {
@@ -185,6 +186,46 @@ test('no record of a session is unknown, never none', async () => {
   const blank = await service.readConversationPeek('')
   assert.equal(blank.source, 'unknown')
   assert.deepEqual(reads, ['no-such-session'], 'an empty id is not looked up')
+})
+
+test('a conversation peek reads its persisted first message and last exchange', async () => {
+  const event = (id: string, type: ConversationEvent['type'], text?: string): ConversationEvent => ({
+    id,
+    sessionId: 'conversation-1',
+    workspaceId: 'workspace-1',
+    agentId: 'agent-1',
+    providerId: 'provider-1',
+    modelId: 'model-1',
+    type,
+    createdAt: Number(id),
+    ...(text ? { payload: { text } } : {}),
+  })
+  let terminalReads = 0
+  const service = createConversationPeekService({
+    readSessionState: async () => {
+      terminalReads += 1
+      return null
+    },
+    readConversationEvents: async (sessionId) =>
+      sessionId === 'conversation-1'
+        ? [
+            event('1', 'user_message', 'First request'),
+            event('2', 'content_delta', 'First answer'),
+            event('3', 'turn_completed'),
+            event('4', 'user_message', 'Follow up'),
+            event('5', 'content_delta', 'Final answer'),
+            event('6', 'turn_completed'),
+          ]
+        : null,
+  })
+  const peek = await service.readConversationPeek('conversation-1')
+  assert.equal(peek.source, 'live')
+  assert.equal(peek.first?.text, 'First request')
+  assert.deepEqual(
+    peek.since.map((message) => message.text),
+    ['Follow up', 'Final answer'],
+  )
+  assert.equal(terminalReads, 0)
 })
 
 // ── the IPC boundary ─────────────────────────────────────────────────────────

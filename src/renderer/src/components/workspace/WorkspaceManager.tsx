@@ -42,6 +42,8 @@ import { useAgentEditorReveal } from '../../hooks/useAgentEditorReveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { combinedAgentActivity } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -567,6 +569,7 @@ export default function WorkspaceManager() {
     folderPath: string | null
     folderLabel: string | null
     connector: AgentComposerConnector | null
+    forcedSelection: AgentComposerSelection | null
   } | null>(null)
   const newChatPanelOpen = newChatPanelState !== null
   // Guards the async adoption against a second workspace creation landing before
@@ -1089,7 +1092,7 @@ export default function WorkspaceManager() {
 
   // Conversation spawn is offered only in standard workspaces; a module-owned
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
-  const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
+  const conversationSpawnEnabled = !activeWorkspace || activeWorkspace.mode === 'standard'
   // Every surface that can spawn a conversation agent asks for the catalog by
   // bumping this counter: the launch surface and the launcher's
   // picker both offer the row. It used to be keyed on the top bar's spawn
@@ -1097,6 +1100,7 @@ export default function WorkspaceManager() {
   // could never appear elsewhere — the catalog stayed empty, so the option
   // silently did not exist.
   const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
+  const [conversationCatalogLoading, setConversationCatalogLoading] = useState(false)
   const requestConversationCatalog = useCallback(() => {
     setConversationCatalogRequests((count) => count + 1)
   }, [])
@@ -1109,16 +1113,24 @@ export default function WorkspaceManager() {
     if (conversationCatalogRequests === 0 || !conversationSpawnEnabled) return
     if (typeof window.api.conversationProvidersList !== 'function') {
       setConversationProviderResult(null)
+      setConversationCatalogLoading(false)
       return
     }
     let cancelled = false
+    setConversationCatalogLoading(true)
     void window.api
       .conversationProvidersList({ cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides })
       .then((result) => {
-        if (!cancelled) setConversationProviderResult(result)
+        if (!cancelled) {
+          setConversationProviderResult(result)
+          setConversationCatalogLoading(false)
+        }
       })
       .catch(() => {
-        if (!cancelled) setConversationProviderResult(null)
+        if (!cancelled) {
+          setConversationProviderResult(null)
+          setConversationCatalogLoading(false)
+        }
       })
     return () => {
       cancelled = true
@@ -2227,17 +2239,26 @@ export default function WorkspaceManager() {
   const activityByWorkspaceId = useMemo(() => {
     const map: Record<string, WorkspaceActivity> = {}
     for (const workspace of workspaces) {
-      map[workspace.id] = getWorkspaceActivity(workspace, terminalSessions)
+      map[workspace.id] = combinedAgentActivity(
+        getWorkspaceActivity(workspace, terminalSessions),
+        conversationSessions.filter((session) => session.workspaceId === workspace.id),
+      )
     }
     return map
-  }, [workspaces, terminalSessions])
+  }, [workspaces, terminalSessions, conversationSessions])
 
   // Workspaces whose agents are resident (live PTY) right now, so the sidebar can
   // bold them as "hot" — instant to switch into, versus suspended/exited rows that
   // re-launch on open. Derived from the same live `terminalSessions` snapshot as
   // activity, and recomputes the moment the reaper suspends an agent (it disposes
   // the session, and the terminal:sessions-delta broadcast carries the change).
-  const residentWorkspaceIds = useMemo(() => residentAgentWorkspaceIds(terminalSessions), [terminalSessions])
+  const residentWorkspaceIds = useMemo(() => {
+    const ids = residentAgentWorkspaceIds(terminalSessions)
+    for (const session of conversationSessions) {
+      if (session.status !== 'stopped') ids.add(session.workspaceId)
+    }
+    return ids
+  }, [terminalSessions, conversationSessions])
 
   const terminalRecencyByWorkspaceId = useMemo(() => {
     const map: Record<
@@ -2272,8 +2293,21 @@ export default function WorkspaceManager() {
       const workingSince = deriveWorkspaceWorkingSince(workspace.id, terminalSessions)
       map[workspace.id] = { hasRunning, idleSince, lastInputAt, workingSince }
     }
+    for (const session of conversationSessions) {
+      const row = map[session.workspaceId]
+      if (!row) continue
+      const phase = conversationSummaryPhase(session)
+      if (phase === 'running' || phase === 'starting') {
+        row.hasRunning = true
+        row.workingSince = Math.min(row.workingSince ?? session.updatedAt, session.updatedAt)
+      }
+      row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
+      if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
+        row.idleSince = Math.max(row.idleSince ?? 0, session.updatedAt)
+      }
+    }
     return map
-  }, [workspaces, terminalSessions])
+  }, [workspaces, terminalSessions, conversationSessions])
 
   // The sidebar's "finished while you were away" marks, reported up: the
   // sidebar owns them (it is the layer that knows what the person has looked
@@ -2692,7 +2726,11 @@ export default function WorkspaceManager() {
   // door, opening Settings before the CLI probe resolves) is not what an
   // auto-open may do. The panel simply waits under whatever is open.
   const presentNewChatPanel = useCallback(
-    (folderPath?: string | null, connector?: AgentComposerConnector | null) => {
+    (
+      folderPath?: string | null,
+      connector?: AgentComposerConnector | null,
+      forcedSelection: AgentComposerSelection | null = null,
+    ) => {
       // A draft with nothing in it — no words, no images, no picks — is not a
       // draft, and resuming it would only pin the project and engine of the last
       // open onto every New chat after it. It is dropped here; the reopen scopes
@@ -2709,14 +2747,19 @@ export default function WorkspaceManager() {
         folderPath: resolved,
         folderLabel: resolved ? newChatFolderLabel(resolved) : null,
         connector: connector ?? null,
+        forcedSelection,
       })
     },
     [activeWorkspace?.folderPath, workspaceWindowId],
   )
   presentNewChatPanelRef.current = presentNewChatPanel
   const openNewChatPanel = useCallback(
-    (folderPath?: string | null, connector?: AgentComposerConnector | null) => {
-      presentNewChatPanel(folderPath, connector)
+    (
+      folderPath?: string | null,
+      connector?: AgentComposerConnector | null,
+      forcedSelection: AgentComposerSelection | null = null,
+    ) => {
+      presentNewChatPanel(folderPath, connector, forcedSelection)
       // The panel mounts inside the workspace-card container, which is inert and
       // painted over while a door surface is active — the door closes first or
       // this click is a visible no-op. An
@@ -3196,7 +3239,12 @@ export default function WorkspaceManager() {
       setNewChatPanelState((prev) =>
         prev
           ? { ...prev, folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path) }
-          : { folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path), connector: null },
+          : {
+              folderPath: cloned.path,
+              folderLabel: newChatFolderLabel(cloned.path),
+              connector: null,
+              forcedSelection: null,
+            },
       )
       showToast({
         tone: 'good',
@@ -3494,8 +3542,16 @@ export default function WorkspaceManager() {
         setDiagnosticsOpen(true)
         return true
       }
-      if (commandId === 'chat.new') {
-        openNewChatPanel()
+      if (commandId === 'chat.new' || commandId === 'chat.newConversation' || commandId === 'chat.newTerminalAgent') {
+        openNewChatPanel(
+          undefined,
+          null,
+          commandId === 'chat.newConversation'
+            ? { kind: 'conversation' }
+            : commandId === 'chat.newTerminalAgent'
+              ? { kind: 'general' }
+              : null,
+        )
         return true
       }
       if (commandId === 'workspace.sidebar.toggle') {
@@ -3962,8 +4018,12 @@ export default function WorkspaceManager() {
         <NewAgentPanel
           workspaceId={windowActiveWorkspaceId ?? ''}
           conversationAvailable={conversationSpawnAvailable}
+          conversationCatalogLoading={conversationCatalogLoading}
+          conversationWorkspaceSupported={conversationSpawnEnabled}
+          conversationOptions={conversationSpawnOptions}
+          conversationDefaultOption={conversationDefaultOption}
           onRequestConversationCatalog={requestConversationCatalog}
-          initialSelection={COMPOSER_INITIAL_SELECTION}
+          initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
           debugMode={agentSpawnDebugMode}
           onChangeDebugMode={setAgentSpawnDebugMode}
@@ -3977,9 +4037,14 @@ export default function WorkspaceManager() {
     [
       windowActiveWorkspaceId,
       conversationSpawnAvailable,
+      conversationCatalogLoading,
+      conversationSpawnEnabled,
+      conversationSpawnOptions,
+      conversationDefaultOption,
       requestConversationCatalog,
       agentSpawnPermissionPreset,
       agentSpawnDebugMode,
+      lastNewChatAgent,
     ],
   )
 
@@ -4291,6 +4356,7 @@ export default function WorkspaceManager() {
           activityByWorkspaceId={activityByWorkspaceId}
           residentWorkspaceIds={residentWorkspaceIds}
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+          conversationSessions={conversationSessions}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
           onOpenRemoteSession={sidebarOpenRemoteSession}
@@ -4454,6 +4520,9 @@ export default function WorkspaceManager() {
                           >
                             <WorkspaceLayout
                               workspaceId={workspaceId}
+                              conversationSessions={conversationSessions.filter(
+                                (session) => session.workspaceId === workspaceId,
+                              )}
                               // The "+" belongs to the layer the user is actually in:
                               // every spawn handler acts on the ACTIVE workspace, so
                               // offering it on a background layer would open a tab in a
@@ -4479,16 +4548,21 @@ export default function WorkspaceManager() {
                         open panel must remount; keyed on identity, so removing
                         the chip never does. */}
                             <NewAgentPanel
-                              key={newChatPanelState.connector?.id ?? 'plain'}
+                              key={`${newChatPanelState.connector?.id ?? 'plain'}:${newChatPanelState.forcedSelection?.kind ?? 'remembered'}`}
                               initialMcpServers={newChatPanelState.connector ? [newChatPanelState.connector] : null}
                               workspaceId={windowActiveWorkspaceId ?? ''}
                               conversationAvailable={conversationSpawnAvailable}
+                              conversationCatalogLoading={conversationCatalogLoading}
+                              conversationWorkspaceSupported={conversationSpawnEnabled}
+                              conversationOptions={conversationSpawnOptions}
+                              conversationDefaultOption={conversationDefaultOption}
                               onRequestConversationCatalog={requestConversationCatalog}
                               folderPath={newChatPanelState.folderPath}
                               projectOptions={newChatProjectOptions}
                               onSelectProject={selectNewChatProject}
                               onBrowseProject={(hostId) => void browseNewChatProject(hostId)}
-                              initialSelection={lastNewChatAgent ?? { kind: 'general' }}
+                              initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
+                              forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
                               debugMode={agentSpawnDebugMode}
                               onChangeDebugMode={setAgentSpawnDebugMode}
@@ -4679,7 +4753,6 @@ export default function WorkspaceManager() {
 
 // New chat opens on the General agent, the only agent a plain spawn has. A
 // module constant, so the launch surface's props hold still between renders.
-const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
   try {

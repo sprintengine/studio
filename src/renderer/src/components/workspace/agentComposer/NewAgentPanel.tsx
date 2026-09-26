@@ -45,11 +45,13 @@ import {
   MENU_DIVIDER_CLASS,
   MENU_LIST_CLASS,
   Input,
+  EmptyState,
   InlineSkillPicker,
   MenuItem,
   MenuOption,
   Popover,
   PrimaryButton,
+  SegmentedControl,
   Textarea,
   StarGlyph,
   Tooltip,
@@ -79,7 +81,7 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
-import { FEATURE_FLAGS } from '../../../featureFlags'
+import type { ConversationSpawnOption } from '../conversationSpawnOptions'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -107,6 +109,11 @@ export type NewAgentPanelProps = {
   /** Development gate for the unfinished conversation runtime. */
   conversationModeEnabled?: boolean
   conversationAvailable: boolean
+  conversationCatalogLoading?: boolean
+  conversationWorkspaceSupported?: boolean
+  conversationOptions?: ConversationSpawnOption[]
+  conversationDefaultOption?: ConversationSpawnOption | null
+  forceSelection?: AgentComposerSelection | null
   /**
    * Ask the host to load the conversation provider catalog. `conversationAvailable`
    * stays false until it has, so a surface that never asks can never offer the
@@ -372,8 +379,13 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
  */
 export default function NewAgentPanel({
   workspaceId,
-  conversationModeEnabled = FEATURE_FLAGS.conversationMode,
+  conversationModeEnabled = true,
   conversationAvailable,
+  conversationCatalogLoading = false,
+  conversationWorkspaceSupported = true,
+  conversationOptions = [],
+  conversationDefaultOption = null,
+  forceSelection,
   onRequestConversationCatalog,
   folderPath,
   projectOptions,
@@ -461,8 +473,8 @@ export default function NewAgentPanel({
       ? { availability: { map: hostAvailability.map, status: hostAvailability.status } }
       : {}),
     showTerminal: true,
-    conversationAvailable: conversationModeEnabled && conversationAvailable,
-    initialSelection: draft?.selection ?? initialSelection,
+    conversationAvailable: conversationModeEnabled,
+    initialSelection: forceSelection ?? draft?.selection ?? initialSelection,
     initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
     initialSkills: draft?.skills,
     // The engine a parked draft was made on, when whoever made it stored none —
@@ -472,6 +484,22 @@ export default function NewAgentPanel({
     initialEngine: draft?.engine ?? null,
   })
   const { selection } = composer
+  const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
+  const [selectedConversation, setSelectedConversation] = React.useState<ConversationSpawnOption | null>(null)
+  const conversationChoice =
+    selectedConversation ??
+    conversationDefaultOption ??
+    conversationOptions.find((option) => !option.unavailable) ??
+    null
+  const visibleConversationOptions =
+    conversationDefaultOption &&
+    !conversationOptions.some(
+      (option) =>
+        option.providerId === conversationDefaultOption.providerId &&
+        option.modelId === conversationDefaultOption.modelId,
+    )
+      ? [conversationDefaultOption, ...conversationOptions]
+      : conversationOptions
 
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
@@ -1020,7 +1048,9 @@ export default function NewAgentPanel({
   }, [previewKey])
 
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
-  const canLaunch = composer.visibleRows.some((row) => rowMatchesSelection(row, selection))
+  const canLaunch =
+    composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
+    (selection.kind !== 'conversation' || (conversationWorkspaceSupported && conversationAvailable))
 
   const launch = (text: string) => {
     if (!canLaunch) return
@@ -1099,13 +1129,23 @@ export default function NewAgentPanel({
     const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
     // A conversation runs in this app's process, which is this machine.
     const launchHostId = selection.kind === 'conversation' ? LOCAL_HOST_ID : hostId
-    onLaunch({ ...composer.buildConfirm(selection), prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
+    const confirm = composer.buildConfirm(selection)
+    if (confirm.kind === 'conversation' && conversationChoice) {
+      confirm.provider = {
+        providerId: conversationChoice.providerId,
+        modelId: conversationChoice.modelId,
+        modelLabel: conversationChoice.modelLabel,
+      }
+    }
+    onLaunch({ ...confirm, prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
   }
 
   React.useEffect(() => {
+    if (!canLaunch || (composer.noAgentCliInstalled && localHosts.length <= 1 && selection.kind !== 'conversation'))
+      return
     const id = requestAnimationFrame(() => promptRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [])
+  }, [canLaunch, composer.noAgentCliInstalled, localHosts.length, selection.kind])
 
   // Ask once per open, so a provider configured since last time shows up.
   React.useEffect(() => {
@@ -1168,26 +1208,8 @@ export default function NewAgentPanel({
   // The Skills & MCPs trigger on the row is where skills are offered now; the
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
   const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
-
-  // With a second machine on this computer the dropdown is the way to one that
-  // has a CLI, so the panel stays up and the roster says what this one lacks.
-  if (composer.noAgentCliInstalled && localHosts.length <= 1) {
-    return (
-      <div className="flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 py-8">
-        <div className="mx-auto w-full max-w-[620px]">
-          <h1 className="text-center text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-            No agent CLI is installed on this machine.
-          </h1>
-          <p className="mt-1 text-center text-body text-[color:var(--text-muted)]">
-            Install one to start an agent here.
-          </p>
-          <div className="mt-5">
-            <CliInstallCta />
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const terminalUnavailable =
+    composer.noAgentCliInstalled && localHosts.length <= 1 && selection.kind !== 'conversation'
 
   return (
     <div
@@ -1200,6 +1222,28 @@ export default function NewAgentPanel({
         </div>
       ) : null}
       <div className="@container mx-auto w-full max-w-[620px]">
+        <div className="mb-5 flex flex-col items-center gap-2">
+          <SegmentedControl
+            ariaLabel="Agent interface"
+            ariaDescribedBy="new-agent-interface-description"
+            items={[
+              { value: 'conversation', label: 'Chat' },
+              { value: 'terminal', label: 'Terminal' },
+            ]}
+            value={selection.kind === 'conversation' ? 'conversation' : 'terminal'}
+            onChange={(value) => {
+              const next: AgentComposerSelection =
+                value === 'conversation' ? { kind: 'conversation' } : { kind: 'general' }
+              composer.setSelection(next)
+              setLastNewChatAgent(next)
+            }}
+          />
+          <p id="new-agent-interface-description" className="text-meta text-[color:var(--text-muted)]">
+            {selection.kind === 'conversation'
+              ? 'Structured chat — markdown, diffs, approvals'
+              : "The CLI's own interface in a terminal"}
+          </p>
+        </div>
         <div className="text-center">
           {/* icon-lg is the top of the icon scale and the step the system names for
             empty-state glyphs. There is no larger token, and an off-scale hero
@@ -1318,13 +1362,73 @@ export default function NewAgentPanel({
           </div>
         </div>
 
+        {selection.kind === 'conversation' && (!conversationWorkspaceSupported || !conversationAvailable) ? (
+          <EmptyState
+            density="list"
+            title={
+              conversationCatalogLoading
+                ? 'Loading chat providers…'
+                : conversationWorkspaceSupported
+                  ? 'No chat provider is connected.'
+                  : 'Chat is unavailable in this workspace.'
+            }
+            body={
+              conversationCatalogLoading
+                ? 'Checking available chat models.'
+                : conversationWorkspaceSupported
+                  ? 'Connect a provider to start a structured chat.'
+                  : 'This workspace mode does not support conversation agents.'
+            }
+            action={
+              conversationWorkspaceSupported && !conversationCatalogLoading ? (
+                <PrimaryButton onClick={() => openSettingsOverlay({ initialTab: 'providers' })}>
+                  Connect a provider
+                </PrimaryButton>
+              ) : undefined
+            }
+          />
+        ) : null}
+        {terminalUnavailable ? (
+          <EmptyState
+            density="list"
+            title="No agent CLI is installed on this machine."
+            body="Install one to start an agent here."
+            action={<CliInstallCta />}
+          />
+        ) : null}
+        {selection.kind === 'conversation' &&
+        conversationWorkspaceSupported &&
+        conversationAvailable &&
+        visibleConversationOptions.length > 0 ? (
+          <div className="mt-4" role="menu" aria-label="Chat models">
+            {visibleConversationOptions.map((option) => (
+              <MenuOption
+                key={`${option.providerId}:${option.modelId}`}
+                role="menuitemradio"
+                selected={
+                  conversationChoice?.providerId === option.providerId && conversationChoice.modelId === option.modelId
+                }
+                disabled={Boolean(option.unavailable)}
+                stacked
+                onClick={() => setSelectedConversation(option)}
+              >
+                <span>
+                  {option.providerLabel} · {option.modelLabel}
+                </span>
+                {option.unavailable ? (
+                  <span className="text-micro text-[color:var(--text-subtle)]">{option.unavailable}</span>
+                ) : null}
+              </MenuOption>
+            ))}
+          </div>
+        ) : null}
         <div
           // The box owns the visible border while the textarea inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // footer's buttons too and was a second focus idiom.
-          className={`relative mt-5 px-3 pb-2 pt-2.5 ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative mt-5 px-3 pb-2 pt-2.5 ${terminalUnavailable || (selection.kind === 'conversation' && !canLaunch) ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -1607,15 +1711,10 @@ export default function NewAgentPanel({
               >
                 <MoreMenu
                   selection={selection}
-                  conversationModeEnabled={conversationModeEnabled}
-                  conversationAvailable={conversationAvailable}
                   onSelectKind={(next) => {
                     composer.setSelection(next)
+                    setLastNewChatAgent(next)
                     setMoreOpen(false)
-                  }}
-                  onOpenProviderSettings={() => {
-                    setMoreOpen(false)
-                    openSettingsOverlay({ initialTab: 'agents' })
                   }}
                   worktreeName={composer.worktreeName}
                   onToggleWorktree={() => composer.setWorktreeName(composer.worktreeName === null ? '' : null)}
@@ -1687,7 +1786,7 @@ export default function NewAgentPanel({
           </p>
         ) : null}
 
-        {isTerminalLaunch ? null : (
+        {terminalUnavailable || isTerminalLaunch || (selection.kind === 'conversation' && !canLaunch) ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -2087,10 +2186,7 @@ function RemoteProjectPicker({
  */
 function MoreMenu({
   selection,
-  conversationModeEnabled,
-  conversationAvailable,
   onSelectKind,
-  onOpenProviderSettings,
   worktreeName,
   onToggleWorktree,
   onChangeWorktree,
@@ -2100,10 +2196,7 @@ function MoreMenu({
   onToggleDebug,
 }: {
   selection: AgentComposerSelection
-  conversationModeEnabled: boolean
-  conversationAvailable: boolean
   onSelectKind: (next: AgentComposerSelection) => void
-  onOpenProviderSettings: () => void
   worktreeName: string | null
   onToggleWorktree: () => void
   onChangeWorktree: (next: string | null) => void
@@ -2125,10 +2218,7 @@ function MoreMenu({
   // content, not a second menu.
   return (
     <>
-      {/* What is being launched. An agent is the answer nearly every time, so it
-          stays the default and lives here rather than on the row — but a plain
-          shell and a conversation agent have to be reachable somewhere, and this
-          is the surface that starts them. */}
+      {/* The Terminal segment includes an agent CLI and a plain shell. */}
       <MenuRow
         selected={selection.kind !== 'terminal' && selection.kind !== 'conversation'}
         label="Agent"
@@ -2141,26 +2231,6 @@ function MoreMenu({
         hint="A plain shell — no agent"
         onClick={() => onSelectKind({ kind: 'terminal' })}
       />
-      {conversationModeEnabled ? (
-        <MenuRow
-          selected={selection.kind === 'conversation'}
-          disabled={!conversationAvailable}
-          // "Chat", not "Conversation agent": the trio reads as what you GET —
-          // an agent in a terminal, a plain shell, or an agent in a window — and
-          // "conversational agent" names the mechanism instead. The app already
-          // calls this door New chat and renders it through AgentChatView.
-          label="Chat"
-          hint={
-            conversationAvailable
-              ? 'An agent in a chat window — no terminal'
-              : 'Needs a model provider — connect one in Settings'
-          }
-          onClick={() => {
-            if (conversationAvailable) onSelectKind({ kind: 'conversation' })
-            else onOpenProviderSettings()
-          }}
-        />
-      ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
 
       {/* A conversation has no repo checkout of its own, so no worktree. */}
