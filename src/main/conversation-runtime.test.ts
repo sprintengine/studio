@@ -32,6 +32,7 @@ test('conversation-runtime', async () => {
     await testMultiTurnHistoryAccumulates()
     await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
     await testSetPermissionAppliesThroughTheAdapterOrRefuses()
+    await testRemoteSendPermissionAcquisitionAndTransitions()
     await testInterruptSuppressesLateAsyncProviderEvents()
     await testStopSessionSuppressesLateAsyncProviderEvents()
     await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
@@ -1649,6 +1650,95 @@ test('conversation-runtime', async () => {
         message: 'Conversation session is stopped.',
       })
     } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  async function testRemoteSendPermissionAcquisitionAndTransitions(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-safe-policy-'))
+    const turnGate = createDeferred<void>()
+    const skillGate = createDeferred<void>()
+    const skillEntered = createDeferred<void>()
+    const permissionGate = createDeferred<void>()
+    const permissionEntered = createDeferred<void>()
+    let pauseSkills = true
+    let pausePermissions = false
+    const applied: ConversationPermissionPreset[] = []
+    const events: string[] = []
+    const runtime = new ConversationRuntime({
+      adapters: [
+        {
+          ...createSlowProvider(turnGate),
+          async setPermissionPreset(input) {
+            applied.push(input.permissionPreset)
+            if (pausePermissions) {
+              permissionEntered.resolve()
+              await permissionGate.promise
+            }
+            return { ok: true }
+          },
+        },
+      ],
+      getProviderById: () => undefined,
+      resolveSkills: async () => {
+        if (pauseSkills) {
+          skillEntered.resolve()
+          await skillGate.promise
+        }
+        return { ids: [] }
+      },
+    })
+    runtime.onEvent((event) => events.push(event.type))
+    try {
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'slow-provider',
+        modelId: 'slow-model',
+        permissionPreset: 'manual',
+      })
+      assert.ok(started.ok)
+      const sessionId = started.session.sessionId
+      const sending = runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })
+      await skillEntered.promise
+      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })).ok)
+      pauseSkills = false
+      skillGate.resolve()
+      assert.equal((await sending).ok, false, 'a preset changed during preparation cannot reach the provider')
+      assert.equal(events.includes('turn_started'), false)
+
+      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'manual' })).ok)
+      pausePermissions = true
+      const bypass = runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
+      await permissionEntered.promise
+      const auto = runtime.setPermission({ sessionId, permissionPreset: 'auto' })
+      assert.deepEqual(applied, ['bypass', 'manual', 'bypass'], 'native transitions are serialized')
+      assert.equal((await runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })).ok, false)
+      pausePermissions = false
+      permissionGate.resolve()
+      assert.ok((await bypass).ok)
+      assert.ok((await auto).ok)
+      assert.deepEqual(applied, ['bypass', 'manual', 'bypass', 'auto'])
+
+      const remote = runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })
+      await waitForEvent(events, 'turn_started')
+      for (const permissionPreset of ['bypass', 'none'] as const)
+        assert.equal(
+          (await runtime.setPermission({ sessionId, permissionPreset })).ok,
+          false,
+          'an acquired remote turn keeps safe permissions until its terminal event',
+        )
+      assert.deepEqual(applied, ['bypass', 'manual', 'bypass', 'auto'])
+      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'manual' })).ok)
+      turnGate.resolve()
+      assert.ok((await remote).ok)
+      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })).ok)
+    } finally {
+      skillGate.resolve()
+      permissionGate.resolve()
+      turnGate.resolve()
+      await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }

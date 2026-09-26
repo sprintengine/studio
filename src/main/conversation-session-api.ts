@@ -113,7 +113,7 @@ export class ConversationSessionApi {
     }
   }
 
-  send(input: ConversationSendTurnInput & { commandId: string }) {
+  send(input: ConversationSendTurnInput & { commandId: string; requireSafePermissions?: boolean }) {
     return this.runtime.sendTurn(input)
   }
   interrupt(input: ConversationInterruptInput & { commandId: string }) {
