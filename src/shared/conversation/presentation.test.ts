@@ -70,3 +70,16 @@ test('long directory titles retain their basename inside the title budget', () =
     expect(title.endsWith(`source-files${suffix}`)).toBe(true)
   }
 })
+
+test('portable presentation uses the same command labels without a renderer callback', () => {
+  for (const [command, title] of [
+    ['cat README.md', 'Read README.md'],
+    ['head -n 20 README.md', 'Read README.md'],
+    ['rg -g "*.ts" needle src', 'Searched for "needle"'],
+  ]) {
+    expect(presentToolItem({ name: 'Bash', input: { command } }).title).toBe(title)
+  }
+  expect(presentToolItem({ name: 'Bash', input: { command: 'npm test' } }, () => 'Custom command').title).toBe(
+    'Custom command',
+  )
+})

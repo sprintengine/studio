@@ -1,5 +1,6 @@
 import type { ConversationJsonValue, ConversationToolKind, ConversationToolStatus } from './tool-types.js'
 import { inferConversationToolKind } from './toolKind.js'
+import { labelCommand as describeCommand } from './commandLabel.js'
 
 export type PresentableTool = {
   kind?: ConversationToolKind
@@ -73,7 +74,7 @@ export function presentToolItem(
   switch (kind) {
     case 'command': {
       const command = read(input, 'command', 'cmd') || legacy
-      const label = labelCommand?.(command)
+      const label = labelCommand?.(command) ?? describeCommand(command).label
       title =
         typeof label === 'string' ? label : label?.title || `${verb} ${command.trim().split(/\s/)[0] || 'command'}`
       break

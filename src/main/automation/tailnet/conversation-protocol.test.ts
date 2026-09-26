@@ -7,14 +7,14 @@ import { CONVERSATION_CAPABILITY, parseConversationClientFrame } from '../../../
 
 test('portable protocol source stays byte-identical to the companion source mirror', () => {
   const hash = createHash('sha256')
-  for (const name of ['index.ts', 'presentation.ts', 'tool-types.ts', 'toolKind.ts']) {
+  for (const name of ['index.ts', 'presentation.ts', 'tool-types.ts', 'toolKind.ts', 'commandLabel.ts']) {
     hash.update(name)
     hash.update('\0')
     hash.update(readFileSync(join(process.cwd(), 'packages/conversation-protocol/src', name)))
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), 'ca70b98d6e7df6f5d3da847c27655c092e01ffb414695f79fff638d88718be8f')
+  assert.equal(hash.digest('hex'), '3028fd911fd57bba39f477201aaca9414262ca16cbf969d56e185d9993b9ccf5')
 })
 
 test('conversation protocol accepts bounded frames and refuses remote escalation', () => {

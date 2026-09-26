@@ -1,6 +1,7 @@
 export * from './tool-types.js'
 export * from './presentation.js'
 export * from './toolKind.js'
+export * from './commandLabel.js'
 
 /** A separate, additive tailnet feature; not the hosted mobile-control wire. */
 export const CONVERSATION_CAPABILITY = 'conversations' as const
