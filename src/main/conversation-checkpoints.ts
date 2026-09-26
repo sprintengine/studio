@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { lstat, mkdtemp, rm } from 'fs/promises'
+import { lstat, mkdtemp, realpath, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve, relative, isAbsolute } from 'path'
 import { runGitCommand } from './git-utils'
@@ -29,6 +29,10 @@ export class ConversationCheckpoints {
 
   async available(cwd: string): Promise<boolean> {
     return (await runGitCommand(cwd, ['rev-parse', '--is-inside-work-tree'])).stdout.trim() === 'true'
+  }
+
+  async fileScope(cwd: string): Promise<string> {
+    return this.root(cwd).catch(() => realpath(cwd))
   }
 
   async capture(

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import { ConversationCheckpoints } from './conversation-checkpoints'
 import { runGitCommand } from './git-utils'
 import { ConversationRuntime } from './conversation-runtime'
@@ -28,6 +28,108 @@ async function repository() {
   await git(root, ['commit', '-m', 'Initial files'])
   return { root, directory, key: { workspaceRoot: root, workspaceId: 'workspace', agentId: 'agent' } }
 }
+
+test('revert locks all conversations sharing files until the transaction settles', async () => {
+  const f = await repository()
+  const adapter = createMockConversationProvider()
+  const runtime = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
+  let release!: () => void
+  let entered!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const running = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const original = ConversationCheckpoints.prototype.revert
+  const delayed = vi.spyOn(ConversationCheckpoints.prototype, 'revert').mockImplementation(async function (
+    this: ConversationCheckpoints,
+    input,
+  ) {
+    entered()
+    await gate
+    return original.call(this, input)
+  })
+  try {
+    const a = await runtime.startSession({ ...f.key, providerId: adapter.id, modelId: adapter.listModels()[0] })
+    const b = await runtime.startSession({
+      ...f.key,
+      agentId: 'other',
+      providerId: adapter.id,
+      modelId: adapter.listModels()[0],
+    })
+    assert.ok(a.ok && b.ok)
+    assert.ok((await new ConversationCheckpoints().capture(f.key, 1, 'pre')).ok)
+    const reverting = runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true })
+    await running
+    assert.equal((await runtime.sendTurn({ sessionId: a.session.sessionId, message: 'edit' })).ok, false)
+    assert.equal((await runtime.sendTurn({ sessionId: b.session.sessionId, message: 'edit' })).ok, false)
+    assert.equal((await runtime.deleteTranscript(f.key)).ok, false)
+    assert.equal((await runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true })).ok, false)
+    assert.equal(
+      (
+        await runtime.startSession({
+          ...f.key,
+          agentId: 'third',
+          providerId: adapter.id,
+          modelId: adapter.listModels()[0],
+        })
+      ).ok,
+      false,
+    )
+    release()
+    assert.ok((await reverting).ok)
+  } finally {
+    release()
+    delayed.mockRestore()
+    await runtime.shutdown()
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('reverting a closed conversation persists markers and the next-send file-state notice', async () => {
+  const f = await repository()
+  let lastMessage = ''
+  const adapter = {
+    ...createMockConversationProvider(),
+    sendTurn(input: Parameters<ReturnType<typeof createMockConversationProvider>['sendTurn']>[0]) {
+      lastMessage = input.message
+      return [
+        {
+          id: '',
+          sessionId: input.sessionId,
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          createdAt: 0,
+          type: 'turn_completed' as const,
+          payload: { turnId: input.turnId },
+        },
+      ]
+    },
+  }
+  const initial = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
+  const runtime = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
+  try {
+    assert.ok((await initial.startSession({ ...f.key, providerId: adapter.id, modelId: adapter.listModels()[0] })).ok)
+    await initial.shutdown()
+    assert.ok((await new ConversationCheckpoints().capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'changed\n')
+    assert.ok((await runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true })).ok)
+    const transcript = await runtime.readTranscript(f.key, { all: true })
+    assert.ok(transcript.ok)
+    assert.equal(transcript.events.at(-1)?.payload?.revertedAfterSeq, 1)
+    const opened = await runtime.startSession({ ...f.key, providerId: adapter.id, modelId: adapter.listModels()[0] })
+    assert.ok(opened.ok)
+    await runtime.sendTurn({ sessionId: opened.session.sessionId, message: 'continue' })
+    assert.match(lastMessage, /Files were reverted/)
+  } finally {
+    await initial.shutdown()
+    await runtime.shutdown()
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
 
 test('capture preserves the user branch, staging bytes and mtime, status and stash', async () => {
   const f = await repository()

@@ -1,4 +1,5 @@
-import { stat, readFile, rm, writeFile, mkdir } from 'fs/promises'
+import { stat, readFile, rm, writeFile, mkdir, rename } from 'fs/promises'
+import { randomUUID } from 'crypto'
 import { dirname } from 'path'
 
 import type {
@@ -61,6 +62,7 @@ import { ConversationEventLog, expandCoalescedDeltas, type ConversationEventLogO
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
+  fileScope: string
   activeTurnId: string | null
   pendingRequestId: string | null
   activeTurnAbort: AbortController | null
@@ -143,6 +145,7 @@ export class ConversationRuntime {
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly deletingTranscripts = new Set<string>()
   private readonly startingTranscripts = new Set<string>()
+  private readonly revertingScopes = new Set<string>()
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
@@ -239,6 +242,8 @@ export class ConversationRuntime {
     const sessionId = `conv_${this.randomId()}`
     const now = this.now()
     const stateful = validation.adapter.sessions === 'stateful'
+    const fileScope = await this.checkpoints.fileScope(input.workspaceRoot)
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     const session: RuntimeSession = {
       sessionId,
       workspaceId: input.workspaceId.trim(),
@@ -258,6 +263,7 @@ export class ConversationRuntime {
       createdAt: now,
       updatedAt: now,
       workspaceRoot: input.workspaceRoot,
+      fileScope,
       activeTurnId: null,
       pendingRequestId: null,
       activeTurnAbort: null,
@@ -282,6 +288,7 @@ export class ConversationRuntime {
       for (const event of previousTranscript.events) this.updateExcerpts(session, event)
       session.history = completedHistory(previousTranscript.events)
     }
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     this.sessions.set(sessionId, session)
 
     // Stateful providers resume their own durable session; the latest cursor
@@ -318,6 +325,8 @@ export class ConversationRuntime {
       return this.runCommand(input.sessionId, input.commandId, () => this.sendTurn({ ...input, commandId: undefined }))
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (this.revertingScopes.has(session.fileScope))
+      return { ok: false, message: 'Workspace files are being reverted.' }
     if (this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
       return { ok: false, message: 'Conversation is being deleted.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
@@ -332,7 +341,7 @@ export class ConversationRuntime {
     const message = input.message.trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
-    if (!message && attachments.length === 0 && !input.mentions?.length)
+    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
       return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -363,6 +372,7 @@ export class ConversationRuntime {
     if (
       this.sessions.get(input.sessionId)?.status === 'stopped' ||
       this.sessions.get(input.sessionId) !== session ||
+      this.revertingScopes.has(session.fileScope) ||
       this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
     )
       return { ok: false, message: 'Conversation is no longer available.' }
@@ -579,7 +589,17 @@ export class ConversationRuntime {
 
     const turnId = session.activeTurnId
     if (turnId) this.cancelActiveTurn(session)
-    await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    const events = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    if (!events.some((event) => event.type === 'turn_failed' || event.type === 'turn_completed'))
+      await this.emit(
+        session,
+        this.eventForSession(session, 'turn_failed', {
+          turnId,
+          reason: 'interrupted',
+          message: 'Conversation interrupted.',
+        }),
+        { allowCanceledTurnId: turnId },
+      )
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
@@ -971,24 +991,45 @@ export class ConversationRuntime {
         path,
         readFile(path, 'utf8')
           .then((raw) => new Map<string, ConversationSessionActionResult>(JSON.parse(raw)))
-          .catch(() => new Map()),
+          .catch((error) => {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Map()
+            throw error
+          }),
       )
     }
     const result = (async () => {
       const receipts = await this.receipts.get(path)!
       const prior = receipts.get(commandId)
       if (prior) return prior
+      const persist = async () => {
+        while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
+        const serialized = JSON.stringify(Array.from(receipts))
+        const write = (this.receiptWrites.get(path) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(async () => {
+            await mkdir(dirname(path), { recursive: true })
+            const temporary = `${path}.${randomUUID()}.tmp`
+            try {
+              await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 })
+              await rename(temporary, path)
+            } finally {
+              await rm(temporary, { force: true })
+            }
+          })
+        this.receiptWrites.set(path, write)
+        await write
+      }
+      // Write the intent before an adapter can do work. If the process dies
+      // before completion, replay this uncertainty instead of executing twice.
+      receipts.set(commandId, {
+        ok: false,
+        message:
+          'This command started before the connection was interrupted. Check the conversation before sending a new command.',
+      })
+      await persist()
       const receipt = JSON.parse(JSON.stringify(await action())) as ConversationSessionActionResult
       receipts.set(commandId, receipt)
-      while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
-      const write = (this.receiptWrites.get(path) ?? Promise.resolve())
-        .catch(() => undefined)
-        .then(async () => {
-          await mkdir(dirname(path), { recursive: true })
-          await writeFile(path, JSON.stringify(Array.from(receipts)), 'utf8')
-        })
-      this.receiptWrites.set(path, write)
-      await write
+      await persist()
       return receipt
     })()
     this.pendingCommands.set(key, result)
@@ -1242,6 +1283,8 @@ export class ConversationRuntime {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())
       return { ok: false, message: 'Conversation identity is required.' }
     const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    const fileScope = await this.checkpoints.fileScope(input.workspaceRoot)
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
     const matching = Array.from(this.sessions.values()).filter(
@@ -1462,29 +1505,55 @@ export class ConversationRuntime {
   }
 
   async revertToTurn(input: ConversationRevertInput): Promise<ConversationRevertResult> {
-    const matching = Array.from(this.sessions.values()).filter(
-      (session) =>
-        session.workspaceRoot === input.key.workspaceRoot &&
-        session.workspaceId === input.key.workspaceId &&
-        session.agentId === input.key.agentId,
-    )
-    if (matching.some(isSessionBusy)) return { ok: false, message: 'Stop the running turn before reverting files.' }
-    const result = await this.checkpoints.revert(input)
-    if (result.ok && result.reverted) {
-      for (const session of matching) {
-        session.revertedNote = `Files were ${input.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${input.turnSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
+    const scope = await this.checkpoints.fileScope(input.key.workspaceRoot)
+    const path = this.transcriptPath(input.key.workspaceRoot, input.key.workspaceId, input.key.agentId)
+    if (this.revertingScopes.has(scope) || this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
+      return { ok: false, message: 'A workspace lifecycle operation is already in progress.' }
+    const sharingFiles = Array.from(this.sessions.values()).filter((session) => session.fileScope === scope)
+    if (sharingFiles.some((session) => isSessionBusy(session) || session.status === 'starting'))
+      return { ok: false, message: 'Stop the running turn before reverting files.' }
+    this.revertingScopes.add(scope)
+    try {
+      await this.initializeSequence(input.key)
+      // Idle native children may produce background continuations. Resume their
+      // durable cursors on the next send after the file transaction has finished.
+      for (const session of sharingFiles)
+        this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
+      const result = await this.checkpoints.revert(input)
+      if (result.ok && result.reverted) {
+        const pending = (this.emissionTails.get(path) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(async () => {
+            const transcript = await this.readTranscript(input.key, { all: true, closeOpenTurns: false })
+            if (!transcript.ok) throw new Error(transcript.message)
+            const previous = transcript.events.at(-1)
+            const event: ConversationEvent = {
+              id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+              seq: (this.sequences.get(path) ?? 0) + 1,
+              createdAt: this.now(),
+              workspaceId: input.key.workspaceId,
+              agentId: input.key.agentId,
+              sessionId: previous?.sessionId ?? 'recovered',
+              providerId: previous?.providerId ?? '',
+              modelId: previous?.modelId ?? '',
+              type: 'session_updated',
+              payload: { revertedAfterSeq: input.turnSeq, undo: input.undo === true },
+            }
+            this.sequences.set(path, event.seq!)
+            await this.eventLog.append(path, event)
+            for (const session of sharingFiles) {
+              if (session.workspaceId === input.key.workspaceId && session.agentId === input.key.agentId)
+                this.updateExcerpts(session, event)
+            }
+            this.notify(event)
+          })
+        this.emissionTails.set(path, pending)
+        await pending
       }
-      const session = matching.at(-1)
-      if (session)
-        await this.emit(
-          session,
-          this.eventForSession(session, 'session_updated', {
-            revertedAfterSeq: input.turnSeq,
-            undo: input.undo === true,
-          }),
-        )
+      return result
+    } finally {
+      this.revertingScopes.delete(scope)
     }
-    return result
   }
 
   // The latest provider-session cursor recorded in the transcript; stateful

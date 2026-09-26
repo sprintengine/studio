@@ -786,7 +786,7 @@ test('claude-agent-provider', async () => {
 
   async function testExitPlanModeBecomesPlanCard(): Promise<void> {
     const decisions: Array<Record<string, unknown>> = []
-    const { adapter } = createAdapter(async (_userMessage, context) => {
+    const { adapter, permissionModes, capturedOptions } = createAdapter(async (_userMessage, context) => {
       const canUseTool = context.options.canUseTool as (
         toolName: string,
         input: Record<string, unknown>,
@@ -801,26 +801,49 @@ test('claude-agent-provider', async () => {
         usage: { input_tokens: 1, output_tokens: 1 },
       })
     })
-    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
-    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
-      if (event.type === 'approval_requested') {
-        assert.equal(event.payload?.kind, 'plan')
-        assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
-        void collect(
-          adapter.resolveApproval({
-            ...SESSION_INPUT,
-            turnId: 'turn_1',
-            requestId: 'approval_1',
-            approved: true,
-          }) as ConversationEvent[],
-        )
-      }
-    })
+    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
+    const events = await collect(
+      adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>,
+      (event) => {
+        if (event.type === 'approval_requested') {
+          assert.equal(event.payload?.kind, 'plan')
+          assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
+          void collect(
+            adapter.resolveApproval({
+              ...SESSION_INPUT,
+              turnId: 'turn_1',
+              requestId: 'approval_1',
+              approved: true,
+            }) as ConversationEvent[],
+          )
+        }
+      },
+    )
     assert.equal(
       events.some((event) => event.type === 'approval_resolved' && event.payload?.approved === true),
       true,
     )
     assert.equal(decisions[0]?.behavior, 'allow')
+    assert.equal(capturedOptions[0]?.permissionMode, 'plan')
+    assert.deepEqual(permissionModes, ['auto'], 'accepting a plan restores the prior native permission mode')
+    await collect(
+      adapter.sendTurn(
+        turnInput({ turnId: 'turn_2', requestId: 'approval_2', mode: 'default' }),
+      ) as AsyncIterable<ConversationEvent>,
+      (event) => {
+        if (event.type === 'approval_requested')
+          void collect(
+            adapter.resolveApproval({
+              ...SESSION_INPUT,
+              turnId: 'turn_2',
+              requestId: 'approval_2',
+              approved: false,
+            }) as ConversationEvent[],
+          )
+      },
+    )
+    assert.equal(capturedOptions.length, 1, 'accepting the plan also exits the adapter mode without respawning')
+    adapter.disposeAll()
   }
 
   async function testPermissionPresetMapsToSdkPermissionMode(): Promise<void> {
@@ -875,6 +898,12 @@ test('claude-agent-provider', async () => {
     await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
     assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
     assert.equal(live.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
+    assert.equal(
+      (await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' })).ok,
+      false,
+      'CLI-managed cannot silently retain a prior bypass grant',
+    )
+    assert.deepEqual(live.permissionModes, [])
 
     // With the child running the switch rides the control channel.
     assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {

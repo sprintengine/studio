@@ -365,7 +365,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
       permissionMode,
-      ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+      ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       ...(state.skillIds?.length ? { skills: state.skillIds, settingSources: ['user', 'project', 'local'] } : {}),
@@ -406,7 +406,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
-    state.queryAllowsBypass = permissionMode === 'bypassPermissions'
+    state.queryAllowsBypass = state.permissionPreset === 'bypass'
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -461,6 +461,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       )
     })
     state.pendingPermissions.delete(requestId)
+    let planTransitionError: string | undefined
+    if (decision.approved && plan !== null && state.mode === 'plan') {
+      try {
+        await state.query?.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset] ?? 'default')
+        state.mode = 'default'
+      } catch (error) {
+        decision.approved = false
+        planTransitionError = error instanceof Error ? error.message : 'Could not leave plan mode.'
+      }
+    }
     turn.queue.push(
       eventFor(state, 'approval_resolved', {
         turnId: turn.turnId,
@@ -472,11 +482,13 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     if (!decision.approved) {
       return {
         behavior: 'deny',
-        message: questions
-          ? 'The user dismissed the question without answering.'
-          : plan !== null
-            ? 'The user rejected this plan. Revise it and keep planning.'
-            : 'The user denied this tool use in SprintEngine.',
+        message:
+          planTransitionError ??
+          (questions
+            ? 'The user dismissed the question without answering.'
+            : plan !== null
+              ? 'The user rejected this plan. Revise it and keep planning.'
+              : 'The user denied this tool use in SprintEngine.'),
       }
     }
     if (questions) {
@@ -652,6 +664,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (input.permissionPreset === 'none' && state.permissionPreset !== 'none')
+        return {
+          ok: false,
+          message:
+            'Choose Manual or Auto explicitly; CLI-managed permissions cannot restore the original policy of an existing conversation.',
+        }
       if (state.mode === 'ask' || state.mode === 'plan') {
         state.permissionPreset = input.permissionPreset
         return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }

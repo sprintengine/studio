@@ -46,6 +46,40 @@ async function fixture(adapter = createMockConversationProvider()) {
   }
 }
 
+test('interrupt persists one terminal event when a provider closes only its send stream', async () => {
+  let entered!: () => void
+  const streaming = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const adapter: ConversationProviderAdapter = {
+    ...createMockConversationProvider(),
+    async *sendTurn(input) {
+      yield event(input, 'turn_started', { turnId: input.turnId })
+      entered()
+      await new Promise<void>((resolve) => input.signal!.addEventListener('abort', () => resolve(), { once: true }))
+      yield event(input, 'turn_failed', { turnId: input.turnId, reason: 'interrupted' })
+    },
+    interrupt: () => [],
+  }
+  const f = await fixture(adapter)
+  try {
+    const observed: ConversationEvent[] = []
+    f.runtime.onEvent((value) => observed.push(value))
+    const sending = f.runtime.sendTurn({ sessionId: f.sessionId, message: 'wait' })
+    await streaming
+    assert.ok((await f.runtime.interrupt({ sessionId: f.sessionId })).ok)
+    await sending
+    const terminal = observed.filter((value) => value.type === 'turn_failed')
+    assert.equal(terminal.length, 1)
+    assert.equal(terminal[0].payload?.reason, 'interrupted')
+    const transcript = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
+    assert.ok(transcript.ok)
+    assert.equal(transcript.events.filter((value) => value.type === 'turn_failed').length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('tool details preserve large outputs and edit inputs, redact secrets, and disappear with the transcript', async () => {
   const adapter: ConversationProviderAdapter = {
     ...createMockConversationProvider(),
@@ -195,6 +229,43 @@ test('concurrent duplicate commands and receipts after restart produce one user 
       await restarted.shutdown()
     }
   } finally {
+    await f.cleanup()
+  }
+})
+
+test('a crash after command intent persistence never replays its side effect', async () => {
+  let intent = ''
+  let receiptsPath = ''
+  const adapter: ConversationProviderAdapter = {
+    ...createMockConversationProvider(),
+    async sendTurn(input) {
+      intent = await readFile(receiptsPath, 'utf8')
+      return [event(input, 'turn_completed', { turnId: input.turnId })]
+    },
+  }
+  const f = await fixture(adapter)
+  const restarted = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
+  try {
+    receiptsPath = workspaceSidecarPath(f.key.workspaceRoot, 'conversations', 'workspace', 'agent.receipts.json')
+    const commandId = randomUUID()
+    assert.ok((await f.runtime.sendTurn({ sessionId: f.sessionId, commandId, message: 'one effect' })).ok)
+    assert.equal(JSON.parse(intent)[0][1].ok, false, 'intent must exist before invoking the provider')
+    await f.runtime.shutdown()
+    // Preserve the exact durable state from before the result receipt was written.
+    await writeFile(receiptsPath, intent)
+    const opened = await restarted.startSession({ ...f.key, providerId: adapter.id, modelId: adapter.listModels()[0] })
+    assert.ok(opened.ok)
+    const duplicate = await restarted.sendTurn({
+      sessionId: opened.session.sessionId,
+      commandId,
+      message: 'one effect',
+    })
+    assert.equal(duplicate.ok, false)
+    const transcript = await restarted.readTranscript(f.key, { all: true })
+    assert.ok(transcript.ok)
+    assert.equal(transcript.events.filter((entry) => entry.type === 'user_message').length, 1)
+  } finally {
+    await restarted.shutdown()
     await f.cleanup()
   }
 })
