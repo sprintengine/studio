@@ -75,3 +75,27 @@ test('keeps escape sequences and cursor state across chunks', () => {
   parseAnsi('x'.repeat(2 * 1024 * 1024), capped)
   assert.equal(parseAnsi('tail', capped).lines[0].at(-1)?.text.endsWith('tail'), true)
 })
+
+test('long incomplete OSC and CSI sequences remain linear and terminate across chunks', () => {
+  const start = performance.now()
+  for (const introducer of [']', '[']) {
+    const state = createAnsiState()
+    parseAnsi(`\x1b${introducer}`, state)
+    for (let index = 0; index < 16; index++) parseAnsi('1'.repeat(64 * 1024), state)
+    assert.equal(state.pending.length, 1024 * 1024 + 2)
+    if (introducer === ']') {
+      parseAnsi('\x1b', state)
+      assert.deepEqual(parseAnsi('\\visible', state).lines, [[{ text: 'visible' }]])
+    } else assert.deepEqual(parseAnsi('Kvisible', state).lines, [[{ text: 'visible' }]])
+    assert.equal(state.pending, '')
+  }
+  assert.ok(performance.now() - start < 1500, 'bounded control parsing must not rescan the growing pending sequence')
+  const bell = createAnsiState()
+  parseAnsi('\x1b]', bell)
+  parseAnsi('title\x1b', bell)
+  assert.deepEqual(parseAnsi('\x07done', bell).lines, [[{ text: 'done' }]])
+  const capped = createAnsiState()
+  capped.consumed = 2 * 1024 * 1024 - 3
+  assert.deepEqual(parseAnsi('\x1b]x\x1b[31m', capped).lines, [[{ text: '\x1b]x\x1b[31m' }]])
+  assert.equal(capped.pending, '')
+})

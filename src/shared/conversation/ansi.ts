@@ -18,6 +18,8 @@ export type AnsiState = {
   cursor: number
   style: Omit<AnsiSpan, 'text'>
   pending: string
+  escapeKind?: 'start' | 'csi' | 'osc'
+  oscEscape?: boolean
   consumed: number
 }
 
@@ -117,22 +119,36 @@ function createState(): AnsiState {
 
 function consumeEscape(state: AnsiState, char: string): boolean {
   state.pending += char
-  const sequence = state.pending
-  if (sequence === '\x1b') return false
-  if (sequence[1] === '[') {
-    const final = sequence.charCodeAt(sequence.length - 1)
-    if (sequence.length > 2 && final >= 0x40 && final <= 0x7e) {
-      if (char === 'm') updateStyle(state, sequence.slice(2, -1))
+  if (state.escapeKind === 'start') {
+    if (char === '[' || char === ']') {
+      state.escapeKind = char === '[' ? 'csi' : 'osc'
+      state.oscEscape = false
+      return false
+    }
+    state.pending = ''
+    state.escapeKind = undefined
+    return true
+  }
+  if (state.escapeKind === 'csi') {
+    const final = char.charCodeAt(0)
+    if (final >= 0x40 && final <= 0x7e) {
+      if (char === 'm') updateStyle(state, state.pending.slice(2, -1))
       state.pending = ''
+      state.escapeKind = undefined
       return true
     }
     return false
   }
-  if (sequence[1] === ']') {
-    if (char === '\x07' || sequence.endsWith('\x1b\\')) {
+  if (state.escapeKind === 'osc') {
+    // Inspect only the new character: indexing/endsWith on the growing rope
+    // flattens it every byte and makes an unterminated OSC quadratic.
+    if (char === '\x07' || (state.oscEscape && char === '\\')) {
       state.pending = ''
+      state.escapeKind = undefined
+      state.oscEscape = false
       return true
     }
+    state.oscEscape = char === '\x1b'
     return false
   }
   state.pending = ''
@@ -148,6 +164,7 @@ function consume(state: AnsiState, chunk: string): void {
       consumeEscape(state, char)
     } else if (char === '\x1b') {
       state.pending = char
+      state.escapeKind = 'start'
     } else {
       appendPlain(state, char)
     }
@@ -156,6 +173,8 @@ function consume(state: AnsiState, chunk: string): void {
     if (state.pending) {
       appendPlain(state, state.pending)
       state.pending = ''
+      state.escapeKind = undefined
+      state.oscEscape = false
     }
     appendPlain(state, chunk.slice(parsed.length))
   }

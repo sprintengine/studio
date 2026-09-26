@@ -143,3 +143,31 @@ test('labels arbitrary command strings within a bounded time', () => {
     assert.ok(result.label.length <= 60)
   }
 })
+
+test('option operands do not become wrapper commands, search patterns or read targets', () => {
+  for (const [command, expected] of [
+    ['head -n 20 README.md', 'Read README.md'],
+    ['tail -c 50 README.md', 'Read README.md'],
+    ['head --lines=20 README.md', 'Read README.md'],
+    ['head -n20 README.md', 'Read README.md'],
+    ['head -n 20 one.md two.md', 'Read 2 files'],
+    ['cat -- -notes.md', 'Read -notes.md'],
+    ['cat -n README.md', 'Read README.md'],
+    ['rg -g *.ts needle src', 'Searched for "needle"'],
+    ['rg --glob=*.ts needle src', 'Searched for "needle"'],
+    ['rg -t ts -C 3 needle src', 'Searched for "needle"'],
+    ['grep -e needle --include *.ts src', 'Searched for "needle"'],
+    ['grep -E needle src', 'Searched for "needle"'],
+    ['rg --regexp=needle src', 'Searched for "needle"'],
+    ['rg -- -needle src', 'Searched for "-needle"'],
+    ['sudo -u root npm test', 'Ran npm script test'],
+    ['sudo --user=root -n npm test', 'Ran npm script test'],
+    ['sudo -g staff -u root -- npm test', 'Ran npm script test'],
+    ['env -u HOME npm test', 'Ran npm script test'],
+    ['env --unset=HOME FOO=1 npm test', 'Ran npm script test'],
+    ['timeout -k 1s 10s npm test', 'Ran npm script test'],
+    ['stdbuf -o L npm test', 'Ran npm script test'],
+    ['caffeinate -t 30 npm test', 'Ran npm script test'],
+  ])
+    assert.equal(labelCommand(command).label, expected, command)
+})

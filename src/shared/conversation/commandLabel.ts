@@ -136,13 +136,32 @@ function stripWrappers(words: string[]): string[] {
       continue
     }
     if (first === 'env') {
-      args = args.slice(1)
-      while (args[0]?.startsWith('-') || /^[A-Za-z_][A-Za-z_0-9]*=/u.test(args[0] ?? '')) args = args.slice(1)
+      args = afterLeadingOptions(args.slice(1), ['-u', '--unset', '-C', '--chdir', '-a', '--argv0'])
+      while (/^[A-Za-z_][A-Za-z_0-9]*=/u.test(args[0] ?? '')) args = args.slice(1)
       continue
     }
     if (['sudo', 'time', 'nohup', 'command', 'exec', 'caffeinate'].includes(first)) {
       args = args.slice(1)
-      if (first === 'sudo' || first === 'caffeinate') while (args[0]?.startsWith('-')) args = args.slice(1)
+      if (first === 'sudo')
+        args = afterLeadingOptions(args, [
+          '-u',
+          '--user',
+          '-g',
+          '--group',
+          '-h',
+          '--host',
+          '-p',
+          '--prompt',
+          '-C',
+          '--close-from',
+          '-T',
+          '--command-timeout',
+          '-R',
+          '--chroot',
+          '-D',
+          '--chdir',
+        ])
+      else if (first === 'caffeinate') args = afterLeadingOptions(args, ['-t', '-w'])
       continue
     }
     if (first === 'nice') {
@@ -152,7 +171,7 @@ function stripWrappers(words: string[]): string[] {
       continue
     }
     if (first === 'timeout') {
-      args = args.slice(2)
+      args = afterLeadingOptions(args.slice(1), ['-k', '--kill-after', '-s', '--signal']).slice(1)
       continue
     }
     if (first === 'arch') {
@@ -160,8 +179,7 @@ function stripWrappers(words: string[]): string[] {
       continue
     }
     if (first === 'stdbuf') {
-      args = args.slice(1)
-      while (args[0]?.startsWith('-')) args = args.slice(1)
+      args = afterLeadingOptions(args.slice(1), ['-i', '-o', '-e', '--input', '--output', '--error'])
       continue
     }
     break
@@ -169,8 +187,28 @@ function stripWrappers(words: string[]): string[] {
   return args
 }
 
-function targetAfterOptions(args: string[]): string[] {
-  return args.filter((arg) => !arg.startsWith('-') && arg !== '--')
+function afterLeadingOptions(args: string[], valueOptions: string[]): string[] {
+  let index = 0
+  while (args[index]?.startsWith('-')) {
+    const flag = args[index++]
+    if (flag === '--') break
+    if (valueOptions.includes(flag)) index++
+  }
+  return args.slice(index)
+}
+
+function targetAfterOptions(args: string[], valueOptions: string[] = []): string[] {
+  const targets: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg === '--') return [...targets, ...args.slice(index + 1)]
+    if (valueOptions.includes(arg)) {
+      index++
+      continue
+    }
+    if (!arg.startsWith('-')) targets.push(arg)
+  }
+  return targets
 }
 
 function classify(
@@ -263,12 +301,65 @@ function classify(
   }
 
   if (READERS.has(lower) || (lower === 'sed' && args[1] === '-n')) {
-    const files = targetAfterOptions(args.slice(lower === 'sed' ? 3 : 1))
+    const valueOptions =
+      lower === 'head' || lower === 'tail'
+        ? ['-n', '--lines', '-c', '--bytes', '-s', '--sleep-interval']
+        : lower === 'bat'
+          ? ['-l', '--language', '-r', '--line-range', '--theme', '--style', '--tabs']
+          : lower === 'nl'
+            ? [
+                '-w',
+                '--number-width',
+                '-i',
+                '--line-increment',
+                '-v',
+                '--starting-line-number',
+                '-s',
+                '--number-separator',
+                '-b',
+                '--body-numbering',
+              ]
+            : []
+    const files = targetAfterOptions(args.slice(lower === 'sed' ? 3 : 1), valueOptions)
     if (files.length > 1) return labeled(`Read ${files.length} files`, program, 'read')
     return labeled(`Read ${basename(files[0] ?? 'input')}`, program, 'read', files[0])
   }
   if (SEARCHERS.has(lower)) {
-    const patterns = targetAfterOptions(args.slice(1))
+    const explicitIndex = args.findIndex((arg) => arg === '-e' || arg === '--regexp')
+    const explicit =
+      explicitIndex >= 0 ? args[explicitIndex + 1] : args.find((arg) => arg.startsWith('--regexp='))?.slice(9)
+    const patterns =
+      explicit !== undefined
+        ? [explicit]
+        : targetAfterOptions(args.slice(1), [
+            '-g',
+            '--glob',
+            '--iglob',
+            '-t',
+            '--type',
+            '-T',
+            '--type-not',
+            '-m',
+            '--max-count',
+            '-A',
+            '--after-context',
+            '-B',
+            '--before-context',
+            '-C',
+            '--context',
+            '-f',
+            '--file',
+            '--include',
+            '--exclude',
+            '--exclude-dir',
+            '--ignore-file',
+            '--encoding',
+            ...(lower === 'rg' ? ['-E'] : []),
+            '--max-depth',
+            '--max-filesize',
+            '--sort',
+            '--sortr',
+          ])
     const pattern = shorten(patterns[0] ?? '', 40)
     return labeled(pattern ? `Searched for "${pattern}"` : 'Searched files', program, 'search', patterns[0])
   }
