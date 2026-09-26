@@ -198,12 +198,20 @@ export class ConversationCheckpoints {
       const files = (await this.git(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], env))
         .split('\0')
         .filter((path) => path && !isSidecar(path))
-      if (files.length)
+      // A force-added file can be tracked in the user's index while absent
+      // from HEAD and ignored by discovery through our temporary index.
+      const staged = (await this.git(root, ['ls-files', '--cached', '-z']))
+        .split('\0')
+        .filter((path) => path && !isSidecar(path))
+      const captured = new Set(files)
+      for (const path of staged)
+        if (!captured.has(path) && (await lstat(safePath(root, path)).catch(() => null))) captured.add(path)
+      if (captured.size)
         await this.git(
           root,
-          ['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'],
+          ['add', '-A', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'],
           { ...env, GIT_LITERAL_PATHSPECS: '1' },
-          [...new Set(files)].join('\0') + '\0',
+          [...captured].join('\0') + '\0',
         )
       return (await this.git(root, ['write-tree'], env)).trim()
     } finally {

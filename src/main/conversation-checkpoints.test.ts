@@ -163,6 +163,26 @@ test('capture preserves the user branch, staging bytes and mtime, status and sta
   }
 })
 
+test('new staged files remain captured when their names match ignore rules', async () => {
+  const f = await repository()
+  try {
+    await writeFile(join(f.root, 'ignored.txt'), 'tracked before\n')
+    await git(f.root, ['add', '-f', 'ignored.txt'])
+    const index = await readFile(join(f.root, '.git', 'index'))
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'ignored.txt'), 'tracked after\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    assert.deepEqual(await readFile(join(f.root, '.git', 'index')), index)
+    const diff = await checkpoints.getTurnDiff({ key: f.key, turnSeq: 1, path: 'ignored.txt' })
+    assert.ok(diff.ok)
+    assert.equal(diff.original, 'tracked before\n')
+    assert.equal(diff.modified, 'tracked after\n')
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
 test('revert restores modified/deleted files, removes later files, and can undo without touching ignored files', async () => {
   const f = await repository()
   try {
