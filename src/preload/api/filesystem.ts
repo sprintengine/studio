@@ -25,6 +25,7 @@ export const filesystemApi = {
   searchContent: (rootPath: string, query: string, options?: { limit?: number }): Promise<ContentSearchResult> =>
     ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit }),
   cancelContentSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-content-search'),
+  cancelFileSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-file-search'),
   readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
   readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),
@@ -105,6 +106,7 @@ export const filesystemApi = {
   | 'searchFiles'
   | 'searchContent'
   | 'cancelContentSearch'
+  | 'cancelFileSearch'
   | 'readfile'
   | 'readImageDataUrl'
   | 'pathExists'

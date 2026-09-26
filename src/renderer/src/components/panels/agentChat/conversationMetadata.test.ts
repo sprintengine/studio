@@ -23,6 +23,9 @@ test('local and replayed user bubbles retain reference metadata, not file conten
   }
   expect(projectConversation([event]).entries[0]).toMatchObject({ kind: 'user', mentions, skills })
   expect(
+    projectConversation([{ ...event, payload: { ...event.payload, localTurnId: 'local' } }]).entries[0],
+  ).toMatchObject({ id: 'local' })
+  expect(
     projectConversation([{ ...event, payload: { ...event.payload, mentions: ['invalid'], skills: [null, 'review'] } }])
       .entries[0],
   ).toMatchObject({ mentions: undefined, skills })

@@ -19,7 +19,7 @@ vi.mock('./ripgrep-binary', async (importActual) => {
   }
 })
 
-const { searchContent, searchFiles } = await import('./filesystem-search')
+const { searchContent, searchFiles, cancelActiveFileSearch } = await import('./filesystem-search')
 
 let scratch = ''
 let sender = 1000
@@ -53,6 +53,19 @@ async function project(name: string): Promise<string> {
 function relativeNames(root: string, paths: string[]): string[] {
   return paths.map((path) => path.slice(root.length + 1).replace(/\\/g, '/')).sort()
 }
+
+test('explicit cancellation fences a file search even while its root is being checked', async () => {
+  binary.current = null
+  const root = await project('cancelled')
+  const owner = ++sender
+  const pending = searchFiles(owner, { rootPath: root, query: 'app' })
+  cancelActiveFileSearch(owner)
+  const result = await pending
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.ok ? result.results : null, [])
+  const fresh = await searchFiles(owner, { rootPath: root, query: 'app' })
+  assert.ok(fresh.ok && fresh.results.length === 2)
+})
 
 test('the bundled ripgrep lists and greps a folder', async () => {
   binary.current = null

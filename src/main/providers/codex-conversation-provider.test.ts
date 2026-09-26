@@ -75,6 +75,31 @@ function fixture() {
   }
 }
 
+test.each([3, 7])('command output preserves its head and tail within the detail budget (%s MB)', async (megabytes) => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  const item = { id: 'command', type: 'commandExecution', command: 'build' }
+  await f.message({ method: 'item/started', params: { item } })
+  const output = `first-line\n${'x'.repeat(megabytes * 1024 * 1024)}\nlast-line`
+  for (let offset = 0; offset < output.length; offset += 1024 * 1024)
+    await f.message({
+      method: 'item/commandExecution/outputDelta',
+      params: { itemId: 'command', delta: output.slice(offset, offset + 1024 * 1024) },
+    })
+  await f.message({ method: 'item/completed', params: { item: { ...item, status: 'completed', exitCode: 0 } } })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  const payload = f.events.filter((event) => event.type === 'tool_output').at(-1)!.payload!
+  expect(payload.output).toMatch(/^first-line\n/)
+  expect(payload.output).toMatch(/\nlast-line$/)
+  expect(payload.totalBytes).toBe(Buffer.byteLength(output))
+  expect(payload.clipped).toBe(megabytes > 5)
+  if (megabytes < 5) expect(payload.output).toBe(output)
+  else expect(Buffer.byteLength(String(payload.output))).toBeLessThan(5 * 1024 * 1024 + 30)
+})
+
 test('streams text and command output, preserves nonzero exit as an ordinary tool result', async () => {
   const f = fixture()
   await f.adapter.startSession(f.input)

@@ -416,7 +416,9 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           ensureTurn(turnId)
           const localTurnId = readString(event.payload, 'localTurnId')
           eventUserTurns.set(turnId, {
-            id: event.id,
+            // The acknowledgement replaces an optimistic bubble in place. The
+            // local identity is persisted too, so remounts keep the same key.
+            id: localTurnId ?? event.id,
             text: readString(event.payload, 'text') ?? '',
             ...(event.seq !== undefined ? { seq: event.seq } : {}),
             ...(localTurnId ? { localTurnId } : {}),

@@ -21,6 +21,7 @@ type FilesystemWatchSearchIpcDependencies = {
   searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult>
   searchContent(senderId: number, input: ContentSearchRequest): Promise<ContentSearchResult>
   cancelActiveContentSearch(senderId: number): void
+  cancelActiveFileSearch(senderId: number): void
   /** Injectable for tests; the process-wide hub otherwise. */
   watchHub?: WatchHub
 }
@@ -100,5 +101,8 @@ export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: Filesys
 
   ipcMain.handle('fs:cancel-content-search', (event): void => {
     deps.cancelActiveContentSearch(event.sender.id)
+  })
+  ipcMain.handle('fs:cancel-file-search', (event): void => {
+    deps.cancelActiveFileSearch(event.sender.id)
   })
 }

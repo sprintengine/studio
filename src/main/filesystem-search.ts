@@ -113,7 +113,8 @@ function sortFileSearchResults(results: FileSearchEntry[], query: string): FileS
   })
 }
 
-function cancelActiveFileSearch(senderId: number): void {
+export function cancelActiveFileSearch(senderId: number): void {
+  fileSearchTickets.set(senderId, (fileSearchTickets.get(senderId) ?? 0) + 1)
   const activeSearch = activeFileSearches.get(senderId)
   if (!activeSearch) return
   activeFileSearches.delete(senderId)
@@ -434,6 +435,9 @@ function withContentSearchDiagnostics(result: ContentSearchEngineResult, started
 
 export async function searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult> {
   const startedAt = Date.now()
+  cancelActiveFileSearch(senderId)
+  const ticket = fileSearchTickets.get(senderId)
+  const superseded = () => fileSearchTickets.get(senderId) !== ticket
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
@@ -454,10 +458,8 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
     }
   }
 
-  cancelActiveFileSearch(senderId)
-  const ticket = (fileSearchTickets.get(senderId) ?? 0) + 1
-  fileSearchTickets.set(senderId, ticket)
-  const superseded = () => fileSearchTickets.get(senderId) !== ticket
+  if (superseded())
+    return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
 
   const listing = await fileListCache.list(rootPath)
   // Read after the listing, which is where a binary that will not start is

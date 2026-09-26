@@ -21,6 +21,19 @@ type RecordValue = Record<string, unknown>
 const record = (value: unknown): RecordValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RecordValue) : {}
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+const OUTPUT_BYTES = 5 * 1024 * 1024
+
+// Keep all output below the detail budget. Beyond it, retain the first context
+// and the newest tail; losing the head would hide the command's initial error.
+function boundedCommandOutput(previous: string, delta: string): string {
+  const bytes = Buffer.from(previous + delta)
+  if (bytes.length <= OUTPUT_BYTES) return previous + delta
+  return (
+    bytes.subarray(0, 1024 * 1024).toString('utf8') +
+    '\n[clipped]\n' +
+    bytes.subarray(-(4 * 1024 * 1024)).toString('utf8')
+  )
+}
 
 class EventQueue implements AsyncIterable<ConversationEvent> {
   private values: ConversationEvent[] = []
@@ -240,7 +253,7 @@ export function createCodexConversationProvider(
     }
     if (method === 'item/commandExecution/outputDelta') {
       const id = text(params.itemId)
-      const output = `${turn.output.get(id) ?? ''}${text(params.delta)}`.slice(-2_000_000)
+      const output = boundedCommandOutput(turn.output.get(id) ?? '', text(params.delta))
       const totalBytes = (turn.outputBytes.get(id) ?? 0) + Buffer.byteLength(text(params.delta))
       turn.outputBytes.set(id, totalBytes)
       turn.output.set(id, output)

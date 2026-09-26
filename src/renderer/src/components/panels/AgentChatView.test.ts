@@ -1511,8 +1511,13 @@ test('AgentChatView', async () => {
   )
   assert.match(
     chatViewSource,
-    /const permissionPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
-    'the pill and the session start read one resolved preset, live session first',
+    /const requestedPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
+    'the live session supplies the requested preset before provider capability gating',
+  )
+  assert.match(
+    chatViewSource,
+    /capabilities\.permissionPresets\.includes\(requestedPreset\)/,
+    'the pill and session start share a provider-supported preset',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),

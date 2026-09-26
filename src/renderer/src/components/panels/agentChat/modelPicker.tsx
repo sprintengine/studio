@@ -113,6 +113,8 @@ export function PermissionPresetPill({
   open,
   onOpenChange,
   onChange,
+  mode = 'default',
+  allowedPresets,
 }: {
   cli?: string
   preset: CliPermissionPreset
@@ -125,6 +127,8 @@ export function PermissionPresetPill({
   open: boolean
   onOpenChange: (open: boolean) => void
   onChange: (preset: CliPermissionPreset) => void
+  mode?: 'default' | 'plan' | 'ask'
+  allowedPresets?: CliPermissionPreset[]
 }) {
   const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
@@ -144,8 +148,10 @@ export function PermissionPresetPill({
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip
           content={
-            agentPermissionOptions(cli).find((option) => option.value === preset)?.title ??
-            permissionPresetLabel(preset, cli)
+            mode !== 'default'
+              ? 'Return to the default mode to change tool permissions.'
+              : (agentPermissionOptions(cli).find((option) => option.value === preset)?.title ??
+                permissionPresetLabel(preset, cli))
           }
           placement="top"
         >
@@ -157,12 +163,13 @@ export function PermissionPresetPill({
           <ChipButton
             ref={ref}
             tone={preset === 'bypass' ? 'warn' : 'subtle'}
+            disabled={mode !== 'default'}
             onClick={togglePopover}
             className="shrink-0"
             {...triggerProps}
           >
             {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
-            {permissionPresetLabel(preset, cli)}
+            {mode === 'plan' ? 'Plan' : mode === 'ask' ? 'Ask' : permissionPresetLabel(preset, cli)}
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
           </ChipButton>
         </Tooltip>
@@ -171,7 +178,21 @@ export function PermissionPresetPill({
       {/* The menu spec's stacked items, shared with the launch panel's pill
           (remote-sessions-ux / selector-menus-premium): glyph + name +
           description per row, full-bleed on the list's own vertical inset. */}
-      <PermissionPresetMenuRows cli={cli} value={preset} onSelect={onChange} disabled={changing} />
+      <PermissionPresetMenuRows
+        cli={cli}
+        value={preset}
+        onSelect={onChange}
+        disabled={changing || mode !== 'default'}
+        disabledReasons={
+          allowedPresets
+            ? Object.fromEntries(
+                (['none', 'manual', 'auto', 'bypass'] as const)
+                  .filter((value) => !allowedPresets.includes(value))
+                  .map((value) => [value, 'This provider does not support this permission preset.']),
+              )
+            : undefined
+        }
+      />
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
         {permissionChangeScopeLabel(live)}
@@ -215,16 +236,6 @@ export function ModelPickerPill({
   // `null` means "not chosen yet" — resolved to the subscription provider when
   // one exists, so opening the picker never starts in a metered catalog.
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
-  if (locked) {
-    return (
-      <Tooltip content="Model is fixed once the conversation starts" placement="top">
-        <span className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
-          <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
-          <span className="max-w-[200px] truncate">{label}</span>
-        </span>
-      </Tooltip>
-    )
-  }
   // Default to the subscription provider only when it can actually be picked —
   // an unavailable harness must not leave the at-rest view all-disabled while
   // selectable providers hide behind the filter.
@@ -242,7 +253,7 @@ export function ModelPickerPill({
   const jumpRowsKey = jumpRows.map((row) => `${row.providerId}:${row.modelId}`).join('\n')
   const jumpModifier = window.api.platform === 'darwin' ? '⌘' : 'Ctrl+'
   useEffect(() => {
-    if (!open) return
+    if (!open || locked) return
     // Capture on window, like the shell's dispatcher, so the digit never
     // reaches the search field as text. The workspace-switch chords on the
     // same keys are suppressed by the shell while focus is in the search
@@ -260,7 +271,7 @@ export function ModelPickerPill({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
     // jumpRows is derived per render; re-subscribe only when the rows change.
-  }, [open, onSelect, jumpRowsKey])
+  }, [open, locked, onSelect, jumpRowsKey])
   // Focus lands in the search field when there is one, else on the checked
   // row — the surface is portaled, so Tab from the trigger never reaches it.
   const focusOnOpen = useCallback((surface: HTMLElement) => {
@@ -275,6 +286,18 @@ export function ModelPickerPill({
       if (surface.isConnected) target.focus()
     })
   }, [])
+  // Hydration and the first send can lock an already-mounted picker. Keep its
+  // hook order unchanged across that transition, then choose the drawing.
+  if (locked) {
+    return (
+      <Tooltip content="Model is fixed once the conversation starts" placement="top">
+        <span className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
+          <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
+          <span className="max-w-[200px] truncate">{label}</span>
+        </span>
+      </Tooltip>
+    )
+  }
   return (
     <Popover
       open={open}

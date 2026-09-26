@@ -119,6 +119,9 @@ export type AgentState = {
   // conversation runtime additionally requires a valid `conversation` pair.
   runtimeKind?: AgentRuntimeKind
   conversation?: AgentConversationRuntime
+  // Next-turn conversation controls persist independently of terminal flags.
+  conversationMode?: 'default' | 'plan' | 'ask'
+  conversationReasoningEffort?: string
   cliSessionId?: string
   // The agent's session id within its CLI/harness, captured from lifecycle hooks
   // (the snapshot's `cliSessionId`). Distinct from `cliSessionId` above, which is

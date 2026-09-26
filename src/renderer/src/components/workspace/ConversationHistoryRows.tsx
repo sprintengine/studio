@@ -266,7 +266,6 @@ export function ConversationHistoryTitle({
       const value = result.threads.find((thread) => thread.agentId === agentId)?.title ?? fallback
       setTitle(value)
       setSaved(value)
-      setTitle(value)
     }
   }, [workspaceRoot, workspaceId, agentId, fallback])
   useEffect(() => {

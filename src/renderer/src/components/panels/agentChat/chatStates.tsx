@@ -85,7 +85,7 @@ export function EmptyChatState({
         ))}
       </div>
       <p className="mt-5 text-micro text-[color:var(--text-subtle)]">
-        Runs on your Claude subscription · asks before using tools
+        Uses the selected provider and the tool permissions shown below
       </p>
     </div>
   )
