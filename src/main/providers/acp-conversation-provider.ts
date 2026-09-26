@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { lstat, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { openConfinedExistingFile } from '../conversation-file-access'
+import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import type {
   ClientSideConnection,
   RequestPermissionRequest,
@@ -387,10 +387,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             try {
               if ((await file.stat()).size > 2 * 1024 * 1024)
                 throw new Error('File exceeds the conversation read limit.')
-              const buffer = Buffer.alloc(2 * 1024 * 1024 + 1)
-              const read = await file.read(buffer, 0, buffer.length, 0)
-              if (read.bytesRead > 2 * 1024 * 1024) throw new Error('File exceeds the conversation read limit.')
-              const content = buffer.subarray(0, read.bytesRead).toString('utf8')
+              const content = (await readBoundedConversationFile(file, 2 * 1024 * 1024)).toString('utf8')
               if (content.includes('\0')) throw new Error('Binary files are not supported.')
               const lines = content.split('\n'),
                 start = Math.max(0, (params.line ?? 1) - 1)

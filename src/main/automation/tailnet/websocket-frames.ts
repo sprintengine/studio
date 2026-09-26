@@ -122,6 +122,13 @@ export function createWebSocketFrameDecoder(
             reason: `Frame exceeds the ${maxMessageBytes}-byte limit.`,
           }
         }
+        if (opcode >= 0x8 && length > 125) {
+          return {
+            kind: 'error',
+            code: WEBSOCKET_CLOSE_PROTOCOL_ERROR,
+            reason: 'Control frame exceeds the 125-byte limit.',
+          }
+        }
         const maskLength = masked ? 4 : 0
         if (buffer.length < offset + maskLength + length) return { kind: 'frames', frames }
 
@@ -176,6 +183,10 @@ export function encodeTextFrame(text: string): Buffer {
 
 export function encodePongFrame(payload: Buffer): Buffer {
   return encodeFrame(0xa, payload)
+}
+
+export function encodePingFrame(payload: Buffer = Buffer.alloc(0)): Buffer {
+  return encodeFrame(0x9, payload.subarray(0, 125))
 }
 
 export function encodeCloseFrame(code: number, reason = ''): Buffer {

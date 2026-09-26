@@ -6,6 +6,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
  * O_NOFOLLOW protects the leaf; checking ancestors and inode again detects
  * directory replacement during open. Creation requires a native anchored open
  * primitive and deliberately is not exposed through this helper.
+ * This is descriptor verification, not a kernel sandbox: repeated malicious
+ * ancestor rename/restore races require native openat traversal to eliminate.
  */
 export async function openConfinedExistingFile(
   workspaceRoot: string,
@@ -61,4 +63,22 @@ export async function openConfinedExistingFile(
     await file.close()
     throw error
   }
+}
+
+/** Read through short reads, reject growth, and avoid mixing a changing file. */
+export async function readBoundedConversationFile(file: FileHandle, limit: number): Promise<Buffer> {
+  const before = await file.stat()
+  if (!before.isFile() || before.size > limit) throw new Error('File exceeds the conversation read limit.')
+  const buffer = Buffer.alloc(limit + 1)
+  let offset = 0
+  while (offset < buffer.length) {
+    const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset)
+    if (!bytesRead) break
+    offset += bytesRead
+  }
+  const after = await file.stat()
+  if (offset > limit || after.size > limit) throw new Error('File exceeds the conversation read limit.')
+  if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || offset !== after.size)
+    throw new Error('File changed while reading it. Retry after filesystem changes have stopped.')
+  return buffer.subarray(0, offset)
 }

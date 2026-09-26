@@ -2,11 +2,36 @@ import { expect, test, vi } from 'vitest'
 import { mkdtemp, mkdir, open, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { openConfinedExistingFile } from './conversation-file-access'
+import { openConfinedExistingFile, readBoundedConversationFile } from './conversation-file-access'
 
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>()
   return { ...actual, open: vi.fn(actual.open) }
+})
+
+test('bounded reads continue after short reads and reject file growth', async () => {
+  let size = 6
+  const file = {
+    stat: async () => ({ isFile: () => true, size, mtimeMs: 1 }),
+    read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+      const source = Buffer.from('abcdef')
+      const bytesRead = Math.max(0, Math.min(2, length, source.length - position))
+      source.copy(buffer, offset, position, position + bytesRead)
+      return { bytesRead, buffer }
+    },
+  }
+  expect((await readBoundedConversationFile(file as unknown as Awaited<ReturnType<typeof open>>, 8)).toString()).toBe(
+    'abcdef',
+  )
+  const read = file.read
+  file.read = async (...args) => {
+    const value = await read(...args)
+    size = 7
+    return value
+  }
+  await expect(readBoundedConversationFile(file as unknown as Awaited<ReturnType<typeof open>>, 8)).rejects.toThrow(
+    'changed while reading',
+  )
 })
 
 test('confined descriptors reject symlink swaps before any read or write and refuse creation', async () => {

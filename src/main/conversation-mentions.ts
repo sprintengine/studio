@@ -1,7 +1,7 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseConversationMentions, type ConversationMentionRef } from '../shared/conversation/mentions'
-import { openConfinedExistingFile } from './conversation-file-access'
+import { openConfinedExistingFile, readBoundedConversationFile } from './conversation-file-access'
 
 const FILE_BYTES = 64 * 1024
 const TOTAL_BYTES = 256 * 1024
@@ -59,13 +59,10 @@ export async function resolveConversationMentions(input: {
       const opened = await file.stat()
       if (!opened.isFile()) throw new Error('The mentioned path is no longer a file.')
       if (opened.size > FILE_BYTES) throw new Error(`Mention ${ref.path} exceeds the 64 KB per-file context limit.`)
-      // Read one byte beyond the budget to catch a file growing after stat.
-      const buffer = Buffer.alloc(FILE_BYTES + 1)
-      const read = await file.read(buffer, 0, buffer.length, 0)
-      if (read.bytesRead > FILE_BYTES) throw new Error(`Mention ${ref.path} exceeds the 64 KB per-file context limit.`)
-      bytes += read.bytesRead
+      const buffer = await readBoundedConversationFile(file, FILE_BYTES)
+      bytes += buffer.length
       if (bytes > TOTAL_BYTES) throw new Error('Mentioned files exceed the 256 KB total context limit.')
-      const content = buffer.subarray(0, read.bytesRead).toString('utf8')
+      const content = buffer.toString('utf8')
       if (content.includes('\0')) throw new Error(`Mention ${ref.path} is binary and cannot be attached as text.`)
       const selected = ref.line
         ? content

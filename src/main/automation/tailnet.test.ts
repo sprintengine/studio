@@ -48,6 +48,8 @@ import {
 } from '../../shared/tailnet'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
+import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
+import { TAILNET_CONVERSATION_PATH } from './tailnet/tailnet-routes'
 import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { CliPermissionPreset } from '../../shared/electron-api'
@@ -104,6 +106,8 @@ test('tailnet', async () => {
       changePushIntervalMs?: number
       /** The working directory the stub's sessions report — where an upload lands. */
       terminalCwd?: string
+      conversations?: ConversationGatewayHost
+      resolvePeer?: () => Promise<string | null>
     } = {},
   ): Promise<Harness> {
     const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-'))
@@ -122,8 +126,11 @@ test('tailnet', async () => {
       // `null` stands for a build with terminal streaming unwired, so the route's
       // own refusal is testable; every other harness gets the stub host.
       terminals: options.terminals === null ? undefined : (options.terminals ?? terminals),
+      conversations: options.conversations,
       // whois is injected: the tests must not depend on a Tailscale install.
-      peers: createTailnetPeerResolver({ runWhois: async () => options.peerNode ?? null }),
+      peers: options.resolvePeer
+        ? { resolve: options.resolvePeer }
+        : createTailnetPeerResolver({ runWhois: async () => options.peerNode ?? null }),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
         if (!MUTATIONS.has(tool)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
@@ -944,7 +951,13 @@ test('tailnet', async () => {
       // long ago and is asking again on a Studio that may since have moved on.
       const identityBody = identity.body as Record<string, unknown>
       assert.equal(identityBody.transportVersion, TAILNET_TRANSPORT_VERSION)
-      assert.deepEqual(identityBody.capabilities, ['events', 'sliced-frames', 'upload', 'terminal-resume'])
+      assert.deepEqual(identityBody.capabilities, [
+        'events',
+        'sliced-frames',
+        'upload',
+        'terminal-resume',
+        'conversations',
+      ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
       const replayed = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -1023,7 +1036,7 @@ test('tailnet', async () => {
       // it outright, so a phone need not probe for the change feed.
       assert.equal(body.transportVersion, 2)
       assert.equal(TAILNET_TRANSPORT_VERSION, 2)
-      assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload', 'terminal-resume'])
+      assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload', 'terminal-resume', 'conversations'])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
       assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)
@@ -2325,6 +2338,136 @@ test('tailnet', async () => {
   }
 
   // ── The upload route ─────────────────────────────────────────────────────────
+  async function testConversationRouteScopesRevocationAndOpaqueImages(): Promise<void> {
+    const projectDir = mkdtempSync(join(tmpdir(), 'conversation-route-'))
+    let registered: Parameters<NonNullable<ConversationGatewayHost['registerUpload']>>[0] | undefined
+    let disposed = 0
+    const conversations: ConversationGatewayHost = {
+      list: async () => [
+        {
+          workspaceId: 'workspace',
+          agentId: 'agent',
+          sessionId: 'conversation',
+          title: 'Example',
+          phase: 'idle',
+          createdAt: 1,
+          updatedAt: 1,
+          providerId: 'mock',
+          modelId: 'mock',
+          turnCount: 0,
+          lastSeq: 0,
+          capabilities: {
+            images: true,
+            approvals: true,
+            questions: true,
+            planMode: true,
+            interrupt: true,
+            checkpoints: false,
+          },
+        },
+      ],
+      resolveKey: (workspaceId, agentId) => ({ workspaceRoot: projectDir, workspaceId, agentId }),
+      subscribe: (_key, _after, _limit, receive) => {
+        receive({ type: 'synchronized', seq: 0 })
+        return {
+          ready: Promise.resolve(),
+          dispose: () => {
+            disposed++
+          },
+        }
+      },
+      loadEarlier: async () => ({ ok: false, message: 'Unavailable.' }),
+      getToolDetail: async () => ({ ok: false, code: 'not_found', message: 'Unavailable.' }),
+      getTurnDiff: async () => ({ ok: false, message: 'Unavailable.' }),
+      command: async () => ({ ok: true }),
+      registerUpload: (input) => {
+        registered = input
+        return 'opaque-upload'
+      },
+    }
+    let pauseLookup = false
+    let releaseLookup!: () => void
+    let enteredLookup!: () => void
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve
+    })
+    const lookupStarted = new Promise<void>((resolve) => {
+      enteredLookup = resolve
+    })
+    const harness = await startHarness({
+      conversations,
+      resolvePeer: async () => {
+        if (pauseLookup) {
+          enteredLookup()
+          await lookupGate
+        }
+        return null
+      },
+    })
+    try {
+      const operator = await pairDevice(harness, { scopes: ['conversation:operate'], name: 'phone' })
+      const reader = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
+      const route = `${uploadPath('conversation', '../../image.png')}&kind=conversation`
+      const payload = { body: Buffer.from('image'), headers: { 'Content-Type': 'image/png' } }
+      const refused = await callRaw(harness.port, route, { ...payload, token: reader.deviceToken })
+      assert.equal(refused.status, 403)
+      const badMedia = await callRaw(harness.port, route, { body: Buffer.from('image'), token: operator.deviceToken })
+      assert.equal(badMedia.status, 415)
+      const tooLarge = await callRaw(harness.port, route, {
+        ...payload,
+        body: Buffer.alloc(5 * 1024 * 1024 + 1),
+        token: operator.deviceToken,
+      })
+      assert.equal(tooLarge.status, 413)
+      const uploaded = await callRaw(harness.port, route, { ...payload, token: operator.deviceToken })
+      assert.equal(uploaded.status, 200)
+      assert.deepEqual(uploaded.body, { uploadId: 'opaque-upload', bytes: 5 })
+      assert.ok(registered)
+      assert.equal(registered.deviceId, operator.deviceId)
+      assert.equal(registered.sessionId, 'conversation')
+      assert.equal(readFileSync(registered.path, 'utf8'), 'image')
+      assert.equal(
+        registered.path.startsWith(projectDir),
+        false,
+        'opaque image staging does not trust workspace parents',
+      )
+      assert.equal(existsSync(join(projectDir, '.sprintengine')), false)
+      const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: reader.deviceToken })
+      const socket = await openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      assert.ok(socket.handshake.startsWith('HTTP/1.1 101'))
+      socket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
+      assert.deepEqual(await socket.nextMessage(), { type: 'synchronized', seq: 0 })
+      socket.send({ type: 'command', commandId: 'deny-read-mutation', command: { kind: 'interrupt' } })
+      assert.equal((await socket.nextMessage()).code, 'conversation_operate_required')
+      harness.devices.revokeDevice(reader.deviceId)
+      assert.equal(await socket.closed, WEBSOCKET_CLOSE_REVOKED)
+      assert.equal(disposed, 1)
+      const revokedDuringLookup = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
+      const staleTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, {
+        token: revokedDuringLookup.deviceToken,
+      })
+      pauseLookup = true
+      const joining = openWebSocket(harness.port, (staleTicket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      await lookupStarted
+      harness.devices.revokeDevice(revokedDuringLookup.deviceId)
+      releaseLookup()
+      const refusedJoin = await joining
+      assert.ok(
+        refusedJoin.handshake.startsWith('HTTP/1.1 401'),
+        'revocation during discovery refuses the late upgrade',
+      )
+    } finally {
+      releaseLookup()
+      await harness.close()
+      if (registered)
+        assert.equal(existsSync(registered.path), false, 'server shutdown removes only its private staging directory')
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  }
   //
   // The pure guard has its own tests above. These drive the ROUTE, which until
   // 2026-09-07 had none — which is how `taken: new Set()` survived: the collision
@@ -2526,7 +2669,7 @@ test('tailnet', async () => {
 
       const widened = store.updateDeviceScopes(minted.device.id, [...TAILNET_SCOPES])
       assert.deepEqual(widened.scopes, [...TAILNET_SCOPES])
-      assert.equal(widened.scopes.length, 6)
+      assert.equal(widened.scopes.length, TAILNET_SCOPES.length)
       assert.deepEqual(store.listDevices()[0]?.scopes, [...TAILNET_SCOPES])
 
       // A second store over the same directory is what the next launch sees.
@@ -2584,6 +2727,7 @@ test('tailnet', async () => {
     testRevocationClosesAnAttachedTerminalImmediately,
     testTerminalToolsSitBehindTheTerminalScope,
     testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack,
+    testConversationRouteScopesRevocationAndOpaqueImages,
     testASecondFileOfTheSameNameIsSuffixedRatherThanRefused,
     testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire,
     testUploadsSitBehindTheControlScopeAndAKnownSession,
