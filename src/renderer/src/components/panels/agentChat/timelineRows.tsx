@@ -14,6 +14,7 @@ import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
 import { TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton } from '../../ui'
 import { ChatGlyph } from './modelPicker'
 import { renderMarkdown } from '../../../utils/markdown'
+import { CodeBlock } from '../../ui/CodeBlock'
 import React, { useState, useRef, useEffect } from 'react'
 
 export function formatStepDuration(ms: number): string {
@@ -131,7 +132,11 @@ export function AssistantTurnBlock({
       ) : null}
       {tools.length > 0 ? <WorkTimeline tools={tools} live={entry.status === 'streaming'} /> : null}
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
-      {entry.text.trim() ? <div className="max-w-[68ch]">{renderMarkdown(entry.text)}</div> : null}
+      {entry.text.trim() ? (
+        <div className="max-w-[68ch]">
+          {renderMarkdown(entry.text, { codeBlock: CodeBlock, streaming: entry.status === 'streaming' })}
+        </div>
+      ) : null}
       {entry.status === 'interrupted' ? (
         <span className="text-micro text-[color:var(--text-subtle)]">Interrupted</span>
       ) : null}

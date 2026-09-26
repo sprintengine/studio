@@ -46,6 +46,13 @@
   --ref-color-teal-400: #2dd4bf;
   --ref-color-cyan-700: #0e7490;
   --ref-color-cyan-400: #22d3ee;
+  --sem-syntax-foreground: var(--sem-color-text-default);
+  --sem-syntax-comment: var(--sem-color-text-muted);
+  --sem-syntax-keyword: var(--sem-color-mark-violet);
+  --sem-syntax-string: var(--sem-color-mark-teal);
+  --sem-syntax-number: var(--sem-color-mark-orange);
+  --sem-syntax-function: var(--sem-color-mark-blue);
+  --sem-syntax-type: var(--sem-color-mark-cyan);
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);

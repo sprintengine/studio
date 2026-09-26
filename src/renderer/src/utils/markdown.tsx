@@ -31,6 +31,8 @@ type MarkdownRenderOptions = {
   lineChanges?: GitLineChange[]
   density?: MarkdownDensity
   links?: MarkdownLinkResolver
+  codeBlock?: React.ComponentType<{ code: string; language?: string; filename?: string; streaming?: boolean }>
+  streaming?: boolean
 }
 
 type MarkdownNode = Element | undefined
@@ -247,9 +249,27 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
       <code className={joinClasses(className, scale.code)}>{children}</code>
     ),
-    pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => (
-      <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
-    ),
+    pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => {
+      const Code = options.codeBlock
+      const codeNode = node?.children.find((child) => child.type === 'element' && child.tagName === 'code')
+      if (Code && codeNode?.type === 'element') {
+        const text = codeNode.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
+        const classes = codeNode.properties.className
+        const languageClass = Array.isArray(classes)
+          ? classes.find((value) => String(value).startsWith('language-'))
+          : undefined
+        const meta = (codeNode.data as { meta?: string } | undefined)?.meta
+        return (
+          <Code
+            code={text.replace(/\n$/, '')}
+            language={languageClass ? String(languageClass).slice(9) : undefined}
+            filename={meta?.match(/title="([^"]+)"/)?.[1]}
+            streaming={options.streaming}
+          />
+        )
+      }
+      return <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
+    },
     blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
       <blockquote className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}>
         {children}

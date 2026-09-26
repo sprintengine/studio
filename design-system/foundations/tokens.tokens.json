@@ -214,6 +214,15 @@
     }
   },
   "sem": {
+    "syntax": {
+      "foreground": {"$type":"color","$value":"{sem.color.text.default}","$description":"Code syntax foreground ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"foreground tokens inside source code.","components":["code-block"]}}},
+      "comment": {"$type":"color","$value":"{sem.color.text.muted}","$description":"Code syntax comment ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"comment tokens inside source code.","components":["code-block"]}}},
+      "keyword": {"$type":"color","$value":"{sem.color.mark.violet}","$description":"Code syntax keyword ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"keyword tokens inside source code.","components":["code-block"]}}},
+      "string": {"$type":"color","$value":"{sem.color.mark.teal}","$description":"Code syntax string ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"string tokens inside source code.","components":["code-block"]}}},
+      "number": {"$type":"color","$value":"{sem.color.mark.orange}","$description":"Code syntax number ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"number tokens inside source code.","components":["code-block"]}}},
+      "function": {"$type":"color","$value":"{sem.color.mark.blue}","$description":"Code syntax function ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"function tokens inside source code.","components":["code-block"]}}},
+      "type": {"$type":"color","$value":"{sem.color.mark.cyan}","$description":"Code syntax type ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"type tokens inside source code.","components":["code-block"]}}}
+    },
     "color": {
       "bg": {
         "app": {

@@ -1,0 +1,61 @@
+import { test, expect } from 'vitest'
+import {
+  cachedCodeLines,
+  HIGHLIGHT_LINE_LIMIT,
+  IncrementalCodeTokenizer,
+  loadCodeLanguage,
+  normalizeCodeLanguage,
+} from './codeHighlight'
+
+const fixtures = [
+  ['typescript', 'const answer: number = 42\nconsole.log(answer)'],
+  ['typescript', '/* first\n * second */\nconst a = true'],
+  ['typescript', 'const a = `first\nsecond ${1 + 2}`\nconsole.log(a)'],
+  ['javascript', 'export function greet() {\n  return "hello"\n}'],
+  ['python', 'text = """first\nsecond"""\nprint(text)'],
+  ['json', '{\n  "answer": 42,\n  "ready": true\n}'],
+  ['css', '.notice {\n  display: grid;\n  color: inherit;\n}'],
+  ['html', '<div>\n  <strong>Hello</strong>\n</div>'],
+  ['bash', '# A shell command\nprintf "%s" "hello"'],
+  ['yaml', 'greeting: |\n  hello\n  world\nready: true'],
+] as const
+
+for (const [language, code] of fixtures) {
+  test(`streamed ${language} tokens equal a whole block: ${code.slice(0, 18)}`, async () => {
+    const normalized = normalizeCodeLanguage(language)!
+    const engine = await loadCodeLanguage(normalized)
+    const incremental = new IncrementalCodeTokenizer(engine, normalized)
+    for (let length = 1; length < code.length; length += 3) incremental.update(code.slice(0, length), false)
+    const actual = incremental.update(code, true)
+    const expected = engine.codeToTokensBase(code, { lang: normalized, theme: 'semantic-code' })
+    const comparable = (lines: typeof expected) =>
+      lines.map((line) => line.map(({ content, color }) => ({ content, color })))
+    expect(comparable(actual.map((line) => line.tokens))).toEqual(comparable(expected))
+    expect(cachedCodeLines(normalized, code)).toBe(actual)
+  })
+}
+
+test('completed lines retain identity and unfinished lines remain plain', async () => {
+  const tokenizer = new IncrementalCodeTokenizer(await loadCodeLanguage('typescript'), 'typescript')
+  const first = tokenizer.update('const first = 1\nconst sec', false)
+  const second = tokenizer.update('const first = 1\nconst second = 2', false)
+  expect(second[0]).toBe(first[0])
+  expect(second[1]?.tokens[0]?.color).toBeUndefined()
+  const settled = tokenizer.update('const first = 1\nconst second = 2', true)
+  expect(settled[0]).toBe(first[0])
+})
+
+test('normalizes aliases and rejects prototype keys or unsupported languages', () => {
+  expect(normalizeCodeLanguage('TS')).toBe('typescript')
+  expect(normalizeCodeLanguage('zsh')).toBe('bash')
+  expect(normalizeCodeLanguage('constructor')).toBeNull()
+  expect(normalizeCodeLanguage('')).toBeNull()
+})
+
+test('large code retains source beyond the highlighting limit', async () => {
+  const code = Array.from({ length: HIGHLIGHT_LINE_LIMIT + 2 }, () => 'const a = 1').join('\n')
+  const tokenizer = new IncrementalCodeTokenizer(await loadCodeLanguage('typescript'), 'typescript')
+  const lines = tokenizer.update(code, true)
+  expect(lines.map((line) => line.text).join('\n')).toBe(code)
+  expect(lines[HIGHLIGHT_LINE_LIMIT]?.tokens[0]?.color).toBeUndefined()
+})

@@ -58,6 +58,13 @@
   --ref-color-teal-400: #2dd4bf;
   --ref-color-cyan-700: #0e7490;
   --ref-color-cyan-400: #22d3ee;
+  --sem-syntax-foreground: var(--sem-color-text-default);
+  --sem-syntax-comment: var(--sem-color-text-muted);
+  --sem-syntax-keyword: var(--sem-color-mark-violet);
+  --sem-syntax-string: var(--sem-color-mark-teal);
+  --sem-syntax-number: var(--sem-color-mark-orange);
+  --sem-syntax-function: var(--sem-color-mark-blue);
+  --sem-syntax-type: var(--sem-color-mark-cyan);
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
@@ -601,6 +608,8 @@ code {
 #ds-view-component-checkbox:checked ~ .ds-catalog #component-checkbox { display: block; }
 #ds-view-component-chip-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-chip-button:checked ~ .ds-catalog #component-chip-button { display: block; }
+#ds-view-component-code-block:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-code-block:checked ~ .ds-catalog #component-code-block { display: block; }
 #ds-view-component-command-palette:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-command-palette:checked ~ .ds-catalog #component-command-palette { display: block; }
 #ds-view-component-context-ring:checked ~ .ds-catalog #components { display: block; }
@@ -719,6 +728,8 @@ code {
 #ds-view-component-checkbox:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-checkbox"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-chip-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-chip-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-chip-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-chip-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-code-block:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-code-block"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-code-block:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-code-block"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-command-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-command-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-command-palette:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-command-palette"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-context-ring:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-context-ring"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -2249,6 +2260,40 @@ code {
 .ds-chip-button--error[aria-pressed='true'] {
   background: var(--sem-color-status-danger-soft);
   color: var(--sem-color-status-danger);
+}
+
+/* components/code-block/component.css */
+.ds-code-block {
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-syntax-foreground);
+  margin-block: var(--sem-space-lg);
+  overflow: hidden;
+}
+.ds-code-block__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+.ds-code-block__label { flex: 1; min-width: 0; }
+.ds-code-block pre {
+  margin: 0;
+  padding: var(--sem-space-lg);
+  overflow-x: auto;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-relaxed);
+}
+.ds-code-block--wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ds-code-block__note {
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
 /* components/command-palette/component.css */
@@ -11923,6 +11968,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-check-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-checkbox" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-chip-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-code-block" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-command-palette" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-context-ring" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-definition-list" />
@@ -12002,6 +12048,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-check-row">Check row</label>
 <label class="catalog-nav-item" for="ds-view-component-checkbox">Checkbox</label>
 <label class="catalog-nav-item" for="ds-view-component-chip-button">Chip button</label>
+<label class="catalog-nav-item" for="ds-view-component-code-block">Code block</label>
 <label class="catalog-nav-item" for="ds-view-component-command-palette">Command palette</label>
 <label class="catalog-nav-item" for="ds-view-component-context-ring">Context ring</label>
 <label class="catalog-nav-item" for="ds-view-component-definition-list">Definition list</label>
@@ -12103,7 +12150,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-teal-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.teal-700</code><code class="catalog-token-value">#0f766e</code></p><p class="catalog-token-meta">Deep identity teal for light surfaces (5.3:1 on white). Kept apart from the success emerald by hue. Source: light --sem-color-mark-teal.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-teal-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.teal-400</code><code class="catalog-token-value">#2dd4bf</code></p><p class="catalog-token-meta">Luminous identity teal for dark surfaces. Source: dark --sem-color-mark-teal.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-cyan-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.cyan-700</code><code class="catalog-token-value">#0e7490</code></p><p class="catalog-token-meta">Deep identity cyan for light surfaces (5.0:1 on white). Source: light --sem-color-mark-cyan.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-cyan-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.cyan-400</code><code class="catalog-token-value">#22d3ee</code></p><p class="catalog-token-meta">Luminous identity cyan for dark surfaces. Source: dark --sem-color-mark-cyan.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-cyan-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.cyan-400</code><code class="catalog-token-value">#22d3ee</code></p><p class="catalog-token-meta">Luminous identity cyan for dark surfaces. Source: dark --sem-color-mark-cyan.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-foreground)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.foreground</code><code class="catalog-token-value">{sem.color.text.default}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax foreground ink. foreground tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-comment)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.comment</code><code class="catalog-token-value">{sem.color.text.muted}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax comment ink. comment tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-keyword)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.keyword</code><code class="catalog-token-value">{sem.color.mark.violet}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax keyword ink. keyword tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-string)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.string</code><code class="catalog-token-value">{sem.color.mark.teal}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax string ink. string tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-number)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.number</code><code class="catalog-token-value">{sem.color.mark.orange}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax number ink. number tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-function)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.function</code><code class="catalog-token-value">{sem.color.mark.blue}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax function ink. function tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--sem-syntax-type)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.syntax.type</code><code class="catalog-token-value">{sem.color.mark.cyan}</code><span class="catalog-badge">syntax</span></p><p class="catalog-token-meta">Code syntax type ink. type tokens inside source code.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
@@ -17410,6 +17464,84 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-code-block" class="catalog-view catalog-component">
+<h3>Code block</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-code-block">
+<section class="ds-code-block" aria-label="TypeScript code">
+  <header class="ds-code-block__header"><span class="ds-code-block__label">TypeScript · greeting.ts</span><button class="ds-button ds-button--ghost" aria-pressed="false">Wrap</button><button class="ds-button ds-button--ghost">Copy</button></header>
+  <pre><code><span style="color:var(--sem-syntax-keyword)">const</span> greeting = <span style="color:var(--sem-syntax-string)">"Hello"</span></code></pre>
+</section>
+<div data-mode="dark">
+  <section class="ds-code-block ds-code-block--wrap" aria-label="Wrapped TypeScript code">
+    <header class="ds-code-block__header"><span class="ds-code-block__label">TypeScript</span><button class="ds-button ds-button--ghost" aria-pressed="true">Wrap</button><button class="ds-button ds-button--ghost" disabled>Copy</button></header>
+    <pre><code><span style="color:var(--sem-syntax-comment)">// Streaming code stays selectable</span>
+<span style="color:var(--sem-syntax-keyword)">return</span> greeting</code></pre>
+  </section>
+</div>
+</div>
+<div class="catalog-doc">
+<h4>Anatomy</h4>
+<p>A neutral bordered code surface with a header for language, optional filename, wrap toggle and copy action. Source uses the mono family and body size.</p>
+<h4>Variants</h4>
+<p>Unwrapped code scrolls horizontally. Wrapped code preserves whitespace and wraps long lines. Unknown languages keep the same surface with plain source.</p>
+<h4>States</h4>
+<p>Loading reserves the source height without flashing plain code. Streaming keeps completed lines stable and displays the unfinished line as plain text. A failed grammar falls back to plain source. Large blocks label the highlighting limit. Hover and focus on header actions follow the button component. Disabled copy uses the button's disabled state. Light and dark use the same semantic tokens.</p>
+<h4>Usage</h4>
+<p>Syntax colours identify grammatical roles inside code only (2026-09-26). They are content, never control accents. Use sem.syntax tokens and do not load the highlighter in the application's initial bundle.</p>
+<h4>Accessibility</h4>
+<p>Source stays selectable text in pre/code. Wrap is an aria-pressed toggle. Copy has a spoken name and reports failure or success through the shared toast. Header actions retain visible keyboard focus. No animated loading treatment.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/code-block/component.css</summary><pre><code>.ds-code-block {
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-syntax-foreground);
+  margin-block: var(--sem-space-lg);
+  overflow: hidden;
+}
+.ds-code-block__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+.ds-code-block__label { flex: 1; min-width: 0; }
+.ds-code-block pre {
+  margin: 0;
+  padding: var(--sem-space-lg);
+  overflow-x: auto;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-relaxed);
+}
+.ds-code-block--wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ds-code-block__note {
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/code-block/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;Code block&lt;/title&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot;&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot;&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot;&gt;&lt;/head&gt;&lt;body&gt;
+&lt;section class=&quot;ds-code-block&quot; aria-label=&quot;TypeScript code&quot;&gt;
+  &lt;header class=&quot;ds-code-block__header&quot;&gt;&lt;span class=&quot;ds-code-block__label&quot;&gt;TypeScript · greeting.ts&lt;/span&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; aria-pressed=&quot;false&quot;&gt;Wrap&lt;/button&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot;&gt;Copy&lt;/button&gt;&lt;/header&gt;
+  &lt;pre&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-keyword)&quot;&gt;const&lt;/span&gt; greeting = &lt;span style=&quot;color:var(--sem-syntax-string)&quot;&gt;&quot;Hello&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/section&gt;
+&lt;div data-mode=&quot;dark&quot;&gt;
+  &lt;section class=&quot;ds-code-block ds-code-block--wrap&quot; aria-label=&quot;Wrapped TypeScript code&quot;&gt;
+    &lt;header class=&quot;ds-code-block__header&quot;&gt;&lt;span class=&quot;ds-code-block__label&quot;&gt;TypeScript&lt;/span&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; aria-pressed=&quot;true&quot;&gt;Wrap&lt;/button&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Copy&lt;/button&gt;&lt;/header&gt;
+    &lt;pre&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-comment)&quot;&gt;// Streaming code stays selectable&lt;/span&gt;
+&lt;span style=&quot;color:var(--sem-syntax-keyword)&quot;&gt;return&lt;/span&gt; greeting&lt;/code&gt;&lt;/pre&gt;
+  &lt;/section&gt;
+&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;
 </code></pre></details>
 </div>
 <div id="component-command-palette" class="catalog-view catalog-component">
