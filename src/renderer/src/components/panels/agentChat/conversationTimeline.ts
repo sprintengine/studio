@@ -2,6 +2,7 @@
 // how resolved approvals are grouped.
 
 import { type TranscriptToolEntry, type TranscriptEntry } from './conversationProjection'
+import { toolActionVerb } from '../../../../../shared/conversation/presentation'
 
 // Every call in a lane subtree, lane headers included, in start order.
 export function flattenToolEntries(tools: TranscriptToolEntry[]): TranscriptToolEntry[] {
@@ -79,23 +80,8 @@ export type ConversationTimelineRow =
 // ── Presentation vocabulary (pure, unit-tested) ─────────────────────────────
 
 // Step verbs: past tense for finished steps, continuous for the live one.
-export const TOOL_VERBS: Record<string, { done: string; live: string }> = {
-  Read: { done: 'Read', live: 'Reading' },
-  Grep: { done: 'Searched', live: 'Searching' },
-  Glob: { done: 'Searched', live: 'Searching' },
-  WebSearch: { done: 'Searched', live: 'Searching' },
-  Edit: { done: 'Edited', live: 'Editing' },
-  MultiEdit: { done: 'Edited', live: 'Editing' },
-  NotebookEdit: { done: 'Edited', live: 'Editing' },
-  Write: { done: 'Wrote', live: 'Writing' },
-  Bash: { done: 'Ran', live: 'Running' },
-  WebFetch: { done: 'Fetched', live: 'Fetching' },
-}
-
 export function toolVerb(tool: string, live: boolean): string {
-  const verbs = TOOL_VERBS[tool]
-  if (verbs) return live ? verbs.live : verbs.done
-  return live ? `Calling ${tool}` : `Called ${tool}`
+  return toolActionVerb(tool, live)
 }
 
 // The step object is the provider summary minus its "Tool: " prefix — the verb
@@ -169,6 +155,7 @@ export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): 
 export function deriveConversationTimelineRows(
   entries: TranscriptEntry[],
   activeTurn: boolean,
+  previousRows: ConversationTimelineRow[] = [],
 ): ConversationTimelineRow[] {
   const rows: ConversationTimelineRow[] = []
   const stage = activeConversationStage(entries, activeTurn)
@@ -273,5 +260,51 @@ export function deriveConversationTimelineRows(
     })
   }
 
-  return rows
+  if (!previousRows.length) return rows
+  const previousById = new Map(previousRows.map((row) => [row.id, row]))
+  return rows.map((row) => {
+    const previous = previousById.get(row.id)
+    if (!previous || previous.kind !== row.kind) return row
+    if (row.kind === 'user' && previous.kind === 'user' && row.entry === previous.entry) return previous
+    if (
+      row.kind === 'assistant' &&
+      previous.kind === 'assistant' &&
+      row.entry === previous.entry &&
+      row.tools.length === previous.tools.length &&
+      row.tools.every((tool, index) => tool === previous.tools[index]) &&
+      sameDecisions(row.decisions, previous.decisions)
+    )
+      return previous
+    if (row.kind === 'approval' && previous.kind === 'approval' && sameDecisions(row.decisions, previous.decisions))
+      return previous
+    if (
+      row.kind === 'working' &&
+      previous.kind === 'working' &&
+      row.stage === previous.stage &&
+      row.label === previous.label &&
+      row.startedAt === previous.startedAt
+    )
+      return previous
+    return row
+  })
+}
+
+function sameDecisions(first: ConversationDecisionRow[], second: ConversationDecisionRow[]): boolean {
+  return (
+    first.length === second.length &&
+    first.every((item, index) => {
+      const prior = second[index]
+      if (!prior || item.kind !== prior.kind || item.id !== prior.id) return false
+      if (item.kind === 'decision' && prior.kind === 'decision') return item.entry === prior.entry
+      if (item.kind === 'decisionGroup' && prior.kind === 'decisionGroup') {
+        return (
+          item.status === prior.status &&
+          item.label === prior.label &&
+          item.entries.length === prior.entries.length &&
+          item.entries.every((entry, offset) => entry === prior.entries[offset])
+        )
+      }
+      return false
+    })
+  )
 }

@@ -12,6 +12,12 @@
 // node-level coverage without rendering.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  LegendList,
+  type LegendListRef,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
+} from '@legendapp/list/react'
 
 import type {
   ConversationCliRuntimeOverrides,
@@ -50,13 +56,19 @@ import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { projectConversation, type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
+import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
+import {
+  applyEvent,
+  createConversationProjectionState,
+  prependEvents,
+} from './agentChat/incrementalConversationProjection'
+import { ConversationLinkProvider } from './agentChat/conversationLinks'
+import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
   attachmentRejection,
-  providerAcceptsImages,
   readImageAttachment,
 } from './agentChat/imageAttachments'
 import { ModelPickerPill, PermissionPresetPill, type ModelGroup } from './agentChat/modelPicker'
@@ -402,7 +414,23 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const skillPickerRef = useRef<InlineSkillPickerHandle | null>(null)
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const listRef = useRef<HTMLDivElement | null>(null)
+  const listRef = useRef<LegendListRef | null>(null)
+  const conversationKey = `${workspaceId}:${agentId}`
+  const scrollMemoryRef = useRef(recalledConversationScroll(conversationKey))
+  const firstVisibleRowRef = useRef<string | undefined>(scrollMemoryRef.current?.rowId)
+  const pendingUserScrollIdRef = useRef<string | null>(null)
+  const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
+  const modelLabelsRef = useRef<{ current: string; groups: ModelGroup[] }>({ current: '', groups: [] })
+  const modelLabelFor = useCallback((modelId?: string): string => {
+    const { current, groups } = modelLabelsRef.current
+    if (!modelId) return current
+    for (const group of groups) {
+      const model = group.models.find((entry) => entry.id === modelId)
+      if (model?.displayName) return model.displayName
+    }
+    return modelId
+  }, [])
+  const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // Drag enter/leave fire for every child the pointer crosses; the depth
   // counter keeps the drop affordance from flickering inside the composer.
@@ -555,36 +583,72 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     if (providerId) fetchProviderCatalog(providerId)
   }, [conversation?.providerId, fetchProviderCatalog])
 
-  const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
-  const timelineRows = useMemo(
-    () => deriveConversationTimelineRows(projection.entries, projection.activeTurn),
-    [projection.entries, projection.activeTurn],
-  )
+  const projectionStateRef = useRef(createConversationProjectionState())
+  const projection = useMemo(() => {
+    let state = projectionStateRef.current
+    const oldLength = state.history?.length ?? 0
+    if (state.userTurns !== userTurns) {
+      state = createConversationProjectionState(events, userTurns)
+    } else if (events.length > oldLength && events[oldLength - 1] === state.history?.event) {
+      for (let index = oldLength; index < events.length; index++) state = applyEvent(state, events[index])
+    } else if (events.length > oldLength && events.at(-1) === state.history?.event) {
+      state = prependEvents(state, events.slice(0, events.length - oldLength))
+    } else if (events.length !== oldLength || (oldLength > 0 && events.at(-1) !== state.history?.event)) {
+      state = createConversationProjectionState(events, userTurns)
+    }
+    projectionStateRef.current = state
+    return state.projection
+  }, [events, userTurns])
+  const previousRowsRef = useRef<ReturnType<typeof deriveConversationTimelineRows>>([])
+  const timelineRows = useMemo(() => {
+    const rows = deriveConversationTimelineRows(projection.entries, projection.activeTurn, previousRowsRef.current)
+    previousRowsRef.current = rows
+    return rows
+  }, [projection.entries, projection.activeTurn])
 
   // Follow the stream only while the user is at (or near) the bottom: reading
   // scrollback must never be yanked away by incoming tokens. A "jump to
   // latest" pill appears once they scroll up. Keyed on events.length so token
   // appends (which don't change the row count) also keep the view pinned.
-  const [atBottom, setAtBottom] = useState(true)
-  const atBottomRef = useRef(true)
-  const handleLogScroll = useCallback(() => {
-    const node = listRef.current
-    if (!node) return
-    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48
-    atBottomRef.current = nearBottom
-    setAtBottom(nearBottom)
-  }, [])
+  const [atBottom, setAtBottom] = useState(scrollMemoryRef.current?.atEnd ?? true)
+  const atBottomRef = useRef(scrollMemoryRef.current?.atEnd ?? true)
+  const handleLogScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+      const nearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 48
+      atBottomRef.current = nearBottom
+      setAtBottom(nearBottom)
+      const state = listRef.current?.getState()
+      const rowId = firstVisibleRowRef.current
+      const position = rowId ? state?.positionByKey(rowId) : undefined
+      rememberConversationScroll(conversationKey, {
+        rowId,
+        offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
+        atEnd: nearBottom,
+      })
+    },
+    [conversationKey],
+  )
   const jumpToLatest = useCallback(() => {
-    const node = listRef.current
-    if (!node) return
-    node.scrollTop = node.scrollHeight
+    void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
     atBottomRef.current = true
     setAtBottom(true)
   }, [])
   useEffect(() => {
-    const node = listRef.current
-    if (node && atBottomRef.current) node.scrollTop = node.scrollHeight
+    if (atBottomRef.current) {
+      void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
+    }
   }, [events.length, timelineRows.length, projection.activeTurn])
+  useEffect(() => {
+    const id = pendingUserScrollIdRef.current
+    if (!id) return
+    const index = timelineRows.findIndex((row) => row.id === id)
+    if (index < 0) return
+    pendingUserScrollIdRef.current = null
+    setAnchoredUserId(id)
+    atBottomRef.current = false
+    void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
+  }, [timelineRows])
 
   // Surface turn failures (streamed via `turn_failed`) to the app Notifications
   // panel, deduped on the message so a single failure is logged once.
@@ -726,6 +790,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         return
       }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
+      pendingUserScrollIdRef.current = `user:${localTurnId}`
       setUserTurns((current) => [
         ...current,
         { id: localTurnId, text, ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}) },
@@ -912,12 +977,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
   // replayed transcript, not in the local userTurns state.
-  const retry = useCallback(() => {
+  const retryLatestRef = useRef<() => void>(() => undefined)
+  retryLatestRef.current = () => {
     const lastUser = [...projection.entries]
       .reverse()
       .find((entry): entry is Extract<TranscriptEntry, { kind: 'user' }> => entry.kind === 'user')
     if (lastUser?.text) void sendTurn(lastUser.text)
-  }, [sendTurn, projection.entries])
+  }
+  const retry = useCallback(() => retryLatestRef.current(), [])
 
   if (!conversation) {
     return (
@@ -1020,20 +1087,24 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     setLastSelectedConversationModel({ providerId, modelId })
   }
 
-  // Agent-harness providers (the Claude CLI) run tools and speak as "Claude";
-  // plain model providers are a direct chat with the model.
+  // Capabilities are available from the provider catalog before the first turn,
+  // then the live session reports the declaration it actually started with.
   const providerEntry = providers.find((entry) => entry.id === conversation.providerId)
-  const isAgentHarness = providerEntry?.providerType === 'agent-harness'
-  const assistantName = isAgentHarness ? 'Claude' : currentModelLabel
+  const capabilities = session?.capabilities ?? providerEntry?.capabilities
+  const supportsTools = capabilities?.tools === true
+  const supportsSkills = capabilities?.skills !== undefined && capabilities.skills !== 'none'
+  const assistantName = supportsTools
+    ? (session?.displayName ?? providerEntry?.displayName ?? currentModelLabel)
+    : currentModelLabel
   // Image attach (D3/1774) is offered only where a provider actually reads the
   // turn's attachments, and only once the session can take a turn — a control
   // that stages images no one will receive is worse than no control.
-  const imagesEnabled = ready && providerAcceptsImages(conversation.providerId)
+  const imagesEnabled = ready && capabilities?.images === true
 
   // Skills doors (agent harness only — plain model chats run no tools): a '/'
   // opening an otherwise-empty draft, or a '$' starting a word anywhere in it,
   // filters the same inventory the Skills chip shows. See `chatSkillTrigger`.
-  const skillTrigger = isAgentHarness && !skillTriggerDismissed ? chatSkillTrigger(draft) : null
+  const skillTrigger = supportsSkills && !skillTriggerDismissed ? chatSkillTrigger(draft) : null
   const dismissSkillTrigger = useCallback(() => setSkillTriggerDismissed(true), [])
   const applySkillPick = (skill: WorkspaceSkill) => {
     if (skillTrigger?.kind === 'mention') {
@@ -1047,14 +1118,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     setSkillTriggerDismissed(true)
     composerRef.current?.focus()
   }
-  const modelLabelFor = (modelId?: string): string => {
-    if (!modelId) return currentModelLabel
-    for (const group of modelGroups) {
-      const model = group.models.find((entry) => entry.id === modelId)
-      if (model?.displayName) return model.displayName
-    }
-    return modelId
-  }
+  modelLabelsRef.current = { current: currentModelLabel, groups: modelGroups }
 
   const pendingApprovalEntry = [...projection.entries]
     .reverse()
@@ -1086,19 +1150,56 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           )?.turnId
       : undefined
 
-  const chrome: TimelineChrome = {
-    assistantName,
-    modelLabelFor,
-    retryTurnId: lastFailedTurnId,
-    onRetry: retry,
-    retryDisabled: composerDisabled,
-  }
+  const latestTurnId = [...projection.entries].reverse().find((entry) => entry.kind === 'assistant')?.turnId
+  const oldChrome = chromeRef.current
+  const checkpointSeqs = new Set(
+    projection.entries.flatMap((entry) =>
+      entry.kind === 'assistant' && entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined
+        ? [entry.checkpointTurnSeq]
+        : [],
+    ),
+  )
+  const stableCheckpointSeqs =
+    oldChrome?.checkpointSeqs &&
+    oldChrome.checkpointSeqs.size === checkpointSeqs.size &&
+    [...checkpointSeqs].every((seq) => oldChrome.checkpointSeqs?.has(seq))
+      ? oldChrome.checkpointSeqs
+      : checkpointSeqs
+  const chrome: TimelineChrome =
+    oldChrome &&
+    oldChrome.assistantName === assistantName &&
+    oldChrome.latestTurnId === latestTurnId &&
+    oldChrome.retryTurnId === lastFailedTurnId &&
+    oldChrome.onRetry === retry &&
+    oldChrome.retryDisabled === composerDisabled &&
+    oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
+    oldChrome.conversationRunning === projection.activeTurn &&
+    oldChrome.revertedAfterSeq === projection.revertedAfterSeq &&
+    oldChrome.checkpointSeqs === stableCheckpointSeqs
+      ? oldChrome
+      : {
+          assistantName,
+          modelLabelFor,
+          latestTurnId,
+          retryTurnId: lastFailedTurnId,
+          onRetry: retry,
+          retryDisabled: composerDisabled,
+          checkpointsEnabled: capabilities?.checkpoints === true,
+          conversationRunning: projection.activeTurn,
+          revertedAfterSeq: projection.revertedAfterSeq,
+          checkpointSeqs: stableCheckpointSeqs,
+        }
+  chromeRef.current = chrome
 
   const completedReplies = projection.entries.filter(
     (entry) => entry.kind === 'assistant' && entry.status === 'complete',
   ).length
   if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
   const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
+  const anchorUserIndex = anchoredUserId ? timelineRows.findIndex((row) => row.id === anchoredUserId) : -1
+  const rememberedRowIndex = scrollMemoryRef.current?.rowId
+    ? timelineRows.findIndex((row) => row.id === scrollMemoryRef.current?.rowId)
+    : -1
 
   // Orphan turn failure: lastError set but no transcript entry carries it (a
   // turn_failed with no turnId while nothing was streaming). Without this the
@@ -1107,373 +1208,404 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const composerError = actionError ?? (projection.lastError && !hasFailedTurnEntry ? projection.lastError : null)
 
   return (
-    <ChatShell shellRef={shellRef}>
-      <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
-      {/* Loading is not a notice — it is the state the screen is in, so it reads
+    <ConversationLinkProvider
+      workspaceId={workspaceId}
+      agentId={agentId}
+      cwd={workspaceRoot ?? ''}
+      workspaceRoot={workspaceRoot ?? ''}
+    >
+      <ChatShell shellRef={shellRef}>
+        <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
+        {/* Loading is not a notice — it is the state the screen is in, so it reads
           as the quiet line it is; anything else here is a degraded session. */}
-      {!ready && timelineRows.length > 0 ? (
-        readiness.kind === 'loading' ? (
-          <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">{readinessLabel(readiness)}</p>
-        ) : (
-          <InlineNotice tone="warn" className="mx-3 my-2">
-            {readinessLabel(readiness)}
-          </InlineNotice>
-        )
-      ) : null}
-      {/* Warn only about the CURRENT session: after a restart the replayed
+        {!ready && timelineRows.length > 0 ? (
+          readiness.kind === 'loading' ? (
+            <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">{readinessLabel(readiness)}</p>
+          ) : (
+            <InlineNotice tone="warn" className="mx-3 my-2">
+              {readinessLabel(readiness)}
+            </InlineNotice>
+          )
+        ) : null}
+        {/* Warn only about the CURRENT session: after a restart the replayed
           transcript may carry a previous session's source, but no session is
           live until the next send (which resets the source via
           session_started). */}
-      {sessionId !== null && projection.apiKeySource !== null && projection.apiKeySource !== 'none' ? (
-        <InlineNotice tone="warn" className="mx-3 my-2">
-          This session is using an API key, not your subscription.
-        </InlineNotice>
-      ) : null}
-
-      <div
-        ref={listRef}
-        role="log"
-        aria-label={`${label} conversation`}
-        aria-live="polite"
-        onScroll={handleLogScroll}
-        className="flex-1 space-y-1 overflow-y-auto px-4 py-4"
-      >
-        {timelineRows.length === 0 ? (
-          !ready ? (
-            <ReadinessState
-              readiness={readiness}
-              canSwitchModel={!modelLocked}
-              onSwitchModel={() => setModelMenuOpen(true)}
-            />
-          ) : isAgentHarness ? (
-            <EmptyChatState
-              assistantName={assistantName}
-              onSuggestion={(text) => {
-                setDraft(text)
-                composerRef.current?.focus()
-              }}
-            />
-          ) : (
-            // Model providers are a plain chat — no tool contract to explain.
-            <div className="flex h-full items-center justify-center">
-              <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
-                No messages yet. Send a prompt to start the conversation.
-              </p>
-            </div>
-          )
-        ) : (
-          timelineRows.map((row) => <TimelineRow key={row.id} row={row} chrome={chrome} />)
-        )}
-      </div>
-
-      <div className="relative px-4 pb-4 pt-1">
-        {!atBottom && timelineRows.length > 0 ? (
-          <OutlineButton
-            size="xs"
-            onClick={jumpToLatest}
-            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
-          >
-            {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
-          </OutlineButton>
-        ) : null}
-        <ConversationPendingDock
-          pendingApproval={pendingApprovalEntry}
-          workspaceName={workspace?.name}
-          onApprove={resolveApproval}
-          busy={respondingRequestId !== null}
-        />
-
-        {/*
-         * A turn failure renders as a structured error block in the transcript
-         * (with its own Retry), so here we only restate text for action errors
-         * that never reach the transcript (start/send/IPC) — plus the orphan
-         * case: a turn_failed that attached to no turn (no turnId while nothing
-         * was streaming) sets lastError without a failed transcript entry, and
-         * must still surface somewhere in the chat.
-         */}
-        {composerError ? (
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <TruncatedText
-              as="span"
-              text={composerError}
-              className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
-            />
-            <OutlineButton onClick={retry} disabled={composerDisabled} className="shrink-0">
-              Retry
-            </OutlineButton>
-          </div>
+        {sessionId !== null && projection.apiKeySource !== null && projection.apiKeySource !== 'none' ? (
+          <InlineNotice tone="warn" className="mx-3 my-2">
+            This session is using an API key, not your subscription.
+          </InlineNotice>
         ) : null}
 
-        {/*
-         * A permission change the provider recorded but cannot apply to the turn
-         * already streaming (1808). Information, not a failure: the pill already
-         * shows the new preset, and this says when it starts applying.
-         */}
-        {permissionNotice ? (
-          <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
-            {permissionNotice}
-          </p>
-        ) : null}
-
-        {/*
-         * Queued message (D6/1776): the user typed ahead and committed while the
-         * turn was busy. It auto-sends the moment the session unlocks; Cancel
-         * drops it before then. Kept truthful so a queued turn is never a
-         * silent, invisible pending action.
-         */}
-        {queuedTurn ? (
-          <div className="mb-2 flex items-center justify-between gap-3 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
-              <TruncatedText
-                as="span"
-                text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
-                className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
+        <div role="log" aria-label={`${label} conversation`} aria-live="polite" className="min-h-0 flex-1">
+          {timelineRows.length === 0 ? (
+            !ready ? (
+              <ReadinessState
+                readiness={readiness}
+                canSwitchModel={!modelLocked}
+                onSwitchModel={() => setModelMenuOpen(true)}
               />
-            </div>
-            <OutlineButton onClick={() => setQueuedTurn(null)} className="shrink-0">
-              Cancel
-            </OutlineButton>
-          </div>
-        ) : null}
-
-        {/*
-         * Composer: a single rounded field that holds the textarea and a footer
-         * control row (model chip + permission chip + send), so the input reads
-         * as one surface. The model lives here — picked before the first
-         * message, then locked. While an approval card is pending the disabled
-         * placeholder says why the composer is waiting.
-         */}
-        <div
-          className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
-            dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
-          }`}
-          onDragEnter={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            dragDepthRef.current += 1
-            setDropActive(true)
-          }}
-          onDragOver={(event) => {
-            // Claiming the drag is what stops the window from navigating to the
-            // dropped file, so it has to happen on every dragover.
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            event.preventDefault()
-          }}
-          onDragLeave={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-            if (dragDepthRef.current === 0) setDropActive(false)
-          }}
-          onDrop={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            event.preventDefault()
-            dragDepthRef.current = 0
-            setDropActive(false)
-            const files = imageFilesFromDataTransfer(event.dataTransfer)
-            if (files.length === 0) {
-              setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
-              return
-            }
-            void attachFiles(files)
-          }}
-        >
-          {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
-              can never strand the overlay over a composer that stopped accepting
-              images. */}
-          {dropActive && imagesEnabled ? (
-            // Opaque, not a scrim: the field's own text ghosting through the
-            // drop state reads as a rendering artifact rather than a state.
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
-              Drop to attach
-            </div>
-          ) : null}
-          {skillTrigger ? (
-            <InlineSkillPicker
-              ref={skillPickerRef}
-              workspaceRoot={workspaceRoot}
-              query={skillTrigger.query}
-              onPick={applySkillPick}
-              onMatchCountChange={(count) => {
-                // Non-matching text dismisses; the trigger character stays literal.
-                if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
-              }}
-              onDismiss={dismissSkillTrigger}
-            />
-          ) : null}
-          <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
-          <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
-            Message {label}
-          </label>
-          <Textarea
-            ref={composerRef}
-            variant="composer"
-            resize="none"
-            id={`chat-composer-${agentId}`}
-            value={draft}
-            onPaste={(event) => {
-              // A pasted screenshot only exists as a clipboard item; a text
-              // paste reports no image and falls through to the default.
-              if (!imagesEnabled) return
-              const files = imageFilesFromDataTransfer(event.clipboardData)
-              if (files.length === 0) return
-              event.preventDefault()
-              void attachFiles(files)
-            }}
-            onChange={(event) => {
-              const value = event.target.value
-              setDraft(value)
-              if (!chatSkillTrigger(value)) setSkillTriggerDismissed(false)
-            }}
-            onContextMenu={(event) => void openComposerMenu(event)}
-            onKeyDown={(event) => {
-              // While the skill picker is up, the textarea keeps focus and
-              // forwards navigation; Enter picks instead of sending.
-              if (skillTrigger) {
-                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                  if (skillPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
-                    event.preventDefault()
-                    return
-                  }
-                } else if (event.key === 'Enter' && !event.shiftKey) {
-                  if (skillPickerRef.current?.pickActive()) {
-                    event.preventDefault()
-                    return
-                  }
-                } else if (event.key === 'Escape') {
-                  event.preventDefault()
-                  setSkillTriggerDismissed(true)
-                  return
-                }
-              }
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submitComposer()
-              }
-            }}
-            placeholder={composerPlaceholder}
-            rows={1}
-            disabled={composerInputDisabled}
-            className={COMPOSER_CLASS}
-          />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
-            <div className="flex min-w-0 items-center gap-1">
-              {imagesEnabled ? (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      const files = Array.from(event.target.files ?? [])
-                      // Clearing lets the same file be picked twice in a row.
-                      event.target.value = ''
-                      void attachFiles(files)
-                    }}
-                  />
-                  <Tooltip content="Attach an image" placement="top">
-                    <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
-                      <PaperclipGlyph className="icon-sm" />
-                    </IconButton>
-                  </Tooltip>
-                </>
-              ) : null}
-              {isAgentHarness ? (
-                <SkillPickerPopover
-                  open={skillsMenuOpen}
-                  onOpenChange={setSkillsMenuOpen}
-                  workspaceRoot={workspaceRoot}
-                  onPick={applySkillPick}
-                  onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
-                />
-              ) : null}
-              <ModelPickerPill
-                label={currentModelLabel}
-                shortcutLabel={modelPickerShortcutLabel}
-                locked={modelLocked}
-                open={modelMenuOpen}
-                onOpenChange={setModelMenuOpen}
-                groups={modelGroups}
-                selectedProviderId={conversation.providerId}
-                selectedModelId={conversation.modelId}
-                onSelect={selectModel}
-                onBrowseProvider={fetchProviderCatalog}
-                onAddKey={() => {
-                  setModelMenuOpen(false)
-                  openSettingsOverlay({ initialTab: 'providers' })
+            ) : supportsTools ? (
+              <EmptyChatState
+                assistantName={assistantName}
+                onSuggestion={(text) => {
+                  setDraft(text)
+                  composerRef.current?.focus()
                 }}
               />
-              {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
-              {isAgentHarness ? (
-                <PermissionPresetPill
-                  cli={conversation.providerId}
-                  preset={permissionPreset}
-                  live={sessionId !== null}
-                  changing={permissionChanging}
-                  open={permissionMenuOpen}
-                  onOpenChange={setPermissionMenuOpen}
-                  onChange={(next) => {
-                    // Close on pick like every other picker here: a refusal
-                    // rolls the pill back and writes the reason to the composer
-                    // error line, which an open popover would sit on top of.
-                    setPermissionMenuOpen(false)
-                    void changePermissionPreset(next)
+            ) : (
+              // Model providers are a plain chat — no tool contract to explain.
+              <div className="flex h-full items-center justify-center">
+                <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
+                  No messages yet. Send a prompt to start the conversation.
+                </p>
+              </div>
+            )
+          ) : (
+            <LegendList
+              ref={listRef}
+              data={timelineRows}
+              dataKey={conversationKey}
+              renderItem={({ item }) => <TimelineRow key={item.id} row={item} chrome={chrome} />}
+              keyExtractor={(row) => row.id}
+              getItemType={(row) => row.kind}
+              recycleItems
+              estimatedItemSize={120}
+              className="h-full overflow-y-auto px-4 py-4"
+              contentContainerClassName="space-y-1"
+              aria-live="off"
+              onScroll={handleLogScroll}
+              onFirstVisibleItemChanged={({ key }) => {
+                firstVisibleRowRef.current = key
+              }}
+              initialScrollAtEnd={scrollMemoryRef.current?.atEnd ?? true}
+              initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
+              maintainVisibleContentPosition={{ data: true, size: true }}
+              maintainScrollAtEnd={
+                atBottom ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches } : false
+              }
+              anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
+              onReady={() => {
+                const memory = scrollMemoryRef.current
+                if (!memory || memory.atEnd) return
+                const position = memory.rowId ? listRef.current?.getState().positionByKey(memory.rowId) : undefined
+                void listRef.current?.scrollToOffset({ offset: (position ?? 0) + memory.offset, animated: false })
+              }}
+            />
+          )}
+        </div>
+
+        <div className="relative px-4 pb-4 pt-1">
+          {!atBottom && timelineRows.length > 0 ? (
+            <OutlineButton
+              size="xs"
+              onClick={jumpToLatest}
+              className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+            >
+              {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
+            </OutlineButton>
+          ) : null}
+          <ConversationPendingDock
+            pendingApproval={pendingApprovalEntry}
+            workspaceName={workspace?.name}
+            onApprove={resolveApproval}
+            busy={respondingRequestId !== null}
+          />
+
+          {/*
+           * A turn failure renders as a structured error block in the transcript
+           * (with its own Retry), so here we only restate text for action errors
+           * that never reach the transcript (start/send/IPC) — plus the orphan
+           * case: a turn_failed that attached to no turn (no turnId while nothing
+           * was streaming) sets lastError without a failed transcript entry, and
+           * must still surface somewhere in the chat.
+           */}
+          {composerError ? (
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <TruncatedText
+                as="span"
+                text={composerError}
+                className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
+              />
+              <OutlineButton onClick={retry} disabled={composerDisabled} className="shrink-0">
+                Retry
+              </OutlineButton>
+            </div>
+          ) : null}
+
+          {/*
+           * A permission change the provider recorded but cannot apply to the turn
+           * already streaming (1808). Information, not a failure: the pill already
+           * shows the new preset, and this says when it starts applying.
+           */}
+          {permissionNotice ? (
+            <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
+              {permissionNotice}
+            </p>
+          ) : null}
+
+          {/*
+           * Queued message (D6/1776): the user typed ahead and committed while the
+           * turn was busy. It auto-sends the moment the session unlocks; Cancel
+           * drops it before then. Kept truthful so a queued turn is never a
+           * silent, invisible pending action.
+           */}
+          {queuedTurn ? (
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">
+                  Queued
+                </span>
+                <TruncatedText
+                  as="span"
+                  text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
+                  className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
+                />
+              </div>
+              <OutlineButton onClick={() => setQueuedTurn(null)} className="shrink-0">
+                Cancel
+              </OutlineButton>
+            </div>
+          ) : null}
+
+          {/*
+           * Composer: a single rounded field that holds the textarea and a footer
+           * control row (model chip + permission chip + send), so the input reads
+           * as one surface. The model lives here — picked before the first
+           * message, then locked. While an approval card is pending the disabled
+           * placeholder says why the composer is waiting.
+           */}
+          <div
+            className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+              dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+            }`}
+            onDragEnter={(event) => {
+              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+              dragDepthRef.current += 1
+              setDropActive(true)
+            }}
+            onDragOver={(event) => {
+              // Claiming the drag is what stops the window from navigating to the
+              // dropped file, so it has to happen on every dragover.
+              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+              event.preventDefault()
+            }}
+            onDragLeave={(event) => {
+              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+              if (dragDepthRef.current === 0) setDropActive(false)
+            }}
+            onDrop={(event) => {
+              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+              event.preventDefault()
+              dragDepthRef.current = 0
+              setDropActive(false)
+              const files = imageFilesFromDataTransfer(event.dataTransfer)
+              if (files.length === 0) {
+                setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
+                return
+              }
+              void attachFiles(files)
+            }}
+          >
+            {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
+              can never strand the overlay over a composer that stopped accepting
+              images. */}
+            {dropActive && imagesEnabled ? (
+              // Opaque, not a scrim: the field's own text ghosting through the
+              // drop state reads as a rendering artifact rather than a state.
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                Drop to attach
+              </div>
+            ) : null}
+            {skillTrigger ? (
+              <InlineSkillPicker
+                ref={skillPickerRef}
+                workspaceRoot={workspaceRoot}
+                query={skillTrigger.query}
+                onPick={applySkillPick}
+                onMatchCountChange={(count) => {
+                  // Non-matching text dismisses; the trigger character stays literal.
+                  if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
+                }}
+                onDismiss={dismissSkillTrigger}
+              />
+            ) : null}
+            <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
+            <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
+              Message {label}
+            </label>
+            <Textarea
+              ref={composerRef}
+              variant="composer"
+              resize="none"
+              id={`chat-composer-${agentId}`}
+              value={draft}
+              onPaste={(event) => {
+                // A pasted screenshot only exists as a clipboard item; a text
+                // paste reports no image and falls through to the default.
+                if (!imagesEnabled) return
+                const files = imageFilesFromDataTransfer(event.clipboardData)
+                if (files.length === 0) return
+                event.preventDefault()
+                void attachFiles(files)
+              }}
+              onChange={(event) => {
+                const value = event.target.value
+                setDraft(value)
+                if (!chatSkillTrigger(value)) setSkillTriggerDismissed(false)
+              }}
+              onContextMenu={(event) => void openComposerMenu(event)}
+              onKeyDown={(event) => {
+                // While the skill picker is up, the textarea keeps focus and
+                // forwards navigation; Enter picks instead of sending.
+                if (skillTrigger) {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    if (skillPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
+                      event.preventDefault()
+                      return
+                    }
+                  } else if (event.key === 'Enter' && !event.shiftKey) {
+                    if (skillPickerRef.current?.pickActive()) {
+                      event.preventDefault()
+                      return
+                    }
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setSkillTriggerDismissed(true)
+                    return
+                  }
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  submitComposer()
+                }
+              }}
+              placeholder={composerPlaceholder}
+              rows={1}
+              disabled={composerInputDisabled}
+              className={COMPOSER_CLASS}
+            />
+            <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+              <div className="flex min-w-0 items-center gap-1">
+                {imagesEnabled ? (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        // Clearing lets the same file be picked twice in a row.
+                        event.target.value = ''
+                        void attachFiles(files)
+                      }}
+                    />
+                    <Tooltip content="Attach an image" placement="top">
+                      <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
+                        <PaperclipGlyph className="icon-sm" />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                ) : null}
+                {supportsSkills ? (
+                  <SkillPickerPopover
+                    open={skillsMenuOpen}
+                    onOpenChange={setSkillsMenuOpen}
+                    workspaceRoot={workspaceRoot}
+                    onPick={applySkillPick}
+                    onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
+                  />
+                ) : null}
+                <ModelPickerPill
+                  label={currentModelLabel}
+                  shortcutLabel={modelPickerShortcutLabel}
+                  locked={modelLocked}
+                  open={modelMenuOpen}
+                  onOpenChange={setModelMenuOpen}
+                  groups={modelGroups}
+                  selectedProviderId={conversation.providerId}
+                  selectedModelId={conversation.modelId}
+                  onSelect={selectModel}
+                  onBrowseProvider={fetchProviderCatalog}
+                  onAddKey={() => {
+                    setModelMenuOpen(false)
+                    openSettingsOverlay({ initialTab: 'providers' })
                   }}
                 />
-              ) : null}
+                {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
+                {capabilities?.approvals ? (
+                  <PermissionPresetPill
+                    cli={conversation.providerId}
+                    preset={permissionPreset}
+                    live={sessionId !== null}
+                    changing={permissionChanging}
+                    open={permissionMenuOpen}
+                    onOpenChange={setPermissionMenuOpen}
+                    onChange={(next) => {
+                      // Close on pick like every other picker here: a refusal
+                      // rolls the pill back and writes the reason to the composer
+                      // error line, which an open popover would sit on top of.
+                      setPermissionMenuOpen(false)
+                      void changePermissionPreset(next)
+                    }}
+                  />
+                ) : null}
+              </div>
+              {projection.activeTurn ? (
+                <ComposerActionButton
+                  tone="neutral"
+                  ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
+                  onClick={() => void interrupt()}
+                  disabled={stopDisabledForPending(pending)}
+                >
+                  <StopGlyph className="icon-sm shrink-0" />
+                </ComposerActionButton>
+              ) : (
+                <ComposerActionButton
+                  tone="accent"
+                  ariaLabel={sendAction.label}
+                  onClick={submitComposer}
+                  disabled={sendAction.disabled}
+                >
+                  <SendArrowGlyph className="icon-sm shrink-0" />
+                </ComposerActionButton>
+              )}
             </div>
-            {projection.activeTurn ? (
-              <ComposerActionButton
-                tone="neutral"
-                ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
-                onClick={() => void interrupt()}
-                disabled={stopDisabledForPending(pending)}
-              >
-                <StopGlyph className="icon-sm shrink-0" />
-              </ComposerActionButton>
-            ) : (
-              <ComposerActionButton
-                tone="accent"
-                ariaLabel={sendAction.label}
-                onClick={submitComposer}
-                disabled={sendAction.disabled}
-              >
-                <SendArrowGlyph className="icon-sm shrink-0" />
-              </ComposerActionButton>
-            )}
+            {/*
+             * Right-click menu (1793): Send plus the standard editing actions, so
+             * committing a turn is not limited to Enter and the button. Rendered
+             * only while open — it positions itself at the click point.
+             */}
+            {composerMenu ? (
+              <ComposerContextMenu
+                menu={composerMenu}
+                send={sendAction}
+                editable={!composerInputDisabled}
+                onSend={submitComposer}
+                onCut={() => {
+                  const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                  void writeClipboardText(selected).then((written) => {
+                    if (written) replaceComposerSelection(composerMenu, '')
+                    else setActionError('Could not cut to the clipboard.')
+                  })
+                }}
+                onCopy={() => {
+                  const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                  void writeClipboardText(selected).then((written) => {
+                    if (!written) setActionError('Could not copy to the clipboard.')
+                  })
+                }}
+                onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
+                onClose={() => setComposerMenu(null)}
+              />
+            ) : null}
           </div>
-          {/*
-           * Right-click menu (1793): Send plus the standard editing actions, so
-           * committing a turn is not limited to Enter and the button. Rendered
-           * only while open — it positions itself at the click point.
-           */}
-          {composerMenu ? (
-            <ComposerContextMenu
-              menu={composerMenu}
-              send={sendAction}
-              editable={!composerInputDisabled}
-              onSend={submitComposer}
-              onCut={() => {
-                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                void writeClipboardText(selected).then((written) => {
-                  if (written) replaceComposerSelection(composerMenu, '')
-                  else setActionError('Could not cut to the clipboard.')
-                })
-              }}
-              onCopy={() => {
-                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                void writeClipboardText(selected).then((written) => {
-                  if (!written) setActionError('Could not copy to the clipboard.')
-                })
-              }}
-              onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
-              onClose={() => setComposerMenu(null)}
-            />
-          ) : null}
         </div>
-      </div>
-    </ChatShell>
+      </ChatShell>
+    </ConversationLinkProvider>
   )
 }
 
