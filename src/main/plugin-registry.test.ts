@@ -803,6 +803,10 @@ test('plugin-registry', async () => {
     const report = await registry.load()
     assert.deepEqual(report.rejected, [])
     assert.equal(registry.get('openai-compatible'), undefined)
+    assert.equal(
+      registry.listConversationProviders().find((provider) => provider.id === 'claude-agent')?.credentialSource,
+      'native',
+    )
     assert.ok(registry.getConversationProvider('openai-compatible'))
     assert.ok(
       !registry.list().some((entry) => entry.id === 'openai-compatible'),
@@ -819,6 +823,7 @@ test('plugin-registry', async () => {
           providerType: 'model-provider',
           models: [{ id: 'gpt-5', displayName: 'GPT-5' }, { id: 'gpt-5-mini' }],
           supportsDynamicModels: false,
+          credentialSource: 'api-key',
           adapter: {
             kind: 'declarative',
             execution: 'declarative',

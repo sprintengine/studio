@@ -1669,6 +1669,7 @@ test('AgentChatView', async () => {
       providerType: 'model-provider',
       models: [],
       supportsDynamicModels: false,
+      credentialSource: 'api-key',
       adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       ...overrides,
     }
@@ -1678,6 +1679,7 @@ test('AgentChatView', async () => {
     id: 'claude-agent',
     displayName: 'Claude Code',
     providerType: 'agent-harness',
+    credentialSource: 'native',
     models: [{ id: 'opus', displayName: 'Opus' }],
   })
   const OPENROUTER = providerEntry({
@@ -1688,17 +1690,21 @@ test('AgentChatView', async () => {
   })
   const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels: true, models: [] })
 
-  // The subscription provider sorts first so the user's own plan is never buried
-  // under metered lookalikes, and it is annotated as the subscription.
+  // Native credentials sort first so the user's existing CLI configuration is
+  // never silently displaced by app-managed API keys.
   {
     const groups = buildModelGroups([OPENROUTER, HARNESS, XAI], {}, {})
     assert.deepEqual(
       groups.map((group) => group.providerId),
       ['claude-agent', 'openrouter', 'xai'],
-      'the agent-harness (subscription) group sorts ahead of metered providers',
+      'the native-credentials group sorts ahead of app-managed API providers',
     )
-    assert.equal(groups[0]?.subscription, true)
-    assert.equal(groups[1]?.subscription, undefined, 'a metered provider is not annotated as a subscription')
+    assert.equal(groups[0]?.credentialSource, 'native')
+    assert.equal(
+      groups[1]?.credentialSource,
+      'api-key',
+      'app-managed API credentials remain distinct from native login',
+    )
   }
 
   // The headline 1772 case: a key-configured provider that is NOT the active one.
@@ -1737,6 +1743,17 @@ test('AgentChatView', async () => {
   }
 
   // A static provider's seed IS its full catalog — key state must never blank it.
+  {
+    const native = providerEntry({
+      id: 'native',
+      credentialSource: 'native',
+      supportsDynamicModels: true,
+      models: [{ id: 'native-model' }],
+    })
+    const local = providerEntry({ id: 'local', credentialSource: 'none', supportsDynamicModels: true })
+    assert.deepEqual(buildModelGroups([native], {}, { native: false })[0].models, native.models)
+    assert.equal(buildModelGroups([local], {}, { local: false })[0].emptyState, 'no-models')
+  }
   {
     const staticProvider = providerEntry({ id: 'static', models: [{ id: 'only-model' }] })
     const groups = buildModelGroups([staticProvider], {}, { static: false })

@@ -23,6 +23,7 @@ test('conversation', async () => {
           providerType: 'model-provider',
           models: [{ id: 'gpt-5' }],
           supportsDynamicModels: false,
+          credentialSource: 'api-key',
           adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
         },
       ],

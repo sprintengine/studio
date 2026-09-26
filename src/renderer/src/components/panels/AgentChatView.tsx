@@ -2017,35 +2017,39 @@ function formatTokens(value: number): string {
 }
 
 // Picker groups: one per provider, merging each provider's own live catalog
-// (fetched when the user browses to it) over its manifest seed. Subscription
-// providers ('agent-harness') sort first and carry the subscription annotation
-// so metered API entries are never mistaken for the user's own plan. A
+// (fetched when the user browses to it) over its manifest seed. Native-login
+// providers sort first and identify their CLI-owned credentials, so app-managed
+// API keys are never mistaken for the user's existing native configuration. A
 // dynamic-catalog provider is never dropped for an empty seed: when its key is
 // missing it shows an explicit add-key state, and when the key is present but
-// the catalog is empty it says so — never a silent stale seed (1772/D5).
+// the catalog is empty it says so — never a silent stale seed.
 export function buildModelGroups(
   providers: ConversationProviderListEntry[],
   catalogByProvider: Record<string, ConversationProviderModel[]>,
   keyByProvider: Record<string, boolean>,
 ): ModelGroup[] {
   return [...providers]
-    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
+    .sort((a, b) => Number(b.credentialSource === 'native') - Number(a.credentialSource === 'native'))
     .map((entry): ModelGroup => {
-      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
+      const base = {
+        providerId: entry.id,
+        providerLabel: entry.displayName,
+        unavailable: entry.unavailable,
+        credentialSource: entry.credentialSource,
+      }
       const liveCatalog = catalogByProvider[entry.id]
       const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
-      // Subscription (agent-harness) providers need no key: live catalog if it
+      // Native providers need no app-managed key: live catalog if it
       // loaded, else the seed. Static model-providers list their full seed as-is
       // — it is the complete catalog, not a truncated one.
-      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
+      if (entry.credentialSource === 'native' || !entry.supportsDynamicModels) {
         return {
           ...base,
-          subscription: entry.providerType === 'agent-harness',
           models: hasLive ? liveCatalog : entry.models,
         }
       }
       // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
-      const hasKey = keyByProvider[entry.id]
+      const hasKey = entry.credentialSource === 'none' ? true : keyByProvider[entry.id]
       if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
       if (hasLive) return { ...base, models: liveCatalog }
       // Key present but catalog empty/unreachable: say so rather than seed.

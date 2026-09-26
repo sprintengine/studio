@@ -286,6 +286,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
         providerType: p.manifest.providerType,
         models: p.manifest.models,
         supportsDynamicModels: Boolean(p.manifest.openaiCompatible?.modelsPath),
+        credentialSource: p.manifest.providerType === 'agent-harness' ? 'native' : p.manifest.auth ? 'api-key' : 'none',
         adapter: p.adapter,
       }))
     },

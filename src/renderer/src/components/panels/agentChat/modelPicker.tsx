@@ -32,9 +32,9 @@ import { useState, useEffect, useCallback } from 'react'
 export type ModelGroup = {
   providerId: string
   providerLabel: string
-  // True for agent-harness providers — the user's own subscription, annotated
-  // in the menu so metered API providers are visibly different.
-  subscription?: boolean
+  // Native CLI credentials and app-managed API keys remain visibly distinct;
+  // neither native login nor a tool capability implies a subscription plan.
+  credentialSource?: 'native' | 'api-key' | 'none'
   // Plain-language reason the provider cannot start sessions; renders the
   // group disabled instead of hiding it.
   unavailable?: string
@@ -47,11 +47,11 @@ export type ModelGroup = {
 
 // What the picker actually lists, given the search box and the provider chip.
 // Search matches the provider as well as the model: "claude" must keep the
-// Claude Code (subscription) group visible even though its models are named
-// Sonnet/Opus/Haiku — otherwise the search silently hides the subscription and
-// leaves only metered lookalikes. Browsing (no query) keeps every provider group
+// Claude Code group visible even though its models are named Sonnet/Opus/Haiku
+// — otherwise the search silently hides native credentials and leaves only
+// app-managed API entries. Browsing (no query) keeps every provider group
 // so a key-configured provider never disappears for an empty catalog — its empty
-// state renders inline (1772/D5) — and respects the active chip; a query looks
+// state renders inline — and respects the active chip; a query looks
 // across every provider, because a filter must never hide a search hit.
 export function filterModelGroups(groups: ModelGroup[], query: string, activeFilter: string): ModelGroup[] {
   const normalized = query.trim().toLowerCase()
@@ -233,13 +233,14 @@ export function ModelPickerPill({
 }) {
   const [query, setQuery] = useState('')
   // Provider filter chips: pick one provider to browse, or All.
-  // `null` means "not chosen yet" — resolved to the subscription provider when
-  // one exists, so opening the picker never starts in a metered catalog.
+  // `null` means "not chosen yet" — resolved to the native-credential provider
+  // when one exists, so app-managed keys never silently displace native login.
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
-  // Default to the subscription provider only when it can actually be picked —
+  // Default to the native-credential provider only when it can actually be picked —
   // an unavailable harness must not leave the at-rest view all-disabled while
   // selectable providers hide behind the filter.
-  const defaultFilter = groups.find((group) => group.subscription && !group.unavailable)?.providerId ?? 'all'
+  const defaultFilter =
+    groups.find((group) => group.credentialSource === 'native' && !group.unavailable)?.providerId ?? 'all'
   const activeFilter = providerFilter ?? defaultFilter
   const normalized = query.trim().toLowerCase()
   const filtered = filterModelGroups(groups, query, activeFilter)
@@ -371,11 +372,14 @@ export function ModelPickerPill({
                       { value: 'all', label: 'All providers' },
                       ...groups.map((group) => ({
                         value: group.providerId,
-                        label: group.subscription ? `${group.providerLabel} (subscription)` : group.providerLabel,
+                        label:
+                          group.credentialSource === 'native'
+                            ? `${group.providerLabel} (CLI credentials)`
+                            : group.providerLabel,
                       })),
                     ],
                     value: activeFilter,
-                    // The subscription-first default view is the baseline, not
+                    // The native-credentials-first default view is the baseline, not
                     // an applied filter.
                     defaultValue: defaultFilter,
                     onChange: (value) => {
@@ -408,11 +412,13 @@ export function ModelPickerPill({
                   <span className="text-micro text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'
-                      : group.subscription
-                        ? 'your Claude subscription'
-                        : group.emptyState === 'add-key'
-                          ? 'needs an API key'
-                          : 'uses your API key'}
+                      : group.credentialSource === 'native'
+                        ? 'uses your CLI credentials'
+                        : group.credentialSource === 'none'
+                          ? 'no API key required'
+                          : group.emptyState === 'add-key'
+                            ? 'needs an API key'
+                            : 'uses your API key'}
                   </span>
                 </div>
                 {group.unavailable ? (

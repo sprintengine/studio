@@ -20,6 +20,7 @@ test('conversationSpawnOptions', async () => {
       providerType: 'model-provider',
       models: [],
       supportsDynamicModels: false,
+      credentialSource: 'api-key',
       adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       ...overrides,
     }
