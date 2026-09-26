@@ -46,6 +46,8 @@ test('rules are tool-specific and workspace-specific, never wildcard permissions
   expect(matchesApprovalRule(rule, { action: 'Bash', input: { command: 'git status' } }, '/workspace/app')).toBe(false)
   expect(matchesApprovalRule(rule, request, '/workspace/other')).toBe(false)
   expect(matchesApprovalRule(rule, { ...request, requestKind: 'plan' }, '/workspace/app')).toBe(false)
+  expect(matchesApprovalRule(rule, { ...request, defaultToNo: true }, '/workspace/app')).toBe(false)
+  expect(matchesApprovalRule(rule, { ...request, suppressAlwaysAllowRule: true }, '/workspace/app')).toBe(false)
   expect(approvalRuleCandidate({ action: 'Task', input: {} }, '/workspace/app')).toBeNull()
 })
 

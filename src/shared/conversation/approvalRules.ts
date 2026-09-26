@@ -8,6 +8,8 @@ export type ApprovalRuleRequest = {
   input?: unknown
   toolKind?: ConversationToolKind
   requestKind?: string
+  defaultToNo?: boolean
+  suppressAlwaysAllowRule?: boolean
 }
 export type ConversationApprovalRule = {
   id: string
@@ -86,6 +88,7 @@ export function approvalRuleCandidate(
   workspaceRoot: string,
 ): Omit<ConversationApprovalRule, 'id' | 'createdAt'> | null {
   if (request.requestKind && request.requestKind !== 'tool') return null
+  if (request.defaultToNo || request.suppressAlwaysAllowRule) return null
   const kind = request.toolKind ?? inferConversationToolKind(request.action)
   const input = approvalInput(request.input)
   const base = { workspaceRoot, toolKind: kind, toolName: request.action }

@@ -266,7 +266,13 @@ export function createConversationGatewayHost(
                 byteLength: bytes.length,
               })
             }
-            return api.send({ sessionId: session.sessionId, commandId, message: command.message, attachments })
+            return api.send({
+              sessionId: session.sessionId,
+              commandId,
+              message: command.message,
+              attachments,
+              requireSafePermissions: true,
+            })
           }
           case 'interrupt':
             return api.interrupt({ sessionId: session.sessionId, commandId })

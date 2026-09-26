@@ -372,7 +372,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       env,
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
-        handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal),
+        handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal, callbackOptions),
       hooks: {
         PreToolUse: [
           {
@@ -417,6 +417,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     toolName: string,
     toolInput: Record<string, unknown>,
     signal?: AbortSignal,
+    permissionContext?: { agentID?: string; defaultToNo?: boolean; suppressAlwaysAllowRule?: boolean },
   ): Promise<PermissionResult> {
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
@@ -439,6 +440,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       input: toolInput,
       toolKind: inferConversationToolKind(toolName),
       cwd: state.workspaceRoot,
+      ...(permissionContext?.agentID ? { originAgentId: permissionContext.agentID } : {}),
+      ...(permissionContext?.defaultToNo ? { defaultToNo: true } : {}),
+      ...(permissionContext?.suppressAlwaysAllowRule ? { suppressAlwaysAllowRule: true } : {}),
       summary: questions
         ? (questions[0]?.question ?? 'The agent has a question.')
         : plan !== null

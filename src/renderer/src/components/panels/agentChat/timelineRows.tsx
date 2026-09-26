@@ -122,21 +122,24 @@ export function UserTimelineRow({
             {conversationText(entry.text)}
           </p>
         ) : null}
-        <GhostButton
-          size="inline"
-          className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-          onClick={() => void copyToClipboardWithToast(entry.text)}
-        >
-          Copy
-        </GhostButton>
-        {chrome?.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq) ? (
-          <RevertTurnAction
-            turnSeq={entry.reverted ? (chrome.revertedAfterSeq ?? entry.seq) : entry.seq}
-            reverted={entry.reverted}
-            running={chrome.conversationRunning ?? false}
+        <div className="flex items-center justify-end gap-2">
+          <MessageTimestamp at={entry.createdAt} />
+          <GhostButton
+            size="inline"
             className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-          />
-        ) : null}
+            onClick={() => void copyToClipboardWithToast(entry.text)}
+          >
+            Copy
+          </GhostButton>
+          {chrome?.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq) ? (
+            <RevertTurnAction
+              turnSeq={entry.reverted ? (chrome.revertedAfterSeq ?? entry.seq) : entry.seq}
+              reverted={entry.reverted}
+              running={chrome.conversationRunning ?? false}
+              className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -191,21 +194,7 @@ export function AssistantTurnBlock({
             <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
           </span>
         ) : null}
-        {entry.startedAt ? (
-          // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
-          // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
-          // of AA. Muted clears 4.5:1 in every theme.
-          <Tooltip content={new Date(entry.startedAt).toISOString()}>
-            <span
-              tabIndex={0}
-              className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)] opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-            >
-              {new Date(entry.startedAt).toDateString() === new Date().toDateString()
-                ? formatClockTime(entry.startedAt)
-                : new Date(entry.startedAt).toLocaleString()}
-            </span>
-          </Tooltip>
-        ) : null}
+        <MessageTimestamp at={entry.startedAt} />
       </div>
       {fold ? (
         <GhostButton size="inline" tone="subtle" aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>
@@ -608,7 +597,14 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
             {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
           </div>
           {entry.status === 'approved' ? (
-            answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
+            answerLine(
+              entry.autoApproved
+                ? `Auto-approved: ${entry.ruleLabel ?? 'matching permission rule'}`
+                : entry.requestKind === 'plan'
+                  ? 'Plan approved'
+                  : 'Approved',
+              true,
+            )
           ) : entry.status === 'denied' ? (
             answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
           ) : (
@@ -669,6 +665,24 @@ export function formatElapsedMs(ms: number): string {
 
 export function formatClockTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function MessageTimestamp({ at }: { at?: number }) {
+  if (at === undefined || !Number.isFinite(at)) return null
+  const date = new Date(at)
+  if (!Number.isFinite(date.getTime())) return null
+  // Muted clears AA at this size in every theme. Opacity reserves the same
+  // slot before hover/focus, so revealing the timestamp cannot shift a row.
+  return (
+    <Tooltip content={date.toISOString()}>
+      <span
+        tabIndex={0}
+        className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)] opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+      >
+        {date.toDateString() === new Date().toDateString() ? formatClockTime(at) : date.toLocaleString()}
+      </span>
+    </Tooltip>
+  )
 }
 
 export function SparkleGlyph({ className }: { className?: string }) {

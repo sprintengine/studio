@@ -59,6 +59,7 @@ export type TranscriptEntry =
   | {
       kind: 'user'
       id: string
+      createdAt?: number
       seq?: number
       reverted?: boolean
       text: string
@@ -103,6 +104,13 @@ export type TranscriptEntry =
       // Tool name behind the request ("Bash", "Edit"…), so the permission card
       // can render the literal command instead of generic copy.
       action?: string
+      input?: ConversationJsonValue
+      cwd?: string
+      originAgentId?: string
+      defaultToNo?: boolean
+      suppressAlwaysAllowRule?: boolean
+      autoApproved?: boolean
+      ruleLabel?: string
       status: 'pending' | 'approved' | 'denied' | 'cancelled'
       // Structured request cards: 'question' renders options as buttons,
       // 'plan' renders the plan text with approve/reject. Absent/'tool' is a
@@ -118,6 +126,7 @@ export type TranscriptEntry =
 export type UserTurn = {
   id: string
   text: string
+  createdAt?: number
   attachments?: ConversationImageAttachment[]
   mentions?: ConversationMentionRef[]
   skills?: string[]
@@ -329,6 +338,7 @@ export function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEn
     kind: 'user',
     id: userTurn.id,
     text: userTurn.text,
+    ...(userTurn.createdAt !== undefined ? { createdAt: userTurn.createdAt } : {}),
     ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
     ...(userTurn.mentions?.length ? { mentions: userTurn.mentions } : {}),
     ...(userTurn.skills?.length ? { skills: userTurn.skills } : {}),
@@ -420,6 +430,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
             // local identity is persisted too, so remounts keep the same key.
             id: localTurnId ?? event.id,
             text: readString(event.payload, 'text') ?? '',
+            createdAt: event.createdAt,
             ...(event.seq !== undefined ? { seq: event.seq } : {}),
             ...(localTurnId ? { localTurnId } : {}),
             mentions: parseConversationMentions(event.payload?.mentions) ?? undefined,
@@ -526,6 +537,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turnId,
           summary: readString(event.payload, 'summary', 'action') ?? 'Approval requested.',
           action: readString(event.payload, 'action'),
+          input: readJson(event.payload, 'input'),
+          cwd: readString(event.payload, 'cwd'),
+          originAgentId: readString(event.payload, 'originAgentId'),
+          defaultToNo: readBoolean(event.payload, 'defaultToNo'),
+          suppressAlwaysAllowRule: readBoolean(event.payload, 'suppressAlwaysAllowRule'),
           status: 'pending',
           requestKind,
           questions: requestKind === 'question' ? readQuestions(event.payload) : undefined,
@@ -542,6 +558,8 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           const approved = event.payload?.approved === true
           approval.status = approved ? 'approved' : 'denied'
           approval.answers = readAnswers(event.payload)
+          approval.autoApproved = readBoolean(event.payload, 'autoApproved')
+          approval.ruleLabel = readString(event.payload, 'ruleLabel')
         }
         break
       }
@@ -628,6 +646,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           id: eventUserTurn.id,
           ...(eventUserTurn.seq !== undefined ? { seq: eventUserTurn.seq } : {}),
           text: eventUserTurn.text,
+          createdAt: eventUserTurn.createdAt,
           mentions: eventUserTurn.mentions,
           skills: eventUserTurn.skills,
           ...(attachments ? { attachments } : {}),

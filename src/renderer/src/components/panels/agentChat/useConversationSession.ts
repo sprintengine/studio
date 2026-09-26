@@ -9,12 +9,16 @@ type SessionState = {
   hydrated: boolean
   loadingEarlier: boolean
   error: string | null
+  replayThroughSeq: number
+  completionRevision: number
+  announcement: string
 }
 type Session = {
   key: ConversationKey
   state: SessionState
   disposed: boolean
   earlier: Promise<void> | null
+  seenSeq: Set<number>
 }
 const emptyState = (): SessionState => ({
   events: [],
@@ -23,19 +27,31 @@ const emptyState = (): SessionState => ({
   hydrated: false,
   loadingEarlier: false,
   error: null,
+  replayThroughSeq: 0,
+  completionRevision: 0,
+  announcement: '',
 })
 
 // Session transport guarantees sequenced events, including migrated logs. Keep
 // existing objects for duplicates so incremental projection can reuse its tail.
-function mergeEvents(current: ConversationEvent[], incoming: ConversationEvent[]): ConversationEvent[] {
-  const bySeq = new Map(current.map((event) => [event.seq, event]))
-  let changed = false
+export function mergeConversationEvents(
+  current: ConversationEvent[],
+  incoming: ConversationEvent[],
+  seenSeq: Set<number>,
+): ConversationEvent[] {
+  const added: ConversationEvent[] = []
   for (const event of incoming) {
-    if (event.seq === undefined || bySeq.has(event.seq)) continue
-    bySeq.set(event.seq, event)
-    changed = true
+    if (event.seq === undefined || seenSeq.has(event.seq)) continue
+    seenSeq.add(event.seq)
+    added.push(event)
   }
-  return changed ? [...bySeq.values()].sort((a, b) => a.seq! - b.seq!) : current
+  if (!added.length) return current
+  // Live tokens append in sequence order: no history map, comparisons or sort.
+  // Only older/reordered page joins need a sorted merge. Existing event objects
+  // survive either path, preserving incremental projection identities.
+  if (added.length === 1 && (current.length === 0 || added[0].seq! > current.at(-1)!.seq!))
+    return [...current, added[0]]
+  return [...current, ...added].sort((a, b) => a.seq! - b.seq!)
 }
 
 export function useConversationSession(workspaceRoot: string | null, workspaceId: string, agentId: string) {
@@ -49,6 +65,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
       state: emptyState(),
       disposed: false,
       earlier: null,
+      seenSeq: new Set(),
     }
     sessionRef.current = session
     const publish = () => {
@@ -58,16 +75,29 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
       if (session.disposed) return
       switch (frame.type) {
         case 'snapshot':
+          session.seenSeq.clear()
           session.state = {
             ...session.state,
             ...frame.page,
-            events: mergeEvents([], frame.page.events),
+            events: mergeConversationEvents([], frame.page.events, session.seenSeq),
+            completionRevision: frame.page.events.findLast((event) => event.type === 'turn_completed')?.seq ?? 0,
           }
           break
         case 'event':
-          session.state.events = mergeEvents(session.state.events, [frame.event])
+          if (frame.event.seq === undefined || session.seenSeq.has(frame.event.seq)) return
+          session.state.events = mergeConversationEvents(session.state.events, [frame.event], session.seenSeq)
+          if (frame.event.type === 'turn_completed') session.state.completionRevision = frame.event.seq
+          // Tokens stay silent; announce message lifecycle once, independently
+          // from the virtualized transcript's aria-live=off subtree.
+          if (session.state.hydrated) {
+            if (frame.event.type === 'turn_started') session.state.announcement = 'Assistant is replying.'
+            else if (frame.event.type === 'turn_completed') session.state.announcement = 'Assistant reply complete.'
+            else if (frame.event.type === 'turn_failed') session.state.announcement = 'Assistant reply stopped.'
+            else if (frame.event.type === 'user_message') session.state.announcement = 'Message sent.'
+          }
           break
         case 'synchronized':
+          if (!session.state.hydrated) session.state.replayThroughSeq = frame.seq
           session.state.hydrated = true
           session.state.error = null
           break
@@ -96,7 +126,11 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
     setState(session.state)
     const applyPage = (page: ConversationPage) => {
       if (session.disposed) return
-      session.state = { ...session.state, ...page, events: mergeEvents(session.state.events, page.events) }
+      session.state = {
+        ...session.state,
+        ...page,
+        events: mergeConversationEvents(session.state.events, page.events, session.seenSeq),
+      }
     }
     session.earlier = Promise.resolve()
       .then(async () => {

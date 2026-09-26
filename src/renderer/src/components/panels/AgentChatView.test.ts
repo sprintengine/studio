@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom'
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { detectComposerTrigger } from '../../../../shared/conversation/composerTrigger'
 
 import type {
   ConversationEvent,
@@ -25,7 +26,6 @@ import {
   attachmentRejection,
   base64ByteLength,
   buildModelGroups,
-  chatSkillTrigger,
   ComposerAttachmentStrip,
   ComposerContextMenu,
   composerSendAction,
@@ -1511,13 +1511,13 @@ test('AgentChatView', async () => {
   )
   assert.match(
     chatViewSource,
-    /const requestedPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
-    'the live session supplies the requested preset before provider capability gating',
+    /const permissionPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
+    'the live session supplies the exact requested preset',
   )
-  assert.match(
+  assert.doesNotMatch(
     chatViewSource,
-    /capabilities\.permissionPresets\.includes\(requestedPreset\)/,
-    'the pill and session start share a provider-supported preset',
+    /capabilities\.permissionPresets\[0\]/,
+    'unsupported manual approval cannot silently fall back to CLI-managed permissions',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
@@ -1616,41 +1616,38 @@ test('AgentChatView', async () => {
     'the menu commits through the same submit path as Enter and the button',
   )
 
-  // The skill type-ahead's two doors: `/` opening an otherwise-empty draft, and
-  // `$` at the start of a word anywhere in it.
+  // Skills and files use the same caret-aware trigger detector. A selected
+  // range is removed without disturbing the remainder of the draft.
   assert.deepEqual(
-    chatSkillTrigger('/'),
-    { kind: 'slash', query: '', token: '/' },
+    detectComposerTrigger('/', 1),
+    { kind: 'slash', query: '', range: { start: 0, end: 1 } },
     'a bare slash opens the list unfiltered',
   )
-  assert.deepEqual(chatSkillTrigger('/back'), { kind: 'slash', query: 'back', token: '/back' })
-  assert.equal(chatSkillTrigger('/backlog triage'), null, 'a space commits the slash text as literal')
-  assert.equal(chatSkillTrigger('run /backlog'), null, 'a slash mid-draft is not a trigger')
   assert.deepEqual(
-    chatSkillTrigger('$'),
-    { kind: 'mention', query: '', token: '$' },
+    detectComposerTrigger('$', 1),
+    { kind: 'skill', query: '', range: { start: 0, end: 1 } },
     'a bare dollar opens the list unfiltered',
   )
   assert.deepEqual(
-    chatSkillTrigger('please run $back'),
-    { kind: 'mention', query: 'back', token: '$back' },
-    'a dollar starting a word anywhere in the draft is a mention, and the token is what a pick replaces',
+    detectComposerTrigger('please run $back', 16),
+    { kind: 'skill', query: 'back', range: { start: 11, end: 16 } },
+    'a dollar starting a word attaches a skill',
   )
-  assert.equal(chatSkillTrigger('costs US$40'), null, 'a dollar inside a word is money, not a mention')
-  assert.equal(chatSkillTrigger('please run $backlog on it'), null, 'a space ends the mention token')
-  assert.equal(chatSkillTrigger('hello'), null)
-  assert.equal(chatSkillTrigger(''), null)
+  assert.equal(detectComposerTrigger('costs US$40', 11), null, 'a dollar inside a word is money, not a mention')
+  assert.equal(detectComposerTrigger('please run $backlog on it', 24), null, 'a space ends the mention token')
+  assert.equal(detectComposerTrigger('hello', 5), null)
+  assert.equal(detectComposerTrigger('', 0), null)
 
   // The type-ahead is mounted inside the composer box, whose top edge anchors it,
   // and the same handler answers the shell's light dismiss and the field's Escape.
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('{skillTrigger ? (')),
+    chatViewSource.slice(chatViewSource.indexOf('{contextPicker.picker}')),
     /^[\s\S]{0,900}?<ComposerAttachmentStrip/,
     'the skill type-ahead sits inside the composer box, ahead of the attachment strip',
   )
   assert.ok(
-    chatViewSource.includes('onDismiss={dismissSkillTrigger}'),
-    'a click outside the list dismisses the trigger',
+    chatViewSource.includes('contextPicker.handleKeyDown(event)'),
+    'the textarea forwards navigation and dismissal to the shared picker',
   )
 
   console.log('AgentChatView.test.ts: ok')

@@ -140,7 +140,7 @@ export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): 
   }
   for (const approval of approvals) {
     if (approval.status === 'pending') continue
-    if ((approval.requestKind ?? 'tool') !== 'tool') {
+    if ((approval.requestKind ?? 'tool') !== 'tool' || approval.autoApproved) {
       flush()
       rows.push({ kind: 'decision', id: `approval:${approval.requestId}`, entry: approval })
       continue

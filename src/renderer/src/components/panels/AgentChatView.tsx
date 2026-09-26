@@ -12,6 +12,7 @@
 // node-level coverage without rendering.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import {
   LegendList,
   type LegendListRef,
@@ -24,6 +25,7 @@ import type {
   ConversationImageAttachment,
   ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
+import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -44,30 +46,32 @@ import {
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   IconButton,
   InlineNotice,
-  InlineSkillPicker,
   OutlineButton,
-  SkillPickerPopover,
+  useWorkspaceSkills,
   Textarea,
   Tooltip,
   TruncatedText,
 } from '../ui'
-import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
 import {
-  applyEvent,
   createConversationProjectionState,
-  prependEvents,
+  syncConversationProjection,
 } from './agentChat/incrementalConversationProjection'
 import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
+import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
+import { ConversationCost } from './agentChat/conversationCost'
+import { useStickToBottom } from './agentChat/useStickToBottom'
+import { ConversationRowFrame } from './agentChat/conversationRowFrame'
+import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
+import { useComposerSkillReader } from './agentChat/composerSkillReader'
 import { ConversationHistoryTitle } from '../workspace/ConversationHistoryRows'
 import {
   ConversationModeControls,
@@ -230,31 +234,6 @@ export function isConversationBusy(activeTurn: boolean, awaitingApproval: boolea
   return activeTurn || awaitingApproval || pending !== null
 }
 
-/**
- * The skill type-ahead the draft is asking for, if any. Two doors into one list
- * (agent-harness chats only — plain model chats run no tools):
- *
- * - `slash` — a `/` opening an otherwise-empty draft, the CLI-native habit. Only
- *   until the first space: a space commits the text as literal.
- * - `mention` — a `$` at the start of a word anywhere in the draft, so a skill
- *   can be named mid-sentence.
- *   The token runs to the end of the draft; a space ends it.
- *
- * `token` is the exact text the pick replaces, `query` the part after the
- * trigger character that filters the list. Pure, so the contract is testable
- * without a DOM.
- */
-export type ChatSkillTrigger = { kind: 'slash' | 'mention'; query: string; token: string }
-
-export function chatSkillTrigger(draft: string): ChatSkillTrigger | null {
-  if (draft.startsWith('/') && !/\s/.test(draft)) {
-    return { kind: 'slash', query: draft.slice(1), token: draft }
-  }
-  const mention = /(?:^|\s)(\$(\S*))$/.exec(draft)
-  if (mention) return { kind: 'mention', query: mention[2], token: mention[1] }
-  return null
-}
-
 // The composer's one commit rule, shared by every affordance that can commit a
 // turn — Enter, the send button, and the right-click menu's Send item (1793) —
 // so the three can never disagree about whether a turn can be committed or
@@ -412,12 +391,16 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   const sessionId = session?.sessionId ?? null
   const providerEntry = providers.find((entry) => entry.id === conversation?.providerId)
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
-  const requestedPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
-  const permissionPreset =
-    capabilities?.permissionPresets && !capabilities.permissionPresets.includes(requestedPreset)
-      ? (capabilities.permissionPresets[0] ?? 'none')
-      : requestedPreset
-  const conversationMode: ConversationMode = agent?.conversationMode ?? 'default'
+  // A provider may refuse Manual; never silently turn that choice into a
+  // CLI-managed policy which could inherit broader local permissions.
+  const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
+  const supportsSkills = capabilities?.skills !== undefined && capabilities.skills !== 'none'
+  const conversationMode: ConversationMode =
+    agent?.conversationMode === 'ask'
+      ? 'ask'
+      : agent?.conversationMode === 'plan' && capabilities?.planMode
+        ? 'plan'
+        : 'default'
   const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
     ? agent?.conversationReasoningEffort
     : undefined
@@ -432,13 +415,17 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     loadingEarlier,
     loadEarlier: fetchEarlier,
     error: historyError,
+    replayThroughSeq,
+    completionRevision,
+    announcement,
   } = useConversationSession(workspaceRoot, workspaceId, agentId)
+  const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
   const {
     draft,
     setDraft,
-    draftMetadata,
+    draftMetadata: storedDraftMetadata,
     setDraftMetadata,
     flushDraft,
     persistenceError,
@@ -446,6 +433,15 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     finishDraftSend,
     clearDraft,
   } = useComposerDraft(workspaceId, agentId, agent?.chatComposerPrefill ?? '')
+  const draftMetadata = useMemo<ComposerDraftMetadata>(
+    () => ({
+      mentions: storedDraftMetadata.mentions,
+      skillIds: supportsSkills ? (agent?.conversationSkills ?? storedDraftMetadata.skillIds) : [],
+    }),
+    [storedDraftMetadata.mentions, storedDraftMetadata.skillIds, agent?.conversationSkills, supportsSkills],
+  )
+  const [composerCaret, setComposerCaret] = useState(draft.length)
+  const [pickedSkills, setPickedSkills] = useState<Record<string, WorkspaceSkill>>({})
   const [pending, setPending] = useState<PendingAction>(null)
   const sendInFlightRef = useRef(false)
   // Images staged for the next turn (D3/1774), in the order they were added.
@@ -472,14 +468,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // text instead of jumping to the end of it.
   const pendingCaretRef = useRef<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
-  // Skill type-ahead: Escape, a click elsewhere, or non-matching text sets
-  // dismissed so the trigger character stays literal; cleared once the draft no
-  // longer carries a trigger token (the `/` was removed, or a space ended the
-  // `$word`), so the next one opens the list again.
-  const [skillTriggerDismissed, setSkillTriggerDismissed] = useState(false)
-  const skillPickerRef = useRef<InlineSkillPickerHandle | null>(null)
-  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
+  const skillReader = useComposerSkillReader(workspaceRoot)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<LegendListRef | null>(null)
   const conversationKey = `${workspaceId}:${agentId}`
@@ -614,17 +603,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
 
   const projectionStateRef = useRef(createConversationProjectionState())
   const projection = useMemo(() => {
-    let state = projectionStateRef.current
-    const oldLength = state.history?.length ?? 0
-    if (state.userTurns !== userTurns) {
-      state = createConversationProjectionState(events, userTurns)
-    } else if (events.length > oldLength && events[oldLength - 1] === state.history?.event) {
-      for (let index = oldLength; index < events.length; index++) state = applyEvent(state, events[index])
-    } else if (events.length > oldLength && events.at(-1) === state.history?.event) {
-      state = prependEvents(state, events.slice(0, events.length - oldLength))
-    } else if (events.length !== oldLength || (oldLength > 0 && events.at(-1) !== state.history?.event)) {
-      state = createConversationProjectionState(events, userTurns)
-    }
+    const state = syncConversationProjection(projectionStateRef.current, events, userTurns)
     projectionStateRef.current = state
     return state.projection
   }, [events, userTurns])
@@ -644,16 +623,15 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // scrollback must never be yanked away by incoming tokens. A "jump to
   // latest" pill appears once they scroll up. Keyed on events.length so token
   // appends (which don't change the row count) also keep the view pinned.
-  const [atBottom, setAtBottom] = useState(scrollMemoryRef.current?.atEnd ?? true)
-  const atBottomRef = useRef(scrollMemoryRef.current?.atEnd ?? true)
+  const { atBottom, atBottomRef, setAtBottom, observeScroll } = useStickToBottom(scrollMemoryRef.current?.atEnd ?? true)
   const loadEarlier = useCallback((): Promise<void> => {
     // Let the list preserve its visible row when a page is prepended, even if
     // the currently loaded page is short enough to also count as at the end.
     atBottomRef.current = false
     setAtBottom(false)
     return fetchEarlier()
-  }, [fetchEarlier])
-  const { flashRowId, clearFlash } = useConversationSearchJump({
+  }, [fetchEarlier, atBottomRef, setAtBottom])
+  const { flashRowId, clearFlash, searching } = useConversationSearchJump({
     workspaceId,
     agentId,
     rows: timelineRows,
@@ -665,18 +643,42 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       atBottomRef.current = false
       setAtBottom(false)
     },
-    scrollToRow: (index, id) => {
-      setAnchoredUserId(id)
+    scrollToRow: (index) => {
+      // Tail padding is only needed for a newly sent prompt. Applying it to a
+      // historical row pins every following row for measurement in the list.
+      setAnchoredUserId(null)
       void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
     },
     reportError: setActionError,
   })
+  useConversationScrollRestore({
+    memory: scrollMemoryRef.current,
+    hydrated,
+    searching,
+    hasMore,
+    loadingEarlier,
+    rows: timelineRows,
+    loadEarlier,
+    restore: (index, offset) => {
+      const list = listRef.current
+      if (!list) return
+      void list.scrollToIndex({ index, animated: false, viewPosition: 0 }).then(() => {
+        if (listRef.current !== list) return
+        const position = list.getState().positionAtIndex(index)
+        if (position !== undefined) void list.scrollToOffset({ offset: position + offset, animated: false })
+      })
+    },
+  })
   const handleLogScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-      const nearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 48
-      atBottomRef.current = nearBottom
-      setAtBottom(nearBottom)
+      const element = listRef.current?.getScrollableNode()
+      observeScroll(
+        element?.scrollTop ?? contentOffset.y,
+        element?.scrollHeight ?? contentSize.height,
+        element?.clientHeight ?? layoutMeasurement.height,
+      )
+      const nearBottom = atBottomRef.current
       const state = listRef.current?.getState()
       const rowId = firstVisibleRowRef.current
       const position = rowId ? state?.positionByKey(rowId) : undefined
@@ -686,18 +688,48 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         atEnd: nearBottom,
       })
     },
-    [conversationKey],
+    [conversationKey, observeScroll, atBottomRef],
   )
   const jumpToLatest = useCallback(() => {
     void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
     atBottomRef.current = true
     setAtBottom(true)
-  }, [])
+  }, [atBottomRef, setAtBottom])
+  const preserveDisclosurePosition = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target instanceof Element ? event.target.closest('button[aria-expanded]') : null
+      const row = target?.closest<HTMLElement>('[data-conversation-row-kind]')
+      if (!row) return
+      const top = row.getBoundingClientRect().top
+      const wasFollowing = atBottomRef.current
+      // Disable native end-follow before the disclosure changes its height.
+      // Otherwise the resize can yank the control away from the pointer.
+      atBottomRef.current = false
+      flushSync(() => setAtBottom(false))
+      requestAnimationFrame(() => {
+        const scroller = listRef.current?.getScrollableNode()
+        if (!row.isConnected || !scroller) return
+        const shift = row.getBoundingClientRect().top - top
+        if (Math.abs(shift) > 0.5) scroller.scrollTop += shift
+        // The disclosure suspends follow for its resize frame, not forever.
+        // A user already reading scrollback remains there.
+        atBottomRef.current = wasFollowing
+        setAtBottom(wasFollowing)
+      })
+    },
+    [atBottomRef, setAtBottom],
+  )
+  const followedInitialSnapshot = useRef(false)
   useEffect(() => {
+    if (!hydrated) return
+    const animate = followedInitialSnapshot.current
+    followedInitialSnapshot.current = true
     if (atBottomRef.current) {
-      void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
+      void listRef.current?.scrollToEnd({
+        animated: animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      })
     }
-  }, [events.length, timelineRows.length, projection.activeTurn])
+  }, [events.length, timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
   useEffect(() => {
     const id = pendingUserScrollIdRef.current
     if (!id) return
@@ -707,7 +739,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     setAnchoredUserId(id)
     atBottomRef.current = false
     void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
-  }, [timelineRows])
+  }, [timelineRows, atBottomRef])
 
   // Surface turn failures (streamed via `turn_failed`) to the app Notifications
   // panel, deduped on the message so a single failure is logged once.
@@ -839,9 +871,10 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     async (
       message: string,
       turnAttachments: ConversationImageAttachment[] = [],
-      metadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
+      requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
       fromDraft = false,
     ) => {
+      const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
       if (
         (!text && turnAttachments.length === 0 && metadata.mentions.length === 0 && metadata.skillIds.length === 0) ||
@@ -860,7 +893,10 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         setPending(null)
         if (!fromDraft) {
           setDraft((current) => current || text)
-          setDraftMetadata(metadata)
+          setDraftMetadata((current) => ({
+            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+            mentions: [...metadata.mentions, ...current.mentions],
+          }))
         }
         // The turn never left, so hand the staged images back rather than make
         // the user re-attach them — unless they already staged new ones.
@@ -876,6 +912,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         {
           id: localTurnId,
           text,
+          createdAt: Date.now(),
           mentions: metadata.mentions,
           skills: metadata.skillIds,
           ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
@@ -907,14 +944,25 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
             setDraft((current) => current || text)
-            setDraftMetadata(metadata)
+            setDraftMetadata((current) => ({
+              skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+              mentions: [...metadata.mentions, ...current.mentions],
+            }))
           }
         }
       } catch (err) {
         finishDraftSend(draftSend, false)
+        setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
+        updateAgent(workspaceId, agentId, {
+          conversationMode: acceptedControlsRef.current.mode,
+          conversationReasoningEffort: acceptedControlsRef.current.effort,
+        })
         if (!fromDraft) {
           setDraft((current) => current || text)
-          setDraftMetadata(metadata)
+          setDraftMetadata((current) => ({
+            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+            mentions: [...metadata.mentions, ...current.mentions],
+          }))
         }
         if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
         setActionError(err instanceof Error ? err.message : 'Could not send the message.')
@@ -933,6 +981,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       updateAgent,
       conversationMode,
       reasoningEffort,
+      supportsSkills,
       beginDraftSend,
       finishDraftSend,
       setDraft,
@@ -1089,12 +1138,23 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // turn cannot finish until the card is answered).
   const [respondingRequestId, setRespondingRequestId] = useState<string | null>(null)
   const resolveApproval = useCallback(
-    async (requestId: string, approved: boolean, answers?: Record<string, string>) => {
+    async (
+      requestId: string,
+      approved: boolean,
+      answers?: Record<string, string>,
+      decision?: ConversationApprovalDecision,
+    ) => {
       if (!sessionId || respondingRequestId) return
       setActionError(null)
       setRespondingRequestId(requestId)
       try {
-        const result = await window.api.conversationSessionRespondToRequest({ sessionId, requestId, approved, answers })
+        const result = await window.api.conversationSessionRespondToRequest({
+          sessionId,
+          requestId,
+          approved,
+          answers,
+          decision,
+        })
         if (!result.ok) setActionError(result.message)
         else if (
           approved &&
@@ -1247,6 +1307,8 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     const renaming = Boolean(nextLabel && (baseName === currentModelLabel || agent?.name === conversation.modelId))
     updateAgent(workspaceId, agentId, {
       conversation: { providerId, modelId },
+      conversationMode: 'default',
+      conversationReasoningEffort: undefined,
       ...(renaming && nextLabel && workspace
         ? {
             name: uniqueAgentName(
@@ -1262,7 +1324,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // Capabilities are available from the provider catalog before the first turn,
   // then the live session reports the declaration it actually started with.
   const supportsTools = capabilities?.tools === true
-  const supportsSkills = capabilities?.skills !== undefined && capabilities.skills !== 'none'
   const assistantName = supportsTools
     ? (session?.displayName ?? providerEntry?.displayName ?? currentModelLabel)
     : currentModelLabel
@@ -1271,31 +1332,57 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // that stages images no one will receive is worse than no control.
   const imagesEnabled = ready && capabilities?.images === true
 
-  // Skills doors (agent harness only — plain model chats run no tools): a '/'
-  // opening an otherwise-empty draft, or a '$' starting a word anywhere in it,
-  // filters the same inventory the Skills chip shows. See `chatSkillTrigger`.
-  const skillTrigger = supportsSkills && !skillTriggerDismissed ? chatSkillTrigger(draft) : null
-  const dismissSkillTrigger = useCallback(() => setSkillTriggerDismissed(true), [])
-  const applySkillPick = (skill: WorkspaceSkill) => {
-    if (skillTrigger?.kind === 'mention') {
-      // The `$word` is the tail of the draft by construction; swap it for the
-      // mention and leave the caret after a space, ready for the next word.
-      const head = draft.slice(0, draft.length - skillTrigger.token.length)
-      setDraft(`${head}${renderChatSkillMention(skill)} `)
-    } else {
-      setDraft(renderChatSkillPrefill(skill))
-    }
-    setSkillTriggerDismissed(true)
-    composerRef.current?.focus()
+  const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
+  const attachedSkills = draftMetadata.skillIds.map(
+    (id): WorkspaceSkill =>
+      pickedSkills[id] ??
+      skillInventory.skills.find((skill) => skill.id === id) ?? {
+        id,
+        name: id,
+        source: 'custom',
+        harnesses: [],
+        installState: 'installed',
+      },
+  )
+  const setAttachedSkills = (skills: WorkspaceSkill[]) => {
+    const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
+    setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
+    updateAgent(workspaceId, agentId, { conversationSkills: ids })
+    setDraftMetadata((current) => ({ ...current, skillIds: ids }))
   }
+  const removeContextTrigger = (range: { start: number; end: number }) => {
+    setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
+    pendingCaretRef.current = range.start
+    setComposerCaret(range.start)
+    detachRecall()
+  }
+  const contextPicker = useComposerContextPicker({
+    workspaceRoot,
+    draft,
+    caret: composerCaret,
+    skillsEnabled: supportsSkills,
+    onPickSkill: (skill, range) => {
+      setAttachedSkills([...attachedSkills, skill])
+      removeContextTrigger(range)
+    },
+    onPickMention: (mention, range) => {
+      setDraftMetadata((current) => ({
+        ...current,
+        mentions: [
+          ...current.mentions.filter((entry) => entry.path !== mention.path || entry.kind !== mention.kind),
+          mention,
+        ].slice(-50),
+      }))
+      removeContextTrigger(range)
+    },
+  })
   modelLabelsRef.current = { current: currentModelLabel, groups: modelGroups }
 
-  const pendingApprovalEntry = [...projection.entries]
-    .reverse()
-    .find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
-        entry.kind === 'approval' && entry.status === 'pending',
-    )
+  const pendingApprovalEntries = projection.entries.filter(
+    (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
+      entry.kind === 'approval' && entry.status === 'pending',
+  )
+  const pendingApprovalEntry = pendingApprovalEntries[0]
   const composerPlaceholder = pendingApprovalEntry
     ? pendingApprovalEntry.requestKind === 'question'
       ? 'Answer the question above to continue'
@@ -1366,7 +1453,11 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   ).length
   if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
   const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
-  const anchorUserIndex = anchoredUserId ? timelineRows.findIndex((row) => row.id === anchoredUserId) : -1
+  // Install trailing space in the same render as the optimistic prompt, before
+  // the scroll effect runs. Otherwise a send from scrollback is clamped to the
+  // old scroll range and leaves the new prompt at the bottom.
+  const effectiveAnchorId = pendingUserScrollIdRef.current ?? anchoredUserId
+  const anchorUserIndex = effectiveAnchorId ? timelineRows.findIndex((row) => row.id === effectiveAnchorId) : -1
   const rememberedRowIndex = scrollMemoryRef.current?.rowId
     ? timelineRows.findIndex((row) => row.id === scrollMemoryRef.current?.rowId)
     : -1
@@ -1424,8 +1515,9 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         <div
           role="log"
           aria-label={`${label} conversation`}
-          aria-live="polite"
+          aria-live="off"
           aria-busy={!hydrated || loadingEarlier}
+          onClickCapture={preserveDisclosurePosition}
           className="min-h-0 flex-1"
         >
           {timelineRows.length === 0 ? (
@@ -1457,15 +1549,28 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
               data={timelineRows}
               dataKey={conversationKey}
               renderItem={({ item }) => (
-                <div className={flashRowId === item.id ? 'attention-row-pulse' : undefined} onAnimationEnd={clearFlash}>
+                <ConversationRowFrame
+                  key={item.id}
+                  id={item.id}
+                  live={
+                    hydrated &&
+                    (item.kind === 'user'
+                      ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
+                      : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
+                  }
+                  seen={animatedRowIds.current}
+                  flash={flashRowId === item.id}
+                  onFlashEnd={clearFlash}
+                >
                   <TimelineRow key={item.id} row={item} chrome={chrome} />
-                </div>
+                </ConversationRowFrame>
               )}
               keyExtractor={(row) => row.id}
               getItemType={(row) => row.kind}
               recycleItems
               estimatedItemSize={120}
               className="h-full overflow-y-auto px-4 py-4"
+              tabIndex={0}
               contentContainerClassName="space-y-1"
               ListHeaderComponent={
                 hasMore ? (
@@ -1495,16 +1600,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                 atBottom ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches } : false
               }
               anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
-              onReady={() => {
-                const memory = scrollMemoryRef.current
-                if (!memory || memory.atEnd) return
-                const position = memory.rowId ? listRef.current?.getState().positionByKey(memory.rowId) : undefined
-                void listRef.current?.scrollToOffset({ offset: (position ?? 0) + memory.offset, animated: false })
-              }}
             />
           )}
         </div>
 
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {announcement}
+        </div>
         <div className="relative px-4 pb-4 pt-1">
           {!atBottom && timelineRows.length > 0 ? (
             <OutlineButton
@@ -1516,7 +1618,8 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             </OutlineButton>
           ) : null}
           <ConversationPendingDock
-            pendingApproval={pendingApprovalEntry}
+            pendingApprovals={pendingApprovalEntries}
+            workspaceRoot={workspaceRoot ?? undefined}
             workspaceName={workspace?.name}
             onApprove={resolveApproval}
             busy={respondingRequestId !== null}
@@ -1642,20 +1745,20 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                 Drop to attach
               </div>
             ) : null}
-            {skillTrigger ? (
-              <InlineSkillPicker
-                ref={skillPickerRef}
-                workspaceRoot={workspaceRoot}
-                query={skillTrigger.query}
-                onPick={applySkillPick}
-                onMatchCountChange={(count) => {
-                  // Non-matching text dismisses; the trigger character stays literal.
-                  if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
-                }}
-                onDismiss={dismissSkillTrigger}
-              />
-            ) : null}
+            {contextPicker.picker}
             <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
+            <ComposerContextChips
+              skills={supportsSkills ? attachedSkills : []}
+              mentions={draftMetadata.mentions}
+              onRemoveSkill={(id) => setAttachedSkills(attachedSkills.filter((skill) => skill.id !== id))}
+              onRemoveMention={(mention) =>
+                setDraftMetadata((current) => ({
+                  ...current,
+                  mentions: current.mentions.filter((entry) => entry !== mention),
+                }))
+              }
+              onOpenSkill={skillReader.openSkill}
+            />
             <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
               Message {label}
             </label>
@@ -1679,31 +1782,30 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                 detachRecall()
                 const value = event.target.value
                 setDraft(value)
-                if (!chatSkillTrigger(value)) setSkillTriggerDismissed(false)
+                setComposerCaret(event.target.selectionStart)
               }}
+              onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
               onContextMenu={(event) => void openComposerMenu(event)}
               onKeyDown={(event) => {
-                // While the skill picker is up, the textarea keeps focus and
-                // forwards navigation; Enter picks instead of sending.
-                if (skillTrigger) {
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    if (skillPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
-                      event.preventDefault()
-                      return
-                    }
-                  } else if (event.key === 'Enter' && !event.shiftKey) {
-                    if (skillPickerRef.current?.pickActive()) {
-                      event.preventDefault()
-                      return
-                    }
-                  } else if (event.key === 'Escape') {
+                if (event.nativeEvent.isComposing) return
+                if (contextPicker.handleKeyDown(event)) return
+                if (
+                  event.key === 'Backspace' &&
+                  event.currentTarget.selectionStart === 0 &&
+                  event.currentTarget.selectionEnd === 0
+                ) {
+                  if (draftMetadata.mentions.length) {
                     event.preventDefault()
-                    setSkillTriggerDismissed(true)
+                    setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                    return
+                  }
+                  if (supportsSkills && attachedSkills.length) {
+                    event.preventDefault()
+                    setAttachedSkills(attachedSkills.slice(0, -1))
                     return
                   }
                 }
                 if (handleRecallKeyDown(event)) return
-                if (event.nativeEvent.isComposing) return
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
                   submitComposer()
@@ -1714,6 +1816,17 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
               disabled={composerInputDisabled}
               className={COMPOSER_CLASS}
             />
+            <div className="flex items-center justify-end gap-2 px-3 pb-1">
+              {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
+              <ConversationCost
+                completionRevision={completionRevision}
+                workspaceRoot={workspaceRoot}
+                workspaceId={workspaceId}
+                agentId={agentId}
+                enabled={capabilities?.cost === true}
+                hydrated={hydrated}
+              />
+            </div>
             <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
               <div className="flex min-w-0 items-center gap-1">
                 {imagesEnabled ? (
@@ -1739,12 +1852,10 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                   </>
                 ) : null}
                 {supportsSkills ? (
-                  <SkillPickerPopover
-                    open={skillsMenuOpen}
-                    onOpenChange={setSkillsMenuOpen}
+                  <ComposerSkillsPicker
                     workspaceRoot={workspaceRoot}
-                    onPick={applySkillPick}
-                    onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
+                    skills={attachedSkills}
+                    onSkillsChange={setAttachedSkills}
                   />
                 ) : null}
                 <ModelPickerPill
@@ -1763,8 +1874,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                     openSettingsOverlay({ initialTab: 'providers' })
                   }}
                 />
-                {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
-                {capabilities?.approvals ? (
+                {capabilities?.approvals || capabilities?.permissionPresets?.length ? (
                   <PermissionPresetPill
                     cli={conversation.providerId}
                     preset={permissionPreset}
@@ -1844,6 +1954,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           </div>
         </div>
       </ChatShell>
+      {skillReader.reader}
     </ConversationLinkProvider>
   )
 }

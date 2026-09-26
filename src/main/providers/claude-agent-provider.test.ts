@@ -634,7 +634,13 @@ test('claude-agent-provider', async () => {
         options: { signal?: AbortSignal },
       ) => Promise<Record<string, unknown>>
       const text = (userMessage.message as { content: string }).content
-      const decision = await canUseTool('Bash', { command: `run ${text}` }, {})
+      const permissionContext = {
+        signal: undefined,
+        agentID: 'research-agent',
+        defaultToNo: true,
+        suppressAlwaysAllowRule: true,
+      }
+      const decision = await canUseTool('Bash', { command: `run ${text}` }, permissionContext)
       decisions.push(decision)
       context.emit({
         type: 'result',
@@ -655,6 +661,9 @@ test('claude-agent-provider', async () => {
           assert.equal(event.payload?.requestId, 'approval_1')
           assert.equal(event.payload?.action, 'Bash')
           assert.equal(event.payload?.summary, 'Bash: run first')
+          assert.equal(event.payload?.originAgentId, 'research-agent')
+          assert.equal(event.payload?.defaultToNo, true)
+          assert.equal(event.payload?.suppressAlwaysAllowRule, true)
           void collect(
             adapter.resolveApproval({
               ...SESSION_INPUT,

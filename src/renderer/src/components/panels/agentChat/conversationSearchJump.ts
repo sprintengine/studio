@@ -69,5 +69,5 @@ export function useConversationSearchJump(input: {
     input.loadEarlier,
     input.reportError,
   ])
-  return { flashRowId, clearFlash: () => setFlashRowId(null) }
+  return { flashRowId, clearFlash: () => setFlashRowId(null), searching: pending !== null }
 }

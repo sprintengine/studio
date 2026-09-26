@@ -1,11 +1,31 @@
 import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
+import { mergeConversationEvents } from './useConversationSession'
 import type {
   ConversationEvent,
   ConversationPageResult,
   ConversationSessionFrame,
   ConversationSubscribeInput,
 } from '../../../../../shared/conversation-runtime'
+
+test('live appends use the sequence index without rescanning or sorting hydrated history', () => {
+  const seen = new Set<number>()
+  const event = (seq: number) => ({ seq, id: `event-${seq}` }) as ConversationEvent
+  const history = Array.from({ length: 20_000 }, (_, index) => event(index + 1))
+  let current = mergeConversationEvents([], history, seen)
+  const original = current[0]
+  const sort = vi.spyOn(Array.prototype, 'sort')
+  try {
+    for (let seq = 20_001; seq <= 20_100; seq++) current = mergeConversationEvents(current, [event(seq)], seen)
+    expect(sort).not.toHaveBeenCalled()
+    expect(current[0]).toBe(original)
+    expect(current).toHaveLength(20_100)
+    expect(mergeConversationEvents(current, [event(20_050)], seen)).toBe(current)
+    expect(mergeConversationEvents(current, [event(0)], seen)[0].seq).toBe(0)
+  } finally {
+    sort.mockRestore()
+  }
+})
 
 test('scoped catch-up hydrates at the fence and pages without losing live events or hiding errors', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
@@ -81,6 +101,7 @@ test('scoped catch-up hydrates at the fence and pages without losing live events
       receive({ type: 'event', event: event(13) })
     })
     expect(hook.hydrated).toBe(false)
+    expect(hook.announcement).toBe('')
     expect(hook.events).toEqual([])
     await act(async () => receive({ type: 'synchronized', seq: 13 }))
     expect(hook.hydrated).toBe(true)
