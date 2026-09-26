@@ -344,6 +344,6 @@ export type ConversationLoadEarlierInput = { key: ConversationKey; beforeCursor:
 export type ConversationPageResult = { ok: true; page: ConversationPage } | { ok: false; message: string }
 export type ConversationSessionFrame =
   | { type: 'event'; event: ConversationEvent }
-  | { type: 'snapshot'; page: ConversationPage }
+  | { type: 'snapshot'; page: ConversationPage; reset?: true }
   | { type: 'synchronized'; seq: number }
   | { type: 'error'; message: string }

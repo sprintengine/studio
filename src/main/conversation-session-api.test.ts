@@ -395,31 +395,62 @@ test('first subscription pages even a small transcript while reconnects keep exa
   }
 })
 
-test('reconnecting after a sequence returns exactly the missed events and no unrelated agent', async () => {
+test('reconnecting replaces cached history authoritatively and excludes unrelated agents', async () => {
   const f = await fixture()
   try {
     const api = new ConversationSessionApi(f.runtime)
     const frames: ConversationSessionFrame[] = []
     const joined = api.subscribe({ key: f.key, afterSeq: 0 }, (frame) => frames.push(frame))
     await joined.ready
-    const afterSeq = frames.filter((frame) => frame.type === 'event').at(-1)
-    assert.ok(afterSeq?.type === 'event')
+    const initial = frames.find((frame) => frame.type === 'snapshot')
+    assert.ok(initial?.type === 'snapshot')
+    const afterSeq = initial.page.events.at(-1)!.seq!
     joined.dispose()
     joined.dispose()
     await f.runtime.sendTurn({ sessionId: f.sessionId, message: '/tools' })
     const rejoined: ConversationSessionFrame[] = []
-    const replay = api.subscribe({ key: f.key, afterSeq: afterSeq.event.seq }, (frame) => rejoined.push(frame))
+    const replay = api.subscribe({ key: f.key, afterSeq }, (frame) => rejoined.push(frame))
     await replay.ready
     const full = await f.runtime.readTranscript(f.key)
     assert.ok(full.ok)
-    assert.deepEqual(
-      rejoined.filter((frame) => frame.type === 'event').map((frame) => frame.event),
-      full.events.filter((e) => e.seq! > afterSeq.event.seq!),
-    )
+    const snapshot = rejoined.find((frame) => frame.type === 'snapshot')
+    assert.ok(snapshot?.type === 'snapshot' && snapshot.reset)
+    assert.deepEqual(snapshot.page.events, full.events)
     const count = rejoined.length
     await f.runtime.startSession({ ...f.key, agentId: 'other', providerId: 'mock-provider', modelId: 'mock-model' })
     assert.equal(rejoined.length, count)
     replay.dispose()
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('crash-era cursors ahead of, equal to, and behind a reused sequence receive reset snapshots before live events', async () => {
+  const f = await fixture()
+  try {
+    const api = new ConversationSessionApi(f.runtime)
+    const initial = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
+    assert.ok(initial.ok)
+    const initialTail = initial.events.at(-1)!.seq!
+    // A crashed client can be ahead of disk, collide with a recovery event, or
+    // fall behind a different client's continuation. None proves prefix identity.
+    for (const cursor of [initialTail + 1000, initialTail, 1]) {
+      const before = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
+      assert.ok(before.ok)
+      const frames: ConversationSessionFrame[] = []
+      const joined = api.subscribe({ key: f.key, afterSeq: cursor }, (frame) => frames.push(frame))
+      await joined.ready
+      const snapshot = frames[0]
+      assert.ok(snapshot.type === 'snapshot' && snapshot.reset)
+      assert.deepEqual(snapshot.page.events, before.events)
+      assert.deepEqual(frames[1], { type: 'synchronized', seq: before.events.at(-1)!.seq })
+      await f.runtime.sendTurn({ sessionId: f.sessionId, message: '/tools' })
+      const live = frames.filter((frame) => frame.type === 'event')
+      assert.ok(live.length > 0)
+      assert.equal(live[0].event.seq, before.events.at(-1)!.seq! + 1)
+      assert.ok(live.some((frame) => frame.event.type === 'turn_completed'))
+      joined.dispose()
+    }
   } finally {
     await f.cleanup()
   }
@@ -519,7 +550,11 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
   await subscription.ready
   for (const listener of listeners) listener({ ...second, seq: 3 })
   assert.deepEqual(
-    frames.map((frame) => (frame.type === 'event' ? frame.event.seq : frame.type)),
+    frames.flatMap((frame) =>
+      frame.type === 'snapshot'
+        ? frame.page.events.map((event) => event.seq)
+        : [frame.type === 'event' ? frame.event.seq : frame.type],
+    ),
     [1, 2, 'synchronized', 3],
   )
   subscription.dispose()

@@ -75,17 +75,16 @@ export class ConversationSessionApi {
         dispose()
         return
       }
-      const after = transcript.events.filter((event) => (event.seq ?? 0) > seen)
-      if (
-        input.afterSeq !== undefined &&
-        after.length <= 1000 &&
-        Buffer.byteLength(JSON.stringify(after)) <= 8 * 1024 * 1024
-      ) {
-        for (const event of after) deliver({ type: 'event', event })
-      } else {
-        deliver({ type: 'snapshot', page: pageTurns(transcript.events, input.turnLimit) })
-      }
-      seen = Math.max(seen, transcript.events.at(-1)?.seq ?? 0)
+      // Buffered deltas may have reached a client but not disk at a crash.
+      // Recovery can reuse those sequence numbers, even below today's tail
+      // after another client continues. A sequence alone cannot prove that a
+      // cached prefix belongs to this log: replace it at every reconnect.
+      deliver({
+        type: 'snapshot',
+        page: pageTurns(transcript.events, input.turnLimit),
+        ...(input.afterSeq !== undefined ? { reset: true as const } : {}),
+      })
+      seen = transcript.events.at(-1)?.seq ?? 0
       deliver({ type: 'synchronized', seq: seen })
       joining = false
       for (const event of queued.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) live(event)

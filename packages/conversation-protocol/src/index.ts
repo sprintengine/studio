@@ -59,7 +59,7 @@ export type ConversationServerFrame =
   | { type: 'sessions'; requestId: string; sessions: ConversationWireThread[] }
   | { type: 'event'; event: unknown }
   | { type: 'chunk'; frameId: string; index: number; total: number; json: string }
-  | { type: 'snapshot'; page: unknown }
+  | { type: 'snapshot'; page: unknown; reset?: true }
   | { type: 'synchronized'; seq: number }
   | {
       type: 'result'
