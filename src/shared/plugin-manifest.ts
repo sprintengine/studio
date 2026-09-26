@@ -672,6 +672,7 @@ export type PluginRegistryListEntry = {
 }
 
 export type ConversationProviderListEntry = {
+  capabilities?: import('./conversation-runtime').ConversationCapabilities
   id: string
   displayName: string
   source: PluginSource

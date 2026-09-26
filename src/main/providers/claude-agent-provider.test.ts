@@ -159,7 +159,7 @@ test('claude-agent-provider', async () => {
     })
     const input = turnInput()
     await adapter.startSession(input)
-    for await (const _event of adapter.sendTurn({ ...input, skills: ['example'] })) {
+    for await (const _event of await adapter.sendTurn({ ...input, skills: ['example'] })) {
       /* drain the turn */
     }
     assert.deepEqual(capturedOptions[0]?.skills, ['example'])

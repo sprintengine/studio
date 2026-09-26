@@ -177,6 +177,12 @@ import type {
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
   ConversationPageResult,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationApprovalRulesResult,
+  ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
 import type { ModuleEventEnvelope } from './modules/events'
@@ -933,6 +939,10 @@ export type ElectronApi = {
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
   conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
   conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
+  conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
+  conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
+  conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
+  conversationRevokeApprovalRule: (input: { ruleId: string }) => Promise<ConversationApprovalRuleRevokeResult>
   onConversationSession: (
     input: ConversationSubscribeInput,
     cb: (frame: ConversationSessionFrame) => void,

@@ -10,6 +10,7 @@ import { createMockConversationProvider } from './providers/mock-conversation-pr
 import type { ConversationProviderAdapter, MockAdapterSessionInput } from './providers/conversation-provider-adapter'
 import type { ConversationEvent, ConversationSessionFrame } from '../shared/conversation-runtime'
 import { workspaceSidecarPath } from './workspace-sidecar'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 
 function event(
   input: MockAdapterSessionInput,
@@ -382,6 +383,112 @@ test('failed startup does not leave a zombie and a rejecting persister clears a 
   } finally {
     await brokenStart.shutdown()
     await brokenWrite.shutdown().catch(() => undefined)
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('remembered approvals auto-resolve later matching tools and persistence failures preserve manual control', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-permissions-'))
+  const storeRoot = join(workspaceRoot, 'settings')
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const mock = createMockConversationProvider()
+  const adapter = {
+    ...mock,
+    sendTurn(input: import('./providers/conversation-provider-adapter').MockAdapterTurnInput) {
+      return [
+        event(input, 'turn_started', { turnId: input.turnId }),
+        event(input, 'approval_requested', {
+          turnId: input.turnId,
+          requestId: input.requestId,
+          action: 'Read',
+          kind: 'tool',
+          toolKind: 'file_read',
+          input: { file_path: join(workspaceRoot, 'file.txt') },
+        }),
+      ]
+    },
+  }
+  const runtime = new ConversationRuntime({
+    adapters: [adapter],
+    getProviderById: () => undefined,
+    approvalRules: new ConversationApprovalRuleStore(storeRoot),
+  })
+  try {
+    await writeFile(join(workspaceRoot, 'file.txt'), 'read me')
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok)
+    const events: ConversationEvent[] = []
+    runtime.onEvent((value) => events.push(value))
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'first' })
+    const requestId = String(events.find((value) => value.type === 'approval_requested')?.payload?.requestId)
+    assert.ok(
+      (
+        await runtime.respondToRequest({
+          sessionId: started.session.sessionId,
+          requestId,
+          approved: true,
+          decision: 'conversation',
+        })
+      ).ok,
+    )
+    let complete!: () => void
+    const completed = new Promise<void>((resolve) => {
+      complete = resolve
+    })
+    const stop = runtime.onEvent((value) => {
+      if (value.type === 'turn_completed') complete()
+    })
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'second' })
+    await completed
+    stop()
+    assert.equal(events.filter((value) => value.type === 'approval_resolved').at(-1)?.payload?.autoApproved, true)
+    await mkdir(storeRoot, { recursive: true })
+    await writeFile(join(storeRoot, 'conversation-approval-rules.json'), '{bad')
+    const broken = new ConversationRuntime({
+      adapters: [adapter],
+      getProviderById: () => undefined,
+      approvalRules: new ConversationApprovalRuleStore(storeRoot),
+    })
+    try {
+      const session = await broken.startSession({
+        ...key,
+        agentId: 'other',
+        providerId: 'mock-provider',
+        modelId: 'mock-model',
+      })
+      assert.ok(session.ok)
+      let request = ''
+      broken.onEvent((value) => {
+        if (value.type === 'approval_requested') request = String(value.payload?.requestId)
+      })
+      await broken.sendTurn({ sessionId: session.session.sessionId, message: 'third' })
+      assert.equal(
+        (
+          await broken.respondToRequest({
+            sessionId: session.session.sessionId,
+            requestId: request,
+            approved: true,
+            decision: 'always',
+          })
+        ).ok,
+        false,
+      )
+      assert.equal(
+        (
+          await broken.respondToRequest({
+            sessionId: session.session.sessionId,
+            requestId: request,
+            approved: true,
+            decision: 'once',
+          })
+        ).ok,
+        true,
+      )
+    } finally {
+      await broken.shutdown()
+    }
+  } finally {
+    await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })

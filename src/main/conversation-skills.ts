@@ -1,4 +1,4 @@
-import { readFile, stat } from 'fs/promises'
+import { readFile, stat, realpath } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import type { ConversationSkillRef, ConversationCapabilities } from '../shared/conversation-runtime'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
@@ -43,6 +43,13 @@ export function createConversationSkillsResolver(
             throw new Error(`Skill ${skill.id} could not be installed for this conversation.`)
         }
       } else {
+        if (!known || known.installState === 'available')
+          throw new Error(`Skill ${skill.id} must be installed before its instructions can be attached.`)
+        const installedPaths: string[] = []
+        for (const harness of SKILL_PACK_HARNESSES) {
+          const candidate = join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills', skill.id, 'SKILL.md')
+          if (await isFile(candidate)) installedPaths.push(await realpath(candidate))
+        }
         let source: string | undefined
         if (skill.sourcePath) {
           const candidate = resolve(workspaceRoot, skill.sourcePath)
@@ -57,6 +64,9 @@ export function createConversationSkillsResolver(
           }
         }
         if (!source || !(await isFile(source))) throw new Error(`Skill ${skill.id} is not available in this workspace.`)
+        source = await realpath(source)
+        if (!installedPaths.includes(source))
+          throw new Error(`Skill ${skill.id} source is not an installed workspace skill.`)
         const size = (await stat(source)).size
         if (size > 24 * 1024) throw new Error(`Skill ${skill.id} exceeds the 24 KB instructions limit.`)
         const body = await readFile(source, 'utf8')

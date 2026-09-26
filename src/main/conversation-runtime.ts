@@ -22,10 +22,18 @@ import type {
   ConversationToolDetailResult,
   ConversationToolDetail,
   ConversationJsonValue,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
 } from '../shared/conversation-runtime'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { readToolDetail, writeToolDetail, redactConversationValue } from './conversation-tool-details'
 import { createConversationSkillsResolver, type ConversationSkillsResolver } from './conversation-skills'
+import { ConversationCheckpoints } from './conversation-checkpoints'
+import { presentToolItem } from '../shared/conversation/presentation'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -38,6 +46,7 @@ import {
 import { createMockConversationProvider } from './providers/mock-conversation-provider'
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
+import { createCodexConversationProvider } from './providers/codex-conversation-provider'
 import { workspaceSidecarPath } from './workspace-sidecar'
 import { ConversationEventLog, expandCoalescedDeltas, type ConversationEventLogOptions } from './conversation-event-log'
 
@@ -63,12 +72,21 @@ type RuntimeSession = ConversationSessionSummary & {
   // Serializes continuation-channel events (post-`result` turns the provider
   // opens outside a sendTurn) so their persistence and broadcast stay ordered.
   continuationTail: Promise<void>
+  checkpointTurnSeq: number | null
+  checkpointCapture: Promise<void> | null
+  checkpointCaptured: boolean
+  checkpointNotice?: string
+  checkpointNoticeSent?: boolean
+  revertedNote?: string
+  approvalRequests: Map<string, ApprovalRuleRequest>
+  automaticApprovals: Map<string, string>
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
 }
 
 type ConversationRuntimeOptions = {
+  approvalRules?: ConversationApprovalRuleStore
   resolveSkills?: ConversationSkillsResolver
   adapters?: ConversationProviderAdapter[]
   secretStore?: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
@@ -110,6 +128,8 @@ export class ConversationRuntime {
   private readonly randomId: () => string
   private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
   private readonly resolveSkills: ConversationSkillsResolver
+  private readonly checkpoints = new ConversationCheckpoints()
+  private readonly approvalRules: ConversationApprovalRuleStore
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
@@ -134,6 +154,7 @@ export class ConversationRuntime {
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
       createClaudeAgentProvider(),
+      createCodexConversationProvider(),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)
@@ -153,6 +174,7 @@ export class ConversationRuntime {
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
     this.prepareStudioMcp = options.prepareStudioMcp
     this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
+    this.approvalRules = options.approvalRules ?? new ConversationApprovalRuleStore()
     // Startup-time epoch (not randomId — tests inject deterministic id
     // sequences that must not be consumed by construction).
     this.eventEpoch = this.now().toString(36)
@@ -161,6 +183,9 @@ export class ConversationRuntime {
   onEvent(listener: ConversationRuntimeListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+  getProviderCapabilities(providerId: string) {
+    return this.getAdapterForProviderId(providerId)?.capabilities
   }
 
   async startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
@@ -185,7 +210,13 @@ export class ConversationRuntime {
       status: 'starting',
       phase: 'starting',
       displayName: validation.adapter.displayName ?? input.providerId,
-      capabilities: validation.adapter.capabilities,
+      capabilities: validation.adapter.capabilities
+        ? {
+            ...validation.adapter.capabilities,
+            checkpoints:
+              validation.adapter.capabilities.tools && (await this.checkpoints.available(input.workspaceRoot)),
+          }
+        : undefined,
       createdAt: now,
       updatedAt: now,
       workspaceRoot: input.workspaceRoot,
@@ -198,6 +229,11 @@ export class ConversationRuntime {
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
       continuationTail: Promise.resolve(),
+      checkpointTurnSeq: null,
+      checkpointCapture: null,
+      checkpointCaptured: false,
+      approvalRequests: new Map(),
+      automaticApprovals: new Map(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
@@ -223,6 +259,7 @@ export class ConversationRuntime {
           // Continuation channel: the adapter opens a mirror turn here when its
           // child resumes after a `result` (background subagents completing).
           onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
+          onBeforeTool: (name) => this.captureBeforeTool(session, name),
         }),
       )
       session.status = 'ready'
@@ -282,6 +319,9 @@ export class ConversationRuntime {
     session.status = 'active'
     session.phase = 'running'
     session.updatedAt = this.now()
+    session.checkpointTurnSeq = null
+    session.checkpointCapture = null
+    session.checkpointCaptured = false
     // Persist the user's side of the exchange so the JSONL transcript replays
     // as a complete conversation after a restart.
     try {
@@ -314,7 +354,7 @@ export class ConversationRuntime {
           ...session,
           turnId,
           requestId,
-          message,
+          message: session.revertedNote ? `${session.revertedNote}\n\n${message}` : message,
           skills: skills.ids,
           ...(attachments.length > 0 ? { attachments } : {}),
           messages,
@@ -399,13 +439,24 @@ export class ConversationRuntime {
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
+    if (input.approved && (input.decision === 'conversation' || input.decision === 'always')) {
+      const request = session.approvalRequests.get(input.requestId)
+      if (!request || (request.requestKind && request.requestKind !== 'tool'))
+        return { ok: false, message: 'This request can only be allowed once.' }
+      try {
+        await this.approvalRules.remember(session.workspaceRoot, session.sessionId, request, input.decision)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Permission rule could not be saved.' }
+      }
+    }
+
     await this.emitAll(
       session,
       adapter.resolveApproval({
         ...session,
         turnId: session.activeTurnId,
         requestId: input.requestId,
-        approved: input.approved,
+        approved: input.decision === 'deny' ? false : input.approved,
         answers: input.answers,
       }),
     )
@@ -501,6 +552,9 @@ export class ConversationRuntime {
     session.pendingApprovalRequestIds.clear()
     session.activeTurnAbort = null
     session.status = 'stopped'
+    this.approvalRules.dropSession(session.sessionId)
+    session.approvalRequests.clear()
+    session.automaticApprovals.clear()
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
   }
@@ -727,7 +781,60 @@ export class ConversationRuntime {
       createdAt: this.now(),
     }
     this.sequences.set(path, stamped.seq!)
+    if (stamped.type === 'user_message' || (stamped.type === 'turn_started' && session.checkpointTurnSeq === null))
+      session.checkpointTurnSeq = stamped.seq!
+    if (stamped.type === 'tool_started')
+      await this.captureBeforeTool(session, String(stamped.payload?.name ?? stamped.payload?.tool ?? ''))
+    if (
+      (stamped.type === 'turn_completed' || stamped.type === 'turn_failed') &&
+      session.checkpointCaptured &&
+      session.checkpointTurnSeq
+    ) {
+      const checkpoint = await this.checkpoints.capture(session, session.checkpointTurnSeq, 'post')
+      stamped.payload = {
+        ...stamped.payload,
+        checkpointTurnSeq: session.checkpointTurnSeq,
+        checkpointAvailable: checkpoint.ok,
+      }
+      if (checkpoint.ok) {
+        const diff = await this.checkpoints.getTurnDiff({ key: session, turnSeq: session.checkpointTurnSeq })
+        if (diff.ok)
+          stamped.payload.checkpointSummary = {
+            files: diff.diff.files.length,
+            addedLines: diff.diff.files.reduce((sum, file) => sum + file.addedLines, 0),
+            removedLines: diff.diff.files.reduce((sum, file) => sum + file.removedLines, 0),
+          }
+      }
+    }
+    if (session.checkpointNotice && !session.checkpointNoticeSent) {
+      stamped.payload = { ...stamped.payload, notice: session.checkpointNotice }
+      session.checkpointNoticeSent = true
+    }
     this.trackStatefulSessionEvent(session, stamped)
+    if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
+      const request: ApprovalRuleRequest = {
+        action: String(stamped.payload.action ?? ''),
+        input: stamped.payload.input,
+        toolKind: stamped.payload.toolKind as ApprovalRuleRequest['toolKind'],
+        requestKind: String(stamped.payload.kind ?? 'tool'),
+      }
+      const requestId = stamped.payload.requestId
+      session.approvalRequests.set(requestId, request)
+      void this.approvalRules
+        .match(session.workspaceRoot, session.sessionId, request)
+        .then(async (rule) => {
+          if (!rule || !session.approvalRequests.has(requestId) || session.status === 'stopped') return
+          session.automaticApprovals.set(requestId, rule.label)
+          await this.respondToRequest({ sessionId: session.sessionId, requestId, approved: true, decision: 'once' })
+        })
+        .catch(() => undefined)
+    } else if (stamped.type === 'approval_resolved' && typeof stamped.payload?.requestId === 'string') {
+      const requestId = stamped.payload.requestId
+      const ruleLabel = session.automaticApprovals.get(requestId)
+      if (ruleLabel) stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel }
+      session.approvalRequests.delete(requestId)
+      session.automaticApprovals.delete(requestId)
+    }
     this.updateExcerpts(session, stamped)
     // A streamed delta goes to listeners immediately; persistence coalesces text.
     if (isStreamedDelta(stamped)) {
@@ -741,6 +848,17 @@ export class ConversationRuntime {
   }
 
   private updateExcerpts(session: RuntimeSession, event: ConversationEvent): void {
+    if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
+      session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
+    if (event.type === 'tool_started')
+      session.currentToolTitle = presentToolItem({
+        kind: event.payload?.kind as import('../shared/conversation-runtime').ConversationToolKind,
+        name: String(event.payload?.name ?? event.payload?.tool ?? ''),
+        input: event.payload?.input as ConversationJsonValue | undefined,
+        status: 'running',
+      }).title
+    else if (event.type === 'tool_output' || event.type === 'turn_completed' || event.type === 'turn_failed')
+      session.currentToolTitle = undefined
     if (event.type === 'turn_completed') session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
     else if (event.type === 'turn_started' || event.type === 'user_message' || event.type === 'approval_resolved')
@@ -782,7 +900,7 @@ export class ConversationRuntime {
       const receipts = await this.receipts.get(path)!
       const prior = receipts.get(commandId)
       if (prior) return prior
-      const receipt = await action()
+      const receipt = JSON.parse(JSON.stringify(await action())) as ConversationSessionActionResult
       receipts.set(commandId, receipt)
       while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
       const write = (this.receiptWrites.get(path) ?? Promise.resolve())
@@ -865,6 +983,9 @@ export class ConversationRuntime {
       session.pendingRequestId = null
       session.pendingApprovalRequestIds.clear()
       session.status = 'active'
+      session.checkpointTurnSeq = null
+      session.checkpointCapture = null
+      session.checkpointCaptured = false
       session.updatedAt = this.now()
     }
     await this.emit(session, event, turnId ? { turnId } : {})
@@ -990,6 +1111,7 @@ export class ConversationRuntime {
     }
     const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
     await this.eventLog.close(path)
+    await this.checkpoints.deleteConversation(input)
     await rm(path, { force: true })
     await rm(path.replace(/\.jsonl$/, '.tools'), { recursive: true, force: true })
     const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
@@ -1028,6 +1150,7 @@ export class ConversationRuntime {
       }
     } else {
       detail.output = (payload.output ?? payload.preview ?? '') as ConversationJsonValue
+      if (payload.clipped === true) detail.clipped = true
       detail.status =
         payload.status === 'declined' || payload.status === 'stopped' || payload.status === 'error'
           ? payload.status
@@ -1123,6 +1246,71 @@ export class ConversationRuntime {
       if (event.id.startsWith('conv_evt_replay_close_')) await this.eventLog.append(path, event)
     }
     this.sequences.set(path, transcript.events.at(-1)?.seq ?? 0)
+    await this.checkpoints.collectExpired(input.workspaceRoot)
+  }
+
+  private async captureBeforeTool(session: RuntimeSession, name: string): Promise<void> {
+    if (!session.capabilities?.checkpoints || !session.checkpointTurnSeq) return
+    if (['file_read', 'search', 'list', 'web', 'todo'].includes(inferConversationToolKind(name))) return
+    if (!session.checkpointCapture) {
+      session.checkpointCapture = (async () => {
+        const result = await this.checkpoints.capture(session, session.checkpointTurnSeq!, 'pre')
+        session.checkpointCaptured = result.ok
+        if (!result.ok) session.checkpointNotice = result.message
+      })()
+    }
+    await session.checkpointCapture
+  }
+
+  getTurnDiff(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult> {
+    return this.checkpoints.getTurnDiff(input)
+  }
+  async listApprovalRules() {
+    try {
+      return { ok: true as const, rules: await this.approvalRules.list() }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Permission rules are unavailable.',
+      }
+    }
+  }
+  async revokeApprovalRule(ruleId: string) {
+    try {
+      await this.approvalRules.revoke(ruleId)
+      return { ok: true as const }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Permission rule could not be revoked.',
+      }
+    }
+  }
+
+  async revertToTurn(input: ConversationRevertInput): Promise<ConversationRevertResult> {
+    const matching = Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.workspaceRoot === input.key.workspaceRoot &&
+        session.workspaceId === input.key.workspaceId &&
+        session.agentId === input.key.agentId,
+    )
+    if (matching.some(isSessionBusy)) return { ok: false, message: 'Stop the running turn before reverting files.' }
+    const result = await this.checkpoints.revert(input)
+    if (result.ok && result.reverted) {
+      for (const session of matching) {
+        session.revertedNote = `Files were ${input.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${input.turnSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
+      }
+      const session = matching.at(-1)
+      if (session)
+        await this.emit(
+          session,
+          this.eventForSession(session, 'session_updated', {
+            revertedAfterSeq: input.turnSeq,
+            undo: input.undo === true,
+          }),
+        )
+    }
+    return result
   }
 
   // The latest provider-session cursor recorded in the transcript; stateful
@@ -1158,6 +1346,7 @@ export class ConversationRuntime {
       displayName: session.displayName,
       capabilities: session.capabilities,
       phase: session.phase,
+      currentToolTitle: session.currentToolTitle,
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,

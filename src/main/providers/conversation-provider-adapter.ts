@@ -86,6 +86,7 @@ export type MockAdapterSessionInput = {
   // card raised on this channel surfaces and resolves through the unchanged
   // respondToRequest → resolveApproval path. Absent for stateless adapters.
   onSessionEvent?: ConversationSessionEventSink
+  onBeforeTool?: (name: string) => Promise<void>
 }
 
 // Callback the runtime hands a stateful adapter to deliver continuation-turn

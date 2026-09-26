@@ -16,6 +16,8 @@ import { spawn } from 'child_process'
 import { asRecord } from '../../shared/records'
 import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
+import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
+export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
   Options,
@@ -111,6 +113,7 @@ type SessionState = {
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
   skillIds?: string[]
+  onBeforeTool?: (name: string) => Promise<void>
   providerSessionId: string | null
   query: Query | null
   inputQueue: PushStream<SDKUserMessage> | null
@@ -366,6 +369,18 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
         handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal),
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              async (input) => {
+                if (input.hook_event_name === 'PreToolUse') await state.onBeforeTool?.(input.tool_name)
+                return {}
+              },
+            ],
+          },
+        ],
+      },
       // Spawn the child ourselves (same command/args the SDK computed) so the
       // PID is known: process-tree diagnostics attribute the headless child to
       // this session, and the SDK exposes no PID of its own.
@@ -404,6 +419,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       turnId: turn.turnId,
       requestId,
       action: toolName,
+      input: toolInput,
+      toolKind: inferConversationToolKind(toolName),
+      cwd: state.workspaceRoot,
       summary: questions
         ? (questions[0]?.question ?? 'The agent has a question.')
         : plan !== null
@@ -484,6 +502,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         cliRuntimes: input.cliRuntimes,
         permissionPreset: input.permissionPreset ?? 'manual',
         allowedTools: input.allowedTools,
+        onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
         query: null,
         inputQueue: null,
@@ -964,7 +983,6 @@ export function mapSdkMessage(
               ...(typeof toolInput.new_string === 'string' ? { newText: toolInput.new_string } : {}),
             }),
           ),
-          summary: summarizeToolInput(block.name, toolInput),
           ...computeEditDiffCounts(block.name, toolInput),
           ...(parentToolUseId ? { parentToolUseId } : {}),
           ...subagentLaneFields(block.name, toolInput),
@@ -1131,20 +1149,6 @@ function computeEditDiffCounts(
 
 function countLines(value: unknown): number {
   return typeof value === 'string' && value.length > 0 ? value.split('\n').length : 0
-}
-
-export function summarizeToolInput(tool: string, input: Record<string, unknown>): string {
-  for (const key of ['command', 'file_path', 'path', 'url', 'pattern', 'query', 'description', 'prompt']) {
-    const value = input[key]
-    if (typeof value === 'string' && value.trim()) return `${tool}: ${truncate(value.trim(), 200)}`
-  }
-  let json = ''
-  try {
-    json = JSON.stringify(input) ?? ''
-  } catch {
-    json = ''
-  }
-  return json && json !== '{}' ? `${tool}: ${truncate(json, 200)}` : tool
 }
 
 function extractResultText(content: unknown): string {

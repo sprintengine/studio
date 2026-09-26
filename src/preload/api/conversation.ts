@@ -33,9 +33,22 @@ import type {
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
   ConversationPageResult,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationApprovalRulesResult,
+  ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
 
 type ConversationIpcRenderer = {
+  invoke(channel: 'conversation:approval-rules:list'): Promise<ConversationApprovalRulesResult>
+  invoke(
+    channel: 'conversation:approval-rules:revoke',
+    input: { ruleId: string },
+  ): Promise<ConversationApprovalRuleRevokeResult>
+  invoke(channel: 'conversation:turn:diff', input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
+  invoke(channel: 'conversation:turn:revert', input: ConversationRevertInput): Promise<ConversationRevertResult>
   invoke(
     channel: 'conversation:session:subscribe',
     input: ConversationSubscribeInput & { subscriptionId: string },
@@ -123,6 +136,14 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
   }
   let nextScopedId = 0
   return {
+    conversationApprovalRules: (): Promise<ConversationApprovalRulesResult> =>
+      renderer.invoke('conversation:approval-rules:list'),
+    conversationRevokeApprovalRule: (input: { ruleId: string }): Promise<ConversationApprovalRuleRevokeResult> =>
+      renderer.invoke('conversation:approval-rules:revoke', input),
+    conversationTurnDiff: (input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult> =>
+      renderer.invoke('conversation:turn:diff', input),
+    conversationRevertToTurn: (input: ConversationRevertInput): Promise<ConversationRevertResult> =>
+      renderer.invoke('conversation:turn:revert', input),
     conversationProvidersList: (input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> =>
       renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
@@ -226,6 +247,10 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationTranscript'
     | 'conversationToolDetail'
     | 'conversationLoadEarlier'
+    | 'conversationTurnDiff'
+    | 'conversationRevertToTurn'
+    | 'conversationApprovalRules'
+    | 'conversationRevokeApprovalRule'
     | 'onConversationSession'
     | 'onConversationEvent'
   >

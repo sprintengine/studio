@@ -49,6 +49,7 @@ export type ConversationSessionSummary = {
   displayName?: string
   capabilities?: ConversationCapabilities
   phase?: import('./conversation/phase').ConversationPhase
+  currentToolTitle?: string
   firstUserText?: string
   lastUserText?: string
   lastAssistantText?: string
@@ -141,6 +142,7 @@ export type ConversationInterruptInput = {
 
 export type ConversationRespondToRequestInput = {
   commandId?: string
+  decision?: import('./conversation/approvalRules').ConversationApprovalDecision
   sessionId: string
   requestId: string
   approved: boolean
@@ -164,7 +166,7 @@ export type ConversationToolStartedPayload = {
   turnId?: string
   toolCallId?: string
   tool: string
-  summary: string
+  summary?: string
   addedLines?: number
   removedLines?: number
   parentToolUseId?: string
@@ -182,6 +184,8 @@ export type ConversationToolStartedPayload = {
 // Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
 // so a child call's completion lands in the same lane as its start.
 export type ConversationToolOutputPayload = {
+  partial?: boolean
+  clipped?: boolean
   toolUseId?: string
   preview?: string
   totalBytes?: number
@@ -309,8 +313,29 @@ export type ConversationCapabilities = {
   cost: boolean
   contextMeter: boolean
   liveModelSwitch: boolean
+  checkpoints?: boolean
 }
+export type ConversationCheckpointFile = {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+  addedLines: number
+  removedLines: number
+  binary: boolean
+}
+export type ConversationCheckpointDiff = { files: ConversationCheckpointFile[]; submodulesExcluded: true }
+export type ConversationTurnDiffInput = { key: ConversationKey; turnSeq: number; path?: string }
+export type ConversationTurnDiffResult =
+  | { ok: true; diff: ConversationCheckpointDiff; patch?: string; original?: string; modified?: string }
+  | { ok: false; message: string }
+export type ConversationRevertInput = { key: ConversationKey; turnSeq: number; confirmed?: boolean; undo?: boolean }
+export type ConversationRevertResult =
+  | { ok: true; files: ConversationCheckpointFile[]; reverted: boolean; undoRef?: string }
+  | { ok: false; message: string }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
+export type ConversationApprovalRulesResult =
+  | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }
+  | { ok: false; message: string }
+export type ConversationApprovalRuleRevokeResult = { ok: true } | { ok: false; message: string }
 
 export type ConversationKey = ConversationTranscriptInput
 export type ConversationSubscribeInput = { key: ConversationKey; afterSeq?: number; turnLimit?: number }

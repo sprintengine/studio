@@ -64,18 +64,23 @@ test('skill budgets name the rejected skill and native skills use the workspace 
     assert.deepEqual(await resolve({ workspaceRoot, mode: 'native', skills: [{ id: 'example' }] }), {
       ids: ['example'],
     })
-    const source = join(workspaceRoot, 'SKILL.md')
+    const source = join(workspaceRoot, '.claude', 'skills', 'example', 'SKILL.md')
     await writeFile(source, 'x'.repeat(25 * 1024))
     await assert.rejects(
-      resolve({ workspaceRoot, mode: 'context', skills: [{ id: 'oversized', sourcePath: source }] }),
-      /oversized.*24 KB/,
+      resolve({ workspaceRoot, mode: 'context', skills: [{ id: 'example', sourcePath: source }] }),
+      /example.*24 KB/,
     )
     await writeFile(source, 'x'.repeat(23 * 1024))
+    for (const id of ['first', 'second', 'third']) {
+      const folder = join(workspaceRoot, '.agents', 'skills', id)
+      await mkdir(folder, { recursive: true })
+      await writeFile(join(folder, 'SKILL.md'), 'x'.repeat(23 * 1024))
+    }
     await assert.rejects(
       resolve({
         workspaceRoot,
         mode: 'context',
-        skills: ['first', 'second', 'third'].map((id) => ({ id, sourcePath: source })),
+        skills: ['first', 'second', 'third'].map((id) => ({ id })),
       }),
       /third.*64 KB/,
     )

@@ -35,6 +35,12 @@ import type {
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
   ConversationPageResult,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationApprovalRulesResult,
+  ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import {
@@ -70,14 +76,19 @@ export type ConversationIpcHandlers = {
     listener: (frame: ConversationSessionFrame) => void,
   ): { dispose: () => void; ready: Promise<void> }
   loadEarlier?(input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
+  getTurnDiff?(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
+  revertToTurn?(input: ConversationRevertInput): Promise<ConversationRevertResult>
+  listApprovalRules?(): Promise<ConversationApprovalRulesResult>
+  revokeApprovalRule?(ruleId: string): Promise<ConversationApprovalRuleRevokeResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
 // Agent-harness conversation providers ride a local CLI; when that CLI is not
 // installed the provider is hidden from the picker instead of failing at
 // session start.
-const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, 'claude-code'> = {
+const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, 'claude-code' | 'codex'> = {
   'claude-agent': 'claude-code',
+  'codex-agent': 'codex',
 }
 
 const CLI_AVAILABLE_TTL_MS = 60_000
@@ -98,7 +109,7 @@ export function createConversationIpcHandlers(
   const cliChecks = new Map<string, { at: number; installed: boolean }>()
 
   async function isHarnessCliInstalled(
-    cli: 'claude-code',
+    cli: 'claude-code' | 'codex',
     cliRuntimes?: ConversationCliRuntimeOverrides,
   ): Promise<boolean> {
     const override = cliRuntimes?.[cli]
@@ -122,7 +133,10 @@ export function createConversationIpcHandlers(
   return {
     async listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> {
       try {
-        const providers = listConversationProviderRegistryEntries()
+        const providers = listConversationProviderRegistryEntries().map((provider) => ({
+          ...provider,
+          capabilities: runtime.getProviderCapabilities(provider.id),
+        }))
         const listed: typeof providers = []
         for (const provider of providers) {
           const harnessCli = AGENT_HARNESS_CLI_BY_PROVIDER[provider.id]
@@ -185,11 +199,23 @@ export function createConversationIpcHandlers(
     getToolDetail(input) {
       return runtime.getToolDetail(input)
     },
+    listApprovalRules() {
+      return runtime.listApprovalRules()
+    },
+    revokeApprovalRule(ruleId) {
+      return runtime.revokeApprovalRule(ruleId)
+    },
     subscribe(input, listener) {
       return sessions.subscribe(input, listener)
     },
     loadEarlier(input) {
       return sessions.loadEarlier(input)
+    },
+    getTurnDiff(input) {
+      return sessions.getTurnDiff(input)
+    },
+    revertToTurn(input) {
+      return sessions.revertToTurn(input)
     },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
@@ -210,6 +236,53 @@ export function registerConversationIpc(
     }
   >()
   const scopedSubscriptions = new Map<string, { senderId: number; dispose: () => void }>()
+  ipcMain.handle(
+    'conversation:approval-rules:list',
+    () => handlers.listApprovalRules?.() ?? { ok: false, message: 'Permission rules are unavailable.' },
+  )
+  ipcMain.handle('conversation:approval-rules:revoke', (_, input: unknown) => {
+    if (!isRecord(input) || typeof input.ruleId !== 'string')
+      return { ok: false, message: 'Rule identity is required.' }
+    return handlers.revokeApprovalRule?.(input.ruleId) ?? { ok: false, message: 'Permission rules are unavailable.' }
+  })
+  ipcMain.handle('conversation:turn:diff', async (_, input: unknown): Promise<ConversationTurnDiffResult> => {
+    if (
+      !isRecord(input) ||
+      !Number.isSafeInteger(input.turnSeq) ||
+      Number(input.turnSeq) < 1 ||
+      (input.path !== undefined && typeof input.path !== 'string')
+    )
+      return { ok: false, message: 'Turn sequence and optional file path are required.' }
+    const key = parseTranscriptInput(input.key)
+    if (!key.ok) return key
+    return (
+      handlers.getTurnDiff?.({
+        key: key.input,
+        turnSeq: Number(input.turnSeq),
+        path: input.path as string | undefined,
+      }) ?? { ok: false, message: 'Checkpoints are unavailable.' }
+    )
+  })
+  ipcMain.handle('conversation:turn:revert', async (_, input: unknown): Promise<ConversationRevertResult> => {
+    if (
+      !isRecord(input) ||
+      !Number.isSafeInteger(input.turnSeq) ||
+      Number(input.turnSeq) < 1 ||
+      (input.confirmed !== undefined && typeof input.confirmed !== 'boolean') ||
+      (input.undo !== undefined && typeof input.undo !== 'boolean')
+    )
+      return { ok: false, message: 'Turn sequence and explicit confirmation are required.' }
+    const key = parseTranscriptInput(input.key)
+    if (!key.ok) return key
+    return (
+      handlers.revertToTurn?.({
+        key: key.input,
+        turnSeq: Number(input.turnSeq),
+        confirmed: input.confirmed === true,
+        undo: input.undo === true,
+      }) ?? { ok: false, message: 'Checkpoints are unavailable.' }
+    )
+  })
   ipcMain.handle('conversation:session:subscribe', (event, input: unknown) => {
     if (!isRecord(input) || typeof input.subscriptionId !== 'string' || !isRecord(input.key))
       return { ok: false, message: 'Subscription identity is required.' }
@@ -675,6 +748,8 @@ function parseRespondToRequestInput(
   if (!session.ok) return session
   if (!isRecord(input) || typeof input.requestId !== 'string') return { ok: false, message: 'requestId is required.' }
   if (typeof input.approved !== 'boolean') return { ok: false, message: 'approved is required.' }
+  if (input.decision !== undefined && !['once', 'conversation', 'always', 'deny'].includes(String(input.decision)))
+    return { ok: false, message: 'Permission decision is invalid.' }
   let answers: Record<string, string> | undefined
   if ('answers' in input && input.answers !== undefined) {
     if (!isRecord(input.answers) || Object.values(input.answers).some((value) => typeof value !== 'string')) {
@@ -688,6 +763,7 @@ function parseRespondToRequestInput(
       ...session.input,
       requestId: input.requestId,
       approved: input.approved,
+      ...(input.decision ? { decision: input.decision as ConversationRespondToRequestInput['decision'] } : {}),
       ...(answers ? { answers } : {}),
     },
   }

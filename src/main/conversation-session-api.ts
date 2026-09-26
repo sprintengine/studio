@@ -9,12 +9,28 @@ import type {
   ConversationInterruptInput,
   ConversationRespondToRequestInput,
   ConversationSetPermissionInput,
+  ConversationTurnDiffInput,
+  ConversationRevertInput,
+  ConversationListSessionsInput,
+  ConversationToolDetailInput,
 } from '../shared/conversation-runtime'
 import type { ConversationRuntime } from './conversation-runtime'
 
 /** Transport-independent replay, subscription and command boundary. */
 export class ConversationSessionApi {
   constructor(private readonly runtime: ConversationRuntime) {}
+  listSessions(input?: ConversationListSessionsInput) {
+    return this.runtime.listSessions(input)
+  }
+  getToolDetail(input: ConversationToolDetailInput) {
+    return this.runtime.getToolDetail(input)
+  }
+  getTurnDiff(input: ConversationTurnDiffInput) {
+    return this.runtime.getTurnDiff(input)
+  }
+  revertToTurn(input: ConversationRevertInput) {
+    return this.runtime.revertToTurn(input)
+  }
 
   subscribe(
     input: ConversationSubscribeInput,
