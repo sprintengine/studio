@@ -1,4 +1,5 @@
 import React from 'react'
+import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
   FleetBrowse,
@@ -1400,7 +1401,7 @@ export default function NewAgentPanel({
         conversationWorkspaceSupported &&
         conversationAvailable &&
         visibleConversationOptions.length > 0 ? (
-          <div className="mt-4" role="menu" aria-label="Chat models">
+          <div className="mt-4" role="group" aria-label="Chat models">
             {visibleConversationOptions.map((option) => (
               <MenuOption
                 key={`${option.providerId}:${option.modelId}`}
@@ -2351,26 +2352,6 @@ type PromptImage = NewChatDraftImage
 // Quoted only when the path needs it, matching the terminal drop idiom.
 function quotePath(path: string): string {
   return /\s/.test(path) ? `'${path}'` : path
-}
-
-function AttachmentChip({
-  glyph,
-  label,
-  removeLabel,
-  onRemove,
-}: {
-  glyph: React.ReactNode
-  label: string
-  removeLabel: string
-  onRemove: () => void
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
-      {glyph}
-      <TruncatedText as="span" text={label} className="max-w-[140px]" />
-      <CloseIconButton onClick={onRemove} aria-label={removeLabel} className="-mr-1" />
-    </span>
-  )
 }
 
 function MenuRow({

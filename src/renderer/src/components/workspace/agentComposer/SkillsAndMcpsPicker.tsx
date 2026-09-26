@@ -31,8 +31,7 @@ import type { AgentComposerConnector } from './useAgentComposer'
 // its first turn (owner: "install them there and then before they create the
 // agent").
 //
-// Keyboard model follows the combobox ruling (design-system/components/
-// combobox) for its keys — the search field keeps focus, ↑↓ move a highlight
+// The search field keeps focus while ↑↓ move a highlight
 // named by aria-activedescendant, ⏎ toggles, Escape closes (the Popover owns
 // it), Home/End only while the field is empty — but the surface is NOT a
 // combobox: rows toggle rather than commit, so the field is a search box
@@ -139,6 +138,7 @@ export type SkillsAndMcpsPickerProps = {
   placement?: PopoverPlacement
   /** A custom trigger (a menu row, say); the default is the kit's chip. */
   renderTrigger?: PopoverProps['renderTrigger']
+  includeMcps?: boolean
 }
 
 export function SkillsAndMcpsPicker({
@@ -150,6 +150,7 @@ export function SkillsAndMcpsPicker({
   onMcpServersChange,
   placement = 'bottom-start',
   renderTrigger,
+  includeMcps = true,
 }: SkillsAndMcpsPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -181,11 +182,11 @@ export function SkillsAndMcpsPicker({
     const ordered = [
       ...skillRows.filter((row) => row.group === 'installed'),
       ...skillRows.filter((row) => row.group === 'available'),
-      ...buildMcpRows(installedServers ?? {}),
+      ...(includeMcps ? buildMcpRows(installedServers ?? {}) : []),
     ]
     const normalized = query.trim().toLowerCase()
     return ordered.filter((row) => rowMatches(row, normalized))
-  }, [installedHere, installedServers, query, skillInventory.skills])
+  }, [includeMcps, installedHere, installedServers, query, skillInventory.skills])
 
   const groupsPresent = useMemo(() => new Set(rows.map((row) => row.group)), [rows])
   const actionable = useMemo(() => rows.filter((row) => !(row.kind === 'mcp' && row.state === 'included')), [rows])
@@ -338,7 +339,7 @@ export function SkillsAndMcpsPicker({
         }
         setOpen(next)
       }}
-      ariaLabel="Skills and MCPs"
+      ariaLabel={includeMcps ? 'Skills and MCPs' : 'Skills'}
       popupRole="dialog"
       placement={placement}
       renderTrigger={
@@ -349,7 +350,7 @@ export function SkillsAndMcpsPicker({
           // it, because a trigger the kit can draw does not need one.
           <ChipButton ref={ref} variant="outline" onClick={togglePopover} {...triggerProps}>
             <StarGlyph filled={false} className="icon-xs" />
-            Skills &amp; MCPs
+            {includeMcps ? 'Skills & MCPs' : 'Skills'}
             {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}
           </ChipButton>
         ))
@@ -382,8 +383,8 @@ export function SkillsAndMcpsPicker({
               setHighlight(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search skills and MCPs…"
-            aria-label="Search skills and MCPs"
+            placeholder={includeMcps ? 'Search skills and MCPs…' : 'Search skills…'}
+            aria-label={includeMcps ? 'Search skills and MCPs' : 'Search skills'}
             className="min-w-0 flex-1 px-1 py-1 text-body"
           />
         </div>
@@ -392,7 +393,7 @@ export function SkillsAndMcpsPicker({
           id={listId}
           role="listbox"
           aria-multiselectable="true"
-          aria-label="Skills and MCP servers"
+          aria-label={includeMcps ? 'Skills and MCP servers' : 'Skills'}
           className="min-h-0 flex-1 overflow-y-auto py-1"
         >
           {skillInventory.loading && rows.length === 0 ? (
@@ -408,7 +409,11 @@ export function SkillsAndMcpsPicker({
           ) : null}
           {!skillInventory.loading && rows.length === 0 && !skillInventory.error ? (
             <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
-              {query.trim() ? `Nothing matches “${query.trim()}”` : 'No skills or MCP servers yet'}
+              {query.trim()
+                ? `Nothing matches “${query.trim()}”`
+                : includeMcps
+                  ? 'No skills or MCP servers yet'
+                  : 'No skills yet'}
             </div>
           ) : null}
           {(['installed', 'available', 'mcp'] as const).map((group) => {

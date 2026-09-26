@@ -3,10 +3,7 @@
   "name": "sprintengine-studio",
   "version": "0.2.0",
   "summary": "SprintEngine Studio design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.",
-  "modes": [
-    "light",
-    "dark"
-  ],
+  "modes": ["light", "dark"],
   "namingGrammar": {
     "tokens": "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
     "cssVariables": "'--' plus the token path with '.' replaced by '-' (sem.color.bg.app -> --sem-color-bg-app); components consume only the --sem-* set",
@@ -14,11 +11,9 @@
     "glyphs": "kebab-case concept name, one concept per SVG; strokes and fills use currentColor"
   },
   "contents": {
-    "foundations": [
-      "foundations/tokens.tokens.json",
-      "foundations/principles.md"
-    ],
+    "foundations": ["foundations/tokens.tokens.json", "foundations/principles.md"],
     "components": [
+      "attachment-chip",
       "badge",
       "banner",
       "board-lane",
@@ -29,7 +24,7 @@
       "chip-button",
       "code-block",
       "command-palette",
-    "context-ring",
+      "context-ring",
       "definition-list",
       "drawer",
       "empty-state",
@@ -80,11 +75,7 @@
       "working-edge",
       "workspace-panel"
     ],
-    "patterns": [
-      "patterns/context-rail.html",
-      "patterns/list-surface.html",
-      "patterns/selection.html"
-    ],
+    "patterns": ["patterns/context-rail.html", "patterns/list-surface.html", "patterns/selection.html"],
     "glyphs": [
       "glyphs/close.svg",
       "glyphs/collapse-all.svg",

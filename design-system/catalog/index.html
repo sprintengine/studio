@@ -592,6 +592,8 @@ code {
 #ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-components:checked ~ .ds-catalog #components { display: block; }
 #ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-attachment-chip:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-attachment-chip:checked ~ .ds-catalog #component-attachment-chip { display: block; }
 #ds-view-component-badge:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-badge:checked ~ .ds-catalog #component-badge { display: block; }
 #ds-view-component-banner:checked ~ .ds-catalog #components { display: block; }
@@ -714,6 +716,8 @@ code {
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #component-workspace-panel { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-attachment-chip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-attachment-chip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-badge:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-badge:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-banner:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-banner"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -852,6 +856,25 @@ code {
 #ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
+/* components/attachment-chip/component.css */
+.ds-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+}
+.ds-attachment-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* components/badge/component.css */
 /* Badge — the small display-only mark: a count docked on a control, or a
  * tone-carrying word sitting on a row. Extracted from the shipped Badge
@@ -11972,6 +11995,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-attachment-chip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-badge" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-banner" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-board-lane" />
@@ -12053,6 +12077,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
 <label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-attachment-chip">Attachment chip</label>
 <label class="catalog-nav-item" for="ds-view-component-badge">Badge</label>
 <label class="catalog-nav-item" for="ds-view-component-banner">Banner</label>
 <label class="catalog-nav-item" for="ds-view-component-board-lane">Board lane</label>
@@ -12589,6 +12614,106 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </section>
 <section id="components" class="catalog-group">
 <h2>Components</h2>
+<div id="component-attachment-chip" class="catalog-view catalog-component">
+<h3>Attachment chip</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-attachment-chip">
+<div class="ds-demo-row">
+      <span class="ds-attachment-chip"
+        ><span class="ds-attachment-chip-label">Review</span
+        ><button class="ds-button ds-button--icon" aria-label="Remove Review">×</button></span
+      >
+      <span class="ds-attachment-chip"
+        ><button class="ds-chip-button">Inspect skill</button
+        ><button class="ds-button ds-button--icon" aria-label="Remove inspected skill">×</button></span
+      >
+      <span class="ds-attachment-chip"
+        ><span class="ds-attachment-chip-label">Unavailable</span
+        ><button class="ds-button ds-button--icon" disabled aria-label="Remove unavailable context">×</button></span
+      >
+    </div>
+    <div class="ds-demo-row" data-mode="dark">
+      <span class="ds-attachment-chip"
+        ><span class="ds-attachment-chip-label">src/app.ts</span
+        ><button class="ds-button ds-button--icon" aria-label="Remove src/app.ts">×</button></span
+      >
+      <span class="ds-attachment-chip"
+        ><button class="ds-chip-button">Inspect skill</button
+        ><button class="ds-button ds-button--icon" aria-label="Remove inspected skill">×</button></span
+      >
+    </div>
+</div>
+<div class="catalog-doc">
+<p>A removable piece of context staged on a composer, shared by the launcher and conversation. Its neutral selected ground marks attached content without spending the primary action accent.</p>
+<h4>Anatomy</h4>
+<ul><li><code>.ds-attachment-chip</code>: inline wrapper, selected ground, chip radius, meta type, medium weight.</li><li>Optional leading glyph, followed by a truncating label.</li><li>A separate close button names the attachment it removes.</li><li>An inspectable label can contain a chip button opening a popover; removal remains a sibling control.</li></ul>
+<h4>Variants</h4>
+<p>Static label or inspectable label. Skills, files, folders and images use the same shape.</p>
+<h4>States</h4>
+<p>The wrapper does not hover or focus. The close button and optional inspect control inherit the button and chip-button states, including focus-visible and disabled behavior.</p>
+<h4>Usage</h4>
+<p>Place attached context above the composer field. Use neutral selected ground: a staged attachment is a selection. The consuming implementation is <code>src/renderer/src/components/ui/AttachmentChip.tsx</code>.</p>
+<h4>Accessibility</h4>
+<p>Removal is a separately focusable button labelled <code>Remove &lt;attachment name&gt;</code>. Never nest it inside the inspect button. A truncated static label exposes the complete text through the shared truncated-text component.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/attachment-chip/component.css</summary><pre><code>.ds-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+}
+.ds-attachment-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/attachment-chip/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot; /&gt;
+    &lt;title&gt;Attachment chip&lt;/title&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;../chip-button/component.css&quot; /&gt;
+    &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div class=&quot;ds-demo-row&quot;&gt;
+      &lt;span class=&quot;ds-attachment-chip&quot;
+        &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;Review&lt;/span
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove Review&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+      &lt;span class=&quot;ds-attachment-chip&quot;
+        &gt;&lt;button class=&quot;ds-chip-button&quot;&gt;Inspect skill&lt;/button
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove inspected skill&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+      &lt;span class=&quot;ds-attachment-chip&quot;
+        &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;Unavailable&lt;/span
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; disabled aria-label=&quot;Remove unavailable context&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-demo-row&quot; data-mode=&quot;dark&quot;&gt;
+      &lt;span class=&quot;ds-attachment-chip&quot;
+        &gt;&lt;span class=&quot;ds-attachment-chip-label&quot;&gt;src/app.ts&lt;/span
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove src/app.ts&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+      &lt;span class=&quot;ds-attachment-chip&quot;
+        &gt;&lt;button class=&quot;ds-chip-button&quot;&gt;Inspect skill&lt;/button
+        &gt;&lt;button class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Remove inspected skill&quot;&gt;×&lt;/button&gt;&lt;/span
+      &gt;
+    &lt;/div&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-badge" class="catalog-view catalog-component">
 <h3>Badge</h3>
 <div class="catalog-component-grid">
