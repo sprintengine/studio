@@ -38,6 +38,7 @@ import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MachinesSettingsTab } from './MachinesSettingsTab'
 import { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } from './AgentClisSection'
+import { ConversationApprovalSettings } from './ConversationApprovalSettings'
 import {
   agentsMachines,
   lastAgentsMachine,
@@ -1542,6 +1543,7 @@ export default function SettingsPanel({
           />
 
           <TextGenerationSettingsSection />
+          <ConversationApprovalSettings />
 
           {idleSuspendDescriptor ? (
             // No top rule on the section: the card draws its own edge, and a
