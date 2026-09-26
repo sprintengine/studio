@@ -1804,6 +1804,11 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                     setAttachedSkills(attachedSkills.slice(0, -1))
                     return
                   }
+                  if (attachments.length) {
+                    event.preventDefault()
+                    setAttachments((current) => current.slice(0, -1))
+                    return
+                  }
                 }
                 if (handleRecallKeyDown(event)) return
                 if (event.key === 'Enter' && !event.shiftKey) {

@@ -1576,6 +1576,11 @@ test('AgentChatView', async () => {
   for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
+  assert.match(
+    chatViewSource.slice(chatViewSource.indexOf("event.key === 'Backspace'")),
+    /selectionStart === 0[\s\S]*?selectionEnd === 0[\s\S]*?if \(attachments.length\) \{\s+event.preventDefault\(\)\s+setAttachments\(\(current\) => current.slice\(0, -1\)\)/,
+    'Backspace at the draft start removes the last staged image after other context chips',
+  )
   assert.equal(
     (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 5,
     true,
