@@ -1,6 +1,5 @@
-import { createWriteStream } from 'fs'
-import { mkdir } from 'fs/promises'
 import { dirname } from 'path'
+import { openConversationAppendFile } from './conversation-persistence'
 
 import type { ConversationEvent } from '../shared/conversation-runtime'
 
@@ -47,11 +46,12 @@ export type AppendStream = {
 
 export type ConversationEventLogOptions = {
   flushDelayMs?: number
-  openStream?: (filePath: string) => Promise<AppendStream>
+  openStream?: (filePath: string, storageRoot?: string) => Promise<AppendStream>
   onError?: (filePath: string, error: unknown) => void
 }
 
 type FileLog = {
+  storageRoot?: string
   run: DeltaRun | null
   queued: string[]
   timer: NodeJS.Timeout | null
@@ -66,7 +66,7 @@ export class ConversationEventLog {
   // first write behind the old stream's last one.
   private readonly closing = new Map<string, Promise<void>>()
   private readonly flushDelayMs: number
-  private readonly openStream: (filePath: string) => Promise<AppendStream>
+  private readonly openStream: (filePath: string, storageRoot?: string) => Promise<AppendStream>
   private readonly onError: (filePath: string, error: unknown) => void
 
   constructor(options: ConversationEventLogOptions = {}) {
@@ -81,8 +81,9 @@ export class ConversationEventLog {
    * and the promise settles once both are on disk. Never rejects: a transcript
    * that cannot be written must not take the live chat down with it.
    */
-  append(filePath: string, event: ConversationEvent): Promise<void> {
+  append(filePath: string, event: ConversationEvent, storageRoot?: string): Promise<void> {
     const log = this.fileLog(filePath)
+    log.storageRoot ??= storageRoot
     if (isDelta(event)) {
       const text = deltaText(event)
       if (log.run && text !== null && canExtend(log.run, event)) {
@@ -185,12 +186,14 @@ export class ConversationEventLog {
     log.queued = []
     log.tail = log.tail.then(async () => {
       try {
-        if (!log.stream) log.stream = this.openStream(filePath)
+        if (!log.stream) log.stream = this.openStream(filePath, log.storageRoot)
         await (await log.stream).write(chunk)
       } catch (error) {
         // Drop the broken stream so the next write reopens rather than failing
         // forever on a handle that is gone.
+        const broken = log.stream
         log.stream = null
+        if (broken) await broken.then((stream) => stream.close()).catch(() => undefined)
         this.onError(filePath, error)
       }
     })
@@ -274,29 +277,12 @@ function isDeltaPart(value: unknown): value is DeltaPart {
   )
 }
 
-async function openAppendStream(filePath: string): Promise<AppendStream> {
-  await mkdir(dirname(filePath), { recursive: true })
-  const stream = createWriteStream(filePath, { flags: 'a', encoding: 'utf-8' })
-  let failure: Error | null = null
-  stream.on('error', (error) => {
-    failure = error
-  })
+async function openAppendStream(filePath: string, storageRoot = dirname(filePath)): Promise<AppendStream> {
+  const file = await openConversationAppendFile(storageRoot, filePath)
   return {
-    write: (chunk) =>
-      new Promise<void>((resolve, reject) => {
-        if (failure) {
-          reject(failure)
-          return
-        }
-        stream.write(chunk, (error) => (error ? reject(error) : resolve()))
-      }),
-    close: () =>
-      new Promise<void>((resolve) => {
-        if (stream.destroyed || failure) {
-          resolve()
-          return
-        }
-        stream.end(() => resolve())
-      }),
+    write: async (chunk) => {
+      await file.writeFile(chunk, 'utf8')
+    },
+    close: () => file.close(),
   }
 }

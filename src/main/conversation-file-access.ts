@@ -2,6 +2,19 @@ import { constants } from 'node:fs'
 import { lstat, open, realpath, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
+/** Preserve the selected root's spelling (for example a platform directory alias)
+ * without resolving any untrusted descendant symlinks away before inspection. */
+export async function resolveConversationPath(workspaceRoot: string, requestedPath: string) {
+  const lexicalRoot = resolve(workspaceRoot)
+  const root = await realpath(lexicalRoot)
+  const inside = (suffix: string) =>
+    !!suffix && suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
+  let suffix = relative(lexicalRoot, resolve(lexicalRoot, requestedPath))
+  if (!inside(suffix) && isAbsolute(requestedPath)) suffix = relative(root, requestedPath)
+  if (!inside(suffix)) throw new Error('File path is outside the conversation workspace.')
+  return { root, target: resolve(root, suffix), suffix }
+}
+
 /** Open an existing regular file, then verify the descriptor before any I/O.
  * O_NOFOLLOW protects the leaf; checking ancestors and inode again detects
  * directory replacement during open. Creation requires a native anchored open
@@ -12,13 +25,9 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 export async function openConfinedExistingFile(
   workspaceRoot: string,
   requestedPath: string,
-  access: 'read' | 'write' = 'read',
+  access: 'read' | 'write' | 'append' = 'read',
 ): Promise<FileHandle> {
-  const root = await realpath(workspaceRoot)
-  const target = resolve(root, requestedPath)
-  const suffix = relative(root, target)
-  if (!suffix || suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix))
-    throw new Error('File path is outside the conversation workspace.')
+  const { root, target, suffix } = await resolveConversationPath(workspaceRoot, requestedPath)
   const inspect = async () => {
     let path = root
     const parents: Array<{ dev: number; ino: number }> = []
@@ -31,7 +40,7 @@ export async function openConfinedExistingFile(
       const info = await lstat(path)
       if (info.isSymbolicLink()) throw new Error('Symbolic links are not available through conversation file access.')
       if (index === parts.length - 1) {
-        if (!info.isFile())
+        if (!info.isFile() || info.nlink !== 1)
           throw new Error('Only existing regular files are available through conversation file access.')
         return { info, parents }
       }
@@ -43,13 +52,17 @@ export async function openConfinedExistingFile(
   const before = await inspect()
   const file = await open(
     target,
-    (access === 'write' ? constants.O_WRONLY : constants.O_RDONLY) | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    (access === 'read' ? constants.O_RDONLY : constants.O_WRONLY) |
+      (access === 'append' ? constants.O_APPEND : 0) |
+      constants.O_NOFOLLOW |
+      constants.O_NONBLOCK,
   )
   try {
     const opened = await file.stat()
     const after = await inspect()
     if (
       !opened.isFile() ||
+      opened.nlink !== 1 ||
       opened.dev !== before.info.dev ||
       opened.ino !== before.info.ino ||
       opened.dev !== after.info.dev ||
@@ -69,7 +82,7 @@ export async function openConfinedExistingFile(
 export async function readBoundedConversationFile(file: FileHandle, limit: number): Promise<Buffer> {
   const before = await file.stat()
   if (!before.isFile() || before.size > limit) throw new Error('File exceeds the conversation read limit.')
-  const buffer = Buffer.alloc(limit + 1)
+  const buffer = Buffer.alloc(Math.min(before.size + 1, limit + 1))
   let offset = 0
   while (offset < buffer.length) {
     const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset)

@@ -1,6 +1,11 @@
-import { stat, readFile, rm, writeFile, mkdir, rename } from 'fs/promises'
-import { randomUUID } from 'crypto'
-import { dirname } from 'path'
+import { stat, readFile } from 'fs/promises'
+import {
+  MAX_CONVERSATION_METADATA_BYTES,
+  MAX_CONVERSATION_TRANSCRIPT_BYTES,
+  readConversationStorage,
+  removeConversationStorage,
+  writeConversationStorage,
+} from './conversation-persistence'
 
 import type {
   ConversationCliRuntimeOverrides,
@@ -138,7 +143,7 @@ export class ConversationRuntime {
   private readonly stat: typeof stat
   private readonly eventLog: ConversationEventLog
   private readonly threadIndex: ConversationIndex
-  private readonly readFile: typeof readFile
+  private readonly readFile?: typeof readFile
   private readonly now: () => number
   private readonly randomId: () => string
   private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
@@ -189,7 +194,7 @@ export class ConversationRuntime {
       },
       ...options.eventLog,
     })
-    this.readFile = options.readFile ?? readFile
+    this.readFile = options.readFile
     this.threadIndex = new ConversationIndex({
       flush: (path) => this.eventLog.flush(path),
       close: (path) => this.eventLog.close(path),
@@ -1043,8 +1048,8 @@ export class ConversationRuntime {
     if (!this.receipts.has(path)) {
       this.receipts.set(
         path,
-        readFile(path, 'utf8')
-          .then((raw) => new Map<string, ConversationSessionActionResult>(JSON.parse(raw)))
+        readConversationStorage(session.workspaceRoot, path, MAX_CONVERSATION_METADATA_BYTES)
+          .then((raw) => new Map<string, ConversationSessionActionResult>(JSON.parse(raw.toString('utf8'))))
           .catch((error) => {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Map()
             throw error
@@ -1060,16 +1065,7 @@ export class ConversationRuntime {
         const serialized = JSON.stringify(Array.from(receipts))
         const write = (this.receiptWrites.get(path) ?? Promise.resolve())
           .catch(() => undefined)
-          .then(async () => {
-            await mkdir(dirname(path), { recursive: true })
-            const temporary = `${path}.${randomUUID()}.tmp`
-            try {
-              await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 })
-              await rename(temporary, path)
-            } finally {
-              await rm(temporary, { force: true })
-            }
-          })
+          .then(() => writeConversationStorage(session.workspaceRoot, path, serialized))
         this.receiptWrites.set(path, write)
         await write
       }
@@ -1244,6 +1240,7 @@ export class ConversationRuntime {
     return this.eventLog.append(
       this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId),
       redactEvent(event),
+      session.workspaceRoot,
     )
   }
 
@@ -1266,7 +1263,7 @@ export class ConversationRuntime {
     ) {
       return { ok: false, code: 'invalid_input', message: 'Conversation and tool identity are required.' }
     }
-    return readToolDetail(this.toolDetailPath(input))
+    return readToolDetail(input.workspaceRoot, this.toolDetailPath(input))
   }
 
   /** Explicit deletion removes the paired detail store as well as the transcript. */
@@ -1321,7 +1318,7 @@ export class ConversationRuntime {
             payload: { conversationTitle: title, titleSource },
           }
           this.sequences.set(path, event.seq!)
-          await this.eventLog.append(path, event)
+          await this.eventLog.append(path, event, input.workspaceRoot)
           this.notify(event)
         })
       this.emissionTails.set(path, pending)
@@ -1357,11 +1354,9 @@ export class ConversationRuntime {
       for (const session of matching) await session.continuationTail
       await this.threadIndex.delete(input)
       await this.checkpoints.deleteConversation(input)
-      await rm(path, { force: true })
-      await rm(path.replace(/\.jsonl$/, '.tools'), { recursive: true, force: true })
       const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
       await this.receiptWrites.get(receiptsPath)
-      await rm(receiptsPath, { force: true })
+      await removeConversationStorage(input.workspaceRoot, receiptsPath)
       this.receipts.delete(receiptsPath)
       this.sequences.delete(path)
       this.emissionTails.delete(path)
@@ -1386,7 +1381,7 @@ export class ConversationRuntime {
     if (!toolUseId) return { ...event, payload }
     payload.toolUseId = toolUseId
     const path = this.toolDetailPath({ ...session, toolUseId })
-    const previous = await readToolDetail(path)
+    const previous = await readToolDetail(session.workspaceRoot, path)
     const detail: ConversationToolDetail = previous.ok
       ? previous.detail
       : { input: {}, output: '', status: 'ok', clipped: false }
@@ -1421,7 +1416,7 @@ export class ConversationRuntime {
       payload.truncated = binary || text.length > 4000
       payload.status = detail.status
     }
-    await writeToolDetail(path, detail)
+    await writeToolDetail(session.workspaceRoot, path, detail)
     return { ...event, payload }
   }
 
@@ -1448,9 +1443,14 @@ export class ConversationRuntime {
     await this.eventLog.flush(filePath)
     let raw: string
     try {
-      raw = (await this.readFile(filePath, 'utf-8')) as string
-    } catch {
-      return { ok: true, events: [] }
+      raw = this.readFile
+        ? ((await this.readFile(filePath, 'utf-8')) as string)
+        : (await readConversationStorage(input.workspaceRoot, filePath, MAX_CONVERSATION_TRANSCRIPT_BYTES)).toString(
+            'utf8',
+          )
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, events: [] }
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
     }
     const events: ConversationEvent[] = []
     for (const line of raw.split('\n')) {
@@ -1514,7 +1514,7 @@ export class ConversationRuntime {
     const transcript = await this.readTranscript(input, { all: true })
     if (!transcript.ok) throw new Error(transcript.message)
     for (const event of transcript.events) {
-      if (event.id.startsWith('conv_evt_replay_close_')) await this.eventLog.append(path, event)
+      if (event.id.startsWith('conv_evt_replay_close_')) await this.eventLog.append(path, event, input.workspaceRoot)
     }
     this.sequences.set(path, transcript.events.at(-1)?.seq ?? 0)
     await this.checkpoints.collectExpired(input.workspaceRoot)
@@ -1594,7 +1594,7 @@ export class ConversationRuntime {
               payload: { revertedAfterSeq: input.turnSeq, undo: input.undo === true },
             }
             this.sequences.set(path, event.seq!)
-            await this.eventLog.append(path, event)
+            await this.eventLog.append(path, event, input.key.workspaceRoot)
             for (const session of sharingFiles) {
               if (session.workspaceId === input.key.workspaceId && session.agentId === input.key.agentId)
                 this.updateExcerpts(session, event)

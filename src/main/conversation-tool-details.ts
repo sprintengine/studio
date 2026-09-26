@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { dirname } from 'path'
+import { readConversationStorage, writeConversationStorage } from './conversation-persistence'
 import type {
   ConversationToolDetail,
   ConversationToolDetailResult,
@@ -19,9 +18,14 @@ export function redactConversationValue<T>(value: T): T {
   ) as T
 }
 
-export async function readToolDetail(filePath: string): Promise<ConversationToolDetailResult> {
+export async function readToolDetail(workspaceRoot: string, filePath: string): Promise<ConversationToolDetailResult> {
   try {
-    return { ok: true, detail: JSON.parse(await readFile(filePath, 'utf8')) as ConversationToolDetail }
+    return {
+      ok: true,
+      detail: JSON.parse(
+        (await readConversationStorage(workspaceRoot, filePath, MAX_DETAIL_BYTES)).toString('utf8'),
+      ) as ConversationToolDetail,
+    }
   } catch (error) {
     return {
       ok: false,
@@ -31,7 +35,11 @@ export async function readToolDetail(filePath: string): Promise<ConversationTool
   }
 }
 
-export async function writeToolDetail(filePath: string, value: ConversationToolDetail): Promise<void> {
+export async function writeToolDetail(
+  workspaceRoot: string,
+  filePath: string,
+  value: ConversationToolDetail,
+): Promise<void> {
   const detail = redactConversationValue(value)
   let serialized = JSON.stringify(detail)
   if (Buffer.byteLength(serialized) > MAX_DETAIL_BYTES) {
@@ -49,8 +57,7 @@ export async function writeToolDetail(filePath: string, value: ConversationToolD
       budget = Math.floor(budget * 0.8)
     }
   }
-  await mkdir(dirname(filePath), { recursive: true })
-  await writeFile(filePath, serialized, 'utf8')
+  await writeConversationStorage(workspaceRoot, filePath, serialized)
 }
 
 function clipValue(value: ConversationJsonValue, budget: number): string {

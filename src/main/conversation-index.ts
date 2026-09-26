@@ -1,8 +1,14 @@
-import { createReadStream } from 'node:fs'
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { lstat, readdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { randomUUID } from 'node:crypto'
+import { openConfinedExistingFile } from './conversation-file-access'
+import {
+  MAX_CONVERSATION_METADATA_BYTES,
+  MAX_CONVERSATION_TRANSCRIPT_BYTES,
+  readConversationStorage,
+  removeConversationStorage,
+  writeConversationStorage,
+} from './conversation-persistence'
 import { workspaceSidecarPath } from './workspace-sidecar'
 import type { ConversationEvent, ConversationKey } from '../shared/conversation-runtime'
 import type {
@@ -48,14 +54,14 @@ export class ConversationIndex {
     return this.serialized(key, async () => {
       if (!(await safeDirectory(key))) return []
       const files = await this.files(key)
-      const cached = await readIndex(directory(key))
+      const cached = await readIndex(key.workspaceRoot, directory(key))
       if (cached && JSON.stringify(cached.files) === JSON.stringify(files)) return sorted(cached.threads)
       const threads: ConversationThread[] = []
       for (const file of files) {
-        const thread = await readThread(join(directory(key), file.file))
+        const thread = await readThread(key.workspaceRoot, join(directory(key), file.file))
         if (thread) threads.push(thread)
       }
-      await saveIndex(directory(key), { version: 2, threads, files })
+      await saveIndex(key.workspaceRoot, directory(key), { version: 2, threads, files })
       return sorted(threads)
     })
   }
@@ -66,8 +72,8 @@ export class ConversationIndex {
       if (!(await safeDirectory(key))) return null
       const path = conversationIndexTranscriptPath(key)
       await this.hooks.flush?.(path)
-      const thread = await readThread(path)
-      const cache = await readIndex(directory(key))
+      const thread = await readThread(key.workspaceRoot, path)
+      const cache = await readIndex(key.workspaceRoot, directory(key))
       if (cache) {
         const current = await fingerprint(path, `${segment(key.agentId)}.jsonl`)
         const files = cache.files.filter((file) => file.file !== `${segment(key.agentId)}.jsonl`)
@@ -75,15 +81,15 @@ export class ConversationIndex {
         files.sort((a, b) => a.file.localeCompare(b.file))
         const threads = cache.threads.filter((entry) => entry.agentId !== key.agentId)
         if (thread) threads.push(thread)
-        await saveIndex(directory(key), { version: 2, threads, files })
+        await saveIndex(key.workspaceRoot, directory(key), { version: 2, threads, files })
       } else {
         const files = await this.files(key)
         const threads: ConversationThread[] = []
         for (const file of files) {
-          const entry = await readThread(join(directory(key), file.file))
+          const entry = await readThread(key.workspaceRoot, join(directory(key), file.file))
           if (entry) threads.push(entry)
         }
-        await saveIndex(directory(key), { version: 2, threads, files })
+        await saveIndex(key.workspaceRoot, directory(key), { version: 2, threads, files })
       }
       return thread
     })
@@ -104,7 +110,7 @@ export class ConversationIndex {
         tails = new Map<string, string>(),
         turnSeq = new Map<string, number>()
       let ordinal = 0
-      for await (const event of readEvents(path, options.signal)) {
+      for await (const event of readEvents(input.workspaceRoot, path, options.signal)) {
         ordinal = event.seq ?? ordinal + 1
         const turnId = text(event.payload?.turnId)
         if (event.type === 'user_message') turnSeq.set(turnId, ordinal)
@@ -147,17 +153,16 @@ export class ConversationIndex {
         throw error
       })
       if (file?.isSymbolicLink()) throw new Error('A conversation transcript cannot be a symbolic link.')
-      if (file) await unlink(path)
+      if (file) await removeConversationStorage(key.workspaceRoot, path)
       const tools = join(directory(key), `${segment(key.agentId)}.tools`)
       const detail = await lstat(tools).catch((error) => {
         if (isMissing(error)) return null
         throw error
       })
-      if (detail?.isSymbolicLink()) await unlink(tools)
-      else if (detail?.isDirectory()) await rm(tools, { recursive: true })
-      const cache = await readIndex(directory(key))
+      if (detail) await removeConversationStorage(key.workspaceRoot, tools)
+      const cache = await readIndex(key.workspaceRoot, directory(key))
       if (cache)
-        await saveIndex(directory(key), {
+        await saveIndex(key.workspaceRoot, directory(key), {
           ...cache,
           threads: cache.threads.filter((entry) => entry.agentId !== key.agentId),
           files: cache.files.filter((entry) => entry.file !== `${segment(key.agentId)}.jsonl`),
@@ -204,10 +209,21 @@ async function fingerprint(path: string, file: string): Promise<Fingerprint | nu
     throw error
   }
 }
-async function* readEvents(path: string, signal?: AbortSignal): AsyncIterable<ConversationEvent> {
+async function* readEvents(root: string, path: string, signal?: AbortSignal): AsyncIterable<ConversationEvent> {
   const info = await fingerprint(path, '')
   if (!info) return
-  const stream = createReadStream(path, { encoding: 'utf8', signal })
+  const file = await openConfinedExistingFile(root, path)
+  if ((await file.stat()).size > MAX_CONVERSATION_TRANSCRIPT_BYTES) {
+    await file.close()
+    throw new Error('Conversation transcript exceeds the read limit.')
+  }
+  const stream = file.createReadStream({ encoding: 'utf8', signal })
+  let bytes = 0
+  stream.on('data', (chunk) => {
+    bytes += Buffer.byteLength(chunk)
+    if (bytes > MAX_CONVERSATION_TRANSCRIPT_BYTES)
+      stream.destroy(new Error('Conversation transcript exceeds the read limit.'))
+  })
   const lines = createInterface({ input: stream, crlfDelay: Infinity })
   try {
     for await (const line of lines) {
@@ -223,13 +239,14 @@ async function* readEvents(path: string, signal?: AbortSignal): AsyncIterable<Co
   } finally {
     lines.close()
     stream.destroy()
+    await file.close()
   }
 }
-async function readThread(path: string): Promise<ConversationThread | null> {
+async function readThread(root: string, path: string): Promise<ConversationThread | null> {
   let thread: ConversationThread | null = null
   const turns = new Set<string>()
   const costs = new Map<string, number>()
-  for await (const event of readEvents(path)) {
+  for await (const event of readEvents(root, path)) {
     thread ??= {
       agentId: event.agentId,
       title: 'New conversation',
@@ -281,11 +298,13 @@ export function firstMessageTitle(value: string): string {
   return value.trim().replace(/\s+/gu, ' ').slice(0, 60) || 'New conversation'
 }
 const sorted = (threads: ConversationThread[]) => [...threads].sort((a, b) => b.updatedAt - a.updatedAt)
-async function readIndex(path: string): Promise<Index | null> {
+async function readIndex(root: string, path: string): Promise<Index | null> {
   try {
     const file = join(path, 'index.json')
     if ((await lstat(file)).isSymbolicLink()) return null
-    const value = record(JSON.parse(await readFile(file, 'utf8')))
+    const value = record(
+      JSON.parse((await readConversationStorage(root, file, MAX_CONVERSATION_METADATA_BYTES)).toString('utf8')),
+    )
     if (value.version !== 2 || !Array.isArray(value.threads) || !Array.isArray(value.files)) return null
     if (
       !value.threads.every((thread) => {
@@ -325,15 +344,6 @@ async function readIndex(path: string): Promise<Index | null> {
     return null
   }
 }
-async function saveIndex(path: string, value: Index): Promise<void> {
-  await mkdir(path, { recursive: true })
-  const temp = join(path, `index.${randomUUID()}.tmp`)
-  try {
-    await writeFile(temp, `${JSON.stringify(value)}\n`, { mode: 0o600 })
-    await rename(temp, join(path, 'index.json'))
-  } finally {
-    await unlink(temp).catch((error) => {
-      if (!isMissing(error)) throw error
-    })
-  }
+async function saveIndex(root: string, path: string, value: Index): Promise<void> {
+  await writeConversationStorage(root, join(path, 'index.json'), `${JSON.stringify(value)}\n`)
 }

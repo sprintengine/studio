@@ -225,7 +225,7 @@ test('the default stream appends to a real file, creating its directory', async 
       event('content_delta', { turnId: 't1', text: 'b' }),
       event('turn_completed', { turnId: 't1' }),
     ]
-    for (const item of emitted) await log.append(filePath, item)
+    for (const item of emitted) await log.append(filePath, item, root)
     await log.closeAll()
     const raw = await readFile(filePath, 'utf-8')
     assert.equal(raw.trim().split('\n').length, 3)
