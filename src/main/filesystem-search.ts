@@ -11,11 +11,15 @@ import type {
 import { describeRipgrepSpawnFailure, markRipgrepUnusable, ripgrepBinary, type RipgrepBinary } from './ripgrep-binary'
 import { watchEventPaths } from '../shared/file-watch-event'
 import { getWatchHub, type WatchHub, type WatchSubscription } from './workspace-watch-hub'
+import ignore, { type Ignore } from 'ignore'
+import { rankMentionCandidates } from '../shared/conversation/searchRanking'
+import { openConfinedExistingFile, readBoundedConversationFile } from './conversation-file-access'
 
 export type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
+  purpose?: 'mention'
 }
 
 export type ContentSearchRequest = FileSearchRequest
@@ -461,6 +465,9 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   if (superseded())
     return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
 
+  if (input.purpose === 'mention')
+    return withFileSearchDiagnostics(await searchMentionPaths(rootPath, query, limit, superseded), startedAt)
+
   const listing = await fileListCache.list(rootPath)
   // Read after the listing, which is where a binary that will not start is
   // found out and given up on.
@@ -741,6 +748,106 @@ function listFilesWithRipgrep(
 }
 
 const WALKER_EXCLUDED_NAMES = new Set(FILE_SEARCH_DEFAULT_EXCLUDES)
+
+type MentionIgnoreLayer = { prefix: string; rules: Ignore; priority: number }
+
+/** Mention search ranks the whole bounded walk, not an arbitrary first page.
+ * Each ignore file stays relative to its own directory. Later/deeper rules
+ * override matching ancestors; ignore-file precedence follows the search engine.
+ * Ignored directories are pruned, so a child cannot resurrect an excluded parent.
+ */
+async function searchMentionPaths(
+  rootPath: string,
+  query: string,
+  limit: number,
+  superseded: () => boolean,
+): Promise<FileSearchEngineResult> {
+  const pending: Array<{ path: string; layers: MentionIgnoreLayer[] }> = [{ path: '', layers: [] }]
+  let best: Array<{ path: string; kind: 'file' | 'folder' }> = []
+  let visited = 0,
+    matched = 0,
+    ruleBytes = 0,
+    truncated = false
+  const deadline = Date.now() + 5000
+  while (pending.length) {
+    if (superseded()) return { ok: true, results: [], truncated: false, engine: 'walker' }
+    if (visited >= 50_000 || Date.now() > deadline) {
+      truncated = true
+      break
+    }
+    const directory = pending.pop()!
+    const layers = [...directory.layers]
+    let readableRules = true
+    for (const [priority, name] of ['.gitignore', '.ignore', '.rgignore'].entries()) {
+      let file
+      try {
+        file = await openConfinedExistingFile(rootPath, join(directory.path, name))
+        const body = await readBoundedConversationFile(file, 64 * 1024)
+        ruleBytes += body.length
+        if (ruleBytes > 1024 * 1024) {
+          readableRules = false
+          break
+        }
+        layers.push({
+          prefix: directory.path ? `${directory.path}/` : '',
+          rules: ignore({ ignorecase: false }).add(body.toString('utf8')),
+          priority,
+        })
+      } catch (error) {
+        // An unreadable/oversized rule file must not expose paths it may exclude.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') readableRules = false
+      } finally {
+        await file?.close()
+      }
+    }
+    if (!readableRules) {
+      truncated = true
+      continue
+    }
+    layers.sort((a, b) => a.priority - b.priority)
+    let dir
+    try {
+      dir = await opendir(join(rootPath, directory.path))
+    } catch {
+      continue
+    }
+    try {
+      for await (const entry of dir) {
+        if (superseded()) return { ok: true, results: [], truncated: false, engine: 'walker' }
+        if (++visited > 50_000 || Date.now() > deadline) {
+          truncated = true
+          break
+        }
+        if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue
+        const isDir = entry.isDirectory()
+        if ((!isDir && !entry.isFile()) || (isDir && WALKER_EXCLUDED_NAMES.has(entry.name))) continue
+        const path = directory.path ? `${directory.path}/${entry.name}` : entry.name
+        let ignored = false
+        for (const layer of layers) {
+          const match = layer.rules.test(path.slice(layer.prefix.length) + (isDir ? '/' : ''))
+          if (match.ignored) ignored = true
+          else if (match.unignored) ignored = false
+        }
+        if (ignored) continue
+        if (isDir) pending.push({ path, layers })
+        const candidate = { path, kind: isDir ? ('folder' as const) : ('file' as const) }
+        const ranked = rankMentionCandidates([candidate], query, 1)
+        if (ranked.length) {
+          matched++
+          best = rankMentionCandidates([...best, candidate], query, limit)
+        }
+      }
+    } catch {
+      truncated = true
+    }
+  }
+  return {
+    ok: true,
+    engine: 'walker',
+    truncated: truncated || matched > limit,
+    results: best.map((entry) => ({ ...toFileSearchEntry(rootPath, entry.path), isDir: entry.kind === 'folder' })),
+  }
+}
 
 /**
  * The files under `rootPath`, root-relative, as close to `rg --files` as a

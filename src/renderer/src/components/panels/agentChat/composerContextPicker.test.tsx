@@ -31,6 +31,9 @@ test('mention candidates include confined parent folders and rank exact basename
     { path: 'src/app.ts', kind: 'file' },
   ])
   expect(
+    fileMentionCandidates('/Users/dev/project', [{ ...file('/Users/dev/project/empty'), isDir: true }], 'empty'),
+  ).toEqual([{ path: 'empty', kind: 'folder' }])
+  expect(
     fileMentionCandidates(
       '/Users/dev/project',
       Array.from({ length: 70 }, (_, index) => file(`file-${index}.ts`)),
@@ -88,7 +91,7 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1)
     })
-    expect(searchFiles).toHaveBeenCalledWith('/Users/dev/project', 'fi', { limit: 50 })
+    expect(searchFiles).toHaveBeenCalledWith('/Users/dev/project', 'fi', { limit: 50, purpose: 'mention' })
     await act(async () => root.render(createElement(Harness, { query: 'file' })))
     expect(cancelFileSearch).toHaveBeenCalledOnce()
     await act(async () => {

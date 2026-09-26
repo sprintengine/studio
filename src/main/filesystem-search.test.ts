@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, test, vi } from 'vitest'
@@ -65,6 +65,59 @@ test('explicit cancellation fences a file search even while its root is being ch
   assert.deepEqual(result.ok ? result.results : null, [])
   const fresh = await searchFiles(owner, { rootPath: root, query: 'app' })
   assert.ok(fresh.ok && fresh.results.length === 2)
+})
+
+test('mention search ranks past the first fifty matches, supports subsequences and empty folders', async () => {
+  const root = await project('mentions-ranked')
+  for (let index = 0; index < 70; index++) await writeFile(join(root, `app-${index}.ts`), '')
+  await mkdir(join(root, 'zz-empty'), { recursive: true })
+  await writeFile(join(root, 'src', 'deep', 'app'), '')
+  await writeFile(join(root, 'src', 'UserProfile.ts'), '')
+  const search = (query: string) => searchFiles(++sender, { rootPath: root, query, limit: 50, purpose: 'mention' })
+  const ranked = await search('app')
+  assert.ok(ranked.ok)
+  assert.equal(ranked.results[0].path, join(root, 'src', 'deep', 'app'))
+  assert.equal(ranked.results.length, 50)
+  assert.equal(ranked.truncated, true)
+  const subsequence = await search('usrprf')
+  assert.ok(subsequence.ok)
+  assert.equal(subsequence.results[0].name, 'UserProfile.ts')
+  const folder = await search('zz-empty')
+  assert.ok(folder.ok)
+  assert.deepEqual(
+    folder.results.map(({ name, isDir }) => ({ name, isDir })),
+    [{ name: 'zz-empty', isDir: true }],
+  )
+  const owner = ++sender
+  const cancelled = searchFiles(owner, { rootPath: root, query: 'app', purpose: 'mention' })
+  cancelActiveFileSearch(owner)
+  const result = await cancelled
+  assert.ok(result.ok && result.results.length === 0)
+})
+
+test('mention walks honor nested ignore precedence, exceptions and excluded parent directories', async () => {
+  const root = await project('mentions-ignored')
+  await writeFile(join(root, '.gitignore'), '*.log\nblocked/\n')
+  await writeFile(join(root, '.ignore'), 'ignored/\n')
+  await writeFile(join(root, '.rgignore'), 'rg-hidden/\n!src/keep.log\n')
+  await mkdir(join(root, 'blocked'), { recursive: true })
+  await mkdir(join(root, 'ignored'), { recursive: true })
+  await mkdir(join(root, 'rg-hidden'), { recursive: true })
+  await writeFile(join(root, 'src', '.gitignore'), '!nested.log\nkeep.log\n')
+  await writeFile(join(root, 'src', 'nested.log'), '')
+  await writeFile(join(root, 'src', 'keep.log'), '')
+  await writeFile(join(root, 'src', 'hidden.log'), '')
+  await writeFile(join(root, 'blocked', '.gitignore'), '!rescued.log\n')
+  await writeFile(join(root, 'blocked', 'rescued.log'), '')
+  await symlink(join(root, 'src'), join(root, 'linked-src'))
+  const search = (query: string) => searchFiles(++sender, { rootPath: root, query, purpose: 'mention' })
+  const logs = await search('log')
+  assert.ok(logs.ok)
+  assert.deepEqual(logs.results.map((entry) => entry.name).sort(), ['keep.log', 'nested.log'])
+  for (const query of ['blocked', 'ignored', 'rg-hidden', 'linked-src']) {
+    const result = await search(query)
+    assert.ok(result.ok && result.results.length === 0, query)
+  }
 })
 
 test('the bundled ripgrep lists and greps a folder', async () => {

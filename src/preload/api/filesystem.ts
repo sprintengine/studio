@@ -20,8 +20,12 @@ import type {
 
 export const filesystemApi = {
   readdir: (path: string) => ipcRenderer.invoke('fs:readdir', path),
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number }): Promise<FileSearchResult> =>
-    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit }),
+  searchFiles: (
+    rootPath: string,
+    query: string,
+    options?: { limit?: number; purpose?: 'mention' },
+  ): Promise<FileSearchResult> =>
+    ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit, purpose: options?.purpose }),
   searchContent: (rootPath: string, query: string, options?: { limit?: number }): Promise<ContentSearchResult> =>
     ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit }),
   cancelContentSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-content-search'),

@@ -6,6 +6,7 @@ type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
+  purpose?: 'mention'
 }
 
 type ContentSearchRequest = FileSearchRequest

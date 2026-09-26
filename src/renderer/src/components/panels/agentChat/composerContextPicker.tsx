@@ -26,7 +26,7 @@ export function fileMentionCandidates(root: string, files: FileSearchEntry[], qu
     const normalized = file.path.replaceAll('\\', '/')
     const path = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized
     if (!path || path.startsWith('/') || /^[A-Za-z]:\//u.test(path) || path.split('/').includes('..')) continue
-    candidates.set(path, { path, kind: 'file' })
+    candidates.set(path, { path, kind: file.isDir ? 'folder' : 'file' })
     const parts = path.split('/')
     parts.pop()
     while (parts.length) {
@@ -52,7 +52,7 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     const timer = window.setTimeout(() => {
       started = true
       void window.api
-        .searchFiles(workspaceRoot, query, { limit: 50 })
+        .searchFiles(workspaceRoot, query, { limit: 50, purpose: 'mention' })
         .then((result) => {
           if (cancelled) return
           setState(

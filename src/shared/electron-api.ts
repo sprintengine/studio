@@ -843,7 +843,11 @@ export type ElectronApi = {
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
+  searchFiles: (
+    rootPath: string,
+    query: string,
+    options?: { limit?: number; purpose?: 'mention' },
+  ) => Promise<FileSearchResult>
   searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>
   cancelFileSearch: () => Promise<void>

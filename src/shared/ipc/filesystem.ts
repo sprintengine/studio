@@ -27,7 +27,7 @@ export type FileSearchEntry = {
   name: string
   path: string
   parentPath: string
-  isDir: false
+  isDir: boolean
 }
 
 /**
