@@ -204,6 +204,12 @@ export class ConversationRuntime {
   getProviderCapabilities(providerId: string) {
     return this.getAdapterForProviderId(providerId)?.capabilities
   }
+  getNativeProviderModels(providerId: string) {
+    const adapter = this.getAdapterForProviderId(providerId)
+    return adapter?.sessions === 'stateful'
+      ? adapter.listModels().map((id) => ({ id, displayName: id === 'default' ? 'CLI default' : id }))
+      : undefined
+  }
 
   async startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())

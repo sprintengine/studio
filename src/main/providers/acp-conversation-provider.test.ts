@@ -20,7 +20,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[]});
  if(m.method==='session/new'||m.method==='session/load'){
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
-   return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[]});
+   return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
  }
  if(m.method==='session/set_mode')return result(m.id,{});
  if(m.method==='session/cancel'){if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
@@ -104,6 +104,7 @@ async function turn(f: Awaited<ReturnType<typeof fixture>>, message: string) {
 test('ACP streams text, reasoning, typed edits, permissions, usage and workspace writes over stdio', async () => {
   const f = await fixture()
   try {
+    expect(f.provider.listModels()).toEqual(['default', 'model-one', 'model-two'])
     const events = await turn(f, 'write')
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining([

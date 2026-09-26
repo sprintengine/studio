@@ -176,6 +176,8 @@ export function createConversationIpcHandlers(
       }
     },
     listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> {
+      const nativeModels = runtime.getNativeProviderModels(input.providerId)
+      if (nativeModels) return Promise.resolve({ ok: true, models: nativeModels })
       return listOpenAiCompatibleModels({
         providerId: input.providerId,
         getProviderById: getConversationProviderById,

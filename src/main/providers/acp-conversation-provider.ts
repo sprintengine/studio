@@ -177,6 +177,7 @@ export async function confinedAcpPath(cwd: string, requested: string, writing = 
 
 export function createAcpConversationProvider(profile: AcpProfile, options: Options = {}): ConversationProviderAdapter {
   const sessions = new Map<string, State>()
+  const modelIds = new Set<string>(['default'])
   let requestSequence = 0
   const event = (
     state: State,
@@ -460,8 +461,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           state.defaultMode = modeConfig.currentValue
         }
         state.capabilities.planMode = state.modes.includes('plan')
+        const modelConfig = session.configOptions?.find((option) => option.category === 'model')
+        if (modelConfig && 'options' in modelConfig) {
+          for (const option of modelConfig.options) {
+            for (const id of 'value' in option ? [option.value] : option.options.map((entry) => entry.value))
+              modelIds.add(id)
+          }
+        }
         if (state.input.modelId !== 'default') {
-          const modelConfig = session.configOptions?.find((option) => option.category === 'model')
           if (modelConfig)
             await connection.setSessionConfigOption({
               sessionId: state.nativeId!,
@@ -499,7 +506,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     displayName: profile.displayName,
     capabilities: baseCapabilities(profile),
     sessions: 'stateful',
-    listModels: () => ['default'],
+    listModels: () => Array.from(modelIds),
     async startSession(input) {
       if (input.permissionPreset && !baseCapabilities(profile).permissionPresets!.includes(input.permissionPreset))
         throw new Error(
