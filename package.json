@@ -212,6 +212,7 @@
     ]
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.5.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.273",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
