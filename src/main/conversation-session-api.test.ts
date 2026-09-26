@@ -658,6 +658,7 @@ test('remembered approvals auto-resolve later matching tools and persistence fai
   const storeRoot = join(workspaceRoot, 'settings')
   const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
   const mock = createMockConversationProvider()
+  let approvalHints: Record<string, unknown> = {}
   const adapter = {
     ...mock,
     sendTurn(input: import('./providers/conversation-provider-adapter').MockAdapterTurnInput) {
@@ -670,6 +671,7 @@ test('remembered approvals auto-resolve later matching tools and persistence fai
           kind: 'tool',
           toolKind: 'file_read',
           input: { file_path: join(workspaceRoot, 'file.txt') },
+          ...approvalHints,
         }),
       ]
     },
@@ -706,8 +708,33 @@ test('remembered approvals auto-resolve later matching tools and persistence fai
     })
     await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'second' })
     await completed
+    // Terminal publication precedes the adapter response's final turn-lock
+    // cleanup; start the next user action on the next event-loop turn.
+    await new Promise<void>((resolve) => setImmediate(resolve))
     stop()
     assert.equal(events.filter((value) => value.type === 'approval_resolved').at(-1)?.payload?.autoApproved, true)
+    const automaticRequest = events.filter((value) => value.type === 'approval_requested').at(-1)!
+    const automaticResolution = events.filter((value) => value.type === 'approval_resolved').at(-1)!
+    assert.equal(automaticRequest.payload?.autoApproved, true)
+    assert.equal(typeof automaticRequest.payload?.ruleLabel, 'string')
+    assert.ok(events.indexOf(automaticRequest) < events.indexOf(automaticResolution))
+    for (const hint of ['defaultToNo', 'suppressAlwaysAllowRule']) {
+      approvalHints = { [hint]: true }
+      assert.ok((await runtime.sendTurn({ sessionId: started.session.sessionId, message: `flagged ${hint}` })).ok)
+      const request = events.filter((value) => value.type === 'approval_requested').at(-1)!
+      assert.notEqual(request.payload?.autoApproved, true)
+      assert.equal(request.payload?.ruleLabel, undefined)
+      assert.ok(
+        (
+          await runtime.respondToRequest({
+            sessionId: started.session.sessionId,
+            requestId: String(request.payload?.requestId),
+            approved: false,
+          })
+        ).ok,
+      )
+    }
+    approvalHints = {}
     await mkdir(storeRoot, { recursive: true })
     await writeFile(join(storeRoot, 'conversation-approval-rules.json'), '{bad')
     const broken = new ConversationRuntime({

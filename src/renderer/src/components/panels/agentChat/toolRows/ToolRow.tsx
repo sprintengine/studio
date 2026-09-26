@@ -179,15 +179,19 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   }
   return (
     <div ref={rowRef} data-tool-kind={presentation.icon}>
-      <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span aria-hidden="true">{open ? '⌄' : '›'}</span>
-        <StatusDot tone={running ? 'accent' : presentation.tone === 'error' ? 'error' : 'neutral'} pulse={running} />
-        <span className="min-w-0 flex-1 truncate">{presentation.title}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <RowButton density="row" className="min-w-0 flex-1" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span aria-hidden="true">{open ? '⌄' : '›'}</span>
+          <StatusDot tone={running ? 'accent' : presentation.tone === 'error' ? 'error' : 'neutral'} pulse={running} />
+          <span className="min-w-0 flex-1 truncate">{presentation.title}</span>
+          {running ? <span className="sr-only">running</span> : null}
+        </RowButton>
         {presentation.subtitle ? (
-          <span className="truncate text-meta text-[color:var(--sem-color-text-muted)]">{presentation.subtitle}</span>
+          <span className="min-w-0 truncate text-meta text-[color:var(--sem-color-text-muted)]">
+            {conversationText(presentation.subtitle, 'inlineCode')}
+          </span>
         ) : null}
-        {running ? <span className="sr-only">running</span> : null}
-      </RowButton>
+      </div>
       {open ? (
         <div className={`ml-2 px-3 py-2 text-meta ${fullHeight ? '' : 'max-h-80 overflow-auto'}`}>
           <ToolBody tool={tool} detail={detail} />

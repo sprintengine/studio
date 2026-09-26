@@ -23,6 +23,17 @@ test('command body retains command, ANSI text, and a neutral nonzero exit status
   expect(renderToStaticMarkup(<ToolRow tool={row} />)).not.toContain('data-tone="error"')
 })
 
+test('collapsed file subtitles are independent links, never nested inside the disclosure button', () => {
+  const html = renderToStaticMarkup(
+    <ToolRow tool={tool({ name: 'Read', toolKind: 'file_read', input: { path: 'src/app.ts' } })} />,
+  )
+  const document = new JSDOM(html).window.document
+  const link = document.querySelector('[aria-label="Open src/app.ts"]')
+  expect(link).not.toBeNull()
+  expect(link?.parentElement?.closest('button')).toBeNull()
+  expect(document.querySelector('button[aria-expanded="false"]')).not.toBeNull()
+})
+
 test('read previews, edits, todos, searches, and structured tools have concrete bodies', () => {
   const read = renderToStaticMarkup(
     <ToolBody

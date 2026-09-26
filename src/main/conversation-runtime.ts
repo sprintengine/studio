@@ -938,6 +938,7 @@ export class ConversationRuntime {
       session.checkpointNoticeSent = true
     }
     this.trackStatefulSessionEvent(session, stamped)
+    let automaticRequestId: string | undefined
     if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
       const request: ApprovalRuleRequest = {
         action: String(stamped.payload.action ?? ''),
@@ -949,14 +950,15 @@ export class ConversationRuntime {
       }
       const requestId = stamped.payload.requestId
       session.approvalRequests.set(requestId, request)
-      void this.approvalRules
-        .match(session.workspaceRoot, session.sessionId, request)
-        .then(async (rule) => {
-          if (!rule || !session.approvalRequests.has(requestId) || session.status === 'stopped') return
-          session.automaticApprovals.set(requestId, rule.label)
-          await this.respondToRequest({ sessionId: session.sessionId, requestId, approved: true, decision: 'once' })
-        })
-        .catch(() => undefined)
+      // Decide whether a human is needed before publication, so remembered
+      // grants never briefly trigger OS attention.
+      // Resolution starts only after this request has persisted and published.
+      const rule = await this.approvalRules.match(session.workspaceRoot, session.sessionId, request).catch(() => null)
+      if (rule && session.approvalRequests.has(requestId) && session.status !== 'stopped') {
+        session.automaticApprovals.set(requestId, rule.label)
+        stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel: rule.label }
+        automaticRequestId = requestId
+      }
     } else if (stamped.type === 'approval_resolved' && typeof stamped.payload?.requestId === 'string') {
       const requestId = stamped.payload.requestId
       const ruleLabel = session.automaticApprovals.get(requestId)
@@ -982,6 +984,13 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     }
     this.notify(stamped)
+    if (automaticRequestId)
+      void this.respondToRequest({
+        sessionId: session.sessionId,
+        requestId: automaticRequestId,
+        approved: true,
+        decision: 'once',
+      }).catch(() => undefined)
     return stamped
   }
 

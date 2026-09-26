@@ -909,11 +909,16 @@ test('conversation-runtime', async () => {
         }),
       )
       sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
-      // The continuation channel is serialized off the send path, so wait for the
-      // late child rather than assuming it landed.
-      for (let i = 0; i < 100 && !events.some((event) => event.payload?.toolCallId === 'child_2'); i += 1) {
+      // The continuation channel is serialized off the send path. Its terminal
+      // event also drains the index refresh before fixture files are removed.
+      for (
+        let i = 0;
+        i < 100 && !events.some((event) => event.type === 'turn_completed' && event.payload?.turnId === 'cont_turn_1');
+        i += 1
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
+      assert.ok(events.some((event) => event.type === 'turn_completed' && event.payload?.turnId === 'cont_turn_1'))
 
       const laneRows = events.filter((event) => event.type === 'tool_started' || event.type === 'tool_output')
       assert.deepEqual(
