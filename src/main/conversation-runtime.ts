@@ -324,10 +324,12 @@ export class ConversationRuntime {
   }
 
   async sendTurn(
-    input: ConversationSendTurnInput & { requireSafePermissions?: boolean },
+    input: ConversationSendTurnInput & { requireSafePermissions?: boolean; sourceCommandId?: string },
   ): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () => this.sendTurn({ ...input, commandId: undefined }))
+      return this.runCommand(input.sessionId, input.commandId, () =>
+        this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (this.revertingScopes.has(session.fileScope))
@@ -412,6 +414,7 @@ export class ConversationRuntime {
           turnId,
           text: message,
           ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
+          ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
           ...(skills.ids.length ? { skills: skills.ids } : {}),
           ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
         }),

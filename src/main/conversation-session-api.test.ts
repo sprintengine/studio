@@ -224,6 +224,59 @@ test('tool detail files are capped and preserve their head and tail', async () =
   }
 })
 
+test('three simultaneous approvals resolve in any order without losing pending requests', async () => {
+  const resolved: string[] = []
+  const adapter: ConversationProviderAdapter = {
+    ...createMockConversationProvider(),
+    sessions: 'stateful',
+    sendTurn(input) {
+      return [
+        event(input, 'turn_started', { turnId: input.turnId }),
+        ...['first', 'second', 'third'].map((requestId) =>
+          event(input, 'approval_requested', {
+            turnId: input.turnId,
+            requestId,
+            kind: 'tool',
+            action: 'Read',
+            input: { path: 'example.txt' },
+          }),
+        ),
+      ]
+    },
+    resolveApproval(input) {
+      resolved.push(input.requestId)
+      return [
+        event(input, 'approval_resolved', {
+          turnId: input.turnId,
+          requestId: input.requestId,
+          approved: input.approved,
+        }),
+        ...(resolved.length === 3 ? [event(input, 'turn_completed', { turnId: input.turnId })] : []),
+      ]
+    },
+  }
+  const f = await fixture(adapter)
+  try {
+    assert.ok((await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'Read three files' })).ok)
+    for (const requestId of ['third', 'first', 'second']) {
+      const result = await f.runtime.respondToRequest({
+        sessionId: f.sessionId,
+        requestId,
+        approved: true,
+        decision: 'once',
+      })
+      assert.ok(result.ok, result.ok ? '' : result.message)
+    }
+    assert.deepEqual(resolved, ['third', 'first', 'second'])
+    const replay = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
+    assert.ok(replay.ok)
+    assert.equal(replay.events.filter((value) => value.type === 'approval_resolved').length, 3)
+    assert.equal(replay.events.filter((value) => value.type === 'turn_completed').length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('concurrent duplicate commands and receipts after restart produce one user message', async () => {
   const f = await fixture()
   try {
@@ -243,6 +296,7 @@ test('concurrent duplicate commands and receipts after restart produce one user 
       assert.deepEqual(await restarted.sendTurn({ ...input, sessionId: session.session.sessionId }), first)
       const replay = await restarted.readTranscript(f.key)
       assert.equal(replay.ok && replay.events.filter((e) => e.type === 'user_message').length, 1)
+      assert.equal(replay.ok && replay.events.find((e) => e.type === 'user_message')?.payload?.commandId, commandId)
       if (replay.ok)
         assert.deepEqual(
           replay.events.map((e) => e.seq),

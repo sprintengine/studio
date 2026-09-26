@@ -2591,11 +2591,7 @@ export default function WorkspaceManager() {
   // the chat composer, typed and unsent — a conversation has no startup prompt
   // to hand a process, and auto-sending someone's first line is not the same
   // action as starting a chat.
-  const openConversationInNewChat = (
-    folderPath?: string | null,
-    startupPrompt?: string,
-    skills?: WorkspaceSkill[],
-  ) => {
+  const openConversationInNewChat = (folderPath?: string | null, startupPrompt?: string, skills?: WorkspaceSkill[]) => {
     if (!conversationDefaultOption) return
     const { providerId, modelId, modelLabel } = conversationDefaultOption
     const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', {})
