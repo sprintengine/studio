@@ -242,6 +242,12 @@ export function ChangedFilesCard({
     const generation = ++request.current
     setDetail(undefined)
     if (!file || !context?.agentId) return
+    if (file.binary) {
+      setLoading(false)
+      setError(undefined)
+      setDetail({ ok: true, diff: { files: [file], submodulesExcluded: true } })
+      return
+    }
     setLoading(true)
     setError(undefined)
     try {
@@ -293,7 +299,7 @@ export function ChangedFilesCard({
       aria-label="Turn file changes"
     >
       <GhostButton size="inline" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {summary.files} files changed · +{summary.addedLines} −{summary.removedLines}
+        {summary.files} {summary.files === 1 ? 'file' : 'files'} changed · +{summary.addedLines} −{summary.removedLines}
         {reverted ? ' · Reverted' : ''}
       </GhostButton>
       {open ? (

@@ -166,7 +166,21 @@ function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | un
   return kind ? `markdown-change-block markdown-change-${kind}` : null
 }
 
-export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
+const StreamingContext = React.createContext(false)
+
+function StreamingCode({
+  component: Code,
+  ...props
+}: {
+  component: NonNullable<MarkdownRenderOptions['codeBlock']>
+  code: string
+  language?: string
+  filename?: string
+}): React.ReactNode {
+  return <Code {...props} streaming={React.useContext(StreamingContext)} />
+}
+
+function markdownComponents(options: MarkdownRenderOptions): Components {
   const { lineChanges, links } = options
   const scale = MARKDOWN_SCALE[options.density ?? 'document']
   const prose = (children: React.ReactNode) =>
@@ -275,11 +289,11 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
           : undefined
         const meta = (codeNode.data as { meta?: string } | undefined)?.meta
         return (
-          <Code
+          <StreamingCode
+            component={Code}
             code={text.replace(/\n$/, '')}
             language={languageClass ? String(languageClass).slice(9) : undefined}
             filename={meta?.match(/title="([^"]+)"/)?.[1]}
-            streaming={options.streaming}
           />
         )
       }
@@ -352,6 +366,25 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
   }
 
+  return components
+}
+
+function MarkdownRenderer({
+  markdown,
+  options,
+}: {
+  markdown: string
+  options: MarkdownRenderOptions
+}): React.ReactNode {
+  const { lineChanges, links, density, renderText, renderLink, codeBlock } = options
+  // Component types must outlive a streamed source update: recreating them
+  // remounts code blocks, discards their wrap state, and destroys text selection.
+  // Streaming state travels through context without changing those types.
+  const components = React.useMemo(
+    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, codeBlock }),
+    [lineChanges, links, density, renderText, renderLink, codeBlock],
+  )
+
   // A resolver's own hrefs survive the protocol guard so the `a` component can
   // see them; everything else still has to be http, https or mailto to keep
   // its href at all.
@@ -362,9 +395,15 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       : safeMarkdownUrlTransform
 
   const content = (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-      {markdown}
-    </ReactMarkdown>
+    <StreamingContext.Provider value={options.streaming ?? false}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+        {markdown}
+      </ReactMarkdown>
+    </StreamingContext.Provider>
   )
   return options.bare ? content : <div className="markdown-rendered">{content}</div>
+}
+
+export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
+  return <MarkdownRenderer markdown={markdown} options={options} />
 }
