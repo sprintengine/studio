@@ -23,7 +23,7 @@ export const filesystemApi = {
   searchFiles: (
     rootPath: string,
     query: string,
-    options?: { limit?: number; purpose?: 'mention'; channel?: string },
+    options?: { limit?: number; purpose?: 'mention'; channel?: string; recentAt?: Record<string, number> },
   ): Promise<FileSearchResult> =>
     ipcRenderer.invoke('fs:search-files', {
       rootPath,
@@ -31,6 +31,7 @@ export const filesystemApi = {
       limit: options?.limit,
       purpose: options?.purpose,
       channel: options?.channel,
+      recentAt: options?.recentAt,
     }),
   searchContent: (rootPath: string, query: string, options?: { limit?: number }): Promise<ContentSearchResult> =>
     ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit }),

@@ -846,7 +846,7 @@ export type ElectronApi = {
   searchFiles: (
     rootPath: string,
     query: string,
-    options?: { limit?: number; purpose?: 'mention'; channel?: string },
+    options?: { limit?: number; purpose?: 'mention'; channel?: string; recentAt?: Record<string, number> },
   ) => Promise<FileSearchResult>
   searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>

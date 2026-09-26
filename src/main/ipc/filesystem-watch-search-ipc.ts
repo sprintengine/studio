@@ -8,6 +8,7 @@ type FileSearchRequest = {
   limit?: number
   purpose?: 'mention'
   channel?: string
+  recentAt?: Record<string, number>
 }
 
 type ContentSearchRequest = FileSearchRequest

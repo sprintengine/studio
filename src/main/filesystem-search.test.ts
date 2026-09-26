@@ -143,6 +143,27 @@ test('mention walks honor nested ignore precedence, exceptions and excluded pare
   }
 })
 
+test('mention recency participates before the fifty-result cap', async () => {
+  const root = await project('mention-recency')
+  await Promise.all(
+    Array.from({ length: 60 }, (_, index) => writeFile(join(root, `match-${String(index).padStart(2, '0')}.ts`), '')),
+  )
+  const result = await searchFiles(++sender, {
+    rootPath: root,
+    query: 'match',
+    purpose: 'mention',
+    limit: 50,
+    recentAt: { 'match-59.ts': 100 },
+  })
+  assert.ok(result.ok)
+  assert.equal(result.results.length, 50)
+  assert.equal(result.results[0].name, 'match-59.ts')
+  assert.equal(
+    result.results.some((entry) => entry.name === 'match-49.ts'),
+    false,
+  )
+})
+
 test('the bundled ripgrep lists and greps a folder', async () => {
   binary.current = null
   const root = await project('ripgrep')

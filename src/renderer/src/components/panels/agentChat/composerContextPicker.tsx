@@ -15,6 +15,7 @@ import {
 } from '../../ui'
 import { SkillsAndMcpsPicker } from '../../workspace/agentComposer/SkillsAndMcpsPicker'
 import { AttachmentChip } from '../../ui/AttachmentChip'
+import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
 
 type TriggerRange = ComposerTrigger['range']
 
@@ -35,7 +36,14 @@ export function fileMentionCandidates(root: string, files: FileSearchEntry[], qu
       parts.pop()
     }
   }
-  return rankMentionCandidates([...candidates.values()], query, 50)
+  return rankMentionCandidates(
+    [...candidates.values()].map((candidate) => ({
+      ...candidate,
+      recentAt: recentFileVisit(prefix + candidate.path),
+    })),
+    query,
+    50,
+  ).map(({ path, kind }) => ({ path, kind }))
 }
 
 export function useFileMentionSearch(workspaceRoot: string | null, query: string | null) {
@@ -53,7 +61,12 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     const timer = window.setTimeout(() => {
       started = true
       void window.api
-        .searchFiles(workspaceRoot, query, { limit: 50, purpose: 'mention', channel })
+        .searchFiles(workspaceRoot, query, {
+          limit: 50,
+          purpose: 'mention',
+          channel,
+          recentAt: workspaceFileVisits(workspaceRoot),
+        })
         .then((result) => {
           if (cancelled) return
           setState(

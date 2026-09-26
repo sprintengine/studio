@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
 import type { FileSearchEntry, FileSearchResult } from '../../../../../shared/ipc/filesystem'
 import { fileMentionCandidates } from './composerContextPicker'
+import { rememberFileVisit } from '../../../utils/recentFileVisits'
 
 const file = (path: string): FileSearchEntry => ({
   path,
@@ -40,6 +41,20 @@ test('mention candidates include confined parent folders and rank exact basename
       'file',
     ),
   ).toHaveLength(50)
+})
+
+test('equally relevant mention matches use file-open recency without overriding shorter paths or leaking timestamps', () => {
+  const root = '/Users/dev/recency-project'
+  rememberFileVisit(`${root}/ab/app.ts`, 10)
+  rememberFileVisit(`${root}/cd/app.ts`, 20)
+  rememberFileVisit('/Users/dev/other-project/ab/app.ts', 100)
+  expect(fileMentionCandidates(root, [file('ab/app.ts'), file('cd/app.ts'), file('app.ts')], 'app')).toEqual([
+    { path: 'app.ts', kind: 'file' },
+    { path: 'cd/app.ts', kind: 'file' },
+    { path: 'ab/app.ts', kind: 'file' },
+  ])
+  rememberFileVisit(`${root}/ab/app.ts`, 30)
+  expect(fileMentionCandidates(root, [file('cd/app.ts'), file('ab/app.ts')], 'app')[0].path).toBe('ab/app.ts')
 })
 
 test('file search debounces, cancels obsolete work and rejects stale results', async () => {
@@ -95,6 +110,7 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
       limit: 50,
       purpose: 'mention',
       channel: expect.stringMatching(/^mention:/),
+      recentAt: {},
     })
     await act(async () => root.render(createElement(Harness, { query: 'file' })))
     expect(cancelFileSearch).toHaveBeenCalledOnce()

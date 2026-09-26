@@ -21,6 +21,7 @@ export type FileSearchRequest = {
   limit?: number
   purpose?: 'mention'
   channel?: string
+  recentAt?: Record<string, number>
 }
 
 export type ContentSearchRequest = FileSearchRequest
@@ -483,7 +484,10 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
     return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
 
   if (input.purpose === 'mention')
-    return withFileSearchDiagnostics(await searchMentionPaths(rootPath, query, limit, superseded), startedAt)
+    return withFileSearchDiagnostics(
+      await searchMentionPaths(rootPath, query, limit, superseded, input.recentAt),
+      startedAt,
+    )
 
   const listing = await fileListCache.list(rootPath)
   // Read after the listing, which is where a binary that will not start is
@@ -778,9 +782,15 @@ async function searchMentionPaths(
   query: string,
   limit: number,
   superseded: () => boolean,
+  recentAt?: Record<string, number>,
 ): Promise<FileSearchEngineResult> {
+  const visits = new Map(
+    Object.entries(recentAt && typeof recentAt === 'object' ? recentAt : {})
+      .slice(0, 1000)
+      .filter(([, stamp]) => typeof stamp === 'number' && Number.isFinite(stamp)),
+  )
   const pending: Array<{ path: string; layers: MentionIgnoreLayer[] }> = [{ path: '', layers: [] }]
-  let best: Array<{ path: string; kind: 'file' | 'folder' }> = []
+  let best: Array<{ path: string; kind: 'file' | 'folder'; recentAt?: number }> = []
   let visited = 0,
     matched = 0,
     ruleBytes = 0,
@@ -847,7 +857,7 @@ async function searchMentionPaths(
         }
         if (ignored) continue
         if (isDir) pending.push({ path, layers })
-        const candidate = { path, kind: isDir ? ('folder' as const) : ('file' as const) }
+        const candidate = { path, kind: isDir ? ('folder' as const) : ('file' as const), recentAt: visits.get(path) }
         const ranked = rankMentionCandidates([candidate], query, 1)
         if (ranked.length) {
           matched++

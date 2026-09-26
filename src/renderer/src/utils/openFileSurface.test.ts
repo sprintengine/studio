@@ -13,6 +13,7 @@ vi.mock('./editorFocus', () => ({ dispatchEditorFocusEvent: spies.focus }))
 vi.mock('./agentEditorReveal', () => ({ queueEditorLanding: spies.landing }))
 vi.mock('../components/auxWindows/openFileWindow', () => ({ openExternalFileWindow: spies.external }))
 import { openFileSurface } from './openFileSurface'
+import { recentFileVisit, workspaceFileVisits } from './recentFileVisits'
 
 const file = { workspaceId: 'workspace', path: '/workspace/src/example.ts', name: 'example.ts' }
 beforeEach(() => {
@@ -34,4 +35,26 @@ test('inline editor routing retains the existing focus event', () => {
   openFileSurface({ ...file, lineNumber: 14, column: 3 })
   expect(spies.focus).toHaveBeenCalledWith({ workspaceId: file.workspaceId, filePath: file.path, line: 14, column: 3 })
   expect(spies.external).not.toHaveBeenCalled()
+})
+
+test('ordinary editor opens record recency while background reveals do not', () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(100)
+  try {
+    const path = '/workspace/recency/opened.ts'
+    spies.store.openFilesInExternalWindow = false
+    openFileSurface({ ...file, path })
+    expect(recentFileVisit(path)).toBe(100)
+    clock.mockReturnValue(200)
+    spies.store.openFilesInExternalWindow = true
+    openFileSurface({ ...file, path })
+    expect(recentFileVisit(path)).toBe(200)
+    clock.mockReturnValue(300)
+    openFileSurface({ ...file, path, background: true })
+    openFileSurface({ ...file, path, takeFocus: false })
+    expect(recentFileVisit(path)).toBe(200)
+    expect(workspaceFileVisits('/workspace/recency')).toEqual({ 'opened.ts': 200 })
+    expect(workspaceFileVisits('/workspace/other')).toEqual({})
+  } finally {
+    clock.mockRestore()
+  }
 })
