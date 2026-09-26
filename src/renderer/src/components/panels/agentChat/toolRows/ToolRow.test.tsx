@@ -75,7 +75,13 @@ test('declined tool is explicit and full detail supersedes the persisted snippet
   const markup = renderToStaticMarkup(
     <ToolBody
       tool={tool({ toolKind: 'command', output: 'snippet', truncated: true })}
-      detail={{ input: { command: 'printf output' }, output: full, status: 'ok', totalBytes: full.length }}
+      detail={{
+        input: { command: 'printf output' },
+        output: full,
+        status: 'ok',
+        totalBytes: full.length,
+        clipped: false,
+      }}
     />,
   )
   expect(markup).toContain('complete output')

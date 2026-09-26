@@ -31,3 +31,9 @@ test('failed and interrupted folds keep their outcome, live lanes stay outside',
   expect(deriveTurnFold({ ...entry, status: 'interrupted' }, tools, false)?.label).toContain('You stopped after')
   expect(deriveTurnFold(entry, [{ ...tools[0], status: 'running', subagentLane: true }, tools[1]], false)).toBeNull()
 })
+
+test('intermediate prose contributes to folding while final prose remains separate', () => {
+  const withProse = { ...entry, intermediateText: [{ text: 'I will inspect the file.', beforeToolUseId: 'one' }] }
+  expect(deriveTurnFold(withProse, tools.slice(0, 1), false)?.defaultFolded).toBe(true)
+  expect(withProse.text).toBe('Answer')
+})

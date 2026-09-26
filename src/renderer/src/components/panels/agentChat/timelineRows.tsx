@@ -192,6 +192,7 @@ export function AssistantTurnBlock({
         <WorkTimeline
           tools={fold && !workOpen ? tools.filter((tool) => tool.status === 'running') : tools}
           live={entry.status === 'streaming'}
+          intermediateText={fold && !workOpen ? undefined : entry.intermediateText}
         />
       ) : null}
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
@@ -210,7 +211,11 @@ export function AssistantTurnBlock({
           <GhostButton
             size="inline"
             className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-            onClick={() => void copyToClipboardWithToast(entry.text)}
+            onClick={() =>
+              void copyToClipboardWithToast(
+                [...(entry.intermediateText?.map((part) => part.text) ?? []), entry.text].filter(Boolean).join('\n\n'),
+              )
+            }
           >
             Copy
           </GhostButton>
@@ -270,12 +275,32 @@ export function ThoughtRow({
 // fixtures. The viewport now windows rows instead of hiding earlier work.
 export const MAX_VISIBLE_WORK_STEPS = 12
 
-export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; live: boolean }) {
+export function WorkTimeline({
+  tools,
+  live,
+  intermediateText,
+}: {
+  tools: TranscriptToolEntry[]
+  live: boolean
+  intermediateText?: { text: string; beforeToolUseId: string }[]
+}) {
   const context = useConversationLinkContext()
   const settled = tools.filter((tool) => tool.status !== 'running')
   const running = tools.filter((tool) => tool.status === 'running')
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
   const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, true)
+  const step = (tool: TranscriptToolEntry) => (
+    <React.Fragment key={tool.id}>
+      {intermediateText
+        ?.filter((part) => part.beforeToolUseId === tool.id)
+        .map((part, index) => (
+          <div key={index} className="mb-2 max-w-[68ch]">
+            <ConversationMarkdown text={part.text} />
+          </div>
+        ))}
+      <WorkTimelineStep tool={tool} />
+    </React.Fragment>
+  )
   return (
     <div className="mb-2" aria-busy={live}>
       {settled.length > 1 ? (
@@ -285,20 +310,12 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
             {summarizeToolGroup(settled.map(toolPresentationInput))}
             <span> · {flattenToolEntries(settled).length} steps</span>
           </GhostButton>
-          {open ? (
-            <div className="ml-2">
-              {settled.map((tool) => (
-                <WorkTimelineStep key={tool.id} tool={tool} />
-              ))}
-            </div>
-          ) : null}
+          {open ? <div className="ml-2">{settled.map(step)}</div> : null}
         </>
       ) : (
-        settled.map((tool) => <WorkTimelineStep key={tool.id} tool={tool} />)
+        settled.map(step)
       )}
-      {running.map((tool) => (
-        <WorkTimelineStep key={tool.id} tool={tool} />
-      ))}
+      {running.map(step)}
     </div>
   )
 }
