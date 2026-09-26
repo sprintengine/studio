@@ -329,7 +329,7 @@ test('AgentChatView', async () => {
   assert.equal(activeConversationStage(runningTool.entries, runningTool.activeTurn), 'tool')
   assert.equal(
     row(deriveConversationTimelineRows(runningTool.entries, runningTool.activeTurn), 'working').label,
-    'Calling search…',
+    'Searching…',
   )
 
   // --- reasoning rides the turn row, separate from prose ---------------------
@@ -940,10 +940,10 @@ test('AgentChatView', async () => {
   assert.ok(laneMarkup.includes('src/a.ts'), 'a live lane shows the steps running inside it')
   assert.equal(
     (laneMarkup.match(/aria-expanded="true"/g) ?? []).length,
-    3,
-    'the turn timeline and both live lanes mount expanded',
+    2,
+    'both live lanes mount expanded outside the settled work group',
   )
-  assert.ok(laneMarkup.includes('Working'), 'the turn header stays live while lanes run')
+  assert.ok(laneMarkup.includes('aria-busy="true"'), 'the timeline stays live while lanes run')
   assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
 
   // The same fan-out, finished: the turn counts every step including the ones

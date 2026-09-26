@@ -59,3 +59,17 @@ test('large code retains source beyond the highlighting limit', async () => {
   expect(lines.map((line) => line.text).join('\n')).toBe(code)
   expect(lines[HIGHLIGHT_LINE_LIMIT]?.tokens[0]?.color).toBeUndefined()
 })
+
+test('settling an incomplete line does not advance the streaming grammar state', async () => {
+  const engine = await loadCodeLanguage('typescript')
+  const tokenizer = new IncrementalCodeTokenizer(engine, 'typescript')
+  tokenizer.update('/* opening', true)
+  const code = '/* opening */\nconst answer = 42'
+  const actual = tokenizer
+    .update(code, true)
+    .map((line) => line.tokens.map(({ content, color }) => ({ content, color })))
+  const expected = engine
+    .codeToTokensBase(code, { lang: 'typescript', theme: 'semantic-code' })
+    .map((line) => line.map(({ content, color }) => ({ content, color })))
+  expect(actual).toEqual(expected)
+})

@@ -33,6 +33,9 @@ type MarkdownRenderOptions = {
   links?: MarkdownLinkResolver
   codeBlock?: React.ComponentType<{ code: string; language?: string; filename?: string; streaming?: boolean }>
   streaming?: boolean
+  bare?: boolean
+  renderText?: (text: string, source: 'text' | 'inlineCode') => React.ReactNode
+  renderLink?: (href: string, label: React.ReactNode) => React.ReactNode | null
 }
 
 type MarkdownNode = Element | undefined
@@ -166,6 +169,12 @@ function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | un
 export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
   const { lineChanges, links } = options
   const scale = MARKDOWN_SCALE[options.density ?? 'document']
+  const prose = (children: React.ReactNode) =>
+    options.renderText
+      ? React.Children.map(children, (child) =>
+          typeof child === 'string' ? options.renderText!(child, 'text') : child,
+        )
+      : children
 
   const components: Components = {
     h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
@@ -187,9 +196,11 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>{children}</h6>
     ),
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
-      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{children}</p>
+      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{prose(children)}</p>
     ),
     a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
+      const custom = href ? options.renderLink?.(href, children) : null
+      if (custom) return custom
       const target = links && typeof href === 'string' ? links.resolve(href) : null
 
       if (target?.kind === 'file') {
@@ -241,13 +252,17 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       )
     },
     strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
-      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>{children}</strong>
+      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>
+        {prose(children)}
+      </strong>
     ),
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
-      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{children}</em>
+      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{prose(children)}</em>
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
-      <code className={joinClasses(className, scale.code)}>{children}</code>
+      <code className={joinClasses(className, scale.code)}>
+        {options.renderText && typeof children === 'string' ? options.renderText(children, 'inlineCode') : children}
+      </code>
     ),
     pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => {
       const Code = options.codeBlock
@@ -292,7 +307,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
     li: ({ node, children, className, value }: MarkdownComponentProps<'li'>) => (
       <li value={value} className={joinClasses(className, changedBlockClass(node, lineChanges))}>
-        {children}
+        {prose(children)}
       </li>
     ),
     // A GFM task-list marker: the state comes from the document, so it is the
@@ -340,15 +355,16 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
   // A resolver's own hrefs survive the protocol guard so the `a` component can
   // see them; everything else still has to be http, https or mailto to keep
   // its href at all.
-  const urlTransform: UrlTransform = links
-    ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
-    : safeMarkdownUrlTransform
+  const urlTransform: UrlTransform = options.renderLink
+    ? (url) => url
+    : links
+      ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
+      : safeMarkdownUrlTransform
 
-  return (
-    <div className="markdown-rendered">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-        {markdown}
-      </ReactMarkdown>
-    </div>
+  const content = (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+      {markdown}
+    </ReactMarkdown>
   )
+  return options.bare ? content : <div className="markdown-rendered">{content}</div>
 }

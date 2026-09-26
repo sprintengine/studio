@@ -5,7 +5,7 @@ import React, { useRef, useEffect, useState } from 'react'
 import { StatusDot, GhostButton, OutlineButton, MenuOption, Input } from '../../ui'
 import { type TranscriptEntry } from './conversationProjection'
 import { toolObject } from './conversationTimeline'
-import { renderMarkdown } from '../../../utils/markdown'
+import { ConversationMarkdown } from './conversationLinks'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
 
 // The CLI convention marks a suggested answer with a "(Recommended)" suffix in
@@ -274,7 +274,7 @@ export function ConversationPlanCard({
     >
       {entry.plan?.trim() ? (
         <div className="mx-4 mt-2 max-h-64 overflow-y-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-meta leading-5">
-          {renderMarkdown(entry.plan)}
+          <ConversationMarkdown text={entry.plan} />
         </div>
       ) : (
         <p className="px-4 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>

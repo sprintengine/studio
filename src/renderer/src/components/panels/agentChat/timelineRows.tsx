@@ -7,14 +7,19 @@ import {
   flattenToolEntries,
   toolObject,
   subagentLaneLabel,
-  toolVerb,
 } from './conversationTimeline'
 import { type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
-import { TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton } from '../../ui'
+import { TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton, Tooltip } from '../../ui'
 import { ChatGlyph } from './modelPicker'
-import { renderMarkdown } from '../../../utils/markdown'
-import { CodeBlock } from '../../ui/CodeBlock'
+import { ConversationMarkdown, conversationText, useConversationLinkContext } from './conversationLinks'
+import { ToolRow, toolPresentationInput } from './toolRows/ToolRow'
+import { useConversationDisclosure } from './conversationViewState'
+import { summarizeToolGroup } from '../../../../../shared/conversation/presentation'
+import { deriveTurnFold } from './turnFolds'
+import { copyToClipboardWithToast } from '../../../utils/copyToClipboardWithToast'
+import { observeLiveVisibility, useLiveRowMotion } from './liveVisibility'
+import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import React, { useState, useRef, useEffect } from 'react'
 
 export function formatStepDuration(ms: number): string {
@@ -32,6 +37,11 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
 // Chrome the timeline rows need from the component: who is speaking, how to
 // name models, and where Retry routes.
 export type TimelineChrome = {
+  checkpointsEnabled?: boolean
+  conversationRunning?: boolean
+  revertedAfterSeq?: number | null
+  checkpointSeqs?: ReadonlySet<number>
+  latestTurnId?: string
   assistantName: string
   modelLabelFor: (modelId?: string) => string
   // Only the latest failed turn is retryable (retry re-sends the last message).
@@ -40,10 +50,16 @@ export type TimelineChrome = {
   retryDisabled: boolean
 }
 
-export function TimelineRow({ row, chrome }: { row: ConversationTimelineRow; chrome: TimelineChrome }) {
+export const TimelineRow = React.memo(function TimelineRow({
+  row,
+  chrome,
+}: {
+  row: ConversationTimelineRow
+  chrome: TimelineChrome
+}) {
   return (
-    <div className="conversation-row-enter" data-conversation-row-kind={row.kind}>
-      {row.kind === 'user' ? <UserTimelineRow entry={row.entry} /> : null}
+    <div className="group/conversation" data-conversation-row-kind={row.kind}>
+      {row.kind === 'user' ? <UserTimelineRow entry={row.entry} chrome={chrome} /> : null}
       {row.kind === 'assistant' ? (
         <AssistantTurnBlock entry={row.entry} tools={row.tools} decisions={row.decisions} chrome={chrome} />
       ) : null}
@@ -51,12 +67,18 @@ export function TimelineRow({ row, chrome }: { row: ConversationTimelineRow; chr
       {row.kind === 'working' ? <WorkingTimelineRow row={row} /> : null}
     </div>
   )
-}
+})
 
 // User message: quiet right-aligned card, no chrome. Images sent with the turn
 // sit above the text; an image-only turn renders no empty text line. Live-only
 // (D3/1774) — a bubble restored from the replayed transcript has no images.
-export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+export function UserTimelineRow({
+  entry,
+  chrome,
+}: {
+  entry: Extract<TranscriptEntry, { kind: 'user' }>
+  chrome?: TimelineChrome
+}) {
   const attachments = entry.attachments ?? []
   return (
     <div className="flex justify-end pb-6">
@@ -69,7 +91,24 @@ export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { k
           </div>
         ) : null}
         {entry.text ? (
-          <p className="whitespace-pre-wrap text-body leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+          <p className="whitespace-pre-wrap text-body leading-normal text-[color:var(--text-strong)]">
+            {conversationText(entry.text)}
+          </p>
+        ) : null}
+        <GhostButton
+          size="inline"
+          className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+          onClick={() => void copyToClipboardWithToast(entry.text)}
+        >
+          Copy
+        </GhostButton>
+        {chrome?.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq) ? (
+          <RevertTurnAction
+            turnSeq={entry.reverted ? (chrome.revertedAfterSeq ?? entry.seq) : entry.seq}
+            reverted={entry.reverted}
+            running={chrome.conversationRunning ?? false}
+            className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+          />
         ) : null}
       </div>
     </div>
@@ -91,6 +130,13 @@ export function AssistantTurnBlock({
   chrome: TimelineChrome
 }) {
   const modelLabel = chrome.modelLabelFor(entry.modelId)
+  const context = useConversationLinkContext()
+  const fold = deriveTurnFold(entry, tools, !chrome.latestTurnId || chrome.latestTurnId === entry.turnId)
+  const [workOpen, setWorkOpen] = useConversationDisclosure(
+    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
+    `fold:${entry.turnId}`,
+    !fold?.defaultFolded,
+  )
   // The model is attribution, not a timestamp fragment, so it gets its own chip
   // instead of riding a `·`-joined meta string with the clock.
   const turnModelLabel = modelLabel && modelLabel !== chrome.assistantName ? modelLabel : null
@@ -122,35 +168,91 @@ export function AssistantTurnBlock({
           // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
           // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
           // of AA. Muted clears 4.5:1 in every theme.
-          <span className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)]">
-            {formatClockTime(entry.startedAt)}
-          </span>
+          <Tooltip content={new Date(entry.startedAt).toISOString()}>
+            <span
+              tabIndex={0}
+              className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)] opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+            >
+              {new Date(entry.startedAt).toDateString() === new Date().toDateString()
+                ? formatClockTime(entry.startedAt)
+                : new Date(entry.startedAt).toLocaleString()}
+            </span>
+          </Tooltip>
         ) : null}
       </div>
-      {entry.reasoning.trim() ? (
-        <ThoughtRow reasoning={entry.reasoning} durationMs={entry.reasoningDurationMs} />
+      {fold ? (
+        <GhostButton size="inline" tone="subtle" aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>
+          {fold.label}
+        </GhostButton>
       ) : null}
-      {tools.length > 0 ? <WorkTimeline tools={tools} live={entry.status === 'streaming'} /> : null}
+      {(!fold || workOpen) && entry.reasoning.trim() ? (
+        <ThoughtRow reasoning={entry.reasoning} durationMs={entry.reasoningDurationMs} turnId={entry.turnId} />
+      ) : null}
+      {tools.length > 0 ? (
+        <WorkTimeline
+          tools={fold && !workOpen ? tools.filter((tool) => tool.status === 'running') : tools}
+          live={entry.status === 'streaming'}
+        />
+      ) : null}
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? (
         <div className="max-w-[68ch]">
-          {renderMarkdown(entry.text, { codeBlock: CodeBlock, streaming: entry.status === 'streaming' })}
+          <ConversationMarkdown text={entry.text} streaming={entry.status === 'streaming'} />
         </div>
       ) : null}
       {entry.status === 'interrupted' ? (
         <span className="text-micro text-[color:var(--text-subtle)]">Interrupted</span>
       ) : null}
+      {entry.status !== 'streaming' ? (
+        <div className="flex items-center gap-2 text-meta text-[color:var(--sem-color-text-muted)]">
+          {entry.durationMs !== undefined ? <span>{formatStepDuration(entry.durationMs)}</span> : null}
+          {entry.costUsd !== undefined ? <span>${entry.costUsd.toFixed(4)}</span> : null}
+          <GhostButton
+            size="inline"
+            className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+            onClick={() => void copyToClipboardWithToast(entry.text)}
+          >
+            Copy
+          </GhostButton>
+        </div>
+      ) : null}
       {entry.status === 'failed' ? <TurnErrorBlock entry={entry} chrome={chrome} /> : null}
+      {chrome.checkpointsEnabled &&
+      entry.status !== 'streaming' &&
+      hasTurnChanges(entry.checkpointAvailable, entry.checkpointSummary) &&
+      entry.checkpointTurnSeq &&
+      entry.checkpointSummary ? (
+        <ChangedFilesCard
+          turnSeq={entry.checkpointTurnSeq}
+          summary={entry.checkpointSummary}
+          running={chrome.conversationRunning ?? false}
+          reverted={entry.reverted}
+          undoTurnSeq={chrome.revertedAfterSeq ?? undefined}
+        />
+      ) : null}
     </div>
   )
 }
 
 // "Thought for Ns" disclosure; expanded reasoning reads as a quiet aside.
-export function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?: number }) {
-  const [expanded, setExpanded] = useState(false)
+export function ThoughtRow({
+  reasoning,
+  durationMs,
+  turnId = 'thought',
+}: {
+  reasoning: string
+  durationMs?: number
+  turnId?: string
+}) {
+  const context = useConversationLinkContext()
+  const [expanded, setExpanded] = useConversationDisclosure(
+    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
+    `thought:${turnId}`,
+    false,
+  )
   return (
     <div className="mb-1.5">
-      <GhostButton size="inline" tone="subtle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+      <GhostButton size="inline" tone="subtle" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
         <ChevronRightGlyph className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`} />
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
       </GhostButton>
@@ -163,77 +265,45 @@ export function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durat
   )
 }
 
-// The work timeline: a collapsible "Worked for <elapsed> · N steps" header over
-// a hairline rail of verb-led steps. The live step carries the only pulsing
-// accent dot on screen.
-// Long turns can run hundreds of tools; the rail shows the most recent steps
-// (the live tail is what matters) behind a "Show N earlier steps" expander so
-// a big turn cannot flood the transcript with unbounded rows.
+// Settled steps share a summary disclosure; live work stays outside it.
+// Retained as a compatibility export for consumers measuring old transcript
+// fixtures. The viewport now windows rows instead of hiding earlier work.
 export const MAX_VISIBLE_WORK_STEPS = 12
 
 export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; live: boolean }) {
-  const [open, setOpen] = useState(true)
-  const [showAllSteps, setShowAllSteps] = useState(false)
-  const hiddenSteps = showAllSteps ? 0 : Math.max(0, tools.length - MAX_VISIBLE_WORK_STEPS)
-  const visibleTools = hiddenSteps > 0 ? tools.slice(hiddenSteps) : tools
-  // Steps inside subagent lanes are real work: they count toward the header
-  // total and keep the turn "working" while a background agent is still going.
-  const allSteps = flattenToolEntries(tools)
-  const first = tools[0]
-  const lastDone = [...allSteps].reverse().find((tool) => tool.completedAt !== undefined)
-  const elapsedMs =
-    first?.startedAt !== undefined && lastDone?.completedAt !== undefined
-      ? Math.max(0, lastDone.completedAt - first.startedAt)
-      : undefined
-  const working = live || allSteps.some((tool) => tool.status === 'running')
+  const context = useConversationLinkContext()
+  const settled = tools.filter((tool) => tool.status !== 'running')
+  const running = tools.filter((tool) => tool.status === 'running')
+  const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
+  const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, true)
   return (
-    <div className="mb-3">
-      <GhostButton size="inline" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <ChevronRightGlyph
-          className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        {working ? (
-          <span className="inline-flex items-baseline gap-1 tabular-nums">
-            Working
-            {first?.startedAt !== undefined ? (
-              <>
-                &nbsp;·&nbsp;
-                <LiveElapsed startedAt={first.startedAt} />
-              </>
-            ) : null}
-          </span>
-        ) : (
-          <span className="tabular-nums">
-            {elapsedMs !== undefined ? `Worked for ${formatStepDuration(elapsedMs)} · ` : ''}
-            {allSteps.length} {allSteps.length === 1 ? 'step' : 'steps'}
-          </span>
-        )}
-      </GhostButton>
-      {open ? (
-        <div className="ml-1.5 mt-1.5 flex flex-col gap-0.5 border-l border-[color:var(--border-default)] pl-4">
-          {hiddenSteps > 0 ? (
-            <GhostButton
-              size="inline"
-              tone="subtle"
-              align="start"
-              onClick={() => setShowAllSteps(true)}
-              className="self-start"
-            >
-              Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
-            </GhostButton>
+    <div className="mb-2" aria-busy={live}>
+      {settled.length > 1 ? (
+        <>
+          <GhostButton size="inline" tone="subtle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <ChevronRightGlyph className={`icon-xs ${open ? 'rotate-90' : ''}`} />
+            {summarizeToolGroup(settled.map(toolPresentationInput))}
+            <span> · {flattenToolEntries(settled).length} steps</span>
+          </GhostButton>
+          {open ? (
+            <div className="ml-2">
+              {settled.map((tool) => (
+                <WorkTimelineStep key={tool.id} tool={tool} />
+              ))}
+            </div>
           ) : null}
-          {visibleTools.map((tool) => (
-            <WorkTimelineStep key={tool.id} tool={tool} />
-          ))}
-        </div>
-      ) : null}
+        </>
+      ) : (
+        settled.map((tool) => <WorkTimelineStep key={tool.id} tool={tool} />)
+      )}
+      {running.map((tool) => (
+        <WorkTimelineStep key={tool.id} tool={tool} />
+      ))}
     </div>
   )
 }
-
-// A spawned agent gets a lane; everything else is a plain step.
 export function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
-  return tool.subagentLane ? <SubagentLane tool={tool} /> : <WorkStep tool={tool} />
+  return tool.subagentLane ? <SubagentLane tool={tool} /> : <ToolRow tool={tool} />
 }
 
 // A background agent the model spawned: a lane header that stays live for the
@@ -245,10 +315,21 @@ export const MAX_VISIBLE_LANE_STEPS = 6
 
 export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
+  const laneRef = useRef<HTMLDivElement>(null)
+  useLiveRowMotion(laneRef, running)
+  const context = useConversationLinkContext()
   // A live lane mounts open so its work is visible while it happens; a lane
   // replayed from history mounts collapsed and stays where the user leaves it.
-  const [open, setOpen] = useState(running)
-  const [showAllSteps, setShowAllSteps] = useState(false)
+  const [open, setOpen] = useConversationDisclosure(
+    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
+    `lane:${tool.id}`,
+    running,
+  )
+  const [showAllSteps, setShowAllSteps] = useConversationDisclosure(
+    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
+    `lane-all:${tool.id}`,
+    false,
+  )
   const children = tool.children ?? []
   const hiddenSteps = showAllSteps ? 0 : Math.max(0, children.length - MAX_VISIBLE_LANE_STEPS)
   const visibleChildren = hiddenSteps > 0 ? children.slice(hiddenSteps) : children
@@ -298,9 +379,9 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
     </>
   )
   return (
-    <div>
+    <div ref={laneRef}>
       {expandable ? (
-        <RowButton density="row" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={headerInk}>
+        <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
           {header}
         </RowButton>
       ) : (
@@ -323,88 +404,6 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
             <WorkTimelineStep key={child.id} tool={child} />
           ))}
         </div>
-      ) : null}
-    </div>
-  )
-}
-
-export function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
-  const running = tool.status === 'running'
-  const object = toolObject(tool)
-  const durationMs =
-    tool.startedAt !== undefined && tool.completedAt !== undefined
-      ? Math.max(0, tool.completedAt - tool.startedAt)
-      : undefined
-  const showOutput = !running && tool.name === 'Bash' && Boolean(tool.output?.trim())
-  return (
-    <>
-      <div
-        className={`relative flex items-baseline gap-2 rounded-sm px-2 py-1 text-meta ${
-          running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
-        }`}
-      >
-        <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[10px]" />
-        <span className="shrink-0 font-medium text-[color:var(--text-default)]">{toolVerb(tool.name, running)}</span>
-        {object ? (
-          <TruncatedText
-            as="span"
-            text={running ? `${object}…` : object}
-            className="min-w-0 font-mono text-meta text-[color:var(--text-muted)]"
-          />
-        ) : null}
-        {typeof tool.addedLines === 'number' && tool.addedLines > 0 ? (
-          <span className="shrink-0 text-micro font-medium tabular-nums text-[color:var(--diff-added)]">
-            +{tool.addedLines}
-          </span>
-        ) : null}
-        {typeof tool.removedLines === 'number' && tool.removedLines > 0 ? (
-          <span className="shrink-0 text-micro font-medium tabular-nums text-[color:var(--diff-removed)]">
-            −{tool.removedLines}
-          </span>
-        ) : null}
-        {!running && durationMs !== undefined ? (
-          <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
-            {formatStepDuration(durationMs)}
-          </span>
-        ) : null}
-        {running ? <span className="sr-only">running</span> : null}
-      </div>
-      {showOutput ? <StepOutput output={tool.output ?? ''} /> : null}
-    </>
-  )
-}
-
-// Command output in a terminal-toned block; ✓ lines read as passes. Collapsed
-// past six lines so a long test run doesn't drown the timeline.
-export const STEP_OUTPUT_COLLAPSED_LINES = 6
-
-export function StepOutput({ output }: { output: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const lines = output.replace(/\n+$/, '').split('\n')
-  const collapsed = !expanded && lines.length > STEP_OUTPUT_COLLAPSED_LINES
-  const visible = collapsed ? lines.slice(0, STEP_OUTPUT_COLLAPSED_LINES) : lines
-  return (
-    <div className="mb-1.5 ml-2 mt-0.5 overflow-hidden rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)]">
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-meta leading-[1.6] text-[color:var(--terminal-fg)]">
-        {/* Matches a tick the test runner already printed into its own output:
-            agent-authored text this pane only tones, never a glyph the product
-            draws. design-tokens-allow: matcher for agent-authored output */}
-        {visible.map((line, index) => (
-          <div key={index} className={/^\s*✓/.test(line) ? 'text-[color:var(--tone-good)]' : undefined}>
-            {line || ' '}
-          </div>
-        ))}
-      </pre>
-      {lines.length > STEP_OUTPUT_COLLAPSED_LINES ? (
-        // `bleed`: the row is full-bleed inside an `overflow-hidden` block, so
-        // an outset ring would be clipped by it.
-        <RowButton
-          density="bleed"
-          onClick={() => setExpanded((value) => !value)}
-          className="border-t border-[color:var(--border-subtle)] text-micro"
-        >
-          {collapsed ? `Show ${lines.length - STEP_OUTPUT_COLLAPSED_LINES} more lines` : 'Show less'}
-        </RowButton>
       ) : null}
     </div>
   )
@@ -580,9 +579,12 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
 // Live status line while a turn streams: the latest step verb shimmers quietly
 // (plain muted text under prefers-reduced-motion).
 export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'working' }> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLiveRowMotion(ref, true)
   return (
-    <div className="pb-2 pl-0.5">
-      <span className="chat-shimmer text-meta font-medium text-[color:var(--text-muted)]">{row.label}</span>
+    <div ref={ref} className="flex gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
+      <span className="chat-shimmer font-medium">{row.label}</span>
+      {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
     </div>
   )
 }
@@ -594,9 +596,21 @@ export function LiveElapsed({ startedAt }: { startedAt: number }) {
     const update = () => {
       if (textRef.current) textRef.current.textContent = formatElapsedMs(Date.now() - startedAt)
     }
-    update()
-    const id = window.setInterval(update, 1000)
-    return () => window.clearInterval(id)
+    const element = textRef.current
+    if (!element) return
+    let timer: number | undefined
+    const stop = observeLiveVisibility(element, (visible) => {
+      if (timer !== undefined) window.clearInterval(timer)
+      timer = undefined
+      if (visible) {
+        update()
+        timer = window.setInterval(update, 1000)
+      }
+    })
+    return () => {
+      stop()
+      if (timer !== undefined) window.clearInterval(timer)
+    }
   }, [startedAt])
   return <span ref={textRef}>{initial}</span>
 }

@@ -9,6 +9,7 @@ import { InlineNotice, Spinner } from '../ui'
 // scripts/check-bundle-budget.mjs), so the diff viewer loads behind React.lazy
 // just like EditorPanel does in the workspace shell.
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
+const CheckpointDiffWindow = lazy(() => import('./CheckpointDiffWindow'))
 const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
 
 function AuxLoading() {
@@ -104,6 +105,12 @@ export default function AuxWindowApp() {
   }
 
   if (descriptor.kind === 'diff') {
+    if (params.checkpoint)
+      return (
+        <Suspense fallback={<AuxLoading />}>
+          <CheckpointDiffWindow request={params.checkpoint} />
+        </Suspense>
+      )
     const focusKind = params.scope === 'staged' ? 'staged' : params.scope === 'unstaged' ? 'unstaged' : null
     if (!params.repoRoot) {
       return <AuxFailure message="Missing repository for diff viewer." />

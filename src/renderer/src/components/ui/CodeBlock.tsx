@@ -9,7 +9,7 @@ import {
   normalizeCodeLanguage,
   type CodeLine,
 } from '../../lib/highlight/codeHighlight'
-import '../../../../../../design-system/components/code-block/component.css'
+import '../../../../../design-system/components/code-block/component.css'
 
 export type CodeBlockProps = { code: string; language?: string; filename?: string; streaming?: boolean }
 

@@ -75,6 +75,10 @@ export function loadCodeLanguage(language: Language): Promise<HighlighterCore> {
 
 export type CodeLine = { text: string; tokens: ThemedToken[] }
 const settled = new Map<string, CodeLine[]>()
+// Bound retained source as well as entry count: a small number of giant
+// plain-text tails must not pin an entire transcript in the grammar cache.
+const MAX_CACHED_SOURCE = 2_000_000
+let cachedSourceSize = 0
 function cacheKey(language: string, code: string): string {
   return `${language}\0${code}`
 }
@@ -119,7 +123,7 @@ export class IncrementalCodeTokenizer {
           tokenizeTimeLimit: 50,
         })
         line.tokens = tokens[0] ?? line.tokens
-        this.state = this.engine.getLastGrammarState(tokens)
+        if (index < chunks.length - 1) this.state = this.engine.getLastGrammarState(tokens)
       }
       result.push(line)
       // The final unterminated line is deliberately not committed to the
@@ -132,9 +136,16 @@ export class IncrementalCodeTokenizer {
     if (!complete) result.push({ text: chunks.at(-1) ?? '', tokens: [{ content: chunks.at(-1) ?? '', offset: 0 }] })
     if (complete) {
       const key = cacheKey(this.language, code)
-      settled.delete(key)
-      settled.set(key, result)
-      if (settled.size > 240) settled.delete(settled.keys().next().value!)
+      if (key.length <= MAX_CACHED_SOURCE) {
+        if (settled.delete(key)) cachedSourceSize -= key.length
+        settled.set(key, result)
+        cachedSourceSize += key.length
+        while (settled.size > 240 || cachedSourceSize > MAX_CACHED_SOURCE) {
+          const oldest = settled.keys().next().value!
+          settled.delete(oldest)
+          cachedSourceSize -= oldest.length
+        }
+      }
     }
     return result
   }

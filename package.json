@@ -227,6 +227,7 @@
     "@xterm/addon-webgl": "0.20.0-beta.299",
     "@xterm/headless": "6.1.0-beta.303",
     "@xterm/xterm": "6.1.0-beta.303",
+    "diff": "9.0.0",
     "electron-updater": "^6.8.9",
     "flexlayout-react": "^0.11.0",
     "immer": "^11.1.18",

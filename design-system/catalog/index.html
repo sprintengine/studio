@@ -632,6 +632,8 @@ code {
 #ds-view-component-group-header:checked ~ .ds-catalog #component-group-header { display: block; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog #component-inbox-row { display: block; }
+#ds-view-component-inline-diff:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-inline-diff:checked ~ .ds-catalog #component-inline-diff { display: block; }
 #ds-view-component-inline-notice:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-inline-notice:checked ~ .ds-catalog #component-inline-notice { display: block; }
 #ds-view-component-input:checked ~ .ds-catalog #components { display: block; }
@@ -752,6 +754,8 @@ code {
 #ds-view-component-group-header:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-group-header"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-inbox-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-inbox-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-inbox-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-inbox-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-inline-diff:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-inline-diff"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-inline-diff:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-inline-diff"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-inline-notice:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-inline-notice"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-inline-notice:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-inline-notice"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-input:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -3874,6 +3878,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     transition: none;
   }
 }
+
+/* components/inline-diff/component.css */
+.ds-inline-diff { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-body); line-height: var(--sem-font-line-relaxed); overflow-x: auto; }
+.ds-inline-diff__line { white-space: pre; padding-inline: var(--sem-space-sm); }
+.ds-inline-diff__line--added { color: var(--sem-color-diff-added); background: var(--sem-color-status-good-faint); }
+.ds-inline-diff__line--removed { color: var(--sem-color-diff-removed); background: var(--sem-color-status-danger-soft); }
+.ds-inline-diff__header { color: var(--sem-color-text-muted); padding: var(--sem-space-xs) var(--sem-space-sm); }
+.ds-inline-diff mark { color: inherit; background: var(--sem-color-diff-changed-strong); }
 
 /* components/inline-notice/component.css */
 /* Inline notice — the scoped error/warn card
@@ -11980,6 +11992,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-glyphs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-group-header" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-inbox-row" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-inline-diff" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-inline-notice" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-kbd-chord" />
@@ -12060,6 +12073,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-glyphs">Glyphs</label>
 <label class="catalog-nav-item" for="ds-view-component-group-header">Group header</label>
 <label class="catalog-nav-item" for="ds-view-component-inbox-row">Inbox row</label>
+<label class="catalog-nav-item" for="ds-view-component-inline-diff">Inline diff</label>
 <label class="catalog-nav-item" for="ds-view-component-inline-notice">Inline notice</label>
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-kbd-chord">Kbd chord</label>
@@ -25925,6 +25939,39 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-inline-diff" class="catalog-view catalog-component">
+<h3>Inline diff</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-inline-diff">
+<section class="ds-inline-diff" aria-label="Changes in greeting.ts"><div class="ds-inline-diff__header">@@ -1 +1 @@</div><div class="ds-inline-diff__line ds-inline-diff__line--removed">-const greeting = "Hello"</div><div class="ds-inline-diff__line ds-inline-diff__line--added">+const greeting = "<mark>Welcome</mark>"</div></section>
+<div data-mode="dark"><section class="ds-inline-diff" aria-label="Changes in greeting.ts"><div class="ds-inline-diff__header">@@ -1 +1 @@</div><div class="ds-inline-diff__line ds-inline-diff__line--removed">-const greeting = "Hello"</div><div class="ds-inline-diff__line ds-inline-diff__line--added">+const greeting = "<mark>Welcome</mark>"</div></section></div>
+</div>
+<div class="catalog-doc">
+<h4>Anatomy</h4>
+<p>A filename, added/removed counts and a unified hunk view. Each line reserves a prefix column; plus/minus characters carry meaning without colour. Hunk headings carry old/new coordinates. A trailing action opens the full diff viewer.</p>
+<h4>Variants</h4>
+<p>Unified only. New files show added lines and initially reveal at most forty. Large changes show a bounded preview and retain access to the full viewer.</p>
+<h4>States</h4>
+<p>Added and removed lines use semantic diff ink over a soft semantic status ground. Changed words use the stronger changed token. Unchanged context stays neutral. Highlighting errors preserve plain source. Open action uses the button focus, hover and disabled states. Light and dark inherit semantic tokens.</p>
+<h4>Usage</h4>
+<p>Embed in an expanded file-edit tool, never load a full editor into a transcript. Use three context lines. Showing a diff never applies it.</p>
+<h4>Accessibility</h4>
+<p>Source is selectable text. Prefixes communicate changes independently of colour. Open action is keyboard reachable, named for the file, and retains visible focus.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/inline-diff/component.css</summary><pre><code>.ds-inline-diff { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-body); line-height: var(--sem-font-line-relaxed); overflow-x: auto; }
+.ds-inline-diff__line { white-space: pre; padding-inline: var(--sem-space-sm); }
+.ds-inline-diff__line--added { color: var(--sem-color-diff-added); background: var(--sem-color-status-good-faint); }
+.ds-inline-diff__line--removed { color: var(--sem-color-diff-removed); background: var(--sem-color-status-danger-soft); }
+.ds-inline-diff__header { color: var(--sem-color-text-muted); padding: var(--sem-space-xs) var(--sem-space-sm); }
+.ds-inline-diff mark { color: inherit; background: var(--sem-color-diff-changed-strong); }
+</code></pre></details>
+<details class="catalog-source"><summary>components/inline-diff/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;&lt;html lang=&quot;en&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;Inline diff&lt;/title&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot;&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot;&gt;&lt;/head&gt;&lt;body&gt;
+&lt;section class=&quot;ds-inline-diff&quot; aria-label=&quot;Changes in greeting.ts&quot;&gt;&lt;div class=&quot;ds-inline-diff__header&quot;&gt;@@ -1 +1 @@&lt;/div&gt;&lt;div class=&quot;ds-inline-diff__line ds-inline-diff__line--removed&quot;&gt;-const greeting = &quot;Hello&quot;&lt;/div&gt;&lt;div class=&quot;ds-inline-diff__line ds-inline-diff__line--added&quot;&gt;+const greeting = &quot;&lt;mark&gt;Welcome&lt;/mark&gt;&quot;&lt;/div&gt;&lt;/section&gt;
+&lt;div data-mode=&quot;dark&quot;&gt;&lt;section class=&quot;ds-inline-diff&quot; aria-label=&quot;Changes in greeting.ts&quot;&gt;&lt;div class=&quot;ds-inline-diff__header&quot;&gt;@@ -1 +1 @@&lt;/div&gt;&lt;div class=&quot;ds-inline-diff__line ds-inline-diff__line--removed&quot;&gt;-const greeting = &quot;Hello&quot;&lt;/div&gt;&lt;div class=&quot;ds-inline-diff__line ds-inline-diff__line--added&quot;&gt;+const greeting = &quot;&lt;mark&gt;Welcome&lt;/mark&gt;&quot;&lt;/div&gt;&lt;/section&gt;&lt;/div&gt;
+&lt;/body&gt;&lt;/html&gt;
 </code></pre></details>
 </div>
 <div id="component-inline-notice" class="catalog-view catalog-component">
