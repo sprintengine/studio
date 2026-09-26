@@ -104,6 +104,7 @@ async function turn(f: Awaited<ReturnType<typeof fixture>>, message: string) {
 test('ACP streams text, reasoning, typed edits, permissions, usage and workspace writes over stdio', async () => {
   const f = await fixture()
   try {
+    await writeFile(join(f.root, 'result.txt'), 'before edit')
     expect(f.provider.listModels()).toEqual(['default', 'model-one', 'model-two'])
     const events = await turn(f, 'write')
     expect(events.map((event) => event.type)).toEqual(

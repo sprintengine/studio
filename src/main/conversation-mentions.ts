@@ -1,7 +1,7 @@
-import { constants } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseConversationMentions, type ConversationMentionRef } from '../shared/conversation/mentions'
+import { openConfinedExistingFile } from './conversation-file-access'
 
 const FILE_BYTES = 64 * 1024
 const TOTAL_BYTES = 256 * 1024
@@ -54,7 +54,7 @@ export async function resolveConversationMentions(input: {
       sections.push(`${input.providerId === 'claude-agent' ? '@' : ''}${location}`)
       continue
     }
-    const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const file = await openConfinedExistingFile(root, target)
     try {
       const opened = await file.stat()
       if (!opened.isFile()) throw new Error('The mentioned path is no longer a file.')

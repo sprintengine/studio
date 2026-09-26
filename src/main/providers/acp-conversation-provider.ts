@@ -1,8 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
-import { constants } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { openConfinedExistingFile } from '../conversation-file-access'
 import type {
   ClientSideConnection,
   RequestPermissionRequest,
@@ -383,11 +383,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           readTextFile: async (params) => {
             if (!state.turn || params.sessionId !== state.nativeId) throw new Error('No active conversation turn.')
             const path = await confinedAcpPath(state.input.workspaceRoot!, params.path)
-            const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+            const file = await openConfinedExistingFile(state.input.workspaceRoot!, path)
             try {
               if ((await file.stat()).size > 2 * 1024 * 1024)
                 throw new Error('File exceeds the conversation read limit.')
-              const content = await file.readFile('utf8')
+              const buffer = Buffer.alloc(2 * 1024 * 1024 + 1)
+              const read = await file.read(buffer, 0, buffer.length, 0)
+              if (read.bytesRead > 2 * 1024 * 1024) throw new Error('File exceeds the conversation read limit.')
+              const content = buffer.subarray(0, read.bytesRead).toString('utf8')
               if (content.includes('\0')) throw new Error('Binary files are not supported.')
               const lines = content.split('\n'),
                 start = Math.max(0, (params.line ?? 1) - 1)
@@ -416,7 +419,16 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             if (decision.outcome.outcome !== 'selected') throw new Error('File write was not approved.')
             await state.input.onBeforeTool?.('Write')
             await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
-            const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600)
+            // Creating through an unanchored parent path can escape after a
+            // directory swap, even with O_NOFOLLOW. Native CLI tools may create
+            // files under their own policy; this callback edits existing files.
+            const file = await openConfinedExistingFile(state.input.workspaceRoot!, path, 'write').catch((error) => {
+              if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+                throw new Error(
+                  'Conversation file callbacks can edit existing files only. Use the native CLI file tool to create a file.',
+                )
+              throw error
+            })
             try {
               await file.truncate(0)
               await file.writeFile(params.content, 'utf8')

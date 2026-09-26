@@ -30,6 +30,9 @@ export function isNeverAutoApprovableCommand(command: string): boolean {
   if (!command.trim() || /[\u0000-\u001f;&|`<>\\$]/u.test(command)) return true
   const first = command.trim().split(/\s+/)[0]
   if (!/^[\w./-]+$/u.test(first)) return true
+  // A display label drops paths and script extensions. They must not let a
+  // repository-controlled executable inherit a grant for a different program.
+  if (first.includes('/') || /\.(?:cmd|bat|sh|ps1)$/iu.test(first)) return true
   const program = first
     .split('/')
     .at(-1)!
@@ -45,7 +48,7 @@ export function isNeverAutoApprovableCommand(command: string): boolean {
   // decoded as safe. The user can still approve any such request once.
   if (
     program === 'git' &&
-    /(?:\bpush\b.*(?:--force|-f\b)|\b(?:clean|reset|restore|config|alias)\b|\s-c\s|--config-env|--exec-path|\bcheckout\b.*(?:--|\.|-f\b))/iu.test(
+    /(?:['"]|\bpush\b.*(?:--force|-f\b)|\b(?:clean|reset|restore|config|alias)\b|\s-c|--config-env|--exec-path|\bcheckout\b.*(?:--|\.|-f\b))/iu.test(
       command,
     )
   )
