@@ -2,11 +2,65 @@
 // permission requests, plans to approve and questions to answer.
 
 import React, { useRef, useEffect, useState } from 'react'
-import { StatusDot, GhostButton, OutlineButton, MenuOption, Input } from '../../ui'
+import {
+  StatusDot,
+  GhostButton,
+  OutlineButton,
+  MenuOption,
+  Input,
+  IconButton,
+  SplitButton,
+  InlineNotice,
+} from '../../ui'
 import { type TranscriptEntry } from './conversationProjection'
 import { toolObject } from './conversationTimeline'
-import { ConversationMarkdown } from './conversationLinks'
+import { ConversationFileLink, ConversationMarkdown } from './conversationLinks'
+import { InlineDiff } from '../../ui/InlineDiff'
+import { deriveEditHunks } from '../../../../../shared/conversation/editHunks'
+import { asRecord } from '../../../../../shared/records'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
+import {
+  approvalFilePath,
+  approvalRuleCandidate,
+  isPathWithinApprovalRoot,
+  type ConversationApprovalDecision,
+} from '../../../../../shared/conversation/approvalRules'
+
+type ApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
+type ApprovalHandler = (
+  requestId: string,
+  approved: boolean,
+  answers?: Record<string, string>,
+  decision?: ConversationApprovalDecision,
+) => void
+
+export function orderedPendingRequests(entries: readonly ApprovalEntry[]): ApprovalEntry[] {
+  const order = { tool: 0, question: 1, plan: 2 }
+  return entries
+    .filter((entry) => entry.status === 'pending')
+    .sort((a, b) => order[a.requestKind ?? 'tool'] - order[b.requestKind ?? 'tool'])
+}
+
+export function approvalOutsideWorkspace(entry: ApprovalEntry, workspaceRoot?: string): boolean {
+  if (!workspaceRoot) return false
+  if (entry.cwd && !isPathWithinApprovalRoot(entry.cwd.replaceAll('\\', '/'), workspaceRoot)) return true
+  const path = approvalFilePath({ action: entry.action ?? '', input: entry.input }, entry.cwd ?? workspaceRoot)
+  if (path && !isPathWithinApprovalRoot(path, workspaceRoot)) return true
+  const check = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(check)
+    if (value && typeof value === 'object') return Object.values(value).some(check)
+    if (typeof value !== 'string') return false
+    return value.split(/[\s'";|]+/u).some((token) => {
+      if (!/^(?:\/|[A-Za-z]:[\\/]|\.\.\/)/u.test(token)) return false
+      const candidate = approvalFilePath(
+        { action: entry.action ?? '', input: { path: token } },
+        entry.cwd ?? workspaceRoot,
+      )
+      return Boolean(candidate && !isPathWithinApprovalRoot(candidate, workspaceRoot))
+    })
+  }
+  return check(entry.input)
+}
 
 // The CLI convention marks a suggested answer with a "(Recommended)" suffix in
 // the option label; render it as a quiet accent label instead of literal text.
@@ -107,40 +161,75 @@ export function permissionActionLabel(action?: string): string {
 
 export function ConversationPendingDock({
   pendingApproval,
+  pendingApprovals,
   workspaceName,
+  workspaceRoot,
   onApprove,
   busy,
 }: {
-  pendingApproval?: Extract<TranscriptEntry, { kind: 'approval' }>
+  pendingApproval?: ApprovalEntry
+  pendingApprovals?: ApprovalEntry[]
   workspaceName?: string
-  onApprove: (requestId: string, approved: boolean, answers?: Record<string, string>) => void
+  workspaceRoot?: string
+  onApprove: ApprovalHandler
   busy: boolean
 }) {
-  if (!pendingApproval) return null
-  if (pendingApproval.requestKind === 'question' && pendingApproval.questions?.length) {
-    return (
-      <ConversationQuestionCard
-        key={pendingApproval.requestId}
-        requestId={pendingApproval.requestId}
-        questions={pendingApproval.questions}
-        onAnswer={onApprove}
-        busy={busy}
-      />
-    )
-  }
-  if (pendingApproval.requestKind === 'plan') {
-    return (
-      <ConversationPlanCard key={pendingApproval.requestId} entry={pendingApproval} onApprove={onApprove} busy={busy} />
-    )
-  }
+  const entries = orderedPendingRequests(pendingApprovals ?? (pendingApproval ? [pendingApproval] : []))
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedIndex = Math.max(
+    0,
+    entries.findIndex((entry) => entry.requestId === selectedId),
+  )
+  const navigate = (delta: number) =>
+    setSelectedId(entries[(selectedIndex + delta + entries.length) % entries.length]?.requestId ?? null)
+  if (!entries.length) return null
   return (
-    <ConversationPermissionCard
-      key={pendingApproval.requestId}
-      entry={pendingApproval}
-      workspaceName={workspaceName}
-      onApprove={onApprove}
-      busy={busy}
-    />
+    <div
+      onKeyDownCapture={(event) => {
+        if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+        event.preventDefault()
+        event.stopPropagation()
+        navigate(event.key === 'ArrowLeft' ? -1 : 1)
+      }}
+    >
+      {entries.length > 1 ? (
+        <div className="flex items-center justify-end gap-2 pb-1" aria-label="Pending requests">
+          <IconButton aria-label="Previous request" onClick={() => navigate(-1)}>
+            ←
+          </IconButton>
+          <span className="text-meta tabular-nums" role="status">
+            {selectedIndex + 1}/{entries.length}
+          </span>
+          <IconButton aria-label="Next request" onClick={() => navigate(1)}>
+            →
+          </IconButton>
+        </div>
+      ) : null}
+      {entries.map((entry, index) => (
+        <div key={entry.requestId} hidden={index !== selectedIndex}>
+          {entry.requestKind === 'question' && entry.questions?.length ? (
+            <ConversationQuestionCard
+              requestId={entry.requestId}
+              questions={entry.questions}
+              onAnswer={onApprove}
+              busy={busy}
+              active={index === selectedIndex}
+            />
+          ) : entry.requestKind === 'plan' ? (
+            <ConversationPlanCard entry={entry} onApprove={onApprove} busy={busy} active={index === selectedIndex} />
+          ) : (
+            <ConversationPermissionCard
+              entry={entry}
+              workspaceName={workspaceName}
+              workspaceRoot={workspaceRoot}
+              onApprove={onApprove}
+              busy={busy}
+              active={index === selectedIndex}
+            />
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -150,27 +239,54 @@ export function ConversationPendingDock({
 export function ConversationPermissionCard({
   entry,
   workspaceName,
+  workspaceRoot,
   onApprove,
   busy,
+  active = true,
 }: {
   entry: Extract<TranscriptEntry, { kind: 'approval' }>
   workspaceName?: string
-  onApprove: (requestId: string, approved: boolean, answers?: Record<string, string>) => void
+  workspaceRoot?: string
+  onApprove: ApprovalHandler
   busy: boolean
+  active?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const denyRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
-    containerRef.current?.focus()
-  }, [])
-  const command = entry.action === 'Bash' ? toolObject({ name: 'Bash', summary: entry.summary }) : ''
+    if (active) (entry.defaultToNo ? denyRef.current : containerRef.current)?.focus()
+  }, [active, entry.defaultToNo])
+  const rememberable = workspaceRoot
+    ? approvalRuleCandidate(
+        {
+          action: entry.action ?? '',
+          input: entry.input,
+          requestKind: entry.requestKind,
+          defaultToNo: entry.defaultToNo,
+          suppressAlwaysAllowRule: entry.suppressAlwaysAllowRule,
+        },
+        workspaceRoot,
+      )
+    : null
+  const literalCommand = asRecord(entry.input)?.command
+  const command =
+    typeof literalCommand === 'string'
+      ? literalCommand
+      : entry.action === 'Bash'
+        ? toolObject({ name: 'Bash', summary: entry.summary })
+        : ''
+  const edits = React.useMemo(() => deriveEditHunks(entry.input), [entry.input])
   const handleKeyDown = (event: React.KeyboardEvent): void => {
-    if (busy) return
+    if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
+    // Buttons own Enter themselves; the card shortcut is only for its empty
+    // focus target, so Deny or a menu trigger can never bubble into approval.
+    if (event.key === 'Enter' && event.target !== event.currentTarget) return
     if (event.key === 'Enter') {
       event.preventDefault()
-      onApprove(entry.requestId, true)
+      onApprove(entry.requestId, !entry.defaultToNo, undefined, entry.defaultToNo ? 'deny' : 'once')
     } else if (event.key === 'Escape') {
       event.preventDefault()
-      onApprove(entry.requestId, false)
+      onApprove(entry.requestId, false, undefined, 'deny')
     }
   }
   return (
@@ -183,7 +299,7 @@ export function ConversationPermissionCard({
       hints={
         <>
           <span className="inline-flex items-center gap-1">
-            <Kbd>⏎</Kbd> approve
+            <Kbd>⏎</Kbd> {entry.defaultToNo ? 'deny' : 'allow once'}
           </span>
           <span className="inline-flex items-center gap-1">
             <Kbd>⎋</Kbd> deny
@@ -192,15 +308,56 @@ export function ConversationPermissionCard({
       }
       actions={
         <>
-          <GhostButton onClick={() => onApprove(entry.requestId, false)} disabled={busy}>
+          <GhostButton
+            ref={denyRef}
+            onClick={() => onApprove(entry.requestId, false, undefined, 'deny')}
+            disabled={busy}
+          >
             Deny
           </GhostButton>
-          <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
-            Approve <Kbd>⏎</Kbd>
-          </OutlineButton>
+          {rememberable ? (
+            <SplitButton
+              label="Allow once"
+              primaryAriaLabel="Allow once"
+              menuAriaLabel="Remember permission"
+              menuKind="alternatives"
+              onPrimary={() => onApprove(entry.requestId, true, undefined, 'once')}
+              disabled={busy}
+              items={[
+                {
+                  id: 'conversation',
+                  label: 'Allow for this conversation',
+                  onSelect: () => onApprove(entry.requestId, true, undefined, 'conversation'),
+                },
+                {
+                  id: 'always',
+                  label: 'Always allow in this workspace',
+                  onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
+                },
+              ]}
+            />
+          ) : (
+            <OutlineButton
+              size="sm"
+              onClick={() => onApprove(entry.requestId, true, undefined, 'once')}
+              disabled={busy}
+            >
+              Allow once
+            </OutlineButton>
+          )}
         </>
       }
     >
+      {entry.originAgentId ? (
+        <InlineNotice tone="warn" className="mx-4 mt-2">
+          Requested by subagent {entry.originAgentId}.
+        </InlineNotice>
+      ) : null}
+      {approvalOutsideWorkspace(entry, workspaceRoot) ? (
+        <InlineNotice tone="warn" className="mx-4 mt-2">
+          This request references a path outside this workspace.
+        </InlineNotice>
+      ) : null}
       {command ? (
         <div className="mx-4 mt-2 overflow-x-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-meta text-[color:var(--terminal-fg)]">
           <span className="select-none text-[color:var(--accent-primary)]">$ </span>
@@ -211,6 +368,12 @@ export function ConversationPermissionCard({
           {entry.summary}
         </p>
       )}
+      {edits.map((edit, index) => (
+        <div key={`${index}:${edit.path}`} className="mx-4 mt-2">
+          <ConversationFileLink token={edit.path} source="inlineCode" />
+          <InlineDiff edit={edit} />
+        </div>
+      ))}
       {workspaceName ? (
         <div className="flex items-center gap-1.5 px-4 pt-1.5 text-meta text-[color:var(--text-subtle)]">
           <FolderGlyph className="icon-xs" />
@@ -225,17 +388,20 @@ export function ConversationPlanCard({
   entry,
   onApprove,
   busy,
+  active = true,
 }: {
   entry: Extract<TranscriptEntry, { kind: 'approval' }>
   onApprove: (requestId: string, approved: boolean, answers?: Record<string, string>) => void
   busy: boolean
+  active?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    containerRef.current?.focus()
-  }, [])
+    if (active) containerRef.current?.focus()
+  }, [active])
   const handleKeyDown = (event: React.KeyboardEvent): void => {
-    if (busy) return
+    if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
+    if (event.key === 'Enter' && event.target !== event.currentTarget) return
     if (event.key === 'Enter') {
       event.preventDefault()
       onApprove(entry.requestId, true)
@@ -292,19 +458,21 @@ export function ConversationQuestionCard({
   questions,
   onAnswer,
   busy,
+  active = true,
 }: {
   requestId: string
   questions: ConversationQuestion[]
   onAnswer: (requestId: string, approved: boolean, answers?: Record<string, string>) => void
   busy: boolean
+  active?: boolean
 }) {
   const [stepIndex, setStepIndex] = useState(0)
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [otherText, setOtherText] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    containerRef.current?.focus()
-  }, [stepIndex])
+    if (active) containerRef.current?.focus()
+  }, [active, stepIndex])
 
   const question = questions[Math.min(stepIndex, questions.length - 1)]
   if (!question) return null
@@ -354,7 +522,8 @@ export function ConversationQuestionCard({
   }
 
   const handleKeyDown = (event: React.KeyboardEvent): void => {
-    if (busy) return
+    if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
+    if (event.key === 'Enter' && event.target !== event.currentTarget) return
     if (event.key >= '1' && event.key <= '9') {
       const option = question.options[Number(event.key) - 1]
       if (option) {
@@ -478,6 +647,7 @@ export function ConversationQuestionCard({
               // The card's container hotkeys (digits pick options, arrows move)
               // must not fire while typing a free-text answer.
               event.stopPropagation()
+              if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 advance()

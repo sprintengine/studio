@@ -38,11 +38,18 @@ export type OpenFileSurfaceInput = {
 export function openFileSurface(input: OpenFileSurfaceInput): void {
   const store = useWorkspaceStore.getState()
   if (store.openFilesInExternalWindow) {
+    // A file link's line hint must survive the user's separate-window
+    // preference, just like an explicit range from an editor reveal.
+    const range =
+      input.range ??
+      (input.lineNumber !== undefined
+        ? { startLine: input.lineNumber, ...(input.column !== undefined ? { startColumn: input.column } : {}) }
+        : undefined)
     void openExternalFileWindow({
       workspaceId: input.workspaceId,
       path: input.path,
       name: input.name,
-      ...(input.range ? { range: input.range } : {}),
+      ...(range ? { range } : {}),
       ...(input.takeFocus === false ? { takeFocus: false } : {}),
       ...(input.background ? { background: true } : {}),
       rootPath: input.rootPath,

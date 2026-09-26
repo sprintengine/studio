@@ -18,7 +18,7 @@ export function AttachmentChip({
   children?: React.ReactNode
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--bg-selected)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
+    <span className="inline-flex items-center gap-1.5 rounded-sm bg-[color:var(--bg-selected)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
       {glyph}
       {children ?? <TruncatedText as="span" text={label} className="max-w-[140px]" />}
       <CloseIconButton onClick={onRemove} aria-label={removeLabel} className="-mr-1" />
