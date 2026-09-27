@@ -63,6 +63,7 @@ import {
 import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
+import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
@@ -1393,7 +1394,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           )?.turnId
       : undefined
 
-  const latestTurnId = [...projection.entries].reverse().find((entry) => entry.kind === 'assistant')?.turnId
+  const latestTurnId = latestReplyTurnId(projection.entries)
   const oldChrome = chromeRef.current
   const checkpointSeqs = new Set(
     projection.entries.flatMap((entry) =>

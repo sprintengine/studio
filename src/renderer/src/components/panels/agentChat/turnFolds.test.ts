@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { deriveTurnFold } from './turnFolds'
+import { deriveTurnFold, latestReplyTurnId } from './turnFolds'
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
 const tools: TranscriptToolEntry[] = ['one', 'two'].map((id) => ({
   kind: 'tool',
@@ -48,4 +48,16 @@ test('a turn without a known start reports no duration instead of time since the
   )
   const withReasoning = { ...entry, reasoning: 'Thinking' }
   expect(deriveTurnFold(withReasoning, tools.slice(0, 1), false)?.label).toBe('Worked for 1m 20s · 1 step')
+})
+
+test('a late continuation turn does not take over as the reply that stays open', () => {
+  const user = (id: string): TranscriptEntry => ({ kind: 'user', id, text: id })
+  const reply = (turnId: string): TranscriptEntry => ({ ...entry, turnId })
+  expect(latestReplyTurnId([user('a'), reply('a'), user('b'), reply('b')])).toBe('b')
+  // A background agent's report after the turn ended arrives as its own turn.
+  expect(latestReplyTurnId([user('a'), reply('a'), user('b'), reply('b'), reply('continuation')])).toBe('b')
+  // A message still waiting for its reply leaves the previous one open.
+  expect(latestReplyTurnId([user('a'), reply('a'), user('b')])).toBe('a')
+  expect(latestReplyTurnId([reply('legacy')])).toBe('legacy')
+  expect(latestReplyTurnId([])).toBeUndefined()
 })

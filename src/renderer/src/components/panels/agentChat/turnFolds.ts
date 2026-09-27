@@ -38,3 +38,19 @@ export function deriveTurnFold(
     defaultFolded: !isLatest,
   }
 }
+
+/**
+ * The turn that answers the latest message: it stays unfolded. A continuation
+ * turn (a background agent reporting after its turn ended) has no message of
+ * its own, so it must not take that place and fold the reply being read.
+ */
+export function latestReplyTurnId(entries: readonly TranscriptEntry[]): string | undefined {
+  let latest: string | undefined
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]
+    // A message still waiting for its reply leaves the previous reply open.
+    if (entry.kind === 'user' && latest !== undefined) return latest
+    if (entry.kind === 'assistant') latest = entry.turnId
+  }
+  return latest
+}
