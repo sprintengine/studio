@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { deriveEditHunks, emphasizeChangedWords } from './editHunks'
+import { deriveEditHunks, emphasizeChangedWords, pairReplacedLines } from './editHunks'
 
 test('replacement, insertion, deletion and new files count the displayed lines', () => {
   for (const [oldText, newText, added, removed] of [
@@ -46,4 +46,15 @@ test('a whole-file write is not claimed as a new file unless the previous versio
   const [created] = deriveEditHunks({ path: 'app.ts', oldText: '', newText: 'a\n' })
   expect(created).toMatchObject({ newFile: true })
   expect(created?.contentsOnly).toBeUndefined()
+})
+test('replaced lines pair by position within a run of removals and additions', () => {
+  const pairs = pairReplacedLines(['-a', '-b', '+A', '+B', ' c', '-d', '+D', '+E', '-f'])
+  expect([...pairs].sort((x, y) => x[0] - y[0])).toEqual([
+    [0, 2],
+    [1, 3],
+    [2, 0],
+    [3, 1],
+    [5, 6],
+    [6, 5],
+  ])
 })

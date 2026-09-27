@@ -90,3 +90,30 @@ export function emphasizeChangedWords(
     next: changes.filter((change) => !change.removed).map((change) => ({ text: change.value, changed: change.added })),
   }
 }
+
+/**
+ * Which removed and added lines of a hunk are two versions of one line, for
+ * word emphasis: in a run of removals followed by a run of additions, the
+ * n-th removal pairs with the n-th addition. Maps each paired index to its
+ * partner's.
+ */
+export function pairReplacedLines(lines: readonly string[]): Map<number, number> {
+  const pairs = new Map<number, number>()
+  let index = 0
+  while (index < lines.length) {
+    if (!lines[index].startsWith('-')) {
+      index++
+      continue
+    }
+    const removedStart = index
+    while (index < lines.length && lines[index].startsWith('-')) index++
+    const addedStart = index
+    while (index < lines.length && lines[index].startsWith('+')) index++
+    const count = Math.min(addedStart - removedStart, index - addedStart)
+    for (let offset = 0; offset < count; offset++) {
+      pairs.set(removedStart + offset, addedStart + offset)
+      pairs.set(addedStart + offset, removedStart + offset)
+    }
+  }
+  return pairs
+}

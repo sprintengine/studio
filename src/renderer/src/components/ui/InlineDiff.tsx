@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { formatHunkHeader } from '../../../../shared/git/hunks'
-import { emphasizeChangedWords, type ConversationEdit } from '../../../../shared/conversation/editHunks'
+import {
+  emphasizeChangedWords,
+  pairReplacedLines,
+  type ConversationEdit,
+} from '../../../../shared/conversation/editHunks'
 import { loadCodeLanguage, normalizeCodeLanguage } from '../../lib/highlight/codeHighlight'
 import { GhostButton } from './Buttons'
 import '../../../../../design-system/components/inline-diff/component.css'
@@ -14,6 +18,7 @@ export function InlineDiff({ edit, onOpen }: { edit: ConversationEdit; onOpen?: 
   const wholeFile = edit.newFile || edit.contentsOnly === true
   const hunks = limited && !all ? edit.hunks.slice(0, 3) : edit.hunks
   const sourceHunks = useMemo(() => edit.hunks.map((hunk) => hunk.lines), [edit.hunks])
+  const pairs = useMemo(() => sourceHunks.map((lines) => pairReplacedLines(lines)), [sourceHunks])
   useEffect(() => {
     let cancelled = false
     const language = normalizeCodeLanguage(edit.path.split('.').at(-1))
@@ -69,12 +74,8 @@ export function InlineDiff({ edit, onOpen }: { edit: ConversationEdit; onOpen?: 
             {(wholeFile && !all ? hunk.lines.slice(0, 40) : hunk.lines).map((line, index) => {
               const added = line.startsWith('+'),
                 removed = line.startsWith('-')
-              const sibling =
-                removed && hunk.lines[index + 1]?.startsWith('+')
-                  ? hunk.lines[index + 1]
-                  : added && hunk.lines[index - 1]?.startsWith('-')
-                    ? hunk.lines[index - 1]
-                    : undefined
+              const partner = pairs[edit.hunks.indexOf(hunk)]?.get(index)
+              const sibling = partner === undefined ? undefined : hunk.lines[partner]
               const emphasis = sibling
                 ? emphasizeChangedWords((removed ? line : sibling).slice(1), (added ? line : sibling).slice(1))
                 : undefined
