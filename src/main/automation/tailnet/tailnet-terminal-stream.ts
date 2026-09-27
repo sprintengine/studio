@@ -17,7 +17,11 @@ import {
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_GOING_AWAY,
   WEBSOCKET_CLOSE_NORMAL,
+  WEBSOCKET_CLOSE_REVOKED,
 } from './websocket-frames'
+
+/** The close code for an attached device whose grant no longer includes a terminal scope. */
+const TERMINAL_SCOPE_CLOSE_CODE = 4403
 
 // One attached terminal, over one WebSocket.
 //
@@ -41,6 +45,8 @@ export type TailnetTerminalStream = {
   close(code: number, reason: string): void
   /** True once the underlying socket is gone. */
   isClosed(): boolean
+  /** Re-read the device's grant: close without a terminal scope, refuse input without control. */
+  refreshScopes(): void
 }
 
 export type TailnetTerminalStreamOptions = {
@@ -48,7 +54,13 @@ export type TailnetTerminalStreamOptions = {
   sessionId: string
   deviceId: string
   deviceName: string
-  scopes: readonly TailnetScope[]
+  /**
+   * The device's grant: a fixed set, or a function that reads the current one
+   * (null once the device is gone). A function is consulted on every client
+   * frame and on `refreshScopes`, so a grant narrowed while the terminal is
+   * attached applies to the next keystroke, not the next attach.
+   */
+  scopes: readonly TailnetScope[] | (() => readonly TailnetScope[] | null)
   terminals: TerminalRemoteHost
   /** Where the client's screen stands, when it is reattaching (see {@link terminalResumeFromQuery}). */
   resume?: TerminalStreamPosition
@@ -102,18 +114,42 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
     options.onClosed()
   }
 
-  const scope = terminalAttachScopeFor(options.scopes)
-  if (!scope) {
-    // Reached only if the caller upgraded a device without a terminal grant;
-    // refuse in the stream too rather than trusting one gate.
+  const readScopes =
+    typeof options.scopes === 'function' ? options.scopes : () => options.scopes as readonly TailnetScope[]
+  const stream = (): TailnetTerminalStream => ({
+    deviceId: options.deviceId,
+    sessionId: options.sessionId,
+    close,
+    isClosed: () => closed,
+    refreshScopes: () => void currentScope(),
+  })
+  /**
+   * The attach scope the grant allows now, or null after closing the socket
+   * because it allows none. A revoked device is closed as revoked, a device
+   * that lost its terminal scopes as refused.
+   */
+  const currentScope = (): TerminalAttachScope | null => {
+    if (closed) return null
+    const scopes = readScopes()
+    if (!scopes) {
+      close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
+      return null
+    }
+    const allowed = terminalAttachScopeFor(scopes)
+    if (allowed) return allowed
+    // Refused in the stream too, not only at the upgrade: a grant can narrow
+    // while a terminal is attached, and an upgrade is not the only gate.
     send({
       type: 'error',
       code: 'terminal_scope_required',
       message: 'This device is not granted terminal access. Re-pair it with the terminal watch or control scope.',
     })
-    close(WEBSOCKET_CLOSE_NORMAL, 'terminal_scope_required')
-    return { deviceId: options.deviceId, sessionId: options.sessionId, close, isClosed: () => closed }
+    close(TERMINAL_SCOPE_CLOSE_CODE, 'terminal_scope_required')
+    return null
   }
+
+  const scope = currentScope()
+  if (!scope) return stream()
 
   const attached = options.terminals.attach({
     sessionId: options.sessionId,
@@ -132,7 +168,7 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
   if (!attached.ok) {
     send({ type: 'error', code: attached.code, message: attached.message })
     close(WEBSOCKET_CLOSE_NORMAL, attached.code)
-    return { deviceId: options.deviceId, sessionId: options.sessionId, close, isClosed: () => closed }
+    return stream()
   }
   attachment = attached.attachment
 
@@ -180,10 +216,13 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
       return
     }
     if (!attachment) return
-    // Frame-level scope enforcement. An observe-scoped socket sending input is
-    // refused HERE, before the runtime is asked, and the violation is logged:
-    // it is a security event, not a client mistake to swallow.
-    if (scope !== 'control') {
+    // Frame-level scope enforcement, against the grant as it is now. An
+    // observe-scoped socket sending input is refused HERE, before the runtime
+    // is asked, and the violation is logged: it is a security event, not a
+    // client mistake to swallow.
+    const allowed = currentScope()
+    if (!allowed) return
+    if (allowed !== 'control') {
       options.log?.(
         `tailnet terminal: device ${options.deviceName} (${options.deviceId}) sent "${frame.type}" on a watch-only attach to ${options.sessionId}; dropped.`,
       )
@@ -247,7 +286,7 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
     socket.destroy()
   })
 
-  return { deviceId: options.deviceId, sessionId: options.sessionId, close, isClosed: () => closed }
+  return stream()
 }
 
 // Viewer ids must be unique per socket, including two attaches from the same

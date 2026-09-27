@@ -1794,6 +1794,47 @@ test('tailnet', async () => {
     }
   }
 
+  async function testNarrowedGrantReachesAttachedTerminalAndRpcStream(): Promise<void> {
+    const harness = await startHarness()
+    try {
+      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'laptop' })
+      const deviceId = harness.devices.listDevices().find((entry) => entry.name === 'laptop')!.id
+      const stream = await attachTerminal(harness, device.deviceToken, 'session_one')
+      assert.equal((await stream.nextMessage()).type, 'replay')
+      assert.equal((await stream.nextMessage()).scope, 'control')
+      const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })
+      const rpcStream = await openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket)
+      rpcStream.send(rpc(1, 'tools/list'))
+      const listed = (await rpcStream.nextMessage()) as { result: { tools: Array<{ name: string }> } }
+      assert.equal(
+        listed.result.tools.some((tool) => tool.name === 'terminal.create'),
+        true,
+      )
+
+      // Narrowed to watching while attached: the next keystroke is refused at
+      // the frame, not honoured under the grant the socket opened with.
+      harness.devices.updateDeviceScopes(deviceId, ['terminal:observe'])
+      stream.send({ type: 'input', data: 'echo after narrowing\n' })
+      assert.equal((await stream.nextMessage()).code, 'terminal_control_required')
+      assert.deepEqual(harness.terminals.writes, [], 'no byte typed after the narrowing reaches the terminal')
+      // The RPC stream reads the device per message, so it sees the same grant.
+      rpcStream.send(rpc(2, 'tools/list'))
+      const narrowed = (await rpcStream.nextMessage()) as { result: { tools: Array<{ name: string }> } }
+      assert.deepEqual(
+        narrowed.result.tools.map((tool) => tool.name),
+        ['terminal.list'],
+      )
+
+      // No terminal scope at all: the attached terminal is told and closed.
+      harness.devices.updateDeviceScopes(deviceId, ['workspace:read'])
+      assert.equal((await stream.nextMessage()).code, 'terminal_scope_required')
+      assert.equal(await stream.closed, 4403)
+      rpcStream.socket.destroy()
+    } finally {
+      await harness.close()
+    }
+  }
+
   async function testObserveScopedAttachCannotInjectInput(): Promise<void> {
     const harness = await startHarness()
     try {
@@ -2777,6 +2818,7 @@ test('tailnet', async () => {
     testWebSocketCodecRefusesWhatItDoesNotImplement,
     testTerminalAttachReplaysThenStreamsToEveryAttachedViewer,
     testObserveScopedAttachCannotInjectInput,
+    testNarrowedGrantReachesAttachedTerminalAndRpcStream,
     testTerminalStreamsAreRefusedWithoutAGrantASessionOrARuntime,
     testRevocationClosesAnAttachedTerminalImmediately,
     testTerminalToolsSitBehindTheTerminalScope,

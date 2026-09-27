@@ -380,11 +380,14 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // next request: a live WebSocket would otherwise keep serving a device the
     // user just removed.
     const unsubscribeRevoked = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
-    // A narrowed grant reaches an open conversation socket the same way: it
-    // re-reads the device and closes, or stops accepting commands.
+    // A narrowed grant reaches an open conversation or terminal socket the
+    // same way: it re-reads the device and closes, or stops accepting commands
+    // or keystrokes. The RPC stream needs no push: it re-reads the device on
+    // every message it answers.
     const unsubscribeScopes = options.devices.onDeviceScopesChanged((device) => {
       for (const conversation of [...conversationStreams])
         if (conversation.deviceId === device.id) conversation.refreshScopes()
+      for (const terminal of [...terminalStreams]) if (terminal.deviceId === device.id) terminal.refreshScopes()
     })
     unsubscribeRevocations = () => {
       unsubscribeRevoked()
@@ -1042,7 +1045,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         ...(resume ? { resume } : {}),
         deviceId: device.id,
         deviceName: device.name,
-        scopes: device.scopes,
+        // Read live, never captured, as for a conversation socket: a grant
+        // narrowed in Settings reaches the terminal that is already attached.
+        scopes: () => options.devices.listDevices().find((entry) => entry.id === device.id)?.scopes ?? null,
         terminals: options.terminals,
         onClosed: () => {
           // Emit only when the stream was actually tracked: a stream that
