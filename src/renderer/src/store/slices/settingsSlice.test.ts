@@ -181,14 +181,14 @@ test('settingsSlice', async () => {
   }
 
   // New-chat agent choice: the three spawn kinds round-trip; only malformed
-  // shapes and missing values use the first-run Chat choice.
+  // shapes and missing values use the first-run choice, which is Terminal.
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'terminal' }), { kind: 'terminal' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'conversation' }), { kind: 'conversation' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'general' }), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'conversation' })
-  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'conversation' })
-  assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'conversation' })
-  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'conversation' })
+  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice('conversation'), { kind: 'terminal' })
+  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'terminal' })
 
   // A model override keeps only a well-formed { cli, model } pair.
   assert.deepEqual(normalizeCliModelSelection({ cli: 'claude-code', model: ' opus ' }), {

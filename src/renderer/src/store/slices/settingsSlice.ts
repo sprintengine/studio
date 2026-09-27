@@ -588,15 +588,20 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
+// What "New chat in project" opens before the person has ever picked: a plain
+// Terminal, the one choice that needs no provider or CLI set up (owner ruling
+// 2026-09-26). After the first pick the launcher remembers the last one.
+const FIRST_RUN_NEW_CHAT_AGENT: NewChatAgentChoice = { kind: 'terminal' }
+
 // Persisted "New chat in project" agent choice. Anything that is not one of the
 // three spawn kinds — a malformed blob, a shape from an older build — falls
-// back to Chat. A remembered explicit choice still wins.
+// back to the first-run choice. A remembered explicit choice still wins.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
-  if (!input || typeof input !== 'object') return { kind: 'conversation' }
+  if (!input || typeof input !== 'object') return { ...FIRST_RUN_NEW_CHAT_AGENT }
   const choice = input as Partial<NewChatAgentChoice>
-  if (choice.kind === 'terminal') return { kind: 'terminal' }
-  if (choice.kind === 'conversation') return { kind: 'conversation' }
-  return choice.kind === 'general' ? { kind: 'general' } : { kind: 'conversation' }
+  if (choice.kind === 'terminal' || choice.kind === 'general' || choice.kind === 'conversation')
+    return { kind: choice.kind }
+  return { ...FIRST_RUN_NEW_CHAT_AGENT }
 }
 
 // Module-contributed settings sections persist their values in a `module:<id>`
@@ -692,7 +697,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
   lastSelectedConversationModel: null,
   textGeneration: { enabled: true, engine: null },
-  lastNewChatAgent: { kind: 'conversation' },
+  lastNewChatAgent: { ...FIRST_RUN_NEW_CHAT_AGENT },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,
