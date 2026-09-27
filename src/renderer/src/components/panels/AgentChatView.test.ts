@@ -1120,9 +1120,9 @@ test('AgentChatView', async () => {
   // The preset used to be start-time-only and the footer only ever said "Asks
   // before tools". The pill has to name the preset actually in force, and say
   // truthfully when a change bites.
-  assert.equal(permissionPresetLabel('manual'), 'Asks before tools')
-  assert.equal(permissionPresetLabel('auto'), 'Auto')
+  assert.equal(permissionPresetLabel('none'), 'CLI default')
   assert.equal(permissionPresetLabel('bypass'), 'Bypass permissions')
+  assert.equal(permissionPresetLabel('bypass', 'codex'), 'YOLO', 'Codex keeps its own name for bypass')
   assert.equal(
     permissionChangeScopeLabel(true),
     'Applies from the next tool call.',
@@ -1137,34 +1137,38 @@ test('AgentChatView', async () => {
   // Which preset the pill reports (1809). The store used to be the only source,
   // so a session running on a different preset than the agent record rendered a
   // pill that misstated what the child would do on its next tool call.
-  const liveSession = (permissionPreset?: 'none' | 'manual' | 'auto' | 'bypass') =>
-    permissionPreset ? { permissionPreset } : {}
+  const liveSession = (permissionPreset?: 'none' | 'bypass') => (permissionPreset ? { permissionPreset } : {})
   assert.equal(
-    resolvePermissionPreset(liveSession('bypass'), 'manual'),
+    resolvePermissionPreset(liveSession('bypass'), 'none'),
     'bypass',
     'a live session running on Bypass is reported as Bypass, whatever the agent record says',
   )
   assert.equal(
-    resolvePermissionPreset(liveSession('manual'), 'bypass'),
-    'manual',
-    'the session wins in the safe direction too — the pill never overstates the child’s freedom',
+    resolvePermissionPreset(liveSession('none'), 'bypass'),
+    'none',
+    'the session wins in the other direction too — the pill never overstates the child’s freedom',
   )
   assert.equal(
-    resolvePermissionPreset(null, 'auto'),
-    'auto',
+    resolvePermissionPreset(null, 'none'),
+    'none',
     'with no session yet the agent record is what the next session will start on',
   )
   assert.equal(
-    resolvePermissionPreset(liveSession(), 'auto'),
-    'auto',
+    resolvePermissionPreset(liveSession(), 'none'),
+    'none',
     'a session that never recorded a preset falls through to the record, not past it',
   )
-  assert.equal(resolvePermissionPreset(null, undefined), 'manual', 'an agent record predating the field asks per tool')
+  assert.equal(
+    resolvePermissionPreset(null, undefined),
+    'bypass',
+    'an agent record predating the field starts on the app’s spawn default',
+  )
 
-  const pillMarkup = (preset: 'none' | 'manual' | 'auto' | 'bypass'): string =>
+  const pillMarkup = (preset: 'none' | 'bypass', cli?: string): string =>
     renderToStaticMarkup(
       createElement(PermissionPresetPill, {
         preset,
+        cli,
         live: true,
         changing: false,
         open: false,
@@ -1173,57 +1177,57 @@ test('AgentChatView', async () => {
       }),
     )
 
-  const manualPill = pillMarkup('manual')
-  assert.ok(manualPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
+  const defaultPill = pillMarkup('none')
+  assert.ok(defaultPill.includes('CLI default'), 'the pill names the current behavior at rest')
   assert.ok(
     // "menu", not "dialog", since remote-sessions-ux/selector-menus-premium:
     // the surface is the spec's stacked menuitemradio rows now, and a popup of
     // activatable items is announced as the menu it is.
-    manualPill.includes('aria-haspopup="menu"') && manualPill.includes('aria-expanded="false"'),
+    defaultPill.includes('aria-haspopup="menu"') && defaultPill.includes('aria-expanded="false"'),
     'the retired read-only chip is now a real disclosure control, announced as one',
   )
-  assert.ok(!manualPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
+  assert.ok(!defaultPill.includes('--tone-warn'), 'the CLI’s own default is the quiet, unremarkable state')
   assert.ok(
     pillMarkup('bypass').includes('--tone-warn'),
     'a conversation running without permission checks says so in the warn tone',
   )
-  assert.ok(
-    pillMarkup('auto').includes('Auto'),
-    'the middle preset is nameable too — the pill is never a two-state lie',
-  )
+  assert.ok(pillMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
 
   // The pill's rows (remote-sessions-ux / selector-menus-premium): roving
-  // tabIndex, one-line summaries, the Default chip on the CLI-default row, and
-  // the four glyphs drawn from AppIcons — not a paragraph per row and not a
-  // second lock drawing.
+  // tabIndex, one-line summaries, and the two glyphs drawn from AppIcons — not
+  // a paragraph per row. Exactly two presets exist (owner ruling 2026-09-27).
   const { PermissionPresetMenuRows } = await import('../workspace/agentComposer/agentSpawnShared')
   const rowsMarkup = renderToStaticMarkup(
-    createElement(PermissionPresetMenuRows, { value: 'auto', onSelect: () => {} }),
+    createElement(PermissionPresetMenuRows, { value: 'bypass', onSelect: () => {} }),
   )
-  assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 4, 'four preset rows')
+  assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 2, 'exactly two preset rows')
   assert.equal((rowsMarkup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one tab stop: the checked row')
-  assert.ok(rowsMarkup.includes('No flag — the CLI decides.'), 'the CLI-default row carries a one-line summary')
-  assert.ok(!rowsMarkup.includes('Pro, Max and Team plans'), 'the paragraph stays in the tooltip, off the row')
   assert.ok(
-    rowsMarkup.includes('rounded-xs') && rowsMarkup.includes('>Default<'),
-    'the CLI-default row wears the shared Default chip',
+    rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('No flag'),
+    'Bypass, the default, leads; No flag follows',
   )
+  assert.ok(!/Manual|>Auto</.test(rowsMarkup), 'the retired presets are not offered')
+  assert.ok(
+    rowsMarkup.includes('The CLI’s default — no permission flag is passed.'),
+    'the no-flag row carries a one-line summary',
+  )
+  assert.ok(!rowsMarkup.includes('That can mean asking'), 'the paragraph stays in the tooltip, off the row')
   const remoteRows = renderToStaticMarkup(
     createElement(PermissionPresetMenuRows, {
-      value: 'auto',
+      value: 'none',
       onSelect: () => {},
-      disabledReasons: { none: 'Not available on a remote machine', bypass: 'Not available on a remote machine' },
+      disabledReasons: { bypass: 'Not available on a remote machine' },
     }),
   )
   assert.equal(
     (remoteRows.match(/ disabled=""/g) ?? []).length,
-    2,
-    'a remote target dims exactly the presets its gateway refuses',
+    1,
+    'a remote target dims exactly the preset its gateway refuses',
   )
   assert.equal(
     (remoteRows.match(/Not available on a remote machine/g) ?? []).length,
-    2,
-    'each with its reason as the meta line',
+    1,
+    'with its reason as the meta line',
   )
 
   // --- image attachments (D3/1774) -------------------------------------------

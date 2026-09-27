@@ -60,7 +60,7 @@ test('NewAgentPanel', async () => {
   // own argv renderer; here it stands in so the test can assert the surface SHOWS
   // what main said, verbatim, rather than composing a line of its own.
   const previewCalls: Array<Record<string, unknown>> = []
-  const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
+  const PREVIEW_DISPLAY = 'claude --model claude-opus-5'
 
   // The fleet the remote-machine tests drive (remote-sessions-ux /
   // new-chat-on-a-remote-machine). Reassigned per check.
@@ -295,7 +295,7 @@ test('NewAgentPanel', async () => {
             workspaceId: 'ws-1',
             conversationAvailable: false,
             initialSelection: { kind: 'general' },
-            permissionPreset: 'auto',
+            permissionPreset: 'none',
             debugMode: false,
             onChangeDebugMode: () => {},
             onLaunch: (launch: Record<string, unknown>) => launches.push(launch),
@@ -344,7 +344,7 @@ test('NewAgentPanel', async () => {
       // property of the runtime the row names, so they moved INSIDE the model
       // picker (owner, 2026-09-05) and are remembered per CLI — the row itself
       // no longer carries the value.
-      assert.ok(!text.includes('Auto'), 'access is not a second chip on the row')
+      assert.ok(!text.includes('No flag'), 'access is not a second chip on the row')
       assert.ok(
         [...view.container.querySelectorAll('button')].some((button) =>
           (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
@@ -383,7 +383,7 @@ test('NewAgentPanel', async () => {
       assert.equal(previewCalls[0]?.cli, 'claude-code', 'it asked about the selected agent’s CLI')
       assert.equal(
         previewCalls[0]?.cliPermissionPreset,
-        'auto',
+        'none',
         'and forwarded the approval preset, so the line moves when the chip does',
       )
       assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
@@ -888,11 +888,11 @@ test('NewAgentPanel', async () => {
       })
       const permissions = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Permissions: YOLO"]')!
       await act(async () => permissions.click())
-      const manual = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
-        (row) => row.textContent?.startsWith('Manual'),
+      const noFlag = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+        (row) => row.textContent?.startsWith('No flag'),
       )!
-      await act(async () => manual.click())
-      assert.equal(storedCliPermissionPreset('codex'), 'manual', 'the highlighted model’s CLI owns the choice')
+      await act(async () => noFlag.click())
+      assert.equal(storedCliPermissionPreset('codex'), 'none', 'the highlighted model’s CLI owns the choice')
       assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'the previous runtime is untouched')
       await act(async () => {
         sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -908,7 +908,7 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
       assert.equal(
         resolveCliPermissionPreset(String(view.launches[0]?.cli), 'bypass'),
-        'manual',
+        'none',
         'the launch host resolves the launched CLI’s permission choice',
       )
       assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
@@ -1667,46 +1667,44 @@ test('NewAgentPanel', async () => {
         await pickMachine(view, 'Air')
         // The narrowing is what THIS launch runs on, not a rewrite of the stored
         // choice: every local launch of Claude Code still reads Bypass.
-        assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
-        // Bypass shows as the nearest supported preset, Auto, for the remote.
-        await openPermissionsMenu(view, 'Auto')
+        assert.ok(
+          /Switched permissions from Bypass permissions to No flag/.test(view.text()),
+          'and says so under the box',
+        )
+        // Bypass shows as the one preset the remote accepts, No flag.
+        const menu = await openPermissionsMenu(view, 'No flag')
         assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'and nothing is written for the CLI')
-        view.unmount()
-
-        const local = await remoteRender({ permissionPreset: 'auto' })
-        await settle()
-        await pickMachine(local, 'Air')
-        const menu = await openPermissionsMenu(local, 'Auto')
         assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
         const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+        assert.equal(rows.length, 2, 'the switcher still lists exactly the two presets')
         assert.deepEqual(
           rows.map((row) => row.disabled),
-          [true, false, false, true],
-          'None and Bypass are disabled for a remote',
+          [true, false],
+          'Bypass is disabled for a remote, No flag is not',
         )
         assert.equal(
           (menu.textContent ?? '').match(/Not available on a remote machine/g)?.length,
-          2,
-          'each with the one-line reason',
+          1,
+          'with the one-line reason',
         )
-        // Roving skips the disabled rows and wraps.
+        // Roving skips the disabled row: the only enabled row keeps focus.
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
+        assert.equal(checked, rows[1], 'No flag is the checked row')
         assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
         assert.equal(checked.tabIndex, 0, 'which is the one tab stop')
-        const key = (el: Element, k: string) =>
-          act(async () => {
-            el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
-          })
-        await key(checked, 'ArrowDown')
-        assert.equal(
-          dom.window.document.activeElement,
-          rows[1],
-          'ArrowDown from Auto wraps past Bypass and None to Manual',
-        )
-        await key(rows[1]!, 'End')
-        assert.equal(dom.window.document.activeElement, rows[2], 'End lands on the last enabled row')
-        await key(rows[2]!, 'Home')
-        assert.equal(dom.window.document.activeElement, rows[1], 'Home on the first enabled row')
+        await act(async () => {
+          checked.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+          )
+        })
+        assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown never lands on the disabled Bypass')
+        view.unmount()
+
+        const local = await remoteRender({ permissionPreset: 'none' })
+        await settle()
+        await pickMachine(local, 'Air')
+        assert.ok(!/Switched permissions/.test(local.text()), 'a preset the remote accepts moves nowhere')
+        await openPermissionsMenu(local, 'No flag')
         local.unmount()
       },
     )
@@ -2494,23 +2492,24 @@ test('NewAgentPanel', async () => {
       seedStore()
       resetRememberedMachineForTests()
       fleetConnections = []
-      const view = await render({ permissionPreset: 'manual' })
-      const menu = await openPermissionsMenu(view, 'Manual')
+      const view = await render({ permissionPreset: 'none' })
+      const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 4)
-      assert.ok(rows[0]?.textContent?.includes('None'), 'the no-flag row says None, not "CLI default"')
-      assert.ok(menu.textContent?.includes('Default'), 'and still wears the Default chip')
-      assert.ok(menu.querySelector('.rounded-xs'), 'on the token chip radius')
+      assert.equal(rows.length, 2, 'exactly two presets: Bypass and No flag')
+      assert.ok(rows[0]?.textContent?.startsWith('Bypass permissions'), 'Bypass, the default, leads')
+      assert.ok(rows[1]?.textContent?.startsWith('No flag'), 'the no-flag row follows')
+      assert.ok(!/Manual|Auto\b/.test(menu.textContent ?? ''), 'the retired presets are gone')
       assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
         act(async () => {
           el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
         })
-      await key(rows[1]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[0])
+      await key(rows[1]!, 'ArrowDown')
+      assert.equal(dom.window.document.activeElement, rows[0], 'ArrowDown wraps to the start')
       await key(rows[0]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
-      await key(rows[3]!, 'Enter')
+      assert.equal(dom.window.document.activeElement, rows[1], 'ArrowUp wraps to the end')
+      await key(rows[1]!, 'ArrowUp')
+      await key(rows[0]!, 'Enter')
       assert.equal(
         storedCliPermissionPreset('claude-code'),
         'bypass',
@@ -2577,10 +2576,10 @@ test('NewAgentPanel', async () => {
             (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === name,
           )
 
-        const view = await render({ permissionPreset: 'manual' })
+        const view = await render({ permissionPreset: 'none' })
         await click(engineChip(view))
         await hover('Opus 5')
-        await click(chip('Manual') as HTMLElement)
+        await click(chip('No flag') as HTMLElement)
         const bypass = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
           (row) => row.textContent?.startsWith('Bypass'),
         )
@@ -2591,14 +2590,14 @@ test('NewAgentPanel', async () => {
         assert.ok(chip('Bypass permissions'), 'Sonnet shows the Bypass that was chosen on Opus')
         await click(tab('Codex'))
         await hover('GPT-5.6 Sol')
-        assert.ok(chip('Manual'), 'Codex keeps its own value, the app-wide default it never moved from')
+        assert.ok(chip('No flag'), 'Codex keeps its own value, the app-wide default it never moved from')
         assert.equal(chip('YOLO'), null, 'and does not inherit Claude’s bypass')
         assert.equal(storedCliPermissionPreset('codex'), undefined)
         view.unmount()
 
         // A fresh panel reads the choice back from the launch-settings read
         // model, which is what main's record fills on every window's boot.
-        const again = await render({ permissionPreset: 'manual' })
+        const again = await render({ permissionPreset: 'none' })
         await click(engineChip(again))
         await click(tab('Claude Code'))
         await hover('Sonnet 5')
@@ -2614,7 +2613,7 @@ test('NewAgentPanel', async () => {
         assert.equal(again.launches[0]?.cli, 'claude-code')
         assert.equal(again.launches[0]?.model, 'claude-sonnet-5')
         assert.equal(
-          resolveCliPermissionPreset('claude-code', 'manual'),
+          resolveCliPermissionPreset('claude-code', 'none'),
           'bypass',
           'and the launch host resolves Bypass for a model it was never chosen on',
         )

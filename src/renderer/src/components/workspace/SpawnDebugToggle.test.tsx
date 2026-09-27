@@ -71,14 +71,13 @@ test('SpawnDebugToggle', async () => {
     )
   })
 
-  run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', () => {
+  run('carries a visible focus ring and a tooltip noting Bypass works best', () => {
     const el = tooltipElement(false, () => {})
     assert.match(
       renderToStaticMarkup(<SpawnDebugToggle active={false} onChange={() => {}} />),
       /focus-visible:focus-ring/,
       'keyboard focus is visible, not suppressed',
     )
-    assert.match(String(el.props.content), /Auto/, 'the tooltip notes the Auto preset')
     assert.match(String(el.props.content), /Bypass/, 'the tooltip notes the Bypass preset')
   })
 
@@ -155,7 +154,7 @@ test('SpawnDebugToggle', async () => {
   )
 
   run('every CLI spawn path seeds the picked CLI’s permission preset onto the agent record', () => {
-    // The Default/Auto/Bypass pick must reach the launched agent on every CLI
+    // The Bypass/No flag pick must reach the launched agent on every CLI
     // path — the in-workspace spawn and the New Chat seed. The new-chat path
     // silently dropped it (launching Bypass picks with default permissions) until
     // createNewChat seeded it too.

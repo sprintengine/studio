@@ -761,10 +761,9 @@ export default function NewAgentPanel({
   }
   const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
   pickRemoteMachineRef.current = pickRemoteMachine
-  // A remote target takes exactly what its gateway accepts (manual, auto).
-  // The moment one is picked, a preset it would refuse — or silently replace
-  // with the other machine's default — launches as the nearest supported one
-  // and says so; the unsupported rows stay listed, dimmed, with the reason.
+  // A remote target takes exactly what its gateway accepts (`none`). The
+  // moment one is picked, a preset it would refuse launches as `none` and says
+  // so; the unsupported row stays listed, dimmed, with the reason.
   const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
   const remoteMachineName = remoteTarget?.connection.machineName ?? null
   React.useEffect(() => {
@@ -1594,8 +1593,8 @@ export default function NewAgentPanel({
                   onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
                   // Permissions live in the picker rather than on a chip beside
                   // it (owner, 2026-09-05). A preset is a property of the runtime
-                  // the row names — Claude Code's auto mode is not Codex's
-                  // sandbox — so it is chosen where the runtime is, remembered
+                  // the row names — each CLI spells bypass its own way — so it
+                  // is chosen where the runtime is, remembered
                   // once per CLI for all of its models, and sits on the picker's
                   // one trailing row beside the effort control.
                   permissions={(cli) => (

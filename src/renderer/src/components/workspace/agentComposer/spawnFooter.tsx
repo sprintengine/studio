@@ -164,7 +164,7 @@ export function SpawnPermissionFooter({
   disabledReasons?: Partial<Record<CliPermissionPreset, string>>
   /**
    * What the chip shows for the stored preset, when this target launches on
-   * something else — a remote machine narrows Bypass to Auto for its own launch
+   * something else — a remote machine narrows Bypass to No flag for its own launch
    * without rewriting the choice every local launch of the CLI reads.
    */
   shown?: (stored: CliPermissionPreset) => CliPermissionPreset
@@ -180,7 +180,7 @@ export function SpawnPermissionFooter({
       label={permissionLabel(preset, cli)}
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
       // wears amber everywhere else in the app.
-      tone={preset === 'bypass' ? 'warn' : preset === 'auto' ? 'accent' : 'quiet'}
+      tone={preset === 'bypass' ? 'warn' : 'quiet'}
       placement="top-end"
       chevron
       // The rows need the width their summaries were written for, and they land

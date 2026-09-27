@@ -21,7 +21,7 @@ import {
   agentPermissionOptions,
   PermissionPresetMenuRows,
 } from '../../workspace/agentComposer/agentSpawnShared'
-import { LockGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
+import { PresetDialGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
 import { ChatGlyph } from '../../AppIcons'
 export { ChatGlyph } from '../../AppIcons'
 import { useState, useEffect, useCallback } from 'react'
@@ -77,18 +77,14 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
 }
 
 // Plain-language name for a tool-permission preset, as the composer pill reads
-// it. The spawn picker's own labels ("Default permissions") name the setting;
-// the pill has to name the BEHAVIOR, because at rest it is the answer to "will
-// this agent stop and ask me before it acts?".
+// it: at rest it is the answer to "will this agent stop and ask me before it
+// acts?".
 export function permissionPresetLabel(preset: CliPermissionPreset, cli?: string): string {
   // `none` cannot claim "asks before tools": it sends no flag, so the answer is
-  // whatever the CLI does — auto mode on Claude Code 2.1.228+ with a Pro, Max or
-  // Team plan. Naming the behaviour is the whole job of this pill, and the one
-  // behaviour it must not assert here is the one it cannot know.
+  // whatever the CLI is configured to do, and the one behaviour this pill must
+  // not assert is the one it cannot know.
   if (preset === 'none') return 'CLI default'
-  if (preset === 'auto') return 'Auto'
-  if (preset === 'bypass') return agentPermissionOptions(cli).find((option) => option.value === preset)!.label
-  return 'Asks before tools'
+  return agentPermissionOptions(cli).find((option) => option.value === preset)!.label
 }
 
 // When a preset change actually bites. A live session takes it on the running
@@ -102,9 +98,9 @@ export function permissionChangeScopeLabel(live: boolean): string {
 // The composer footer's tool-permission control. Replaces the read-only "Asks
 // before tools" chip: the preset was start-time-only, so a conversation was
 // stuck with whatever it spawned on. The pill names the current behavior at
-// rest and opens the SHARED Default/Auto/Bypass row (the same control the spawn
-// picker and Automations editor use) rather than three always-on chips, so the
-// footer keeps one control per concern.
+// rest and opens the SHARED preset rows (the same control the spawn picker and
+// Automations editor use) rather than always-on chips, so the footer keeps one
+// control per concern.
 export function PermissionPresetPill({
   cli,
   preset,
@@ -130,7 +126,6 @@ export function PermissionPresetPill({
   mode?: 'default' | 'plan' | 'ask'
   allowedPresets?: CliPermissionPreset[]
 }) {
-  const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
   // rows. Land focus on the preset in force (Escape returns it to the trigger)
   // — the one helper the launch panel's pill uses too.
@@ -168,7 +163,7 @@ export function PermissionPresetPill({
             className="shrink-0"
             {...triggerProps}
           >
-            {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
+            {preset === 'bypass' ? <UnlockedGlyph className="icon-xs" /> : <PresetDialGlyph className="icon-xs" />}
             {mode === 'plan' ? 'Plan' : mode === 'ask' ? 'Ask' : permissionPresetLabel(preset, cli)}
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
           </ChipButton>
@@ -186,7 +181,7 @@ export function PermissionPresetPill({
         disabledReasons={
           allowedPresets
             ? Object.fromEntries(
-                (['none', 'manual', 'auto', 'bypass'] as const)
+                (['none', 'bypass'] as const)
                   .filter((value) => !allowedPresets.includes(value))
                   .map((value) => [value, 'This provider does not support this permission preset.']),
               )

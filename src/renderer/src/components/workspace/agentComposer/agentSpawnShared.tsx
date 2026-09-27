@@ -3,9 +3,8 @@
 import type React from 'react'
 import { Tooltip } from '../../ui/Tooltip'
 import { ChipButton } from '../../ui/ChipButton'
-import { DefaultChip } from '../../ui/DefaultChip'
 import { MenuOption } from '../../ui/MenuOption'
-import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
+import { PresetDialGlyph, UnlockedGlyph } from '../../AppIcons'
 import type { CliPermissionPreset } from '../../../types/workspace'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
@@ -13,7 +12,9 @@ import type { CliPermissionPreset } from '../../../types/workspace'
 // surface can import them without pulling in the composer's store hook.
 
 // Permission preset chips shown in the picker footer. Exported because the top
-// bar's split-button trigger tooltip names the active preset.
+// bar's split-button trigger tooltip names the active preset. Bypass leads: it
+// is what every agent spawns with unless the person, or their organization,
+// chooses to pass no flag (owner ruling 2026-09-27).
 export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   value: CliPermissionPreset
   label: string
@@ -23,28 +24,17 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   title: string
 }> = [
   {
-    value: 'none',
-    label: 'None',
-    summary: 'No flag — the CLI decides.',
-    title: 'Use the agent’s configured permissions. This does not necessarily mean it will ask for approval.',
-  },
-  {
-    value: 'manual',
-    label: 'Manual',
-    summary: 'Use interactive approvals.',
-    title: 'The agent asks when an action needs approval.',
-  },
-  {
-    value: 'auto',
-    label: 'Auto',
-    summary: 'Run without asking; the CLI’s own safety checks stay on.',
-    title: 'Run with the agent’s automatic permission policy.',
-  },
-  {
     value: 'bypass',
     label: 'Bypass permissions',
     summary: 'Skip every prompt. Trusted repos only.',
     title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
+  {
+    value: 'none',
+    label: 'No flag',
+    summary: 'The CLI’s default — no permission flag is passed.',
+    title:
+      'Pass no permission flag, so the agent runs on its own configured permissions. That can mean asking for approval, or not.',
   },
 ]
 
@@ -52,9 +42,7 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 // added later fails the build here rather than rendering a blank chip. Exported
 // because the model picker's permission footer wears the same short label.
 export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
-  none: 'None',
-  manual: 'Manual',
-  auto: 'Auto',
+  none: 'No flag',
   bypass: 'Bypass',
 }
 
@@ -62,39 +50,12 @@ export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
 // A GPT model alone does not imply Codex: callers pass the selected agent id.
 export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_PERMISSION_OPTIONS {
   return AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-    if (cli === 'codex') {
-      if (option.value === 'bypass') {
-        return {
-          ...option,
-          label: 'YOLO',
-          summary: 'No approvals or sandbox.',
-          title: 'Run Codex without approval prompts or sandbox restrictions.',
-        }
-      }
-      if (option.value === 'auto') {
-        return {
-          ...option,
-          summary: 'Workspace sandbox; never asks.',
-          title:
-            'Codex runs inside the workspace sandbox without asking for approval. Actions outside its permissions are blocked.',
-        }
-      }
-      if (option.value === 'manual') {
-        return {
-          ...option,
-          summary: 'Read-only sandbox; asks to make changes.',
-          title:
-            'Codex starts in a read-only sandbox and can request approval for changes and commands outside that sandbox.',
-        }
-      }
-    }
-    if (cli === 'claude-code' || cli === 'claude-agent' || cli === 'kimi-claude' || cli === 'zai') {
-      if (option.value === 'auto') {
-        return {
-          ...option,
-          summary: 'Claude reviews actions automatically.',
-          title: 'Claude Code uses its automatic permission checks to review actions.',
-        }
+    if (cli === 'codex' && option.value === 'bypass') {
+      return {
+        ...option,
+        label: 'YOLO',
+        summary: 'No approvals or sandbox.',
+        title: 'Run Codex without approval prompts or sandbox restrictions.',
       }
     }
     return option
@@ -106,48 +67,32 @@ export function agentPermissionChipLabel(preset: CliPermissionPreset, cli?: stri
 }
 
 // One glyph per preset, a vocabulary that reads at a glance, drawn once in
-// AppIcons: quiet dial for the CLI's own default, a closed lock for Manual, a
-// spark for Auto, an open lock for Bypass. All-or-nothing per the menu spec's
-// leading-slot rule — every row carries one.
+// AppIcons: an open lock for Bypass, a quiet dial for the CLI's own default.
+// All-or-nothing per the menu spec's leading-slot rule — every row carries one.
 function PresetGlyph({ preset }: { preset: CliPermissionPreset }) {
   const className = 'icon-xs shrink-0'
-  if (preset === 'manual') return <LockGlyph className={className} />
-  if (preset === 'auto') return <SparkGlyph className={className} />
   if (preset === 'bypass') return <UnlockedGlyph className={className} />
   return <PresetDialGlyph className={className} />
 }
 
 /**
  * What a remote gateway will actually take (remote-sessions-ux /
- * new-chat-on-a-remote-machine). The gateway's `terminal.create` accepts
- * exactly `manual` and `auto` (`LAUNCH_PERMISSION_PRESETS` in
- * automation-tools.ts): `bypass` is refused with its own code, and `none`
- * cannot travel at all — it means "send no flag", which on the wire becomes
- * an omitted field the REMOTE machine fills with its own spawn default. A
- * person who picked "CLI default" would get whatever the other machine last
- * chose, so neither is offered for a remote target; a value the gateway would
- * refuse must never be learned about after a network round-trip.
+ * new-chat-on-a-remote-machine). The gateway's `terminal.create` accepts only
+ * `none` (`LAUNCH_PERMISSION_PRESETS` in automation-tools.ts): `bypass` is
+ * refused with its own code, and a value the gateway would refuse must never
+ * be learned about after a network round-trip. `none` travels explicitly —
+ * omitted, it would become the other machine's own spawn default.
  */
-export const REMOTE_PERMISSION_PRESETS: ReadonlySet<CliPermissionPreset> = new Set(['manual', 'auto'])
-
-const REMOTE_PRESET_UNAVAILABLE_REASON = 'Not available on a remote machine'
+export const REMOTE_PERMISSION_PRESETS: ReadonlySet<CliPermissionPreset> = new Set(['none'])
 
 /** The row reasons a remote target disables, keyed by preset. */
 export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<CliPermissionPreset, string>> = {
-  none: REMOTE_PRESET_UNAVAILABLE_REASON,
-  bypass: REMOTE_PRESET_UNAVAILABLE_REASON,
+  bypass: 'Not available on a remote machine',
 }
 
-/**
- * Where a preset lands when a remote target cannot take it: the nearest
- * supported neighbour in strictness. `none` (the CLI's own choice, usually
- * asking) moves to Manual; `bypass` moves DOWN to Auto rather than up to
- * nothing — the remote would clamp to Manual anyway, and Auto is the closest
- * the surface can honestly offer.
- */
+/** Where a preset lands when a remote target cannot take it: `none`, the one it can. */
 export function nearestRemotePermissionPreset(preset: CliPermissionPreset): CliPermissionPreset {
-  if (REMOTE_PERMISSION_PRESETS.has(preset)) return preset
-  return preset === 'bypass' ? 'auto' : 'manual'
+  return REMOTE_PERMISSION_PRESETS.has(preset) ? preset : 'none'
 }
 
 const PRESET_ROW_SELECTOR = '[data-preset-option="true"]'
@@ -226,9 +171,7 @@ export function menuRadioRowKeyDown(
 // pill and the launch panel's pill so one choice never renders two ways
 // (remote-sessions-ux / selector-menus-premium; the chip row above stays the
 // compact in-line form for footers). Selection is `bg.selected` + a check,
-// distinct from hover; Bypass keeps warn INK, never a fill. The CLI-default
-// row wears the same quiet Default chip the reasoning selector uses: it is
-// the runtime's own choice, a fact about the option rather than a status.
+// distinct from hover; Bypass keeps warn INK, never a fill.
 //
 // Roving tabIndex: the checked row is the tab stop, arrows move (the contract
 // above). A row in `disabledReasons` stays listed and dimmed with its reason
@@ -300,7 +243,6 @@ export function PermissionPresetMenuRows({
               }`}
             >
               <span className="min-w-0 truncate">{option.label}</span>
-              {option.value === 'none' ? <DefaultChip /> : null}
             </span>
             <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
               {reason ?? option.summary}
@@ -319,7 +261,7 @@ export function PermissionPresetMenuRows({
 export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChange: (next: boolean) => void }) {
   return (
     <Tooltip
-      content="Debug mode drives the agent through a file-backed debugging state machine: reproduce, form hypotheses, instrument, then remove all instrumentation before finishing. Works best with the Auto or Bypass permission presets."
+      content="Debug mode drives the agent through a file-backed debugging state machine: reproduce, form hypotheses, instrument, then remove all instrumentation before finishing. Works best with the Bypass permission preset."
       placement="bottom"
       wrapperClassName="ml-auto inline-flex"
     >

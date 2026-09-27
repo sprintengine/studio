@@ -284,17 +284,17 @@ test('a New chat door opens the model picked in its Chat roster, not the default
   const picked = conversationNewChatSeed(
     { provider: { providerId: 'claude-agent', modelId: 'opus', modelLabel: 'Opus' }, skills: [{ id: 'review' }] },
     fallback,
-    { prompt: 'Look at the tests', permissionPreset: 'manual' },
+    { prompt: 'Look at the tests', permissionPreset: 'none' },
   )
   assert.deepEqual(picked?.runtime, { providerId: 'claude-agent', modelId: 'opus' })
   assert.equal(picked?.tabName, 'Opus')
   assert.deepEqual(picked?.agentPatch.conversation, { providerId: 'claude-agent', modelId: 'opus' })
   assert.equal(picked?.agentPatch.chatComposerPrefill, 'Look at the tests')
   assert.deepEqual(picked?.agentPatch.conversationSkills, ['review'])
-  assert.equal(picked?.agentPatch.cliPermissionPreset, 'manual')
-  assert.deepEqual(conversationNewChatSeed({}, fallback, { permissionPreset: 'manual' })?.runtime, {
+  assert.equal(picked?.agentPatch.cliPermissionPreset, 'none')
+  assert.deepEqual(conversationNewChatSeed({}, fallback, { permissionPreset: 'none' })?.runtime, {
     providerId: 'claude-agent',
     modelId: 'sonnet',
   })
-  assert.equal(conversationNewChatSeed({}, null, { permissionPreset: 'manual' }), null)
+  assert.equal(conversationNewChatSeed({}, null, { permissionPreset: 'none' }), null)
 })

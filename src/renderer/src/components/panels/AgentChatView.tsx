@@ -27,6 +27,7 @@ import type {
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
@@ -274,14 +275,13 @@ export function isConversationModelLocked(
 // applies on its next tool call, and it can disagree with the agent record (an
 // optimistic write lost to a reload race, a session started with an explicit
 // preset); then the persisted per-agent field every CLI spawn stamps from the
-// picker, which is also what the next session starts on; then 'default' (ask
-// per tool) for an agent record predating the field — the safe end of the
-// scale, never the loose one.
+// picker, which is also what the next session starts on; then the app's spawn
+// default for an agent record predating the field.
 export function resolvePermissionPreset(
   session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
   agentPreset: CliPermissionPreset | undefined,
 ): CliPermissionPreset {
-  return session?.permissionPreset ?? agentPreset ?? 'manual'
+  return session?.permissionPreset ?? agentPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
 }
 
 // Which mounted chat view answers a whole-window model-picker shortcut (see
@@ -415,8 +415,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const sessionId = session?.sessionId ?? null
   const providerEntry = providers.find((entry) => entry.id === conversation?.providerId)
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
-  // A provider may refuse Manual; never silently turn that choice into a
-  // CLI-managed policy which could inherit broader local permissions.
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const supportsSkills =
     transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
@@ -1941,13 +1939,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     open={permissionMenuOpen}
                     onOpenChange={setPermissionMenuOpen}
                     mode={conversationMode}
-                    allowedPresets={
-                      transport.capabilities.unsafePresets
-                        ? capabilities.permissionPresets
-                        : (capabilities.permissionPresets ?? ['manual', 'auto']).filter(
-                            (preset) => preset === 'manual' || preset === 'auto',
-                          )
-                    }
+                    allowedPresets={capabilities.permissionPresets}
                     onChange={(next) => {
                       // Close on pick like every other picker here: a refusal
                       // rolls the pill back and writes the reason to the composer
