@@ -481,3 +481,29 @@ test('capture leaves app sidecar folders out whether or not the repository ignor
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('an agent edit to a file the user marked assume-unchanged or skip-worktree is captured and reverted', async () => {
+  const f = await repository()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    await writeFile(join(f.root, 'existing.txt'), 'local setting\n')
+    await git(f.root, ['update-index', '--assume-unchanged', 'existing.txt'])
+    await writeFile(join(f.root, 'deleted.txt'), 'local override\n')
+    await git(f.root, ['update-index', '--skip-worktree', 'deleted.txt'])
+    const flags = await git(f.root, ['ls-files', '-v'])
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    await writeFile(join(f.root, 'deleted.txt'), 'agent edit\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'post')).ok)
+    const diff = await checkpoints.getTurnDiff({ key: f.key, turnSeq: 1 })
+    assert.ok(diff.ok)
+    assert.deepEqual(diff.diff.files.map((file) => file.path).sort(), ['deleted.txt', 'existing.txt'])
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1 })
+    assert.ok(reverted.ok && reverted.reverted, JSON.stringify(reverted))
+    assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'local setting\n')
+    assert.equal(await readFile(join(f.root, 'deleted.txt'), 'utf8'), 'local override\n')
+    assert.equal(await git(f.root, ['ls-files', '-v']), flags, "the user's own index keeps its flags")
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

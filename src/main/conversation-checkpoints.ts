@@ -300,11 +300,43 @@ export class ConversationCheckpoints {
     const info = await stat(source).catch(() => null)
     if (!info?.isFile()) return false
     await copyFile(source, target)
+    try {
+      await this.clearUnwatchedFlags(root, target)
+    } catch {
+      // Whatever the copy holds that this cannot handle, a rebuild from HEAD can.
+      await rm(target, { force: true })
+      return false
+    }
     // Keep the original mtime: git treats entries as racily clean by comparing
     // them with the index file's own mtime, and a fresh one would trust stale
     // stat data for a file changed in the same second as the index was written.
     await utimes(target, info.atime, info.mtime)
     return true
+  }
+
+  /**
+   * Assume-unchanged and skip-worktree tell `git add` not to look at a file,
+   * so a copy that kept them would miss an agent's edit to one: absent from
+   * the turn diff, never reverted. The flags come off the copy only — the
+   * user's own index is never written. A skip-worktree entry whose file is
+   * absent is a sparse checkout leaving it out, not a deletion, so it keeps
+   * its flag.
+   */
+  private async clearUnwatchedFlags(root: string, index: string): Promise<void> {
+    const env = { GIT_INDEX_FILE: index, GIT_OPTIONAL_LOCKS: '0' }
+    const flagged = { '--no-assume-unchanged': [] as string[], '--no-skip-worktree': [] as string[] }
+    for (const entry of (await this.git(root, ['ls-files', '-v', '-z'], env)).split('\0')) {
+      // `ls-files -v` tags assume-unchanged in lower case and skip-worktree as S.
+      const tag = entry[0]
+      if (!tag || (tag === tag.toUpperCase() && tag !== 'S')) continue
+      const path = entry.slice(2)
+      if (tag !== tag.toUpperCase()) flagged['--no-assume-unchanged'].push(path)
+      if (tag.toUpperCase() === 'S' && (await lstat(safePath(root, path)).catch(() => null)))
+        flagged['--no-skip-worktree'].push(path)
+    }
+    // One call per flag: `update-index --stdin` applies only the last flag given.
+    for (const [flag, paths] of Object.entries(flagged))
+      if (paths.length) await this.git(root, ['update-index', flag, '-z', '--stdin'], env, paths.join('\0') + '\0')
   }
 
   private async snapshot(root: string, env: NodeJS.ProcessEnv, include: string[]): Promise<string> {
