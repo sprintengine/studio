@@ -32,12 +32,11 @@ checks, schedule validation, workspace-root trust. The definition carries
 optional `status`. Read the tool's schema for the trigger and action kinds this
 build actually holds rather than assuming a vocabulary.
 
-An agent-backed action must name `permissionPreset`, and on this surface the
-answer is `none`. The vocabulary is `bypass` and `none`. Naming none at all
-resolves to `bypass`, which this surface refuses outright — that preset can
-only be set by a person, inside the app, and its older spelling `bypass_all` is
-refused with it. If an automation genuinely needs bypass, say so and let the
-user set it; do not work around the refusal.
+An agent-backed action's `permissionPreset` is `bypass` or `none`, the same two
+a person picks in the app. Naming none runs the agent on `bypass`, which starts
+the CLI with its own skip-every-prompt flag — the right default for an agent
+nobody is watching. Name `none` only when the person asks for it or their
+organization does not allow bypass.
 
 `none` passes no permission flag, so the CLI runs on its own configured
 default. If that default asks for approval, an automation agent has nobody at

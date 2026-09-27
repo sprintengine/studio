@@ -3,6 +3,9 @@
 > Superseded by the two-mode ruling of 2026-09-27: there are now only `bypass`
 > (Codex: YOLO), the default, and `none`, which passes no permission flag.
 > Stored `manual` and `auto` read as `none` (`src/shared/cli-permission-preset.ts`).
+> The same ruling opened bypass on every surface that starts an agent: the
+> automation and MCP tools, automations, and a launch on a paired machine all
+> take either preset, so the remote restrictions below are gone too.
 > The plan below is kept as the record of the four-preset design.
 
 ## Implementation

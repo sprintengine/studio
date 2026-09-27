@@ -23,16 +23,15 @@ no quotes needed. Unknown keys are preserved, so nothing added by hand is lost.
 
 ```yaml
 ---
-type: feature        # epic | feature | bug | mockup | spike
-status: idea         # idea | ready | in_progress | needs_input | completed | archived
-difficulty: m        # xs | s | m | l | xl              effort to build
-criticality: high    # low | normal | high | critical   impact if it is missing
-risk: normal         # low | normal | high              likelihood it breaks something
-epic: auth-revamp    # optional; the epic file's name stem
-dependsOn: token-rotation, session-expiry   # optional; comma-separated sibling slugs
-mockups: backlog/mockups/2026-07-06-x.html  # optional; comma-separated project-relative paths
+type: feature # epic | feature | bug | mockup | spike
+status: idea # idea | ready | in_progress | needs_input | completed | archived
+difficulty: m # xs | s | m | l | xl              effort to build
+criticality: high # low | normal | high | critical   impact if it is missing
+risk: normal # low | normal | high              likelihood it breaks something
+epic: auth-revamp # optional; the epic file's name stem
+dependsOn: token-rotation, session-expiry # optional; comma-separated sibling slugs
+mockups: backlog/mockups/2026-07-06-x.html # optional; comma-separated project-relative paths
 ---
-
 # Title as a single H1
 
 GOAL: the observable end state, then the rest of the keys under "Item body".
@@ -178,9 +177,9 @@ assignment appears on its next refresh rather than instantly.
 agent whose first input is the target CLI's backlog invocation, then records the
 link. It never changes status — the item's lifecycle belongs to whoever works
 it, exactly as if a person had dragged the item onto a terminal. It takes the
-same launch fields as `agent_launch` minus the connector, and
-`bypass` is refused here as everywhere on this surface. Use it when you are
-dispatching, not when you are the one doing the work.
+same launch fields as `agent_launch` minus the connector, including either
+permission preset. Use it when you are dispatching, not when you are the one
+doing the work.
 
 ## Triage
 

@@ -27,6 +27,14 @@ organization that does not allow bypass chooses No flag. Plan mode is a
 separate toggle, not a preset. Under No flag the CLI can still ask, and its
 requests appear as approval cards.
 
+Every surface that starts an agent takes both presets (owner ruling
+2026-09-27): the launcher, a launch on a paired machine, the automation and MCP
+tools (`agent.launch`, `terminal.create`, `backlog.work`, `automation.create`),
+and automations themselves. A launch that names no preset resolves the way the
+launcher does: the preset chosen for that CLI on the machine that runs it, else
+Bypass. The launcher names its preset when it starts an agent on a paired
+machine, so the agent there runs on the choice the launcher showed.
+
 Completed turns may expose changed files and a checkpoint diff. Reverting asks
 for confirmation and refuses when the working tree no longer matches the
 checkpoint's expected content. Checkpoints preserve the real Git index and do
