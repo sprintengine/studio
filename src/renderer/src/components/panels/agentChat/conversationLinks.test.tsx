@@ -41,3 +41,12 @@ test('file chips preserve surrounding prose punctuation and balanced URL parenth
   expect(markup).toContain('aria-label="Open src/app.ts:4"')
   expect(markup).toContain('), then continue.')
 })
+
+test('markdown links keep their label', () => {
+  const html = render('Read [the setup guide](https://example.com/setup) and [the entry point](src/app.ts:4).')
+  expect(html).toContain('>the setup guide</a>')
+  expect(html).not.toContain('>https://example.com/setup<')
+  expect(html).toContain('the entry point')
+  expect(html).toContain('aria-label="Open src/app.ts:4"')
+  expect(render('[plain words](not a link)')).toContain('plain words')
+})

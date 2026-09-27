@@ -33,9 +33,12 @@ export function useConversationLinkContext() {
 export const ConversationFileLink = React.memo(function ConversationFileLink({
   token,
   source = 'text',
+  label: givenLabel,
 }: {
   token: string
   source?: LinkTokenContext['source']
+  // What a markdown link says (`[the docs](…)`); shown in place of the target.
+  label?: React.ReactNode
 }) {
   const context = useContext(LinkContext)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -44,7 +47,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
     cwd: context?.cwd,
     platform: typeof window === 'undefined' ? 'darwin' : (window.api?.platform ?? 'darwin'),
   })
-  if (!target) return <>{token}</>
+  if (!target) return <>{givenLabel ?? token}</>
   if (target.type === 'url') {
     const href = /^[a-z]+:/i.test(target.href) ? target.href : `https://${target.href}`
     return (
@@ -54,7 +57,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
         rel="noreferrer"
         className={`underline text-[color:var(--sem-color-accent-primary)] ${FOCUS_RING_CLASS}`}
       >
-        {token}
+        {givenLabel ?? token}
       </a>
     )
   }
@@ -114,7 +117,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
           }}
         >
           <FileTypeGlyph name={target.path} className="icon-xs" />
-          <span>{label}</span>
+          <span>{givenLabel ?? label}</span>
         </ChipButton>
       </Tooltip>
       {menu && context && resolved ? (
@@ -167,7 +170,9 @@ export function conversationText(text: string, source: 'text' | 'inlineCode' = '
   })
 }
 
-const renderLink = (href: string) => <ConversationFileLink token={href} source="href" />
+const renderLink = (href: string, label: React.ReactNode) => (
+  <ConversationFileLink token={href} source="href" label={label} />
+)
 export function ConversationMarkdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const streamed = useRef(streaming)
   if (streaming) streamed.current = true
