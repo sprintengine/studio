@@ -27,7 +27,6 @@ import type {
   ConversationProvidersListInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
-  ConversationPermissionPreset,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
@@ -51,6 +50,7 @@ import type {
   ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
@@ -667,9 +667,8 @@ function parseStartSessionInput(
   if (cliRuntimes !== undefined && !isRecord(cliRuntimes)) {
     return { ok: false, message: 'cliRuntimes must be an object when present.' }
   }
-  if (permissionPreset !== undefined && !isPermissionPreset(permissionPreset)) {
-    return { ok: false, message: PERMISSION_PRESET_ERROR }
-  }
+  const preset = permissionPreset === undefined ? undefined : parseCliPermissionPreset(permissionPreset)
+  if (preset === null) return { ok: false, message: PERMISSION_PRESET_ERROR }
   if (
     allowedTools !== undefined &&
     (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== 'string'))
@@ -685,7 +684,7 @@ function parseStartSessionInput(
       providerId,
       modelId,
       ...(isRecord(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
-      ...(isPermissionPreset(permissionPreset) ? { permissionPreset } : {}),
+      ...(preset ? { permissionPreset: preset } : {}),
       ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
   }
@@ -832,19 +831,17 @@ function parseSessionIdInput(
   }
 }
 
-const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto, or bypass.'
-
-function isPermissionPreset(value: unknown): value is ConversationPermissionPreset {
-  return typeof value === 'string' && CONVERSATION_PERMISSION_PRESETS.includes(value as ConversationPermissionPreset)
-}
+// A window built before the two-mode change can still send `manual` or `auto`;
+// parseCliPermissionPreset reads both as `none` rather than refusing them.
+const PERMISSION_PRESET_ERROR = `permissionPreset must be ${CONVERSATION_PERMISSION_PRESETS.join(' or ')}.`
 
 function parseSetPermissionInput(
   input: unknown,
 ): { ok: true; input: ConversationSetPermissionInput } | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
-  const permissionPreset = isRecord(input) ? input.permissionPreset : undefined
-  if (!isPermissionPreset(permissionPreset)) return { ok: false, message: PERMISSION_PRESET_ERROR }
+  const permissionPreset = parseCliPermissionPreset(isRecord(input) ? input.permissionPreset : undefined)
+  if (!permissionPreset) return { ok: false, message: PERMISSION_PRESET_ERROR }
   return { ok: true, input: { ...session.input, permissionPreset } }
 }
 

@@ -65,8 +65,8 @@ export type ConversationSessionSummary = {
   lastUserText?: string
   lastAssistantText?: string
   // The preset currently in force, when the session carries one. Absent means
-  // the session never set one and the provider's own default ('default', ask
-  // per tool) applies. Changing it mid-conversation goes through
+  // the session never set one and the provider passes no permission override,
+  // as `none` does. Changing it mid-conversation goes through
   // `conversation:sessions:set-permission`.
   permissionPreset?: ConversationPermissionPreset
 }
@@ -82,7 +82,7 @@ export type ConversationCliRuntimeOverrides = Record<
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
 // (CliPermissionPreset) without importing electron-api types. The
 // value tuple is exported so the IPC boundary validates against one list.
-export const CONVERSATION_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const
+export const CONVERSATION_PERMISSION_PRESETS = ['none', 'bypass'] as const
 
 export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
@@ -93,11 +93,10 @@ export type ConversationStartSessionInput = {
   providerId: string
   modelId: string
   cliRuntimes?: ConversationCliRuntimeOverrides
-  // How tool permissions behave for CLI-backed stateful providers: 'none'
-  // passes no flag and lets the CLI's own default win, 'manual' asks per tool
-  // (approval cards), 'auto' runs with the CLI's supervised-autonomy mode,
-  // 'bypass' skips permission checks entirely (explicit opt-in surfaces only,
-  // e.g. wizard designer sessions).
+  // How tool permissions behave for CLI-backed stateful providers: 'bypass'
+  // skips the CLI's permission prompts (the default for every agent), 'none'
+  // passes no override and lets the CLI's own configuration decide — which
+  // can still ask, as approval cards.
   permissionPreset?: ConversationPermissionPreset
   // Tools auto-allowed without an approval card. Lets unattended flows (the
   // long-running authoring sessions) run file writes without stalling while interactive tools
@@ -242,7 +241,7 @@ export type ConversationQuestion = {
 // Change how tool permissions behave on a session that is already running. The
 // interactive path only: the change reaches the live provider session and takes
 // effect on its next tool call, without recreating the session or losing
-// history. The automation MCP surface still refuses `bypass` outright.
+// history.
 export type ConversationSetPermissionInput = {
   commandId?: string
   sessionId: string

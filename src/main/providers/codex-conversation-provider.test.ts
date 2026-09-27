@@ -8,14 +8,16 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
   const calls: { method: string; params: unknown }[] = []
   const replies: { id: string | number; result: unknown }[] = []
   let resolveStarted!: () => void
-  const started = new Promise<void>((resolve) => {
+  let started = new Promise<void>((resolve) => {
     resolveStarted = resolve
   })
+  const transports = { created: 0, closed: 0 }
   const adapter = createCodexConversationProvider({
     resolveExecutable: async () => '/usr/bin/codex',
     buildEnv: async () => setup.env ?? {},
     createTransport(options) {
       connection = options
+      transports.created++
       return {
         pid: 123,
         async request(method, params) {
@@ -38,7 +40,9 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
         notify: (method, params) => calls.push({ method, params }),
         respond: (id, result) => replies.push({ id, result }),
         reject: (id, message) => replies.push({ id, result: { error: message } }),
-        close() {},
+        close() {
+          transports.closed++
+        },
       }
     },
   })
@@ -49,7 +53,7 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
     providerId: 'codex-agent',
     modelId: 'gpt-6-sol',
     workspaceRoot: '/workspace/app',
-    permissionPreset: 'manual' as const,
+    permissionPreset: 'none' as 'none' | 'bypass',
   }
   const events: ConversationEvent[] = []
   const send = async (reasoningEffort?: string, mode?: 'default' | 'ask' | 'plan') => {
@@ -69,7 +73,16 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
     input,
     events,
     send,
-    started,
+    get started() {
+      return started
+    },
+    // Re-arms `started` for a later turn.
+    nextTurn() {
+      started = new Promise<void>((resolve) => {
+        resolveStarted = resolve
+      })
+    },
+    transports,
     message,
     calls,
     replies,
@@ -144,10 +157,12 @@ test('streams text and command output, preserves nonzero exit as an ordinary too
     'account/read',
     'thread/start',
   ])
-  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
-    sandboxPolicy: { type: 'readOnly' },
-    approvalPolicy: 'on-request',
-  })
+  // `none` sends no override anywhere: Codex runs on its own configured default.
+  for (const call of f.calls.filter((entry) => ['thread/start', 'turn/start'].includes(entry.method))) {
+    expect(call.params).not.toHaveProperty('approvalPolicy')
+    expect(call.params).not.toHaveProperty('sandbox')
+    expect(call.params).not.toHaveProperty('sandboxPolicy')
+  }
 })
 
 test('command and patch approvals stay pending until individually answered', async () => {
@@ -251,15 +266,31 @@ test('unowned threads and unknown server requests never get an implicit approval
   expect(f.events.some((event) => event.type === 'approval_requested')).toBe(false)
 })
 
-test('permission presets keep supervised runs sandboxed and require explicit bypass', () => {
-  expect(codexPermissionPolicy('manual')).toMatchObject({ approvalPolicy: 'on-request', sandbox: 'read-only' })
-  expect(codexPermissionPolicy('auto')).toMatchObject({
+test('bypass is YOLO — never ask, full access — and none sends no override', () => {
+  expect(codexPermissionPolicy('bypass')).toEqual({
     approvalPolicy: 'never',
-    sandbox: 'workspace-write',
-    sandboxPolicy: { networkAccess: false },
+    sandbox: 'danger-full-access',
+    sandboxPolicy: { type: 'dangerFullAccess' },
   })
-  expect(codexPermissionPolicy('bypass')).toMatchObject({ approvalPolicy: 'never', sandbox: 'danger-full-access' })
   expect(codexPermissionPolicy('none')).toEqual({})
+  expect(codexPermissionPolicy()).toEqual({})
+})
+
+test('a bypass session sends never and full access on thread start and every turn', async () => {
+  const f = fixture()
+  await f.adapter.startSession({ ...f.input, permissionPreset: 'bypass' })
+  const done = f.send()
+  await f.started
+  expect(f.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({
+    approvalPolicy: 'never',
+    sandbox: 'danger-full-access',
+  })
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'dangerFullAccess' },
+  })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await done
 })
 
 test('interrupt during connection setup cancels before the native turn starts', async () => {
@@ -325,11 +356,58 @@ test('stopping during executable discovery never spawns a late orphan process', 
   expect(adapter.listLiveSessions?.()).toEqual([])
 })
 
-test('returning to unspecified permissions cannot retain an earlier bypass silently', async () => {
+test('leaving bypass reconnects, so the thread resumes with no override instead of keeping full access', async () => {
   const f = fixture()
-  await f.adapter.startSession({ ...f.input, permissionPreset: 'bypass' })
+  f.input.permissionPreset = 'bypass'
+  await f.adapter.startSession(f.input)
+  const first = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await first
+  expect(f.transports).toEqual({ created: 1, closed: 0 })
+
+  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toEqual({ ok: true })
+  expect(f.transports.closed).toBe(1)
+  expect(f.adapter.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+
+  f.input.permissionPreset = 'none'
+  f.calls.length = 0
+  f.nextTurn()
+  const second = f.send()
+  await f.started
+  expect(f.transports.created).toBe(2)
+  const resume = f.calls.find((call) => call.method === 'thread/resume')
+  expect(resume?.params).toMatchObject({ threadId: 'native-thread' })
+  expect(resume?.params).not.toHaveProperty('approvalPolicy')
+  expect(resume?.params).not.toHaveProperty('sandbox')
+  const turn = f.calls.find((call) => call.method === 'turn/start')
+  expect(turn?.params).not.toHaveProperty('approvalPolicy')
+  expect(turn?.params).not.toHaveProperty('sandboxPolicy')
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await second
+})
+
+test('entering bypass keeps the connection: the next turn carries the override itself', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const first = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await first
+  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'bypass' })).toEqual({ ok: true })
+  expect(f.transports).toEqual({ created: 1, closed: 0 })
+})
+
+test('a preset change waits for the running Codex turn to finish', async () => {
+  const f = fixture()
+  f.input.permissionPreset = 'bypass'
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
   expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toMatchObject({ ok: false })
-  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'manual' })).toEqual({ ok: true })
+  expect(f.transports.closed).toBe(0)
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await done
 })
 
 test('Ask is read-only without escalation even when the session preset bypasses approval', async () => {

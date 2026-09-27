@@ -97,7 +97,7 @@ test('conversation', async () => {
     await api.conversationSessionSendTurn({ sessionId: 'conv_1', message: 'hello' })
     await api.conversationSessionInterrupt({ sessionId: 'conv_1' })
     await api.conversationSessionRespondToRequest({ sessionId: 'conv_1', requestId: 'approval_1', approved: true })
-    await api.conversationSessionSetPermission({ sessionId: 'conv_1', permissionPreset: 'auto' })
+    await api.conversationSessionSetPermission({ sessionId: 'conv_1', permissionPreset: 'bypass' })
     await api.conversationSessionStop({ sessionId: 'conv_1' })
     await api.conversationSessionsList({ workspaceId: 'workspace' })
     const received: ConversationEvent[] = []

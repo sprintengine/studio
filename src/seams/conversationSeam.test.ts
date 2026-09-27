@@ -291,7 +291,7 @@ test('conversationSeam', async () => {
         agentId: 'agent',
         providerId: 'seam-provider',
         modelId: 'seam-model',
-        permissionPreset: 'manual',
+        permissionPreset: 'none',
       })
       assert.equal(started.ok, true)
       if (!started.ok) return
@@ -301,7 +301,7 @@ test('conversationSeam', async () => {
       // on another. The pill must report the child.
       assert.equal(
         resolvePermissionPreset(started.session, 'bypass'),
-        'manual',
+        'none',
         'the live session outranks a stale agent record',
       )
 
@@ -318,16 +318,16 @@ test('conversationSeam', async () => {
         'an accepted-but-not-yet-applied change comes back as a notice, never a refusal',
       )
       assert.equal(
-        resolvePermissionPreset(changed.session, 'manual'),
+        resolvePermissionPreset(changed.session, 'none'),
         'bypass',
         'the pill moves to what the session now reports, whatever the record still says',
       )
 
       // No session yet (the agent has never been started): the durable record is
       // what the next session will start on, so it is what the pill shows.
-      assert.equal(resolvePermissionPreset(null, 'auto'), 'auto')
-      // Neither: a record predating the field reads as the safe end of the scale.
-      assert.equal(resolvePermissionPreset(null, undefined), 'manual')
+      assert.equal(resolvePermissionPreset(null, 'none'), 'none')
+      // Neither: a record predating the field reads as the app's spawn default.
+      assert.equal(resolvePermissionPreset(null, undefined), 'bypass')
 
       await runtime.stopSession({ sessionId: started.session.sessionId })
       console.log('ok - the permission pill reports the live session, then the record, then default')

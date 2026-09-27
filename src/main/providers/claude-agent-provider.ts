@@ -135,10 +135,11 @@ type SessionState = {
   // Claude Code can hold several permission callbacks open at once (parallel
   // tool_use blocks), so pending permissions are keyed by requestId.
   pendingPermissions: Map<string, PendingPermission>
-  // Whether the live child was spawned with the bypass opt-in. Claude Code
-  // refuses `bypassPermissions` over the control channel on a child that was
-  // not, so switching to it is a respawn, not a mode change.
-  queryAllowsBypass: boolean
+  // The preset the live child was spawned with. Claude Code takes bypass only
+  // from the flag its child started with, and `none` means leaving the child
+  // on whatever its own configuration starts it on, which no control-channel
+  // mode names. So a preset change is a respawn (resumed), not a mode change.
+  spawnedPreset: ConversationPermissionPreset | null
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
@@ -318,7 +319,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort?.abort()
     state.abort = null
     state.query = null
-    state.queryAllowsBypass = false
+    state.spawnedPreset = null
     state.childPid = null
     state.spawnedAt = null
     if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
@@ -326,11 +327,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     return hadChild
   }
 
-  // Whether the live child can honor the session's recorded preset. Only bypass
-  // is gated: Claude Code takes it solely from the flag it was spawned with, so
-  // a child spawned Default or Auto can never be talked into it.
+  // Whether the live child runs under the session's recorded preset.
   function childHonorsPreset(state: SessionState): boolean {
-    return state.permissionPreset !== 'bypass' || state.queryAllowsBypass
+    return state.spawnedPreset === state.permissionPreset
   }
 
   async function pump(state: SessionState, q: Query): Promise<void> {
@@ -370,7 +369,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   }
 
   function ensureQuery(state: SessionState): Promise<void> {
-    // A preset the live child cannot honor (bypass chosen after it spawned) is
+    // A preset the live child does not run under (changed after it spawned) is
     // reconciled here, so the turn about to start runs under the preset the
     // session actually recorded. The respawn below resumes the same provider
     // session, so the conversation continues rather than restarting.
@@ -417,9 +416,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(instructions ? { append: instructions } : {}) },
       // Never the repository's own settings. `.claude/settings.json` and
       // `settings.local.json` can carry allow rules, which would answer tool
-      // permissions before canUseTool is asked and so bypass the approvals a
-      // Manual session promises, and hooks, which run commands on this machine
-      // as soon as the session starts. Omitting the option loads every source,
+      // permissions before canUseTool is asked and so skip the approvals a
+      // session on the CLI's default would show here, and hooks, which run
+      // commands on this machine as soon as the session starts. Omitting the option loads every source,
       // so the list is always explicit. What the project contributes that the
       // agent does need arrives another way: its CLAUDE.md through the system
       // prompt above, and attached skills as a plugin of their own.
@@ -466,7 +465,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
     state.queryCostUsd = 0
-    state.queryAllowsBypass = state.permissionPreset === 'bypass'
+    state.spawnedPreset = state.permissionPreset
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -600,7 +599,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         modelId: input.modelId,
         workspaceRoot: input.workspaceRoot ?? '',
         cliRuntimes: input.cliRuntimes,
-        permissionPreset: input.permissionPreset ?? 'manual',
+        permissionPreset: input.permissionPreset ?? 'none',
         allowedTools: input.allowedTools,
         skillPluginDir: null,
         onBeforeTool: input.onBeforeTool,
@@ -612,7 +611,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         spawnedAt: null,
         turn: null,
         pendingPermissions: new Map(),
-        queryAllowsBypass: false,
+        spawnedPreset: null,
         pendingSessionEvents: [],
         onSessionEvent: input.onSessionEvent ?? null,
         continuationSequence: 0,
@@ -724,69 +723,31 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return []
     },
 
-    // Live permission switch. With a running child the new mode goes down the
-    // SDK control channel, so the next tool call honors it; the recorded preset
-    // also carries into any later respawn (idle disposal keeps the session).
-    // With no child yet the recorded preset is the whole job — ensureQuery reads
-    // it at spawn, including the bypass opt-in flag.
-    //
-    // Bypass is the one mode the control channel cannot deliver: Claude Code
-    // takes it from the flag its child was spawned with. So a child spawned
-    // Default or Auto is replaced rather than asked — the preset is recorded and
-    // the child disposed, and the next turn respawns with `resume`, keeping the
-    // conversation. Mid-turn the disposal waits (it would drop the reply the
-    // user is reading); ensureQuery makes the swap at the next turn instead.
+    // Live permission switch. The preset is recorded, and a running child is
+    // replaced rather than asked: the next turn respawns it with `resume`, so
+    // the conversation continues under the new preset (childHonorsPreset).
+    // Mid-turn the disposal waits — it would drop the reply the user is
+    // reading — and ensureQuery makes the swap at the next turn instead.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
-      if (input.permissionPreset === 'none' && state.permissionPreset !== 'none')
-        return {
-          ok: false,
-          message:
-            'Choose Manual or Auto explicitly; CLI-managed permissions cannot restore the original policy of an existing conversation.',
-        }
-      if (state.mode === 'ask' || state.mode === 'plan') {
-        state.permissionPreset = input.permissionPreset
-        return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
-      }
-      if (state.query && input.permissionPreset === 'bypass' && !state.queryAllowsBypass) {
-        state.permissionPreset = input.permissionPreset
-        state.lastActivityAt = now()
-        if (state.turn) {
-          return {
-            ok: true,
-            // Not "the current permissions": the chip has already moved to
-            // Bypass by the time this is read, so "current" would name the mode
-            // that is NOT in force for the reply on screen. The permissions the
-            // reply started under is the one phrase that stays true either way.
-            notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
-          }
-        }
-        disposeChild(state)
-        return { ok: true }
-      }
-      if (state.query) {
-        const sdkMode = SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset]
-        // `none` has no SDK mode to set — it means "leave the harness on its own
-        // default" — so there is nothing to ask Claude Code to change.
-        if (sdkMode === undefined) return { ok: true }
-        try {
-          await state.query.setPermissionMode(sdkMode)
-        } catch (error) {
-          // Claude Code owns the decision (it can refuse a mode the session did
-          // not opt into at spawn). Surface its refusal instead of recording a
-          // preset it is not honoring.
-          return {
-            ok: false,
-            message:
-              error instanceof Error && error.message.trim()
-                ? `Claude Code refused the permission change: ${error.message}`
-                : 'Claude Code refused the permission change.',
-          }
-        }
-      }
       state.permissionPreset = input.permissionPreset
       state.lastActivityAt = now()
+      if (state.mode === 'ask' || state.mode === 'plan')
+        return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
+      if (!state.query || childHonorsPreset(state)) return { ok: true }
+      if (state.turn) {
+        return {
+          ok: true,
+          // Not "the current permissions": the chip has already moved by the
+          // time this is read, so "current" would name the preset that is NOT
+          // in force for the reply on screen. The permissions the reply started
+          // under is the one phrase that stays true either way.
+          notice:
+            'The new permissions start with your next message — this reply finishes under the permissions it started with.',
+        }
+      }
+      disposeChild(state)
       return { ok: true }
     },
 
@@ -934,17 +895,12 @@ async function readWorkspaceInstructions(workspaceRoot: string): Promise<string>
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
-// plugin manifest's permissionPresets flags (`--permission-mode default|auto|
-// bypassPermissions`). `none` maps to undefined on purpose: it means "pass no
-// permission flag and let the harness's own default win", which for the SDK is
-// leaving permissionMode unset rather than pinning it to 'default'.
-const SDK_PERMISSION_MODE_BY_PRESET: Record<
-  ConversationPermissionPreset,
-  'default' | 'auto' | 'bypassPermissions' | undefined
-> = {
+// plugin manifest's bypass flag (`--permission-mode bypassPermissions`). `none`
+// maps to undefined on purpose: it means "pass no permission flag and let the
+// harness's own default win", which for the SDK is leaving permissionMode unset
+// rather than pinning it to 'default'.
+const SDK_PERMISSION_MODE_BY_PRESET: Record<ConversationPermissionPreset, 'bypassPermissions' | undefined> = {
   none: undefined,
-  manual: 'default',
-  auto: 'auto',
   bypass: 'bypassPermissions',
 }
 

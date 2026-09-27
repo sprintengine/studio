@@ -599,7 +599,9 @@ test('claude-agent-provider', async () => {
     assert.equal(options?.pathToClaudeCodeExecutable, '/fake/bin/claude')
     assert.equal(options?.model, 'sonnet')
     assert.equal(options?.includePartialMessages, true)
-    assert.equal(options?.permissionMode, 'default')
+    // No preset named: no permission mode is pinned, so the CLI's own default applies.
+    assert.equal(options?.permissionMode, undefined)
+    assert.equal(options?.allowDangerouslySkipPermissions, undefined)
     assert.equal(options?.resume, undefined)
     assert.equal((options?.env as Record<string, string>)[CLAUDE_AGENT_SESSION_ENV_KEY], 'conv_1')
 
@@ -890,7 +892,7 @@ test('claude-agent-provider', async () => {
         usage: { input_tokens: 1, output_tokens: 1 },
       })
     })
-    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
+    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
     const events = await collect(
       adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>,
       (event) => {
@@ -914,7 +916,12 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(decisions[0]?.behavior, 'allow')
     assert.equal(capturedOptions[0]?.permissionMode, 'plan')
-    assert.deepEqual(permissionModes, ['auto'], 'accepting a plan restores the prior native permission mode')
+    assert.equal(capturedOptions[0]?.allowDangerouslySkipPermissions, true, 'plan mode keeps the bypass opt-in')
+    assert.deepEqual(
+      permissionModes,
+      ['bypassPermissions'],
+      'accepting a plan restores the prior native permission mode',
+    )
     await collect(
       adapter.sendTurn(
         turnInput({ turnId: 'turn_2', requestId: 'approval_2', mode: 'default' }),
@@ -952,17 +959,28 @@ test('claude-agent-provider', async () => {
     assert.equal(bypass.capturedOptions[0]?.permissionMode, 'bypassPermissions')
     assert.equal(bypass.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
-    const auto = createAdapter((_userMessage, context) => emitResult(context))
-    await collect(auto.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
-    await collect(auto.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.equal(auto.capturedOptions[0]?.permissionMode, 'auto')
-    assert.equal(auto.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+    // `none` pins no mode at all: the SDK leaves the CLI on its own configured
+    // default, rather than on 'default', which a user's settings can override.
+    const none = createAdapter((_userMessage, context) => emitResult(context))
+    await collect(none.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
+    await collect(none.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    assert.equal(none.capturedOptions[0]?.permissionMode, undefined)
+    assert.equal(none.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+
+    // Plan mode is a separate toggle, not a preset: it spawns 'plan' under either.
+    for (const permissionPreset of ['none', 'bypass'] as const) {
+      const plan = createAdapter((_userMessage, context) => emitResult(context))
+      await collect(plan.adapter.startSession({ ...SESSION_INPUT, permissionPreset }) as ConversationEvent[])
+      await collect(plan.adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>)
+      assert.equal(plan.capturedOptions[0]?.permissionMode, 'plan', permissionPreset)
+      plan.adapter.disposeAll()
+    }
   }
 
-  // 1771: the preset is switchable while the session runs. With a live child the
-  // new mode goes down the SDK control channel; the recorded preset also survives
-  // into a respawn. A child that refuses the change must not leave the adapter
-  // claiming a preset it is not honoring.
+  // The preset is switchable while the session runs. Neither preset is a mode
+  // the control channel can deliver — bypass comes only from the spawn flag, and
+  // `none` is the absence of one — so a change is recorded and the child
+  // replaced: the next turn respawns into the same provider session.
   async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Promise<void> {
     const emitResult = (context: FakeQueryContext): void => {
       context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
@@ -975,7 +993,11 @@ test('claude-agent-provider', async () => {
       })
     }
 
-    const live = createAdapter((_userMessage, context) => emitResult(context))
+    const live = createAdapter((_userMessage, context) => emitResult(context), {
+      onSetPermissionMode: () => {
+        throw new Error('a preset change must not ride the control channel')
+      },
+    })
     await collect(live.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
 
     // Before the child exists the preset is only recorded — it lands at spawn,
@@ -983,38 +1005,46 @@ test('claude-agent-provider', async () => {
     assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
     })
-    assert.deepEqual(live.permissionModes, [], 'no control request without a child')
     await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
     assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
     assert.equal(live.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
-    assert.equal(
-      (await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' })).ok,
-      false,
-      'CLI-managed cannot silently retain a prior bypass grant',
-    )
-    assert.deepEqual(live.permissionModes, [])
 
-    // With the child running the switch rides the control channel.
-    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {
+    // Choosing the preset already in force leaves the child alone.
+    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
     })
-    assert.deepEqual(live.permissionModes, ['auto'])
+    assert.equal(live.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
-    // The recorded preset carries into the respawn after idle disposal.
-    assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
+    // Leaving bypass on an idle child replaces it, so no bypass grant lingers.
+    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.deepEqual(live.permissionModes, [])
+    assert.equal(live.adapter.listLiveSessions()[0]?.hasChildProcess, false)
     await collect(
       live.adapter.sendTurn(
         turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
       ) as AsyncIterable<ConversationEvent>,
     )
-    assert.equal(live.capturedOptions[1]?.permissionMode, 'auto')
+    assert.equal(live.capturedOptions[1]?.permissionMode, undefined)
     assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
+    assert.equal(live.capturedOptions[1]?.resume, 'cursor-1')
+
+    // The recorded preset carries into the respawn after idle disposal.
+    assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
+    await collect(
+      live.adapter.sendTurn(
+        turnInput({ turnId: 'turn_3', requestId: 'approval_3' }),
+      ) as AsyncIterable<ConversationEvent>,
+    )
+    assert.equal(live.capturedOptions[2]?.permissionMode, undefined)
+    assert.equal(live.capturedOptions[2]?.allowDangerouslySkipPermissions, undefined)
 
     assert.deepEqual(
       await live.adapter.setPermissionPreset({
         ...SESSION_INPUT,
         sessionId: 'conv_missing',
-        permissionPreset: 'manual',
+        permissionPreset: 'bypass',
       }),
       {
         ok: false,
@@ -1022,32 +1052,6 @@ test('claude-agent-provider', async () => {
       },
     )
     await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
-
-    // A child that refuses the mode: the failure is surfaced and the preset stays
-    // as it was, so a later respawn does not silently adopt the rejected mode.
-    // (Bypass no longer reaches this path — see the respawn test — so the refusal
-    // is exercised on the transition that still rides the control channel.)
-    const refusing = createAdapter((_userMessage, context) => emitResult(context), {
-      onSetPermissionMode: () => {
-        throw new Error('permission mode auto is unavailable in this CLI build')
-      },
-    })
-    await collect(
-      refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'manual' }) as ConversationEvent[],
-    )
-    await collect(refusing.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {
-      ok: false,
-      message: 'Claude Code refused the permission change: permission mode auto is unavailable in this CLI build',
-    })
-    assert.equal(refusing.adapter.disposeChildProcess('conv_1'), true)
-    await collect(
-      refusing.adapter.sendTurn(
-        turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
-      ) as AsyncIterable<ConversationEvent>,
-    )
-    assert.equal(refusing.capturedOptions[1]?.permissionMode, 'default', 'the refused preset was not recorded')
-    await collect(refusing.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
   async function testAbortSignalEndsTheTurnStream(): Promise<void> {
@@ -1458,10 +1462,10 @@ test('claude-agent-provider', async () => {
     await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
-  // 1808: Bypass is the one preset the SDK control channel cannot deliver — Claude
-  // Code reads it from the flag its child was spawned with. Switching to it on a
-  // session spawned Default/Auto respawns the child with `resume` instead of
-  // surfacing a refusal the user cannot act on.
+  // Bypass is a preset the SDK control channel cannot deliver — Claude Code reads
+  // it from the flag its child was spawned with. Switching to it on a session
+  // spawned without it respawns the child with `resume` instead of surfacing a
+  // refusal the user cannot act on.
   async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): Promise<void> {
     const emitResult = (context: FakeQueryContext): void => {
       context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
@@ -1483,7 +1487,7 @@ test('claude-agent-provider', async () => {
     })
     await collect(idle.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
     await collect(idle.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.equal(idle.capturedOptions[0]?.permissionMode, 'default')
+    assert.equal(idle.capturedOptions[0]?.permissionMode, undefined)
     assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
     assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
@@ -1525,7 +1529,7 @@ test('claude-agent-provider', async () => {
         usage: { input_tokens: 1, output_tokens: 1 },
       })
     })
-    await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
+    await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
     const streamed: ConversationEvent[] = []
     const streaming = (async () => {
       for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
@@ -1535,7 +1539,8 @@ test('claude-agent-provider', async () => {
 
     assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
-      notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
+      notice:
+        'The new permissions start with your next message — this reply finishes under the permissions it started with.',
     })
     assert.equal(inFlight.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the streaming reply is not torn down')
 

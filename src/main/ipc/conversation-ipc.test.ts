@@ -262,8 +262,8 @@ test('conversation-ipc', async () => {
     ])
   }
 
-  // The set-permission boundary only accepts the three known presets, so an
-  // unknown value never reaches the runtime or the provider.
+  // The set-permission boundary accepts the two presets, reads a retired one
+  // from an older window as `none`, and keeps anything else from the runtime.
   async function testSetPermissionValidatesThePreset(): Promise<void> {
     const captured: string[] = []
     const ipcMain = createIpcMain()
@@ -281,20 +281,25 @@ test('conversation-ipc', async () => {
     const setPermission = ipcMain.handlers.get('conversation:sessions:set-permission')
     assert.ok(setPermission, 'conversation:sessions:set-permission should be registered')
 
-    assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'auto' }), {
+    assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'bypass' }), {
       ok: true,
-      session: { ...SENT_SESSION, permissionPreset: 'auto' },
+      session: { ...SENT_SESSION, permissionPreset: 'bypass' },
     })
-    assert.deepEqual(captured, ['auto'])
+    for (const legacy of ['manual', 'auto', 'default'])
+      assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: legacy }), {
+        ok: true,
+        session: { ...SENT_SESSION, permissionPreset: 'none' },
+      })
+    assert.deepEqual(captured, ['bypass', 'none', 'none', 'none'])
 
-    const presetError = { ok: false, message: 'permissionPreset must be default, auto, or bypass.' }
+    const presetError = { ok: false, message: 'permissionPreset must be none or bypass.' }
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'yolo' }), presetError)
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1' }), presetError)
-    assert.deepEqual(await setPermission?.(null, { permissionPreset: 'manual' }), {
+    assert.deepEqual(await setPermission?.(null, { permissionPreset: 'none' }), {
       ok: false,
       message: 'sessionId is required.',
     })
-    assert.deepEqual(captured, ['auto'], 'no invalid preset reached the runtime')
+    assert.equal(captured.length, 4, 'no invalid preset reached the runtime')
   }
 
   // The send-turn boundary guards image attachments: valid images pass through

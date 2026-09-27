@@ -83,28 +83,15 @@ export type CodexConversationProviderOptions = {
   createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
 }
 
-/** Keep the same sandbox boundaries as the terminal presets. Auto never escalates. */
-export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'manual') {
-  if (preset === 'none') return {}
+/**
+ * The approval and sandbox override for a preset, matching the terminal
+ * launch: `bypass` is Codex's YOLO — never ask, full access — and `none` sends
+ * no override at all, so Codex runs on its own configured default.
+ */
+export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'none') {
   if (preset === 'bypass')
     return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } }
-  if (preset === 'auto')
-    return {
-      approvalPolicy: 'never',
-      sandbox: 'workspace-write',
-      sandboxPolicy: {
-        type: 'workspaceWrite',
-        writableRoots: [],
-        networkAccess: false,
-        excludeTmpdirEnvVar: true,
-        excludeSlashTmp: true,
-      },
-    }
-  return {
-    approvalPolicy: 'on-request',
-    sandbox: 'read-only',
-    sandboxPolicy: { type: 'readOnly', networkAccess: false },
-  }
+  return {}
 }
 
 export function createCodexConversationProvider(
@@ -561,18 +548,24 @@ export function createCodexConversationProvider(
       sessions.delete(input.sessionId)
       return [event(state, 'session_closed')]
     },
+    // A turn's override stays with the thread for the turns after it, so
+    // omitting one cannot take a thread back to Codex's configured default.
+    // Leaving bypass is therefore a reconnect: the app-server is closed, and
+    // the next turn resumes the thread with no override (ensureConnected), the
+    // way it would after the idle reaper.
     async setPermissionPreset(input) {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Codex conversation is not active.' }
-      if (input.permissionPreset === 'none' && state.input.permissionPreset !== 'none')
-        return {
-          ok: false,
-          message:
-            'Choose Manual or Auto explicitly when changing this Codex session; omitting a policy would retain its previous permissions.',
-        }
       if (state.turn)
         return { ok: false, message: 'Finish or stop the current turn before changing Codex permissions.' }
+      const previous = state.input.permissionPreset
       state.input = { ...state.input, permissionPreset: input.permissionPreset }
+      if (input.permissionPreset === 'none' && previous !== 'none' && state.transport) {
+        const transport = state.transport
+        state.transport = null
+        state.spawnedAt = null
+        transport.close()
+      }
       return { ok: true }
     },
     listLiveSessions: () =>
