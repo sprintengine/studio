@@ -35,23 +35,13 @@ export class ConversationCheckpoints {
     return this.root(cwd).catch(() => realpath(cwd))
   }
 
-  async capture(
-    key: ConversationKey,
-    turnSeq: number,
-    point: 'pre' | 'post' | 'undo',
-  ): Promise<ConversationCheckpointResult> {
+  async capture(key: ConversationKey, turnSeq: number, point: 'pre' | 'post'): Promise<ConversationCheckpointResult> {
     try {
       const root = await this.root(key.workspaceRoot)
       const guard = await this.checkSize(root)
       if (guard) return { ok: false, skipped: true, message: guard }
-      const tree = await this.worktreeTree(root)
-      const commit = await this.git(
-        root,
-        ['commit-tree', tree, '-m', `Conversation checkpoint ${turnSeq} ${point}`],
-        IDENTITY,
-      )
       const ref = this.ref(key, turnSeq, point)
-      await this.git(root, ['update-ref', ref, commit.trim()])
+      await this.git(root, ['update-ref', ref, await this.commit(root, await this.worktreeTree(root), turnSeq, point)])
       return { ok: true, ref }
     } catch (error) {
       return { ok: false, message: errorMessage(error) }
@@ -107,16 +97,18 @@ export class ConversationCheckpoints {
       const root = await this.root(input.key.workspaceRoot)
       const guard = await this.checkSize(root)
       if (guard) return { ok: false, message: guard }
-      const target = this.ref(input.key, input.turnSeq, input.undo ? 'undo' : 'pre')
+      const target = input.undo
+        ? await this.latestRecovery(root, input.key, input.turnSeq, 'undo')
+        : this.ref(input.key, input.turnSeq, 'pre')
+      if (!target) return { ok: false, message: 'There is no revert to undo for this turn.' }
       const current = await this.worktreeTree(root)
       const { files } = await this.diff(root, target, current)
       if (!input.confirmed) return { ok: true, files, reverted: false }
-      // Capture the exact current state before changing any path. Undo restores
-      // this ref and keeps it intact, so repeated undo never overwrites recovery.
-      const undo = input.undo
-        ? { ok: true as const, ref: target }
-        : await this.capture(input.key, input.turnSeq, 'undo')
-      if (!undo.ok) return undo
+      // Record the exact state about to be replaced before changing any path,
+      // for an undo as much as for a revert: work done after a revert is as
+      // much the user's as work done before it. Each recovery ref is new, so a
+      // second revert of the same turn never overwrites the first one's.
+      const recovery = await this.storeRecovery(root, input.key, input.turnSeq, input.undo ? 'redo' : 'undo', current)
       const restores = files.filter((file) => file.status !== 'added').map((file) => file.path)
       if (restores.length) await this.checkoutFiles(root, target, restores)
       for (const file of files.filter((file) => file.status === 'added')) {
@@ -130,7 +122,7 @@ export class ConversationCheckpoints {
         safePath(await realpath(root), join(await realpath(dirname(path)), basename(path)))
         await rm(path, { force: true })
       }
-      return { ok: true, files, reverted: true, undoRef: undo.ref }
+      return { ok: true, files, reverted: true, undoRef: recovery }
     } catch (error) {
       return { ok: false, message: errorMessage(error) }
     }
@@ -152,6 +144,48 @@ export class ConversationCheckpoints {
       const [ref, timestamp] = line.split(' ')
       if (ref?.startsWith(PREFIX) && Number(timestamp) < cutoff) await this.git(cwd, ['update-ref', '-d', ref])
     }
+  }
+
+  private async commit(root: string, tree: string, turnSeq: number, point: string): Promise<string> {
+    return (
+      await this.git(root, ['commit-tree', tree, '-m', `Conversation checkpoint ${turnSeq} ${point}`], IDENTITY)
+    ).trim()
+  }
+
+  /**
+   * `<turn>-undo-<n>` holds the files a revert replaced; `<turn>-redo-<n>` the
+   * files an undo replaced. Numbers only grow and every ref is kept, so each
+   * recovery point stays listed until the conversation is deleted or expires.
+   */
+  private async recoveries(root: string, key: ConversationKey, turnSeq: number, kind: 'undo' | 'redo') {
+    const base = this.ref(key, turnSeq, kind)
+    const refs = await this.git(root, ['for-each-ref', '--format=%(refname)', `${base}*`])
+    return refs
+      .split('\n')
+      .map((ref) => {
+        // The unnumbered `<turn>-undo` is what earlier builds wrote.
+        const match = ref === base ? ['', '0'] : new RegExp(`^${base}-(\\d+)$`, 'u').exec(ref)
+        return match ? { ref, n: Number(match[1]) } : null
+      })
+      .filter((entry) => entry !== null)
+      .sort((a, b) => a.n - b.n)
+  }
+  private async latestRecovery(root: string, key: ConversationKey, turnSeq: number, kind: 'undo' | 'redo') {
+    return (await this.recoveries(root, key, turnSeq, kind)).at(-1)?.ref ?? null
+  }
+  private async storeRecovery(
+    root: string,
+    key: ConversationKey,
+    turnSeq: number,
+    kind: 'undo' | 'redo',
+    tree: string,
+  ): Promise<string> {
+    const n = ((await this.recoveries(root, key, turnSeq, kind)).at(-1)?.n ?? 0) + 1
+    const ref = `${this.ref(key, turnSeq, kind)}-${n}`
+    const commit = await this.commit(root, tree, turnSeq, kind)
+    // Create-only: an existing ref of this name is never replaced.
+    await this.git(root, ['update-ref', ref, commit, '0'.repeat(commit.length)])
+    return ref
   }
 
   private identity(key: ConversationKey): string {

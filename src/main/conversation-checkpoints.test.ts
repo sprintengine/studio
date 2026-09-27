@@ -341,3 +341,33 @@ test('revert restores work tree files only and leaves the index exactly as the u
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('undo keeps a recovery point of work done after the revert, and repeated reverts keep every recovery ref', async () => {
+  const f = await repository()
+  const refs = async () =>
+    (await git(f.root, ['for-each-ref', '--format=%(refname:lstrip=4)', 'refs/sprintengine/checkpoints/']))
+      .trim()
+      .split('\n')
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 2, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent one\n')
+    const first = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true })
+    assert.ok(first.ok && first.reverted)
+    await writeFile(join(f.root, 'existing.txt'), 'agent two\n')
+    const second = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true })
+    assert.ok(second.ok && second.reverted)
+    assert.notEqual(first.undoRef, second.undoRef)
+    assert.deepEqual(await refs(), ['2-pre', '2-undo-1', '2-undo-2'])
+    assert.equal(await git(f.root, ['show', `${first.undoRef}:existing.txt`]), 'agent one\n')
+    // Work the user does after reverting must survive an undo.
+    await writeFile(join(f.root, 'existing.txt'), 'user work after revert\n')
+    const undo = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true, undo: true })
+    assert.ok(undo.ok && undo.reverted && undo.undoRef)
+    assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'agent two\n')
+    assert.equal(await git(f.root, ['show', `${undo.undoRef}:existing.txt`]), 'user work after revert\n')
+    assert.deepEqual(await refs(), ['2-pre', '2-redo-1', '2-undo-1', '2-undo-2'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
