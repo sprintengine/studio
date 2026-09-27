@@ -735,7 +735,7 @@ export type AutomationRun = {
   reportPaths?: string[]
 }
 
-export type AutomationCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+export type AutomationCliPermissionPreset = 'none' | 'bypass'
 
 export type ActionContext = {
   automationId: string
@@ -1133,7 +1133,7 @@ export type ModuleAgentSpawnRequest = {
    * The launch permission preset. Absent takes the user's configured default —
    * never an escalation the module chose for them.
    */
-  permissionPreset?: 'none' | 'manual' | 'auto' | 'bypass'
+  permissionPreset?: 'none' | 'bypass'
   /**
    * Deliver the prompt to a live session under the same agent id instead of
    * spawning a second one (`reused: true`). Default true; a dead or suspended

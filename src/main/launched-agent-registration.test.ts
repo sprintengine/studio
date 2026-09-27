@@ -56,7 +56,7 @@ function launchRecord(overrides: Partial<AgentLaunchRecord> = {}): AgentLaunchRe
     agentId: 'agent-claude-code-4f2a1c',
     name: 'Scout',
     cli: 'claude-code',
-    cliPermissionPreset: 'manual',
+    cliPermissionPreset: 'none',
     ...overrides,
   }
 }
@@ -132,7 +132,6 @@ function host() {
     getWorkspaceSyncSnapshot: () => workspaceSync.getSnapshot(),
     listTerminalSessions: () => sessions,
     launchAgent: (request) => launchService.launch(request),
-    getAgentSpawnPermissionDefault: () => null,
     readRepositoryIdentity: async () => null,
     sleep: async () => {},
   }

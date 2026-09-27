@@ -16,7 +16,7 @@
  * lives in `src/main/launch-settings-store.ts`.
  */
 import type { McpServerConfig, McpSettings } from './agent-state'
-import { normalizeCliPermissionPreset, type CliPermissionPreset } from './cli-permission-preset'
+import { parseCliPermissionPreset, type CliPermissionPreset } from './cli-permission-preset'
 import {
   normalizeExecutionHostId,
   normalizeExecutionHostSettings,
@@ -62,8 +62,9 @@ export type AgentLaunchSettings = {
    * The permission preset a spawn on each CLI launches with, keyed by CLI id:
    * what the spawn footer's picker last chose for that runtime. A CLI with no
    * entry falls back to `lastAgentSpawnPermissionPreset`. Per CLI and not per
-   * model, because a person trusts a runtime in a repository, and Claude Code's
-   * auto mode is not Codex's sandbox (owner ruling 2026-09-24). Main owns it so
+   * model, because a person trusts a runtime in a repository, and skipping
+   * Claude Code's prompts is not lifting Codex's sandbox (owner ruling
+   * 2026-09-24). Main owns it so
    * a launch with no window open, and every window, read the same choice.
    */
   cliPermissionPresets: Record<string, CliPermissionPreset>
@@ -169,13 +170,13 @@ export const DEFAULT_AGENT_LAUNCH_CLI = 'claude-code'
 /**
  * The permission preset an agent spawn defaults to when the person never chose
  * one: bypass (owner decision, 2026-07-26 — "we should be setting bypass
- * permission mode as the default generally everywhere"). A user who wants gated
- * permissions picks one deliberately in Settings ▸ Agents.
+ * permission mode as the default generally everywhere"). An organization that
+ * forbids it picks `none`, which passes no flag at all.
  *
- * Only an ABSENT value adopts it. A present value that is not a current preset
- * goes through `normalizeCliPermissionPreset`, which maps the legacy spellings
- * and floors anything unrecognised to `manual`, so corruption never escalates
- * permissions and flipping this default never rewrites a deliberate choice.
+ * Only an absent value, or one no version ever wrote, adopts it. A retired
+ * spelling goes through `parseCliPermissionPreset`, which maps every one of
+ * them that asked more than bypass to `none`, so flipping this default never
+ * rewrites a deliberate choice into a wider one.
  */
 export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
 
@@ -233,8 +234,6 @@ export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   }
 }
 
-const cliPermissionPresets = new Set<CliPermissionPreset>(['none', 'manual', 'auto', 'bypass'])
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -263,32 +262,19 @@ function normalizeLastSelectedCli(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null
 }
 
-function normalizePreset(value: unknown): CliPermissionPreset | null {
-  return typeof value === 'string' && cliPermissionPresets.has(value as CliPermissionPreset)
-    ? (value as CliPermissionPreset)
-    : null
-}
-
-// A stored preset. Absent stays null ("never chosen", which reads as the app
-// default); anything present is a choice somebody made, so a legacy spelling
-// keeps its meaning and an unrecognised value floors to `manual` rather than
-// becoming null and escalating to the bypass default.
-function normalizeStoredPreset(value: unknown): CliPermissionPreset | null {
-  if (value === null || value === undefined) return null
-  return normalizeCliPermissionPreset(typeof value === 'string' ? (value as CliPermissionPreset) : undefined)
-}
-
 /**
  * The per-CLI presets from a stored record or a migration offer. An entry is a
- * choice somebody made, so it reads like the app-wide one: a legacy spelling
- * keeps its meaning and anything unrecognised floors to `manual` rather than
- * disappearing into the (bypass) default.
+ * choice somebody made, so a retired spelling keeps the nearest meaning it
+ * still has (`parseCliPermissionPreset`); an entry no version ever wrote is
+ * dropped and the CLI reads as never set. Stored records, patches and the
+ * app-wide value all read presets this way, so a window built before the
+ * two-mode change that still sends `manual` is understood, not refused.
  */
 export function normalizeCliPermissionPresets(value: unknown): Record<string, CliPermissionPreset> {
   const presets: Record<string, CliPermissionPreset> = {}
   if (!isPlainObject(value)) return presets
   for (const [cli, entry] of Object.entries(value)) {
-    const preset = cli ? normalizeStoredPreset(entry) : null
+    const preset = cli ? parseCliPermissionPreset(entry) : null
     if (preset) presets[cli] = preset
   }
   return presets
@@ -322,7 +308,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
     mcp,
     projectKnowledgeRoots,
     lastSelectedCli: normalizeLastSelectedCli(raw.lastSelectedCli),
-    lastAgentSpawnPermissionPreset: normalizeStoredPreset(raw.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: parseCliPermissionPreset(raw.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(raw.cliPermissionPresets),
   }
 }
@@ -385,7 +371,7 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
   if (raw.lastAgentSpawnPermissionPreset === null) {
     patch.lastAgentSpawnPermissionPreset = null
   } else {
-    const preset = normalizePreset(raw.lastAgentSpawnPermissionPreset)
+    const preset = parseCliPermissionPreset(raw.lastAgentSpawnPermissionPreset)
     if (preset) patch.lastAgentSpawnPermissionPreset = preset
   }
   if (isPlainObject(raw.cliPermissionPresets)) {
@@ -396,7 +382,7 @@ export function normalizeAgentLaunchSettingsPatch(raw: unknown): AgentLaunchSett
         presets[cli] = null
         continue
       }
-      const preset = normalizePreset(value)
+      const preset = parseCliPermissionPreset(value)
       if (preset) presets[cli] = preset
     }
     patch.cliPermissionPresets = presets

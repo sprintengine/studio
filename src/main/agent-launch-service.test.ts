@@ -93,7 +93,7 @@ test('agent-launch-service', async () => {
     const app = harness({
       settings: settings({
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
+        lastAgentSpawnPermissionPreset: 'none',
         cliRuntimes: { 'claude-code': { command: '/usr/local/bin/claude' } },
         mcp: { syncEnabled: true, servers: {} },
       }),
@@ -107,7 +107,7 @@ test('agent-launch-service', async () => {
     assert.equal(app.spawns.length, 1)
     const spawn = app.spawns[0]!
     assert.equal(spawn.cli, 'claude-code', 'the last-selected CLI is the default')
-    assert.equal(spawn.cliPermissionPreset, 'auto', 'the app-level spawn preset is the default')
+    assert.equal(spawn.cliPermissionPreset, 'none', 'the app-level spawn preset is the default')
     assert.equal(spawn.cwd, '/repo/a')
     assert.equal(spawn.initialPrompt, 'go')
     assert.equal(spawn.kind, 'agent')
@@ -127,7 +127,7 @@ test('agent-launch-service', async () => {
       cli: 'codex',
       name: 'Scout',
       cliModel: 'opus',
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
       worktreePath: '/repo/a/.worktrees/run-1',
       spawnSkillId: 'backlog',
     })
@@ -137,7 +137,7 @@ test('agent-launch-service', async () => {
     assert.equal(spawn.cli, 'codex')
     assert.equal(spawn.agentName, 'Scout')
     assert.equal(spawn.cliModel, 'opus')
-    assert.equal(spawn.cliPermissionPreset, 'manual')
+    assert.equal(spawn.cliPermissionPreset, 'none')
     assert.equal(spawn.spawnSkillId, 'backlog')
     assert.equal(spawn.cwd, '/repo/a/.worktrees/run-1', 'a worktree launch runs in the worktree, not the checkout')
     assert.equal(spawn.executionMode, 'worktree')
@@ -157,19 +157,19 @@ test('agent-launch-service', async () => {
     const app = harness({
       settings: settings({
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
-        cliPermissionPresets: { codex: 'manual' },
+        lastAgentSpawnPermissionPreset: 'none',
+        cliPermissionPresets: { codex: 'bypass' },
       }),
     })
     await app.service.launch({ workspaceId: 'ws-1', cli: 'codex' })
     await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
-    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex', permissionPreset: 'auto' })
+    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex', permissionPreset: 'none' })
     assert.deepEqual(
       app.spawns.map((spawn) => [spawn.cli, spawn.cliPermissionPreset]),
       [
-        ['codex', 'manual'],
-        ['claude-code', 'auto'],
-        ['codex', 'auto'],
+        ['codex', 'bypass'],
+        ['claude-code', 'none'],
+        ['codex', 'none'],
       ],
       'Codex keeps its own choice, Claude Code reads the app-wide default, and a named preset wins',
     )
@@ -308,7 +308,7 @@ test('agent-launch-service', async () => {
 
   run('the launch record rides the spawn so the renderer can project a tab', async () => {
     const app = harness({
-      settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'auto' }),
+      settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'none' }),
     })
     const launched = await app.service.launch({ workspaceId: 'ws-1', name: 'Scout', cliModel: 'opus' })
     assert.equal(launched.ok, true, JSON.stringify(launched))
@@ -317,7 +317,7 @@ test('agent-launch-service', async () => {
       name: 'Scout',
       cli: 'claude-code',
       cliModel: 'opus',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'none',
     })
   })
 

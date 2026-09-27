@@ -22,34 +22,35 @@ const { useWorkspaceStore } = await import('../../store/workspaceStore')
 test('a CLI nobody has set resolves to the app-wide default', () => {
   store.__resetCliPermissionPresetsForTest()
   assert.equal(store.storedCliPermissionPreset('claude-code'), undefined)
-  assert.equal(store.resolveCliPermissionPreset('claude-code', 'manual'), 'manual')
+  assert.equal(store.resolveCliPermissionPreset('claude-code', 'none'), 'none')
 })
 
 test('setting a CLI moves that CLI and no other', () => {
   store.__resetCliPermissionPresetsForTest()
-  store.setCliPermissionPreset('claude-code', 'bypass')
-  assert.equal(store.resolveCliPermissionPreset('claude-code', 'manual'), 'bypass')
-  assert.equal(store.resolveCliPermissionPreset('codex', 'manual'), 'manual', 'Codex keeps its own value')
-  store.setCliPermissionPreset('codex', 'auto')
-  assert.equal(store.resolveCliPermissionPreset('claude-code', 'manual'), 'bypass', 'and Codex cannot move Claude')
+  store.setCliPermissionPreset('claude-code', 'none')
+  assert.equal(store.resolveCliPermissionPreset('claude-code', 'bypass'), 'none')
+  assert.equal(store.resolveCliPermissionPreset('codex', 'bypass'), 'bypass', 'Codex keeps its own value')
+  store.setCliPermissionPreset('codex', 'bypass')
+  assert.equal(store.storedCliPermissionPreset('codex'), 'bypass')
+  assert.equal(store.resolveCliPermissionPreset('claude-code', 'bypass'), 'none', 'and Codex cannot move Claude')
 })
 
 test('the map lives in the launch-settings read model that main fills', () => {
   store.__resetCliPermissionPresetsForTest()
-  store.setCliPermissionPreset('codex', 'auto')
-  assert.deepEqual(useWorkspaceStore.getState().appSettings.cliPermissionPresets, { codex: 'auto' })
+  store.setCliPermissionPreset('codex', 'none')
+  assert.deepEqual(useWorkspaceStore.getState().appSettings.cliPermissionPresets, { codex: 'none' })
   // Main's broadcast, from another window's pick, lands in the same place.
   useWorkspaceStore.setState((state) => ({
-    appSettings: { ...state.appSettings, cliPermissionPresets: { codex: 'auto', 'claude-code': 'manual' } },
+    appSettings: { ...state.appSettings, cliPermissionPresets: { codex: 'none', 'claude-code': 'bypass' } },
   }))
-  assert.equal(store.storedCliPermissionPreset('claude-code'), 'manual')
+  assert.equal(store.storedCliPermissionPreset('claude-code'), 'bypass')
 })
 
 test('no CLI stores nothing and reads the fallback', () => {
   store.__resetCliPermissionPresetsForTest()
   store.setCliPermissionPreset(null, 'bypass')
   assert.equal(store.storedCliPermissionPreset(null), undefined)
-  assert.equal(store.resolveCliPermissionPreset(null, 'manual'), 'manual')
+  assert.equal(store.resolveCliPermissionPreset(null, 'none'), 'none')
   assert.deepEqual(useWorkspaceStore.getState().appSettings.cliPermissionPresets, {})
 })
 
@@ -69,6 +70,9 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
     [LEGACY_CLI_PERMISSION_PRESETS_KEY]: JSON.stringify({
       'claude-code': 'bypass',
       codex: 'auto',
+      // A retired preset the old store kept: it keeps the nearest meaning it has.
+      grok: 'manual',
+      cursor: 'auto',
       gemini: 'yolo',
       '': 'bypass',
     }),
@@ -78,7 +82,7 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
   await migrateLegacyCliPermissionPresets({
     storage,
     // Another window has already chosen for Codex since the upgrade.
-    held: async () => ({ codex: 'manual' }),
+    held: async () => ({ codex: 'bypass' }),
     update: async (patch) => {
       patches.push(patch)
       return true
@@ -86,8 +90,8 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
   })
   assert.deepEqual(
     patches,
-    [{ cliPermissionPresets: { 'claude-code': 'bypass' } }],
-    'Codex keeps the newer choice, and a value this build does not recognise is not carried',
+    [{ cliPermissionPresets: { 'claude-code': 'bypass', grok: 'none', cursor: 'none' } }],
+    'Codex keeps the newer choice, manual and auto arrive as no flag, and a value this build does not recognise is not carried',
   )
   assert.equal(storage.map.size, 0, 'both old keys are gone once main has it on disk')
 })
@@ -106,7 +110,7 @@ test('a profile with nothing to hand over sends nothing', async () => {
   }
   await migrateLegacyCliPermissionPresets({ storage: memoryStorage({}), held: async () => ({}), update })
   const covered = memoryStorage({ [LEGACY_CLI_PERMISSION_PRESETS_KEY]: JSON.stringify({ codex: 'auto' }) })
-  await migrateLegacyCliPermissionPresets({ storage: covered, held: async () => ({ codex: 'manual' }), update })
+  await migrateLegacyCliPermissionPresets({ storage: covered, held: async () => ({ codex: 'none' }), update })
   assert.equal(calls, 0)
   assert.equal(covered.map.size, 0, 'a map main already covers is simply dropped')
 })

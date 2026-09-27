@@ -11,7 +11,7 @@ const VALID: CliPluginManifest = {
   displayName: 'My CLI',
   version: 1,
   binary: 'my-cli',
-  permissionPresets: { default: { label: 'Default', args: [] } },
+  permissionPresets: { bypass: { label: 'Bypass', args: ['--yes'] } },
   launch: { argv: ['my-cli', { spreadIf: 'extraArgs' }] },
   promptInjection: { mode: 'positional-arg' },
   completion: { mode: 'process-exit' },
@@ -25,13 +25,22 @@ test('accepts a minimal valid CLI manifest', () => {
   assert.equal(result.manifest.id, 'my-cli')
 })
 
+test('accepts a CLI with no bypass flag, which declares no presets', () => {
+  assert.equal(validateCliPluginManifest({ ...VALID, permissionPresets: {} }).ok, true)
+})
+
+test('still accepts a manifest declaring presets from earlier vocabularies', () => {
+  const legacy = { ...VALID, permissionPresets: { default: { label: 'Default', args: [] } } }
+  assert.equal(validateCliPluginManifest(legacy).ok, true)
+})
+
 test('reports the offending path for each invalid field', () => {
   const result = validateCliPluginManifest({
     id: 'Bad Id',
     displayName: '',
     version: 0,
     binary: 'x',
-    permissionPresets: {},
+    permissionPresets: [],
     launch: { argv: [] },
     promptInjection: { mode: 'nope' },
     completion: { mode: 'output-sentinel' },

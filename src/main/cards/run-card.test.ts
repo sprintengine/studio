@@ -680,7 +680,7 @@ test('run-card', async () => {
           mcpSyncEnabled: true,
           model: 'claude-opus-5',
           reasoning: 'high',
-          permissionPreset: 'auto',
+          permissionPreset: 'bypass',
         },
         deps,
       )
@@ -694,7 +694,7 @@ test('run-card', async () => {
           cli: 'claude-code',
           model: 'claude-opus-5',
           reasoning: 'high',
-          permissionPreset: 'auto',
+          permissionPreset: 'bypass',
         },
         'the chosen row comes back whole — the runtime the card required, and the three axes the person picked',
       )
@@ -715,13 +715,13 @@ test('run-card', async () => {
           mcpSyncEnabled: false,
           model: null,
           reasoning: null,
-          permissionPreset: 'manual',
+          permissionPreset: 'none',
         },
         deps,
       )
       assert.equal(result.chat?.cli, null, 'no require.cli is no override — the picked row is the runtime')
       assert.equal(result.chat?.model, null, 'and its own default model row is null, not a missing field')
-      assert.equal(result.chat?.permissionPreset, 'manual', 'the preset the row carried is the preset handed back')
+      assert.equal(result.chat?.permissionPreset, 'none', 'the preset the row carried is the preset handed back')
     }
 
     // --- install.module (G4) --------------------------------------------------

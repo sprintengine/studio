@@ -3,7 +3,8 @@ import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { resolvePermissionArgs } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
@@ -74,10 +75,10 @@ import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/exe
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
 
-// External callers get only these two presets; `bypass` is refused at the
-// tool boundary everywhere (epic decision 4, same policy as automation.create).
-// Order matters: the first entry is what an omitted preset resolves to.
-const LAUNCH_PERMISSION_PRESETS = ['manual', 'auto'] as const
+// External callers get only `none`; `bypass` is refused at the tool boundary
+// everywhere (epic decision 4, same policy as automation.create). `none` is
+// also what an omitted preset resolves to.
+const LAUNCH_PERMISSION_PRESETS = ['none'] as const
 
 // The built-in action kinds that launch a CLI agent, and so resolve a permission
 // preset (`runLocalAutomationAction` dispatches on exactly these two literals;
@@ -90,20 +91,6 @@ export type AutomationBackends = {
   listTerminalSessions(): TerminalSessionSnapshot[]
   /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
-  /**
-   * This machine's own agent-spawn permission preset for `cli` (the CLI the
-   * launch will run on; absent for the last-selected one), from the main-owned
-   * launch settings store: the preset the person chose for that CLI, else the
-   * app-wide spawn default; `null` when they have chosen neither.
-   *
-   * Read by `terminal.create` so a remotely-opened terminal runs under the
-   * preset the person at this machine chose — and read HERE rather than left to
-   * the launch service, because the surface's `bypass` ceiling has to be
-   * applied before the pty exists, not after. The CLI default needs no such
-   * accessor: the launch service resolves it from the same store and says so
-   * when there is none.
-   */
-  getAgentSpawnPermissionDefault(cli?: string): CliPermissionPreset | null
   /**
    * Mint a workspace in main's registry. Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
@@ -416,11 +403,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (typeof args.permissionPreset !== 'string') {
       return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
     }
-    // Normalize first so the refusal below catches BOTH spellings of bypass: an
+    // Parse first so the refusal below catches BOTH spellings of bypass: an
     // external caller written before the preset rename still sends `bypass_all`, and a
     // refusal that only matched the new name would let the old one straight
-    // through the ceiling this surface exists to enforce.
-    const requested = normalizeCliPermissionPreset(args.permissionPreset as CliPermissionPreset)
+    // through the ceiling this surface exists to enforce. A caller written
+    // before the two-mode change sends `manual` or `auto`; both read as `none`.
+    const requested = parseCliPermissionPreset(args.permissionPreset)
     if (requested === 'bypass') {
       return failure(
         'permission_preset_not_allowed',
@@ -428,10 +416,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           'A person can set that preset in the app if it is genuinely needed.',
       )
     }
-    if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+    if (!requested) {
       return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
     }
-    return args.permissionPreset as CliPermissionPreset
+    return requested
   }
 
   // The launch-config fields agent.launch and backlog.work both accept:
@@ -473,8 +461,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // `bypass` — so omitting the key reached the preset this surface
       // refuses. An external caller that names none gets the most restrictive
       // allowed value.
-      permissionPreset:
-        (optionalString(args.permissionPreset) as CliPermissionPreset | undefined) ?? LAUNCH_PERMISSION_PRESETS[0],
+      permissionPreset: preset ?? LAUNCH_PERMISSION_PRESETS[0],
       worktreeRequested,
       worktreeName,
       worktreeBaseRef,
@@ -818,9 +805,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "none" passes no permission flag, so the CLI\'s own configuration decides; ' +
+            'it is also what an omitted preset means. "bypass" is refused on this surface, and so is its ' +
+            'older spelling "bypass_all". The retired "manual" and "auto" are read as "none".',
         },
         connectorId: {
           type: 'string',
@@ -1145,8 +1132,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'Open a new agent terminal on the machine running this app and return its session id, ready to attach. ' +
       'Works with no window open: the session exists in the main process, and a window opened later shows it as ' +
       'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The CLI and ' +
-      "permission preset default to this machine's own launch settings unless you name them; `bypass` is " +
-      'refused here as everywhere on this surface. Use cli.runtime.list for the CLI ids this app holds.',
+      "CLI defaults to this machine's own launch settings unless you name one; the permission preset is " +
+      '"none" unless you name it, because `bypass` is refused here as everywhere on this surface. Use ' +
+      'cli.runtime.list for the CLI ids this app holds.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1173,10 +1161,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all. ' +
-            "Omit to take this machine's own spawn default.",
+            'CLI permission preset: "none" passes no permission flag, so the CLI\'s own configuration decides; ' +
+            'it is also what an omitted preset means. "bypass" is refused on this surface, and so is its ' +
+            'older spelling "bypass_all". The retired "manual" and "auto" are read as "none".',
         },
       },
       required: [],
@@ -1199,17 +1186,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const requestedPreset = validatePermissionPreset(args)
       if (requestedPreset !== undefined && typeof requestedPreset !== 'string') return requestedPreset
 
-      // Resolved here rather than left to the launch service so the preset the
-      // pty will run under is known before it exists. The machine's own default
-      // is honoured — that is what "uses this machine's launch settings" means —
-      // except that `bypass` never crosses this surface: a caller that
-      // inherited it would get an unsandboxed agent nobody on either end asked
-      // for. Falling to the most restrictive preset is the surface's ceiling,
-      // and the answer reports which preset actually applied.
-      const machineDefault = backends.getAgentSpawnPermissionDefault(optionalString(args.cli))
-      const permissionPreset =
-        requestedPreset ??
-        (machineDefault && machineDefault !== 'bypass' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])
+      // Resolved here rather than left to the launch service, whose default is
+      // this machine's spawn preset — `bypass` unless the person chose
+      // otherwise. `bypass` never crosses this surface: a caller that inherited
+      // it would get an agent skipping every prompt that nobody on either end
+      // asked for. So an omitted preset is `none`, the one this surface allows,
+      // and the answer reports it.
+      const permissionPreset = requestedPreset ?? LAUNCH_PERMISSION_PRESETS[0]
 
       const launched = await launchConfiguredAgent({
         workspaceId: resolved.workspace.id,
@@ -1792,9 +1775,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "none" passes no permission flag, so the CLI\'s own configuration decides; ' +
+            'it is also what an omitted preset means. "bypass" is refused on this surface, and so is its ' +
+            'older spelling "bypass_all". The retired "manual" and "auto" are read as "none".',
         },
         worktree: {
           type: 'object',
@@ -1911,10 +1894,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'Create an Automation definition through the same validated pipeline the UI uses (provider/permission ' +
       'checks, schedule validation, workspace-root trust). The definition object carries name, trigger ' +
       '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name ' +
-      'permissionPreset "auto": naming none runs the agent unattended on "bypass", which is refused on ' +
-      'this surface — that preset can only be set by a person in the app. "manual" is accepted but is ' +
-      'rarely what you want here: an automation agent has nobody at its terminal, so it stops at the ' +
-      'first approval prompt and hangs the run until the idle reaper fails it.',
+      'permissionPreset "none": naming none runs the agent unattended on "bypass", which is refused on ' +
+      'this surface — that preset can only be set by a person in the app. "none" passes no permission ' +
+      "flag, so the CLI's own configuration decides; if that configuration asks for approval, an " +
+      'automation agent has nobody at its terminal and the run hangs until the idle reaper fails it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1936,19 +1919,18 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('invalid_arguments', '"definition" must be an object.')
       }
       const preset = resolvedActionPermissionPreset(args.definition)
-      // Normalized before the compare, exactly as validatePermissionPreset does
+      // Parsed before the compare, exactly as validatePermissionPreset does
       // above and for the same reason: a definition naming the pre-rename
       // `bypass_all` cleared this ceiling on the raw string and was then
       // normalized to `bypass` downstream (parseSpawnAgentConfig), which is the
-      // unattended self-escalation the ceiling exists to prevent
-      // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
-      // A value outside the vocabulary normalizes to `manual`, which the create
-      // pipeline then rejects on its own terms.
-      if (preset !== null && normalizeCliPermissionPreset(preset as CliPermissionPreset) === 'bypass') {
+      // unattended self-escalation the ceiling exists to prevent. A value
+      // outside the vocabulary parses to nothing, and the create pipeline then
+      // rejects it on its own terms.
+      if (preset !== null && parseCliPermissionPreset(preset) === 'bypass') {
         return failure(
           'permission_preset_not_allowed',
           'Automations created over the automation surface may not run on permissionPreset "bypass", which is ' +
-            'what an agent-backed automation runs on when it names no preset — name "auto" explicitly. ' +
+            'what an agent-backed automation runs on when it names no preset — name "none" explicitly. ' +
             'A person can set that preset in the Automations panel if it is genuinely needed.',
         )
       }
@@ -2151,7 +2133,9 @@ function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
       ...(level.label ? { label: level.label } : {}),
     })),
     defaultReasoningLevel: manifest.reasoningSelection?.default ?? null,
-    permissionPresets: Object.keys(manifest.permissionPresets ?? {}),
+    // The presets a launch on this CLI can honour: `none` always (it passes no
+    // flag), `bypass` only where the manifest names the flag for it.
+    permissionPresets: resolvePermissionArgs(manifest, 'bypass').length > 0 ? ['none', 'bypass'] : ['none'],
   }
 }
 

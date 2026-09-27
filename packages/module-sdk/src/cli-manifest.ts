@@ -329,6 +329,12 @@ export type CliPluginManifest = {
   version: number
   binary: string
   variables?: Record<string, CliVariableDecl>
+  /**
+   * The launch args per permission preset. Only `bypass` is read: it holds the
+   * CLI's flag for skipping every approval prompt. The other preset, `none`,
+   * passes no permission flag and needs no entry, so a CLI without a bypass
+   * flag declares an empty object. Keys for retired presets are ignored.
+   */
   permissionPresets: Record<string, CliPermissionPreset>
   launch: CliLaunchSpec
   resume?: CliResumeSpec
@@ -469,10 +475,6 @@ export function parseCliPluginManifest(source: string): CliManifestResult {
 function validatePermissionPresets(value: unknown, issues: CliManifestIssue[]): void {
   if (!isObject(value)) {
     issues.push({ path: 'permissionPresets', message: 'permissionPresets must be an object.' })
-    return
-  }
-  if (Object.keys(value).length === 0) {
-    issues.push({ path: 'permissionPresets', message: 'permissionPresets must declare at least one preset.' })
     return
   }
   for (const [name, preset] of Object.entries(value)) {

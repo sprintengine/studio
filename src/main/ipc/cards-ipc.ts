@@ -30,7 +30,8 @@ import { app, type IpcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { CardRunInput, CardRunResult, McpServerConfig, CliPermissionPreset } from '../../shared/electron-api'
+import type { CardRunInput, CardRunResult, McpServerConfig } from '../../shared/electron-api'
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { parseCardAction, type CardAction } from '../../shared/hosted-card-feed'
 import { normalizeMcpServerConfig } from '../../shared/mcp/normalize-server'
 import { detectCli } from '../cli-runtime-install'
@@ -175,6 +176,7 @@ function parseRequest(raw: unknown): ParsedRequest {
     actions.push(parsed.action)
   }
 
+  const permissionPreset = parseCliPermissionPreset(raw.permissionPreset)
   return {
     ok: true,
     input: {
@@ -190,23 +192,16 @@ function parseRequest(raw: unknown): ParsedRequest {
       // The picker row (item 2473), checked for shape like the two paths above
       // and for the same reason: "the renderer sent it" is a claim about a
       // process, not about a shape. A model id and an effort level are strings
-      // or they are absent, and a preset is one of the four this build knows —
-      // anything else is dropped rather than refused, because a malformed
+      // or they are absent, and a preset is one this build can read (a retired
+      // spelling keeps its nearest meaning) — anything else is dropped rather than refused, because a malformed
       // launch axis must not be why a card's installs do not run. What that
       // costs is the app's own default on the far side, which is what an absent
       // field means anyway.
       model: text(raw.model),
       reasoning: text(raw.reasoning),
-      ...(isPermissionPreset(raw.permissionPreset) ? { permissionPreset: raw.permissionPreset } : {}),
+      ...(permissionPreset ? { permissionPreset } : {}),
     },
   }
-}
-
-/** The four presets this build knows, listed so an unknown one cannot ride in. */
-const PERMISSION_PRESETS: readonly CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
-
-function isPermissionPreset(value: unknown): value is CliPermissionPreset {
-  return typeof value === 'string' && PERMISSION_PRESETS.includes(value as CliPermissionPreset)
 }
 
 /** A non-empty string, or null. Null is "the app's own default", never "no model". */

@@ -1,5 +1,10 @@
 # Agent-specific permissions
 
+> Superseded by the two-mode ruling of 2026-09-27: there are now only `bypass`
+> (Codex: YOLO), the default, and `none`, which passes no permission flag.
+> Stored `manual` and `auto` read as `none` (`src/shared/cli-permission-preset.ts`).
+> The plan below is kept as the record of the four-preset design.
+
 ## Implementation
 
 1. Keep the persisted `none`, `manual`, `auto`, and `bypass` ids compatible.

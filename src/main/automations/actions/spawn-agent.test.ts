@@ -222,7 +222,7 @@ test('spawn-agent', async () => {
     await runSpawnAgentAction({ prompt: 'Sweep the repo.' }, stubRuntime(undefined, unset))
     assert.equal(unset.permissionPreset, 'bypass', 'an automation with no preset launches unattended')
 
-    for (const preset of ['none', 'manual', 'auto', 'bypass'] as const) {
+    for (const preset of ['none', 'bypass'] as const) {
       const explicit: CapturedLaunch = { prompt: '' }
       await runSpawnAgentAction(
         { prompt: 'Sweep the repo.', permissionPreset: preset },
@@ -231,12 +231,14 @@ test('spawn-agent', async () => {
       assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
     }
 
-    // Pre-rename spellings still parse: a definition saved before the rename
-    // names one, and it resolves to the preset it was renamed to rather than
-    // being rejected.
+    // Retired spellings still parse: a definition saved before the change
+    // names one, and it keeps the nearest meaning it has rather than being
+    // rejected. Every one that asked more than bypass lands on `none`.
     for (const [legacy, canonical] of [
-      ['default', 'manual'],
-      ['auto_workspace', 'auto'],
+      ['manual', 'none'],
+      ['auto', 'none'],
+      ['default', 'none'],
+      ['auto_workspace', 'none'],
       ['bypass_all', 'bypass'],
     ] as const) {
       const saved: CapturedLaunch = { prompt: '' }
@@ -251,10 +253,10 @@ test('spawn-agent', async () => {
     assert.equal(loop.permissionPreset, 'bypass', 'run-skill-loop takes the same default')
     const loopExplicit: CapturedLaunch = { prompt: '' }
     await runSkillLoopAction(
-      { prompt: 'Work an item.', skill: 'backlog', permissionPreset: 'auto' },
+      { prompt: 'Work an item.', skill: 'backlog', permissionPreset: 'none' },
       stubRuntime(undefined, loopExplicit),
     )
-    assert.equal(loopExplicit.permissionPreset, 'auto', 'run-skill-loop honors an explicit preset')
+    assert.equal(loopExplicit.permissionPreset, 'none', 'run-skill-loop honors an explicit preset')
 
     // An out-of-vocabulary preset is still a hard parse failure — the default
     // never launders a bad value into bypass.

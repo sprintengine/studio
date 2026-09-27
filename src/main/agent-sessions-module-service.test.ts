@@ -239,7 +239,7 @@ test('agent-sessions-module-service', async () => {
       settings: {
         ...emptyAgentLaunchSettings(),
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
+        lastAgentSpawnPermissionPreset: 'none',
       } as AgentLaunchSettings,
     })
     const input = spawnInput()
@@ -247,7 +247,22 @@ test('agent-sessions-module-service', async () => {
     const result = await harness.registry.spawn(MODULE_ID, input)
 
     assert.ok(result.ok)
-    assert.equal(harness.spawns[0]?.cliPermissionPreset, 'auto')
+    assert.equal(harness.spawns[0]?.cliPermissionPreset, 'none')
+  })
+
+  run('a module built against an older SDK that sends a retired preset spawns on none', async () => {
+    const harness = makeHarness()
+    for (const legacy of ['manual', 'auto']) {
+      const result = await harness.registry.spawn(
+        MODULE_ID,
+        spawnInput({ permissionPreset: legacy as never, agentIdKey: `older-${legacy}` }),
+      )
+      assert.ok(result.ok, result.ok ? '' : result.message)
+    }
+    assert.deepEqual(
+      harness.spawns.map((spawn) => spawn.cliPermissionPreset),
+      ['none', 'none'],
+    )
   })
 
   run('a live session under the same agent id takes the prompt instead of being twinned', async () => {

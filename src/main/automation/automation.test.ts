@@ -86,7 +86,6 @@ test('automation', async () => {
     sessions?: TerminalSessionSnapshot[]
     createWorkspace?: AutomationBackends['createWorkspace']
     launchAgent?: AutomationBackends['launchAgent']
-    getAgentSpawnPermissionDefault?: AutomationBackends['getAgentSpawnPermissionDefault']
     /** The CLI this machine would spawn under; the harness's stub session reports it. */
     defaultCli?: string
     listBacklogItems?: AutomationBackends['listBacklogItems']
@@ -132,9 +131,6 @@ test('automation', async () => {
       launchAgent:
         overrides.launchAgent ??
         (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
-      // A machine where nobody has chosen a preset yet — the honest starting
-      // state, so a case that depends on a default has to say so.
-      getAgentSpawnPermissionDefault: overrides.getAgentSpawnPermissionDefault ?? (() => null),
       // Default: the mobile lane is unwired. A test that exercises the mobile
       // tools stubs this; anything else that reaches it fails loudly.
       mobileControl: overrides.mobileControl ?? {
@@ -737,13 +733,25 @@ test('automation', async () => {
       name: 'Scout',
       prompt: 'go',
       cliModel: 'opus',
-      permissionPreset: 'auto',
+      permissionPreset: 'none',
     })
     assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
     assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
     const req = configured.requests[0]
     assert.equal(req.cliModel, 'opus')
-    assert.equal(req.permissionPreset, 'auto')
+    assert.equal(req.permissionPreset, 'none')
+
+    // A caller written before the two-mode change still names `manual` or
+    // `auto`; both launch as `none` rather than failing.
+    for (const legacy of ['manual', 'auto']) {
+      const older = launchHarness()
+      const answered = await tool(older.tools, 'agent.launch').handler({
+        workspaceId: 'ws-1',
+        permissionPreset: legacy,
+      })
+      assert.equal(answered.isError, undefined, JSON.stringify(answered.structuredContent))
+      assert.equal(older.requests[0].permissionPreset, 'none', `${legacy} launches as none`)
+    }
     assert.equal(req.worktreePath, undefined)
     assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
 
@@ -969,10 +977,7 @@ test('automation', async () => {
   }
 
   async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
-    const inherited = launchHarness({
-      defaultCli: 'codex',
-      getAgentSpawnPermissionDefault: () => 'auto',
-    })
+    const inherited = launchHarness({ defaultCli: 'codex' })
     const ok = await tool(inherited.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
     assert.equal(ok.isError, undefined, JSON.stringify(ok.structuredContent))
     assert.equal(
@@ -980,52 +985,38 @@ test('automation', async () => {
       undefined,
       'an unnamed CLI is left to the launch service, which reads the same settings store',
     )
-    assert.equal(inherited.requests[0].permissionPreset, 'auto', "this machine's preset, not a hardcoded one")
-    assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto')
+    // This machine's spawn default is `bypass` unless someone chose otherwise,
+    // and bypass never crosses this surface — so an unnamed preset is `none`,
+    // and the answer says so.
+    assert.equal(inherited.requests[0].permissionPreset, 'none')
+    assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'none')
     // The CLI reported is the one the session actually spawned under.
     assert.equal((ok.structuredContent as { terminal: { cli: string } }).terminal.cli, 'codex')
 
-    // An explicit choice overrides the machine default.
-    const overridden = launchHarness({
-      defaultCli: 'codex',
-      getAgentSpawnPermissionDefault: () => 'auto',
-    })
+    // An explicit CLI and preset are forwarded.
+    const overridden = launchHarness({ defaultCli: 'codex' })
     await tool(overridden.tools, 'terminal.create').handler({
       workspaceId: 'ws-1',
       cli: 'claude-code',
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
     })
     assert.equal(overridden.requests[0].cli, 'claude-code')
-    assert.equal(overridden.requests[0].permissionPreset, 'manual')
-
-    // The machine default is the one chosen for the CLI being launched.
-    const perCli = launchHarness({
-      defaultCli: 'claude-code',
-      getAgentSpawnPermissionDefault: (cli) => (cli === 'codex' ? 'manual' : 'auto'),
-    })
-    await tool(perCli.tools, 'terminal.create').handler({ workspaceId: 'ws-1', cli: 'codex' })
-    assert.equal(perCli.requests[0].permissionPreset, 'manual', "Codex's own preset, not Claude Code's")
+    assert.equal(overridden.requests[0].permissionPreset, 'none')
 
     // Asked for: refused with its own code, and nothing is spawned.
-    const asked = launchHarness()
-    const refused = await tool(asked.tools, 'terminal.create').handler({
-      workspaceId: 'ws-1',
-      permissionPreset: 'bypass',
-    })
-    assert.equal(refused.isError, true)
-    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
-    assert.equal(asked.requests.length, 0, 'a refused preset never reaches the launch service')
-
-    // Inherited: clamped to the most restrictive preset rather than refused — the
-    // caller cannot fix this machine's setting — and the answer says which preset
-    // actually applied, so the clamp is visible rather than silent.
-    const clamped = launchHarness({
-      getAgentSpawnPermissionDefault: () => 'bypass',
-    })
-    const spawned = await tool(clamped.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
-    assert.equal(spawned.isError, undefined, JSON.stringify(spawned.structuredContent))
-    assert.equal(clamped.requests[0].permissionPreset, 'manual')
-    assert.equal((spawned.structuredContent as { permissionPreset: string }).permissionPreset, 'manual')
+    for (const spelling of ['bypass', 'bypass_all']) {
+      const asked = launchHarness()
+      const refused = await tool(asked.tools, 'terminal.create').handler({
+        workspaceId: 'ws-1',
+        permissionPreset: spelling,
+      })
+      assert.equal(refused.isError, true)
+      assert.equal(
+        (refused.structuredContent as { error: { code: string } }).error.code,
+        'permission_preset_not_allowed',
+      )
+      assert.equal(asked.requests.length, 0, 'a refused preset never reaches the launch service')
+    }
 
     // A launch failure is reported as itself, never as a created terminal.
     const broken = launchHarness({
@@ -2053,7 +2044,7 @@ test('automation', async () => {
     const definition = {
       name: 'Nightly',
       trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'none' } },
     }
     const ok = await tool(withFrontDoor, 'automation.create').handler({ workspaceId: 'ws-1', definition })
     assert.equal(ok.isError, undefined)
@@ -2125,15 +2116,11 @@ test('automation', async () => {
       }),
     )
 
-    // The advertised vocabulary is the boundary: two members, bypass absent,
+    // The advertised vocabulary is the boundary: `none` alone, bypass absent,
     // on every tool that launches an agent.
-    for (const name of ['agent.launch', 'backlog.work'] as const) {
+    for (const name of ['agent.launch', 'backlog.work', 'terminal.create'] as const) {
       const properties = tool(tools, name).inputSchema.properties as Record<string, { enum?: unknown }>
-      assert.deepEqual(
-        properties.permissionPreset?.enum,
-        ['manual', 'auto'],
-        `${name} advertises exactly the two allowed presets`,
-      )
+      assert.deepEqual(properties.permissionPreset?.enum, ['none'], `${name} advertises exactly the allowed preset`)
     }
 
     // And the refusals say what was refused and who can set it — a caller can act
@@ -2194,8 +2181,7 @@ test('automation', async () => {
 
     // The pre-rename spelling of bypass is the SAME preset, so it must hit the
     // same ceiling. Comparing the raw string let `bypass_all` through here and be
-    // normalized to `bypass` downstream — an unattended agent nobody consented to
-    // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
+    // normalized to `bypass` downstream — an unattended agent nobody consented to.
     const legacyBypass = await tool(tools, 'automation.create').handler({
       workspaceId: 'ws-1',
       definition: {
@@ -2211,10 +2197,10 @@ test('automation', async () => {
     )
     assert.equal(created.length, 1, 'the legacy-bypass draft never reaches the create pipeline')
 
-    // An explicitly-named allowed preset still passes through verbatim. `default`
-    // is the legacy spelling of `manual`, which is allowed here — only bypass is
-    // refused — so it stays accepted for definitions written before the rename.
-    for (const preset of ['default', 'auto'] as const) {
+    // An explicitly-named allowed preset still passes through verbatim. The
+    // retired spellings read as `none`, which is allowed here — only bypass is
+    // refused — so they stay accepted for definitions written before the change.
+    for (const preset of ['none', 'manual', 'auto', 'default'] as const) {
       const allowed = await tool(tools, 'automation.create').handler({
         workspaceId: 'ws-1',
         definition: {
@@ -2233,7 +2219,7 @@ test('automation', async () => {
     const launchRequest = omittedLaunch.requests[0]
     assert.equal(
       launchRequest.permissionPreset,
-      'manual',
+      'none',
       'an omitted launch preset is pinned to the most restrictive allowed value, not left for the renderer to fill',
     )
   }
@@ -2275,7 +2261,7 @@ test('automation', async () => {
       definition: {
         name: 'X',
         trigger: { kind: 'schedule', config: {} },
-        action: { kind: 'spawn-agent', config: { permissionPreset: 'auto' } },
+        action: { kind: 'spawn-agent', config: { permissionPreset: 'none' } },
       },
     })
     assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
@@ -2293,7 +2279,7 @@ test('automation', async () => {
         displayName: id === 'claude-code' ? 'Claude Code' : id,
         version: 1,
         binary: id === 'claude-code' ? 'claude' : id,
-        permissionPresets: { default: {}, bypass: {} },
+        permissionPresets: { bypass: { label: 'Bypass', args: ['--skip-prompts'] } },
         launch: { args: [] },
         promptInjection: { mode: 'argv' },
         completion: { mode: 'exit' },
@@ -2321,7 +2307,9 @@ test('automation', async () => {
         } as never),
         // A CLI that declares neither: it must still be listed, with the honest
         // empty answer — "no model may be passed" is not the same as "unlisted".
-        plugin('plain-cli'),
+        // It also names no bypass flag (a retired `manual` key is read as
+        // nothing), so the one preset it can honour is `none`.
+        plugin('plain-cli', { permissionPresets: { manual: { label: 'Manual', args: [] } } }),
         // Hooks-only selectability: a spec-less CLI stays LISTED (marked, not
         // omitted, so a remote caller holding a stale id learns why it is
         // refused) but flagged agentSelectable: false.
@@ -2349,7 +2337,8 @@ test('automation', async () => {
     assert.equal(clis[0].allowCustomModelId, true)
     assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])
     assert.equal(clis[0].defaultReasoningLevel, 'medium')
-    assert.deepEqual(clis[0].permissionPresets, ['default', 'bypass'])
+    assert.deepEqual(clis[0].permissionPresets, ['none', 'bypass'])
+    assert.deepEqual(clis[1].permissionPresets, ['none'], 'no bypass flag declared, so only none')
     assert.equal(clis[1].supportsModelSelection, false)
     assert.deepEqual(clis[1].models, [])
     assert.equal(clis[1].allowCustomModelId, false)

@@ -469,7 +469,7 @@ function pluginScaffold(args: string[]): void {
       displayName: `${displayName} CLI`,
       version: 1,
       binary: 'node',
-      permissionPresets: { default: { label: 'Default', args: [] } },
+      permissionPresets: {},
       launch: { argv: ['node', 'index.js', { spreadIf: 'promptArgs' }] },
       promptInjection: { mode: 'positional-arg' },
       completion: { mode: 'process-exit' },

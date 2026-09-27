@@ -381,24 +381,6 @@ import { DEFAULT_AGENT_LAUNCH_CLI, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from 
 
 export { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET }
 
-// ONLY an absent value adopts the app default. A present-but-unrecognised value
-// is corruption, and corruption must never ESCALATE permissions — it falls to
-// the conservative floor, which the preset rename moved from `default` to `manual`. That
-// move is the point: `default` used to mean "no permission flag", which was the
-// safe answer until Claude Code started reading no-flag as auto mode. `manual`
-// is the value that still means what `default` meant.
-//
-// A recognised LEGACY spelling is not corruption and does not floor: `default`
-// -> `manual`, `auto_workspace` -> `auto`, `bypass_all` -> `bypass`. See
-// normalizeCliPermissionPreset for why `default` lands on `manual` rather than
-// on the argv-identical `none`.
-export function normalizeAgentSpawnPermissionPreset(
-  input: CliPermissionPreset | null | undefined,
-): CliPermissionPreset {
-  if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
-  return normalizeCliPermissionPreset(input)
-}
-
 // A remembered model + reasoning-effort pick. Kept only when it names a CLI and
 // carries at least one choice for it; a partial blob drops back to "no
 // override" so resolution falls through to the CLI's own default (no model and
@@ -762,7 +744,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     textGeneration: normalizeTextGenerationSettings(settings?.textGeneration),
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
-    lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
@@ -1470,8 +1452,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       }),
 
     setLastAgentSpawnPermissionPreset: (preset) => {
-      // An explicit user pick, so the plain normalizer: choosing 'default'
-      // must stay 'default' and not snap back to the app-wide bypass default.
       const normalized = normalizeCliPermissionPreset(preset)
       set((state) => {
         state.appSettings.lastAgentSpawnPermissionPreset = normalized

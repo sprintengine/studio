@@ -52,7 +52,6 @@ import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-hos
 import { TAILNET_CONVERSATION_PATH } from './tailnet/tailnet-routes'
 import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
-import type { CliPermissionPreset } from '../../shared/electron-api'
 import { createAutomationTools } from './automation-tools'
 import { standIn } from '../../../tests/stand-in'
 import { test } from 'vitest'
@@ -2035,8 +2034,6 @@ test('tailnet', async () => {
   function realTerminalTools(input: {
     terminals: StubTerminalHost
     launches: AgentLaunchRequest[]
-    /** This machine's agent-spawn preset; a terminal.create with none named takes it. */
-    spawnPermissionDefault?: CliPermissionPreset | null
   }): McpToolRegistration[] {
     const workspace = {
       id: 'ws-mini',
@@ -2060,7 +2057,6 @@ test('tailnet', async () => {
         },
       }),
       listTerminalSessions: () => input.terminals.listSessions(),
-      getAgentSpawnPermissionDefault: () => input.spawnPermissionDefault ?? 'auto',
       launchAgent: async (request: AgentLaunchRequest) => {
         input.launches.push(request)
         const sessionId = `spawned-${++spawned}`
@@ -2092,8 +2088,8 @@ test('tailnet', async () => {
       assert.equal(payload.isError, undefined, JSON.stringify(payload.structuredContent))
       const sessionId = payload.structuredContent.sessionId
       assert.equal(sessionId, 'spawned-1')
-      // This machine's own spawn default, not a preset the remote caller chose.
-      assert.equal(payload.structuredContent.permissionPreset, 'auto')
+      // No preset named, and bypass never crosses this surface: `none`.
+      assert.equal(payload.structuredContent.permissionPreset, 'none')
       assert.equal(launches[0].workspaceId, 'ws-mini')
 
       // …and the id it handed back is attachable, on the same connection's token.

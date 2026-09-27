@@ -33,17 +33,17 @@ optional `status`. Read the tool's schema for the trigger and action kinds this
 build actually holds rather than assuming a vocabulary.
 
 An agent-backed action must name `permissionPreset`, and on this surface the
-answer is almost always `auto`. The vocabulary is `none`, `manual`, `auto`,
-`bypass`. Naming none at all resolves to `bypass`, which this surface refuses
-outright — that preset can only be set by a person, inside the app, and its
-pre-rename spelling `bypass_all` is refused with it. If an automation genuinely
-needs bypass, say so and let the user set it; do not work around the refusal.
+answer is `none`. The vocabulary is `bypass` and `none`. Naming none at all
+resolves to `bypass`, which this surface refuses outright — that preset can
+only be set by a person, inside the app, and its older spelling `bypass_all` is
+refused with it. If an automation genuinely needs bypass, say so and let the
+user set it; do not work around the refusal.
 
-`manual` is accepted here but is rarely what you want: an automation agent has
-nobody at its terminal, so it stops at the first approval prompt and hangs the
-run until the idle reaper fails it. `default` is the pre-rename spelling of
-`manual` and carries the same problem — old definitions still using it are
-honoured, but do not write it into a new one.
+`none` passes no permission flag, so the CLI runs on its own configured
+default. If that default asks for approval, an automation agent has nobody at
+its terminal and the run hangs until the idle reaper fails it; say so when you
+create one. Old definitions naming the retired `manual`, `auto` or `default`
+run as `none`; do not write those into a new one.
 
 ## Run
 

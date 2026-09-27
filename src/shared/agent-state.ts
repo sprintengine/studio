@@ -234,7 +234,7 @@ export function defaultAgent(id: AgentId, name = id): AgentState {
     cliResumeAvailable: false,
     cli: undefined,
     cliModel: undefined,
-    cliPermissionPreset: 'manual',
+    cliPermissionPreset: 'bypass',
     cliStartupPrompt: undefined,
     backlogItemRef: undefined,
   }

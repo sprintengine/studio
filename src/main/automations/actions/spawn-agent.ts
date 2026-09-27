@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../shared/automations/contracts'
+import { parseCliPermissionPreset } from '../../../shared/cli-permission-preset'
 import { isRecord } from '../../../shared/records'
 import type {
   AutomationActionProvider,
@@ -10,24 +11,14 @@ import type {
   AutomationRunIsolation,
 } from '../../../shared/automations/contracts'
 
-const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['none', 'bypass']
 
-// Pre-rename spellings. An automation saved before the rename still carries
-// one, and rejecting it would break a definition nobody edited, so they stay
-// accepted on read (and in the config schema, which validates saved definitions
-// as well as new ones) and are normalized to the canonical name. `default` maps
-// to `manual`, matching normalizeCliPermissionPreset: it was the "asks before
-// acting" option in the UI, and it also served as the no-override sentinel.
-const LEGACY_PERMISSION_PRESETS: Readonly<Record<string, AutomationCliPermissionPreset>> = {
-  default: 'manual',
-  auto_workspace: 'auto',
-  bypass_all: 'bypass',
-}
-
-function normalizeAutomationPermissionPreset(value: string): AutomationCliPermissionPreset | undefined {
-  if ((PERMISSION_PRESETS as readonly string[]).includes(value)) return value as AutomationCliPermissionPreset
-  return LEGACY_PERMISSION_PRESETS[value]
-}
+// Spellings from earlier vocabularies. An automation saved before the change
+// still carries one, and rejecting it would break a definition nobody edited,
+// so they stay accepted on read (and in the config schema, which validates
+// saved definitions as well as new ones) and are normalized the way every
+// stored preset is (parseCliPermissionPreset).
+const LEGACY_PERMISSION_PRESETS = ['manual', 'auto', 'default', 'auto_workspace', 'bypass_all'] as const
 
 export type SpawnAgentConfig = {
   folderPath?: string
@@ -89,7 +80,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         workspaceId: { type: 'string', minLength: 1 },
         cli: { type: 'string', minLength: 1 },
         cliModel: { type: 'string', minLength: 1 },
-        permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS, ...Object.keys(LEGACY_PERMISSION_PRESETS)] },
+        permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS, ...LEGACY_PERMISSION_PRESETS] },
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         connectorId: { type: 'string', minLength: 1 },
@@ -182,9 +173,8 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
   }
 
   const rawPermissionPreset = optionalString(config.permissionPreset)
-  const permissionPreset =
-    rawPermissionPreset === undefined ? undefined : normalizeAutomationPermissionPreset(rawPermissionPreset)
-  if (rawPermissionPreset !== undefined && permissionPreset === undefined) {
+  const permissionPreset = rawPermissionPreset === undefined ? undefined : parseCliPermissionPreset(rawPermissionPreset)
+  if (rawPermissionPreset !== undefined && !permissionPreset) {
     throw new Error(`spawn-agent permissionPreset must be one of: ${PERMISSION_PRESETS.join(', ')}.`)
   }
 
@@ -198,8 +188,7 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     workspaceId: optionalString(config.workspaceId),
     cli: optionalString(config.cli),
     cliModel: optionalString(config.cliModel),
-    permissionPreset:
-      (permissionPreset as AutomationCliPermissionPreset | undefined) ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
+    permissionPreset: permissionPreset ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
     name: optionalString(config.name),
     prompt,
     connectorId: optionalString(config.connectorId),
