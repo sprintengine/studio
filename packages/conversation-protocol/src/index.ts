@@ -30,6 +30,8 @@ const MAX_ANSWERS = 64
  * the delay the close reason advises (`conversationCloseRetryAfterMs`).
  */
 export const CONVERSATION_RESYNC_CLOSE_CODE = 4409
+/** The close code for a device whose grant no longer includes `conversation:read`. Re-pairing is the fix. */
+export const CONVERSATION_SCOPE_CLOSE_CODE = 4403
 
 /** A close reason carrying a retry delay, e.g. `resync_required;retryAfterMs=2000`. */
 export function conversationCloseReason(code: string, retryAfterMs: number): string {

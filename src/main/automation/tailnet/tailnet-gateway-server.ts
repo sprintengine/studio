@@ -379,7 +379,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // Revocation must reach a device that is already mid-stream, not just its
     // next request: a live WebSocket would otherwise keep serving a device the
     // user just removed.
-    unsubscribeRevocations = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
+    const unsubscribeRevoked = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
+    // A narrowed grant reaches an open conversation socket the same way: it
+    // re-reads the device and closes, or stops accepting commands.
+    const unsubscribeScopes = options.devices.onDeviceScopesChanged((device) => {
+      for (const conversation of [...conversationStreams])
+        if (conversation.deviceId === device.id) conversation.refreshScopes()
+    })
+    unsubscribeRevocations = () => {
+      unsubscribeRevoked()
+      unsubscribeScopes()
+    }
     server = next
   }
 
@@ -968,7 +978,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         socket,
         deviceId: currentDevice.id,
         deviceName: currentDevice.name,
-        scopes: currentDevice.scopes,
+        // Read live, never captured: every frame and every scope change is
+        // judged by the grant the device holds now.
+        scopes: () => options.devices.listDevices().find((entry) => entry.id === currentDevice.id)?.scopes ?? null,
         host: options.conversations,
         onClosed: () => {
           if (registration.stream) conversationStreams.delete(registration.stream)

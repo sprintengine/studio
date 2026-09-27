@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, vi } from 'vitest'
 import type { ConversationEvent, ConversationSessionFrame } from '../../../shared/conversation-runtime'
+import type { TailnetScope } from '../../../shared/tailnet'
 import { ConversationRuntime } from '../../conversation-runtime'
 import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
@@ -401,6 +402,71 @@ test('replacing or closing a subscription suppresses stale replay and redacts ou
   listeners[1]({ type: 'synchronized', seq: 3 })
   assert.equal(socket.output().length, 2)
   assert.equal(disposed, 2)
+})
+
+test('a grant narrowed mid-stream refuses commands, and one without read closes the socket', async () => {
+  const socket = new Socket()
+  let scopes: TailnetScope[] | null = ['conversation:operate']
+  let commands = 0
+  const gateway = host()
+  gateway.command = async () => {
+    commands++
+    return { ok: true }
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: () => scopes,
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({ type: 'command', commandId: 'before', command: { kind: 'interrupt' } })
+  await tick()
+  // Narrowed without a notification: the next frame is still judged by the grant as it is now.
+  scopes = ['conversation:read']
+  socket.receive({ type: 'command', commandId: 'after', command: { kind: 'interrupt' } })
+  await tick()
+  assert.equal(commands, 1)
+  const results = (socket.output() as Array<Frame & { commandId?: string; ok?: boolean }>)
+    .filter((frame) => frame.type === 'commandResult')
+    .map((frame) => [frame.commandId, frame.ok, frame.code ?? null])
+  assert.deepEqual(results, [
+    ['before', true, null],
+    ['after', false, 'conversation_operate_required'],
+  ])
+  assert.equal(stream.isClosed(), false)
+  scopes = ['workspace:read']
+  stream.refreshScopes()
+  assert.equal(stream.isClosed(), true)
+  assert.equal((socket.output().at(-1) as Frame).code, 'conversation_scope_required')
+  assert.deepEqual(socket.closeFrame(), { code: 4403, reason: 'conversation_scope_required' })
+})
+
+test('a device removed while its socket is open is closed as revoked', async () => {
+  const socket = new Socket()
+  let scopes: TailnetScope[] | null = ['conversation:read']
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: () => scopes,
+    host: host(),
+    onClosed: () => {},
+    audit: () => {},
+  })
+  scopes = null
+  socket.receive({ type: 'list', requestId: 'list' })
+  await tick()
+  assert.equal(stream.isClosed(), true)
+  assert.equal(socket.closeFrame()?.code, 4401)
+  assert.equal(
+    (socket.output() as Frame[]).some((frame) => frame.type === 'sessions'),
+    false,
+  )
 })
 
 test('heartbeat closes a peer that never returns a pong and stops its timer', () => {

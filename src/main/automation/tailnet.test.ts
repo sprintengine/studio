@@ -2472,9 +2472,21 @@ test('tailnet', async () => {
       )
       assert.deepEqual(audited[1].targets, { workspaceId: 'workspace', agentId: 'agent', id: 'remote-send' })
       assert.equal(JSON.stringify(audited).includes('words only'), false)
+      // A grant narrowed in Settings reaches the socket that is already open.
+      harness.devices.updateDeviceScopes(operator.deviceId, ['conversation:read'])
+      operatorSocket.send({ type: 'command', commandId: 'after-narrowing', command: { kind: 'interrupt' } })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'commandResult',
+        commandId: 'after-narrowing',
+        ok: false,
+        code: 'conversation_operate_required',
+      })
+      harness.devices.updateDeviceScopes(operator.deviceId, ['workspace:read'])
+      assert.equal((await operatorSocket.nextMessage()).code, 'conversation_scope_required')
+      assert.equal(await operatorSocket.closed, 4403)
       harness.devices.revokeDevice(reader.deviceId)
       assert.equal(await socket.closed, WEBSOCKET_CLOSE_REVOKED)
-      assert.equal(disposed, 1, "revoking one device leaves another device's socket open")
+      assert.equal(disposed, 2, 'the narrowed socket and the revoked one each ended their subscription')
       operatorSocket.socket.destroy()
       const revokedDuringLookup = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
       const staleTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, {

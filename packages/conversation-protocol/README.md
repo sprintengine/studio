@@ -44,4 +44,9 @@ subscription that cannot start by `subscribeFailed` with its `key`, a
 than `CONVERSATION_MAX_CLIENT_FRAME_BYTES` is skipped and refused the same way;
 put `type` and the id ahead of any long field so the refusal can name it.
 
+Grants are read live. A device whose grant loses `conversation:operate` keeps
+its socket and has further commands refused with `conversation_operate_required`;
+one that loses `conversation:read` is sent that error and closed with
+`CONVERSATION_SCOPE_CLOSE_CODE`, and a revoked device is closed with 4401.
+
 Transcript frames travel directly over the tailnet between paired machines.

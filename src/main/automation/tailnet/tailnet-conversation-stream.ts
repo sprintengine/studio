@@ -5,6 +5,7 @@ import {
   CONVERSATION_MAX_CLIENT_FRAME_BYTES,
   CONVERSATION_MAX_FRAME_BYTES,
   CONVERSATION_RESYNC_CLOSE_CODE,
+  CONVERSATION_SCOPE_CLOSE_CODE,
   conversationCloseReason,
   explainRejectedConversationFrame,
   parseConversationClientFrame,
@@ -25,6 +26,7 @@ import {
   encodePongFrame,
   encodeTextFrame,
   WEBSOCKET_CLOSE_GOING_AWAY,
+  WEBSOCKET_CLOSE_REVOKED,
 } from './websocket-frames'
 
 // Live frames waiting behind a slow reader. Consecutive deltas of one message
@@ -90,13 +92,20 @@ export type TailnetConversationStream = {
   deviceId: string
   close(code: number, reason: string): void
   isClosed(): boolean
+  /** Re-read the device's grant: close without read, stop accepting commands without operate. */
+  refreshScopes(): void
 }
 
 export type TailnetConversationStreamOptions = {
   socket: Duplex
   deviceId: string
   deviceName: string
-  scopes: readonly TailnetScope[]
+  /**
+   * The device's grant: a fixed set, or a function that reads the current one
+   * (null once the device is gone). A function is consulted on every frame
+   * and on `refreshScopes`, so a grant narrowed mid-stream applies at once.
+   */
+  scopes: readonly TailnetScope[] | (() => readonly TailnetScope[] | null)
   host: ConversationGatewayHost
   onClosed(): void
   audit(entry: ConversationCommandAudit): void
@@ -143,9 +152,9 @@ type SnapshotFrame = Extract<ConversationServerFrame, { type: 'snapshot' }> & { 
 /** A single scoped socket: replay, a synchronization fence, then live events. */
 export function createTailnetConversationStream(options: TailnetConversationStreamOptions): TailnetConversationStream {
   const { socket, host } = options
-  const grants = new Set(options.scopes)
-  const mayRead = tailnetScopeGrantsAccess(grants, 'conversation:read')
-  const mayOperate = tailnetScopeGrantsAccess(grants, 'conversation:operate')
+  const readScopes = typeof options.scopes === 'function' ? options.scopes : () => options.scopes as TailnetScope[]
+  let mayRead = false
+  let mayOperate = false
   const now = options.now ?? Date.now
   let closed = false
   const pending: Array<LiveEntry | BulkEntry> = []
@@ -594,6 +603,38 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     else error(code, message)
   }
 
+  /** Apply the grant as it is now. False when the socket had to close. */
+  const applyScopes = (): boolean => {
+    if (closed) return false
+    const scopes = readScopes()
+    if (!scopes) {
+      close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
+      return false
+    }
+    const grants = new Set(scopes)
+    mayRead = tailnetScopeGrantsAccess(grants, 'conversation:read')
+    mayOperate = tailnetScopeGrantsAccess(grants, 'conversation:operate')
+    if (mayRead) return true
+    // Sent directly: whatever is still queued is exactly what the device may
+    // no longer read.
+    pending.length = 0
+    try {
+      socket.write(
+        encodeTextFrame(
+          JSON.stringify({
+            type: 'error',
+            code: 'conversation_scope_required',
+            message: 'This device has no conversation read grant.',
+          } satisfies ConversationServerFrame),
+        ),
+      )
+    } catch {
+      /* Peer already left. */
+    }
+    close(CONVERSATION_SCOPE_CLOSE_CODE, 'conversation_scope_required')
+    return false
+  }
+
   const heartbeat = setInterval(() => {
     if (closed) return
     if (now() - lastPong > PONG_TIMEOUT_MS) {
@@ -603,11 +644,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     writeControl(encodePingFrame())
   }, PING_MS)
   heartbeat.unref()
-  if (!mayRead) {
-    error('conversation_scope_required', 'This device has no conversation read grant.')
-    close(1000, 'conversation_scope_required')
-    return { deviceId: options.deviceId, close, isClosed: () => closed }
-  }
+  const stream = { deviceId: options.deviceId, close, isClosed: () => closed, refreshScopes: () => void applyScopes() }
+  if (!applyScopes()) return stream
 
   const decoder = createWebSocketFrameDecoder(
     CONVERSATION_MAX_CLIENT_FRAME_BYTES,
@@ -652,6 +690,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         refuse(explainRejectedConversationFrame(parsed))
         continue
       }
+      if (!applyScopes()) return
       if (!admit(clientFrame)) continue
       const isCommand = clientFrame.type === 'command'
       if (isCommand) commandsInFlight++
@@ -667,7 +706,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   socket.on('end', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
   socket.on('close', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
   socket.on('error', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
-  return { deviceId: options.deviceId, close, isClosed: () => closed }
+  return stream
 }
 
 /**
