@@ -160,6 +160,8 @@ function updateToolTree(tool: TranscriptToolEntry, id: string, event: Conversati
 
 function fastProjection(state: IncrementalConversationState, event: ConversationEvent): ConversationProjection | null {
   const turnId = readString(event.payload, 'turnId')
+  // A notice rides on whichever event followed it; only the fold reads it.
+  if (readString(event.payload, 'notice')) return null
   if ((event.type === 'content_delta' || event.type === 'reasoning_delta') && turnId) {
     const delta = readString(event.payload, 'text', 'delta') ?? ''
     const key = `assistant:${turnId}`

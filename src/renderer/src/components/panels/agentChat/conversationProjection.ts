@@ -153,6 +153,9 @@ export type ConversationProjection = {
   // A provider's note about the live session the person should know, such as
   // a stored session that could not be reopened and was replaced.
   sessionNotice: string | null
+  // Why this session's turns carry no file checkpoints (too many or too large
+  // untracked files), so a missing "Revert" reads as explained, not broken.
+  checkpointNotice: string | null
   // The checkpoint the most recent revert still in effect went back to.
   revertedAfterSeq: number | null
 }
@@ -381,6 +384,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let lastError: string | null = null
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
+  let checkpointNotice: string | null = null
   // Reverts still in effect, oldest first. Each covers the turns from its
   // checkpoint up to the revert itself: a turn sent after a revert started from
   // the reverted files and is not undone by it. An undo removes its revert.
@@ -418,6 +422,12 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     const sessionMapped = SESSION_STATUS_BY_EVENT[event.type]
     if (sessionMapped) sessionStatus = sessionMapped
     if (event.seq !== undefined && event.seq > highestSeq) highestSeq = event.seq
+    // The runtime attaches a checkpoint capture failure to whichever event
+    // follows it, once per session.
+    if (event.type !== 'session_updated') {
+      const notice = readString(event.payload, 'notice')
+      if (notice) checkpointNotice = notice
+    }
 
     const turnId = readString(event.payload, 'turnId')
     switch (event.type) {
@@ -427,6 +437,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         // false-alarm the API-key banner after a restart).
         apiKeySource = null
         sessionNotice = null
+        checkpointNotice = null
         break
       }
       case 'session_updated': {
@@ -758,6 +769,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     lastError,
     apiKeySource,
     sessionNotice,
+    checkpointNotice,
     revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
   }
 }

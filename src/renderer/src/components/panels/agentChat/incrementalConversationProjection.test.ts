@@ -344,6 +344,23 @@ test('an empty content delta ends the reasoning window in the incremental fold t
   assert.equal(assistant?.kind === 'assistant' && assistant.reasoningDurationMs, 10)
 })
 
+test('a checkpoint capture notice surfaces until the next session starts', () => {
+  const events = [
+    event('session_started', 0, {}),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, {
+      turnId: 'a',
+      toolUseId: 'edit',
+      name: 'Edit',
+      notice: 'Checkpoints skipped: too many untracked files.',
+    }),
+  ]
+  let state = createConversationProjectionState(events.slice(0, 2))
+  state = applyEvent(state, events[2])
+  assert.equal(state.projection.checkpointNotice, 'Checkpoints skipped: too many untracked files.')
+  assert.deepEqual(state.projection, projectConversation(events))
+  assert.equal(projectConversation([...events, event('session_started', 3, {})]).checkpointNotice, null)
+})
 
 test('incremental deltas are substantially cheaper than full refolds', () => {
   const seed: ConversationEvent[] = [event('turn_started', 0, { turnId: 'a' })]

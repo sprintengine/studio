@@ -1514,6 +1514,11 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             {projection.sessionNotice}
           </InlineNotice>
         ) : null}
+        {capabilities?.checkpoints === true && projection.checkpointNotice !== null ? (
+          <InlineNotice tone="warn" className="mx-3 my-2">
+            {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
+          </InlineNotice>
+        ) : null}
 
         <div
           role="log"
