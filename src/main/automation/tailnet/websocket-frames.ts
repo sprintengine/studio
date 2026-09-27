@@ -250,6 +250,10 @@ export function encodeMaskedPongFrame(payload: Buffer): Buffer {
   return encodeMaskedFrame(0xa, payload)
 }
 
+export function encodeMaskedPingFrame(payload: Buffer = Buffer.alloc(0)): Buffer {
+  return encodeMaskedFrame(0x9, payload)
+}
+
 /**
  * Client frames MUST be masked with a fresh random key per frame (RFC 6455
  * §5.3). The mask is not a secret and buys nothing against a reader — it exists

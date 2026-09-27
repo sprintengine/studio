@@ -1,3 +1,5 @@
+import type { ConversationWireCommand, ConversationWireThread } from '../../packages/conversation-protocol/src'
+import type { ConversationSessionFrame } from './conversation-runtime'
 import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
 
@@ -412,3 +414,61 @@ export type FleetForgetMachineResult = {
 export type TailnetForgetMachineResult = FleetForgetMachineResult & {
   status: TailnetRemoteStatus
 }
+
+// ── Conversations on a paired machine ───────────────────────────────────────
+//
+// The chat counterpart of an attached terminal: main follows a conversation
+// over that machine's conversation socket, keeps its transcript tail and
+// cursor on disk, and hands a window the same frames the local session API
+// does — `snapshot`, `event`, `synchronized`, `error` — plus `link`, the
+// client-side connection state the far end cannot narrate while unreachable.
+
+/** What a pairing may do with a machine's conversations: follow them, or also drive them. */
+export type FleetConversationAccess = 'read' | 'operate'
+
+/** One conversation on one paired machine. The ids are that machine's own. */
+export type FleetConversationKey = { connectionId: string; workspaceId: string; agentId: string }
+
+/** A conversation as that machine lists it. */
+export type FleetConversation = ConversationWireThread
+
+export type FleetConversationLink = {
+  type: 'link'
+  state: FleetLinkState
+  detail: string
+  /** What the far end lets this pairing do right now; null before it has said. */
+  access: FleetConversationAccess | null
+  /** Why a closed link will not come back on its own, when it will not. */
+  code?: string
+}
+
+export type FleetConversationFrame = ConversationSessionFrame | FleetConversationLink
+
+export type FleetConversationListResult =
+  | { ok: true; conversations: FleetConversation[]; access: FleetConversationAccess }
+  | { ok: false; code: string; message: string }
+
+/** The commands a remote device may send. A permanent rule and a bypass preset are not among them. */
+export type FleetConversationCommand = ConversationWireCommand
+
+export type FleetConversationCommandResult = { ok: true } | { ok: false; code: string; message: string }
+
+/** Whether a machine's listed phase is a turn in flight, one waiting on a person, or neither. */
+export function fleetConversationPresence(phase: FleetConversation['phase']): 'running' | 'needs-input' | 'idle' {
+  if (phase === 'starting' || phase === 'running') return 'running'
+  if (phase === 'waiting_for_approval' || phase === 'waiting_for_input') return 'needs-input'
+  return 'idle'
+}
+
+/** The channel one followed conversation's frames arrive on. The renderer picks the id and subscribes first. */
+export function fleetConversationFrameChannel(followId: string): string {
+  return `fleet:conversation:${followId}`
+}
+
+export const FLEET_CONVERSATION_LIST_CHANNEL = 'fleet:conversation-list'
+export const FLEET_CONVERSATION_FOLLOW_CHANNEL = 'fleet:conversation-follow'
+export const FLEET_CONVERSATION_UNFOLLOW_CHANNEL = 'fleet:conversation-unfollow'
+export const FLEET_CONVERSATION_EARLIER_CHANNEL = 'fleet:conversation-earlier'
+export const FLEET_CONVERSATION_COMMAND_CHANNEL = 'fleet:conversation-command'
+export const FLEET_CONVERSATION_TOOL_DETAIL_CHANNEL = 'fleet:conversation-tool-detail'
+export const FLEET_CONVERSATION_TURN_DIFF_CHANNEL = 'fleet:conversation-turn-diff'
