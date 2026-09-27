@@ -168,6 +168,11 @@ function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | un
 
 const StreamingContext = React.createContext(false)
 
+// A link's label is already one control. Turning a path in it into a file chip
+// would nest a second button inside the first — two focus targets, and a click
+// that opens both — so text under a link renders as plain text and code.
+const LinkLabelContext = React.createContext(false)
+
 function StreamingCode({
   component: Code,
   ...props
@@ -183,12 +188,19 @@ function StreamingCode({
 function markdownComponents(options: MarkdownRenderOptions): Components {
   const { lineChanges, links } = options
   const scale = MARKDOWN_SCALE[options.density ?? 'document']
-  const prose = (children: React.ReactNode) =>
-    options.renderText
-      ? React.Children.map(children, (child) =>
-          typeof child === 'string' ? options.renderText!(child, 'text') : child,
-        )
+  const Prose = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+    const inLinkLabel = React.useContext(LinkLabelContext)
+    const { renderText } = options
+    if (!renderText || inLinkLabel) return children
+    return React.Children.map(children, (child) => (typeof child === 'string' ? renderText(child, 'text') : child))
+  }
+  const prose = (children: React.ReactNode) => <Prose>{children}</Prose>
+  const InlineCode = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+    const inLinkLabel = React.useContext(LinkLabelContext)
+    return options.renderText && typeof children === 'string' && !inLinkLabel
+      ? options.renderText(children, 'inlineCode')
       : children
+  }
 
   const components: Components = {
     h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
@@ -212,7 +224,8 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
       <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{prose(children)}</p>
     ),
-    a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
+    a: ({ children: label, href, className }: MarkdownComponentProps<'a'>) => {
+      const children = <LinkLabelContext.Provider value>{label}</LinkLabelContext.Provider>
       const custom = href ? options.renderLink?.(href, children) : null
       if (custom) return custom
       const target = links && typeof href === 'string' ? links.resolve(href) : null
@@ -275,7 +288,7 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
       <code className={joinClasses(className, scale.code)}>
-        {options.renderText && typeof children === 'string' ? options.renderText(children, 'inlineCode') : children}
+        <InlineCode>{children}</InlineCode>
       </code>
     ),
     pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => {

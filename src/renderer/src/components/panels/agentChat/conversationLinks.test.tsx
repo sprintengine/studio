@@ -55,3 +55,29 @@ test('a host and port in inline code is not a file reference', () => {
   expect(render('Serve on `localhost:3000`, `127.0.0.1:8080` or `example.com:443`.')).not.toContain('aria-label="Open ')
   expect(render('`server.ts:3000`')).toContain('aria-label="Open server.ts:3000"')
 })
+
+function nestedInteractiveElements(html: string): number {
+  let depth = 0
+  let nested = 0
+  for (const [, closing] of html.matchAll(/<(\/?)(?:a|button)\b[^>]*>/g)) {
+    if (closing) depth--
+    else if (depth++ > 0) nested++
+  }
+  return nested
+}
+
+test('a link whose label is inline code or a path is one control, not a chip inside a link', () => {
+  for (const text of [
+    'See [`src/app.ts`](src/app.ts:4).',
+    'See [`src/app.ts`](https://example.com/x).',
+    'See [**bold** src/b.ts](src/b.ts).',
+    'See [*see* `lib/a.ts:3`](https://example.com/y).',
+  ]) {
+    const html = render(text)
+    expect(nestedInteractiveElements(html), html).toBe(0)
+    expect((html.match(/<(?:a|button)\b/g) ?? []).length, html).toBe(1)
+  }
+  const html = render('See [`src/app.ts`](src/app.ts:4).')
+  expect(html).toContain('aria-label="Open src/app.ts:4"')
+  expect(html).toMatch(/<code[^>]*>src\/app\.ts<\/code>/)
+})
