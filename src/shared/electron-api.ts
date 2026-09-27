@@ -826,6 +826,12 @@ export type ElectronApi = {
     key: FleetConversationKey
     preset: 'none' | 'bypass'
   }) => Promise<FleetConversationCommandResult>
+  // Switch a paired machine's chat to another model of its CLI, from the
+  // catalog that machine's list names. Needs `conversation-models` there.
+  fleetConversationSetModel: (input: {
+    key: FleetConversationKey
+    modelId: string
+  }) => Promise<FleetConversationCommandResult>
   fleetConversationToolDetail: (input: {
     key: FleetConversationKey
     toolUseId: string

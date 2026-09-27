@@ -72,6 +72,7 @@ const COMMAND_KINDS: Record<ConversationWireCommand['kind'], true> = {
   resolveApproval: true,
   answerQuestion: true,
   setPermissionPreset: true,
+  setModel: true,
 }
 
 /**
@@ -571,7 +572,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     if (frame.type === 'command') {
       const started = now()
       const key = currentKey
-      const finish = (ok: boolean, code?: ConversationWireErrorCode, message?: string): void => {
+      const finish = (ok: boolean, code?: ConversationWireErrorCode, message?: string, notice?: string): void => {
         options.audit({
           tool: `conversation.${frame.command.kind}`,
           commandId: frame.commandId,
@@ -586,13 +587,14 @@ export function createTailnetConversationStream(options: TailnetConversationStre
           ok,
           ...(code ? { code } : {}),
           ...(message ? { message } : {}),
+          ...(notice ? { notice } : {}),
         })
       }
       if (!mayOperate) return finish(false, 'conversation_operate_required')
       if (!key) return finish(false, 'not_found')
       const commandResult = await host.command(key, options.deviceId, frame.commandId, frame.command)
-      if (commandResult.ok) finish(true)
-      else finish(false, 'unavailable', commandResult.message)
+      if (commandResult.ok) finish(true, undefined, undefined, commandResult.notice)
+      else finish(false, commandResult.code ?? 'unavailable', commandResult.message)
     }
   }
   // Reads and commands are bounded per socket: one device cannot queue up

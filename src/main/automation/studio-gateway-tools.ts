@@ -26,7 +26,7 @@ const APP_MUTATION_TOOLS = new Set([
   'backlog.update',
   'backlog.work',
   // A paired device's commands on a conversation socket: send, stop, answer,
-  // approve, change the permission preset. They are not MCP tools, but they
+  // approve, change the permission preset or the model. They are not MCP tools, but they
   // act on this machine for a remote device exactly as one does, so each
   // attempt lands in the same audit with the device that made it.
   ...CONVERSATION_COMMAND_TOOL_NAMES,

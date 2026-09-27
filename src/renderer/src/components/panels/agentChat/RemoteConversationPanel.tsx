@@ -9,6 +9,7 @@ import type {
 } from '../../../../../shared/tailnet-fleet'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { TruncatedText } from '../../ui'
+import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import { ConversationChatBody } from '../AgentChatView'
 import type { ChatBinding, ChatAgentFields } from './chatBinding'
 import type { ChatReadiness } from './chatStates'
@@ -58,10 +59,27 @@ function remoteConversationReadiness(
   return { kind: 'ready' }
 }
 
+/**
+ * The chat's CLI row as the machine running it lists it: its name and the
+ * models its own picker offers, which are the only ones it will switch to.
+ * Null for a machine that does not offer model switching, or a chat whose
+ * provider is not a CLI; the chip then shows the model it is on, locked.
+ */
+function remoteConversationEngine(thread: FleetConversation | null, modelSwitch: boolean): CliRuntimeOption | null {
+  const models = modelSwitch ? thread?.models : undefined
+  if (!models) return null
+  return {
+    value: models.cli,
+    label: models.cliLabel,
+    modelSelection: { options: models.options, allowCustomId: false },
+  }
+}
+
 /** The session a remote row stands for, as the chat view reads one: what that machine said it can do. */
 function remoteConversationSession(
   thread: FleetConversation | null,
   key: FleetConversationKey,
+  modelSwitch: boolean,
 ): ConversationSessionSummary {
   const capabilities = thread?.capabilities
   return {
@@ -94,7 +112,9 @@ function remoteConversationSession(
       subagents: true,
       cost: false,
       contextMeter: false,
-      liveModelSwitch: false,
+      // Whether the machine will take a new model mid-conversation, as its
+      // list says; a machine that does not offer model switching never will.
+      liveModelSwitch: modelSwitch && thread?.models?.liveModelSwitch === true,
       checkpoints: capabilities?.checkpoints ?? false,
     },
   }
@@ -115,6 +135,12 @@ export default function RemoteConversationPanel({
   const [link, setLink] = useState<FleetConversationLink | null>(null)
   const [thread, setThread] = useState<FleetConversation | null>(null)
   const [listedAccess, setListedAccess] = useState<FleetConversationAccess | null>(null)
+  // The machine advertises model switching and lists this chat's catalog.
+  const [listedModelSwitch, setListedModelSwitch] = useState(false)
+  const modelSwitch = listedModelSwitch && Boolean(thread?.models)
+  // Bumped after an accepted model switch, so the list is read again and the
+  // chip names what the machine says the chat is now on.
+  const [listVersion, setListVersion] = useState(0)
   // The link's word on access is the latest (a refused command narrows it);
   // the list's is what was granted when this pane last read the machine.
   const access = link?.access ?? listedAccess
@@ -124,14 +150,26 @@ export default function RemoteConversationPanel({
   // and dialled again. Its capabilities read the access as it is now.
   const accessRef = useRef(access)
   accessRef.current = access
+  const modelSwitchRef = useRef(modelSwitch)
+  modelSwitchRef.current = modelSwitch
   const transport = useMemo(() => {
     const base = createRemoteConversationTransport({ key, machineName, access: null, onLink: setLink })
     const capabilities = base.capabilities
+    const setModel = base.setModel
     return {
       ...base,
       get capabilities(): ConversationTransportCapabilities {
-        return { ...capabilities, operate: accessRef.current === 'operate' }
+        return { ...capabilities, operate: accessRef.current === 'operate', modelSwitch: modelSwitchRef.current }
       },
+      ...(setModel
+        ? {
+            setModel: async (change: Parameters<typeof setModel>[0]) => {
+              const result = await setModel(change)
+              if (result.ok) setListVersion((version) => version + 1)
+              return result
+            },
+          }
+        : {}),
     }
   }, [key, machineName])
 
@@ -145,6 +183,7 @@ export default function RemoteConversationPanel({
       .then((result) => {
         if (cancelled || !result.ok) return
         setListedAccess(result.access)
+        setListedModelSwitch(result.modelSwitch === true)
         setThread(
           result.conversations.find(
             (entry) => entry.workspaceId === remoteWorkspaceId && entry.agentId === remoteAgentId,
@@ -155,15 +194,21 @@ export default function RemoteConversationPanel({
     return () => {
       cancelled = true
     }
-  }, [connectionId, remoteWorkspaceId, remoteAgentId, live])
+  }, [connectionId, remoteWorkspaceId, remoteAgentId, live, listVersion])
 
   const [fields, setFields] = useState<Omit<ChatAgentFields, 'conversation' | 'name'>>({})
   const update = useCallback((patch: Partial<ChatAgentFields>) => {
-    const { conversation: _conversation, name: _name, ...rest } = patch
+    const { conversation, name: _name, ...rest } = patch
     setFields((current) => ({ ...current, ...rest }))
+    // The chat view records a model only once the machine accepted the
+    // switch; the chip moves now, and the list read that follows confirms it.
+    // The CLI is the machine's to say, never this pane's.
+    if (conversation?.modelId)
+      setThread((current) => (current ? { ...current, modelId: conversation.modelId } : current))
   }, [])
   const displayTitle = thread?.title || title || 'Conversation'
-  const session = useMemo(() => remoteConversationSession(thread, key), [thread, key])
+  const session = useMemo(() => remoteConversationSession(thread, key, modelSwitch), [thread, key, modelSwitch])
+  const engine = useMemo(() => remoteConversationEngine(thread, modelSwitch), [thread, modelSwitch])
   const readiness = useMemo(() => remoteConversationReadiness(link, access, machineName), [link, access, machineName])
   const binding = useMemo<ChatBinding>(
     () => ({
@@ -178,6 +223,7 @@ export default function RemoteConversationPanel({
       sessionRoot: `fleet:${connectionId}`,
       readiness,
       session,
+      ...(engine ? { engine } : {}),
       header: (
         <div className="flex min-w-0 items-center gap-1.5 px-4 pt-2 text-meta text-[color:var(--text-muted)]">
           <RemoteMachineGlyph className="icon-xs shrink-0" />
@@ -186,7 +232,7 @@ export default function RemoteConversationPanel({
         </div>
       ),
     }),
-    [fields, displayTitle, thread, update, connectionId, readiness, session, machineName],
+    [fields, displayTitle, thread, update, connectionId, readiness, session, engine, machineName],
   )
 
   return (

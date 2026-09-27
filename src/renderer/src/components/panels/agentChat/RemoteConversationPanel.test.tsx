@@ -87,9 +87,13 @@ const thread: FleetConversation = {
 async function mountRemote({
   access,
   permissionPreset,
+  models,
+  modelSwitch = false,
 }: {
   access: 'read' | 'operate'
   permissionPreset?: FleetConversation['permissionPreset']
+  models?: FleetConversation['models']
+  modelSwitch?: boolean
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -108,12 +112,22 @@ async function mountRemote({
   Object.assign(globalThis, globals)
   const receivers: Array<(frame: FleetConversationFrame) => void> = []
   const followed: FleetConversationKey[] = []
+  // The model the machine says the chat is on: what an accepted switch moves.
+  let listedModel = thread.modelId
   const api = {
     platform: 'darwin',
     fleetConversationList: vi.fn(async () => ({
       ok: true,
-      conversations: [permissionPreset ? { ...thread, permissionPreset } : thread],
+      conversations: [
+        {
+          ...thread,
+          modelId: listedModel,
+          ...(permissionPreset ? { permissionPreset } : {}),
+          ...(models ? { models } : {}),
+        },
+      ],
       access,
+      modelSwitch,
     })),
     onFleetConversationSession: vi.fn(
       (input: { key: FleetConversationKey }, receive: (frame: FleetConversationFrame) => void) => {
@@ -126,6 +140,10 @@ async function mountRemote({
     fleetConversationResolveApproval: vi.fn(async () => ({ ok: true })),
     fleetConversationInterrupt: vi.fn(async () => ({ ok: true })),
     fleetConversationSetPermissionPreset: vi.fn(async () => ({ ok: true })),
+    fleetConversationSetModel: vi.fn(async (input: { key: FleetConversationKey; modelId: string }) => {
+      listedModel = input.modelId
+      return { ok: true, notice: 'The new model starts with your next message.' }
+    }),
   }
   Object.assign(dom.window, {
     matchMedia: () => ({ matches: true, addEventListener: () => undefined, removeEventListener: () => undefined }),
@@ -314,6 +332,58 @@ test('a chat whose machine names its preset offers the same two presets on its e
     expect(chat.api.fleetConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
     await chat.act(async () => chip()!.click())
     expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: No flag')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+// The catalog the machine lists for the chat's CLI. This machine's own catalog
+// for that CLI is empty here, so every model row the picker shows is the
+// machine's.
+const remoteModels: NonNullable<FleetConversation['models']> = {
+  cli: 'claude-code',
+  cliLabel: 'Claude Code',
+  liveModelSwitch: true,
+  options: [
+    { id: 'opus', label: 'Opus' },
+    { id: 'sonnet', label: 'Sonnet' },
+  ],
+}
+
+const engineChip = (host: HTMLElement) =>
+  Array.from(host.querySelectorAll('button')).find((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))
+
+test("a chat on a machine that offers model switching lists that machine's models, and a pick goes over the fleet", async () => {
+  const chat = await mountRemote({ access: 'operate', models: remoteModels, modelSwitch: true })
+  try {
+    expect(engineChip(chat.host)?.textContent).toContain('Opus')
+    await chat.act(async () => engineChip(chat.host)!.click())
+    const rows = () => Array.from(chat.document.querySelectorAll<HTMLElement>('[data-model-row="true"]'))
+    expect(rows().some((row) => row.textContent?.includes('Sonnet'))).toBe(true)
+    const listReads = chat.api.fleetConversationList.mock.calls.length
+    await chat.act(async () =>
+      rows()
+        .find((row) => row.textContent?.includes('Sonnet'))!
+        .click(),
+    )
+    expect(chat.api.fleetConversationSetModel).toHaveBeenCalledExactlyOnceWith({ key, modelId: 'sonnet' })
+    // The chip names the model the machine accepted, the machine is asked
+    // again, and its word that the switch waits for the next turn is shown.
+    expect(engineChip(chat.host)?.textContent).toContain('Sonnet')
+    expect(chat.api.fleetConversationList.mock.calls.length).toBeGreaterThan(listReads)
+    expect(chat.host.textContent).toContain('The new model starts with your next message.')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a machine that does not offer model switching keeps the chat on its model, whatever its list carries', async () => {
+  const chat = await mountRemote({ access: 'operate', models: remoteModels, modelSwitch: false })
+  try {
+    await chat.act(async () => engineChip(chat.host)!.click())
+    const rows = Array.from(chat.document.querySelectorAll<HTMLElement>('[data-model-row="true"]'))
+    expect(rows.some((row) => row.textContent?.includes('Sonnet'))).toBe(false)
+    expect(chat.api.fleetConversationSetModel).not.toHaveBeenCalled()
   } finally {
     await chat.unmount()
   }

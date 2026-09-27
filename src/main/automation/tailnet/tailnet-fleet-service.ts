@@ -1735,7 +1735,13 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
           message: `${connection.machineName} does not serve conversations. Update Studio there to follow them from here.`,
         }
       }
-      return remoteConversations.list(connection.id)
+      // Model switching is a capability of its own: a machine that does not
+      // name it lists no catalog and refuses the command, so its chats keep
+      // the model they have and the picker says so.
+      const listed = await remoteConversations.list(connection.id)
+      return listed.ok
+        ? { ...listed, modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models') }
+        : listed
     },
 
     async followConversation(input) {

@@ -444,14 +444,21 @@ export type FleetConversationLink = {
 
 export type FleetConversationFrame = ConversationSessionFrame | FleetConversationLink
 
+/**
+ * `modelSwitch`: the machine advertises `conversation-models` — its list names
+ * each chat's model catalog and it takes `setModel`. False for a machine that
+ * does not, whose chats keep the model they have.
+ */
 export type FleetConversationListResult =
-  | { ok: true; conversations: FleetConversation[]; access: FleetConversationAccess }
+  | { ok: true; conversations: FleetConversation[]; access: FleetConversationAccess; modelSwitch: boolean }
   | { ok: false; code: string; message: string }
 
 /** The commands a remote device may send. A permanent rule is not among them. */
 export type FleetConversationCommand = ConversationWireCommand
 
-export type FleetConversationCommandResult = { ok: true } | { ok: false; code: string; message: string }
+/** `notice` qualifies an accepted command, e.g. that a model switch applies from the next turn. */
+export type FleetConversationCommandResult =
+  { ok: true; notice?: string } | { ok: false; code: string; message: string }
 
 /** Whether a machine's listed phase is a turn in flight, one waiting on a person, or neither. */
 export function fleetConversationPresence(phase: FleetConversation['phase']): 'running' | 'needs-input' | 'idle' {

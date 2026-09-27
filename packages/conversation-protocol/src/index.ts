@@ -5,6 +5,22 @@ export * from './commandLabel.js'
 
 /** An additive capability of the tailnet gateway, served only over the tailnet. */
 export const CONVERSATION_CAPABILITY = 'conversations' as const
+/**
+ * An additive capability of the tailnet gateway, beside `conversations`: the
+ * list names each chat's CLI and the models it can switch between (`models`
+ * on a thread), and the `setModel` command switches a chat to one of them. A
+ * desktop that does not advertise it lists no catalog and refuses the command
+ * as unsupported, so a client hides its model control.
+ */
+export const CONVERSATION_MODELS_CAPABILITY = 'conversation-models' as const
+/**
+ * The model id that asks a chat's CLI for its own default model, as a launch
+ * without a model flag does. `setModel` always accepts it for a chat that has a
+ * catalog, and a catalog never lists it.
+ */
+export const CONVERSATION_DEFAULT_MODEL_ID = 'default'
+/** The most models one chat's catalog lists. A desktop cuts a longer catalog to this many. */
+export const CONVERSATION_MAX_MODEL_OPTIONS = 100
 export const CONVERSATION_SOCKET_PATH = '/tailnet/v1/conversation'
 /**
  * The largest frame the desktop sends. A logical frame bigger than this — a
@@ -49,6 +65,25 @@ export type ConversationWirePhase =
 export type ConversationWireKey = { workspaceId: string; agentId: string }
 /** `bypass` skips the CLI's approval prompts; `none` passes no permission flag. */
 export type ConversationWirePermissionPreset = 'none' | 'bypass'
+/** One model a chat can switch to: the id its CLI takes, and the name the desktop's own picker shows. */
+export type ConversationWireModelOption = { id: string; label?: string }
+/**
+ * The chat's CLI and the models it can switch between — the same rows the
+ * desktop's own picker offers for that CLI. A switch stays within the CLI;
+ * `CONVERSATION_DEFAULT_MODEL_ID` is accepted besides the listed ids.
+ */
+export type ConversationWireModels = {
+  /** The CLI the chat runs on, e.g. `claude-code`. */
+  cli: string
+  /** What the desktop calls that CLI, e.g. `Claude Code`: the name of its default-model row. */
+  cliLabel: string
+  /**
+   * Whether the chat's provider takes a new model mid-conversation, from its
+   * next turn. Without it the model is fixed once the chat has started.
+   */
+  liveModelSwitch: boolean
+  options: ConversationWireModelOption[]
+}
 export type ConversationWireThread = ConversationWireKey & {
   title: string
   phase: ConversationWirePhase
@@ -64,6 +99,12 @@ export type ConversationWireThread = ConversationWireKey & {
    * no session is live. Absent from a desktop built before it was listed.
    */
   permissionPreset?: ConversationWirePermissionPreset
+  /**
+   * The models the chat can switch between, from a desktop that advertises
+   * `conversation-models`. Absent from any other desktop, and for a chat whose
+   * provider is not a CLI.
+   */
+  models?: ConversationWireModels
   capabilities?: {
     images: boolean
     approvals: boolean
@@ -87,12 +128,17 @@ export type ConversationWireErrorCode =
   | 'too_large'
   | 'unsafe_remote_decision'
   | 'unsupported_command'
+  // A `setModel` naming a model that is not in the chat's CLI catalog.
+  | 'unsupported_model'
 export type ConversationWireCommand =
   | { kind: 'send'; message: string; uploadIds?: string[] }
   | { kind: 'interrupt' }
   | { kind: 'resolveApproval'; requestId: string; decision: 'once' | 'conversation' | 'deny' }
   | { kind: 'answerQuestion'; requestId: string; answers: Record<string, string> }
   | { kind: 'setPermissionPreset'; preset: ConversationWirePermissionPreset }
+  // Needs `conversation-models`. `modelId` is one of the chat's `models.options`
+  // or `CONVERSATION_DEFAULT_MODEL_ID`; the CLI never changes.
+  | { kind: 'setModel'; modelId: string }
 /**
  * `afterSeq` with the `generation` of an earlier `snapshot` or `synchronized`
  * asks for only the events after that sequence: one `event` per missed event,
@@ -153,12 +199,16 @@ export type ConversationServerFrame =
       message?: string
       retryAfterMs?: number
     }
+  // `notice` qualifies an accepted command: a model switch made while a turn
+  // is running applies from the next turn, and the reply on screen finishes
+  // on the model it started with.
   | {
       type: 'commandResult'
       commandId: string
       ok: boolean
       code?: ConversationWireErrorCode
       message?: string
+      notice?: string
       retryAfterMs?: number
     }
   | { type: 'error'; code: ConversationWireErrorCode; message: string; retryAfterMs?: number }
@@ -223,7 +273,9 @@ export function explainRejectedConversationFrame(value: unknown): ConversationFr
     }
   if (
     command &&
-    !['send', 'interrupt', 'resolveApproval', 'answerQuestion', 'setPermissionPreset'].includes(String(command.kind))
+    !['send', 'interrupt', 'resolveApproval', 'answerQuestion', 'setPermissionPreset', 'setModel'].includes(
+      String(command.kind),
+    )
   )
     return { code: 'unsupported_command', message: 'This desktop does not support that command.', ...ids }
   return { code: 'invalid_frame', message: 'Unsupported conversation frame.', ...ids }
@@ -333,6 +385,10 @@ export function parseConversationClientFrame(value: unknown): ConversationClient
             ? { type: 'command', commandId: value.commandId, command: { kind: 'setPermissionPreset', preset } }
             : null
         }
+        case 'setModel':
+          return id(command.modelId)
+            ? { type: 'command', commandId: value.commandId, command: { kind: 'setModel', modelId: command.modelId } }
+            : null
         default:
           return null
       }
@@ -340,4 +396,23 @@ export function parseConversationClientFrame(value: unknown): ConversationClient
     default:
       return null
   }
+}
+
+/**
+ * A thread's `models`, validated for a client: null when it is absent or not
+ * in the documented shape, so a client hides its model control rather than
+ * offering a guess. A row with no usable id is dropped; the list is cut to
+ * `CONVERSATION_MAX_MODEL_OPTIONS`.
+ */
+export function parseConversationWireModels(value: unknown): ConversationWireModels | null {
+  if (!record(value) || !id(value.cli) || typeof value.cliLabel !== 'string' || value.cliLabel.length > 200) return null
+  if (typeof value.liveModelSwitch !== 'boolean' || !Array.isArray(value.options)) return null
+  const options: ConversationWireModelOption[] = []
+  for (const option of value.options) {
+    if (options.length >= CONVERSATION_MAX_MODEL_OPTIONS) break
+    if (!record(option) || !id(option.id) || option.id === CONVERSATION_DEFAULT_MODEL_ID) continue
+    const label = typeof option.label === 'string' && option.label.length <= 200 ? option.label.trim() : ''
+    options.push({ id: option.id, ...(label ? { label } : {}) })
+  }
+  return { cli: value.cli, cliLabel: value.cliLabel, liveModelSwitch: value.liveModelSwitch, options }
 }

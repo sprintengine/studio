@@ -77,8 +77,8 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   a URL. Browser-originated requests are refused.
 - **Scopes.** `conversation:read` lists, follows and pages conversations and
   fetches tool details and diffs. `conversation:operate` sends, stops, answers
-  approvals and questions, attaches images and changes the permission preset,
-  and implies read. New pairings grant both by default; the pairing surfaces
+  approvals and questions, attaches images, changes the permission preset and
+  switches the model, and implies read. New pairings grant both by default; the pairing surfaces
   list them as their own rows. The terminal tier does not grant either.
   Grants are read live: narrowing a device in Settings refuses its next
   command, removing read closes its socket (4403), and revoking it closes every
@@ -89,6 +89,18 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   send resumes starts under the preset it was left on. The one thing a remote
   command cannot choose is a permanent approval rule, which outlives the
   conversation; that is refused before the runtime sees it.
+- **Switching a chat's model.** A desktop that advertises the
+  `conversation-models` capability (owner ruling 2026-09-27) lists each chat's
+  CLI and the models this machine's own picker offers for it — the CLI's
+  reported catalog (its manifest seed until it has reported) and the ids added
+  in Settings — and takes a `setModel` command naming one of them, or the CLI's
+  own default. The switch stays within the chat's CLI: an id outside the
+  catalog is refused with `unsupported_model` before the runtime sees it, and
+  a provider that binds a session to its model refuses it as well. The switch
+  runs through the same runtime path as a switch made here, a chat with no live
+  session is resumed to take it, and a switch made while a turn is running is
+  accepted with a notice that the new model applies from the next turn. This
+  machine's own chat view follows a switch made from a paired device.
 - **Audit.** Every remote command — refused ones included — is written to the
   gateway audit with the device, the conversation, the command kind, the command
   id and the outcome. Message text and answers are never written there.
@@ -167,10 +179,13 @@ over the tailnet, with the machine on the tab and above the transcript.
 - **What the view offers is what the grant and the lane allow.** A pairing
   without `conversation:operate` sees the conversation with the composer,
   approvals and stop closed. A remote view never offers a permanent approval
-  rule, a checkpoint revert, a model switch, or this machine's skills, files and
-  images. It offers the same two-preset switcher a local chat does, reading the
-  preset the machine's list names; a desktop built before the list carried the
-  preset leaves the switcher hidden rather than guessing. File paths in a
+  rule, a checkpoint revert, or this machine's skills, files and images. It
+  offers the same two-preset switcher a local chat does, reading the preset the
+  machine's list names; a desktop built before the list carried the preset
+  leaves the switcher hidden rather than guessing. Its engine chip is the same
+  picker a local chat has, locked to the chat's CLI and listing the models the
+  machine's own catalog names; a machine that does not advertise
+  `conversation-models` keeps the chip on the model the chat is on. File paths in a
   remote transcript are not links, since they name files on the other disk. A
   send is answered when its turn ends, as on the desktop itself, and a send in
   flight across a reconnect is sent again under the same command id and
@@ -193,7 +208,9 @@ over the tailnet, with the machine on the tab and above the transcript.
    acknowledgement. Narrow the device to read-only in Settings and confirm the
    next command is refused.
 6. Pair a second Studio desktop with conversation access. Open a chat from its
-   Remote band, send, approve and stop from there; drop Wi-Fi mid-reply and
+   Remote band, send, approve and stop from there; switch its model between
+   turns and mid-reply (the notice says the switch applies from the next
+   turn), and confirm the host's own chip follows; drop Wi-Fi mid-reply and
    rejoin (no reset, no repeated text); quit and relaunch it (the transcript is
    on screen before it reconnects, then catches up). Narrow the pairing to read
    and confirm the composer closes with the reason.

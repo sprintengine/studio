@@ -959,6 +959,7 @@ test('tailnet', async () => {
         'upload',
         'terminal-resume',
         'conversations',
+        'conversation-models',
       ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
@@ -1038,7 +1039,14 @@ test('tailnet', async () => {
       // it outright, so a phone need not probe for the change feed.
       assert.equal(body.transportVersion, 2)
       assert.equal(TAILNET_TRANSPORT_VERSION, 2)
-      assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload', 'terminal-resume', 'conversations'])
+      assert.deepEqual(body.capabilities, [
+        'events',
+        'sliced-frames',
+        'upload',
+        'terminal-resume',
+        'conversations',
+        'conversation-models',
+      ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
       assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)

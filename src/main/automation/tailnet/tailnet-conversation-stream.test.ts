@@ -821,6 +821,74 @@ test('remote always is refused before host execution, while a preset switch reac
   stream.close(1000, '')
 })
 
+test("a model switch needs operate, and reaches the client with the host's own refusal code or notice, audited", async () => {
+  const run = async (scopes: TailnetScope[]) => {
+    const socket = new Socket()
+    const executed: unknown[] = []
+    const audited: ConversationCommandAudit[] = []
+    const gateway = host()
+    gateway.command = async (_key, _device, _id, command) => {
+      executed.push(command)
+      if (command.kind === 'setModel' && command.modelId === 'other')
+        return { ok: false, code: 'unsupported_model', message: 'Mock CLI does not offer that model.' }
+      return { ok: true, notice: 'The new model starts with your next message.' }
+    }
+    const stream = createTailnetConversationStream({
+      socket,
+      deviceId: 'device',
+      deviceName: 'phone',
+      scopes,
+      host: gateway,
+      onClosed: () => {},
+      audit: (entry) => audited.push(entry),
+    })
+    socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+    await tick()
+    socket.receive({ type: 'command', commandId: 'm1', command: { kind: 'setModel', modelId: 'large' } })
+    socket.receive({ type: 'command', commandId: 'm2', command: { kind: 'setModel', modelId: 'other' } })
+    const settled = () =>
+      (socket.output() as Array<Frame & { commandId?: string; notice?: string; ok?: boolean }>)
+        .filter((frame) => frame.type === 'commandResult')
+        .map((frame) => [frame.commandId, frame.ok, frame.code, frame.notice])
+    await waitFor(() => audited.length === 2 && settled().length === 2, 'both switches settle')
+    const results = settled()
+    stream.close(1000, '')
+    return { executed, audited, results }
+  }
+
+  // Read alone may follow the chat but not change its model.
+  const reader = await run(['conversation:read'])
+  assert.deepEqual(reader.executed, [])
+  assert.deepEqual(reader.results, [
+    ['m1', false, 'conversation_operate_required', undefined],
+    ['m2', false, 'conversation_operate_required', undefined],
+  ])
+  assert.deepEqual(
+    reader.audited.map((entry) => [entry.tool, entry.commandId, entry.ok, entry.code]),
+    [
+      ['conversation.setModel', 'm1', false, 'conversation_operate_required'],
+      ['conversation.setModel', 'm2', false, 'conversation_operate_required'],
+    ],
+  )
+
+  const operator = await run(['conversation:operate'])
+  assert.deepEqual(operator.executed, [
+    { kind: 'setModel', modelId: 'large' },
+    { kind: 'setModel', modelId: 'other' },
+  ])
+  assert.deepEqual(operator.results, [
+    ['m1', true, undefined, 'The new model starts with your next message.'],
+    ['m2', false, 'unsupported_model', undefined],
+  ])
+  assert.deepEqual(
+    operator.audited.map((entry) => [entry.tool, entry.commandId, entry.ok, entry.code]),
+    [
+      ['conversation.setModel', 'm1', true, undefined],
+      ['conversation.setModel', 'm2', false, 'unsupported_model'],
+    ],
+  )
+})
+
 test('a message at the protocol limit is accepted and one over it is refused under its command id', async () => {
   const socket = new Socket()
   const sent: string[] = []

@@ -89,8 +89,22 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * asking — a host without it ignores the two parameters and sends the full
  * replay, whose missing `position` says so — but may read it to know whether a
  * reconnect will repaint.
+ *
+ * `conversation-models` (owner ruling 2026-09-27): the conversation list names
+ * each chat's CLI and the models this machine's picker offers for it, and a
+ * device with `conversation:operate` may switch the chat to one of them with
+ * the `setModel` command. A client hides its model control for a machine that
+ * does not advertise it. The string is the protocol package's
+ * `CONVERSATION_MODELS_CAPABILITY`.
  */
-export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload', 'terminal-resume', 'conversations'] as const
+export const TAILNET_CAPABILITIES = [
+  'events',
+  'sliced-frames',
+  'upload',
+  'terminal-resume',
+  'conversations',
+  'conversation-models',
+] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
 

@@ -587,12 +587,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   // Fetch the active provider up front so the current model's display label,
   // context length, and readiness resolve before the picker is ever opened.
-  // A model on another machine is that machine's catalog, not this one's.
+  // A model on another machine is that machine's catalog, not this one's: a
+  // binding that names its engine brings the catalog with it.
   const modelSwitch = transport.capabilities.modelSwitch
+  const hostEngine = binding.engine
   useEffect(() => {
     const providerId = conversation?.providerId
-    if (providerId && modelSwitch) fetchProviderCatalog(providerId)
-  }, [conversation?.providerId, fetchProviderCatalog, modelSwitch])
+    if (providerId && modelSwitch && !hostEngine) fetchProviderCatalog(providerId)
+  }, [conversation?.providerId, fetchProviderCatalog, modelSwitch, hostEngine])
 
   const projectionStateRef = useRef(createConversationProjectionState())
   const projection = useMemo(() => {
@@ -611,6 +613,31 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [projection.entries],
   )
   const { handleRecallKeyDown, detachRecall } = useComposerRecall(promptHistory, draft, setDraft)
+
+  // A model switch made from a paired device reaches this window as the
+  // session's own `session_updated` event naming the model. The agent record
+  // follows it, so this chip — and a later resume, which starts on the record's
+  // model — name the model the chat is on. Only an event after the replay
+  // moves it, and each one once: a switch replayed from an earlier session is
+  // history, and the record may have moved since.
+  const liveModelEvent = useMemo(() => {
+    if (!hydrated) return null
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index]!
+      if (event.seq === undefined) continue
+      if (event.seq <= replayThroughSeq) break
+      const modelId = event.type === 'session_updated' ? event.payload?.modelId : undefined
+      if (typeof modelId === 'string' && modelId) return { id: event.id, modelId }
+    }
+    return null
+  }, [events, hydrated, replayThroughSeq])
+  const appliedModelEventRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!liveModelEvent || appliedModelEventRef.current === liveModelEvent.id) return
+    appliedModelEventRef.current = liveModelEvent.id
+    if (transport.kind !== 'local' || !conversation || liveModelEvent.modelId === conversation.modelId) return
+    updateBinding({ conversation: { providerId: conversation.providerId, modelId: liveModelEvent.modelId } })
+  }, [liveModelEvent, transport.kind, conversation, updateBinding])
 
   // Follow the stream only while the user is at (or near) the bottom: reading
   // scrollback must never be yanked away by incoming tokens. A "jump to
@@ -1300,10 +1327,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // The rail shows that CLI alone and the list is its own models (only the
   // chat's model once it has started); effort and permissions sit on the
   // picker's trailing row exactly as they do for a terminal launch.
-  const chatCli = cliForConversationProvider(conversation.providerId)
+  // A chat on another machine brings that machine's row for its CLI.
+  const chatCli = hostEngine?.value ?? cliForConversationProvider(conversation.providerId)
   const chatModel = conversation.modelId === CONVERSATION_DEFAULT_MODEL_ID ? undefined : conversation.modelId
   const chatCliOption: CliRuntimeOption | null = chatCli
-    ? (cliCatalogOptions.find((option) => option.value === chatCli) ?? {
+    ? (hostEngine ??
+      cliCatalogOptions.find((option) => option.value === chatCli) ?? {
         value: chatCli,
         label: providerEntry?.displayName ?? chatCli,
       })
