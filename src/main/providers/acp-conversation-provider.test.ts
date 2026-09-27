@@ -284,6 +284,17 @@ test('ACP file helpers reject traversal, absolute escapes and symlink ancestors'
     await expect(confinedAcpPath(cwd, 'link/secret')).rejects.toThrow('Symbolic')
     await expect(confinedAcpPath(cwd, 'link/new', true)).rejects.toThrow('Symbolic')
     expect(await confinedAcpPath(cwd, 'new', true)).toBe(join(await realpath(cwd), 'new'))
+    // A workspace opened through a symlinked ancestor: the agent names files
+    // under the path it was started in, which is not the resolved path.
+    await symlink(join(root, 'workspace'), join(root, 'alias'))
+    const aliased = join(root, 'alias')
+    await writeFile(join(cwd, 'file.txt'), 'inside')
+    expect(await confinedAcpPath(aliased, join(aliased, 'file.txt'))).toBe(join(await realpath(cwd), 'file.txt'))
+    expect(await confinedAcpPath(aliased, join(await realpath(cwd), 'file.txt'))).toBe(
+      join(await realpath(cwd), 'file.txt'),
+    )
+    await expect(confinedAcpPath(aliased, join(aliased, 'link', 'secret'))).rejects.toThrow('Symbolic')
+    await expect(confinedAcpPath(aliased, join(root, 'outside', 'secret'))).rejects.toThrow('outside')
     expect(acpToolKind('execute')).toBe('command')
     expect(acpToolKind('think')).toBe('other')
   } finally {

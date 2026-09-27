@@ -1,8 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
-import { lstat, realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
+import { lstat } from 'node:fs/promises'
+import { resolve, sep } from 'node:path'
+import {
+  openConfinedExistingFile,
+  readBoundedConversationFile,
+  resolveConversationPath,
+} from '../conversation-file-access'
 import type {
   ClientSideConnection,
   RequestPermissionRequest,
@@ -150,13 +154,12 @@ type Options = {
   startupTimeoutMs?: number
 }
 
-/** Text helpers refuse symlinks in every path component, not only the leaf. */
+/** Text helpers refuse symlinks in every path component, not only the leaf.
+ * The agent was started in the workspace root as configured, so it names files
+ * under that spelling or under the resolved one (a root below macOS `/var` is
+ * really below `/private/var`); both are the workspace. */
 export async function confinedAcpPath(cwd: string, requested: string, writing = false): Promise<string> {
-  const root = await realpath(cwd)
-  const target = resolve(root, requested)
-  const suffix = relative(root, target)
-  if (!suffix || suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix))
-    throw new Error('File path is outside the conversation workspace.')
+  const { root, target, suffix } = await resolveConversationPath(cwd, requested)
   const parts = suffix.split(sep)
   let current = root
   for (let index = 0; index < parts.length; index++) {
