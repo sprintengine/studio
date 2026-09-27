@@ -363,7 +363,7 @@ export function createCodexConversationProvider(
         })
         transport.notify('initialized', {})
         const account = record(await transport.request('account/read', { refreshToken: false }))
-        if (account.requiresOpenaiAuth === true && !account.account)
+        if (account.requiresOpenaiAuth === true && !account.account && !hasApiKey(env))
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
         const policy = codexPermissionPolicy(state.input.permissionPreset)
         const result = record(
@@ -589,16 +589,22 @@ async function resolveExecutable(input: MockAdapterSessionInput): Promise<string
 }
 async function buildEnv(input: MockAdapterSessionInput): Promise<NodeJS.ProcessEnv> {
   const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')
-  const env = applyAgentIdentityEnv(getTerminalEnv(), { workspaceId: input.workspaceId, agentId: input.agentId })
-  for (const key of [
-    'OPENAI_API_KEY',
-    'CODEX_API_KEY',
-    'OPENAI_BASE_URL',
-    'OPENAI_ORG_ID',
-    'OPENAI_PROJECT_ID',
-    'ELECTRON_RUN_AS_NODE',
-  ])
-    delete env[key]
-  env.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
-  return env
+  return codexChildEnv(
+    applyAgentIdentityEnv(getTerminalEnv(), { workspaceId: input.workspaceId, agentId: input.agentId }),
+    input,
+  )
 }
+
+/** The environment a conversation's Codex child starts with. The OpenAI
+ * credentials a terminal Codex would see are kept: a person who signs in with
+ * an API key rather than a Codex login has no other way to authenticate. They
+ * go to this child only; nothing here widens what other agents receive. */
+export function codexChildEnv(env: NodeJS.ProcessEnv, input: Pick<MockAdapterSessionInput, 'sessionId'>) {
+  const next = { ...env }
+  delete next.ELECTRON_RUN_AS_NODE
+  next.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
+  return next
+}
+
+// An API key in the environment authenticates Codex without an account login.
+const hasApiKey = (env: NodeJS.ProcessEnv) => Boolean(env.OPENAI_API_KEY?.trim() || env.CODEX_API_KEY?.trim())

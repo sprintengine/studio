@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest'
-import { createCodexConversationProvider, codexPermissionPolicy } from './codex-conversation-provider'
+import { createCodexConversationProvider, codexPermissionPolicy, codexChildEnv } from './codex-conversation-provider'
 import type { CodexRpcOptions, RpcMessage } from './codex-json-rpc'
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 
-function fixture() {
+function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (params: unknown) => unknown } = {}) {
   let connection!: CodexRpcOptions
   const calls: { method: string; params: unknown }[] = []
   const replies: { id: string | number; result: unknown }[] = []
@@ -13,14 +13,15 @@ function fixture() {
   })
   const adapter = createCodexConversationProvider({
     resolveExecutable: async () => '/usr/bin/codex',
-    buildEnv: async () => ({}),
+    buildEnv: async () => setup.env ?? {},
     createTransport(options) {
       connection = options
       return {
         pid: 123,
         async request(method, params) {
           calls.push({ method, params })
-          if (method === 'account/read') return { requiresOpenaiAuth: true, account: { type: 'chatgpt' } }
+          if (method === 'account/read')
+            return setup.account ?? { requiresOpenaiAuth: true, account: { type: 'chatgpt' } }
           if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: 'native-thread' } }
           if (method === 'turn/start') {
             resolveStarted()
@@ -341,4 +342,21 @@ test('Ask is read-only without escalation even when the session preset bypasses 
   })
   await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
   await done
+})
+
+test('an API key in the environment reaches the Codex child and counts as signed in', async () => {
+  expect(
+    codexChildEnv({ OPENAI_API_KEY: 'sk-test', PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1' }, { sessionId: 'session' }),
+  ).toEqual({ OPENAI_API_KEY: 'sk-test', PATH: '/usr/bin', SPRINTENGINE_CONVERSATION_SESSION_ID: 'session' })
+  const f = fixture({ env: { OPENAI_API_KEY: 'sk-test' }, account: { requiresOpenaiAuth: true, account: null } })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.events.at(-1)?.type).toBe('turn_completed')
+  const signedOut = fixture({ account: { requiresOpenaiAuth: true, account: null } })
+  await signedOut.adapter.startSession(signedOut.input)
+  await signedOut.send()
+  expect(String(signedOut.events.at(-1)?.payload?.message)).toContain('not logged in')
 })
