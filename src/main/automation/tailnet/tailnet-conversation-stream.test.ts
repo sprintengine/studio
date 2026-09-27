@@ -9,9 +9,16 @@ import { ConversationRuntime } from '../../conversation-runtime'
 import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
 import { createConversationGatewayHost, type ConversationGatewayHost } from './tailnet-conversation-host'
-import { createResyncBackoff, createTailnetConversationStream } from './tailnet-conversation-stream'
+import {
+  createResyncBackoff,
+  createTailnetConversationStream,
+  type ConversationCommandAudit,
+} from './tailnet-conversation-stream'
 import { createWebSocketFrameDecoder, encodeMaskedTextFrame } from './websocket-frames'
-import { conversationCloseRetryAfterMs } from '../../../../packages/conversation-protocol/src'
+import {
+  CONVERSATION_MAX_MESSAGE_CHARS,
+  conversationCloseRetryAfterMs,
+} from '../../../../packages/conversation-protocol/src'
 
 class Socket extends Duplex {
   // Every write in the order the stream made it: what the peer would read.
@@ -624,12 +631,61 @@ test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate o
   }
 })
 
-test('remote always and bypass are refused before host execution', async () => {
+test('remote always and bypass are refused before host execution, under their command ids and audited', async () => {
   const socket = new Socket()
   let commands = 0
+  const audited: ConversationCommandAudit[] = []
   const gateway = host()
   gateway.command = async () => {
     commands++
+    return { ok: true }
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:operate'],
+    host: gateway,
+    onClosed: () => {},
+    audit: (entry) => audited.push(entry),
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({
+    type: 'command',
+    commandId: 'c1',
+    command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
+  })
+  socket.receive({ type: 'command', commandId: 'c2', command: { kind: 'setPermissionPreset', preset: 'bypass' } })
+  await tick()
+  assert.equal(commands, 0)
+  assert.deepEqual(
+    (socket.output().slice(-2) as Frame[]).map((frame) => [
+      frame.type,
+      (frame as { commandId?: string }).commandId,
+      frame.code,
+    ]),
+    [
+      ['commandResult', 'c1', 'unsafe_remote_decision'],
+      ['commandResult', 'c2', 'unsafe_remote_preset'],
+    ],
+  )
+  assert.deepEqual(
+    audited.map((entry) => [entry.tool, entry.commandId, entry.ok, entry.code]),
+    [
+      ['conversation.resolveApproval', 'c1', false, 'unsafe_remote_decision'],
+      ['conversation.setPermissionPreset', 'c2', false, 'unsafe_remote_preset'],
+    ],
+  )
+  stream.close(1000, '')
+})
+
+test('a message at the protocol limit is accepted and one over it is refused under its command id', async () => {
+  const socket = new Socket()
+  const sent: string[] = []
+  const gateway = host()
+  gateway.command = async (_key, _device, _id, command) => {
+    if (command.kind === 'send') sent.push(command.message)
     return { ok: true }
   }
   const stream = createTailnetConversationStream({
@@ -643,21 +699,95 @@ test('remote always and bypass are refused before host execution', async () => {
   })
   socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
   await tick()
-  socket.receive({
-    type: 'command',
-    commandId: 'c1',
-    command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
-  })
-  socket.receive({ type: 'command', commandId: 'c2', command: { kind: 'setPermissionPreset', preset: 'bypass' } })
-  await tick()
-  assert.equal(commands, 0)
-  assert.deepEqual(
-    socket
-      .output()
-      .slice(-2)
-      .map((frame) => (frame as { code: string }).code),
-    ['unsafe_remote_decision', 'unsafe_remote_preset'],
+  // Every unit escaped: the worst case a valid message can encode to.
+  const longest = '\u0001'.repeat(CONVERSATION_MAX_MESSAGE_CHARS)
+  socket.receive({ type: 'command', commandId: 'fits', command: { kind: 'send', message: longest } })
+  socket.receive({ type: 'command', commandId: 'over', command: { kind: 'send', message: `${longest}x` } })
+  // Past the frame cap entirely: skipped as it arrives, still answered.
+  socket.receive({ type: 'command', commandId: 'huge', command: { kind: 'send', message: 'x'.repeat(2_000_000) } })
+  socket.receive({ type: 'list', requestId: 'still-open' })
+  await until(() => (socket.output() as Frame[]).some((frame) => frame.requestId === 'still-open'), 'socket answers')
+  assert.equal(stream.isClosed(), false)
+  assert.deepEqual(sent, [longest])
+  const results = (socket.output() as Array<Frame & { commandId?: string; ok?: boolean }>).filter(
+    (frame) => frame.type === 'commandResult',
   )
+  assert.deepEqual(
+    results.map((frame) => [frame.commandId, frame.ok, frame.code ?? null]),
+    [
+      ['over', false, 'too_large'],
+      ['huge', false, 'too_large'],
+      ['fits', true, null],
+    ],
+  )
+  stream.close(1000, '')
+})
+
+test('a response too large for a remote device is refused as too_large and the socket stays open', async () => {
+  const socket = new Socket()
+  const gateway = host()
+  gateway.getTurnDiff = async () => ({
+    ok: true,
+    diff: { files: [], submodulesExcluded: true },
+    patch: 'z'.repeat(33 * 1024 * 1024),
+  })
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:read'],
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({ type: 'getTurnDiff', requestId: 'diff', turnSeq: 4 })
+  await until(() => (socket.output() as Frame[]).some((frame) => frame.requestId === 'diff'), 'diff answered')
+  const answer = (socket.output() as Array<Frame & { ok?: boolean }>).find((frame) => frame.requestId === 'diff')
+  assert.equal(answer?.ok, false)
+  assert.equal(answer?.code, 'too_large')
+  assert.equal(stream.isClosed(), false)
+  stream.close(1000, '')
+})
+
+test('a subscription that cannot start says so under its key, and whether a retry can help', async () => {
+  const socket = new Socket()
+  const gateway = host()
+  let commands = 0
+  gateway.command = async () => {
+    commands++
+    return { ok: true }
+  }
+  gateway.subscribe = (_key, _cursor, listener) => {
+    const ready = Promise.resolve().then(() => listener({ type: 'error', message: 'Conversation is being deleted.' }))
+    return { dispose: () => {}, ready }
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:operate'],
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'missing' } })
+  await tick()
+  socket.receive({ type: 'command', commandId: 'after-failure', command: { kind: 'interrupt' } })
+  await tick()
+  const frames = socket.output() as Array<Frame & { key?: unknown; retryable?: boolean; commandId?: string }>
+  const failures = frames.filter((frame) => frame.type === 'subscribeFailed')
+  assert.deepEqual(
+    failures.map((frame) => [frame.key, frame.code, frame.retryable, frame.retryAfterMs ?? null]),
+    [
+      [{ workspaceId: 'w', agentId: 'missing' }, 'not_found', false, null],
+      [{ workspaceId: 'w', agentId: 'a' }, 'unavailable', true, 2_000],
+    ],
+  )
+  assert.equal(commands, 0, 'no command lands on a conversation the socket never synchronized with')
+  assert.equal(frames.at(-1)?.code, 'not_found')
   stream.close(1000, '')
 })
 

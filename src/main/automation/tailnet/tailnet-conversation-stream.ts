@@ -2,10 +2,13 @@ import type { Duplex } from 'stream'
 import { homedir } from 'node:os'
 
 import {
+  CONVERSATION_MAX_CLIENT_FRAME_BYTES,
   CONVERSATION_MAX_FRAME_BYTES,
   CONVERSATION_RESYNC_CLOSE_CODE,
   conversationCloseReason,
+  explainRejectedConversationFrame,
   parseConversationClientFrame,
+  type ConversationFrameRejection,
   type ConversationClientFrame,
   type ConversationServerFrame,
   type ConversationWireCommand,
@@ -46,9 +49,13 @@ const SNAPSHOT_PART_BYTES = CONVERSATION_MAX_FRAME_BYTES - 32 * 1024
 const CHUNK_CHARS = 48_000
 // The socket's own buffer beyond the frame being written: pings and a pong.
 const MAX_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
+// A client frame over the protocol's cap is skipped and refused, not
+// buffered; one beyond this is not a conversation client and closes.
+const MAX_SKIPPED_CLIENT_FRAME_BYTES = 16 * 1024 * 1024
 const MAX_IN_FLIGHT_READS = 4
 const MAX_IN_FLIGHT_COMMANDS = 16
 const BUSY_RETRY_MS = 250
+const SUBSCRIBE_RETRY_MS = 2_000
 const PING_MS = 25_000
 const PONG_TIMEOUT_MS = 60_000
 
@@ -358,13 +365,23 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     bulkBytes += bytes
     void drain()
   }
-  /** A response to a request: small ones queue live, large ones wait for bulk room and stream in chunks. */
-  const respond = async (source: ConversationServerFrame): Promise<void> => {
+  /**
+   * A response to a request: small ones queue live, large ones wait for bulk
+   * room and stream in chunks, and one too large to send at all is answered
+   * as `too_large` under its request id. The socket stays open either way.
+   */
+  const respond = async (source: Extract<ConversationServerFrame, { type: 'result' | 'sessions' }>): Promise<void> => {
     if (closed) return
     const json = JSON.stringify(redact(source))
     const bytes = Buffer.byteLength(json)
     if (bytes > MAX_LOGICAL_FRAME_BYTES) {
-      resync()
+      sendLive({
+        type: 'result',
+        requestId: source.requestId,
+        ok: false,
+        code: 'too_large',
+        message: `The response is over the ${MAX_LOGICAL_FRAME_BYTES / (1024 * 1024)} MB limit a remote device can receive.`,
+      })
       return
     }
     if (bytes <= CONVERSATION_MAX_FRAME_BYTES) {
@@ -400,20 +417,39 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     )
   }
   const error = (code: ConversationWireErrorCode, message: string): void => sendLive({ type: 'error', code, message })
-  const result = (requestId: string, value: unknown): Promise<void> => {
-    if (value && typeof value === 'object' && 'ok' in value && (value as { ok: boolean }).ok)
-      return respond({ type: 'result', requestId, ok: true, data: value })
-    return respond({ type: 'result', requestId, ok: false, code: 'unavailable' })
+  const result = (
+    requestId: string,
+    value: { ok: true } | { ok: false; code?: string; message: string },
+  ): Promise<void> => {
+    if (value.ok) return respond({ type: 'result', requestId, ok: true, data: value })
+    const code =
+      value.code === 'not_found' ? 'not_found' : value.code === 'invalid_input' ? 'invalid_frame' : 'unavailable'
+    return respond({ type: 'result', requestId, ok: false, code, message: value.message })
   }
   const requireKey = (requestId: string): ConversationKey | null => {
     if (currentKey) return currentKey
     sendLive({ type: 'result', requestId, ok: false, code: 'not_found' })
     return null
   }
+  /** A subscription that did not start, correlated by its key, and whether trying again can help. */
+  const subscribeFailed = (
+    key: Extract<ConversationClientFrame, { type: 'subscribe' }>['key'],
+    code: ConversationWireErrorCode,
+    message: string,
+    retryAfterMs?: number,
+  ): void =>
+    sendLive({
+      type: 'subscribeFailed',
+      key: { workspaceId: key.workspaceId, agentId: key.agentId },
+      code,
+      message,
+      retryable: retryAfterMs !== undefined,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    })
   const subscribe = async (frame: Extract<ConversationClientFrame, { type: 'subscribe' }>): Promise<void> => {
     const key = host.resolveKey(frame.key.workspaceId, frame.key.agentId)
     if (!key) {
-      error('not_found', 'Conversation is unavailable.')
+      subscribeFailed(frame.key, 'not_found', 'Conversation is unavailable.')
       return
     }
     subscription?.dispose()
@@ -437,8 +473,11 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     const joined = host.subscribe(key, cursor, (event) => {
       if (closed || generation !== subscriptionGeneration) return
       if (event.type === 'error') {
+        // The join could not read the transcript. A command must not land
+        // on a conversation this socket never synchronized with.
         replay = null
-        error('unavailable', event.message)
+        if (currentKey === key) currentKey = null
+        subscribeFailed(frame.key, 'unavailable', event.message, SUBSCRIBE_RETRY_MS)
         return
       }
       if (!replay) {
@@ -521,10 +560,38 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       return false
     }
     if (readsInFlight < MAX_IN_FLIGHT_READS) return true
-    if (frame.type === 'subscribe')
-      sendLive({ type: 'error', code: 'busy', message: 'Too many requests.', retryAfterMs: BUSY_RETRY_MS })
+    if (frame.type === 'subscribe') subscribeFailed(frame.key, 'busy', 'Too many requests.', BUSY_RETRY_MS)
     else sendLive({ type: 'result', requestId: frame.requestId, ...busy })
     return false
+  }
+  /** A handler that threw still settles what the client sent, under its own id. */
+  const failed = (frame: ConversationClientFrame): void => {
+    const message = 'Conversation operation failed.'
+    if (frame.type === 'command')
+      sendLive({ type: 'commandResult', commandId: frame.commandId, ok: false, code: 'unavailable', message })
+    else if (frame.type === 'subscribe') subscribeFailed(frame.key, 'unavailable', message, SUBSCRIBE_RETRY_MS)
+    else sendLive({ type: 'result', requestId: frame.requestId, ok: false, code: 'unavailable', message })
+  }
+  /**
+   * A frame the protocol refused, answered under the id it carries: a command
+   * as its `commandResult` — audited like any other command attempt — and a
+   * read as its `result`. Only a frame with no usable id gets a bare error.
+   */
+  const refuse = (rejection: ConversationFrameRejection): void => {
+    const { code, message, commandId, commandKind, requestId } = rejection
+    if (commandId) {
+      if (commandKind && Object.hasOwn(COMMAND_KINDS, commandKind))
+        options.audit({
+          tool: `conversation.${commandKind}`,
+          commandId,
+          key: currentKey ? { workspaceId: currentKey.workspaceId, agentId: currentKey.agentId } : null,
+          ok: false,
+          code,
+          durationMs: 0,
+        })
+      sendLive({ type: 'commandResult', commandId, ok: false, code, message })
+    } else if (requestId) sendLive({ type: 'result', requestId, ok: false, code, message })
+    else error(code, message)
   }
 
   const heartbeat = setInterval(() => {
@@ -542,7 +609,11 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     return { deviceId: options.deviceId, close, isClosed: () => closed }
   }
 
-  const decoder = createWebSocketFrameDecoder(CONVERSATION_MAX_FRAME_BYTES)
+  const decoder = createWebSocketFrameDecoder(
+    CONVERSATION_MAX_CLIENT_FRAME_BYTES,
+    'server',
+    MAX_SKIPPED_CLIENT_FRAME_BYTES,
+  )
   socket.on('data', (chunk: Buffer) => {
     if (closed) return
     const decoded = decoder.push(chunk)
@@ -564,6 +635,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         writeControl(encodePongFrame(frame.payload))
         continue
       }
+      if (frame.kind === 'oversized') {
+        refuse(oversizedRejection(frame.prefix))
+        continue
+      }
       if (frame.kind !== 'text') continue
       let parsed: unknown
       try {
@@ -574,18 +649,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       }
       const clientFrame = parseConversationClientFrame(parsed)
       if (!clientFrame) {
-        const command =
-          parsed && typeof parsed === 'object' && 'command' in parsed
-            ? (parsed as { command?: { decision?: string; preset?: string } }).command
-            : undefined
-        error(
-          command?.decision === 'always'
-            ? 'unsafe_remote_decision'
-            : command?.preset === 'bypass' || command?.preset === 'none'
-              ? 'unsafe_remote_preset'
-              : 'invalid_frame',
-          'Unsupported conversation frame.',
-        )
+        refuse(explainRejectedConversationFrame(parsed))
         continue
       }
       if (!admit(clientFrame)) continue
@@ -593,7 +657,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       if (isCommand) commandsInFlight++
       else readsInFlight++
       void handle(clientFrame)
-        .catch(() => error('unavailable', 'Conversation operation failed.'))
+        .catch(() => failed(clientFrame))
         .finally(() => {
           if (isCommand) commandsInFlight--
           else readsInFlight--
@@ -604,6 +668,26 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   socket.on('close', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
   socket.on('error', () => close(WEBSOCKET_CLOSE_GOING_AWAY, ''))
   return { deviceId: options.deviceId, close, isClosed: () => closed }
+}
+
+/**
+ * The refusal for a frame too large to read, from the start of it that was
+ * kept: enough to name the command or request it was, since a client puts
+ * those ids ahead of a long message.
+ */
+function oversizedRejection(prefix: string): ConversationFrameRejection {
+  const field = (name: string) => new RegExp(`"${name}"\\s*:\\s*"([^"\\\\]{1,200})"`).exec(prefix)?.[1]
+  const type = field('type')
+  const commandId = type === 'command' ? field('commandId') : undefined
+  const requestId = type !== 'command' ? field('requestId') : undefined
+  const commandKind = type === 'command' ? field('kind') : undefined
+  return {
+    code: 'too_large',
+    message: `A frame may be at most ${CONVERSATION_MAX_CLIENT_FRAME_BYTES} bytes.`,
+    ...(commandId ? { commandId } : {}),
+    ...(commandKind ? { commandKind } : {}),
+    ...(requestId ? { requestId } : {}),
+  }
 }
 
 /**

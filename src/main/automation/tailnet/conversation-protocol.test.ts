@@ -5,7 +5,11 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import {
   CONVERSATION_CAPABILITY,
+  CONVERSATION_MAX_CLIENT_FRAME_BYTES,
+  CONVERSATION_MAX_MESSAGE_CHARS,
+  CONVERSATION_MAX_IMAGES,
   conversationCloseReason,
+  explainRejectedConversationFrame,
   conversationCloseRetryAfterMs,
   parseConversationClientFrame,
 } from '../../../../packages/conversation-protocol/src'
@@ -19,7 +23,7 @@ test('portable protocol source stays byte-identical to the companion source mirr
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), '49b206bf7c464f0c429e330eb3a66d1d138388b701cefe8668564622a05342bd')
+  assert.equal(hash.digest('hex'), 'aa1972f82d2ff0467312b1c2b89daba6ea70f38e072c319353380fbefb9ba142')
 })
 
 test('conversation protocol accepts bounded frames and refuses remote escalation', () => {
@@ -94,4 +98,63 @@ test('a resync close reason carries the retry delay any client can read', () => 
   assert.equal(conversationCloseRetryAfterMs(reason), 2_000)
   assert.equal(conversationCloseRetryAfterMs('resync_required'), null)
   assert.equal(conversationCloseRetryAfterMs('This device has been revoked.'), null)
+})
+
+test('every frame the validator accepts fits the client frame cap', () => {
+  // The worst case: every unit of the longest message escaped, the longest ids,
+  // every image reference.
+  const frame = {
+    type: 'command',
+    commandId: 'c'.repeat(200),
+    command: {
+      kind: 'send',
+      message: '\u0001'.repeat(CONVERSATION_MAX_MESSAGE_CHARS),
+      uploadIds: Array.from({ length: CONVERSATION_MAX_IMAGES }, () => 'u'.repeat(200)),
+    },
+  }
+  assert.ok(parseConversationClientFrame(frame))
+  assert.ok(Buffer.byteLength(JSON.stringify(frame)) <= CONVERSATION_MAX_CLIENT_FRAME_BYTES)
+  const answers = Object.fromEntries(
+    Array.from({ length: 64 }, (_, index) => [`q${index}`.padEnd(200, '?'), '\u0001'.repeat(2_900)]),
+  )
+  const answer = {
+    type: 'command',
+    commandId: 'c'.repeat(200),
+    command: { kind: 'answerQuestion', requestId: 'r', answers },
+  }
+  assert.ok(parseConversationClientFrame(answer))
+  assert.ok(Buffer.byteLength(JSON.stringify(answer)) <= CONVERSATION_MAX_CLIENT_FRAME_BYTES)
+  const tooMany = Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`q${index}`, 'a']))
+  assert.equal(parseConversationClientFrame({ ...answer, command: { ...answer.command, answers: tooMany } }), null)
+})
+
+test('a refused frame is explained under the id it carries', () => {
+  const send = (message: string) => ({ type: 'command', commandId: 'c', command: { kind: 'send', message } })
+  assert.deepEqual(explainRejectedConversationFrame(send('x'.repeat(CONVERSATION_MAX_MESSAGE_CHARS + 1))), {
+    code: 'too_large',
+    message: `A message may hold at most ${CONVERSATION_MAX_MESSAGE_CHARS} characters.`,
+    commandId: 'c',
+    commandKind: 'send',
+  })
+  assert.equal(
+    explainRejectedConversationFrame({
+      type: 'command',
+      commandId: 'c',
+      command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
+    }).code,
+    'unsafe_remote_decision',
+  )
+  assert.equal(
+    explainRejectedConversationFrame({ type: 'command', commandId: 'c', command: { kind: 'format_disk' } }).code,
+    'unsupported_command',
+  )
+  assert.deepEqual(explainRejectedConversationFrame({ type: 'loadEarlier', requestId: 'r', beforeCursor: -1 }), {
+    code: 'invalid_frame',
+    message: 'Unsupported conversation frame.',
+    requestId: 'r',
+  })
+  assert.deepEqual(explainRejectedConversationFrame('nonsense'), {
+    code: 'invalid_frame',
+    message: 'Unsupported conversation frame.',
+  })
 })

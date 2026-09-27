@@ -35,4 +35,13 @@ catches up. One that stops reading is sent an `error` with code
 last cursor. Requests beyond the per-socket bound are answered with code `busy`
 and `retryAfterMs`, and the socket stays open.
 
+Every refusal is correlated. A command is always settled by a `commandResult`
+under its `commandId` (an unsafe decision or preset, a message over
+`CONVERSATION_MAX_MESSAGE_CHARS`, a missing grant), a read by a `result` under
+its `requestId` (including `too_large` for a response over 32 MB), and a
+subscription that cannot start by `subscribeFailed` with its `key`, a
+`retryable` flag and, when retryable, `retryAfterMs`. A client frame larger
+than `CONVERSATION_MAX_CLIENT_FRAME_BYTES` is skipped and refused the same way;
+put `type` and the id ahead of any long field so the refusal can name it.
+
 Transcript frames travel directly over the tailnet between paired machines.
