@@ -61,7 +61,7 @@ export function EmptyChatState({
         Ask {assistantName} about this workspace
       </h2>
       <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
-        It reads your code, runs tools with your approval, and remembers the conversation across restarts.
+        It reads your code, runs tools under the permission mode shown below, and remembers the conversation across restarts.
       </p>
       <div className="flex w-full max-w-[420px] flex-col gap-1.5 text-left">
         {suggestions.map((suggestion) => (
