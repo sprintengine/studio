@@ -37,3 +37,15 @@ test('intermediate prose contributes to folding while final prose remains separa
   expect(deriveTurnFold(withProse, tools.slice(0, 1), false)?.defaultFolded).toBe(true)
   expect(withProse.text).toBe('Answer')
 })
+
+test('a turn without a known start reports no duration instead of time since the epoch', () => {
+  expect(deriveTurnFold({ ...entry, startedAt: undefined }, tools, false)?.label).toBe('Worked · 2 steps')
+  expect(deriveTurnFold({ ...entry, startedAt: undefined, durationMs: 4000 }, tools, false)?.label).toBe(
+    'Worked for 4s · 2 steps',
+  )
+  expect(deriveTurnFold({ ...entry, status: 'failed', startedAt: undefined }, tools, false)?.label).toBe(
+    'Failed · 2 steps',
+  )
+  const withReasoning = { ...entry, reasoning: 'Thinking' }
+  expect(deriveTurnFold(withReasoning, tools.slice(0, 1), false)?.label).toBe('Worked for 1m 20s · 1 step')
+})
