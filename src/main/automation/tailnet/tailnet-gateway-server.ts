@@ -53,7 +53,11 @@ import {
   type TailnetTerminalStream,
 } from './tailnet-terminal-stream'
 import type { TerminalRemoteHost } from '../../terminal-remote-attach'
-import { createTailnetConversationStream, type TailnetConversationStream } from './tailnet-conversation-stream'
+import {
+  createResyncBackoff,
+  createTailnetConversationStream,
+  type TailnetConversationStream,
+} from './tailnet-conversation-stream'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
 import type { TailnetCollectOutcome, TailnetDeviceStore } from './tailnet-devices'
 import type { TailnetPeerResolver } from './tailnet-peer-identity'
@@ -232,6 +236,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   // Stage them under a process-owned private directory so workspace symlinks
   // cannot redirect a remote upload into another part of the filesystem.
   let conversationUploadDirectory: Promise<string> | null = null
+  // Per device, so a phone that keeps falling behind is told to wait longer
+  // each time instead of reconnecting straight into the same backlog.
+  const conversationResyncDelay = createResyncBackoff(now)
   const eventStreams = new Set<EventStream>()
   const tickets = new Map<string, { deviceId: string; expiresAtMs: number }>()
 
@@ -966,6 +973,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         onClosed: () => {
           if (registration.stream) conversationStreams.delete(registration.stream)
         },
+        resyncRetryAfterMs: () => conversationResyncDelay(currentDevice.id),
         // The device is the connection's identity; the conversation and the
         // command id are the targets. A message's text never reaches the audit.
         audit: (entry) =>

@@ -9,17 +9,31 @@ import { ConversationRuntime } from '../../conversation-runtime'
 import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
 import { createConversationGatewayHost, type ConversationGatewayHost } from './tailnet-conversation-host'
-import { createTailnetConversationStream } from './tailnet-conversation-stream'
+import { createResyncBackoff, createTailnetConversationStream } from './tailnet-conversation-stream'
 import { createWebSocketFrameDecoder, encodeMaskedTextFrame } from './websocket-frames'
+import { conversationCloseRetryAfterMs } from '../../../../packages/conversation-protocol/src'
 
 class Socket extends Duplex {
+  // Every write in the order the stream made it: what the peer would read.
   frames: Buffer[] = []
   delayMs = 0
+  // A peer that has stopped reading: no write ever completes.
+  stalled = false
   _read(): void {}
-  _write(chunk: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void): void {
+  override write(chunk: Buffer, encoding?: unknown, callback?: unknown): boolean {
     this.frames.push(chunk)
+    return (super.write as (...args: unknown[]) => boolean).call(this, chunk, encoding, callback)
+  }
+  _write(_chunk: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void): void {
+    if (this.stalled) return
     if (this.delayMs) setTimeout(done, this.delayMs)
     else done()
+  }
+  closeFrame(): { code: number; reason: string } | undefined {
+    const decoded = createWebSocketFrameDecoder(256 * 1024, 'client').push(Buffer.concat(this.frames))
+    if (decoded.kind !== 'frames') return undefined
+    const close = decoded.frames.find((frame) => frame.kind === 'close')
+    return close?.kind === 'close' ? { code: close.code, reason: close.reason } : undefined
   }
   receive(frame: unknown): void {
     this.push(encodeMaskedTextFrame(JSON.stringify(frame)))
@@ -89,50 +103,238 @@ test('oversized control frames are refused and ping replies respect socket backp
   socket.destroy()
 })
 
-test('slow readers and concurrent read floods close with a resync boundary', async () => {
-  for (const mode of ['reader', 'requests']) {
-    const socket = new Socket()
-    const gateway = host()
-    let listener!: (frame: ConversationSessionFrame) => void
-    let disposed = 0
-    gateway.subscribe = (_key, _cursor, receive) => {
-      listener = receive
-      return {
-        ready: Promise.resolve(),
-        dispose: () => {
-          disposed++
-        },
-      }
+type Frame = {
+  type: string
+  seq?: number
+  code?: string
+  requestId?: string
+  retryAfterMs?: number
+  event?: ConversationEvent
+  page?: { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
+  part?: { index: number; total: number }
+  frameId?: string
+  index?: number
+  total?: number
+  json?: string
+}
+
+/** Wire frames with every chunked frame reassembled in its place. */
+function assemble(frames: unknown[]): Frame[] {
+  const assembled: Frame[] = []
+  const chunks = new Map<string, string[]>()
+  for (const frame of frames as Frame[]) {
+    if (frame.type !== 'chunk') {
+      assembled.push(frame)
+      continue
     }
-    const stream = createTailnetConversationStream({
-      socket,
-      deviceId: 'device',
-      deviceName: 'phone',
-      scopes: ['conversation:read'],
-      host: gateway,
-      onClosed: () => {},
-      audit: () => {},
-    })
-    socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
-    await tick()
-    if (mode === 'reader') {
-      socket.delayMs = 1
-      for (let seq = 0; seq < 100; seq++) listener({ type: 'synchronized', seq })
-    } else {
-      gateway.list = () => new Promise(() => {})
-      for (let index = 0; index < 100; index++) socket.receive({ type: 'list', requestId: `list-${index}` })
-      await tick()
-    }
-    assert.equal(stream.isClosed(), true, mode)
-    assert.equal(disposed, 1)
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    const decoder = createWebSocketFrameDecoder(256 * 1024, 'client')
-    const decoded = decoder.push(Buffer.concat(socket.frames))
-    assert.ok(
-      decoded.kind === 'frames' && decoded.frames.some((frame) => frame.kind === 'close' && frame.code === 4409),
-    )
-    socket.destroy()
+    const parts = chunks.get(frame.frameId!) ?? []
+    parts[frame.index!] = frame.json!
+    chunks.set(frame.frameId!, parts)
+    if (parts.filter((part) => part !== undefined).length === frame.total)
+      assembled.push(JSON.parse(parts.join('')) as Frame)
   }
+  return assembled
+}
+
+function wireEvent(seq: number, type: ConversationEvent['type'], payload: Record<string, unknown>): ConversationEvent {
+  return {
+    id: `e${seq}`,
+    seq,
+    sessionId: 's',
+    workspaceId: 'w',
+    agentId: 'a',
+    providerId: 'p',
+    modelId: 'm',
+    type,
+    createdAt: seq,
+    payload,
+  }
+}
+
+/** A subscribed socket whose join the test drives frame by frame. */
+async function joinedSocket(configure: (gateway: ConversationGatewayHost) => void = () => {}) {
+  const socket = new Socket()
+  const gateway = host()
+  let listener!: (frame: ConversationSessionFrame) => void
+  let disposed = 0
+  gateway.subscribe = (_key, _cursor, receive) => {
+    listener = receive
+    return {
+      ready: Promise.resolve(),
+      dispose: () => {
+        disposed++
+      },
+    }
+  }
+  configure(gateway)
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:read'],
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+    resyncRetryAfterMs: () => 4_000,
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  return { socket, stream, emit: (frame: ConversationSessionFrame) => listener(frame), disposed: () => disposed }
+}
+
+async function until(predicate: () => boolean, what: string): Promise<void> {
+  const started = Date.now()
+  while (!predicate()) {
+    assert.ok(Date.now() - started < 10_000, what)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+test('a slow reader gets a streaming reply merged into waiting frames instead of a resync', async () => {
+  const { socket, stream, emit } = await joinedSocket()
+  emit({ type: 'synchronized', seq: 0 })
+  socket.delayMs = 1
+  let seq = 0
+  const expected: string[] = []
+  for (let index = 0; index < 3_000; index++) {
+    const text = `word-${index} `
+    expected.push(text)
+    emit({ type: 'event', event: wireEvent(++seq, 'content_delta', { turnId: 't', text }) })
+    // A tool's partial output streams alongside; only its newest one matters.
+    if (index % 10 === 0)
+      emit({
+        type: 'event',
+        event: wireEvent(++seq, 'tool_output', { toolUseId: 'tool', partial: true, preview: `line ${index}` }),
+      })
+  }
+  emit({ type: 'event', event: wireEvent(++seq, 'turn_completed', { turnId: 't' }) })
+  await until(() => assemble(socket.output()).some((frame) => frame.event?.type === 'turn_completed'), 'turn ends')
+  assert.equal(stream.isClosed(), false)
+  const frames = assemble(socket.output()).filter((frame) => frame.type === 'event')
+  assert.ok(frames.length < 100, `a stalled reply is a handful of frames, not ${frames.length}`)
+  const seqs = frames.map((frame) => frame.event!.seq!)
+  assert.deepEqual(
+    seqs,
+    [...seqs].sort((a, b) => a - b),
+  )
+  assert.equal(seqs.at(-1), seq)
+  const text = frames
+    .filter((frame) => frame.event!.type === 'content_delta')
+    .map((frame) => frame.event!.payload!.text)
+    .join('')
+  assert.equal(text, expected.join(''), 'merging never loses or reorders text')
+  const outputs = frames.filter((frame) => frame.event!.type === 'tool_output')
+  assert.equal(outputs.at(-1)!.event!.payload!.preview, 'line 2990')
+  stream.close(1000, '')
+})
+
+test('a reader that stops reading is closed once with a resync and an advised retry delay', async () => {
+  const joined = await joinedSocket()
+  joined.socket.stalled = true
+  joined.emit({ type: 'synchronized', seq: 0 })
+  for (let seq = 1; seq <= 400; seq++)
+    joined.emit({ type: 'event', event: wireEvent(seq, 'tool_started', { toolUseId: `tool-${seq}` }) })
+  assert.equal(joined.stream.isClosed(), true)
+  assert.equal(joined.disposed(), 1)
+  const frames = joined.socket.output() as Frame[]
+  assert.deepEqual(
+    frames.filter((frame) => frame.type === 'error').map((frame) => [frame.code, frame.retryAfterMs]),
+    [['resync_required', 4_000]],
+  )
+  assert.deepEqual(joined.socket.closeFrame(), { code: 4409, reason: 'resync_required;retryAfterMs=4000' })
+  assert.equal(conversationCloseRetryAfterMs(joined.socket.closeFrame()!.reason), 4_000)
+})
+
+test('a read flood is answered busy while the socket stays open', async () => {
+  const { socket, stream } = await joinedSocket((gateway) => {
+    gateway.list = () => new Promise(() => {})
+  })
+  for (let index = 0; index < 20; index++) socket.receive({ type: 'list', requestId: `list-${index}` })
+  await tick()
+  assert.equal(stream.isClosed(), false)
+  const busy = (socket.output() as Frame[]).filter((frame) => frame.code === 'busy')
+  // The subscribe finished; four lists hold every read slot.
+  assert.deepEqual(
+    busy.map((frame) => frame.requestId),
+    Array.from({ length: 16 }, (_, index) => `list-${index + 4}`),
+  )
+  assert.ok(busy.every((frame) => frame.type === 'result' && (frame.retryAfterMs ?? 0) > 0))
+  stream.close(1000, '')
+})
+
+test('a large snapshot streams in parts while live events keep arriving, without a resync', async () => {
+  const { socket, stream, emit } = await joinedSocket()
+  socket.delayMs = 1
+  const events = Array.from({ length: 400 }, (_, index) =>
+    wireEvent(index + 1, 'tool_output', { toolUseId: `t${index}`, preview: 'x'.repeat(20_000) }),
+  )
+  emit({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: 1 }, generation: 'g' })
+  emit({ type: 'synchronized', seq: 400, generation: 'g' })
+  let seq = 400
+  for (let index = 0; index < 2_000; index++)
+    emit({ type: 'event', event: wireEvent(++seq, 'content_delta', { turnId: 't', text: `${index},` }) })
+  for (let index = 0; index < 100; index++)
+    emit({ type: 'event', event: wireEvent(++seq, 'tool_started', { toolUseId: `live-${index}` }) })
+  await until(() => assemble(socket.output()).some((frame) => frame.event?.seq === seq), 'live events drain')
+  assert.equal(stream.isClosed(), false)
+  const frames = assemble(socket.output())
+  const parts = frames.filter((frame) => frame.type === 'snapshot')
+  assert.ok(parts.length > 1, 'a snapshot bigger than a frame arrives in parts')
+  assert.deepEqual(
+    parts.map((frame) => frame.part),
+    parts.map((_, index) => ({ index, total: parts.length })),
+  )
+  assert.deepEqual(
+    parts.flatMap((frame) => frame.page!.events.map((event) => event.seq)),
+    events.map((event) => event.seq),
+  )
+  const fence = frames.findIndex((frame) => frame.type === 'synchronized')
+  assert.ok(fence > frames.indexOf(parts.at(-1)!), 'the fence follows the whole snapshot')
+  assert.ok(frames.slice(0, fence).every((frame) => frame.type === 'snapshot'))
+  const live = frames.slice(fence + 1)
+  assert.equal(
+    live
+      .filter((frame) => frame.event?.type === 'content_delta')
+      .map((frame) => frame.event!.payload!.text)
+      .join(''),
+    Array.from({ length: 2_000 }, (_, index) => `${index},`).join(''),
+  )
+  stream.close(1000, '')
+})
+
+test('a snapshot beyond the frame budget keeps its newest events and pages the rest', async () => {
+  const { socket, stream, emit } = await joinedSocket()
+  const events = Array.from({ length: 40 }, (_, index) =>
+    wireEvent((index + 1) * 10, 'user_message', { text: 'y'.repeat(1024 * 1024) }),
+  )
+  emit({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: 10 }, reset: true, generation: 'g' })
+  emit({ type: 'synchronized', seq: 400, generation: 'g' })
+  await until(() => assemble(socket.output()).some((frame) => frame.type === 'synchronized'), 'snapshot drains')
+  assert.equal(stream.isClosed(), false)
+  const parts = assemble(socket.output()).filter((frame) => frame.type === 'snapshot')
+  const kept = parts.flatMap((frame) => frame.page!.events.map((event) => event.seq!))
+  assert.ok(kept.length > 0 && kept.length < events.length)
+  assert.deepEqual(
+    kept,
+    events.slice(events.length - kept.length).map((event) => event.seq),
+  )
+  for (const part of parts) {
+    assert.equal(part.page!.hasMore, true)
+    assert.equal(part.page!.beforeCursor, kept[0], 'the rest is one loadEarlier away')
+  }
+  stream.close(1000, '')
+})
+
+test('resync delays double for a device that keeps falling behind and reset after a quiet spell', () => {
+  let clock = 0
+  const backoff = createResyncBackoff(() => clock)
+  assert.deepEqual(
+    Array.from({ length: 8 }, () => backoff('phone')),
+    [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000],
+  )
+  assert.equal(backoff('tablet'), 1_000, 'per device')
+  clock += 10 * 60_000
+  assert.equal(backoff('phone'), 1_000)
 })
 
 test('replacing or closing a subscription suppresses stale replay and redacts outbound data', async () => {
@@ -163,6 +365,7 @@ test('replacing or closing a subscription suppresses stale replay and redacts ou
   socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
   await tick()
   listeners[0]({ type: 'synchronized', seq: 1 })
+  listeners[1]({ type: 'synchronized', seq: 1 })
   listeners[1]({
     type: 'event',
     event: {
@@ -179,14 +382,17 @@ test('replacing or closing a subscription suppresses stale replay and redacts ou
     },
   })
   await tick()
-  assert.equal(socket.output().length, 1)
+  assert.deepEqual(
+    socket.output().map((frame) => (frame as { type: string }).type),
+    ['synchronized', 'event'],
+  )
   const output = JSON.stringify(socket.output())
   assert.equal(output.includes(homedir()), false)
   assert.equal(output.includes('test-secret'), false)
   assert.ok(output.includes('[home]/project/file'))
   stream.close(1000, 'device_revoked')
   listeners[1]({ type: 'synchronized', seq: 3 })
-  assert.equal(socket.output().length, 1)
+  assert.equal(socket.output().length, 2)
   assert.equal(disposed, 2)
 })
 
@@ -351,10 +557,12 @@ test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate o
     const sending = runtime.sendTurn({ sessionId: started.session.sessionId, message: 'stream' })
     await provider.turnStarted
     for (let index = 0; index < 5; index++) provider.push(`before-${index} `)
-    await waitFor(
-      () => first.frames().some((frame) => frame.event?.payload?.text === 'before-4 '),
-      'live deltas reach the first socket',
-    )
+    // Deltas published together may arrive merged into one; only the text counts.
+    const received = (frames: WireFrame[]) =>
+      frames
+        .flatMap((frame) => (frame.event?.type === 'content_delta' ? [String(frame.event.payload?.text)] : []))
+        .join('')
+    await waitFor(() => received(first.frames()).endsWith('before-4 '), 'live deltas reach the first socket')
     const generation = first.frames().find((frame) => frame.type === 'synchronized')?.generation
     assert.ok(generation, 'the fence names the log generation over the wire')
     const cursor = Math.max(...wireSeqs(first.frames()))
@@ -401,9 +609,7 @@ test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate o
     )
     assert.equal(new Set(seqs).size, seqs.length, 'no duplicates')
     assert.ok(seqs[0] > cursor, 'nothing from before the cursor')
-    const text = frames
-      .flatMap((frame) => (frame.event?.type === 'content_delta' ? [String(frame.event.payload?.text)] : []))
-      .join('')
+    const text = received(frames)
     const expected = ['missed', 'during', 'after']
       .flatMap((phase) => Array.from({ length: phase === 'after' ? 3 : 5 }, (_, index) => `${phase}-${index} `))
       .join('')
