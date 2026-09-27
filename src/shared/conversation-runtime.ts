@@ -320,6 +320,9 @@ export type ConversationCapabilities = {
   contextMeter: boolean
   liveModelSwitch: boolean
   checkpoints?: boolean
+  // The provider reads `@path` in a prompt as a reference to that workspace
+  // file and opens it itself, so a mention can be passed as `@path`.
+  atMentions?: boolean
 }
 export type ConversationCheckpointFile = {
   path: string

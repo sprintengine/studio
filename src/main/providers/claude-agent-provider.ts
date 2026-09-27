@@ -557,6 +557,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       cost: true,
       contextMeter: false,
       liveModelSwitch: false,
+      atMentions: true,
     },
     sessions: 'stateful',
     listModels: () => [...CLAUDE_AGENT_MODELS],

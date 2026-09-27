@@ -10,7 +10,7 @@ const TOTAL_BYTES = 256 * 1024
 export async function resolveConversationMentions(input: {
   workspaceRoot: string
   mentions: ConversationMentionRef[]
-  providerId: string
+  atMentions: boolean
   tools: boolean
 }): Promise<{ refs: ConversationMentionRef[]; context: string }> {
   const mentions = parseConversationMentions(input.mentions)
@@ -51,7 +51,7 @@ export async function resolveConversationMentions(input: {
     const path = /\s/u.test(displayPath) ? JSON.stringify(displayPath) : displayPath
     const location = `${path}${ref.line ? `:${ref.line}${ref.endLine ? `-${ref.endLine}` : ''}` : ''}`
     if (input.tools || mention.kind === 'folder') {
-      sections.push(`${input.providerId === 'claude-agent' ? '@' : ''}${location}`)
+      sections.push(`${input.atMentions ? '@' : ''}${location}`)
       continue
     }
     const file = await openConfinedExistingFile(root, target)

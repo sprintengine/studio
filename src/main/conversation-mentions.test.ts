@@ -14,7 +14,7 @@ async function fixture(run: (workspaceRoot: string) => Promise<void>) {
     await rm(root, { recursive: true, force: true })
   }
 }
-test('Claude sees inline relative path references while a tool-free provider receives bounded content', async () =>
+test('a provider that reads @paths sees inline references while a tool-free provider receives bounded content', async () =>
   fixture(async (workspaceRoot) => {
     const mentions = [
       { path: 'src/app.ts', kind: 'file' as const, line: 2, endLine: 2 },
@@ -24,7 +24,7 @@ test('Claude sees inline relative path references while a tool-free provider rec
       workspaceRoot,
       mentions,
       tools: true,
-      providerId: 'claude-agent',
+      atMentions: true,
     })
     expect(native.context).toContain('@src/app.ts:2-2')
     expect(native.context).toContain('@src/')
@@ -33,15 +33,19 @@ test('Claude sees inline relative path references while a tool-free provider rec
       workspaceRoot,
       mentions,
       tools: false,
-      providerId: 'model-provider',
+      atMentions: false,
     })
     expect(api.context).toContain('"content":"second"')
     expect(api.context).not.toContain('first')
     expect(api.refs).toEqual(mentions)
+    // A provider with tools that does not read @paths gets the plain path.
+    const plain = await resolveConversationMentions({ workspaceRoot, mentions, tools: true, atMentions: false })
+    expect(plain.context).toContain('\nsrc/app.ts:2-2')
+    expect(plain.context).not.toContain('@src')
   }))
 test('mentions refuse escapes, symlinks, binary data and per-file overflow', async () =>
   fixture(async (workspaceRoot) => {
-    const base = { workspaceRoot, tools: false, providerId: 'model-provider' }
+    const base = { workspaceRoot, tools: false, atMentions: false }
     await symlink('/tmp', join(workspaceRoot, 'outside'))
     await expect(
       resolveConversationMentions({ ...base, mentions: [{ path: '../outside', kind: 'file' }] }),
@@ -66,13 +70,13 @@ test('the total content cap is enforced and duplicate references count once', as
       mentions.push({ path: `${i}.txt`, kind: 'file' as const })
     }
     await expect(
-      resolveConversationMentions({ workspaceRoot, mentions, tools: false, providerId: 'model-provider' }),
+      resolveConversationMentions({ workspaceRoot, mentions, tools: false, atMentions: false }),
     ).rejects.toThrow('256 KB')
     const result = await resolveConversationMentions({
       workspaceRoot,
       mentions: [mentions[0], mentions[0]],
       tools: false,
-      providerId: 'model-provider',
+      atMentions: false,
     })
     expect(result.refs).toHaveLength(1)
   }))

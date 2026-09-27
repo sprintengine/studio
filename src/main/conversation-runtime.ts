@@ -423,7 +423,7 @@ export class ConversationRuntime {
       mentions = await resolveConversationMentions({
         workspaceRoot: session.workspaceRoot,
         mentions: input.mentions ?? [],
-        providerId: session.providerId,
+        atMentions: session.capabilities?.atMentions === true,
         tools: session.capabilities?.tools === true,
       })
     } catch (error) {
