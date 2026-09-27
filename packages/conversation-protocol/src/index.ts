@@ -3,7 +3,7 @@ export * from './presentation.js'
 export * from './toolKind.js'
 export * from './commandLabel.js'
 
-/** A separate, additive tailnet feature; not the hosted mobile-control wire. */
+/** An additive capability of the tailnet gateway, served only over the tailnet. */
 export const CONVERSATION_CAPABILITY = 'conversations' as const
 export const CONVERSATION_SOCKET_PATH = '/tailnet/v1/conversation'
 /**
