@@ -629,8 +629,12 @@ export class ConversationRuntime {
       // The turn is still streaming inside the adapter (the approval resolved
       // a mid-turn permission callback); restore the turn lock and let the
       // in-flight sendTurn stream carry the resolution + remaining events.
-      session.pendingRequestId = session.turnLockRequestId
-      session.status = 'active'
+      // Other requests still open keep the session waiting on them.
+      // This request counts as answered even before the adapter's stream
+      // carries its resolution.
+      const remaining = Array.from(session.pendingApprovalRequestIds).filter((id) => id !== input.requestId)
+      session.pendingRequestId = remaining.at(-1) ?? session.turnLockRequestId
+      session.status = remaining.length > 0 ? 'awaiting_approval' : 'active'
       session.updatedAt = this.now()
       return { ok: true, session: this.toSummary(session) }
     }
@@ -1095,7 +1099,11 @@ export class ConversationRuntime {
       session.currentToolTitle = undefined
     if (event.type === 'turn_completed') session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
-    else if (event.type === 'turn_started' || event.type === 'user_message' || event.type === 'approval_resolved')
+    else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
+      // Another card is still up: the turn is still waiting on a person.
+      const remaining = session.approvalRequests.get(Array.from(session.pendingApprovalRequestIds).at(-1)!)
+      session.phase = remaining?.requestKind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    } else if (event.type === 'turn_started' || event.type === 'user_message' || event.type === 'approval_resolved')
       session.phase = 'running'
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'

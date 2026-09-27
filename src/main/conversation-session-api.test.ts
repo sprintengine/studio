@@ -8,7 +8,11 @@ import { ConversationRuntime } from './conversation-runtime'
 import { ConversationSessionApi } from './conversation-session-api'
 import { createMockConversationProvider } from './providers/mock-conversation-provider'
 import type { ConversationProviderAdapter, MockAdapterSessionInput } from './providers/conversation-provider-adapter'
-import type { ConversationEvent, ConversationSessionFrame } from '../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationSessionFrame,
+  ConversationSessionSummary,
+} from '../shared/conversation-runtime'
 import { workspaceSidecarPath } from './workspace-sidecar'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 
@@ -266,6 +270,11 @@ test('three simultaneous approvals resolve in any order without losing pending r
         decision: 'once',
       })
       assert.ok(result.ok, result.ok ? '' : result.message)
+      if (requestId !== 'second') {
+        const [summary] = (f.runtime.listSessions() as { sessions: ConversationSessionSummary[] }).sessions
+        assert.equal(summary.phase, 'waiting_for_approval', `still waiting after ${requestId}`)
+        assert.equal(summary.status, 'awaiting_approval')
+      }
     }
     assert.deepEqual(resolved, ['third', 'first', 'second'])
     const replay = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
