@@ -269,7 +269,11 @@
     "vitest": "5.0.1"
   },
   "overrides": {
+    "@excalidraw/mermaid-to-excalidraw": {
+      "@mermaid-js/parser": "^1.2.1"
+    },
     "@xmldom/xmldom": "^0.8.15",
+    "lodash-es": "^4.18.1",
     "mermaid": "~11.13.0"
   }
 }
