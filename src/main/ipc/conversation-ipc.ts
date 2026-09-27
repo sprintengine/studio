@@ -377,6 +377,11 @@ export function registerConversationIpc(
     if (!parsed.ok) return parsed
     if (input.afterSeq !== undefined && (!Number.isSafeInteger(input.afterSeq) || Number(input.afterSeq) < 0))
       return { ok: false, message: 'afterSeq must be a nonnegative integer.' }
+    if (
+      input.generation !== undefined &&
+      (typeof input.generation !== 'string' || input.generation.length < 1 || input.generation.length > 200)
+    )
+      return { ok: false, message: 'generation must be a string of 1–200 characters.' }
     if (input.turnLimit !== undefined && (!Number.isSafeInteger(input.turnLimit) || Number(input.turnLimit) < 1))
       return { ok: false, message: 'turnLimit must be a positive integer.' }
     if (!handlers.subscribe) return { ok: false, message: 'Conversation subscriptions are unavailable.' }
@@ -387,6 +392,9 @@ export function registerConversationIpc(
       {
         key: parsed.input,
         afterSeq: input.afterSeq as number | undefined,
+        // Without the cursor's log generation the session cannot vouch for
+        // the cursor, and every reconnect would be answered with a reset.
+        generation: input.generation as string | undefined,
         turnLimit: input.turnLimit as number | undefined,
       },
       (frame) => {
