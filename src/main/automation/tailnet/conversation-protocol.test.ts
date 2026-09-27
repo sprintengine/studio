@@ -14,7 +14,7 @@ test('portable protocol source stays byte-identical to the companion source mirr
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), 'ea17b15f78179a270a7830bbaae3db1a559cf457b8d6ddb996190f2906226ae6')
+  assert.equal(hash.digest('hex'), 'e5ab40a1543be0ecc4674122a3f810815e8bdbd2cf667244a4615d0861e6dbc2')
 })
 
 test('conversation protocol accepts bounded frames and refuses remote escalation', () => {
@@ -27,6 +27,22 @@ test('conversation protocol accepts bounded frames and refuses remote escalation
     parseConversationClientFrame({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' }, afterSeq: -1 }),
     null,
   )
+  // A resume cursor is a sequence plus the log generation it was read from.
+  assert.deepEqual(
+    parseConversationClientFrame({
+      type: 'subscribe',
+      key: { workspaceId: 'w', agentId: 'a' },
+      afterSeq: 8,
+      generation: 'log-1',
+      unknown: true,
+    }),
+    { type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' }, afterSeq: 8, generation: 'log-1' },
+  )
+  for (const generation of ['', 7, 'g'.repeat(201)])
+    assert.equal(
+      parseConversationClientFrame({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' }, generation }),
+      null,
+    )
   assert.equal(
     parseConversationClientFrame({
       type: 'command',

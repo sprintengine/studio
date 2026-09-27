@@ -2370,7 +2370,7 @@ test('tailnet', async () => {
         },
       ],
       resolveKey: (workspaceId, agentId) => ({ workspaceRoot: projectDir, workspaceId, agentId }),
-      subscribe: (_key, _after, _limit, receive) => {
+      subscribe: (_key, _cursor, receive) => {
         receive({ type: 'synchronized', seq: 0 })
         return {
           ready: Promise.resolve(),

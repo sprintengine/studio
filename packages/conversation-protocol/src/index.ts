@@ -47,8 +47,15 @@ export type ConversationWireCommand =
   | { kind: 'resolveApproval'; requestId: string; decision: 'once' | 'conversation' | 'deny' }
   | { kind: 'answerQuestion'; requestId: string; answers: Record<string, string> }
   | { kind: 'setPermissionPreset'; preset: 'manual' | 'auto' }
+/**
+ * `afterSeq` with the `generation` of an earlier `snapshot` or `synchronized`
+ * asks for only the events after that sequence: one `event` per missed event,
+ * then `synchronized`, then live events, with no snapshot. A cursor the
+ * desktop cannot vouch for — another generation, no generation, ahead of the
+ * log, or too far behind — is answered with `snapshot` (`reset: true`) instead.
+ */
 export type ConversationClientFrame =
-  | { type: 'subscribe'; key: ConversationWireKey; afterSeq?: number; turnLimit?: number }
+  | { type: 'subscribe'; key: ConversationWireKey; afterSeq?: number; generation?: string; turnLimit?: number }
   | { type: 'list'; requestId: string }
   | { type: 'loadEarlier'; requestId: string; beforeCursor: number; turnLimit?: number }
   | { type: 'getToolDetail'; requestId: string; toolUseId: string }
@@ -59,8 +66,11 @@ export type ConversationServerFrame =
   | { type: 'sessions'; requestId: string; sessions: ConversationWireThread[] }
   | { type: 'event'; event: unknown }
   | { type: 'chunk'; frameId: string; index: number; total: number; json: string }
-  | { type: 'snapshot'; page: unknown; reset?: true }
-  | { type: 'synchronized'; seq: number }
+  // Sequence numbers only ever increase, but they are not contiguous: a run of
+  // text deltas can arrive merged into one delta numbered with the run's last
+  // sequence. A gap is normal and never a reason to resubscribe.
+  | { type: 'snapshot'; page: unknown; reset?: true; generation?: string }
+  | { type: 'synchronized'; seq: number; generation?: string }
   | {
       type: 'result'
       requestId: string
@@ -98,11 +108,13 @@ export function parseConversationClientFrame(value: unknown): ConversationClient
       const key = value.key
       if (!record(key) || !id(key.workspaceId) || !id(key.agentId)) return null
       if (value.afterSeq !== undefined && !integer(value.afterSeq)) return null
+      if (value.generation !== undefined && !id(value.generation)) return null
       if (value.turnLimit !== undefined && (!integer(value.turnLimit) || value.turnLimit > 100)) return null
       return {
         type: 'subscribe',
         key: { workspaceId: key.workspaceId, agentId: key.agentId },
         ...(value.afterSeq === undefined ? {} : { afterSeq: value.afterSeq as number }),
+        ...(value.generation === undefined ? {} : { generation: value.generation as string }),
         ...(value.turnLimit === undefined ? {} : { turnLimit: value.turnLimit as number }),
       }
     }

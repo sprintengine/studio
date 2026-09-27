@@ -4,6 +4,7 @@ import type {
   ConversationImageAttachment,
   ConversationSessionFrame,
   ConversationSessionSummary,
+  ConversationSubscribeInput,
 } from '../../../shared/conversation-runtime'
 import type { ConversationRuntime } from '../../conversation-runtime'
 import { ConversationSessionApi } from '../../conversation-session-api'
@@ -59,8 +60,7 @@ export type ConversationGatewayHost = {
   resolveKey(workspaceId: string, agentId: string): ConversationKey | null
   subscribe(
     key: ConversationKey,
-    afterSeq: number | undefined,
-    turnLimit: number | undefined,
+    cursor: Omit<ConversationSubscribeInput, 'key'>,
     listener: (frame: ConversationSessionFrame) => void,
   ): { dispose(): void; ready: Promise<void> }
   loadEarlier(
@@ -209,7 +209,11 @@ export function createConversationGatewayHost(
       const workspaceRoot = resolveWorkspaceRoot(workspaceId)
       return workspaceRoot ? { workspaceRoot, workspaceId, agentId } : null
     },
-    subscribe: (key, afterSeq, turnLimit, listener) => api.subscribe({ key, afterSeq, turnLimit }, listener),
+    subscribe: (key, cursor, listener) =>
+      api.subscribe(
+        { key, afterSeq: cursor.afterSeq, generation: cursor.generation, turnLimit: cursor.turnLimit },
+        listener,
+      ),
     loadEarlier: (key, beforeCursor, turnLimit) => api.loadEarlier({ key, beforeCursor, turnLimit }),
     getToolDetail: (key, toolUseId) => api.getToolDetail({ ...key, toolUseId }),
     getTurnDiff: (key, turnSeq, path) => api.getTurnDiff({ key, turnSeq, path }),

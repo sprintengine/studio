@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { Duplex } from 'node:stream'
-import { homedir } from 'node:os'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test, vi } from 'vitest'
-import type { ConversationSessionFrame } from '../../../shared/conversation-runtime'
-import type { ConversationGatewayHost } from './tailnet-conversation-host'
+import type { ConversationEvent, ConversationSessionFrame } from '../../../shared/conversation-runtime'
+import { ConversationRuntime } from '../../conversation-runtime'
+import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
+import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
+import { createConversationGatewayHost, type ConversationGatewayHost } from './tailnet-conversation-host'
 import { createTailnetConversationStream } from './tailnet-conversation-stream'
 import { createWebSocketFrameDecoder, encodeMaskedTextFrame } from './websocket-frames'
 
@@ -37,26 +42,12 @@ function host(): ConversationGatewayHost {
   return {
     list: async () => [],
     resolveKey: (workspaceId, agentId) => (workspaceId === 'w' && agentId === 'a' ? key : null),
-    subscribe: (_key, afterSeq, _limit, listener) => {
+    // A stand-in for transport tests only. What a subscriber is sent on join
+    // is the session API's contract, exercised through the real one below.
+    subscribe: (_key, _cursor, listener) => {
       const ready = Promise.resolve().then(() => {
-        for (const seq of [1, 2, 3].filter((candidate) => candidate > (afterSeq ?? 0))) {
-          listener({
-            type: 'event',
-            event: {
-              id: `e${seq}`,
-              seq,
-              sessionId: 's',
-              workspaceId: 'w',
-              agentId: 'a',
-              providerId: 'p',
-              modelId: 'm',
-              type: 'content_delta',
-              createdAt: seq,
-              payload: { text: `text ${seq}` },
-            },
-          })
-        }
-        listener({ type: 'synchronized', seq: 3 })
+        listener({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null }, generation: 'g' })
+        listener({ type: 'synchronized', seq: 0, generation: 'g' })
       })
       return { dispose: () => {}, ready }
     },
@@ -104,7 +95,7 @@ test('slow readers and concurrent read floods close with a resync boundary', asy
     const gateway = host()
     let listener!: (frame: ConversationSessionFrame) => void
     let disposed = 0
-    gateway.subscribe = (_key, _after, _limit, receive) => {
+    gateway.subscribe = (_key, _cursor, receive) => {
       listener = receive
       return {
         ready: Promise.resolve(),
@@ -149,7 +140,7 @@ test('replacing or closing a subscription suppresses stale replay and redacts ou
   const gateway = host()
   const listeners: Array<(frame: ConversationSessionFrame) => void> = []
   let disposed = 0
-  gateway.subscribe = (_key, _after, _limit, receive) => {
+  gateway.subscribe = (_key, _cursor, receive) => {
     listeners.push(receive)
     return {
       ready: Promise.resolve(),
@@ -246,7 +237,7 @@ test('conversation socket refuses a device without read grant', () => {
   })
 })
 
-test('conversation socket resumes after sequence and fences replay before live', async () => {
+test('a read-only socket is refused commands with the command id', async () => {
   const socket = new Socket()
   const stream = createTailnetConversationStream({
     socket,
@@ -257,16 +248,8 @@ test('conversation socket resumes after sequence and fences replay before live',
     onClosed: () => {},
     audit: () => {},
   })
-  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' }, afterSeq: 1 })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
   await tick()
-  assert.deepEqual(
-    socket
-      .output()
-      .map(
-        (frame) => (frame as { type: string; event?: { seq: number } }).event?.seq ?? (frame as { type: string }).type,
-      ),
-    [2, 3, 'synchronized'],
-  )
   socket.receive({ type: 'command', commandId: 'c', command: { kind: 'interrupt' } })
   await tick()
   assert.deepEqual(socket.output().at(-1), {
@@ -276,6 +259,163 @@ test('conversation socket resumes after sequence and fences replay before live',
     code: 'conversation_operate_required',
   })
   stream.close(1000, '')
+})
+
+// A provider whose turn streams whatever the test pushes, so a socket can drop
+// in the middle of a reply.
+function pushProvider() {
+  let push: (text: string | null) => void = () => undefined
+  let started!: () => void
+  const turnStarted = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const base = createMockConversationProvider()
+  const adapter: ConversationProviderAdapter = {
+    ...base,
+    sendTurn: (input) =>
+      (async function* () {
+        const queue: Array<string | null> = []
+        let wake: (() => void) | null = null
+        push = (text) => {
+          queue.push(text)
+          wake?.()
+        }
+        const event = (type: ConversationEvent['type'], payload: Record<string, unknown>): ConversationEvent => ({
+          id: '',
+          sessionId: input.sessionId,
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          createdAt: 1,
+          type,
+          payload,
+        })
+        yield event('turn_started', { turnId: input.turnId })
+        started()
+        for (;;) {
+          if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve))
+          wake = null
+          const text = queue.shift()!
+          if (text === null) break
+          yield event('content_delta', { turnId: input.turnId, text })
+        }
+        yield event('turn_completed', { turnId: input.turnId })
+      })(),
+  }
+  return { adapter, turnStarted, push: (text: string | null) => push(text) }
+}
+
+async function waitFor(predicate: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 400 && !predicate(); attempt++) await new Promise((r) => setTimeout(r, 5))
+  assert.ok(predicate(), what)
+}
+
+type WireFrame = { type: string; seq?: number; generation?: string; event?: ConversationEvent }
+const wireSeqs = (frames: WireFrame[]) => frames.flatMap((frame) => (frame.type === 'event' ? [frame.event!.seq!] : []))
+
+test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate or reset', async () => {
+  const provider = pushProvider()
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-socket-'))
+  const conversation = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const runtime = new ConversationRuntime({ adapters: [provider.adapter], getProviderById: () => undefined })
+  const gateway = createConversationGatewayHost(
+    runtime,
+    (id) => (id === conversation.workspaceId ? workspaceRoot : null),
+    () => [{ workspaceRoot, workspaceId: conversation.workspaceId }],
+  )
+  const open = () => {
+    const socket = new Socket()
+    const stream = createTailnetConversationStream({
+      socket,
+      deviceId: 'device',
+      deviceName: 'phone',
+      scopes: ['conversation:read'],
+      host: gateway,
+      onClosed: () => {},
+      audit: () => {},
+    })
+    return { socket, stream, frames: () => socket.output() as WireFrame[] }
+  }
+  try {
+    const started = await runtime.startSession({
+      ...conversation,
+      providerId: provider.adapter.id,
+      modelId: provider.adapter.listModels()[0],
+      permissionPreset: 'manual',
+    })
+    assert.ok(started.ok)
+    const first = open()
+    first.socket.receive({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
+    await waitFor(() => first.frames().some((frame) => frame.type === 'synchronized'), 'first join synchronizes')
+    const sending = runtime.sendTurn({ sessionId: started.session.sessionId, message: 'stream' })
+    await provider.turnStarted
+    for (let index = 0; index < 5; index++) provider.push(`before-${index} `)
+    await waitFor(
+      () => first.frames().some((frame) => frame.event?.payload?.text === 'before-4 '),
+      'live deltas reach the first socket',
+    )
+    const generation = first.frames().find((frame) => frame.type === 'synchronized')?.generation
+    assert.ok(generation, 'the fence names the log generation over the wire')
+    const cursor = Math.max(...wireSeqs(first.frames()))
+    first.stream.close(1001, '')
+    first.socket.destroy()
+
+    // Offline: more of the reply lands and reaches nobody.
+    for (let index = 0; index < 5; index++) provider.push(`missed-${index} `)
+    const published: number[] = []
+    const stopWatching = runtime.onEvent((event) => published.push(event.seq!))
+    await waitFor(() => published.length >= 5, 'offline deltas are published')
+
+    const second = open()
+    second.socket.receive({
+      type: 'subscribe',
+      key: { workspaceId: 'workspace', agentId: 'agent' },
+      afterSeq: cursor,
+      generation,
+    })
+    // The reply keeps streaming while the reconnect reads its catch-up.
+    for (let index = 0; index < 5; index++) provider.push(`during-${index} `)
+    await waitFor(() => second.frames().some((frame) => frame.type === 'synchronized'), 'the reconnect synchronizes')
+    for (let index = 0; index < 3; index++) provider.push(`after-${index} `)
+    provider.push(null)
+    await sending
+    await waitFor(
+      () => second.frames().some((frame) => frame.event?.type === 'turn_completed'),
+      'the rest of the turn arrives live',
+    )
+    stopWatching()
+
+    const frames = second.frames()
+    assert.equal(
+      frames.some((frame) => frame.type === 'snapshot'),
+      false,
+      'a cursor the log can vouch for is not answered with a reset',
+    )
+    assert.equal(frames.find((frame) => frame.type === 'synchronized')?.generation, generation)
+    const seqs = wireSeqs(frames)
+    assert.deepEqual(
+      seqs,
+      [...seqs].sort((a, b) => a - b),
+      'in order',
+    )
+    assert.equal(new Set(seqs).size, seqs.length, 'no duplicates')
+    assert.ok(seqs[0] > cursor, 'nothing from before the cursor')
+    const text = frames
+      .flatMap((frame) => (frame.event?.type === 'content_delta' ? [String(frame.event.payload?.text)] : []))
+      .join('')
+    const expected = ['missed', 'during', 'after']
+      .flatMap((phase) => Array.from({ length: phase === 'after' ? 3 : 5 }, (_, index) => `${phase}-${index} `))
+      .join('')
+    assert.equal(text, expected, 'every missed and later delta exactly once')
+    const transcript = await runtime.readTranscript(conversation, { all: true, closeOpenTurns: false })
+    assert.ok(transcript.ok)
+    assert.equal(seqs.at(-1), transcript.events.at(-1)!.seq, 'caught up to the end of the log')
+    second.stream.close(1000, '')
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 })
 
 test('remote always and bypass are refused before host execution', async () => {

@@ -216,7 +216,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       subscription?.dispose()
       const generation = ++subscriptionGeneration
       currentKey = key
-      const joined = host.subscribe(key, frame.afterSeq, frame.turnLimit, (event) => {
+      const cursor = { afterSeq: frame.afterSeq, generation: frame.generation, turnLimit: frame.turnLimit }
+      const joined = host.subscribe(key, cursor, (event) => {
         if (closed || generation !== subscriptionGeneration) return
         if (event.type === 'error') error('unavailable', event.message)
         else send(event)
