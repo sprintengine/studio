@@ -22,6 +22,22 @@ import type {
 } from '../shared/conversation-runtime'
 import { test } from 'vitest'
 
+// Every runtime a case creates is shut down before its workspace is removed.
+// A runtime left running holds its transcript streams open until the garbage
+// collector closes them, which newer Node versions report as an error.
+const liveRuntimes = new Set<ConversationRuntime>()
+class TrackedConversationRuntime extends ConversationRuntime {
+  constructor(options?: ConstructorParameters<typeof ConversationRuntime>[0]) {
+    super(options)
+    liveRuntimes.add(this)
+  }
+}
+async function shutdownRuntimes(): Promise<void> {
+  const runtimes = Array.from(liveRuntimes)
+  liveRuntimes.clear()
+  await Promise.all(runtimes.map((runtime) => runtime.shutdown().catch(() => undefined)))
+}
+
 test('conversation-runtime', async () => {
   async function main(): Promise<void> {
     await testMockSessionTurnApprovalInterruptStopAndPersistence()
@@ -48,6 +64,7 @@ test('conversation-runtime', async () => {
     await testListLiveConversationRootsMapsAdapterInventory()
     await testClaudeConversationPreparesStudioMcpBeforeSession()
 
+    await shutdownRuntimes()
     console.log('conversation-runtime tests passed')
   }
 
@@ -65,7 +82,7 @@ test('conversation-runtime', async () => {
       stopSession: () => [],
     }
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -88,7 +105,7 @@ test('conversation-runtime', async () => {
       assert.equal(started.ok, true)
       assert.deepEqual(prepared, [{ workspaceRoot, workspaceId: 'ws-1', agentId: 'agent-a' }])
 
-      const blocked = new ConversationRuntime({
+      const blocked = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -103,6 +120,7 @@ test('conversation-runtime', async () => {
       })
       assert.deepEqual(refused, { ok: false, message: 'Studio MCP config failed.' })
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -219,7 +237,7 @@ test('conversation-runtime', async () => {
           return [runtimeEvent(input, 'session_closed')]
         },
       }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [crashingProvider],
@@ -246,6 +264,7 @@ test('conversation-runtime', async () => {
       if (!retried.ok) return
       assert.equal(retried.session.status, 'ready')
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -255,7 +274,7 @@ test('conversation-runtime', async () => {
     try {
       let clock = 1_000_000
       const capture = lifecycleCapture()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         now: () => clock,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -301,6 +320,7 @@ test('conversation-runtime', async () => {
       clock += 1
       assert.deepEqual(runtime.sweepIdleSessions(clock + 61_000), [sessionId])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -309,7 +329,7 @@ test('conversation-runtime', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const capture = lifecycleCapture()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createLifecycleProvider(capture)],
@@ -336,6 +356,7 @@ test('conversation-runtime', async () => {
       const listed = runtime.listSessions({})
       assert.equal(listed.ok && listed.sessions.every((session) => session.status === 'stopped'), true)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -371,7 +392,7 @@ test('conversation-runtime', async () => {
         spawnedAt: null,
       },
     )
-    const runtime = new ConversationRuntime({
+    const runtime = new TrackedConversationRuntime({
       getProviderById: () => undefined,
       secretStore: unusedSecretStore(),
       adapters: [createLifecycleProvider(capture)],
@@ -456,7 +477,7 @@ test('conversation-runtime', async () => {
         resumeSessionIds: [],
         messages: [],
       }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -518,6 +539,7 @@ test('conversation-runtime', async () => {
       assert.equal(second.ok, true)
       assert.deepEqual(capture.messages, [undefined, undefined])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -583,7 +605,7 @@ test('conversation-runtime', async () => {
         sink: ConversationSessionEventSink | null
         resolved: Array<{ requestId: string; approved: boolean }>
       } = { base: null, sink: null, resolved: [] }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createContinuationProvider(capture)],
@@ -663,6 +685,7 @@ test('conversation-runtime', async () => {
       const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
       assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -679,7 +702,7 @@ test('conversation-runtime', async () => {
         sink: ConversationSessionEventSink | null
         resolved: Array<{ requestId: string; approved: boolean }>
       } = { base: null, sink: null, resolved: [] }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createContinuationProvider(capture)],
@@ -725,6 +748,7 @@ test('conversation-runtime', async () => {
       assert.equal(flushed.ok, true)
       assert.equal(events.filter((event) => event.type === 'user_message').length, 2)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -772,7 +796,7 @@ test('conversation-runtime', async () => {
         stopSession: (input) => [runtimeEvent(input, 'session_closed')],
       }
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -818,6 +842,7 @@ test('conversation-runtime', async () => {
         false,
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -872,7 +897,7 @@ test('conversation-runtime', async () => {
         stopSession: (input) => [runtimeEvent(input, 'session_closed')],
       }
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -938,6 +963,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(persistedRows[0]?.payload?.subagentLane, true)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -985,7 +1011,7 @@ test('conversation-runtime', async () => {
         'utf-8',
       )
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createStatefulProvider(capture)],
@@ -1000,6 +1026,7 @@ test('conversation-runtime', async () => {
       assert.equal(started.ok, true)
       assert.deepEqual(capture.resumeSessionIds, ['cursor-from-disk'])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1019,7 +1046,7 @@ test('conversation-runtime', async () => {
       ]
       await writeFile(join(dir, 'agent.jsonl'), lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf-8')
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [],
@@ -1037,6 +1064,7 @@ test('conversation-runtime', async () => {
       const missing = await runtime.readTranscript({ workspaceRoot, workspaceId: 'workspace', agentId: 'nobody' })
       assert.deepEqual(missing, { ok: true, events: [] })
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1046,7 +1074,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       const gate = createDeferred<void>()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -1083,6 +1111,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(JSON.stringify(persisted).includes('late output'), false)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1092,7 +1121,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       const gate = createDeferred<void>()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -1136,6 +1165,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(JSON.stringify(persisted).includes('late output'), false)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1151,7 +1181,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 1000
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         getProviderById: () => provider,
@@ -1213,6 +1243,7 @@ test('conversation-runtime', async () => {
     } finally {
       server.close()
       await once(server, 'close')
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1222,7 +1253,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 100
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         getProviderById: () => undefined,
@@ -1287,6 +1318,7 @@ test('conversation-runtime', async () => {
         'session_closed',
       ])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1294,7 +1326,7 @@ test('conversation-runtime', async () => {
   async function testStartFailuresAreExplicit(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
       })
@@ -1330,6 +1362,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Conversation model is invalid.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1337,7 +1370,7 @@ test('conversation-runtime', async () => {
   async function testProviderWithAuthRequiresConfiguredSecret(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [],
         getProviderById: () => ({
           manifest: {
@@ -1380,6 +1413,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Conversation provider secret is not configured.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1387,7 +1421,7 @@ test('conversation-runtime', async () => {
   async function testBlockedExecutableProviderTrustErrorSurfaces(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [],
         getProviderById: () => ({
           manifest: {
@@ -1428,6 +1462,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Unsigned executable provider adapters cannot run in production mode.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1446,7 +1481,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 1000
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         adapters: [createCapturingProvider(captured)],
@@ -1490,6 +1525,7 @@ test('conversation-runtime', async () => {
         'the second turn carries the prior completed turn as context',
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1504,7 +1540,7 @@ test('conversation-runtime', async () => {
       let id = 0
       let now = 1000
       const capturing = createCapturingProvider(captured)
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         adapters: [
@@ -1565,6 +1601,7 @@ test('conversation-runtime', async () => {
       assert.equal(userMessages.length, 2)
       assert.equal(userMessages[0]?.payload?.text, 'describe')
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1579,7 +1616,7 @@ test('conversation-runtime', async () => {
     try {
       const captured: ConversationMessage[][] = []
       const capturing = createCapturingProvider(captured)
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [
           {
             ...capturing,
@@ -1655,6 +1692,7 @@ test('conversation-runtime', async () => {
         message: 'Conversation session is stopped.',
       })
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1670,7 +1708,7 @@ test('conversation-runtime', async () => {
     let pausePermissions = false
     const applied: ConversationPermissionPreset[] = []
     const events: string[] = []
-    const runtime = new ConversationRuntime({
+    const runtime = new TrackedConversationRuntime({
       adapters: [
         {
           ...createSlowProvider(turnGate),
@@ -1744,6 +1782,7 @@ test('conversation-runtime', async () => {
       permissionGate.resolve()
       turnGate.resolve()
       await runtime.shutdown()
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
