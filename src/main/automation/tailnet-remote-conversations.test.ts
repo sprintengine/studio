@@ -540,7 +540,12 @@ test('a snapshot sent in parts and chunks is applied once whole, and a busy comm
   const snapshots = frames.filter((frame) => frame.type === 'snapshot')
   assert.equal(snapshots.length, 1)
   assert.deepEqual(snapshots[0].type === 'snapshot' && snapshots[0].page.events.map((entry) => entry.seq), [1, 2, 5])
-  handlers[0].onFrame({ type: 'synchronized', seq: 5, generation: 'g1' })
+  // A fence for another conversation — the tail of a replay the host was
+  // switching away from — is never taken as this one's cursor.
+  handlers[0].onFrame({ type: 'synchronized', seq: 99, generation: 'gx', key: { workspaceId, agentId: 'other' } })
+  assert.equal(frames.filter((frame) => frame.type === 'synchronized').length, 0)
+  handlers[0].onFrame({ type: 'synchronized', seq: 5, generation: 'g1', key: { workspaceId, agentId } })
+  assert.equal(frames.filter((frame) => frame.type === 'synchronized').length, 1)
   // Sequence 6 and 7 never arrive on their own: 8 is a merged run. A gap is
   // normal and never a reason to resubscribe.
   handlers[0].onFrame({ type: 'event', event: event(8, 'd') })

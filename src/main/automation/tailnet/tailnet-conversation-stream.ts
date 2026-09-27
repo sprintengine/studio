@@ -414,11 +414,15 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     const redacted = frames.map((frame) => redact(frame))
     let bytes = 0
     const encoded: Array<() => Generator<string>> = []
+    // A replay stops at the next whole frame once its subscription is
+    // replaced: the rest of another conversation's snapshot, or its fence,
+    // would hand the client a cursor for the wrong conversation.
+    const current = () => !closed && subscription === subscriptionGeneration
     for (const frame of redacted) {
       if (frame.type === 'snapshot') {
         const parts = snapshotParts(frame as SnapshotFrame)
         bytes += parts.bytes
-        encoded.push(() => parts.frames(wireFrames))
+        encoded.push(() => parts.frames(wireFrames, current))
       } else {
         const json = JSON.stringify(frame)
         bytes += Buffer.byteLength(json)
@@ -427,7 +431,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     }
     sendBulk(
       (function* () {
-        for (const produce of encoded) yield* produce()
+        for (const produce of encoded) {
+          if (!current()) return
+          yield* produce()
+        }
       })(),
       bytes,
       subscription,
@@ -482,21 +489,26 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     }
     releaseBulkWaiters()
     currentKey = key
+    // Every snapshot and fence names the conversation it belongs to, so a
+    // client can refuse one for a conversation it no longer follows.
+    const wireKey = { workspaceId: key.workspaceId, agentId: key.agentId }
     // Frames before the fence are the join's replay. They are collected and
     // sent as one paced unit, so a catch-up of two thousand events or a large
     // snapshot never counts against the bound on live events behind it.
     let replay: ConversationServerFrame[] | null = []
     const cursor = { afterSeq: frame.afterSeq, generation: frame.generation, turnLimit: frame.turnLimit }
-    const joined = host.subscribe(key, cursor, (event) => {
+    const joined = host.subscribe(key, cursor, (source) => {
       if (closed || generation !== subscriptionGeneration) return
-      if (event.type === 'error') {
+      if (source.type === 'error') {
         // The join could not read the transcript. A command must not land
         // on a conversation this socket never synchronized with.
         replay = null
         if (currentKey === key) currentKey = null
-        subscribeFailed(frame.key, 'unavailable', event.message, SUBSCRIBE_RETRY_MS)
+        subscribeFailed(frame.key, 'unavailable', source.message, SUBSCRIBE_RETRY_MS)
         return
       }
+      const event: ConversationServerFrame =
+        source.type === 'snapshot' || source.type === 'synchronized' ? { ...source, key: wireKey } : source
       if (!replay) {
         sendLive(event, generation)
         return
@@ -766,7 +778,7 @@ function deltaKey(event: ConversationEvent): string | null {
  */
 function snapshotParts(frame: SnapshotFrame): {
   bytes: number
-  frames(wire: (json: string) => Generator<string>): Generator<string>
+  frames(wire: (json: string) => Generator<string>, current: () => boolean): Generator<string>
 } {
   const events = frame.page.events
   const sizes = events.map((event) => Buffer.byteLength(JSON.stringify(event)))
@@ -795,8 +807,9 @@ function snapshotParts(frame: SnapshotFrame): {
   if (!parts.length) parts.push([])
   return {
     bytes,
-    *frames(wire) {
+    *frames(wire, current) {
       for (let index = 0; index < parts.length; index++) {
+        if (!current()) return
         yield* wire(
           JSON.stringify({
             ...frame,

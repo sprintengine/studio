@@ -951,3 +951,64 @@ test('a large escaped tool detail is paced and reassembles without a resync clos
   assert.equal(reassembled.data.detail.output, detail)
   stream.close(1000, '')
 })
+
+test('switching conversations mid-replay stops the old replay and names the conversation on every fence', async () => {
+  const socket = new Socket()
+  socket.delayMs = 1
+  const listeners = new Map<string, (frame: ConversationSessionFrame) => void>()
+  const gateway: ConversationGatewayHost = {
+    ...host(),
+    resolveKey: (workspaceId, agentId) => ({ workspaceRoot: '/workspace', workspaceId, agentId }),
+    subscribe: (subscribed, _cursor, receive) => {
+      listeners.set(subscribed.agentId, receive)
+      return { ready: Promise.resolve(), dispose: () => {} }
+    },
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:read'],
+    host: gateway,
+    onClosed: () => {},
+    audit: () => {},
+  })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'first' } })
+  await tick()
+  const large = Array.from({ length: 200 }, (_, index) =>
+    wireEvent(index + 1, 'tool_output', { toolUseId: `t${index}`, preview: 'x'.repeat(20_000) }),
+  )
+  listeners.get('first')!({
+    type: 'snapshot',
+    page: { events: large, hasMore: false, beforeCursor: 1 },
+    generation: 'g1',
+  })
+  listeners.get('first')!({ type: 'synchronized', seq: 200, generation: 'g1' })
+  await until(() => assemble(socket.output()).some((frame) => frame.type === 'snapshot'), 'the first replay starts')
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'second' } })
+  await tick()
+  listeners.get('second')!({
+    type: 'snapshot',
+    page: { events: [], hasMore: false, beforeCursor: null },
+    generation: 'g2',
+  })
+  listeners.get('second')!({ type: 'synchronized', seq: 7, generation: 'g2' })
+  await until(
+    () => assemble(socket.output()).some((frame) => frame.type === 'synchronized'),
+    'the second replay finishes',
+  )
+  const frames = assemble(socket.output()) as Array<Frame & { key?: { agentId: string }; generation?: string }>
+  const fences = frames.filter((frame) => frame.type === 'synchronized')
+  assert.deepEqual(
+    fences.map((frame) => [frame.key?.agentId, frame.generation]),
+    [['second', 'g2']],
+    'the replaced conversation never sends its fence, so no client can take its cursor',
+  )
+  const firstParts = frames.filter((frame) => frame.type === 'snapshot' && frame.key?.agentId === 'first')
+  assert.ok(firstParts.length > 0 && firstParts.length < firstParts[0].part!.total, 'the old snapshot stopped part way')
+  assert.ok(
+    frames.filter((frame) => frame.type === 'snapshot').every((frame) => frame.key !== undefined),
+    'every snapshot names its conversation',
+  )
+  stream.close(1000, '')
+})

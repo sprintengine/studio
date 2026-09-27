@@ -21,6 +21,12 @@ arrive merged into one delta numbered with the run's last sequence, so a gap is
 normal and never a reason to resubscribe. Pending command ids remain intact for
 idempotent retry.
 
+Every `snapshot` and `synchronized` frame names the conversation it belongs
+to in `key`. When a socket switches conversations, the old replay stops at the
+next whole frame and never sends its fence; ignore any snapshot, fence or event
+for a conversation you no longer follow, so a cursor is never stored against
+the wrong log.
+
 A frame larger than `CONVERSATION_MAX_FRAME_BYTES` arrives as `chunk` frames
 whose `json` strings concatenate, in `index` order, to the frame. A snapshot
 larger than one frame arrives as several `snapshot` frames carrying
@@ -28,7 +34,9 @@ larger than one frame arrives as several `snapshot` frames carrying
 when the last part arrives.
 
 A client that reads too slowly gets consecutive text deltas merged while it
-catches up. One that stops reading is sent an `error` with code
+catches up. Live events that arrive while a replay is still being sent wait
+behind it, bounded by size rather than count, so a busy turn during a large
+catch-up does not force a resync before the fence. One that stops reading is sent an `error` with code
 `resync_required` and `retryAfterMs`, then closed with
 `CONVERSATION_RESYNC_CLOSE_CODE`; the close reason carries the same delay
 (`conversationCloseRetryAfterMs`). Wait that long, then resubscribe with the

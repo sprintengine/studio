@@ -114,14 +114,19 @@ export type ConversationServerFrame =
   // with `part`: their `page.events` concatenate in `index` order, and every
   // other field is the same on each. Apply it once the last part arrives. A
   // snapshot without `part` is whole.
+  //
+  // `key` names the conversation a snapshot or fence belongs to. A client
+  // ignores one for a conversation it no longer follows; a desktop from
+  // before the field sends none.
   | {
       type: 'snapshot'
       page: unknown
       reset?: true
       generation?: string
       part?: { index: number; total: number }
+      key?: ConversationWireKey
     }
-  | { type: 'synchronized'; seq: number; generation?: string }
+  | { type: 'synchronized'; seq: number; generation?: string; key?: ConversationWireKey }
   // The subscription to `key` did not start. When `retryable`, subscribe again
   // after `retryAfterMs`; otherwise the conversation is not available to this
   // device.

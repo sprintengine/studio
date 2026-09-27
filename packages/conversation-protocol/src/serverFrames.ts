@@ -39,6 +39,7 @@ export type ConversationParsedServerFrame =
       reset?: true
       generation?: string
       part?: { index: number; total: number }
+      key?: ConversationWireKey
     }
 
 const SERVER_FRAME_TYPES = new Set([
@@ -233,6 +234,8 @@ export function parseConversationServerFrame(value: unknown): ConversationParsed
       if (!snapshot) return null
       if (frame.reset !== undefined && frame.reset !== true) return null
       if (!optional(frame.generation, id)) return null
+      const snapshotKey = frame.key === undefined ? undefined : key(frame.key)
+      if (snapshotKey === null) return null
       const part = frame.part
       if (
         part !== undefined &&
@@ -247,16 +250,20 @@ export function parseConversationServerFrame(value: unknown): ConversationParsed
         ...(part === undefined
           ? {}
           : { part: { index: (part as { index: number }).index, total: (part as { total: number }).total } }),
+        ...(snapshotKey ? { key: snapshotKey } : {}),
       }
     }
-    case 'synchronized':
-      return integer(frame.seq) && optional(frame.generation, id)
+    case 'synchronized': {
+      const fenceKey = frame.key === undefined ? undefined : key(frame.key)
+      return integer(frame.seq) && optional(frame.generation, id) && fenceKey !== null
         ? {
             type: 'synchronized',
             seq: frame.seq,
             ...(frame.generation === undefined ? {} : { generation: frame.generation as string }),
+            ...(fenceKey ? { key: fenceKey } : {}),
           }
         : null
+    }
     case 'subscribeFailed': {
       const failed = key(frame.key)
       return failed && code(frame.code) && text(frame.message) && typeof frame.retryable === 'boolean'

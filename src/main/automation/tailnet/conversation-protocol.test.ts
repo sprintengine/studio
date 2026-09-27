@@ -27,7 +27,7 @@ test('portable protocol source stays byte-identical to the companion source mirr
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), '98cbee0b9ede7d0370a54c5e32a16f33ce33d5ee78d8abebfc5f54d17236b0d0')
+  assert.equal(hash.digest('hex'), '37ce1deeb5d909bc527cf4bc60680da15fd3b9d025c5223615b078d839a34552')
 })
 
 test('conversation protocol accepts bounded frames and refuses remote escalation', () => {

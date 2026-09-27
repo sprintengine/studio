@@ -480,6 +480,15 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
       finish(follow, `${machineName(follow)} sent a conversation frame this build could not read.`, 'protocol')
       return
     }
+    // A snapshot, fence or event for another conversation is never applied
+    // to this one's copy: its cursor would be a cursor into the wrong log.
+    const named =
+      frame.type === 'snapshot' || frame.type === 'synchronized'
+        ? frame.key
+        : frame.type === 'event'
+          ? { workspaceId: frame.event.workspaceId, agentId: frame.event.agentId }
+          : undefined
+    if (named && (named.workspaceId !== follow.key.workspaceId || named.agentId !== follow.key.agentId)) return
     switch (frame.type) {
       case 'chunk': {
         const chunk =

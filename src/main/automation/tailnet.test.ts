@@ -2495,7 +2495,11 @@ test('tailnet', async () => {
       })
       assert.ok(socket.handshake.startsWith('HTTP/1.1 101'))
       socket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
-      assert.deepEqual(await socket.nextMessage(), { type: 'synchronized', seq: 0 })
+      assert.deepEqual(await socket.nextMessage(), {
+        type: 'synchronized',
+        seq: 0,
+        key: { workspaceId: 'workspace', agentId: 'agent' },
+      })
       socket.send({ type: 'command', commandId: 'deny-read-mutation', command: { kind: 'interrupt' } })
       assert.equal((await socket.nextMessage()).code, 'conversation_operate_required')
       const operatorTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: operator.deviceToken })
@@ -2503,7 +2507,11 @@ test('tailnet', async () => {
         path: TAILNET_CONVERSATION_PATH,
       })
       operatorSocket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
-      assert.deepEqual(await operatorSocket.nextMessage(), { type: 'synchronized', seq: 0 })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'synchronized',
+        seq: 0,
+        key: { workspaceId: 'workspace', agentId: 'agent' },
+      })
       operatorSocket.send({
         type: 'command',
         commandId: 'remote-send',
