@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtemp, mkdir, symlink, rm } from 'fs/promises'
+import { mkdtemp, mkdir, readFile, symlink, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
@@ -42,6 +42,51 @@ test('symlink escapes and dangerous commands cannot create or use remembered gra
     await expect(
       store.remember(root, 'session', { action: 'Bash', input: { command: 'sudo ls' } }, 'conversation'),
     ).rejects.toThrow('only be allowed once')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('saved program-wide command grants are narrowed on load and written back', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'conversation-grant-migrate-'))
+  try {
+    const legacy = (program: string) => ({
+      id: program,
+      workspaceRoot: '/workspace/app',
+      toolKind: 'command',
+      toolName: 'Bash',
+      matcher: { type: 'program', program },
+      label: `Bash: ${program}`,
+      createdAt: 1,
+    })
+    const file = join(dir, 'conversation-approval-rules.json')
+    await writeFile(file, JSON.stringify([legacy('git'), legacy('rg')]))
+    const store = new ConversationApprovalRuleStore(dir)
+    const status = { action: 'Bash', input: { command: 'git rebase --exec=./evil.sh HEAD~1' } }
+    expect(await store.match('/workspace/app', 'session', status)).toBeNull()
+    expect(
+      await store.match('/workspace/app', 'session', { action: 'Bash', input: { command: 'rg x' } }),
+    ).not.toBeNull()
+    const saved = JSON.parse(await readFile(file, 'utf8'))
+    expect(saved.map((rule: { id: string; matcher: unknown }) => [rule.id, rule.matcher])).toEqual([
+      ['rg', { type: 'command', program: 'rg' }],
+    ])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a file grant does not follow a symlink into the git directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'conversation-grant-git-'))
+  try {
+    const root = join(dir, 'workspace')
+    await mkdir(join(root, '.git', 'hooks'), { recursive: true })
+    const store = new ConversationApprovalRuleStore()
+    await store.remember(root, 'session', { action: 'Write', input: { path: 'src/a.ts' } }, 'conversation')
+    await symlink(join(root, '.git', 'hooks'), join(root, 'tools'))
+    expect(await store.match(root, 'session', { action: 'Write', input: { path: 'tools/pre-commit' } })).toBeNull()
+    expect(await store.match(root, 'session', { action: 'Write', input: { path: '.git/hooks/pre-commit' } })).toBeNull()
+    expect(await store.match(root, 'session', { action: 'Write', input: { path: 'src/b.ts' } })).not.toBeNull()
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

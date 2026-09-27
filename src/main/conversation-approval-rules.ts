@@ -4,9 +4,10 @@ import { randomUUID } from 'crypto'
 import {
   approvalFilePath,
   approvalRuleCandidate,
-  isConversationApprovalRule,
+  isApprovalPathInGitDirectory,
   isPathWithinApprovalRoot,
   matchesApprovalRule,
+  migrateConversationApprovalRule,
   type ApprovalRuleRequest,
   type ConversationApprovalRule,
 } from '../shared/conversation/approvalRules'
@@ -25,9 +26,12 @@ export class ConversationApprovalRuleStore {
         const value: unknown = JSON.parse(
           await readFile(join(this.userDataDir, 'conversation-approval-rules.json'), 'utf8'),
         )
-        if (!Array.isArray(value) || !value.every(isConversationApprovalRule))
-          throw new Error('Saved conversation approval rules are invalid.')
-        this.persistent = value
+        if (!Array.isArray(value)) throw new Error('Saved conversation approval rules are invalid.')
+        const rules = value.map(migrateConversationApprovalRule)
+        this.persistent = rules.filter((rule) => rule !== null)
+        // Narrowed or dropped grants are written back at once, so an older
+        // build reading the file later cannot revive the wider scope.
+        if (rules.some((rule, index) => rule !== value[index])) await this.save(this.persistent)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
@@ -88,17 +92,20 @@ export class ConversationApprovalRuleStore {
     const write = this.writes
       .catch(() => undefined)
       .then(async () => {
-        if (!this.userDataDir) throw new Error('Persistent conversation permissions are unavailable.')
         const next = change(this.persistent)
-        await mkdir(this.userDataDir, { recursive: true })
-        const file = join(this.userDataDir, 'conversation-approval-rules.json')
-        const temp = `${file}.${randomUUID()}.tmp`
-        await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
-        await rename(temp, file)
+        await this.save(next)
         this.persistent = next
       })
     this.writes = write
     return write
+  }
+  private async save(rules: ConversationApprovalRule[]): Promise<void> {
+    if (!this.userDataDir) throw new Error('Persistent conversation permissions are unavailable.')
+    await mkdir(this.userDataDir, { recursive: true })
+    const file = join(this.userDataDir, 'conversation-approval-rules.json')
+    const temp = `${file}.${randomUUID()}.tmp`
+    await writeFile(temp, `${JSON.stringify(rules, null, 2)}\n`, { mode: 0o600 })
+    await rename(temp, file)
   }
 }
 
@@ -115,7 +122,9 @@ async function safeFileScope(request: ApprovalRuleRequest, workspaceRoot: string
     // Resolve the first existing ancestor; a symlink there must stay in scope.
     for (;;) {
       try {
-        return isPathWithinApprovalRoot(await realpath(existing), root)
+        const real = await realpath(existing)
+        // A symlink inside the workspace may point into its git directory.
+        return isPathWithinApprovalRoot(real, root) && !isApprovalPathInGitDirectory(real, root)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(existing) === existing) return false
         existing = dirname(existing)
