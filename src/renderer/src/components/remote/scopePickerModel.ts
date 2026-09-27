@@ -12,10 +12,12 @@ import { TAILNET_SCOPES, type TailnetScope } from '../../../../shared/tailnet'
 //
 // The rows are per-SCOPE and not per-family. The old four-row shape
 // ("Workspaces — read & operate") bundled `operate` with `read`, so a person
-// who wanted a machine to WATCH their work had to also let it act on it,
-// and the one row that mattered — the terminal tier, which is what makes a
-// cross-machine conversation visible at all — was called "Terminals — control"
-// and read as being about shells rather than about chats.
+// who wanted a machine to WATCH their work had to also let it act on it.
+//
+// Each row says exactly what its scope grants and nothing it does not. Chat
+// conversations have their own two scopes; the terminal tier covers shells and
+// the agents that run in a terminal, and says so, because a row that promised
+// "chats" there would read as granting what only `conversation:read` does.
 
 export type ScopeRow = {
   scope: TailnetScope
@@ -40,7 +42,7 @@ export const SCOPE_ROWS: readonly ScopeRow[] = [
     scope: 'workspace:read',
     title: 'View workspaces',
     code: 'workspace:read',
-    description: 'Chats, agents, branches and files.',
+    description: 'Workspaces, agents, branches and files.',
   },
   {
     scope: 'workspace:operate',
@@ -65,19 +67,19 @@ export const SCOPE_ROWS: readonly ScopeRow[] = [
     scope: 'conversation:operate',
     title: 'Operate conversations',
     code: 'conversation:operate',
-    description: 'Send, stop and answer requests in chats.',
+    description: 'Send messages, stop turns and answer approvals and questions in chats.',
   },
   {
     scope: 'terminal:observe',
-    title: 'Watch chats & terminals',
+    title: 'Watch terminals',
     code: 'terminal:observe',
-    description: 'Read live conversations and shell output.',
+    description: 'Read live shell output, including agents running in a terminal.',
   },
   {
     scope: 'terminal:control',
-    title: 'Drive chats & terminals',
+    title: 'Drive terminals',
     code: 'terminal:control',
-    description: 'Type into conversations and shells. Arbitrary shell on this machine.',
+    description: 'Type into shells and terminal agents. Arbitrary shell on this machine.',
   },
 ]
 
@@ -87,7 +89,7 @@ export type ScopePreset = 'read-only' | 'standard'
  * Read only: every `:read` plus `terminal:observe`.
  *
  * `terminal:observe` is in the READING set because that is what it is — it
- * reads live conversations and shell output. Left out of it, "Read only" would
+ * reads live shell and terminal-agent output. Left out of it, "Read only" would
  * be a preset that hides the one thing a person opens a remote machine to look
  * at, which is the bug this rebuild exists to fix.
  */
@@ -96,14 +98,15 @@ export const READ_ONLY_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
 )
 
 /**
- * Standard: all six, `terminal:control` INCLUDED.
+ * Standard: every scope, both conversation scopes and `terminal:control`
+ * INCLUDED.
  *
  * Owner ruling 2026-09-10, overriding the earlier "arbitrary shell is never
  * pre-ticked" rule. The rule was written for a surface that granted scopes
- * without showing them; this one shows all six rows with the words "Arbitrary
+ * without showing them; this one shows every row with the words "Arbitrary
  * shell on this machine" against the last of them, and the person un-ticks what
  * they do not want. A default that silently excluded the terminal tier is what
- * left every paired machine unable to see the other's chats.
+ * left every paired machine unable to see the other's terminal agents.
  */
 export const STANDARD_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES
 
@@ -164,12 +167,14 @@ export function missingScopes(scopes: readonly TailnetScope[]): TailnetScope[] {
  * The consequence line for a grant missing either terminal scope, or null.
  *
  * It is the sentence the whole rebuild is for: a machine paired without the
- * terminal tier shows no chats and no shell output over there, and until this
- * line existed that read as the feature being broken rather than as a scope
- * nobody granted.
+ * terminal tier shows no shell or terminal-agent output over there, and until
+ * this line existed that read as the feature being broken rather than as a
+ * scope nobody granted. It names only the terminal tier's consequence; chat
+ * conversations are their own rows.
  */
 export function terminalGapNote(scopes: readonly TailnetScope[]): string | null {
   const held = new Set(scopes)
-  if (held.has('terminal:observe') && held.has('terminal:control')) return null
-  return "It can't see chats or terminals here."
+  if (held.has('terminal:control')) return null
+  if (held.has('terminal:observe')) return 'It can watch terminals here but not type into them.'
+  return "It can't see terminals or terminal agents here."
 }

@@ -537,11 +537,11 @@ test('RemotePopover', async () => {
       assert.ok(codeInput(mounted), 'a numeric code input')
       assert.ok(buttonNamed(mounted, /^Allow/)?.disabled, 'Allow is dead until six digits are typed')
       // The scope rows are the shared `ScopePicker` now (remote-settings-rebuild):
-      // one row per scope, named for what it reveals rather than for the transport.
-      // "Terminals — control" read as being about shells; the scope also shows every
-      // cross-machine conversation, so the row says so.
-      assert.match(markup, /Watch chats &amp; terminals/)
-      assert.match(markup, /Drive chats &amp; terminals/)
+      // one row per scope, each naming exactly what it grants: chats under the
+      // conversation rows, shells and terminal agents under the terminal rows.
+      assert.match(markup, /View conversations/)
+      assert.match(markup, /Watch terminals/)
+      assert.match(markup, /Drive terminals/)
       assert.match(markup, /Arbitrary shell on this machine/)
       assert.match(markup, /Allow/)
       assert.match(markup, /Decline/)
