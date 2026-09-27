@@ -179,3 +179,41 @@ test('option operands do not become wrapper commands, search patterns or read ta
   ])
     assert.equal(labelCommand(command).label, expected, command)
 })
+
+test('redirections, runner options and package manager subcommands are not arguments', () => {
+  for (const [command, expected] of [
+    ['cat f.txt 2>/dev/null', 'Read f.txt'],
+    ['cat f.txt 2> /dev/null', 'Read f.txt'],
+    ['ls 2>/dev/null', 'Listed .'],
+    ['ls src 2>&1 | head', 'Listed src'],
+    ['npm test 2>&1 | tail -20', 'Ran npm script test'],
+    ['rg needle src &>/dev/null', 'Searched for "needle"'],
+    ['cat a > b', 'Wrote b'],
+    ['cat a >> notes/b.md', 'Wrote b.md'],
+    ['cat a > /dev/null', 'Read a'],
+    ['head -n 5 a.txt > top.txt', 'Wrote top.txt'],
+    ['echo hi 1> out.txt', 'Wrote out.txt'],
+    ['echo hi 2> err.txt', 'Ran echo'],
+    ['git --no-pager diff', 'git diff'],
+    ['git --no-pager -C repo log', 'git log'],
+    ['git --git-dir=.git --work-tree . status', 'git status'],
+    ['npx -y create-vite', 'Ran create-vite'],
+    ['npx --yes -p typescript tsc', 'Ran tsc'],
+    ['uvx --from ruff ruff check', 'Ran ruff'],
+    ['pnpm dlx -p cowsay cowsay hi', 'Ran cowsay'],
+    ['npm ci', 'Installed dependencies'],
+    ['npm i', 'Installed dependencies'],
+    ['npm i x', 'Installed x'],
+    ['npm install -D vitest', 'Installed vitest'],
+    ['pnpm add react react-dom', 'Installed 2 packages'],
+    ['yarn remove lodash', 'Removed lodash'],
+    ['npm exec tsc', 'Ran npm'],
+    ['npm run-script build', 'Ran npm script build'],
+    ["rg $'foo' src", 'Searched for "foo"'],
+    ["rg $'a\\tb' src", 'Searched for "a\tb"'],
+    ["rg $'it\\'s' src", 'Searched for "it\'s"'],
+  ])
+    assert.equal(labelCommand(command).label, expected, command)
+  assert.equal(labelCommand('cat a > b').kind, 'write')
+  assert.equal(labelCommand('npm ci').kind, 'install')
+})

@@ -15,19 +15,28 @@ export type CommandKind =
   | 'script'
 export type CommandLabel = { label: string; program: string; kind: CommandKind; target?: string }
 
-type Token = { value: string; operator: boolean }
+// `redirect` marks `>`, `2>`, `>&`, `<`, `<<` and the like: the word after one
+// is where a stream goes, never an argument of the command.
+type Token = { value: string; operator: boolean; redirect?: boolean }
 const SEPARATORS = new Set(['&&', '||', ';', '|', '&', '\n'])
 const SETUP = new Set(['cd', 'pushd', 'export', 'set', 'source', '.', 'unset', 'ulimit', 'umask'])
 const READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'bat', 'nl'])
 const SEARCHERS = new Set(['rg', 'grep', 'ag', 'ack'])
 const LISTERS = new Set(['ls', 'tree', 'exa', 'eza'])
 const INTERPRETERS = new Set(['node', 'python', 'python3', 'ruby', 'deno', 'bun', 'tsx', 'ts-node'])
+// Package manager subcommands that are the manager's own, not package scripts.
+const INSTALLS = new Set(['install', 'i', 'in', 'ci', 'add', 'clean-install', 'isntall', 'update', 'up', 'upgrade'])
+const REMOVALS = new Set(['uninstall', 'remove', 'rm', 'un', 'r', 'unlink'])
+const BUILTINS = new Set(['exec', 'x', 'dlx', 'init', 'create', 'publish', 'pack', 'link', 'outdated', 'audit'])
+
+const REDIRECTS = new Set(['>', '>>', '<', '<<', '<<<', '>&', '<&', '>|', '<>', '&>', '&>>'])
 
 function tokenize(input: string): Token[] {
   const result: Token[] = []
   let word = ''
   let quoted = false
-  let quote: "'" | '"' | null = null
+  // `ansi` is bash's $'…', whose backslash escapes are expanded.
+  let quote: "'" | '"' | 'ansi' | null = null
   const push = () => {
     if (word || quoted) result.push({ value: word, operator: false })
     word = ''
@@ -35,6 +44,14 @@ function tokenize(input: string): Token[] {
   }
   for (let i = 0; i < input.length; i++) {
     const char = input[i]
+    if (quote === 'ansi') {
+      if (char === "'") quote = null
+      else if (char === '\\' && i + 1 < input.length) {
+        const next = input[++i]
+        word += next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next
+      } else word += char
+      continue
+    }
     if (quote) {
       if (char === quote) {
         quote = null
@@ -50,8 +67,7 @@ function tokenize(input: string): Token[] {
       continue
     }
     if (char === '$' && input[i + 1] === "'") {
-      word += '$'
-      quote = "'"
+      quote = 'ansi'
       i++
       quoted = true
       continue
@@ -67,12 +83,19 @@ function tokenize(input: string): Token[] {
       continue
     }
     if (';&|<>'.includes(char)) {
+      // A file descriptor written against its redirect (`2>`) belongs to it.
+      const fd = (char === '<' || char === '>') && !quoted && /^\d+$/u.test(word) ? word : ''
+      if (fd) word = ''
       push()
-      const pair = char + (input[i + 1] ?? '')
-      if (['&&', '||', '>>', '<<'].includes(pair)) {
-        result.push({ value: pair, operator: true })
-        i++
-      } else result.push({ value: char, operator: true })
+      let operator = char
+      for (const candidate of ['&>>', '<<<', '&&', '||', '>>', '<<', '>&', '<&', '>|', '<>', '&>']) {
+        if (input.startsWith(candidate, i)) {
+          operator = candidate
+          break
+        }
+      }
+      i += operator.length - 1
+      result.push({ value: fd + operator, operator: true, ...(REDIRECTS.has(operator) ? { redirect: true } : {}) })
       continue
     }
     word += char
@@ -108,6 +131,28 @@ function inferScriptKind(script: string): CommandKind {
   return 'script'
 }
 
+// The command's own words: a redirect's target (`2>/dev/null`, `> out.txt`,
+// `2>&1`, a heredoc's delimiter) is not an argument.
+function commandWords(segment: Token[]): string[] {
+  const words: string[] = []
+  for (let index = 0; index < segment.length; index++) {
+    const token = segment[index]
+    if (token.redirect) {
+      if (!segment[index + 1]?.operator) index++
+    } else if (!token.operator) words.push(token.value)
+  }
+  return words
+}
+
+// Where standard output is sent to a file, if anywhere.
+function stdoutTarget(tokens: Token[]): string | undefined {
+  const index = tokens.findIndex(
+    (token) => token.redirect && ['>', '>>', '1>', '1>>', '>|', '&>'].includes(token.value),
+  )
+  const target = index >= 0 ? tokens[index + 1] : undefined
+  return target && !target.operator && target.value !== '/dev/null' ? target.value : undefined
+}
+
 function firstSegment(tokens: Token[]): Token[] {
   let current: Token[] = []
   const segments: Token[][] = []
@@ -120,7 +165,7 @@ function firstSegment(tokens: Token[]): Token[] {
   if (current.length) segments.push(current)
   return (
     segments.find((segment) => {
-      const words = segment.filter((token) => !token.operator).map((token) => token.value)
+      const words = commandWords(segment)
       const first = words.find((word) => !/^[A-Za-z_][A-Za-z_0-9]*=/u.test(word))
       return first && !SETUP.has(programName(first))
     }) ?? []
@@ -232,36 +277,55 @@ function classify(
       )
   }
 
-  let runnerTool: string | undefined
-  if (lower === 'npx' || lower === 'bunx' || lower === 'uvx') runnerTool = args[1]
-  else if (lower === 'pipx' && args[1] === 'run') runnerTool = args[2]
-  else if (['pnpm', 'yarn'].includes(lower) && args[1] === 'dlx') runnerTool = args[2]
-  if (runnerTool) {
-    const tool = runnerTool.replace(/@[^@/]+$/u, '')
-    return classify([tool, ...args.slice(args.indexOf(runnerTool) + 1)], operators, depth + 1, shell)
+  // A package runner's own options (`npx -y`, `uvx --from x`) come before the
+  // tool it runs.
+  let runnerArgs: string[] | undefined
+  if (lower === 'npx' || lower === 'bunx')
+    runnerArgs = afterLeadingOptions(args.slice(1), ['-p', '--package', '-c', '--call'])
+  else if (lower === 'uvx') runnerArgs = afterLeadingOptions(args.slice(1), ['--from', '--with', '--python', '-p'])
+  else if (lower === 'pipx' && args[1] === 'run') runnerArgs = afterLeadingOptions(args.slice(2), ['--spec'])
+  else if (['pnpm', 'yarn'].includes(lower) && args[1] === 'dlx')
+    runnerArgs = afterLeadingOptions(args.slice(2), ['-p', '--package'])
+  if (runnerArgs?.length) {
+    const tool = runnerArgs[0].replace(/@[^@/]+$/u, '')
+    return classify([tool, ...runnerArgs.slice(1)], operators, depth + 1, shell)
   }
 
   if (lower === 'bun' && /\.[A-Za-z0-9]+$/u.test(args[1] ?? '') && args[1] !== 'run') {
     return labeled(`Ran ${basename(args[1])}`, lower, 'script', args[1])
   }
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(lower)) {
-    const script = args[1] === 'run' ? args[2] : args[1]
-    if (script && (args[1] === 'run' || !['install', 'add', 'remove', 'exec', 'dlx'].includes(script))) {
+    const subcommand = args[1]
+    const script = subcommand === 'run' || subcommand === 'run-script' ? args[2] : subcommand
+    if (subcommand && INSTALLS.has(subcommand)) {
+      const packages = targetAfterOptions(args.slice(2), ['--filter', '-F', '-w', '--workspace'])
+      return labeled(
+        packages.length > 1 ? `Installed ${packages.length} packages` : `Installed ${packages[0] ?? 'dependencies'}`,
+        lower,
+        'install',
+        packages[0],
+      )
+    }
+    if (subcommand && REMOVALS.has(subcommand)) {
+      const packages = targetAfterOptions(args.slice(2))
+      return labeled(`Removed ${packages[0] ?? 'packages'}`, lower, 'install', packages[0])
+    }
+    if (script && (script !== subcommand || !BUILTINS.has(script))) {
       return labeled(`Ran ${lower} script ${script}`, lower, inferScriptKind(script), script)
     }
-    if (['install', 'add'].includes(script))
-      return labeled(`Installed ${args[2] ?? 'dependencies'}`, lower, 'install', args[2])
   }
 
   if (lower === 'git') {
+    // Global options (`--no-pager`, `-C dir`, `--git-dir=…`) precede the subcommand.
     let i = 1
-    while (i < args.length && (args[i] === '-C' || args[i] === '-c')) i += 2
+    while (i < args.length && args[i].startsWith('-')) {
+      i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'].includes(args[i]) ? 2 : 1
+    }
     return labeled(`git ${args[i] ?? 'command'}`, 'git', 'git', args[i])
   }
 
   if (['echo', 'printf'].includes(lower)) {
-    const redirect = operators.findIndex((token) => token.operator && ['>', '>>'].includes(token.value))
-    const target = redirect >= 0 ? operators[redirect + 1]?.value : undefined
+    const target = stdoutTarget(operators)
     if (target) return labeled(`Wrote ${basename(target)}`, lower, 'write', target)
   }
 
@@ -274,8 +338,7 @@ function classify(
   }
 
   if ((lower === 'cat' || lower === 'tee') && operators.some((token) => token.value === '<<')) {
-    const redirect = operators.findIndex((token) => token.value === '>')
-    const target = lower === 'tee' ? args[1] : operators[redirect + 1]?.value
+    const target = lower === 'tee' ? args[1] : stdoutTarget(operators)
     if (target) return labeled(`Wrote ${basename(target)}`, lower, 'write', target)
   }
 
@@ -320,6 +383,9 @@ function classify(
                 '--body-numbering',
               ]
             : []
+    // `cat a > b` copies into b: what it does is write b.
+    const written = stdoutTarget(operators)
+    if (written) return labeled(`Wrote ${basename(written)}`, program, 'write', written)
     const files = targetAfterOptions(args.slice(lower === 'sed' ? 3 : 1), valueOptions)
     if (files.length > 1) return labeled(`Read ${files.length} files`, program, 'read')
     return labeled(`Read ${basename(files[0] ?? 'input')}`, program, 'read', files[0])
@@ -382,8 +448,7 @@ function labelCommandInner(
 ): CommandLabel {
   const tokens = Array.isArray(input) ? input.map((value) => ({ value, operator: false })) : tokenize(input)
   const segment = firstSegment(tokens)
-  const words = segment.filter((token) => !token.operator).map((token) => token.value)
-  return classify(words, segment, depth, shell)
+  return classify(commandWords(segment), segment, depth, shell)
 }
 
 export function labelCommand(
