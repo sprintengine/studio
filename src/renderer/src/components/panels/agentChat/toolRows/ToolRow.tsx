@@ -13,6 +13,7 @@ import { deriveEditHunks } from '../../../../../../shared/conversation/editHunks
 import { InlineDiff } from '../../../ui/InlineDiff'
 import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
 import { useLiveRowMotion } from '../liveVisibility'
+import { LiveElapsed } from '../liveElapsed'
 
 export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
   return {
@@ -212,6 +213,11 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
         {presentation.subtitle ? (
           <span className="min-w-0 truncate text-meta text-[color:var(--sem-color-text-muted)]">
             {conversationText(presentation.subtitle, 'inlineCode')}
+          </span>
+        ) : null}
+        {running && tool.startedAt !== undefined ? (
+          <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
+            <LiveElapsed startedAt={tool.startedAt} />
           </span>
         ) : null}
       </div>

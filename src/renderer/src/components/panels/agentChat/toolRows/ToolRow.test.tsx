@@ -212,3 +212,13 @@ test('truncated output is fetched only on request and failures can be retried', 
     }
   }
 })
+
+test('a running tool shows how long it has been running, a finished one does not', () => {
+  const startedAt = Date.now() - 5_000
+  const running = renderToStaticMarkup(
+    <ToolRow tool={tool({ status: 'running', startedAt, input: { command: 'npm test' } })} />,
+  )
+  expect(running).toMatch(/>[5-6]s</u)
+  const done = renderToStaticMarkup(<ToolRow tool={tool({ startedAt, completedAt: startedAt + 5_000 })} />)
+  expect(done).not.toMatch(/>[5-6]s</u)
+})
