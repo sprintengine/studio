@@ -312,6 +312,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     entry?.kind === 'live' && entry.delta?.key === key && entry.subscription === subscription
   const removeLive = (entry: LiveEntry): void => {
     const index = pending.indexOf(entry)
+    // Already folded into its neighbour by an earlier removal.
+    if (index < 0) return
     pending.splice(index, 1)
     liveFrames--
     liveBytes -= entry.bytes
