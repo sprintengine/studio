@@ -11,7 +11,14 @@ import {
 } from '../../lib/highlight/codeHighlight'
 import '../../../../../design-system/components/code-block/component.css'
 
-export type CodeBlockProps = { code: string; language?: string; filename?: string; streaming?: boolean }
+export type CodeBlockProps = {
+  code: string
+  language?: string
+  filename?: string
+  streaming?: boolean
+  /** Header actions a surface adds for its own kind of block, set before Wrap and Copy. */
+  actions?: ReactNode
+}
 
 const TokenLine = memo(function TokenLine({ line }: { line: CodeLine }) {
   return (
@@ -89,6 +96,7 @@ export function CodeBlock(props: CodeBlockProps) {
     >
       <div className="ds-code-block__header">
         <span className="ds-code-block__label">{props.filename || props.language || 'Plain text'}</span>
+        {props.actions}
         <GhostButton size="xs" aria-label="Wrap code" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
           Wrap
         </GhostButton>

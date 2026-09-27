@@ -1,8 +1,16 @@
 import { expect, test } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { partitionWorkTimeline, WorkTimeline } from './timelineRows'
-import type { TranscriptToolEntry } from './conversationProjection'
+import {
+  AssistantTurnBlock,
+  describeToolGroup,
+  formatStepDuration,
+  partitionWorkTimeline,
+  SubagentLane,
+  type TimelineChrome,
+  WorkTimeline,
+} from './timelineRows'
+import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
 
 const tool = (id: string, name = 'Read'): TranscriptToolEntry => ({
   kind: 'tool',
@@ -50,4 +58,103 @@ test('the step running now stays outside the fold', () => {
   expect(html).toContain('Read 2 files')
   expect(html.match(/data-tool-kind=/g)).toHaveLength(1)
   expect(html).toContain('>running<')
+})
+
+test('a step duration rounds once, so it never reads "1m 60s"', () => {
+  expect(formatStepDuration(119_700)).toBe('2m 0s')
+  expect(formatStepDuration(59_600)).toBe('1m 0s')
+  expect(formatStepDuration(83_000)).toBe('1m 23s')
+  expect(formatStepDuration(59_400)).toBe('59s')
+})
+
+test('a command that exited non-zero counts on the closed group header', () => {
+  const exited: TranscriptToolEntry = {
+    ...tool('c', 'Bash'),
+    toolKind: 'command',
+    input: { command: 'npm test' },
+    exitCode: 1,
+  }
+  expect(describeToolGroup([tool('a'), tool('b'), exited])).toEqual({ kind: 'file_read', failed: 1 })
+  const html = renderToStaticMarkup(<WorkTimeline tools={[tool('a'), tool('b'), exited]} live={false} />)
+  expect(html).toContain('aria-label="Read 2 files and ran 1 command, 1 failed"')
+  expect(html).toContain('--tone-error)]">· 1 failed')
+  // A lane's own steps count too.
+  const lane: TranscriptToolEntry = {
+    ...tool('lane', 'Task'),
+    toolKind: 'subagent',
+    subagentLane: true,
+    children: [exited],
+  }
+  expect(describeToolGroup([lane]).failed).toBe(1)
+  expect(describeToolGroup([tool('a'), { ...exited, exitCode: 0 }]).failed).toBe(0)
+})
+
+test('a settled lane label sinks to the quiet ink; a running one stays strong', () => {
+  const lane = (status: 'done' | 'running'): TranscriptToolEntry => ({
+    ...tool('lane', 'Task'),
+    toolKind: 'subagent',
+    subagentLane: true,
+    subagentType: 'Explore',
+    input: { description: 'Find the cache' },
+    status,
+  })
+  const settled = renderToStaticMarkup(<SubagentLane tool={lane('done')} />)
+  expect(settled).toContain('text-[color:var(--text-subtle)]">Explore agent<')
+  expect(settled).not.toContain('font-medium text-[color:var(--text-default)]')
+  expect(renderToStaticMarkup(<SubagentLane tool={lane('running')} />)).toContain(
+    'font-medium text-[color:var(--text-default)]">Explore agent<',
+  )
+})
+
+const chrome: TimelineChrome = { assistantName: 'Claude', onRetry: () => {}, retryDisabled: false }
+const assistant = (
+  values: Partial<Extract<TranscriptEntry, { kind: 'assistant' }>>,
+): Extract<TranscriptEntry, { kind: 'assistant' }> => ({
+  kind: 'assistant',
+  turnId: 'turn',
+  text: '',
+  reasoning: '',
+  status: 'streaming',
+  ...values,
+})
+
+test('thinking again after prose reads "Thinking", not the first stretch’s duration', () => {
+  const second = renderToStaticMarkup(
+    <AssistantTurnBlock
+      entry={assistant({
+        text: 'Here is the plan.',
+        reasoning: 'First pass.\n\nNow the edge cases.',
+        reasoningDurationMs: 4000,
+        reasoningLive: true,
+      })}
+      tools={[]}
+      decisions={[]}
+      chrome={chrome}
+    />,
+  )
+  expect(second).toContain('Thinking')
+  expect(second).not.toContain('Thought for')
+  const closed = renderToStaticMarkup(
+    <AssistantTurnBlock
+      entry={assistant({ text: 'Here is the plan.', reasoning: 'First pass.', reasoningDurationMs: 4000 })}
+      tools={[]}
+      decisions={[]}
+      chrome={chrome}
+    />,
+  )
+  expect(closed).toContain('Thought for 4s')
+})
+
+test('a folded older turn says when steps inside it went wrong', () => {
+  const failed: TranscriptToolEntry = { ...tool('c', 'Bash'), toolKind: 'command', exitCode: 1 }
+  const html = renderToStaticMarkup(
+    <AssistantTurnBlock
+      entry={assistant({ status: 'complete', text: 'Done.', startedAt: 0, completedAt: 5000 })}
+      tools={[tool('a'), failed]}
+      decisions={[]}
+      chrome={{ ...chrome, latestTurnId: 'later' }}
+    />,
+  )
+  expect(html).toContain('aria-label="Worked for 5s · 2 steps, 1 failed"')
+  expect(html).toContain('--tone-error)]">· 1 failed')
 })

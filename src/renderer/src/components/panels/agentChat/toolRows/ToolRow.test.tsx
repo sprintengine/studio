@@ -1,6 +1,13 @@
 import { test, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { displayToolPath, isPreviewableImagePath, ToolBody, ToolRow } from './ToolRow'
+import {
+  displayToolPath,
+  forwardRowGroundClick,
+  isPreviewableImagePath,
+  previewsAsImage,
+  ToolBody,
+  ToolRow,
+} from './ToolRow'
 import { ConversationLinkProvider } from '../conversationLinks'
 import type { TranscriptToolEntry } from '../conversationProjection'
 import { JSDOM } from 'jsdom'
@@ -22,6 +29,88 @@ test('command body retains command, ANSI text, and a neutral nonzero exit status
   expect(body).not.toContain('\u001b')
   expect(body).toContain('exit 1')
   expect(renderToStaticMarkup(<ToolRow tool={row} />)).not.toContain('data-tone="error"')
+})
+
+test('a non-zero exit is quiet on the glyph but never in quiet ink on the row', () => {
+  const html = renderToStaticMarkup(
+    <ToolRow tool={tool({ toolKind: 'command', input: { command: 'npm test' }, exitCode: 2 })} />,
+  )
+  const subtitle = Array.from(new JSDOM(html).window.document.querySelectorAll('span')).find(
+    (span) => span.textContent === 'exit 2',
+  )
+  expect(subtitle?.className).toContain('--tone-error')
+  expect(subtitle?.className).not.toContain('--text-disabled')
+  const body = renderToStaticMarkup(
+    <ToolBody tool={tool({ toolKind: 'command', input: { command: 'npm test' }, exitCode: 2 })} />,
+  )
+  expect(body).toContain('--tone-error)]">exit 2')
+  expect(renderToStaticMarkup(<ToolBody tool={tool({ toolKind: 'command', exitCode: 0 })} />)).not.toContain(
+    '--tone-error',
+  )
+})
+
+test('a press on the row ground goes through the label button, and a portalled click is ignored', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }
+  Object.assign(globalThis, globals)
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  // What the transcript's capture handler sees: the disclosure button it
+  // guards, whichever part of the row was pressed.
+  const guarded: (Element | null)[] = []
+  try {
+    await act(async () =>
+      root.render(
+        <div
+          onClickCapture={(event) =>
+            guarded.push(event.target instanceof Element ? event.target.closest('button[aria-expanded]') : null)
+          }
+        >
+          <ToolRow tool={tool({ id: 'ground-click', toolKind: 'command', input: { command: 'npm test' } })} />
+        </div>,
+      ),
+    )
+    const button = host.querySelector('button[aria-expanded]')!
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    const chevron = host.querySelector('[data-tool-kind] > div > svg:last-child')!
+    await act(async () => chevron.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })))
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(guarded.at(-1)).toBe(button)
+    // A click React bubbled up from a menu portalled elsewhere in the page.
+    const menu = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(menu)
+    let clicks = 0
+    const press = (target: Element) =>
+      forwardRowGroundClick(
+        { target, currentTarget: host.querySelector('[data-tool-kind] > div') } as never,
+        { click: () => clicks++ } as unknown as HTMLButtonElement,
+      )
+    press(menu)
+    expect(clicks).toBe(0)
+    press(chevron)
+    expect(clicks).toBe(1)
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of Object.keys(globals)) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
 })
 
 test('collapsed file subtitles are independent links, never nested inside the disclosure button', () => {
@@ -401,4 +490,34 @@ test('reading an image previews the picture instead of printing its bytes', () =
   )
   expect(html).not.toContain('binary')
   expect(html).not.toContain('ds-code-block')
+})
+
+test('an SVG read shows its markup, and a failed read shows why', () => {
+  expect(previewsAsImage('/tmp/shot.png')).toBe(true)
+  expect(previewsAsImage('assets/logo.svg')).toBe(false)
+  const svg = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        toolKind: 'file_read',
+        name: 'Read',
+        input: { path: 'assets/logo.svg' },
+        output: '<svg viewBox="0 0 16 16"/>',
+      })}
+    />,
+  )
+  expect(svg).toContain('ds-code-block')
+  expect(svg).toContain('viewBox')
+  const failed = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        toolKind: 'file_read',
+        name: 'Read',
+        input: { path: '/tmp/gone.png' },
+        output: 'File does not exist.',
+        outputStatus: 'error',
+      })}
+    />,
+  )
+  expect(failed).toContain('File does not exist.')
+  expect(failed).not.toContain('no longer available')
 })

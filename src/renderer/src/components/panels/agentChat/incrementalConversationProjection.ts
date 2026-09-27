@@ -1,5 +1,6 @@
 import type { ConversationEvent } from '../../../../../shared/conversation-runtime'
 import {
+  openReasoningRun,
   projectConversation,
   readBoolean,
   readNumber,
@@ -31,6 +32,8 @@ function entryKey(entry: TranscriptEntry): string {
       return `tool:${entry.id}`
     case 'approval':
       return `approval:${entry.requestId}`
+    case 'compaction':
+      return `compaction:${entry.id}`
   }
 }
 
@@ -44,25 +47,48 @@ function collectHistory(history: HistoryNode | null): ConversationEvent[] {
   return events
 }
 
+// Each turn's latest reasoning run: a run closed by prose or a tool call is
+// replaced by the next one, as the fold adds each closed run to its segment.
+// A failure without a turn id (an interrupt) closes the latest turn still
+// streaming, as the fold resolves it, so the two never disagree about whether
+// a run is open.
 function reasoningWindows(events: ConversationEvent[]): Map<string, ReasoningWindow> {
   const windows = new Map<string, ReasoningWindow>()
+  // Turns in the order the fold creates them, and whether each still streams.
+  const streaming = new Map<string, boolean>()
+  const close = (turnId: string, at: number) => {
+    const window = windows.get(turnId)
+    if (window && window.endedAt === undefined) window.endedAt = at
+  }
   for (const event of events) {
     const turnId = readString(event.payload, 'turnId')
-    if (!turnId) continue
-    if (event.type === 'reasoning_delta' && !windows.has(turnId)) windows.set(turnId, { startedAt: event.createdAt })
+    if (!turnId) {
+      if (event.type !== 'turn_failed') continue
+      const active = [...streaming].findLast(([, live]) => live)?.[0]
+      if (active === undefined) continue
+      close(active, event.createdAt)
+      streaming.set(active, false)
+      continue
+    }
+    // Every event the fold opens a turn for; a resolved approval opens none.
+    if (event.type !== 'approval_resolved' && !streaming.has(turnId)) streaming.set(turnId, true)
+    if (event.type === 'turn_started') streaming.set(turnId, true)
+    if (event.type === 'reasoning_delta' && !isOpen(windows.get(turnId)))
+      windows.set(turnId, { startedAt: event.createdAt })
     else if (
       event.type === 'content_delta' ||
       event.type === 'tool_started' ||
       event.type === 'turn_completed' ||
       event.type === 'turn_failed'
-    ) {
-      const window = windows.get(turnId)
-      if (window && window.endedAt === undefined) {
-        window.endedAt = event.createdAt
-      }
-    }
+    )
+      close(turnId, event.createdAt)
+    if (event.type === 'turn_completed' || event.type === 'turn_failed') streaming.set(turnId, false)
   }
   return windows
+}
+
+function isOpen(window: ReasoningWindow | undefined): window is ReasoningWindow {
+  return window !== undefined && window.endedAt === undefined
 }
 
 function reuseTool(previous: TranscriptToolEntry, next: TranscriptToolEntry): TranscriptToolEntry {
@@ -172,14 +198,16 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
     return (
       updateEntry(state, key, (entry) => {
         if (entry.kind !== 'assistant') return entry
-        if (event.type === 'reasoning_delta') return delta ? { ...entry, reasoning: entry.reasoning + delta } : entry
         const window = state.reasoning.get(turnId)
-        const reasoningDurationMs =
-          window && window.endedAt === undefined
-            ? Math.max(0, event.createdAt - window.startedAt)
-            : entry.reasoningDurationMs
-        if (!delta && reasoningDurationMs === entry.reasoningDurationMs) return entry
-        return { ...entry, text: entry.text + delta, reasoningDurationMs }
+        if (event.type === 'reasoning_delta') {
+          if (isOpen(window)) return delta ? { ...entry, reasoning: entry.reasoning + delta } : entry
+          return { ...entry, reasoning: openReasoningRun(entry.reasoning, delta), reasoningLive: true }
+        }
+        const reasoningDurationMs = isOpen(window)
+          ? (entry.reasoningDurationMs ?? 0) + Math.max(0, event.createdAt - window.startedAt)
+          : entry.reasoningDurationMs
+        if (!delta && reasoningDurationMs === entry.reasoningDurationMs && !entry.reasoningLive) return entry
+        return { ...entry, text: entry.text + delta, reasoningDurationMs, reasoningLive: undefined }
       }) ?? state.projection
     )
   }
@@ -209,7 +237,7 @@ export function applyEvent(
   if (projection) {
     let reasoning = state.reasoning
     const turnId = readString(event.payload, 'turnId')
-    if (turnId && event.type === 'reasoning_delta' && !reasoning.has(turnId)) {
+    if (turnId && event.type === 'reasoning_delta' && !isOpen(reasoning.get(turnId))) {
       reasoning = new Map(reasoning).set(turnId, { startedAt: event.createdAt })
     } else if (turnId && event.type === 'content_delta') {
       const window = reasoning.get(turnId)

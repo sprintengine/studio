@@ -6,8 +6,9 @@ import {
   resolveSkillLink,
 } from '../components/workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import type { GitLineChange } from './gitDiff'
-import { renderMarkdown, type MarkdownLinkResolver } from './markdown'
-import { test } from 'vitest'
+import type { Element } from 'hast'
+import { renderMarkdown, tableMarkdown, type MarkdownLinkResolver } from './markdown'
+import { expect, test } from 'vitest'
 
 test('markdown', async () => {
   function render(markdown: string, lineChanges: GitLineChange[] = []): string {
@@ -209,4 +210,86 @@ test('markdown', async () => {
   testHeadingsKeepTheAuthorsOwnCase()
   testCorpusLinksOnlyOpenFilesTheSkillActuallyCarries()
   console.log('markdown: ok')
+})
+
+function renderPlain(markdown: string): string {
+  return renderToStaticMarkup(renderMarkdown(markdown))
+}
+
+test('a GitHub alert is drawn as its kind, with the marker taken out of the text', () => {
+  for (const [marker, kind, label] of [
+    ['NOTE', 'note', 'Note'],
+    ['TIP', 'tip', 'Tip'],
+    ['IMPORTANT', 'important', 'Important'],
+    ['WARNING', 'warning', 'Warning'],
+    ['caution', 'caution', 'Caution'],
+  ]) {
+    const html = renderPlain(`> [!${marker}]\n> Back up the **database** first.`)
+    expect(html).toContain(`data-alert="${kind}"`)
+    expect(html).toContain('role="note"')
+    expect(html).toContain(`</svg>${label}</p>`)
+    expect(html).toContain('Back up the <strong')
+    expect(html).not.toContain('[!')
+    expect(html).not.toContain('<blockquote')
+  }
+})
+
+test('a blockquote that only mentions an alert marker stays a blockquote', () => {
+  for (const markdown of ['> [!NOTE] inline title', '> Some text\n> [!NOTE]', '> [!NOTICE]\n> text']) {
+    const html = renderPlain(markdown)
+    expect(html, markdown).toContain('<blockquote')
+    expect(html, markdown).not.toContain('data-alert')
+  }
+  // An alert inside a list item is still an alert.
+  expect(renderPlain('- item\n\n  > [!TIP]\n  > Use the cache.')).toContain('data-alert="tip"')
+})
+
+test('a table offers to copy itself as markdown', () => {
+  expect(renderPlain('| a | b |\n| - | - |\n| 1 | 2 |')).toContain('aria-label="Copy table as Markdown"')
+  // The tree remark hands the `table` component, built by hand: a header row
+  // carrying the column alignment, then body rows, one of them short a cell.
+  const el = (tagName: string, children: Element['children'], properties: Element['properties'] = {}): Element => ({
+    type: 'element',
+    tagName,
+    properties,
+    children,
+  })
+  const text = (value: string) => ({ type: 'text' as const, value })
+  const table = el('table', [
+    el('thead', [
+      el('tr', [
+        el('th', [text('Name')], { align: 'left' }),
+        el('th', [text('Kind')], { align: 'center' }),
+        el('th', [text('Size')], { align: 'right' }),
+      ]),
+    ]),
+    el('tbody', [
+      el('tr', [
+        el('td', [el('code', [text('a|b.ts')])]),
+        el('td', [el('strong', [text('file')])]),
+        el('td', [el('a', [text('1 KB')], { href: 'https://example.com/a' })]),
+      ]),
+      el('tr', [el('td', [text('c')]), el('td', [el('em', [text('dir')])])]),
+    ]),
+  ])
+  expect(tableMarkdown(table)).toBe(
+    [
+      '| Name | Kind | Size |',
+      '| :--- | :---: | ---: |',
+      '| `a\\|b.ts` | **file** | [1 KB](https://example.com/a) |',
+      '| c | *dir* |  |',
+    ].join('\n'),
+  )
+})
+
+test('an image is stated by its alt text unless the surface can show it', () => {
+  expect(renderPlain('![Diagram](https://example.com/d.png)')).toContain('[Image: Diagram]')
+  const shown = renderToStaticMarkup(
+    renderMarkdown('![Diagram](./d.png) and [![Badge](https://example.com/b.svg)](https://example.com)', {
+      renderImage: (src, alt, inLink) => <img data-in-link={String(inLink)} src={src} alt={alt} />,
+    }),
+  )
+  // The source reaches the renderer as written — a path is not a URL the page may load.
+  expect(shown).toContain('<img data-in-link="false" src="./d.png" alt="Diagram"/>')
+  expect(shown).toContain('<img data-in-link="true" src="https://example.com/b.svg" alt="Badge"/>')
 })

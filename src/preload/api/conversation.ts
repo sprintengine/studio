@@ -38,6 +38,8 @@ import type {
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
+  ConversationAttachmentInput,
+  ConversationAttachmentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -46,6 +48,8 @@ import type {
   ConversationTurnDiffResult,
   ConversationRevertInput,
   ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
@@ -77,6 +81,7 @@ type ConversationIpcRenderer = {
   ): Promise<ConversationApprovalRuleRevokeResult>
   invoke(channel: 'conversation:turn:diff', input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
   invoke(channel: 'conversation:turn:revert', input: ConversationRevertInput): Promise<ConversationRevertResult>
+  invoke(channel: 'conversation:turn:rewind', input: ConversationRewindInput): Promise<ConversationRewindResult>
   invoke(
     channel: 'conversation:session:subscribe',
     input: ConversationSubscribeInput & { subscriptionId: string },
@@ -142,6 +147,7 @@ type ConversationIpcRenderer = {
   ): Promise<ConversationListSessionsResult>
   invoke(channel: 'conversation:transcript', input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   invoke(channel: 'conversation:tool-detail', input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
+  invoke(channel: 'conversation:attachment', input: ConversationAttachmentInput): Promise<ConversationAttachmentResult>
   invoke(channel: 'conversation:events:subscribe'): Promise<{ ok: true; subscriptionId: string }>
   invoke(
     channel: 'conversation:events:unsubscribe',
@@ -187,6 +193,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:turn:diff', input),
     conversationRevertToTurn: (input: ConversationRevertInput): Promise<ConversationRevertResult> =>
       renderer.invoke('conversation:turn:revert', input),
+    conversationRewindToTurn: (input: ConversationRewindInput): Promise<ConversationRewindResult> =>
+      renderer.invoke('conversation:turn:rewind', input),
     conversationProvidersList: (input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> =>
       renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
@@ -219,6 +227,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:transcript', input),
     conversationToolDetail: (input: ConversationToolDetailInput): Promise<ConversationToolDetailResult> =>
       renderer.invoke('conversation:tool-detail', input),
+    conversationAttachment: (input: ConversationAttachmentInput): Promise<ConversationAttachmentResult> =>
+      renderer.invoke('conversation:attachment', input),
     conversationLoadEarlier: (input: ConversationLoadEarlierInput): Promise<ConversationPageResult> =>
       renderer.invoke('conversation:session:earlier', input),
     onConversationSession: (
@@ -298,9 +308,11 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionsList'
     | 'conversationTranscript'
     | 'conversationToolDetail'
+    | 'conversationAttachment'
     | 'conversationLoadEarlier'
     | 'conversationTurnDiff'
     | 'conversationRevertToTurn'
+    | 'conversationRewindToTurn'
     | 'conversationApprovalRules'
     | 'conversationRevokeApprovalRule'
     | 'onConversationSession'

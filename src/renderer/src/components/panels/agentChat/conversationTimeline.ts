@@ -66,9 +66,13 @@ export type ConversationTimelineRow =
       entry: Extract<TranscriptEntry, { kind: 'assistant' }>
       tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
       decisions: ConversationDecisionRow[]
+      // The turn ran on another model than the reply before it — the model
+      // can be switched mid-conversation, and the footer then names it.
+      modelSwitched?: boolean
     }
   // Requests that never named a turn; they surface on their own.
   | { kind: 'approval'; id: string; decisions: ConversationDecisionRow[] }
+  | { kind: 'compaction'; id: string; entry: Extract<TranscriptEntry, { kind: 'compaction' }> }
   | {
       kind: 'working'
       id: string
@@ -169,11 +173,16 @@ export function deriveConversationTimelineRows(
         entry.kind === 'approval' && entry.status === 'pending',
     )
 
+  let previousModelId: string | undefined
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
     if (!entry) continue
     if (entry.kind === 'user') {
       rows.push({ kind: 'user', id: `user:${entry.id}`, entry })
+      continue
+    }
+    if (entry.kind === 'compaction') {
+      rows.push({ kind: 'compaction', id: `compaction:${entry.id}`, entry })
       continue
     }
     if (entry.kind === 'assistant') {
@@ -204,8 +213,17 @@ export function deriveConversationTimelineRows(
         entry.status === 'failed' ||
         entry.status === 'interrupted'
       ) {
-        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools, decisions })
+        const modelSwitched = Boolean(previousModelId && entry.modelId && entry.modelId !== previousModelId)
+        rows.push({
+          kind: 'assistant',
+          id: `assistant:${entry.turnId}`,
+          entry,
+          tools,
+          decisions,
+          ...(modelSwitched ? { modelSwitched } : {}),
+        })
       }
+      previousModelId = entry.modelId ?? previousModelId
       index = cursor - 1
       continue
     }
@@ -272,9 +290,11 @@ export function deriveConversationTimelineRows(
       row.entry === previous.entry &&
       row.tools.length === previous.tools.length &&
       row.tools.every((tool, index) => tool === previous.tools[index]) &&
-      sameDecisions(row.decisions, previous.decisions)
+      sameDecisions(row.decisions, previous.decisions) &&
+      row.modelSwitched === previous.modelSwitched
     )
       return previous
+    if (row.kind === 'compaction' && previous.kind === 'compaction' && row.entry === previous.entry) return previous
     if (row.kind === 'approval' && previous.kind === 'approval' && sameDecisions(row.decisions, previous.decisions))
       return previous
     if (

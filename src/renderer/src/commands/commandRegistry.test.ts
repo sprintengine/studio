@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { COMMAND_REGISTRY, getCommandDefinition } from './commandRegistry'
+import { findKeybindingConflicts, hasBlockingKeybindingConflict } from './conflicts'
 import { normalizeKeybinding } from './keybindings'
 import { test } from 'vitest'
 
@@ -93,4 +94,17 @@ test('commandRegistry', async () => {
   assert.deepEqual(previousLayoutTab?.scopes, ['global'])
   assert.equal(nextLayoutTab?.availability, undefined)
   assert.equal(previousLayoutTab?.availability, undefined)
+})
+
+test('the chat turn chords share the terminal prompt chords without a blocking conflict', () => {
+  const previous = getCommandDefinition('chat.turn.previous')
+  const next = getCommandDefinition('chat.turn.next')
+  assert.deepEqual(previous?.defaultKeybindings, ['primary+shift+arrowup'])
+  assert.deepEqual(next?.defaultKeybindings, ['primary+shift+arrowdown'])
+  // Outside editable targets only: in the composer the chord is the text
+  // field's select-to-start/end.
+  assert.equal(previous?.allowInEditableTarget, undefined)
+  for (const command of [previous!, next!]) {
+    assert.equal(hasBlockingKeybindingConflict(findKeybindingConflicts(command, COMMAND_REGISTRY)), false)
+  }
 })

@@ -41,3 +41,32 @@ function formatElapsedMs(ms: number): string {
 export function formatClockTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Calendar days between two instants in local time. Rounded, because a day
+// that crosses a daylight-saving change is 23 or 25 hours long.
+function calendarDaysBetween(earlier: number, later: number): number {
+  const midnight = (at: number) => new Date(at).setHours(0, 0, 0, 0)
+  return Math.round((midnight(later) - midnight(earlier)) / DAY_MS)
+}
+
+// When a message or step happened, worded by how long ago the day was: the
+// clock alone today, "Yesterday" and then the weekday within the week, and the
+// date past that (with the year once it is not this one). A time ahead of
+// `now` (another machine's clock) reads as its own date unless it is today.
+export function formatMessageTime(timestamp: number, now: number = Date.now()): string {
+  const clock = formatClockTime(timestamp)
+  const days = calendarDaysBetween(timestamp, now)
+  if (days === 0) return clock
+  if (days === 1) return `Yesterday ${clock}`
+  const date = new Date(timestamp)
+  if (days > 1 && days < 7) return `${date.toLocaleDateString([], { weekday: 'short' })} ${clock}`
+  const sameYear = date.getFullYear() === new Date(now).getFullYear()
+  const day = date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+  return `${day}, ${clock}`
+}

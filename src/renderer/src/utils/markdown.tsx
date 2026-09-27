@@ -2,9 +2,13 @@ import React, { type JSX } from 'react'
 import type { Element } from 'hast'
 import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { GhostButton } from '../components/ui/Buttons'
 import { Checkbox } from '../components/ui/Checkbox'
 import { LinkButton } from '../components/ui/LinkButton'
+import { MarkdownAlertGlyph, type MarkdownAlertKind } from '../components/ui/MarkdownAlertGlyph'
+import { copyToClipboardWithToast } from './copyToClipboardWithToast'
 import type { GitLineChange } from './gitDiff'
+import { remarkUserText } from './markdownUserText'
 
 /**
  * A document renders at `document` scale; a document read inside a dense
@@ -36,6 +40,18 @@ type MarkdownRenderOptions = {
   bare?: boolean
   renderText?: (text: string, source: 'text' | 'inlineCode') => React.ReactNode
   renderLink?: (href: string, label: React.ReactNode) => React.ReactNode | null
+  /**
+   * A picture the document shows. `src` is as written — a web or data URL, or a
+   * path only the caller knows how to read — and `inLink` says the image is a
+   * link's label, where it must not become a second control. Without one, or
+   * when it returns null, an image is stated by its alt text.
+   */
+  renderImage?: (src: string, alt: string, inLink: boolean) => React.ReactNode | null
+  /**
+   * The text is a message a person typed, not a document: every newline is a
+   * line break and HTML shows as the text it is (`remarkUserText`).
+   */
+  userText?: boolean
 }
 
 type MarkdownNode = Element | undefined
@@ -166,6 +182,129 @@ function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | un
   return kind ? `markdown-change-block markdown-change-${kind}` : null
 }
 
+// The slice of the markdown syntax tree the alert pass reads. Declared here
+// rather than imported: the pass touches four fields, and the tree's own types
+// belong to a package this renderer only reaches through remark.
+type MarkdownSyntaxNode = {
+  type: string
+  value?: string
+  children?: MarkdownSyntaxNode[]
+  data?: { hProperties?: Record<string, unknown> }
+}
+
+const ALERT_MARKER = /^\[!(note|tip|important|warning|caution)\][ \t]*(?:\r?\n|$)/iu
+
+/**
+ * A GitHub alert — a blockquote whose first line is `[!NOTE]`, `[!TIP]`,
+ * `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` and nothing else. Agents write
+ * them because GitHub renders them; left alone the marker reads as stray
+ * brackets. The marker comes out of the text and the kind rides on the
+ * blockquote for the component to draw.
+ */
+function remarkGithubAlerts() {
+  return (tree: MarkdownSyntaxNode) => markAlerts(tree)
+}
+
+function markAlerts(node: MarkdownSyntaxNode): void {
+  for (const child of node.children ?? []) {
+    if (child.type === 'blockquote') markAlert(child)
+    markAlerts(child)
+  }
+}
+
+function markAlert(quote: MarkdownSyntaxNode): void {
+  const paragraph = quote.children?.[0]
+  const text = paragraph?.type === 'paragraph' ? paragraph.children?.[0] : undefined
+  if (!paragraph?.children || text?.type !== 'text' || typeof text.value !== 'string') return
+  const match = ALERT_MARKER.exec(text.value)
+  if (!match) return
+  text.value = text.value.slice(match[0].length)
+  if (!text.value) paragraph.children.shift()
+  if (paragraph.children[0]?.type === 'break') paragraph.children.shift()
+  if (!paragraph.children.length) quote.children?.shift()
+  quote.data = { ...quote.data, hProperties: { ...quote.data?.hProperties, dataAlert: match[1].toLowerCase() } }
+}
+
+const MARKDOWN_PLUGINS = [remarkGfm, remarkGithubAlerts]
+const USER_TEXT_PLUGINS = [...MARKDOWN_PLUGINS, remarkUserText]
+
+// GitHub's five, each on a tone the app already speaks: a note is information
+// (accent), a tip a good outcome, a warning a degraded one, a caution a
+// failure waiting to happen. Important has no tone of its own, so it takes the
+// merged violet GitHub gives it on a neutral ground.
+const ALERTS: Record<MarkdownAlertKind, { label: string; ink: string; ground: string }> = {
+  note: { label: 'Note', ink: 'text-[color:var(--accent-primary)]', ground: 'bg-[color:var(--tone-accent-soft)]' },
+  tip: { label: 'Tip', ink: 'text-[color:var(--tone-good)]', ground: 'bg-[color:var(--tone-good-soft)]' },
+  important: {
+    label: 'Important',
+    ink: 'text-[color:var(--tone-merged)]',
+    ground: 'bg-[color:var(--tone-neutral-soft)]',
+  },
+  warning: { label: 'Warning', ink: 'text-[color:var(--tone-warn)]', ground: 'bg-[color:var(--tone-warn-soft)]' },
+  caution: { label: 'Caution', ink: 'text-[color:var(--tone-error)]', ground: 'bg-[color:var(--tone-error-soft)]' },
+}
+
+function alertKind(node: MarkdownNode): MarkdownAlertKind | null {
+  const kind = node?.properties?.dataAlert
+  return typeof kind === 'string' && kind in ALERTS ? (kind as MarkdownAlertKind) : null
+}
+
+type HastChild = Element['children'][number]
+
+// A cell's content written back as markdown: the table is copied to be pasted
+// into another document, where a cell's code, emphasis and links should
+// survive, and a `|` inside one must not split it.
+function inlineMarkdown(node: HastChild): string {
+  if (node.type === 'text') return node.value.replace(/\|/gu, '\\|').replace(/\s*\n\s*/gu, ' ')
+  if (node.type !== 'element') return ''
+  const inner = node.children.map(inlineMarkdown).join('')
+  switch (node.tagName) {
+    case 'code':
+      return `\`${inner}\``
+    case 'strong':
+      return `**${inner}**`
+    case 'em':
+      return `*${inner}*`
+    case 'del':
+      return `~~${inner}~~`
+    case 'br':
+      return ' '
+    case 'a':
+      return typeof node.properties.href === 'string' ? `[${inner}](${node.properties.href})` : inner
+    case 'img':
+      return `![${String(node.properties.alt ?? '')}](${String(node.properties.src ?? '')})`
+    case 'input':
+      return node.properties.checked ? '[x] ' : '[ ] '
+    default:
+      return inner
+  }
+}
+
+export function tableMarkdown(table: Element): string {
+  const rows: Element[] = []
+  const collect = (node: Element) => {
+    for (const child of node.children) {
+      if (child.type !== 'element') continue
+      if (child.tagName === 'tr') rows.push(child)
+      else collect(child)
+    }
+  }
+  collect(table)
+  const cells = rows.map((row) =>
+    row.children.filter((cell): cell is Element => cell.type === 'element' && /^t[hd]$/u.test(cell.tagName)),
+  )
+  const header = cells[0] ?? []
+  if (!header.length) return ''
+  const line = (row: string[]) => `| ${row.join(' | ')} |`
+  const text = (row: Element[]) =>
+    header.map((_, index) => (row[index] ? row[index].children.map(inlineMarkdown).join('').trim() : ''))
+  const rule = header.map((cell) => {
+    const align = cell.properties.align
+    return align === 'center' ? ':---:' : align === 'right' ? '---:' : align === 'left' ? ':---' : '---'
+  })
+  return [line(text(header)), line(rule), ...cells.slice(1).map((row) => line(text(row)))].join('\n')
+}
+
 const StreamingContext = React.createContext(false)
 
 // A link's label is already one control. Turning a path in it into a file chip
@@ -200,6 +339,17 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     return options.renderText && typeof children === 'string' && !inLinkLabel
       ? options.renderText(children, 'inlineCode')
       : children
+  }
+
+  const MarkdownImage = ({ src, alt, className }: { src: string; alt: string; className?: string }) => {
+    const inLinkLabel = React.useContext(LinkLabelContext)
+    const custom = src && options.renderImage ? options.renderImage(src, alt, inLinkLabel) : null
+    if (custom) return custom
+    return (
+      <span className={joinClasses(className, 'text-[color:var(--text-muted)]')}>
+        {alt ? `[Image: ${alt}]` : '[Image]'}
+      </span>
+    )
   }
 
   const components: Components = {
@@ -312,11 +462,38 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
       }
       return <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
     },
-    blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
-      <blockquote className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}>
-        {children}
-      </blockquote>
-    ),
+    blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => {
+      const kind = alertKind(node)
+      if (!kind) {
+        return (
+          <blockquote className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}>
+            {children}
+          </blockquote>
+        )
+      }
+      const alert = ALERTS[kind]
+      // The notice idiom: a neutral hairline over a soft tint, the tone carried
+      // by the glyph and the title. The body keeps the document's own ink, and
+      // its last block gives up its bottom margin to the box's padding.
+      return (
+        <div
+          role="note"
+          data-alert={kind}
+          className={joinClasses(
+            className,
+            'my-4 rounded-sm border border-[color:var(--border-subtle)] px-3 py-2 [&>:last-child]:mb-0',
+            alert.ground,
+            changedBlockClass(node, lineChanges),
+          )}
+        >
+          <p className={joinClasses('mb-1 flex items-center gap-1.5 font-semibold', alert.ink)}>
+            <MarkdownAlertGlyph kind={kind} className="icon-xs shrink-0" />
+            {alert.label}
+          </p>
+          {children}
+        </div>
+      )
+    },
     ul: ({ node, children, className }: MarkdownComponentProps<'ul'>) => (
       <ul className={joinClasses(className, scale.list, 'list-disc', changedBlockClass(node, lineChanges))}>
         {children}
@@ -345,14 +522,29 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
       type === 'checkbox' ? (
         <Checkbox readOnly checked={checked === true} className={joinClasses(className, 'mr-2')} />
       ) : null,
-    img: ({ alt, className }: MarkdownComponentProps<'img'>) => (
-      <span className={joinClasses(className, 'text-[color:var(--text-muted)]')}>
-        {alt ? `[Image: ${alt}]` : '[Image]'}
-      </span>
+    img: ({ src, alt, className }: MarkdownComponentProps<'img'>) => (
+      <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt ?? ''} className={className} />
     ),
+    // A table is the one block whose text does not survive a selection: copied
+    // off the page it arrives as runs of cells with no columns. The copy action
+    // hands over the table as markdown instead, which pastes back as a table
+    // into a document, an issue or the composer.
     table: ({ node, children, className }: MarkdownComponentProps<'table'>) => (
-      <div className={joinClasses('my-4 overflow-x-auto', changedBlockClass(node, lineChanges))}>
-        <table className={joinClasses(className, scale.table)}>{children}</table>
+      <div className={joinClasses('group/table my-4', changedBlockClass(node, lineChanges))}>
+        <div className="overflow-x-auto">
+          <table className={joinClasses(className, scale.table)}>{children}</table>
+        </div>
+        {node ? (
+          <div className="mt-0.5 flex justify-end opacity-0 group-hover/table:opacity-100 focus-within:opacity-100">
+            <GhostButton
+              size="xs"
+              aria-label="Copy table as Markdown"
+              onClick={() => void copyToClipboardWithToast(tableMarkdown(node))}
+            >
+              Copy
+            </GhostButton>
+          </div>
+        ) : null}
       </div>
     ),
     th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
@@ -389,27 +581,36 @@ function MarkdownRenderer({
   markdown: string
   options: MarkdownRenderOptions
 }): React.ReactNode {
-  const { lineChanges, links, density, renderText, renderLink, codeBlock } = options
+  const { lineChanges, links, density, renderText, renderLink, renderImage, codeBlock } = options
   // Component types must outlive a streamed source update: recreating them
   // remounts code blocks, discards their wrap state, and destroys text selection.
   // Streaming state travels through context without changing those types.
   const components = React.useMemo(
-    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, codeBlock }),
-    [lineChanges, links, density, renderText, renderLink, codeBlock],
+    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, renderImage, codeBlock }),
+    [lineChanges, links, density, renderText, renderLink, renderImage, codeBlock],
   )
 
   // A resolver's own hrefs survive the protocol guard so the `a` component can
   // see them; everything else still has to be http, https or mailto to keep
   // its href at all.
-  const urlTransform: UrlTransform = options.renderLink
+  const hrefTransform: UrlTransform = options.renderLink
     ? (url) => url
     : links
       ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
       : safeMarkdownUrlTransform
+  // An image renderer decides for itself what a source may be — a path is only
+  // ever read through it, never handed to the page as a URL.
+  const urlTransform: UrlTransform = options.renderImage
+    ? (url, key, node) => (key === 'src' ? url : hrefTransform(url, key, node))
+    : hrefTransform
 
   const content = (
     <StreamingContext.Provider value={options.streaming ?? false}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+      <ReactMarkdown
+        remarkPlugins={options.userText ? USER_TEXT_PLUGINS : MARKDOWN_PLUGINS}
+        components={components}
+        urlTransform={urlTransform}
+      >
         {markdown}
       </ReactMarkdown>
     </StreamingContext.Provider>

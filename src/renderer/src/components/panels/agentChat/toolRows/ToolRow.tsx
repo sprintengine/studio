@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import type { ConversationToolDetail, ConversationJsonValue } from '../../../../../../shared/conversation-runtime'
 import {
   presentToolItem,
@@ -17,9 +17,9 @@ import { deriveEditHunks } from '../../../../../../shared/conversation/editHunks
 import { InlineDiff } from '../../../ui/InlineDiff'
 import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
 import { useLiveRowMotion } from '../liveVisibility'
-import { formatClockTime, LiveElapsed } from '../liveElapsed'
+import { formatMessageTime, LiveElapsed } from '../liveElapsed'
 import { useConversationTransport } from '../conversationTransport'
-import { resolveTerminalFileReferencePath } from '../../../../utils/terminalFileLinks'
+import { isPreviewableImagePath, useLocalImage } from '../useLocalImage'
 import { treeRelativePath } from '../../../../utils/fileTreeEntries'
 import { copyToClipboardWithToast } from '../../../../utils/copyToClipboardWithToast'
 import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
@@ -47,7 +47,7 @@ function object(value: ConversationJsonValue | undefined): Record<string, Conver
 // matches and a tool's reply all read as "what this step produced" and never as
 // loose text spilling into the transcript around it. It scrolls inside itself
 // rather than pushing the conversation down.
-function ToolPanel({
+export function ToolPanel({
   copyText,
   mono = true,
   children,
@@ -79,10 +79,12 @@ function ToolPanel({
   )
 }
 
-// The image formats main will hand back as a data URL (filesystem-image.ts).
-const PREVIEWABLE_IMAGE = /\.(apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/iu
-export function isPreviewableImagePath(path: string): boolean {
-  return PREVIEWABLE_IMAGE.test(path.trim())
+export { isPreviewableImagePath }
+
+// A read is shown as a picture only when what the agent read was pixels. An SVG
+// is markup the agent read as text, and that text is what it went on.
+export function previewsAsImage(path: string): boolean {
+  return isPreviewableImagePath(path) && !/\.svg$/iu.test(path.trim())
 }
 
 export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?: ConversationToolDetail }) {
@@ -112,12 +114,20 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
             <AnsiOutput lines={ansi ?? []} />
           </div>
         ) : null}
-        {exitCode !== undefined ? <div className="mt-1.5 text-[color:var(--text-subtle)]">exit {exitCode}</div> : null}
+        {exitCode !== undefined ? (
+          <div className={`mt-1.5 ${exitCode ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}>
+            exit {exitCode}
+          </div>
+        ) : null}
       </ToolPanel>
     )
   }
-  if (kind === 'file_read')
-    return isPreviewableImagePath(path) ? <ImagePreview path={path} /> : <ReadOutput output={output} path={path} />
+  if (kind === 'file_read') {
+    // A read that failed says why; there is no file behind it to show.
+    if (status === 'error')
+      return <ToolPanel copyText={output || undefined}>{output || 'The file could not be read.'}</ToolPanel>
+    return previewsAsImage(path) ? <ImagePreview path={path} /> : <ReadOutput output={output} path={path} />
+  }
   if (kind === 'file_edit' || kind === 'file_write')
     return <EditBody input={detail?.input ?? tool.input} toolUseId={tool.id} />
   if (kind === 'todo') {
@@ -169,34 +179,13 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
 // file on this machine can be shown — a remote conversation's path names a file
 // over there.
 function ImagePreview({ path }: { path: string }) {
-  const context = useConversationLinkContext()
-  const localFiles = useConversationTransport().capabilities.localFiles
-  const resolved = localFiles
-    ? resolveTerminalFileReferencePath(path, { executionRoot: context?.cwd, workspaceRoot: context?.workspaceRoot })
-    : null
-  const [image, setImage] = useState<{ path: string; src?: string; failed?: boolean }>()
-  useEffect(() => {
-    if (!resolved) return
-    let cancelled = false
-    window.api.readImageDataUrl(resolved).then(
-      (src) => {
-        if (!cancelled) setImage({ path: resolved, src })
-      },
-      () => {
-        if (!cancelled) setImage({ path: resolved, failed: true })
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [resolved])
-  if (!resolved) return <p className="text-[color:var(--text-muted)]">This image is on another machine.</p>
-  const current = image?.path === resolved ? image : undefined
-  if (current?.failed)
+  const current = useLocalImage(path)
+  if (!current.resolved) return <p className="text-[color:var(--text-muted)]">This image is on another machine.</p>
+  if (current.failed)
     // Screenshots in particular are often read from a temporary folder the
     // system empties minutes later, so a missing file is the expected case.
     return <p className="text-[color:var(--text-muted)]">This image is no longer available to preview.</p>
-  if (!current?.src) return <Spinner label="Loading image" />
+  if (!current.src) return <Spinner label="Loading image" />
   return (
     <img
       src={current.src}
@@ -304,6 +293,16 @@ export function toolGlyphInk(tone: ToolPresentation['tone'] | 'running'): string
   return 'text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]'
 }
 
+// A settled step that went wrong: one that failed, or a command that exited
+// non-zero. The row keeps a non-zero exit's glyph neutral — a search that
+// matched nothing exits 1 — but its "exit N" and any closed summary over it
+// still wear error ink, so a step that went wrong never folds away unseen.
+export function stepWentWrong(tool: TranscriptToolEntry): boolean {
+  if (tool.status === 'running') return false
+  if (tool.exitCode) return true
+  return presentToolItem(toolPresentationInput(tool)).tone === 'error'
+}
+
 // A path as the row shows it: relative to where the agent runs, or to the
 // workspace, when it is inside either. An absolute path out of a temp folder is
 // most of a row's width spent on directories nobody needs to read.
@@ -316,11 +315,17 @@ export function displayToolPath(path: string, context: { cwd?: string; workspace
 }
 
 // A click anywhere on the row's ground opens it, not only on the label — the
-// chevron sits at the far end. Clicks that land on a real control inside the
-// row (the label's own button, the file link) are that control's.
-function toggleFromRowGround(event: React.MouseEvent<HTMLElement>, toggle: () => void) {
+// chevron sits at the far end. It is handed to the label's own button rather
+// than toggling here, so the transcript's hold on a disclosure's position (which
+// watches presses on `button[aria-expanded]`) covers the ground too and the row
+// stays under the pointer while following the bottom. Clicks that land on a real
+// control inside the row (the label's button, the file link) are that
+// control's, and a click from a portalled menu, which React bubbles through the
+// row without it being inside, is nobody's here.
+export function forwardRowGroundClick(event: React.MouseEvent<HTMLElement>, button: HTMLButtonElement | null) {
+  if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
   if (event.target instanceof Element && event.target.closest('button, a')) return
-  toggle()
+  button?.click()
 }
 
 export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
@@ -339,7 +344,10 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
+  // The subtitle is "exit N" exactly when the command exited non-zero.
+  const exited = Boolean(tool.exitCode)
   const rowRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   useLiveRowMotion(rowRef, running)
   async function fetchDetail() {
     if (!context?.agentId) {
@@ -372,12 +380,18 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
     <div ref={rowRef} data-tool-kind={presentation.icon}>
       <div
         className="group/tool-row flex min-w-0 cursor-pointer items-center gap-1 rounded-sm pr-1.5 transition-colors hover:bg-[color:var(--bg-hover)]"
-        onClick={(event) => toggleFromRowGround(event, () => setOpen(!open))}
+        onClick={(event) => forwardRowGroundClick(event, buttonRef.current)}
       >
         {/* Sized to its label rather than stretched, so the path sits right
             beside what the step did instead of across the row from it. */}
         <div className="flex min-w-0 max-w-fit shrink">
-          <RowButton density="flush" className="min-w-0 text-meta" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <RowButton
+            ref={buttonRef}
+            density="flush"
+            className="min-w-0 text-meta"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
             <span data-tone={tone === 'error' ? 'error' : undefined} className={`flex shrink-0 ${toolGlyphInk(tone)}`}>
               <ToolKindGlyph kind={presentation.icon} />
             </span>
@@ -391,8 +405,14 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
           </RowButton>
         </div>
         {presentation.subtitle ? (
-          <span className="min-w-0 shrink-[2] truncate text-meta text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]">
-            {presentation.subtitle.startsWith('exit ') ? (
+          <span
+            className={`min-w-0 shrink-[2] truncate text-meta ${
+              exited
+                ? 'text-[color:var(--tone-error)]'
+                : 'text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]'
+            }`}
+          >
+            {exited ? (
               presentation.subtitle
             ) : (
               <ConversationFileLink
@@ -411,7 +431,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
           </span>
         ) : settledAt !== undefined ? (
           <span className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-subtle)] opacity-0 group-hover/tool-row:opacity-100">
-            {formatClockTime(settledAt)}
+            {formatMessageTime(settledAt)}
           </span>
         ) : null}
         <ChevronRightGlyph

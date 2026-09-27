@@ -26,6 +26,7 @@ import type {
   ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
+import { apiKeyBillingNotice } from '../../../../shared/conversation/apiKeySource'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
@@ -34,7 +35,12 @@ import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
+import {
+  dataTransferHasFiles,
+  imageFilesFromDataTransfer,
+  pastedImagePaths,
+  readPastedImagePaths,
+} from '../../utils/imageFileTransfer'
 import {
   attachmentCountLabel,
   attachmentPreviewUrl,
@@ -77,6 +83,9 @@ import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useCom
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
+import { useTurnNavigation } from './agentChat/turnNavigation'
+import { TimelineMinimap } from './agentChat/TimelineMinimap'
+import { QuoteSelectionToolbar, appendQuoteToDraft } from './agentChat/quoteSelection'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
@@ -89,7 +98,10 @@ import {
   readImageAttachment,
 } from './agentChat/imageAttachments'
 import { ConversationPendingDock } from './agentChat/pendingDock'
+import { QueuedTurnBubble, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
+import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
+import type { EditFromHereDraft } from './agentChat/editFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
@@ -213,6 +225,34 @@ type PendingAction = 'starting' | 'sending' | 'stopping' | null
 // unlock (D6/1776). Attachments ride along so a queued image is not lost.
 type QueuedTurn = { text: string; attachments: ConversationImageAttachment[]; metadata: ComposerDraftMetadata }
 
+// Fold what the composer holds into the queued turn — the one merge every
+// queueing path makes, whether the message then waits or is sent at once.
+export function queueComposerDraft(
+  previous: QueuedTurn | null,
+  text: string,
+  attachments: ConversationImageAttachment[],
+  metadata: ComposerDraftMetadata,
+): { turn: QueuedTurn; dropped: number } {
+  const { dropped, ...merged } = mergeQueuedTurn(previous, text, attachments)
+  return {
+    turn: {
+      ...merged,
+      metadata: {
+        skillIds: [...new Set([...(previous?.metadata.skillIds ?? []), ...metadata.skillIds])],
+        mentions: [...(previous?.metadata.mentions ?? []), ...metadata.mentions],
+      },
+    },
+    dropped,
+  }
+}
+
+// The composer's note when the per-turn image cap trimmed a queued message.
+function queuedDropNotice(dropped: number): string | null {
+  return dropped > 0
+    ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
+    : null
+}
+
 export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
 }
@@ -282,6 +322,7 @@ export type MountedChatView = {
   isFocused: () => boolean
   toggleModelPicker: () => void
   cycleEffort?: () => void
+  stepTurn?: (direction: -1 | 1) => void
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
@@ -315,6 +356,14 @@ function onModelPickerPanelCommand(event: Event): void {
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.cycleEffort?.()
+  }
+  if (detail?.id === 'chat.turn.previous' || detail?.id === 'chat.turn.next') {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.stepTurn?.(detail.id === 'chat.turn.previous' ? -1 : 1)
   }
 }
 
@@ -446,6 +495,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [pickedSkills, setPickedSkills] = useState<Record<string, WorkspaceSkill>>({})
   const [pending, setPending] = useState<PendingAction>(null)
   const sendInFlightRef = useRef(false)
+  // The ref's value as state, so what waits on a send (the queue's flush) runs
+  // again once it settles; the ref stays the synchronous re-entry guard.
+  const [sendInFlight, setSendInFlight] = useState(false)
   // Images staged for the next turn (D3/1774), in the order they were added.
   const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
   // A pasted/dropped/picked image is being read and resampled. Held so the
@@ -461,6 +513,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // typed intent is dropped. Attachments ride the queue too — dropping them at
   // the queue boundary would silently lose what the user staged.
   const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
+  // The local id of a queued message handed to the running turn (a steer),
+  // until its own `user_message` arrives. One is delivered at a time, and the
+  // queue holds its next message until then.
+  const [steeringTurnId, setSteeringTurnId] = useState<string | null>(null)
+  // Steers whose `user_message` is in the conversation while their send has
+  // not settled yet.
+  const landedSteerIdsRef = useRef(new Set<string>())
   // The composer's right-click menu (1793); null when closed. Opening it snapshots
   // the click point, the field's selection, and the clipboard, so the menu's
   // enable states describe the moment the user asked for it.
@@ -479,9 +538,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
   const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
-  // Drag enter/leave fire for every child the pointer crosses; the depth
-  // counter keeps the drop affordance from flickering inside the composer.
-  const dragDepthRef = useRef(0)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
@@ -651,7 +707,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     setAtBottom(false)
     return fetchEarlier()
   }, [fetchEarlier, atBottomRef, setAtBottom])
-  const { flashRowId, clearFlash, searching } = useConversationSearchJump({
+  const { flashRowId, clearFlash, searching, jumpToRow } = useConversationSearchJump({
     workspaceId,
     agentId,
     rows: timelineRows,
@@ -671,6 +727,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     reportError: setActionError,
   })
+  const turnNavigation = useTurnNavigation({ rows: timelineRows, listRef, jumpToRow })
+  const stepTurn = turnNavigation.step
   useConversationScrollRestore({
     memory: scrollMemoryRef.current,
     hydrated,
@@ -936,6 +994,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       )
         return
       sendInFlightRef.current = true
+      setSendInFlight(true)
       setActionError(null)
       // A "from the next turn" notice is spent once that turn leaves.
       setPermissionNotice(null)
@@ -943,6 +1002,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       const activeSession = await ensureSession()
       if (!activeSession) {
         sendInFlightRef.current = false
+        setSendInFlight(false)
         setPending(null)
         if (!fromDraft) {
           setDraft((current) => current || text)
@@ -1019,6 +1079,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setActionError(err instanceof Error ? err.message : 'Could not send the message.')
       } finally {
         sendInFlightRef.current = false
+        setSendInFlight(false)
         setPending(null)
       }
     },
@@ -1046,24 +1107,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const submitComposer = useCallback(() => {
     const text = draft.trim()
     if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
-    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
-      const { dropped, ...merged } = mergeQueuedTurn(queuedTurn, text, attachments)
-      setQueuedTurn({
-        ...merged,
-        metadata: {
-          skillIds: [...new Set([...(queuedTurn?.metadata.skillIds ?? []), ...draftMetadata.skillIds])],
-          mentions: [...(queuedTurn?.metadata.mentions ?? []), ...draftMetadata.mentions],
-        },
-      })
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
+      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+      setQueuedTurn(turn)
       clearDraft()
       setAttachments([])
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
-      setActionError(
-        dropped > 0
-          ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
-          : null,
-      )
+      setActionError(queuedDropNotice(dropped))
       return
     }
     void sendTurn(text, attachments, draftMetadata, true)
@@ -1077,6 +1128,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     projection.awaitingApproval,
     pending,
     queuedTurn,
+    steeringTurnId,
     sendTurn,
   ])
 
@@ -1127,10 +1179,25 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   useEffect(() => {
     if (queuedTurn === null || readiness.kind !== 'ready') return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) return
+    // A steer still on its way counts as the turn: the send that it closed
+    // settles before the turn it opened is on screen.
+    if (steeringTurnId !== null) return
+    // "Stop and send" can see the turn end before the send that started it
+    // settles; sendTurn would refuse the message then, and it would be lost.
+    if (sendInFlight || sendInFlightRef.current) return
     const { text, attachments: queuedAttachments, metadata } = queuedTurn
     setQueuedTurn(null)
     void sendTurn(text, queuedAttachments, metadata)
-  }, [queuedTurn, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+  }, [
+    queuedTurn,
+    readiness.kind,
+    projection.activeTurn,
+    projection.awaitingApproval,
+    pending,
+    steeringTurnId,
+    sendInFlight,
+    sendTurn,
+  ])
 
   // The launcher's prompt is this chat's first message: Enter there starts the
   // agent on what was typed, as a terminal agent's startup prompt does, so it is
@@ -1209,6 +1276,27 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [attachments.length],
   )
 
+  // Attach the images a pasted list of paths names, reading them now — the
+  // file may be a screenshot's temporary copy that is gone minutes later. A
+  // paste that cannot be read is put back as the text it was, at the caret it
+  // was pasted at, with the reason on the composer's error line.
+  const attachPastedPaths = async (paths: string[], text: string, selectionStart: number, selectionEnd: number) => {
+    setAttachingCount((count) => count + paths.length)
+    let read: Awaited<ReturnType<typeof readPastedImagePaths>>
+    try {
+      read = await readPastedImagePaths(paths)
+    } finally {
+      setAttachingCount((count) => Math.max(0, count - paths.length))
+    }
+    if (read.ok) {
+      await attachFiles(read.files)
+      return
+    }
+    setDraft((current) => current.slice(0, selectionStart) + text + current.slice(selectionEnd))
+    pendingCaretRef.current = selectionStart + text.length
+    setActionError(read.message)
+  }
+
   const removeAttachment = useCallback((id: string) => {
     setAttachments((current) => current.filter((entry) => entry.id !== id))
   }, [])
@@ -1267,6 +1355,139 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     }
   }, [sessionId, pending, transport])
 
+  // Send a queued message into the running turn (a steer). It skips sendTurn's
+  // `pending` latch on purpose: that latch belongs to the send whose turn is
+  // running, which settles only when this one takes the turn over. The bubble
+  // is optimistic as any send's is, and lands where the runtime delivered it.
+  // A refused steer goes back to the head of the queue, so it still goes when
+  // the turn ends rather than being lost.
+  const putBackQueued = (turn: QueuedTurn) =>
+    setQueuedTurn((current) => {
+      if (!current) return turn
+      return queueComposerDraft(turn, current.text, current.attachments, current.metadata).turn
+    })
+  const steerTurn = async (turn: QueuedTurn) => {
+    // The queue was emptied to hand this message over; with no session to
+    // take it, it goes back rather than vanishing.
+    if (!sessionId) {
+      putBackQueued(turn)
+      return
+    }
+    const metadata = supportsSkills ? turn.metadata : { ...turn.metadata, skillIds: [] }
+    const text = turn.text.trim()
+    const localTurnId = `user-${userTurns.length}-${Date.now()}`
+    setActionError(null)
+    setSteeringTurnId(localTurnId)
+    pendingUserScrollIdRef.current = `user:${localTurnId}`
+    setUserTurns((current) => [
+      ...current,
+      {
+        id: localTurnId,
+        text,
+        createdAt: Date.now(),
+        mentions: metadata.mentions,
+        skills: metadata.skillIds,
+        ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
+      },
+    ])
+    recordUserMessage?.(Date.now())
+    // The send settles only when the turn the steer opened does, so a failure
+    // can arrive after the message was already written to the conversation.
+    // Queueing that one again would send it twice; only a message that never
+    // landed goes back to the head of the queue.
+    const requeue = (message: string) => {
+      setActionError(message)
+      if (landedSteerIdsRef.current.has(localTurnId)) return
+      setUserTurns((current) => current.filter((entry) => entry.id !== localTurnId))
+      putBackQueued(turn)
+    }
+    try {
+      const result = await transport.send({
+        sessionId,
+        message: text,
+        localTurnId,
+        skills: metadata.skillIds.map((id) => ({ id })),
+        mentions: metadata.mentions,
+        mode: conversationMode,
+        reasoningEffort,
+        ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
+        steer: true,
+      })
+      if (!result.ok) requeue(result.message)
+    } catch (err) {
+      requeue(err instanceof Error ? err.message : 'Could not send the message.')
+    } finally {
+      landedSteerIdsRef.current.delete(localTurnId)
+      setSteeringTurnId((current) => (current === localTurnId ? null : current))
+    }
+  }
+
+  // The steer is delivered once its own `user_message` replaces the optimistic
+  // bubble; the queue may hand over the next one from then on. The id is kept
+  // until its send settles, so a late failure knows the message is already in.
+  useEffect(() => {
+    if (steeringTurnId === null) return
+    const landed = projection.entries.some(
+      (entry) => entry.kind === 'user' && entry.id === steeringTurnId && entry.seq !== undefined,
+    )
+    if (!landed) return
+    landedSteerIdsRef.current.add(steeringTurnId)
+    setSteeringTurnId(null)
+  }, [steeringTurnId, projection.entries])
+
+  // What "send it now" does for the queued message: a steer where both the
+  // transport and the provider take one, else stop the turn and let the queue
+  // send it the moment the session is free.
+  const canSteer = transport.capabilities.steer && capabilities?.steer === true
+  const queuedSendNow = queuedTurnSendNow({
+    canSteer,
+    activeTurn: projection.activeTurn,
+    awaitingApproval: projection.awaitingApproval,
+    stopping: pending === 'stopping',
+    steering: steeringTurnId !== null,
+  })
+  const sendQueuedNow = (turn: QueuedTurn) => {
+    if (queuedSendNow.disabled || !operate) {
+      setQueuedTurn(turn)
+      return
+    }
+    if (queuedSendNow.kind === 'steer') {
+      setQueuedTurn(null)
+      void steerTurn(turn)
+      return
+    }
+    setQueuedTurn(turn)
+    void interrupt()
+  }
+
+  // ⌘↵ / Ctrl+↵: commit and send now. Idle, that is an ordinary send; while
+  // the agent works, the draft joins the queue and the queue goes at once.
+  const commitComposerNow = () => {
+    if (!isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) && steeringTurnId === null) {
+      submitComposer()
+      return
+    }
+    const text = draft.trim()
+    const hasDraft =
+      text.length > 0 ||
+      attachments.length > 0 ||
+      draftMetadata.mentions.length > 0 ||
+      draftMetadata.skillIds.length > 0
+    if (!hasDraft) {
+      if (queuedTurn) sendQueuedNow(queuedTurn)
+      return
+    }
+    const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+    clearDraft()
+    setAttachments([])
+    setActionError(queuedDropNotice(dropped))
+    sendQueuedNow(turn)
+  }
+  const sendNowShortcutLabel = renderKeybinding(
+    'Primary+Enter',
+    window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux',
+  )
+
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
   // replayed transcript, not in the local userTurns state.
@@ -1283,10 +1504,30 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }
   const retry = useCallback(() => retryLatestRef.current(), [])
 
+  // "Edit from here" went back to before a message: it returns to the
+  // composer ahead of anything already typed there, with what it carried.
+  const restoreDraftRef = useRef<(draft: EditFromHereDraft) => void>(() => undefined)
+  restoreDraftRef.current = (restored) => {
+    setDraft((current) => [restored.text, current].filter(Boolean).join('\n\n'))
+    setDraftMetadata({
+      skillIds: [...new Set([...restored.skills, ...draftMetadata.skillIds])],
+      mentions: [
+        ...restored.mentions,
+        ...draftMetadata.mentions.filter(
+          (mention) => !restored.mentions.some((kept) => kept.path === mention.path && kept.kind === mention.kind),
+        ),
+      ],
+    })
+    setAttachments((current) => [...restored.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
+    composerRef.current?.focus()
+  }
+  const restoreDraft = useCallback((draft: EditFromHereDraft) => restoreDraftRef.current(draft), [])
+
   const ready = readiness.kind === 'ready'
   // The session cannot take a live turn right now (streaming, awaiting approval,
   // or an in-flight send). A submit made while busy queues instead of erroring.
-  const composerBusy = isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)
+  const composerBusy =
+    isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null
   // Retry and other "act now" affordances stay disabled while busy or not ready.
   const composerDisabled = !ready || composerBusy
   // The textarea itself is only disabled before the provider is ready — it stays
@@ -1377,8 +1618,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
         cycleEffort: () => cycleEffortRef.current(),
+        stepTurn,
       }),
-    [workspaceId],
+    [workspaceId, stepTurn],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
@@ -1524,6 +1766,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [...checkpointSeqs].every((seq) => oldChrome.checkpointSeqs?.has(seq))
       ? oldChrome.checkpointSeqs
       : checkpointSeqs
+  // Offered where the provider can drop turns from its own context and this
+  // view can operate the conversation.
+  const rewindEnabled = operate && capabilities?.rewind === true && typeof transport.rewind === 'function'
   const chrome: TimelineChrome =
     oldChrome &&
     oldChrome.assistantName === assistantName &&
@@ -1533,7 +1778,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     oldChrome.retryDisabled === composerDisabled &&
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
-    oldChrome.checkpointSeqs === stableCheckpointSeqs
+    oldChrome.checkpointSeqs === stableCheckpointSeqs &&
+    oldChrome.rewindEnabled === rewindEnabled
       ? oldChrome
       : {
           assistantName,
@@ -1544,6 +1790,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,
+          rewindEnabled,
+          onRestoreDraft: restoreDraft,
         }
   chromeRef.current = chrome
 
@@ -1587,7 +1835,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const imageDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
     onDragEnter: (event) => {
       if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-      dragDepthRef.current += 1
       setDropActive(true)
     },
     onDragOver: (event) => {
@@ -1596,15 +1843,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
       event.preventDefault()
     },
+    // Enter and leave fire for every child the pointer crosses, and a row the
+    // stream or the list's virtualization removes mid-drag never reports its
+    // leave. Counting them could stick the overlay over the composer; asking
+    // whether the pointer went somewhere outside the panel cannot.
     onDragLeave: (event) => {
-      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-      if (dragDepthRef.current === 0) setDropActive(false)
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+      setDropActive(false)
     },
     onDrop: (event) => {
       if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
       event.preventDefault()
-      dragDepthRef.current = 0
       setDropActive(false)
       const files = imageFilesFromDataTransfer(event.dataTransfer)
       if (files.length === 0) {
@@ -1614,6 +1863,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       void attachFiles(files)
     },
   }
+
+  // A drag that ends anywhere — dropped elsewhere in the window, or cancelled —
+  // takes the drop affordance with it, whatever the panel's own events saw.
+  useEffect(() => {
+    if (!dropActive) return
+    const clear = () => setDropActive(false)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [dropActive])
 
   const composerError =
     actionError ??
@@ -1647,10 +1909,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         {/* Warn only about the CURRENT session: after a restart the replayed
           transcript may carry a previous session's source, but no session is
           live until the next send (which resets the source via
-          session_started). */}
-        {sessionId !== null && projection.apiKeySource !== null && projection.apiKeySource !== 'none' ? (
+          session_started). Only a source that bills API usage warns: a
+          subscription login reports `none`. */}
+        {sessionId !== null && apiKeyBillingNotice(projection.apiKeySource) !== null ? (
           <InlineNotice tone="warn" className="mx-3 my-2">
-            This session is using an API key, not your subscription.
+            {apiKeyBillingNotice(projection.apiKeySource)}
           </InlineNotice>
         ) : null}
         {sessionId !== null && projection.sessionNotice !== null ? (
@@ -1670,7 +1933,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           aria-live="off"
           aria-busy={!hydrated || loadingEarlier}
           onClickCapture={preserveDisclosurePosition}
-          className="min-h-0 flex-1"
+          className="relative min-h-0 flex-1"
         >
           {timelineRows.length === 0 ? (
             !ready ? (
@@ -1762,6 +2025,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
             />
           )}
+          <TimelineMinimap navigation={turnNavigation} />
+          <QuoteSelectionToolbar
+            rootRef={shellRef}
+            enabled={!composerInputDisabled}
+            onQuote={(text) => {
+              const next = appendQuoteToDraft(draft, text)
+              setDraft(next)
+              pendingCaretRef.current = next.length
+            }}
+          />
         </div>
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
@@ -1777,6 +2050,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
             </OutlineButton>
           ) : null}
+          <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
           <ConversationPendingDock
             pendingApprovals={pendingApprovalEntries}
             workspaceRoot={workspaceRoot ?? undefined}
@@ -1819,41 +2093,31 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           ) : null}
 
           {/*
-           * Queued message (D6/1776): the user typed ahead and committed while the
-           * turn was busy. It auto-sends the moment the session unlocks; Cancel
-           * drops it before then. Kept truthful so a queued turn is never a
-           * silent, invisible pending action.
+           * Queued message: the user typed ahead and committed while the turn
+           * was busy. It auto-sends the moment the session unlocks; Send now
+           * hands it to the running turn (or stops the turn, where the provider
+           * cannot take it mid-turn), and Edit takes it back into the composer.
+           * Kept truthful so a queued turn is never a silent, invisible pending
+           * action.
            */}
           {queuedTurn ? (
-            <div className="mb-2 flex items-center justify-between gap-3 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-              <div className="flex min-w-0 items-baseline gap-2">
-                <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">
-                  Queued
-                </span>
-                <TruncatedText
-                  as="span"
-                  text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
-                  className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
-                />
-              </div>
-              <OutlineButton
-                onClick={() => {
-                  setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
-                  setDraftMetadata({
-                    skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
-                    mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
-                  })
-                  setAttachments((current) =>
-                    [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
-                  )
-                  setQueuedTurn(null)
-                  composerRef.current?.focus()
-                }}
-                className="shrink-0"
-              >
-                Cancel
-              </OutlineButton>
-            </div>
+            <QueuedTurnBubble
+              text={queuedTurn.text}
+              attachments={queuedTurn.attachments}
+              sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
+              shortcutLabel={sendNowShortcutLabel}
+              onSendNow={() => sendQueuedNow(queuedTurn)}
+              onEdit={() => {
+                setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
+                setDraftMetadata({
+                  skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
+                  mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
+                })
+                setAttachments((current) => [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
+                setQueuedTurn(null)
+                composerRef.current?.focus()
+              }}
+            />
           ) : null}
 
           {/*
@@ -1904,12 +2168,25 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               onBlur={flushDraft}
               onPaste={(event) => {
                 // A pasted screenshot only exists as a clipboard item; a text
-                // paste reports no image and falls through to the default.
+                // paste reports no image and falls through to the default —
+                // unless the text is only paths to images outside the
+                // workspace, which attach instead.
                 if (!imagesEnabled) return
                 const files = imageFilesFromDataTransfer(event.clipboardData)
-                if (files.length === 0) return
+                if (files.length > 0) {
+                  event.preventDefault()
+                  void attachFiles(files)
+                  return
+                }
+                const text = event.clipboardData.getData('text/plain')
+                const paths = pastedImagePaths(
+                  text,
+                  transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
+                )
+                if (!paths) return
                 event.preventDefault()
-                void attachFiles(files)
+                const field = event.currentTarget
+                void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
               onChange={(event) => {
                 detachRecall()
@@ -1944,6 +2221,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   }
                 }
                 if (handleRecallKeyDown(event)) return
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+                  event.preventDefault()
+                  commitComposerNow()
+                  return
+                }
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
                   submitComposer()

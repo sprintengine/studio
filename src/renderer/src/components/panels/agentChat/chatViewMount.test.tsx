@@ -458,3 +458,258 @@ test("a switch made from a paired device moves this chat's record, while one rep
     await chat.unmount()
   }
 })
+
+// A running turn the test holds open: its send settles only when released,
+// the way a local send does once the whole turn has streamed.
+function runningTurnSend() {
+  const calls: Array<Record<string, unknown>> = []
+  let release = () => undefined as void
+  const sendTurn = vi.fn<SendTurn>(async (input) => {
+    calls.push(input as Record<string, unknown>)
+    if ((input as { steer?: boolean }).steer) return { ok: true }
+    await new Promise<void>((resolve) => (release = resolve))
+    return { ok: true }
+  })
+  return { sendTurn, calls, release: () => release() }
+}
+
+test('a message queued behind a running turn is handed to it with Send now', async () => {
+  const turn = runningTurnSend()
+  const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })
+  try {
+    await chat.act(async () => chat.type('Investigate the flaky test'))
+    await chat.act(async () => chat.enter())
+    const localTurnId = turn.calls[0]?.localTurnId
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 't1', text: 'x', localTurnId }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't1' }) })
+    })
+    await chat.act(async () => chat.type('Use the staging config'))
+    await chat.act(async () => chat.enter())
+    expect(turn.sendTurn, 'a message committed mid-turn waits').toHaveBeenCalledOnce()
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
+
+    await chat.act(async () => chat.button('Send now')!.click())
+    expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
+    expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
+    // The steered message is a bubble in the transcript straight away.
+    expect(chat.host.textContent).toContain('Use the staging config')
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+test('⌘↵ mid-turn sends the draft now; a provider without steering stops the turn instead', async () => {
+  const turn = runningTurnSend()
+  const interrupt = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn: turn.sendTurn })
+  // The stand-in API has no Stop; this case needs one.
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
+  try {
+    await chat.act(async () => chat.type('Investigate the flaky test'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't2' }) })
+    })
+    await chat.act(async () => chat.type('Stop, wrong branch'))
+    expect(chat.host.textContent).not.toContain('Stop and send')
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(
+        new chat.dom.window.KeyboardEvent('keydown', {
+          key: 'Enter',
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+    expect(interrupt).toHaveBeenCalledOnce()
+    expect(turn.sendTurn, 'the draft waits in the queue for the stopped turn').toHaveBeenCalledOnce()
+    expect(chat.button('Stop and send')).toBeDefined()
+    expect(chat.host.querySelector('textarea')!.value).toBe('')
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+// Starts a turn and queues a second message behind it, the way the steer
+// cases below all begin.
+async function queueBehindRunningTurn(chat: Awaited<ReturnType<typeof mountChat>>, calls: Record<string, unknown>[]) {
+  await chat.act(async () => chat.type('Investigate the flaky test'))
+  await chat.act(async () => chat.enter())
+  await chat.act(async () => {
+    chat.emit({
+      type: 'event',
+      event: event('user_message', { turnId: 't1', text: 'x', localTurnId: calls[0]?.localTurnId }),
+    })
+    chat.emit({ type: 'event', event: event('turn_started', { turnId: 't1' }) })
+  })
+  await chat.act(async () => chat.type('Use the staging config'))
+  await chat.act(async () => chat.enter())
+}
+
+test('a steer that fails after its message landed reports the failure and is not sent a second time', async () => {
+  const calls: Array<Record<string, unknown>> = []
+  let failSteer = () => undefined as void
+  const sendTurn = vi.fn<SendTurn>(async (input) => {
+    calls.push(input as Record<string, unknown>)
+    if ((input as { steer?: boolean }).steer) {
+      await new Promise<void>((resolve) => (failSteer = resolve))
+      return { ok: false, message: 'The agent stopped unexpectedly.' }
+    }
+    return { ok: true }
+  })
+  const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
+  try {
+    await queueBehindRunningTurn(chat, calls)
+    await chat.act(async () => chat.button('Send now')!.click())
+    expect(calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
+    await chat.act(async () => {
+      chat.emit({
+        type: 'event',
+        event: event('user_message', {
+          turnId: 't2',
+          text: 'Use the staging config',
+          localTurnId: calls[1].localTurnId,
+        }),
+      })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't2' }) })
+    })
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_failed', { turnId: 't2', reason: 'runtime' }) })
+      failSteer()
+    })
+    expect(sendTurn, 'the message is already in the conversation').toHaveBeenCalledTimes(2)
+    expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
+    expect(chat.host.textContent).toContain('The agent stopped unexpectedly.')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a steer refused before its message landed goes back to the queue', async () => {
+  const turn = runningTurnSend()
+  const sendTurn = vi.fn<SendTurn>(async (input) =>
+    (input as { steer?: boolean }).steer
+      ? { ok: false, message: 'This agent cannot take a message while it is working.' }
+      : turn.sendTurn(input),
+  )
+  const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
+  try {
+    await queueBehindRunningTurn(chat, turn.calls)
+    await chat.act(async () => chat.button('Send now')!.click())
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
+    expect(chat.host.textContent).toContain('This agent cannot take a message while it is working.')
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+test('Stop and send keeps the queued message until the stopped send settles, then sends it', async () => {
+  const turn = runningTurnSend()
+  const interrupt = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn: turn.sendTurn })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
+  try {
+    await queueBehindRunningTurn(chat, turn.calls)
+    await chat.act(async () => chat.button('Stop and send')!.click())
+    expect(interrupt).toHaveBeenCalledOnce()
+    // The turn ends on screen before the send that started it has settled.
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_failed', { turnId: 't1', reason: 'interrupted' }) })
+    })
+    expect(turn.sendTurn).toHaveBeenCalledOnce()
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
+    await chat.act(async () => turn.release())
+    expect(turn.sendTurn).toHaveBeenCalledTimes(2)
+    expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config' })
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+test('the drop overlay leaves with the drag, however many rows it crossed or lost on the way', async () => {
+  const chat = await mountChat({ capabilities: { images: true } })
+  const doc = chat.dom.window.document
+  const drag = (type: string, target: EventTarget, relatedTarget: EventTarget | null = null) => {
+    const dragEvent = new chat.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, relatedTarget })
+    Object.defineProperty(dragEvent, 'dataTransfer', { value: { types: ['Files'], items: [], files: [] } })
+    target.dispatchEvent(dragEvent)
+  }
+  const overlay = () => chat.host.textContent?.includes('Drop to attach')
+  try {
+    const composer = chat.host.querySelector('textarea')!
+    const inside = chat.host.querySelector('button')!
+    // Two enters, as crossing a row and then the composer reports them, and
+    // only one leave: the row was removed before it could report its own.
+    await chat.act(async () => {
+      drag('dragenter', inside)
+      drag('dragenter', composer)
+    })
+    expect(overlay()).toBe(true)
+    await chat.act(async () => drag('dragleave', composer, inside))
+    expect(overlay(), 'moving within the panel keeps it').toBe(true)
+    await chat.act(async () => drag('dragleave', composer, doc.body))
+    expect(overlay(), 'leaving the panel clears it').toBe(false)
+
+    await chat.act(async () => drag('dragenter', composer))
+    expect(overlay()).toBe(true)
+    await chat.act(async () => {
+      chat.dom.window.dispatchEvent(new chat.dom.window.Event('dragend'))
+    })
+    expect(overlay(), 'a drag that ends anywhere clears it').toBe(false)
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a pasted path to an image in the workspace is typed, not attached', async () => {
+  const chat = await mountChat({ capabilities: { images: true } })
+  const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,iVBORw0K')
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.readImageDataUrl = readImageDataUrl
+  try {
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/project/public/logo.png' },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    expect(paste.defaultPrevented, 'the agent can open it itself').toBe(false)
+    expect(readImageDataUrl).not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a pasted image path that can no longer be read goes in as text, with the reason', async () => {
+  const chat = await mountChat({ capabilities: { images: true } })
+  const readImageDataUrl = vi.fn(async () => {
+    throw new Error("Error invoking remote method 'fs:read-image-data-url': Error: ENOENT: no such file")
+  })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.readImageDataUrl = readImageDataUrl
+  try {
+    const pasted = "'/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'"
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => pasted },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    expect(paste.defaultPrevented, 'the path is read rather than typed').toBe(true)
+    expect(readImageDataUrl).toHaveBeenCalledWith(
+      '/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png',
+    )
+    expect(chat.host.querySelector('textarea')!.value).toBe(pasted)
+    expect(chat.host.textContent).toContain(
+      'Could not attach Screenshot 2026-09-27 at 22.41.31.png: the file no longer exists.',
+    )
+  } finally {
+    await chat.unmount()
+  }
+})

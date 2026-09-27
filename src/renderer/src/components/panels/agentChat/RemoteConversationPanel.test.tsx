@@ -136,6 +136,14 @@ async function mountRemote({
         return () => undefined
       },
     ),
+    // A turn's changed files are listed as soon as its card is drawn.
+    fleetConversationTurnDiff: vi.fn(async () => ({
+      ok: true,
+      diff: {
+        files: [{ path: 'src/upload.ts', status: 'modified', addedLines: 1, removedLines: 1, binary: false }],
+        submodulesExcluded: true,
+      },
+    })),
     fleetConversationSend: vi.fn(async () => ({ ok: true })),
     fleetConversationResolveApproval: vi.fn(async () => ({ ok: true })),
     fleetConversationInterrupt: vi.fn(async () => ({ ok: true })),
@@ -252,6 +260,10 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     // disk, so nothing offers to revert them.
     expect(chat.host.textContent).toContain('1 file changed')
     expect(chat.host.textContent).not.toContain('Revert to before this turn')
+    // Its tree is listed, but the diff window and the editor open this disk's files.
+    expect(chat.host.querySelector('[aria-label^="src/upload.ts, modified"]')).not.toBeNull()
+    expect(chat.host.querySelector('[aria-label="Open diff"]')).toBeNull()
+    expect(chat.host.querySelector('[aria-label="Open src/upload.ts"]')).toBeNull()
     // A machine whose list does not name the preset in force gets no switcher:
     // a picker showing a guess would be worse than none.
     expect(chat.host.textContent).not.toContain('Bypass permissions')

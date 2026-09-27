@@ -178,6 +178,8 @@ import type {
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
+  ConversationAttachmentInput,
+  ConversationAttachmentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -186,6 +188,8 @@ import type {
   ConversationTurnDiffResult,
   ConversationRevertInput,
   ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
@@ -993,9 +997,15 @@ export type ElectronApi = {
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
   conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
+  // The bytes of an image a sent turn carried, by the store reference its
+  // `user_message` recorded — for a bubble replayed after a restart.
+  conversationAttachment: (input: ConversationAttachmentInput) => Promise<ConversationAttachmentResult>
   conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
   conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
   conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
+  // Take the conversation back to before one of its user messages ("Edit from
+  // here"); gated on the provider's `rewind` capability.
+  conversationRewindToTurn: (input: ConversationRewindInput) => Promise<ConversationRewindResult>
   conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
   conversationThreads: (input: ConversationWorkspaceKey) => Promise<ConversationThreadsResult>
   conversationSearch: (input: ConversationSearchInput) => Promise<ConversationSearchResult>

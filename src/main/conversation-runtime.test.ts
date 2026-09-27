@@ -1532,8 +1532,9 @@ test('conversation-runtime', async () => {
     }
   }
 
-  // D3: attachments ride the turn call to the adapter, but v1 is live-only —
-  // they must never enter replayed history or the persisted JSONL transcript.
+  // Attachments ride the turn call to the adapter, but their bytes never enter
+  // replayed history or the persisted JSONL transcript — the transcript keeps
+  // attachment-store references at most (conversation-attachment-store.test.ts).
   async function testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-attachments-'))
     const captured: ConversationMessage[][] = []

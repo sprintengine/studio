@@ -58,3 +58,172 @@ export function readFileAsBase64(file: File): Promise<{ mediaType: string; dataB
     reader.readAsDataURL(file)
   })
 }
+
+// The image extensions a pasted path is read for: the attachable types, spelled
+// the ways a file name spells them.
+const PASTED_IMAGE_PATH = /\.(png|jpe?g|webp|gif)$/i
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+// A `file://` URL's path, or null when the word is not one.
+function fileUrlPath(word: string): string | null {
+  try {
+    const url = new URL(word)
+    if (url.protocol !== 'file:') return null
+    const path = decodeURIComponent(url.pathname)
+    // `file:///C:/…` names a drive path; the leading slash is the URL's.
+    return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Split text into words the way a shell reads a command line: whitespace
+ * separates, '…' is literal, "…" is literal but for an escaped quote or
+ * backslash, and a backslash outside quotes escapes the next character. Null
+ * when a quote is left open or the text ends on a lone backslash.
+ */
+export function splitShellWords(text: string): string[] | null {
+  const words: string[] = []
+  let current = ''
+  let inWord = false
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === "'") {
+      const end = text.indexOf("'", index + 1)
+      if (end === -1) return null
+      current += text.slice(index + 1, end)
+      index = end
+      inWord = true
+    } else if (char === '"') {
+      let closed = false
+      for (index += 1; index < text.length; index += 1) {
+        const inner = text[index]
+        if (inner === '\\' && (text[index + 1] === '"' || text[index + 1] === '\\')) {
+          current += text[index + 1]
+          index += 1
+        } else if (inner === '"') {
+          closed = true
+          break
+        } else current += inner
+      }
+      if (!closed) return null
+      inWord = true
+    } else if (char === '\\') {
+      if (index + 1 >= text.length) return null
+      current += text[index + 1]
+      index += 1
+      inWord = true
+    } else if (/\s/.test(char)) {
+      if (inWord) words.push(current)
+      current = ''
+      inWord = false
+    } else {
+      current += char
+      inWord = true
+    }
+  }
+  if (inWord) words.push(current)
+  return words
+}
+
+// A path as compared for containment: one separator, no trailing one, and a
+// drive letter's case ignored, as Windows ignores it.
+function comparablePath(path: string): string {
+  const unified = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:/.test(unified) ? unified.toLowerCase() : unified
+}
+
+/** Whether `path` is `folder` itself or somewhere beneath it. */
+export function isPathInside(path: string, folder: string): boolean {
+  const root = comparablePath(folder)
+  if (!root) return false
+  const candidate = comparablePath(path)
+  return candidate === root || candidate.startsWith(`${root}/`)
+}
+
+/**
+ * The image files a text paste names, or null when the paste is anything else.
+ * A screenshot tool, a terminal and Finder all put a file's path on the
+ * clipboard rather than its bytes, quoted ('…' or "…") or with its spaces
+ * backslash-escaped; a paste that is only such paths means "attach these", not
+ * "type these". One path pasted bare, spaces and all, counts too, as does a
+ * Windows path, whose backslashes separate rather than escape.
+ *
+ * A path inside one of `projectRoots` stays text: the agent can open a file of
+ * its own project itself, and "replace /repo/public/logo.png with…" is an
+ * instruction about that file, not a picture of it. Only an image from outside
+ * (a screenshot's temporary copy, Downloads, the desktop) has to travel as
+ * bytes. A paste that names both kinds stays text whole, rather than being
+ * split into half a sentence and an attachment.
+ */
+export function pastedImagePaths(text: string, projectRoots: readonly string[] = []): string[] | null {
+  const paths = pastedImagePathList(text)
+  if (!paths) return null
+  const roots = projectRoots.filter((root) => root.trim())
+  return paths.some((path) => roots.some((root) => isPathInside(path, root))) ? null : paths
+}
+
+function pastedImagePathList(text: string): string[] | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  // A second path inside it means a sentence about paths, not one path.
+  const bare =
+    !trimmed.includes('\n') && !/\s\//.test(trimmed) && isAbsolutePath(trimmed) && PASTED_IMAGE_PATH.test(trimmed)
+  if (bare && /^[A-Za-z]:\\/.test(trimmed)) return [trimmed]
+  const words = splitShellWords(trimmed)
+  const paths = words?.map((word) => (word.startsWith('file://') ? fileUrlPath(word) : word))
+  if (
+    paths &&
+    paths.length > 0 &&
+    paths.every((path) => path !== null && isAbsolutePath(path) && PASTED_IMAGE_PATH.test(path))
+  )
+    return paths as string[]
+  return bare ? [trimmed] : null
+}
+
+// Why a pasted path could not be read, in words: the IPC wrapper's own
+// prefix is dropped, and a file that is gone says so — the usual case, a
+// screenshot's temporary copy the system has already cleared.
+function pastedPathFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  if (/ENOENT/.test(message)) return 'the file no longer exists.'
+  const reason = message.replace(/^Error invoking remote method '[^']+': /, '').replace(/^Error: /, '')
+  return reason || 'it could not be read.'
+}
+
+function fileFromDataUrl(dataUrl: string, name: string): File | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
+  if (!match) return null
+  const binary = atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return new File([bytes], name, { type: match[1] })
+}
+
+/**
+ * Read pasted image paths into files now. The bytes are taken at paste time
+ * because the file may not outlive the paste: a macOS screenshot's thumbnail
+ * copy sits in a temporary folder the system clears minutes later. All or
+ * nothing — a paste that cannot be read whole is left as the text it was.
+ */
+export async function readPastedImagePaths(
+  paths: string[],
+  readDataUrl: (path: string) => Promise<string> = (path) => window.api.readImageDataUrl(path),
+): Promise<{ ok: true; files: File[] } | { ok: false; message: string }> {
+  const files: File[] = []
+  for (const path of paths) {
+    const name = path.split(/[\\/]/).pop() || 'image'
+    try {
+      const file = fileFromDataUrl(await readDataUrl(path), name)
+      if (!file) return { ok: false, message: `Could not read ${name}.` }
+      files.push(file)
+    } catch (error) {
+      return { ok: false, message: `Could not attach ${name}: ${pastedPathFailure(error)}` }
+    }
+  }
+  return { ok: true, files }
+}
