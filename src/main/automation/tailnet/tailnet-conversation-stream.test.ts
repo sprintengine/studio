@@ -482,6 +482,8 @@ test('host paths are rewritten by whole segments, and workspace paths read relat
       '/Users/dev',
       '"/Users/dev/.zshrc"',
       'file:///Users/dev/other',
+      'file:///Users/dev/proj/a.ts',
+      'file:///Users/dev%20old/a.ts',
       '/Users/developer/notes.md',
       '/Users/dev.old/notes.md',
       '/opt/Users/dev/x',
@@ -494,7 +496,10 @@ test('host paths are rewritten by whole segments, and workspace paths read relat
       '[home]/other/y.md',
       '[home]',
       '"[home]/.zshrc"',
-      'file://[home]/other',
+      'file:///[home]/other',
+      // A file URL stays an absolute URL rather than turning into `file://a.ts`.
+      'file:///[home]/proj/a.ts',
+      'file:///Users/dev%20old/a.ts',
       '/Users/developer/notes.md',
       '/Users/dev.old/notes.md',
       '/opt/Users/dev/x',
@@ -509,6 +514,33 @@ test('host paths are rewritten by whole segments, and workspace paths read relat
       },
     ),
     { input: { path: '[home]/proj/a' }, list: ['[home]/b'] },
+  )
+  // A Windows home is matched with either separator, as Windows reads both,
+  // and a drive-letter file URL keeps its shape.
+  const windows = (text: string) =>
+    redactHostPaths(text, { home: 'C:\\Users\\dev', workspaceRoot: 'C:\\Users\\dev\\proj' })
+  assert.deepEqual(
+    [
+      'C:/Users/dev/proj/src/a.ts',
+      'C:\\Users\\dev\\proj\\src\\a.ts',
+      'C:/Users/dev/notes.md',
+      'type C:\\Users\\dev\\notes.md',
+      'file:///C:/Users/dev/notes.md',
+      'C:/Users/developer/notes.md',
+    ].map(windows),
+    [
+      'src/a.ts',
+      'src\\a.ts',
+      '[home]/notes.md',
+      'type [home]\\notes.md',
+      'file:///[home]/notes.md',
+      'C:/Users/developer/notes.md',
+    ],
+  )
+  // A home with a space is spelled encoded in a URL.
+  assert.equal(
+    redactHostPaths('file:///Users/dev%20box/a.md', { home: '/Users/dev box', workspaceRoot: null }),
+    'file:///[home]/a.md',
   )
 })
 

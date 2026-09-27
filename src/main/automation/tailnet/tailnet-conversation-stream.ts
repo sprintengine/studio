@@ -848,25 +848,51 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 type PathRewriter = (text: string) => string
 const rewriters = new Map<string, PathRewriter>()
 
+/** A path as a pattern matching it with either separator: Windows accepts `C:/Users` as readily as `C:\\Users`. */
+const pathPattern = (path: string) =>
+  path
+    .split(/[\\/]+/)
+    .map(escapeRegExp)
+    .join(String.raw`[\\/]`)
+/** The same path as a `file:` URL spells it: forward slashes, each segment percent-encoded. */
+const urlPathPattern = (path: string) =>
+  path
+    .split(/[\\/]+/)
+    .map((segment) => escapeRegExp(encodeURIComponent(segment).replace(/%3A/gi, ':')))
+    .join('/')
+
 function pathRewriter(home: string, workspaceRoot: string | null): PathRewriter {
   const cacheKey = JSON.stringify([home, workspaceRoot])
   const cached = rewriters.get(cacheKey)
   if (cached) return cached
   const flags = process.platform === 'win32' ? 'gi' : 'g'
-  // A prefix starts a path: at the start of the text, after a character that
-  // cannot be inside one, or right after a `file://` scheme.
-  const start = String.raw`(?:(?<![\w.~\-/\\])|(?<=file://))`
+  // A prefix starts a path: at the start of the text, or after a character
+  // that cannot be inside one. A path inside a URL is the URL step's.
+  const start = String.raw`(?<![\w.~\-/\\])`
   const steps: Array<[RegExp, string]> = []
+  const homeRoot = home.replace(/[\\/]+$/, '')
+  // A `file:` URL stays a URL: its home prefix becomes `/[home]`, so
+  // `file:///Users/dev/a.ts` reads `file:///[home]/a.ts` rather than losing
+  // the slash that makes it absolute. A drive-letter home sits after one more
+  // slash (`file:///C:/Users/dev`), a URL may spell the home encoded, and in
+  // a URL an escape (`%20`) continues a segment.
+  if (homeRoot.length > 1)
+    steps.push([
+      new RegExp(
+        String.raw`file://(?:/(?=[A-Za-z]:))?(?:${pathPattern(homeRoot)}|${urlPathPattern(homeRoot)})(?![\w.~\-%])`,
+        flags,
+      ),
+      'file:///[home]',
+    ])
   const root = workspaceRoot?.replace(/[\\/]+$/, '') ?? ''
   if (root.length > 1) {
-    const prefix = escapeRegExp(root)
+    const prefix = pathPattern(root)
     // In the workspace: the path from its root, and the root itself as `.`.
     steps.push([new RegExp(`${start}${prefix}[\\\\/](?=${SEGMENT_CHAR})`, flags), ''])
     steps.push([new RegExp(`${start}${prefix}(?!${SEGMENT_CHAR})`, flags), '.'])
   }
-  const homeRoot = home.replace(/[\\/]+$/, '')
   if (homeRoot.length > 1)
-    steps.push([new RegExp(`${start}${escapeRegExp(homeRoot)}(?!${SEGMENT_CHAR})`, flags), '[home]'])
+    steps.push([new RegExp(`${start}${pathPattern(homeRoot)}(?!${SEGMENT_CHAR})`, flags), '[home]'])
   const rewrite: PathRewriter = (text) =>
     steps.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text)
   if (rewriters.size > 64) rewriters.clear()
