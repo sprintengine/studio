@@ -84,7 +84,13 @@ const thread: FleetConversation = {
 
 // Mounts the remote pane against a scripted Fleet API. The local
 // conversation API is absent altogether: nothing in this view may reach it.
-async function mountRemote({ access }: { access: 'read' | 'operate' }) {
+async function mountRemote({
+  access,
+  permissionPreset,
+}: {
+  access: 'read' | 'operate'
+  permissionPreset?: FleetConversation['permissionPreset']
+}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   const globals = {
@@ -104,7 +110,11 @@ async function mountRemote({ access }: { access: 'read' | 'operate' }) {
   const followed: FleetConversationKey[] = []
   const api = {
     platform: 'darwin',
-    fleetConversationList: vi.fn(async () => ({ ok: true, conversations: [thread], access })),
+    fleetConversationList: vi.fn(async () => ({
+      ok: true,
+      conversations: [permissionPreset ? { ...thread, permissionPreset } : thread],
+      access,
+    })),
     onFleetConversationSession: vi.fn(
       (input: { key: FleetConversationKey }, receive: (frame: FleetConversationFrame) => void) => {
         followed.push(input.key)
@@ -115,6 +125,7 @@ async function mountRemote({ access }: { access: 'read' | 'operate' }) {
     fleetConversationSend: vi.fn(async () => ({ ok: true })),
     fleetConversationResolveApproval: vi.fn(async () => ({ ok: true })),
     fleetConversationInterrupt: vi.fn(async () => ({ ok: true })),
+    fleetConversationSetPermissionPreset: vi.fn(async () => ({ ok: true })),
   }
   Object.assign(dom.window, {
     matchMedia: () => ({ matches: true, addEventListener: () => undefined, removeEventListener: () => undefined }),
@@ -169,6 +180,7 @@ async function mountRemote({ access }: { access: 'read' | 'operate' }) {
   const composer = () => host.querySelector('textarea')!
   return {
     host,
+    document: dom.window.document,
     act,
     api,
     followed,
@@ -222,7 +234,10 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     // disk, so nothing offers to revert them.
     expect(chat.host.textContent).toContain('1 file changed')
     expect(chat.host.textContent).not.toContain('Revert to before this turn')
-    expect(chat.host.textContent).not.toContain('Manual')
+    // A machine whose list does not name the preset in force gets no switcher:
+    // a picker showing a guess would be worse than none.
+    expect(chat.host.textContent).not.toContain('Bypass permissions')
+    expect(chat.host.textContent).not.toContain('CLI default')
   } finally {
     await chat.unmount()
   }
@@ -268,6 +283,30 @@ test('a pairing that may only follow sees the conversation with every action clo
     expect(chat.button('Deny')?.disabled).toBe(true)
     expect(chat.button('Allow once')?.disabled).toBe(true)
     expect(chat.host.querySelector('[aria-label="Stop responding"]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat whose machine names its preset offers the same two-preset switcher, and a pick goes over the fleet', async () => {
+  const chat = await mountRemote({ access: 'operate', permissionPreset: 'bypass' })
+  try {
+    const pill = () =>
+      Array.from(chat.host.querySelectorAll('button')).find(
+        (item) =>
+          item.getAttribute('aria-haspopup') === 'menu' &&
+          /Bypass permissions|CLI default/.test(item.textContent ?? ''),
+      )
+    expect(pill()?.textContent).toContain('Bypass permissions')
+    await chat.act(async () => pill()!.click())
+    const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
+    expect(
+      rows.map((row) => row.textContent?.startsWith('Bypass permissions') || row.textContent?.startsWith('No flag')),
+    ).toEqual([true, true])
+    expect(rows.some((row) => row.disabled)).toBe(false)
+    await chat.act(async () => rows[1]!.click())
+    expect(chat.api.fleetConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
+    expect(pill()?.textContent).toContain('CLI default')
   } finally {
     await chat.unmount()
   }

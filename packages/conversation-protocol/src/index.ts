@@ -47,6 +47,8 @@ export function conversationCloseRetryAfterMs(reason: string): number | null {
 export type ConversationWirePhase =
   'idle' | 'starting' | 'running' | 'waiting_for_approval' | 'waiting_for_input' | 'failed' | 'completed'
 export type ConversationWireKey = { workspaceId: string; agentId: string }
+/** `bypass` skips the CLI's approval prompts; `none` passes no permission flag. */
+export type ConversationWirePermissionPreset = 'none' | 'bypass'
 export type ConversationWireThread = ConversationWireKey & {
   title: string
   phase: ConversationWirePhase
@@ -57,6 +59,11 @@ export type ConversationWireThread = ConversationWireKey & {
   turnCount: number
   lastSeq: number
   sessionId?: string
+  /**
+   * The permission preset the conversation runs under, or resumes under when
+   * no session is live. Absent from a desktop built before it was listed.
+   */
+  permissionPreset?: ConversationWirePermissionPreset
   capabilities?: {
     images: boolean
     approvals: boolean
@@ -79,14 +86,13 @@ export type ConversationWireErrorCode =
   // A request, command or response over its size limit. Not retryable as is.
   | 'too_large'
   | 'unsafe_remote_decision'
-  | 'unsafe_remote_preset'
   | 'unsupported_command'
 export type ConversationWireCommand =
   | { kind: 'send'; message: string; uploadIds?: string[] }
   | { kind: 'interrupt' }
   | { kind: 'resolveApproval'; requestId: string; decision: 'once' | 'conversation' | 'deny' }
   | { kind: 'answerQuestion'; requestId: string; answers: Record<string, string> }
-  | { kind: 'setPermissionPreset'; preset: 'manual' | 'auto' }
+  | { kind: 'setPermissionPreset'; preset: ConversationWirePermissionPreset }
 /**
  * `afterSeq` with the `generation` of an earlier `snapshot` or `synchronized`
  * asks for only the events after that sequence: one `event` per missed event,
@@ -201,8 +207,6 @@ export function explainRejectedConversationFrame(value: unknown): ConversationFr
   }
   if (command?.decision === 'always')
     return { code: 'unsafe_remote_decision', message: 'A remote device cannot choose a permanent rule.', ...ids }
-  if (command?.preset === 'bypass' || command?.preset === 'none')
-    return { code: 'unsafe_remote_preset', message: 'A remote device cannot choose that permission preset.', ...ids }
   const tooLong =
     (typeof command?.message === 'string' && command.message.length > CONVERSATION_MAX_MESSAGE_CHARS) ||
     (record(command?.answers) &&
@@ -223,6 +227,15 @@ export function explainRejectedConversationFrame(value: unknown): ConversationFr
   )
     return { code: 'unsupported_command', message: 'This desktop does not support that command.', ...ids }
   return { code: 'invalid_frame', message: 'Unsupported conversation frame.', ...ids }
+}
+
+// A client built before the two-mode change offers only `manual` and `auto`.
+// Both asked more often than bypass does, so both read as `none`: a remote
+// switch never widens what the agent may do past what was asked for.
+function wirePermissionPreset(value: unknown): ConversationWirePermissionPreset | null {
+  if (value === 'none' || value === 'bypass') return value
+  if (value === 'manual' || value === 'auto') return 'none'
+  return null
 }
 
 /** Validate supported fields and strip unknown members before handing a frame to main. */
@@ -314,14 +327,12 @@ export function parseConversationClientFrame(value: unknown): ConversationClient
                 command: { kind: 'answerQuestion', requestId: command.requestId, answers: command.answers },
               }
             : null
-        case 'setPermissionPreset':
-          return ['manual', 'auto'].includes(String(command.preset))
-            ? {
-                type: 'command',
-                commandId: value.commandId,
-                command: { kind: 'setPermissionPreset', preset: command.preset as 'manual' | 'auto' },
-              }
+        case 'setPermissionPreset': {
+          const preset = wirePermissionPreset(command.preset)
+          return preset
+            ? { type: 'command', commandId: value.commandId, command: { kind: 'setPermissionPreset', preset } }
             : null
+        }
         default:
           return null
       }

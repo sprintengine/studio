@@ -73,6 +73,10 @@ function remoteConversationSession(
     providerId: thread?.providerId ?? '',
     modelId: thread?.modelId ?? '',
     status: 'ready',
+    // The preset the machine says the conversation is on. With it the chat
+    // shows the same switcher a local chat does; without it (a desktop built
+    // before the list named it) the switcher stays hidden.
+    ...(thread?.permissionPreset ? { permissionPreset: thread.permissionPreset } : {}),
     createdAt: thread?.createdAt ?? 0,
     updatedAt: thread?.updatedAt ?? 0,
     capabilities: {

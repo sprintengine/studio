@@ -179,7 +179,7 @@ export const fleetApi = {
     requestId: string
     answers: Record<string, string>
   }) => command(input.key, { kind: 'answerQuestion', requestId: input.requestId, answers: input.answers }),
-  fleetConversationSetPermissionPreset: (input: { key: FleetConversationKey; preset: 'manual' | 'auto' }) =>
+  fleetConversationSetPermissionPreset: (input: { key: FleetConversationKey; preset: 'none' | 'bypass' }) =>
     command(input.key, { kind: 'setPermissionPreset', preset: input.preset }),
   fleetConversationToolDetail: (input: {
     key: FleetConversationKey

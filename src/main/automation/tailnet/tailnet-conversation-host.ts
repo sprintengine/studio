@@ -2,6 +2,7 @@ import type { ConversationClientFrame, ConversationWireThread } from '../../../.
 import type {
   ConversationKey,
   ConversationImageAttachment,
+  ConversationPermissionPreset,
   ConversationSessionFrame,
   ConversationSessionSummary,
   ConversationSubscribeInput,
@@ -9,6 +10,7 @@ import type {
 import type { ConversationRuntime } from '../../conversation-runtime'
 import { ConversationSessionApi } from '../../conversation-session-api'
 import { randomUUID } from 'node:crypto'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-settings'
 import { basename, dirname } from 'node:path'
 import { openConfinedExistingFile } from '../../conversation-file-access'
 import {
@@ -88,11 +90,18 @@ export type ConversationGatewayHost = {
   ): Promise<{ ok: boolean; message?: string }>
 }
 
-/** Both IPC and the network wrap this one session API; only root resolution differs. */
+/**
+ * Both IPC and the network wrap this one session API; only root resolution
+ * differs. `defaultPermissionPreset` answers for a conversation this app has
+ * not run since it started: the preset its agent record holds, else the app's
+ * spawn default.
+ */
 export function createConversationGatewayHost(
   runtime: ConversationRuntime,
   resolveWorkspaceRoot: (workspaceId: string) => string | null,
   listWorkspaces: () => Array<{ workspaceId: string; workspaceRoot: string }>,
+  defaultPermissionPreset: (key: { workspaceId: string; agentId: string }) => ConversationPermissionPreset = () =>
+    DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
 ): ConversationGatewayHost {
   const api = new ConversationSessionApi(runtime)
   const uploads = new Map<
@@ -134,6 +143,19 @@ export function createConversationGatewayHost(
         )
       : undefined
   }
+  // The preset a conversation runs under, or would resume under: the last
+  // session this app ran for it (a stopped one still holds the preset it had),
+  // else the default above. A remote resume keeps the conversation on the
+  // preset it was left on rather than choosing one of its own.
+  const presetFor = (
+    key: { workspaceId: string; agentId: string },
+    sessions: ConversationSessionSummary[],
+  ): ConversationPermissionPreset => {
+    const latest = sessions
+      .filter((session) => session.workspaceId === key.workspaceId && session.agentId === key.agentId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    return latest?.permissionPreset ?? defaultPermissionPreset(key)
+  }
   const ensureSession = async (key: ConversationKey) => {
     const active = sessionFor(key)
     if (active) return { ok: true as const, session: active }
@@ -144,13 +166,12 @@ export function createConversationGatewayHost(
         const indexed = await runtime.listThreads(key)
         const thread = indexed.ok ? indexed.threads.find((entry) => entry.agentId === key.agentId) : undefined
         if (!thread) return { ok: false as const, message: 'Conversation is unavailable.' }
-        // A remote resume never inherits an unattended or bypass preset. If
-        // the provider cannot honor manual approval, resume it on the desktop.
+        const listed = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
         return runtime.startSession({
           ...key,
           providerId: thread.providerId,
           modelId: thread.model,
-          permissionPreset: 'manual',
+          permissionPreset: presetFor(key, listed.ok ? listed.sessions : []),
         })
       })()
       starting.set(id, request)
@@ -164,9 +185,8 @@ export function createConversationGatewayHost(
   return {
     async list() {
       const result = api.listSessions()
-      const live = result.ok
-        ? result.sessions.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)
-        : []
+      const all = result.ok ? result.sessions : []
+      const live = all.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)
       const byId = new Map<string, ConversationWireThread>()
       for (const workspace of listWorkspaces()) {
         const indexed = await runtime.listThreads(workspace)
@@ -186,6 +206,7 @@ export function createConversationGatewayHost(
             modelId: thread.model,
             turnCount: thread.turnCount,
             lastSeq: thread.lastSeq,
+            permissionPreset: presetFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
           })
         }
@@ -204,6 +225,7 @@ export function createConversationGatewayHost(
           modelId: summary.modelId,
           turnCount: 0,
           lastSeq: 0,
+          permissionPreset: presetFor(summary, all),
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
         })
@@ -234,7 +256,9 @@ export function createConversationGatewayHost(
     command(key, deviceId, commandId, command) {
       const execute = async (): Promise<{ ok: boolean; message?: string }> => {
         let session = sessionFor(key)
-        if (!session && command.kind === 'send') {
+        // A send, or a preset switch, reaches a conversation with no live
+        // session by resuming it; the switch then applies to that session.
+        if (!session && (command.kind === 'send' || command.kind === 'setPermissionPreset')) {
           const resumed = await ensureSession(key)
           if (!resumed.ok) return resumed
           session = resumed.session
@@ -242,11 +266,6 @@ export function createConversationGatewayHost(
         if (!session) return { ok: false, message: 'Conversation is unavailable.' }
         switch (command.kind) {
           case 'send': {
-            if (session.permissionPreset !== 'manual' && session.permissionPreset !== 'auto')
-              return {
-                ok: false,
-                message: 'Choose an explicit Manual or Auto permission preset before sending from a remote device.',
-              }
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
             const retry =
@@ -258,7 +277,6 @@ export function createConversationGatewayHost(
                 commandId,
                 message: command.message,
                 attachments: [],
-                requireSafePermissions: true,
               })
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
@@ -292,7 +310,6 @@ export function createConversationGatewayHost(
               commandId,
               message: command.message,
               attachments,
-              requireSafePermissions: true,
             })
             // Accepted: the images are in the turn now, so their staged files
             // are removed rather than left for the hour-long expiry. A refused

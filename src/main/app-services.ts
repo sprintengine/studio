@@ -92,7 +92,8 @@ import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/h
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
-import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
+import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import {
   configureCliVersionService,
@@ -1339,6 +1340,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               workspaceId: record.id,
               workspaceRoot: record.folderPath!,
             })),
+        // A chat's own agent record carries the preset the person last chose
+        // for it; a chat without one starts on the app-wide spawn default, as a
+        // new chat in a window does.
+        (key) =>
+          parseCliPermissionPreset(
+            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
+          ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
       ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
@@ -1390,17 +1398,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
           launchAgent: (request) => agentLaunchService.launch(request),
-          // Read live, never captured: the same store the launch service reads, so
-          // a preset changed in Settings reaches the next terminal.create without
-          // a restart.
-          // The CLI's own preset, else the app-wide one, and a never-chosen
-          // preset reads as the app default: the same resolution the window's
-          // pickers and the launch service use. With no CLI named, the launch
-          // runs on the last-selected one, so that is whose preset applies.
-          getAgentSpawnPermissionDefault: (cli) => {
-            const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
-            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
-          },
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),

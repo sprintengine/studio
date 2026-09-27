@@ -44,7 +44,7 @@ last cursor. Requests beyond the per-socket bound are answered with code `busy`
 and `retryAfterMs`, and the socket stays open.
 
 Every refusal is correlated. A command is always settled by a `commandResult`
-under its `commandId` (an unsafe decision or preset, a message over
+under its `commandId` (an unsafe decision, a message over
 `CONVERSATION_MAX_MESSAGE_CHARS`, a missing grant), a read by a `result` under
 its `requestId` (including `too_large` for a response over 32 MB), and a
 subscription that cannot start by `subscribeFailed` with its `key`, a

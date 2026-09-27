@@ -50,29 +50,6 @@ async function fixture(adapter = createMockConversationProvider()) {
   }
 }
 
-test('session API preserves the private remote permission precondition', async () => {
-  const f = await fixture()
-  try {
-    const api = new ConversationSessionApi(f.runtime)
-    const result = await api.send({
-      sessionId: f.sessionId,
-      commandId: 'remote-policy',
-      message: 'hello',
-      requireSafePermissions: true,
-    })
-    assert.equal(result.ok, false)
-    if (!result.ok) assert.match(result.message, /settled Manual or Auto/)
-    const transcript = await f.runtime.readTranscript(f.key)
-    assert.ok(transcript.ok)
-    assert.equal(
-      transcript.events.some((entry) => entry.type === 'user_message'),
-      false,
-    )
-  } finally {
-    await f.cleanup()
-  }
-})
-
 test('interrupt persists one terminal event when a provider closes only its send stream', async () => {
   let entered!: () => void
   const streaming = new Promise<void>((resolve) => {
@@ -1342,9 +1319,17 @@ test('a command that throws records its failure, so a retry gets that result ins
     },
   })
   try {
-    const first = await f.runtime.setPermission({ sessionId: f.sessionId, commandId: 'perm', permissionPreset: 'auto' })
+    const first = await f.runtime.setPermission({
+      sessionId: f.sessionId,
+      commandId: 'perm',
+      permissionPreset: 'bypass',
+    })
     assert.deepEqual(first, { ok: false, message: 'provider refused the change' })
-    const retry = await f.runtime.setPermission({ sessionId: f.sessionId, commandId: 'perm', permissionPreset: 'auto' })
+    const retry = await f.runtime.setPermission({
+      sessionId: f.sessionId,
+      commandId: 'perm',
+      permissionPreset: 'bypass',
+    })
     assert.deepEqual(retry, first)
     assert.equal(calls, 1, 'the retry is answered from its receipt, not executed again')
   } finally {

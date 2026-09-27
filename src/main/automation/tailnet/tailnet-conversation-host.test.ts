@@ -6,56 +6,85 @@ import { join } from 'node:path'
 import { test, vi } from 'vitest'
 import { ConversationRuntime } from '../../conversation-runtime'
 import { createMockConversationProvider } from '../../providers/mock-conversation-provider'
+import type { ConversationProviderAdapter } from '../../providers/conversation-provider-adapter'
+import type { ConversationPermissionPreset } from '../../../shared/conversation-runtime'
 import { createConversationGatewayHost, readBoundedConversationUpload } from './tailnet-conversation-host'
 import { MAX_ATTACHMENTS_PER_TURN, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import { CONVERSATION_MAX_IMAGES } from '../../../../packages/conversation-protocol/src'
 
-async function fixture() {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-gateway-'))
+type Preset = ConversationPermissionPreset
+
+async function fixture(
+  options: {
+    preset?: Preset
+    defaultPreset?: Preset
+    workspaceRoot?: string
+    adapter?: ConversationProviderAdapter
+  } = {},
+) {
+  const workspaceRoot = options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), 'conversation-gateway-')))
   const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
-  const adapter = createMockConversationProvider()
+  // The mock provider has no live permission surface; the runtime needs one to
+  // accept a preset switch.
+  const adapter = options.adapter ?? {
+    ...createMockConversationProvider(),
+    setPermissionPreset: async () => ({ ok: true as const }),
+  }
   const runtime = new ConversationRuntime({ adapters: [adapter], getProviderById: () => undefined })
+  const defaults: Array<{ workspaceId: string; agentId: string }> = []
   const host = createConversationGatewayHost(
     runtime,
     (id) => (id === key.workspaceId ? workspaceRoot : null),
     () => [{ workspaceRoot, workspaceId: key.workspaceId }],
+    ...(options.defaultPreset
+      ? [
+          (asked: { workspaceId: string; agentId: string }) => {
+            defaults.push(asked)
+            return options.defaultPreset!
+          },
+        ]
+      : []),
   )
-  const start = () =>
+  const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
     runtime.startSession({
       ...key,
       providerId: adapter.id,
       modelId: adapter.listModels()[0],
-      permissionPreset: 'manual',
+      permissionPreset,
     })
   return {
     key,
     host,
     runtime,
     start,
-    cleanup: async () => {
+    defaults,
+    cleanup: async (keepFolder = false) => {
       await runtime.shutdown()
-      await rm(workspaceRoot, { recursive: true, force: true })
+      if (!keepFolder) await rm(workspaceRoot, { recursive: true, force: true })
     },
   }
 }
 
-test('gateway lists closed history and resumes concurrent sends once under manual approval', async () => {
-  const f = await fixture()
+test('gateway lists closed history and resumes concurrent sends once, under the preset the chat was left on', async () => {
+  const f = await fixture({ preset: 'none' })
   try {
     const started = await f.start()
     assert.ok(started.ok)
     await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
     await f.runtime.stopSession({ sessionId: started.session.sessionId })
-    assert.equal((await f.host.list())[0].sessionId, undefined)
+    const closed = (await f.host.list())[0]
+    assert.equal(closed.sessionId, undefined)
+    assert.equal(closed.permissionPreset, 'none', 'a stopped session still names the preset it had')
     const start = vi.spyOn(f.runtime, 'startSession')
     const results = await Promise.all(
       ['one', 'two'].map((commandId) => f.host.command(f.key, 'phone', commandId, { kind: 'send', message: '/tools' })),
     )
     assert.equal(start.mock.calls.length, 1)
-    assert.equal(start.mock.calls[0][0].permissionPreset, 'manual')
+    assert.equal(start.mock.calls[0][0].permissionPreset, 'none', 'the resume keeps the last preset')
     assert.ok(results.some((result) => result.ok))
     const live = (await f.host.list())[0]
     assert.ok(live.sessionId)
+    assert.equal(live.permissionPreset, 'none')
     assert.equal(live.capabilities?.images, true)
     assert.equal(f.host.resolveKey('missing', 'agent'), null)
     assert.deepEqual(f.host.resolveKey('workspace', 'agent'), f.key)
@@ -64,22 +93,55 @@ test('gateway lists closed history and resumes concurrent sends once under manua
   }
 })
 
-test('failed safe resume never retries with a more permissive preset', async () => {
+test('a conversation this app has not run since it started lists and resumes on the injected default', async () => {
+  const first = await fixture()
+  const started = await first.start()
+  assert.ok(started.ok)
+  await first.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+  await first.cleanup(true)
+  // A restart: the transcript is on disk, no session is in memory.
+  const f = await fixture({ workspaceRoot: first.key.workspaceRoot, defaultPreset: 'none' })
+  try {
+    const listed = (await f.host.list())[0]
+    assert.equal(listed.sessionId, undefined)
+    assert.equal(listed.permissionPreset, 'none', 'the default answers for a conversation with no session on record')
+    assert.deepEqual(f.defaults.at(-1), { workspaceId: 'workspace', agentId: 'agent' })
+    const start = vi.spyOn(f.runtime, 'startSession')
+    assert.equal((await f.host.command(f.key, 'phone', 'send', { kind: 'send', message: '/tools' })).ok, true)
+    assert.equal(start.mock.calls[0][0].permissionPreset, 'none')
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('with no default injected, a conversation with no session on record resumes on bypass', async () => {
+  const first = await fixture()
+  const started = await first.start()
+  assert.ok(started.ok)
+  await first.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+  await first.cleanup(true)
+  const f = await fixture({ workspaceRoot: first.key.workspaceRoot })
+  try {
+    assert.equal((await f.host.list())[0].permissionPreset, 'bypass')
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a failed resume is answered with its own refusal and never retried', async () => {
   const f = await fixture()
   try {
     const started = await f.start()
     assert.ok(started.ok)
     await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
     await f.runtime.stopSession({ sessionId: started.session.sessionId })
-    const start = vi
-      .spyOn(f.runtime, 'startSession')
-      .mockResolvedValue({ ok: false, message: 'Manual approval unsupported.' })
+    const start = vi.spyOn(f.runtime, 'startSession').mockResolvedValue({ ok: false, message: 'Provider unavailable.' })
     assert.deepEqual(await f.host.command(f.key, 'phone', 'send', { kind: 'send', message: 'hello' }), {
       ok: false,
-      message: 'Manual approval unsupported.',
+      message: 'Provider unavailable.',
     })
     assert.equal(start.mock.calls.length, 1)
-    assert.equal(start.mock.calls[0][0].permissionPreset, 'manual')
+    assert.equal(start.mock.calls[0][0].permissionPreset, 'bypass')
   } finally {
     await f.cleanup()
   }
@@ -208,23 +270,52 @@ test('send preparation coalesces retries, refuses parallel turns and leaves inte
   }
 })
 
-test('remote sends cannot inherit a local bypass or CLI-managed preset', async () => {
-  const f = await fixture()
+test('a remote send reaches a chat in bypass, as a send from this machine does', async () => {
+  const f = await fixture({ preset: 'bypass' })
   try {
     const started = await f.start()
     assert.ok(started.ok)
-    for (const permissionPreset of ['bypass', 'none', undefined] as const) {
-      vi.spyOn(f.runtime, 'listSessions').mockReturnValue({
-        ok: true,
-        sessions: [{ ...started.session, permissionPreset }],
-      })
-      const result = await f.host.command(f.key, 'phone', `send-${permissionPreset}`, {
-        kind: 'send',
-        message: 'hello',
-      })
-      assert.equal(result.ok, false)
-      assert.match(result.message!, /explicit Manual or Auto/)
+    const result = await f.host.command(f.key, 'phone', 'send-bypass', { kind: 'send', message: 'hello' })
+    assert.equal(result.ok, true, result.message ?? '')
+    const transcript = await f.runtime.readTranscript(f.key)
+    assert.ok(transcript.ok)
+    assert.equal(
+      transcript.events.some((entry) => entry.type === 'user_message'),
+      true,
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('the list names the live preset of each conversation, and a remote switch moves it both ways', async () => {
+  const f = await fixture({ preset: 'bypass' })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    assert.equal((await f.host.list())[0].permissionPreset, 'bypass')
+    for (const preset of ['none', 'bypass'] as const) {
+      const switched = await f.host.command(f.key, 'phone', `to-${preset}`, { kind: 'setPermissionPreset', preset })
+      assert.equal(switched.ok, true, switched.message ?? '')
+      assert.equal((await f.host.list())[0].permissionPreset, preset)
     }
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a remote preset switch on a conversation with no live session resumes it on the new preset', async () => {
+  const f = await fixture({ preset: 'bypass' })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    const switched = await f.host.command(f.key, 'phone', 'switch', { kind: 'setPermissionPreset', preset: 'none' })
+    assert.equal(switched.ok, true, switched.message ?? '')
+    const live = (await f.host.list())[0]
+    assert.ok(live.sessionId, 'the switch resumed a session')
+    assert.equal(live.permissionPreset, 'none')
   } finally {
     await f.cleanup()
   }

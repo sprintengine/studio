@@ -48,7 +48,7 @@ test('conversation-runtime', async () => {
     await testMultiTurnHistoryAccumulates()
     await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
     await testSetPermissionAppliesThroughTheAdapterOrRefuses()
-    await testRemoteSendPermissionAcquisitionAndTransitions()
+    await testPermissionTransitionsAreSerialized()
     await testInterruptSuppressesLateAsyncProviderEvents()
     await testStopSessionSuppressesLateAsyncProviderEvents()
     await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
@@ -1639,12 +1639,12 @@ test('conversation-runtime', async () => {
         agentId: 'a',
         providerId: 'capture-provider',
         modelId: 'capture-model',
-        permissionPreset: 'manual',
+        permissionPreset: 'none',
       })
       assert.equal(started.ok, true)
       if (!started.ok) return
       const sessionId = started.session.sessionId
-      assert.equal(started.session.permissionPreset, 'manual', 'the summary reports the preset in force')
+      assert.equal(started.session.permissionPreset, 'none', 'the summary reports the preset in force')
 
       const switched = await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
       assert.equal(switched.ok, true)
@@ -1655,7 +1655,7 @@ test('conversation-runtime', async () => {
 
       // A provider refusal is surfaced verbatim and does not move the session.
       refusal = 'Claude Code refused the permission change.'
-      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'auto' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'none' }), {
         ok: false,
         message: refusal,
       })
@@ -1663,7 +1663,7 @@ test('conversation-runtime', async () => {
       assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass')
       refusal = null
 
-      assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'manual' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'none' }), {
         ok: false,
         message: 'Conversation session is invalid.',
       })
@@ -1681,13 +1681,13 @@ test('conversation-runtime', async () => {
       if (!staticSession.ok) return
       assert.equal(staticSession.session.permissionPreset, undefined, 'no preset chosen means none reported')
       assert.deepEqual(
-        await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto' }),
+        await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'bypass' }),
         { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' },
       )
 
       const stopped = await runtime.stopSession({ sessionId })
       assert.equal(stopped.ok, true)
-      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'manual' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'none' }), {
         ok: false,
         message: 'Conversation session is stopped.',
       })
@@ -1697,15 +1697,15 @@ test('conversation-runtime', async () => {
     }
   }
 
-  async function testRemoteSendPermissionAcquisitionAndTransitions(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-safe-policy-'))
+  // Preset changes reach the provider one at a time, in the order they were
+  // made, and nothing about the preset gates a send: a chat in Bypass takes a
+  // turn like any other.
+  async function testPermissionTransitionsAreSerialized(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-permission-order-'))
     const turnGate = createDeferred<void>()
-    const skillGate = createDeferred<void>()
-    const skillEntered = createDeferred<void>()
     const permissionGate = createDeferred<void>()
     const permissionEntered = createDeferred<void>()
-    let pauseSkills = true
-    let pausePermissions = false
+    let pausePermissions = true
     const applied: ConversationPermissionPreset[] = []
     const events: string[] = []
     const runtime = new TrackedConversationRuntime({
@@ -1723,13 +1723,6 @@ test('conversation-runtime', async () => {
         },
       ],
       getProviderById: () => undefined,
-      resolveSkills: async () => {
-        if (pauseSkills) {
-          skillEntered.resolve()
-          await skillGate.promise
-        }
-        return { ids: [] }
-      },
     })
     runtime.onEvent((event) => events.push(event.type))
     try {
@@ -1739,46 +1732,28 @@ test('conversation-runtime', async () => {
         agentId: 'agent',
         providerId: 'slow-provider',
         modelId: 'slow-model',
-        permissionPreset: 'manual',
+        permissionPreset: 'none',
       })
       assert.ok(started.ok)
       const sessionId = started.session.sessionId
-      const sending = runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })
-      await skillEntered.promise
-      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })).ok)
-      pauseSkills = false
-      skillGate.resolve()
-      assert.equal((await sending).ok, false, 'a preset changed during preparation cannot reach the provider')
-      assert.equal(events.includes('turn_started'), false)
-
-      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'manual' })).ok)
-      pausePermissions = true
       const bypass = runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
       await permissionEntered.promise
-      const auto = runtime.setPermission({ sessionId, permissionPreset: 'auto' })
-      assert.deepEqual(applied, ['bypass', 'manual', 'bypass'], 'native transitions are serialized')
-      assert.equal((await runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })).ok, false)
+      const none = runtime.setPermission({ sessionId, permissionPreset: 'none' })
+      assert.deepEqual(applied, ['bypass'], 'the second change waits for the first')
       pausePermissions = false
       permissionGate.resolve()
       assert.ok((await bypass).ok)
-      assert.ok((await auto).ok)
-      assert.deepEqual(applied, ['bypass', 'manual', 'bypass', 'auto'])
+      assert.ok((await none).ok)
+      assert.deepEqual(applied, ['bypass', 'none'])
 
-      const remote = runtime.sendTurn({ sessionId, message: 'remote', requireSafePermissions: true })
-      await waitForEvent(events, 'turn_started')
-      for (const permissionPreset of ['bypass', 'none'] as const)
-        assert.equal(
-          (await runtime.setPermission({ sessionId, permissionPreset })).ok,
-          false,
-          'an acquired remote turn keeps safe permissions until its terminal event',
-        )
-      assert.deepEqual(applied, ['bypass', 'manual', 'bypass', 'auto'])
-      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'manual' })).ok)
-      turnGate.resolve()
-      assert.ok((await remote).ok)
       assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })).ok)
+      const sending = runtime.sendTurn({ sessionId, message: 'go' })
+      await waitForEvent(events, 'turn_started')
+      turnGate.resolve()
+      const sent = await sending
+      assert.ok(sent.ok, 'a send to a chat in Bypass is accepted')
+      assert.equal(sent.session.permissionPreset, 'bypass')
     } finally {
-      skillGate.resolve()
       permissionGate.resolve()
       turnGate.resolve()
       await runtime.shutdown()

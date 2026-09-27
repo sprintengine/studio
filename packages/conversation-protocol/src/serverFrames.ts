@@ -176,6 +176,10 @@ function thread(value: unknown): ConversationWireThread | null {
     turnCount: value.turnCount,
     lastSeq: value.lastSeq,
     ...(value.sessionId === undefined ? {} : { sessionId: value.sessionId as string }),
+    // A preset this client does not know is left out rather than guessed at.
+    ...(value.permissionPreset === 'none' || value.permissionPreset === 'bypass'
+      ? { permissionPreset: value.permissionPreset }
+      : {}),
     ...(flags
       ? {
           capabilities: {

@@ -27,10 +27,10 @@ test('portable protocol source stays byte-identical to the companion source mirr
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), '37ce1deeb5d909bc527cf4bc60680da15fd3b9d025c5223615b078d839a34552')
+  assert.equal(hash.digest('hex'), '013d5ea727b4b3906cb8ae29ba5cdbb2018ec7ff22c088ac28a2ab63216bbfc3')
 })
 
-test('conversation protocol accepts bounded frames and refuses remote escalation', () => {
+test('conversation protocol accepts bounded frames and refuses a permanent rule', () => {
   assert.equal(CONVERSATION_CAPABILITY, 'conversations')
   assert.deepEqual(
     parseConversationClientFrame({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' }, afterSeq: 8 }),
@@ -68,30 +68,27 @@ test('conversation protocol accepts bounded frames and refuses remote escalation
     }),
     null,
   )
-  assert.equal(
-    parseConversationClientFrame({
+  // A device that may operate a chat switches it between the two presets the
+  // desktop offers. A client built before the two-mode change offers Manual
+  // and Auto; both read as `none`, never wider than what was asked for.
+  const presetFrame = (preset: unknown) => ({
+    type: 'command',
+    commandId: 'c',
+    command: { kind: 'setPermissionPreset', preset },
+  })
+  for (const [sent, read] of [
+    ['bypass', 'bypass'],
+    ['none', 'none'],
+    ['manual', 'none'],
+    ['auto', 'none'],
+  ] as const)
+    assert.deepEqual(parseConversationClientFrame(presetFrame(sent)), {
       type: 'command',
       commandId: 'c',
-      command: {
-        kind: 'setPermissionPreset',
-        preset: 'bypass',
-      },
-    }),
-    null,
-  )
-  // A CLI-managed preset can inherit a local bypass flag, so it is not a
-  // remote-safe way to lower approval friction.
-  assert.equal(
-    parseConversationClientFrame({
-      type: 'command',
-      commandId: 'c',
-      command: {
-        kind: 'setPermissionPreset',
-        preset: 'none',
-      },
-    }),
-    null,
-  )
+      command: { kind: 'setPermissionPreset', preset: read },
+    })
+  for (const preset of ['bypass_all', 'yolo', 7, undefined])
+    assert.equal(parseConversationClientFrame(presetFrame(preset)), null)
   assert.equal(parseConversationClientFrame({ type: 'command', command: { kind: 'send', message: 'hello' } }), null)
 })
 
@@ -233,13 +230,30 @@ test('server frames are validated before a client applies them, and unknown type
         modelId: 'm',
         turnCount: 1,
         lastSeq: 9,
+        permissionPreset: 'bypass',
         capabilities: { images: true },
       },
       { workspaceId: 'w', agentId: 'b', phase: 'dancing' },
+      // A preset this client does not know is left out, not guessed at.
+      {
+        workspaceId: 'w',
+        agentId: 'c',
+        title: 'T',
+        phase: 'idle',
+        updatedAt: 2,
+        createdAt: 1,
+        providerId: 'p',
+        modelId: 'm',
+        turnCount: 0,
+        lastSeq: 0,
+        permissionPreset: 'manual',
+      },
     ],
   })
-  assert.equal(listed?.type === 'sessions' && listed.sessions.length, 1)
+  assert.equal(listed?.type === 'sessions' && listed.sessions.length, 2)
   assert.equal(listed?.type === 'sessions' && listed.sessions[0].capabilities?.checkpoints, false)
+  assert.equal(listed?.type === 'sessions' && listed.sessions[0].permissionPreset, 'bypass')
+  assert.equal(listed?.type === 'sessions' && 'permissionPreset' in listed.sessions[1], false)
   assert.equal(parseConversationServerFrame({ type: 'presence' }), null)
   assert.equal(isKnownConversationServerFrameType({ type: 'presence' }), false)
   assert.equal(isKnownConversationServerFrameType({ type: 'event' }), true)

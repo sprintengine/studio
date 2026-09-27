@@ -831,7 +831,7 @@ export type ElectronApi = {
   }) => Promise<FleetConversationCommandResult>
   fleetConversationSetPermissionPreset: (input: {
     key: FleetConversationKey
-    preset: 'manual' | 'auto'
+    preset: 'none' | 'bypass'
   }) => Promise<FleetConversationCommandResult>
   fleetConversationToolDetail: (input: {
     key: FleetConversationKey

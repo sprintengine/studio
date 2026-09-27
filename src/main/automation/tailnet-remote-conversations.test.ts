@@ -37,6 +37,7 @@ function pushProvider() {
   const base = createMockConversationProvider()
   const adapter: ConversationProviderAdapter = {
     ...base,
+    setPermissionPreset: async () => ({ ok: true }),
     sendTurn: (input) =>
       (async function* () {
         const queue: Array<string | null> = []
@@ -156,7 +157,7 @@ async function startHarness(): Promise<Harness> {
     agentId,
     providerId: provider.adapter.id,
     modelId: provider.adapter.listModels()[0],
-    permissionPreset: 'manual',
+    permissionPreset: 'bypass',
   })
   assert.ok(started.ok)
   const harness: Harness = {
@@ -217,8 +218,9 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
     assert.ok(listed.ok, listed.ok ? '' : listed.message)
     assert.equal(listed.access, 'operate')
     assert.deepEqual(
-      listed.conversations.map((entry) => [entry.workspaceId, entry.agentId, entry.sessionId]),
-      [[workspaceId, agentId, h.sessionId]],
+      listed.conversations.map((entry) => [entry.workspaceId, entry.agentId, entry.sessionId, entry.permissionPreset]),
+      [[workspaceId, agentId, h.sessionId, 'bypass']],
+      'the list carries the preset in force, across the wire',
     )
 
     const key = { connectionId, workspaceId, agentId }
@@ -227,7 +229,7 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
     await waitFor(pane.live, 'the follow synchronizes and goes live')
     assert.equal(pane.of('snapshot').length, 1, 'a first follow is hydrated by one snapshot')
 
-    // A send from this desktop starts a turn over there.
+    // A send from this desktop starts a turn over there, on a chat in Bypass.
     // It is answered when the turn ends, as a send on the desktop itself is.
     const sent = h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
     await h.provider.turnStarted()
@@ -271,6 +273,16 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
       .flatMap((phase) => Array.from({ length: phase === 'after' ? 3 : 5 }, (_, index) => `${phase}-${index} `))
       .join('')
     assert.equal(pane.text(), expected, 'every delta exactly once, across the drop')
+
+    // And this desktop can switch the chat over there to No flag, and back.
+    for (const preset of ['none', 'bypass'] as const) {
+      assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setPermissionPreset', preset } }), {
+        ok: true,
+      })
+      const relisted = await h.fleet.listConversations(connectionId)
+      assert.ok(relisted.ok)
+      assert.equal(relisted.conversations[0]?.permissionPreset, preset)
+    }
   } finally {
     await h.close()
   }

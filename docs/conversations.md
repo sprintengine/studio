@@ -17,7 +17,15 @@ the composer, with a counter and keyboard navigation when several are waiting.
 Remembered tool permissions are scoped to the conversation or workspace.
 Requests that cannot be represented safely as a rule offer only a one-time
 decision. Deny-by-default requests focus Deny. Workspace rules can be reviewed
-and revoked. Remote clients cannot choose a permanent rule or a bypass preset.
+and revoked. Remote clients cannot choose a permanent rule.
+
+Every chat has one of two permission presets, the same two a terminal agent
+has: **Bypass permissions** (Codex: **YOLO**), the default, which starts the
+CLI with its own skip-every-prompt setting, and **No flag**, which passes no
+permission setting at all, so the CLI runs on its own configured default. An
+organization that does not allow bypass chooses No flag. Plan mode is a
+separate toggle, not a preset. Under No flag the CLI can still ask, and its
+requests appear as approval cards.
 
 Completed turns may expose changed files and a checkpoint diff. Reverting asks
 for confirmation and refuses when the working tree no longer matches the
@@ -31,11 +39,12 @@ adapter and declare profile-specific capabilities. The user's installed CLI
 and native credentials remain authoritative; Studio does not bundle these ACP
 executables or copy credentials to a remote client.
 
-OpenCode supports an explicit manual approval policy. Cursor's current ACP
-profile uses CLI-managed permissions and rejects unsupported manual policies.
-Do not interpret a hidden approval control as a promise that a provider will
-ask for permission. The launcher and permission selector identify the available
-policy explicitly.
+Bypass reaches each CLI its own way: Claude through the SDK's
+`bypassPermissions` mode, Codex as `approvalPolicy: never` with full-access
+sandboxing, Cursor as `--force`, Grok as `--always-approve`, and OpenCode as an
+`OPENCODE_PERMISSION` rule set that allows everything, since `opencode acp`
+takes no permission flag. No flag sends none of these. Do not interpret a hidden
+approval control as a promise that a provider will ask for permission.
 
 ACP filesystem callbacks are confined, verified existing-file operations.
 Creating a new file through those callbacks is refused on platforms without
@@ -66,10 +75,12 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   Grants are read live: narrowing a device in Settings refuses its next
   command, removing read closes its socket (4403), and revoking it closes every
   stream it holds (4401).
-- **What a remote command can do.** It cannot choose a permanent approval rule,
-  or a bypass or CLI-managed permission preset; those are refused before the
-  runtime sees them. A remote send refuses an unsafe desktop preset instead of
-  changing it, and a conversation a remote send resumes starts under Manual.
+- **What a remote command can do.** A device with `conversation:operate` drives
+  a chat exactly as the host can, preset included: it can send to a chat in
+  Bypass, and switch a chat between Bypass and No flag. A conversation a remote
+  send resumes starts under the preset it was left on. The one thing a remote
+  command cannot choose is a permanent approval rule, which outlives the
+  conversation; that is refused before the runtime sees it.
 - **Audit.** Every remote command — refused ones included — is written to the
   gateway audit with the device, the conversation, the command kind, the command
   id and the outcome. Message text and answers are never written there.
@@ -148,9 +159,10 @@ over the tailnet, with the machine on the tab and above the transcript.
 - **What the view offers is what the grant and the lane allow.** A pairing
   without `conversation:operate` sees the conversation with the composer,
   approvals and stop closed. A remote view never offers a permanent approval
-  rule, a bypass or CLI-managed preset, a checkpoint revert, a model switch, or
-  this machine's skills, files and images; the preset picker is hidden because
-  the list does not say which preset is in force over there. File paths in a
+  rule, a checkpoint revert, a model switch, or this machine's skills, files and
+  images. It offers the same two-preset switcher a local chat does, reading the
+  preset the machine's list names; a desktop built before the list carried the
+  preset leaves the switcher hidden rather than guessing. File paths in a
   remote transcript are not links, since they name files on the other disk. A
   send is answered when its turn ends, as on the desktop itself, and a send in
   flight across a reconnect is sent again under the same command id and

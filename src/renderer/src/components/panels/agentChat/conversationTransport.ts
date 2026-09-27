@@ -40,8 +40,6 @@ export type ConversationTransportCapabilities = {
   startSession: boolean
   /** Offer "always allow" rules, which outlive the conversation. */
   permanentApprovals: boolean
-  /** Offer the bypass and CLI-managed presets. */
-  unsafePresets: boolean
   /** Revert a turn's files from its checkpoint. */
   checkpointRevert: boolean
   /** Pick another model before the first turn. */
@@ -55,8 +53,10 @@ export type ConversationTransportCapabilities = {
   /** The runtime echoes an optimistic turn's id back on its `user_message`. */
   optimisticTurns: boolean
   /**
-   * The session's permission preset is known here. A remote list does not
-   * carry it, and a picker showing a guess would be worse than none.
+   * The session's permission preset is known before a session reports it. A
+   * remote one is known only once the machine's list names it — a desktop
+   * built before the list carried it never does — and a picker showing a guess
+   * would be worse than none.
    */
   reportsPreset: boolean
 }
@@ -84,7 +84,6 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   operate: true,
   startSession: true,
   permanentApprovals: true,
-  unsafePresets: true,
   checkpointRevert: true,
   modelSwitch: true,
   composerContext: true,
@@ -139,7 +138,6 @@ export function createRemoteConversationTransport(input: {
       operate: input.access === 'operate',
       startSession: false,
       permanentApprovals: false,
-      unsafePresets: false,
       checkpointRevert: false,
       modelSwitch: false,
       composerContext: false,
@@ -175,12 +173,7 @@ export function createRemoteConversationTransport(input: {
         await window.api.fleetConversationResolveApproval({ key, requestId: response.requestId, decision }),
       )
     },
-    setPermissionPreset: async (change) => {
-      if (change.permissionPreset !== 'manual' && change.permissionPreset !== 'auto')
-        return { ok: false, message: 'A remote device can choose only Manual or Auto.' }
-      return commandResult(
-        await window.api.fleetConversationSetPermissionPreset({ key, preset: change.permissionPreset }),
-      )
-    },
+    setPermissionPreset: async (change) =>
+      commandResult(await window.api.fleetConversationSetPermissionPreset({ key, preset: change.permissionPreset })),
   }
 }

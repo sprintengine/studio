@@ -116,8 +116,6 @@ type RuntimeSession = ConversationSessionSummary & {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   permissionChangeTail?: Promise<ConversationSessionActionResult>
-  pendingPermissionChanges?: number
-  safePermissionTurnId?: string
   allowedTools?: string[]
   // Detail files of tools still open in this session, closed when a turn ends.
   toolDetailPaths: Set<string>
@@ -409,7 +407,7 @@ export class ConversationRuntime {
   }
 
   async sendTurn(
-    input: ConversationSendTurnInput & { requireSafePermissions?: boolean; sourceCommandId?: string },
+    input: ConversationSendTurnInput & { sourceCommandId?: string },
   ): Promise<ConversationSessionActionResult> {
     if (input.commandId)
       return this.runCommand(input.sessionId, input.commandId, () =>
@@ -422,8 +420,6 @@ export class ConversationRuntime {
     if (this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
       return { ok: false, message: 'Conversation is being deleted.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    if (input.requireSafePermissions && !this.hasSafePermissions(session))
-      return { ok: false, message: 'Remote sends require settled Manual or Auto permissions.' }
     if (isSessionBusy(session)) {
       return {
         ok: false,
@@ -471,13 +467,8 @@ export class ConversationRuntime {
     )
       return { ok: false, message: 'Conversation is no longer available.' }
     if (isSessionBusy(session)) return { ok: false, message: 'Conversation turn is already in progress.' }
-    // Preparation awaits disk and installs. Recheck at the synchronous turn
-    // acquisition boundary, not only against the gateway's earlier snapshot.
-    if (input.requireSafePermissions && !this.hasSafePermissions(session))
-      return { ok: false, message: 'Remote sends require settled Manual or Auto permissions.' }
 
     const turnId = `turn_${this.randomId()}`
-    if (input.requireSafePermissions) session.safePermissionTurnId = turnId
     const requestId = `approval_${this.randomId()}`
     const turnAbort = new AbortController()
     session.activeTurnId = turnId
@@ -569,7 +560,6 @@ export class ConversationRuntime {
   }
 
   private async failTurn(session: RuntimeSession, error: unknown): Promise<ConversationSessionActionResult> {
-    session.safePermissionTurnId = undefined
     const turnId = session.activeTurnId
     session.activeTurnAbort?.abort()
     session.activeTurnId = null
@@ -742,22 +732,11 @@ export class ConversationRuntime {
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
-    session.pendingPermissionChanges = (session.pendingPermissionChanges ?? 0) + 1
     const pending = (session.permissionChangeTail ?? Promise.resolve())
       .catch(() => undefined)
       .then(() => this.applyPermission(session, input))
-      .finally(() => {
-        session.pendingPermissionChanges!--
-      })
     session.permissionChangeTail = pending
     return pending
-  }
-
-  private hasSafePermissions(session: RuntimeSession): boolean {
-    return (
-      !session.pendingPermissionChanges &&
-      (session.permissionPreset === 'manual' || session.permissionPreset === 'auto')
-    )
   }
 
   private async applyPermission(
@@ -765,8 +744,6 @@ export class ConversationRuntime {
     input: ConversationSetPermissionInput,
   ): Promise<ConversationSessionActionResult> {
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    if (session.safePermissionTurnId && input.permissionPreset !== 'manual' && input.permissionPreset !== 'auto')
-      return { ok: false, message: 'Remote turns must finish before selecting CLI-managed or Bypass permissions.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
     if (!adapter.setPermissionPreset) {
@@ -802,7 +779,6 @@ export class ConversationRuntime {
         { allowCanceledTurnId: turnId },
       )
     session.activeTurnId = null
-    session.safePermissionTurnId = undefined
     session.pendingRequestId = null
     session.turnLockRequestId = null
     session.pendingApprovalRequestIds.clear()
@@ -840,7 +816,6 @@ export class ConversationRuntime {
     session.pendingApprovalRequestIds.clear()
     session.activeTurnAbort = null
     session.status = 'stopped'
-    session.safePermissionTurnId = undefined
     this.approvalRules.dropSession(session.sessionId)
     session.approvalRequests.clear()
     session.automaticApprovals.clear()
@@ -1164,7 +1139,6 @@ export class ConversationRuntime {
     // Publish status at the same boundary as the terminal notification, after
     // persistence. Pollers and event-driven consumers must observe one state.
     if (session.status !== 'stopped' && (stamped.type === 'turn_completed' || stamped.type === 'turn_failed')) {
-      if (session.safePermissionTurnId === stamped.payload?.turnId) session.safePermissionTurnId = undefined
       session.status = stamped.type === 'turn_completed' ? 'ready' : 'failed'
       session.updatedAt = this.now()
     }

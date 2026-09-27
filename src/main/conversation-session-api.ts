@@ -111,7 +111,7 @@ export class ConversationSessionApi {
     return this.runtime.readConversationPage(input.key, input.beforeCursor, input.turnLimit)
   }
 
-  send(input: ConversationSendTurnInput & { commandId: string; requireSafePermissions?: boolean }) {
+  send(input: ConversationSendTurnInput & { commandId: string }) {
     return this.runtime.sendTurn(input)
   }
   interrupt(input: ConversationInterruptInput & { commandId: string }) {

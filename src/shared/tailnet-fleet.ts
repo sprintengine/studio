@@ -448,7 +448,7 @@ export type FleetConversationListResult =
   | { ok: true; conversations: FleetConversation[]; access: FleetConversationAccess }
   | { ok: false; code: string; message: string }
 
-/** The commands a remote device may send. A permanent rule and a bypass preset are not among them. */
+/** The commands a remote device may send. A permanent rule is not among them. */
 export type FleetConversationCommand = ConversationWireCommand
 
 export type FleetConversationCommandResult = { ok: true } | { ok: false; code: string; message: string }

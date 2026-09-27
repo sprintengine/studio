@@ -696,7 +696,7 @@ test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate o
       ...conversation,
       providerId: provider.adapter.id,
       modelId: provider.adapter.listModels()[0],
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
     })
     assert.ok(started.ok)
     const first = open()
@@ -772,13 +772,13 @@ test('a socket dropped mid-turn resumes from its cursor with no gap, duplicate o
   }
 })
 
-test('remote always and bypass are refused before host execution, under their command ids and audited', async () => {
+test('remote always is refused before host execution, while a preset switch reaches the host', async () => {
   const socket = new Socket()
-  let commands = 0
+  const executed: unknown[] = []
   const audited: ConversationCommandAudit[] = []
   const gateway = host()
-  gateway.command = async () => {
-    commands++
+  gateway.command = async (_key, _device, _id, command) => {
+    executed.push(command)
     return { ok: true }
   }
   const stream = createTailnetConversationStream({
@@ -798,24 +798,24 @@ test('remote always and bypass are refused before host execution, under their co
     command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
   })
   socket.receive({ type: 'command', commandId: 'c2', command: { kind: 'setPermissionPreset', preset: 'bypass' } })
-  await tick()
-  assert.equal(commands, 0)
-  assert.deepEqual(
-    (socket.output().slice(-2) as Frame[]).map((frame) => [
-      frame.type,
-      (frame as { commandId?: string }).commandId,
-      frame.code,
-    ]),
-    [
-      ['commandResult', 'c1', 'unsafe_remote_decision'],
-      ['commandResult', 'c2', 'unsafe_remote_preset'],
-    ],
-  )
+  // A client built before the two-mode change offers only Manual and Auto;
+  // either reaches the host as `none`.
+  socket.receive({ type: 'command', commandId: 'c3', command: { kind: 'setPermissionPreset', preset: 'manual' } })
+  await waitFor(() => executed.length === 2, 'both switches reach the host')
+  assert.deepEqual(executed, [
+    { kind: 'setPermissionPreset', preset: 'bypass' },
+    { kind: 'setPermissionPreset', preset: 'none' },
+  ])
+  const results = (socket.output() as Frame[])
+    .filter((frame) => frame.type === 'commandResult')
+    .map((frame) => [(frame as { commandId?: string }).commandId, frame.code])
+  assert.deepEqual(results[0], ['c1', 'unsafe_remote_decision'])
   assert.deepEqual(
     audited.map((entry) => [entry.tool, entry.commandId, entry.ok, entry.code]),
     [
       ['conversation.resolveApproval', 'c1', false, 'unsafe_remote_decision'],
-      ['conversation.setPermissionPreset', 'c2', false, 'unsafe_remote_preset'],
+      ['conversation.setPermissionPreset', 'c2', true, undefined],
+      ['conversation.setPermissionPreset', 'c3', true, undefined],
     ],
   )
   stream.close(1000, '')
