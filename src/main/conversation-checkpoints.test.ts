@@ -309,3 +309,35 @@ test('runtime captures lazily around writes, reports totals, blocks active rever
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('revert restores work tree files only and leaves the index exactly as the user had it', async () => {
+  const f = await repository()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    await writeFile(join(f.root, 'existing.txt'), 'staged by user\n')
+    await git(f.root, ['add', 'existing.txt'])
+    await writeFile(join(f.root, 'existing.txt'), 'unstaged by user\n')
+    await writeFile(join(f.root, 'notes.txt'), 'untracked by user\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    await writeFile(join(f.root, 'notes.txt'), 'agent edit\n')
+    await rm(join(f.root, 'deleted.txt'))
+    await writeFile(join(f.root, 'created.txt'), 'agent file\n')
+    await git(f.root, ['add', 'created.txt'])
+    const index = await readFile(join(f.root, '.git', 'index'))
+    const staged = await git(f.root, ['ls-files', '--stage'])
+    const preview = await checkpoints.revert({ key: f.key, turnSeq: 1 })
+    assert.ok(preview.ok)
+    const reverted = await checkpoints.revert({ key: f.key, turnSeq: 1, confirmed: true })
+    assert.ok(reverted.ok && reverted.reverted, JSON.stringify(reverted))
+    assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'unstaged by user\n')
+    assert.equal(await readFile(join(f.root, 'notes.txt'), 'utf8'), 'untracked by user\n')
+    assert.equal(await readFile(join(f.root, 'deleted.txt'), 'utf8'), 'keep\n')
+    await assert.rejects(stat(join(f.root, 'created.txt')), { code: 'ENOENT' })
+    assert.deepEqual(await readFile(join(f.root, '.git', 'index')), index)
+    assert.equal(await git(f.root, ['ls-files', '--stage']), staged)
+    assert.match(await git(f.root, ['status', '--porcelain=v1']), /^\?\? notes\.txt$/mu)
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { lstat, mkdtemp, realpath, rm } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join, resolve, relative, isAbsolute } from 'path'
+import { basename, dirname, join, resolve, relative, isAbsolute } from 'path'
 import { runGitCommand } from './git-utils'
 import type {
   ConversationKey,
@@ -118,20 +118,16 @@ export class ConversationCheckpoints {
         : await this.capture(input.key, input.turnSeq, 'undo')
       if (!undo.ok) return undo
       const restores = files.filter((file) => file.status !== 'added').map((file) => file.path)
-      if (restores.length)
-        await this.git(
-          root,
-          ['restore', '--source', target, '--staged', '--worktree', '--pathspec-from-file=-', '--pathspec-file-nul'],
-          { GIT_LITERAL_PATHSPECS: '1' },
-          restores.join('\0') + '\0',
-        )
+      if (restores.length) await this.checkoutFiles(root, target, restores)
       for (const file of files.filter((file) => file.status === 'added')) {
         const path = safePath(root, file.path)
-        // Files absent from the target can be untracked, so restore cannot
-        // remove them. Remove only the exact diff path, never a directory tree.
+        // Files absent from the target can be untracked, so a checkout cannot
+        // remove them. Remove only the exact diff path, never a directory tree,
+        // and never through a symlinked parent that leads out of the work tree.
         const info = await lstat(path).catch(() => null)
-        if (info?.isDirectory()) throw new Error(`Cannot remove directory ${file.path} during revert.`)
-        await this.git(root, ['rm', '--cached', '--ignore-unmatch', '--', `:(literal)${file.path}`])
+        if (!info) continue
+        if (info.isDirectory()) throw new Error(`Cannot remove directory ${file.path} during revert.`)
+        safePath(await realpath(root), join(await realpath(dirname(path)), basename(path)))
         await rm(path, { force: true })
       }
       return { ok: true, files, reverted: true, undoRef: undo.ref }
@@ -214,6 +210,22 @@ export class ConversationCheckpoints {
           [...captured].join('\0') + '\0',
         )
       return (await this.git(root, ['write-tree'], env)).trim()
+    } finally {
+      await rm(temp, { recursive: true, force: true })
+    }
+  }
+
+  /**
+   * Write `paths` from `commit` into the work tree through a throwaway index.
+   * The user's index is never read or written, so what they staged stays
+   * staged byte for byte and nothing they had untracked becomes staged.
+   */
+  private async checkoutFiles(root: string, commit: string, paths: string[]): Promise<void> {
+    const temp = await mkdtemp(join(tmpdir(), 'conversation-restore-'))
+    const env = { GIT_INDEX_FILE: join(temp, 'index'), GIT_OPTIONAL_LOCKS: '0' }
+    try {
+      await this.git(root, ['read-tree', commit], env)
+      await this.git(root, ['checkout-index', '-f', '-z', '--stdin'], env, paths.join('\0') + '\0')
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
