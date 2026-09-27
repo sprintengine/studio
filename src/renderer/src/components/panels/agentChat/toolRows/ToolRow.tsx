@@ -146,21 +146,37 @@ function ReadOutput({ output, path }: { output: string; path: string }) {
 }
 
 // Fetched full output, kept by call id: the virtualized timeline unmounts a row
-// scrolled out of view, and scrolling back must not lose (or refetch) it.
-const MAX_CACHED_DETAILS = 20
-const detailCache = new Map<string, ConversationToolDetail>()
+// scrolled out of view, and scrolling back must not lose (or refetch) it. The
+// cap is on size, not count: one detail can be megabytes, and twenty of those
+// would pin a hundred of them in the renderer for the session.
+const MAX_CACHED_DETAIL_BYTES = 16 * 1024 * 1024
+const detailCache = new Map<string, { detail: ConversationToolDetail; bytes: number }>()
+let cachedDetailBytes = 0
+// What the detail holds in memory: its strings are UTF-16, two bytes a unit.
+function detailBytes(detail: ConversationToolDetail): number {
+  return (pretty(detail.output).length + pretty(detail.input).length) * 2
+}
 function cachedDetail(key: string): ConversationToolDetail | undefined {
-  const detail = detailCache.get(key)
-  if (detail) {
+  const entry = detailCache.get(key)
+  if (entry) {
     detailCache.delete(key)
-    detailCache.set(key, detail)
+    detailCache.set(key, entry)
   }
-  return detail
+  return entry?.detail
+}
+function forgetDetail(key: string): void {
+  const entry = detailCache.get(key)
+  if (!entry) return
+  detailCache.delete(key)
+  cachedDetailBytes -= entry.bytes
 }
 function cacheDetail(key: string, detail: ConversationToolDetail): void {
-  detailCache.delete(key)
-  detailCache.set(key, detail)
-  if (detailCache.size > MAX_CACHED_DETAILS) detailCache.delete(detailCache.keys().next().value!)
+  forgetDetail(key)
+  const bytes = detailBytes(detail)
+  if (bytes > MAX_CACHED_DETAIL_BYTES) return
+  detailCache.set(key, { detail, bytes })
+  cachedDetailBytes += bytes
+  while (cachedDetailBytes > MAX_CACHED_DETAIL_BYTES) forgetDetail(detailCache.keys().next().value!)
 }
 
 export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
@@ -169,6 +185,9 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const detailKey = `${key}:${tool.id}`
   const [open, setOpen] = useConversationDisclosure(key, `tool:${tool.id}`, false)
   const [detail, setDetail] = useState<ConversationToolDetail | undefined>(() => cachedDetail(detailKey))
+  // Output fetched while the tool was still running is a snapshot of a moving
+  // target: it is shown but never cached, and can be fetched again.
+  const [partial, setPartial] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [fullHeight, setFullHeight] = useState(() => detail !== undefined)
@@ -181,6 +200,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
       setError('Tool detail is unavailable for this conversation')
       return
     }
+    const stillRunning = running
     setLoading(true)
     setError(undefined)
     try {
@@ -191,7 +211,9 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
         toolUseId: tool.id,
       })
       if (result.ok) {
-        cacheDetail(detailKey, result.detail)
+        if (stillRunning) forgetDetail(detailKey)
+        else cacheDetail(detailKey, result.detail)
+        setPartial(stillRunning)
         setDetail(result.detail)
         setFullHeight(true)
       } else setError(result.message)
@@ -245,6 +267,11 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
           {!detail && !loading && (tool.truncated || tool.inputTruncated) ? (
             <GhostButton size="inline" onClick={() => void fetchDetail()}>
               Show full output
+            </GhostButton>
+          ) : null}
+          {detail && partial && !loading ? (
+            <GhostButton size="inline" onClick={() => void fetchDetail()}>
+              {running ? 'Refresh output' : 'Show final output'}
             </GhostButton>
           ) : null}
         </div>

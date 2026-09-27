@@ -222,3 +222,133 @@ test('a running tool shows how long it has been running, a finished one does not
   const done = renderToStaticMarkup(<ToolRow tool={tool({ startedAt, completedAt: startedAt + 5_000 })} />)
   expect(done).not.toMatch(/>[5-6]s</u)
 })
+
+async function withToolDetailDom(
+  detail: (toolUseId: string) => { output: string },
+  run: (harness: {
+    calls: string[]
+    show: (row: TranscriptToolEntry) => Promise<void>
+    hide: () => Promise<void>
+    click: (label: string) => Promise<void>
+    expand: () => Promise<void>
+    text: () => string
+  }) => Promise<void>,
+) {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }
+  Object.assign(globalThis, globals)
+  const calls: string[] = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      conversationToolDetail: async ({ toolUseId }: { toolUseId: string }) => {
+        calls.push(toolUseId)
+        return { ok: true, detail: { input: {}, status: 'ok', clipped: false, ...detail(toolUseId) } }
+      },
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { ConversationLinkProvider } = await import('../conversationLinks')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const workspaceId = `tool-detail-${Math.random()}`
+  try {
+    await run({
+      calls,
+      show: (row) =>
+        act(async () =>
+          root.render(
+            <ConversationLinkProvider
+              workspaceId={workspaceId}
+              workspaceRoot="/workspace/app"
+              cwd="/workspace/app"
+              agentId="agent"
+            >
+              <ToolRow tool={row} />
+            </ConversationLinkProvider>,
+          ),
+        ),
+      hide: () => act(async () => root.render(<div />)),
+      click: (label) =>
+        act(async () => {
+          const button = Array.from(host.querySelectorAll('button')).find((item) => item.textContent === label)
+          expect(button, label).toBeTruthy()
+          button!.click()
+        }),
+      expand: () =>
+        act(async () => {
+          host.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click()
+        }),
+      text: () => host.textContent ?? '',
+    })
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of Object.keys(globals)) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+}
+
+const truncatedCommand = (id: string, values: Partial<TranscriptToolEntry> = {}) =>
+  tool({ id, toolKind: 'command', input: { command: 'cat big.log' }, output: 'snippet', truncated: true, ...values })
+
+test('fetched output is cached by size: a few very large outputs push the oldest out', async () => {
+  // Three outputs of about 7 MB each in memory; a size budget keeps two.
+  const huge = 'x'.repeat(3_500_000)
+  await withToolDetailDom(
+    () => ({ output: huge }),
+    async ({ calls, show, hide, click, expand }) => {
+      for (const id of ['first', 'second', 'third']) {
+        await show(truncatedCommand(id))
+        await expand()
+        await click('Show full output')
+        await hide()
+      }
+      expect(calls).toEqual(['first', 'second', 'third'])
+      await show(truncatedCommand('third'))
+      await hide()
+      expect(calls).toHaveLength(3)
+      await show(truncatedCommand('first'))
+      await click('Show full output')
+      expect(calls).toEqual(['first', 'second', 'third', 'first'])
+    },
+  )
+})
+
+test('output fetched while the tool runs is not cached and can be fetched again once it finishes', async () => {
+  let version = 0
+  await withToolDetailDom(
+    () => ({ output: `output v${++version}` }),
+    async ({ calls, show, hide, click, expand, text }) => {
+      await show(truncatedCommand('live', { status: 'running' }))
+      await expand()
+      await click('Show full output')
+      expect(text()).toContain('output v1')
+      await click('Refresh output')
+      expect(text()).toContain('output v2')
+      await show(truncatedCommand('live'))
+      await click('Show final output')
+      expect(text()).toContain('output v3')
+      expect(calls).toHaveLength(3)
+      // Only the finished output is kept for the row's next mount.
+      await hide()
+      await show(truncatedCommand('live'))
+      expect(text()).toContain('output v3')
+      expect(calls).toHaveLength(3)
+    },
+  )
+})
