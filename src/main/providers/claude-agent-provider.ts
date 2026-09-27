@@ -13,7 +13,7 @@
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
 import { spawn } from 'child_process'
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
@@ -75,12 +75,14 @@ export type ClaudeAgentProviderOptions = {
     sessionId: string
   }) => Record<string, string> | Promise<Record<string, string>>
   now?: () => number
+  // Where attached-skill plugins are staged; tests point it at their own folder.
+  tempDir?: string
 }
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
   disposeChildProcess(sessionId: string): boolean
-  disposeAll(): void
+  disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
 }
 
@@ -152,6 +154,8 @@ type SessionState = {
   // The SDK reports cost as a running total for the life of one query() call;
   // the total already attributed to earlier turns of the live child.
   queryCostUsd: number
+  // The child being spawned, while it is; see ensureQuery.
+  spawning: Promise<void> | null
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
@@ -210,7 +214,20 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   const resolveExecutable = options.resolveExecutable ?? defaultResolveExecutable
   const buildEnv = options.buildEnv ?? defaultBuildEnv
   const now = options.now ?? Date.now
+  const tempDir = options.tempDir ?? tmpdir()
   const sessions = new Map<string, SessionState>()
+  // Staged plugin folders still being removed, so shutdown can wait for them.
+  const removals = new Set<Promise<void>>()
+  // A quit that never finished removing (a crash, a force-quit) leaves plugin
+  // folders behind; the next start clears those, then stages anything new.
+  const swept = sweepStaleSkillPlugins(tempDir).catch(() => undefined)
+
+  function removeSkillPlugin(dir: string): void {
+    const removal = rm(dir, { recursive: true, force: true })
+      .catch(() => undefined)
+      .finally(() => removals.delete(removal))
+    removals.add(removal)
+  }
 
   function deliver(state: SessionState, events: ConversationEvent[]): void {
     for (const event of events) {
@@ -304,7 +321,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.queryAllowsBypass = false
     state.childPid = null
     state.spawnedAt = null
-    if (state.skillPluginDir) void rm(state.skillPluginDir, { recursive: true, force: true }).catch(() => undefined)
+    if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
     state.skillPluginDir = null
     return hadChild
   }
@@ -352,13 +369,22 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
   }
 
-  async function ensureQuery(state: SessionState): Promise<void> {
+  function ensureQuery(state: SessionState): Promise<void> {
     // A preset the live child cannot honor (bypass chosen after it spawned) is
     // reconciled here, so the turn about to start runs under the preset the
     // session actually recorded. The respawn below resumes the same provider
     // session, so the conversation continues rather than restarting.
     if (state.query && !childHonorsPreset(state)) disposeChild(state)
-    if (state.query) return
+    if (state.query) return Promise.resolve()
+    // Two callers racing past the check above would each stage a plugin folder
+    // and spawn a child, and only one of either would ever be cleaned up.
+    state.spawning ??= spawnQuery(state).finally(() => {
+      state.spawning = null
+    })
+    return state.spawning
+  }
+
+  async function spawnQuery(state: SessionState): Promise<void> {
     if (isWslHostId(state.cliRuntimes?.['claude-code']?.hostId)) {
       throw new Error('Claude conversation agents are not supported on a WSL machine yet.')
     }
@@ -370,7 +396,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       sessionId: state.sessionId,
     })
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
-    const skillPlugin = state.skillIds?.length ? await stageAttachedSkills(state.workspaceRoot, state.skillIds) : null
+    await swept
+    const skillPlugin = state.skillIds?.length
+      ? await stageAttachedSkills(tempDir, state.workspaceRoot, state.skillIds)
+      : null
     state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
@@ -590,6 +619,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         lastActivityAt: now(),
         stderrTail: '',
         queryCostUsd: 0,
+        spawning: null,
         declinedToolUseIds: new Set(),
       }
       sessions.set(input.sessionId, state)
@@ -801,8 +831,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return disposeChild(state)
     },
 
-    disposeAll(): void {
+    async disposeAll(): Promise<void> {
       for (const state of sessions.values()) disposeChild(state)
+      await Promise.all(removals)
     },
   }
 
@@ -818,10 +849,14 @@ const ATTACHED_SKILLS_PLUGIN = 'attached-skills'
 // the user setting source still loads; only workspace skills are staged.
 const attachedSkillName = (id: string) => (id.includes(':') ? id : `${ATTACHED_SKILLS_PLUGIN}:${id}`)
 
-async function stageAttachedSkills(workspaceRoot: string, skillIds: string[]): Promise<string | null> {
+// Staged folders are named for the process that made them, so a sweep can
+// tell one a running app still uses from one a dead process left behind.
+const SKILL_PLUGIN_PREFIX = 'sprintengine-claude-skills-'
+
+async function stageAttachedSkills(tempDir: string, workspaceRoot: string, skillIds: string[]): Promise<string | null> {
   skillIds = skillIds.filter((id) => !id.includes(':'))
   if (!skillIds.length) return null
-  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-claude-skills-'))
+  const dir = await mkdtemp(join(tempDir, `${SKILL_PLUGIN_PREFIX}${process.pid}-`))
   try {
     await mkdir(join(dir, '.claude-plugin'))
     await writeFile(
@@ -837,6 +872,39 @@ async function stageAttachedSkills(workspaceRoot: string, skillIds: string[]): P
   } catch (error) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     throw error
+  }
+}
+
+/**
+ * Remove plugin folders that no running process owns: named for a process
+ * that has exited, or from before folders were named for one and older than
+ * a day. A folder of this process, or of another app still running, stays.
+ * Only real directories this user owns, created before this process started,
+ * are ever touched.
+ */
+export async function sweepStaleSkillPlugins(tempDir: string): Promise<void> {
+  const startedAt = Date.now() - process.uptime() * 1000
+  const uid = process.getuid?.()
+  for (const name of await readdir(tempDir)) {
+    if (!name.startsWith(SKILL_PLUGIN_PREFIX)) continue
+    const path = join(tempDir, name)
+    const info = await lstat(path).catch(() => null)
+    if (!info?.isDirectory() || info.isSymbolicLink() || info.mtimeMs >= startedAt) continue
+    if (uid !== undefined && info.uid !== uid) continue
+    const owner = /^(\d+)-/.exec(name.slice(SKILL_PLUGIN_PREFIX.length))?.[1]
+    if (owner ? isRunning(Number(owner)) : Date.now() - info.mtimeMs < 24 * 60 * 60 * 1000) continue
+    await rm(path, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+function isRunning(pid: number): boolean {
+  if (pid === process.pid) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: it exists, it just is not ours to signal.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 

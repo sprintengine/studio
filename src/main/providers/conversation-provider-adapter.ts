@@ -53,10 +53,11 @@ export type ConversationProviderAdapter = {
   setPermissionPreset?(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   // Optional lifecycle surface for adapters holding child processes: inventory
   // for diagnostics/status, idle disposal (keeps the session + resume cursor;
-  // the next turn respawns), and dispose-everything for app shutdown.
+  // the next turn respawns), and dispose-everything for app shutdown, which
+  // settles once whatever the children left on disk is gone.
   listLiveSessions?(): ConversationProviderLiveSession[]
   disposeChildProcess?(sessionId: string): boolean
-  disposeAll?(): void
+  disposeAll?(): void | Promise<void>
 }
 
 export type MockAdapterSessionInput = {

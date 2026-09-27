@@ -933,9 +933,7 @@ export class ConversationRuntime {
         // Best-effort: adapter disposeAll below is the backstop.
       }
     }
-    for (const adapter of this.adapters.values()) {
-      adapter.disposeAll?.()
-    }
+    await Promise.allSettled(Array.from(this.adapters.values(), async (adapter) => adapter.disposeAll?.()))
     this.dropToolPreviews()
     await Promise.allSettled(this.background)
     await this.eventLog.closeAll()

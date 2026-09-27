@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,6 +13,7 @@ import {
   stripAnthropicAuthEnv,
   STRIPPED_ANTHROPIC_AUTH_ENV_KEYS,
   summarizeToolInput,
+  sweepStaleSkillPlugins,
   type ClaudeAgentProviderAdapter,
 } from './claude-agent-provider'
 import type { MockAdapterTurnInput } from './mock-conversation-provider'
@@ -1664,4 +1665,125 @@ test('Claude shell results say whether a command was declined, stopped or exited
   // Other tools keep their plain error status and carry no exit code.
   const read = output('read', { content: 'File does not exist.', is_error: true })
   assert.deepEqual([read?.status, read?.exitCode], ['error', undefined])
+})
+
+/** A stand-in SDK whose queries answer every prompt with a result, after an optional delay in loading. */
+function skillsHarness(tempDir: string, loadDelayMs = 0) {
+  const queries: Record<string, unknown>[] = []
+  const query = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
+    queries.push(params.options)
+    const pending: Record<string, unknown>[] = []
+    let wake = null as (() => void) | null
+    let ended = false
+    void (async () => {
+      for await (const _message of params.prompt) {
+        pending.push({ type: 'result', subtype: 'success', is_error: false, session_id: 'native' })
+        wake?.()
+      }
+    })()
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!ended) {
+          if (!pending.length) await new Promise<void>((resolve) => (wake = resolve))
+          while (pending.length) yield pending.shift()!
+        }
+      },
+      interrupt: async () => {
+        ended = true
+        wake?.()
+      },
+      setPermissionMode: async () => undefined,
+    }
+  }
+  const loadQuery = async () => {
+    await new Promise((resolve) => setTimeout(resolve, loadDelayMs))
+    return query
+  }
+  const adapter = createClaudeAgentProvider({
+    loadQuery: loadQuery as never,
+    resolveExecutable: async () => '/fake/bin/claude',
+    buildEnv: () => ({ PATH: '/usr/bin' }),
+    tempDir,
+  })
+  return { adapter, queries }
+}
+
+async function skillsWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), 'claude-skill-plugins-'))
+  const workspaceRoot = join(root, 'workspace')
+  const tempDir = join(root, 'tmp')
+  await mkdir(join(workspaceRoot, '.claude', 'skills', 'example'), { recursive: true })
+  await mkdir(tempDir)
+  await writeFile(join(workspaceRoot, '.claude', 'skills', 'example', 'SKILL.md'), '---\nname: example\n---\nDo it.')
+  const turn = (turnId: string): MockAdapterTurnInput => ({
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    workspaceRoot,
+    turnId,
+    requestId: `approval_${turnId}`,
+    message: 'hello',
+    skills: ['example'],
+  })
+  return { root, tempDir, turn }
+}
+
+async function drain(stream: AsyncIterable<ConversationEvent> | ConversationEvent[]): Promise<ConversationEvent[]> {
+  const events: ConversationEvent[] = []
+  for await (const event of stream) events.push(event)
+  return events
+}
+
+test('turns racing to start the Claude child stage one skills plugin and spawn one child', async () => {
+  const f = await skillsWorkspace()
+  const { adapter, queries } = skillsHarness(f.tempDir, 30)
+  try {
+    await adapter.startSession(f.turn('turn_1'))
+    const first = adapter.sendTurn(f.turn('turn_1'))
+    const second = adapter.sendTurn(f.turn('turn_2'))
+    await Promise.all([drain(await first), drain(await second)])
+    assert.equal(queries.length, 1)
+    assert.equal((await readdir(f.tempDir)).length, 1)
+  } finally {
+    await adapter.disposeAll()
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
+test('disposing every Claude child settles only once their skills plugins are removed', async () => {
+  const f = await skillsWorkspace()
+  const { adapter } = skillsHarness(f.tempDir)
+  try {
+    await adapter.startSession(f.turn('turn_1'))
+    await drain(await adapter.sendTurn(f.turn('turn_1')))
+    assert.equal((await readdir(f.tempDir)).length, 1)
+    await adapter.disposeAll()
+    assert.deepEqual(await readdir(f.tempDir), [])
+  } finally {
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
+test('a skills plugin left by a process that is gone is swept, one a live process owns is kept', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'claude-skill-sweep-'))
+  try {
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    const folders = {
+      // No process can have this id on macOS, Linux or Windows.
+      dead: 'sprintengine-claude-skills-99999999-abc',
+      live: `sprintengine-claude-skills-${process.ppid}-abc`,
+      legacy: 'sprintengine-claude-skills-abc123',
+      unrelated: 'other-tool-99999999-abc',
+    }
+    for (const name of Object.values(folders)) {
+      await mkdir(join(tempDir, name, '.claude-plugin'), { recursive: true })
+      await utimes(join(tempDir, name), old, old)
+    }
+    await sweepStaleSkillPlugins(tempDir)
+    assert.deepEqual((await readdir(tempDir)).sort(), [folders.live, folders.unrelated].sort())
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
 })
