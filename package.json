@@ -235,7 +235,7 @@
     "flexlayout-react": "^0.11.0",
     "ignore": "7.0.10",
     "immer": "^11.1.18",
-    "monaco-editor": "^0.56.0",
+    "monaco-editor": "^0.57.0",
     "nanoid": "^6.0.1",
     "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
@@ -269,7 +269,16 @@
     "vitest": "5.0.1"
   },
   "overrides": {
-    "@xmldom/xmldom": "0.8.13",
+    "@excalidraw/excalidraw": {
+      "@radix-ui/react-tabs": "^1.1.21",
+      "nanoid": "^3.3.19"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "@mermaid-js/parser": "^1.2.1",
+      "nanoid": "^5.1.16"
+    },
+    "@xmldom/xmldom": "^0.8.15",
+    "lodash-es": "^4.18.1",
     "mermaid": "~11.13.0"
   }
 }
