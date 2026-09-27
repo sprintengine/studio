@@ -1,6 +1,5 @@
 // The pieces around the removal: what the Windows uninstaller runs (and, on an
-// update, does not), what the renderer may ask for, and the deferred deletion
-// of the app's own data.
+// update, does not), and what the command line reports.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -8,8 +7,6 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 
 import { removalExitCode, summarizeRemoval } from '../../shared/integration-removal'
-import { sanitizeRemovalOptions } from '../ipc/integrations-ipc'
-import { appDataDeletionCommand, isDeletableAppDataPath } from './app-data-deletion'
 import { formatRemovalReport, headlessTimeoutMs } from './remove-integrations-cli'
 
 async function uninstallMacro(): Promise<string> {
@@ -54,49 +51,17 @@ test('the headless run is always bounded', () => {
 })
 
 test('exit codes and the report lines', () => {
-  const clean = summarizeRemoval(
-    [{ id: 'a', group: 'launcher', label: 'Studio launcher', path: '/p', status: 'removed' }],
-    false,
-  )
+  const clean = summarizeRemoval([
+    { id: 'a', group: 'launcher', label: 'Studio launcher', path: '/p', status: 'removed' },
+  ])
   assert.equal(removalExitCode(clean), 0)
-  const failed = summarizeRemoval(
-    [{ id: 'a', group: 'tailnet', label: 'Tailnet share', path: 'x', status: 'failed', reason: 'no' }],
-    false,
-  )
+  const failed = summarizeRemoval([
+    { id: 'a', group: 'tailnet', label: 'Tailnet share', path: 'x', status: 'failed', reason: 'no' },
+  ])
   assert.equal(removalExitCode(failed), 2)
   assert.equal(removalExitCode(null), 3)
   assert.deepEqual(formatRemovalReport(failed), [
     'failed\tTailnet share\tx\tno',
     'summary\tremoved=0 skipped=0 failed=1',
   ])
-})
-
-test('the renderer can only ask for the known options', () => {
-  assert.deepEqual(sanitizeRemovalOptions({ deleteAppData: true, removeWorktrees: 'yes', extra: 1 }), {
-    deleteAppData: true,
-  })
-  assert.deepEqual(sanitizeRemovalOptions({ hostId: 'wsl:Ubuntu-24.04' }), { hostId: 'wsl:Ubuntu-24.04' })
-  assert.deepEqual(sanitizeRemovalOptions({ hostId: 'wsl:../../x' }), {})
-  assert.deepEqual(sanitizeRemovalOptions(null), {})
-})
-
-test('the app-data deletion refuses the home folder, anything above it, and shallow paths', () => {
-  assert.equal(isDeletableAppDataPath('/Users/dev/Library/Application Support/SprintEngine Studio', '/Users/dev'), true)
-  assert.equal(isDeletableAppDataPath('/Users/dev', '/Users/dev'), false)
-  assert.equal(isDeletableAppDataPath('/Users', '/Users/dev'), false)
-  assert.equal(isDeletableAppDataPath('/', '/Users/dev'), false)
-  assert.equal(isDeletableAppDataPath('/tmp/x', '/Users/dev'), false, 'two levels is too shallow to be sure')
-  assert.equal(isDeletableAppDataPath('relative/a/b/c', '/Users/dev'), false)
-})
-
-test("the app's data is deleted by a process that waits for the app to exit, with paths never in the script text", () => {
-  const posix = appDataDeletionCommand(4242, ["/Users/dev/Library/Application Support/it's"], 'darwin')
-  assert.equal(posix.command, '/bin/sh')
-  assert.ok(posix.args[1].startsWith('while kill -0 4242'))
-  assert.ok(!posix.args[1].includes('Application Support'))
-  assert.equal(posix.args.at(-1), "/Users/dev/Library/Application Support/it's")
-  const windows = appDataDeletionCommand(7, ["C:\\Users\\dev\\AppData\\Roaming\\it's"], 'win32')
-  assert.equal(windows.command, 'powershell.exe')
-  assert.ok(windows.args.at(-1)?.includes("'C:\\Users\\dev\\AppData\\Roaming\\it''s'"))
-  assert.ok(windows.args.at(-1)?.startsWith('Wait-Process -Id 7'))
 })
