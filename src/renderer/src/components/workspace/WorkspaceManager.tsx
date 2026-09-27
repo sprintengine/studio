@@ -303,7 +303,7 @@ const ToastHost = React.lazy(() => import('./ToastHost').then((m) => ({ default:
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
-// so it stays out of the eager boot chunk (bundle-budget ratchet).
+// so the machines that never show it never evaluate it at boot.
 const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard'))
 
 // Display name for a New Chat project scope: the folder's last path segment.

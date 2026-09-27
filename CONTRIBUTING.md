@@ -37,7 +37,7 @@ Python on your machine, and the app neither ships nor resolves one.
 To produce a build:
 
 ```
-npm run build         # compile main, preload and renderer, then check the bundle budget
+npm run build         # compile main, preload and renderer
 npm run dist:mac      # or dist:win / dist:linux — packages an installer
 ```
 

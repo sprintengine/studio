@@ -5,9 +5,11 @@ import { useAppTheme } from '../../hooks/useAppTheme'
 import { writeAuxWindowBounds } from './auxWindowPlacement'
 import { InlineNotice, Spinner } from '../ui'
 
-// Monaco is heavy and must stay out of the eager boot chunk (enforced by
-// scripts/check-bundle-budget.mjs), so the diff viewer loads behind React.lazy
-// just like EditorPanel does in the workspace shell.
+// Each window body is only ever needed by the one kind of aux window that shows
+// it, and the workspace window shares this bundle without showing any of them,
+// so they load behind React.lazy just like EditorPanel does in the workspace
+// shell. Monaco itself is not behind this boundary: it is loaded at boot
+// (utils/monacoRuntime.ts), so these bodies arrive to an editor already there.
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
 const CheckpointDiffWindow = lazy(() => import('./CheckpointDiffWindow'))
 const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))

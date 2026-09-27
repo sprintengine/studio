@@ -50,8 +50,9 @@ import type { CanvasBoardExporter } from './canvasExport'
 // The live editor, and the ONE file in the tree that imports
 // `@excalidraw/excalidraw`. It is reached only through the `React.lazy` in
 // `CanvasTab.tsx`, which is what keeps the heaviest dependency in the tree — and
-// its stylesheet — out of the boot chunk; `scripts/check-bundle-budget.mjs`
-// fails the build if it ever arrives there.
+// its stylesheet — off the boot path until a board is actually opened. A static
+// import of this file anywhere eager would undo that without failing anything,
+// so it stays the only door in.
 //
 // Everything about talking to main lives here too, because the parts that do it
 // need values from the library (`reconcileElements`, `CaptureUpdateAction`) and

@@ -91,7 +91,7 @@ uses port 5173, or the next free port if that one is taken, in which case the
 second instance gets its own profile so you can run two side by side.
 
 ```
-npm run build          # compile main, preload and renderer, and check the bundle budget
+npm run build          # compile main, preload and renderer
 npm run dist:mac       # package an installer — also dist:win, dist:linux
 npm run verify:app     # the full gate: typecheck, lints, tests, SDK and feed checks
 ```

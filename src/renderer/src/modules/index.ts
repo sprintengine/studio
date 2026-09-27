@@ -110,9 +110,9 @@ function shallowEqualEntries(a: Readonly<Record<string, unknown>>, b: Readonly<R
 // delivery, so nothing started in that window outlives the resolver. The
 // live-runtime surface factories (file watch, session watch, agent spawn)
 // ride the same deferred batch: they are only constructed inside this wiring
-// block, and importing them statically would drag them — and their transitive
-// graph — into the eager boot chunk (the bundle-budget ratchet caught exactly
-// that regression).
+// block, and importing them statically would make boot evaluate them — and
+// their transitive graph — before the first paint, for nothing that paint
+// shows.
 if (typeof window !== 'undefined') {
   Promise.all([
     import('../store/workspaceStore'),
@@ -200,8 +200,8 @@ if (typeof window !== 'undefined') {
         // and the overrides that resolve it, and main's `module.*` gateway tools
         // must report what the user sees rather than main's own half. It rides
         // the deferred batch above rather than a static import, like every other
-        // wiring here — a top-level import would drag it into the eager boot
-        // chunk the bundle-budget ratchet guards. Rebuilt
+        // wiring here — a top-level import would put it on the path to the first
+        // paint, which it has no part in. Rebuilt
         // only when the overrides object changes identity — the store hands out a
         // new one exactly when enablement changes — and once more when the
         // third-party modules finish loading, which widens the universe.
@@ -468,9 +468,10 @@ if (typeof window !== 'undefined') {
           }),
         )
         // Boot measurement: the deferred batch above is the one part of
-        // boot that was moved OUT of the eager chunk to satisfy the size ceiling,
-        // so how long it takes to settle — and whether it lands before or after
-        // first paint — is the evidence for whether that trade was worth making.
+        // boot that was moved OUT of the eager chunk to reach the first paint
+        // sooner, so how long it takes to settle — and whether it lands before or
+        // after first paint — is the evidence for whether that trade was worth
+        // making.
         markStartup('renderer.module-wiring-settled')
       },
     )
