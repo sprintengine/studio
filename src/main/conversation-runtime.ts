@@ -943,8 +943,12 @@ export class ConversationRuntime {
     }
     await Promise.allSettled(Array.from(this.adapters.values(), async (adapter) => adapter.disposeAll?.()))
     this.dropToolPreviews()
-    await Promise.allSettled(this.background)
+    // Housekeeping can queue more of itself as it settles (a lost sequence
+    // number recorded again after a newer one), so drain until none is left.
+    while (this.background.size) await Promise.allSettled(this.background)
     await this.eventLog.closeAll()
+    // The last writes can fail as they flush, and record their loss.
+    while (this.background.size) await Promise.allSettled(this.background)
   }
 
   private runInBackground(task: Promise<unknown>): void {
