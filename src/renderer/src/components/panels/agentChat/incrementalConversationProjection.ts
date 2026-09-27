@@ -162,20 +162,24 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
   const turnId = readString(event.payload, 'turnId')
   if ((event.type === 'content_delta' || event.type === 'reasoning_delta') && turnId) {
     const delta = readString(event.payload, 'text', 'delta') ?? ''
-    if (!delta) return state.projection
-    return updateEntry(state, `assistant:${turnId}`, (entry) => {
-      if (entry.kind !== 'assistant') return entry
-      if (event.type === 'reasoning_delta') return { ...entry, reasoning: entry.reasoning + delta }
-      const window = state.reasoning.get(turnId)
-      return {
-        ...entry,
-        text: entry.text + delta,
-        reasoningDurationMs:
+    const key = `assistant:${turnId}`
+    // An unknown turn needs the fold to create its entry, even from an empty delta.
+    if (!state.entryIndexes.has(key)) return null
+    // An empty content delta still ends the reasoning window, exactly as the
+    // fold does, so it is not a no-op.
+    return (
+      updateEntry(state, key, (entry) => {
+        if (entry.kind !== 'assistant') return entry
+        if (event.type === 'reasoning_delta') return delta ? { ...entry, reasoning: entry.reasoning + delta } : entry
+        const window = state.reasoning.get(turnId)
+        const reasoningDurationMs =
           window && window.endedAt === undefined
             ? Math.max(0, event.createdAt - window.startedAt)
-            : entry.reasoningDurationMs,
-      }
-    })
+            : entry.reasoningDurationMs
+        if (!delta && reasoningDurationMs === entry.reasoningDurationMs) return entry
+        return { ...entry, text: entry.text + delta, reasoningDurationMs }
+      }) ?? state.projection
+    )
   }
   if (event.type === 'tool_output') {
     const id = readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')

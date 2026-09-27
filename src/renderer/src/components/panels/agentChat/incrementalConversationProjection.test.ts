@@ -325,6 +325,24 @@ test('a failed turn settles the tool calls it left running', () => {
   )
 })
 
+test('an empty content delta ends the reasoning window in the incremental fold too', () => {
+  const events = [
+    event('turn_started', 1, { turnId: 'a' }),
+    event('reasoning_delta', 2, { turnId: 'a', text: 'think' }),
+    event('content_delta', 3, { turnId: 'a', text: '' }),
+    event('content_delta', 4, { turnId: 'a', text: 'Answer' }),
+    event('content_delta', 5, { turnId: 'b', text: '' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix))
+  }
+  const assistant = state.projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(assistant?.kind === 'assistant' && assistant.reasoningDurationMs, 10)
+})
 
 
 test('incremental deltas are substantially cheaper than full refolds', () => {
