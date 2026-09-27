@@ -52,6 +52,19 @@ subscription that cannot start by `subscribeFailed` with its `key`, a
 than `CONVERSATION_MAX_CLIENT_FRAME_BYTES` is skipped and refused the same way;
 put `type` and the id ahead of any long field so the refusal can name it.
 
+A desktop that advertises `conversation-models` (`CONVERSATION_MODELS_CAPABILITY`)
+names each listed chat's CLI and the models it can switch between in the
+thread's `models`: the same rows its own picker offers, at most
+`CONVERSATION_MAX_MODEL_OPTIONS`, with `liveModelSwitch` saying whether the
+chat's provider takes a new model mid-conversation. `setModel` switches the
+chat to one of those ids, or to `CONVERSATION_DEFAULT_MODEL_ID` for the CLI's
+own default; it never changes the CLI, needs `conversation:operate`, and an id
+outside the catalog is refused with `unsupported_model`. An accepted switch
+made while a turn is running carries a `notice` on its `commandResult`: the new
+model applies from the next turn. Validate `models` with
+`parseConversationWireModels`, and hide the model control for a desktop that
+does not advertise the capability.
+
 Grants are read live. A device whose grant loses `conversation:operate` keeps
 its socket and has further commands refused with `conversation_operate_required`;
 one that loses `conversation:read` is sent that error and closed with

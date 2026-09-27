@@ -18,7 +18,7 @@ export function modelDiscoveryLine(input: {
   const error = input.error?.trim()
   if (error) return `Could not read ${input.name}'s models: ${error}`
   const catalog = input.catalog
-  // An empty answer is shown as the manifest seed (mergeModelCatalog), so it
+  // An empty answer is shown as the manifest seed (mergeCliModelCatalog), so it
   // reads as this build's list here too.
   if (!catalog || !Array.isArray(catalog.models) || catalog.models.length === 0) return 'Models from this build'
   const version = catalog.cliVersion?.trim()

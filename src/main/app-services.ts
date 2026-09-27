@@ -154,6 +154,8 @@ import { ConversationRuntime } from './conversation-runtime'
 import type { ConversationEventType } from '../shared/conversation-runtime'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
+import { createConversationModelCatalog } from './conversation-model-catalog'
+import { readDiscoveredCliModelCatalogs } from './model-discovery/service'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
@@ -613,6 +615,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // A model-discovery pass main starts itself (boot, after an install) probes
   // with the same per-CLI command overrides a launch would use.
   setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
+  const conversationModelCatalog = createConversationModelCatalog({
+    listClis: () => listPluginRegistryEntries(),
+    readDiscovered: () => readDiscoveredCliModelCatalogs(),
+    userModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
+  })
   // The version check asks about the same machines, with the same commands,
   // that Settings ▸ Agents lists: this one and each WSL distribution turned on.
   configureCliVersionService({ machines: launchSettingsCliMachines(() => agentLaunchSettings.get()) })
@@ -1345,6 +1352,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // desktop's tab and sidebar read — so a remote lists the chat by the
         // name it has here rather than by its first message.
         (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
+        // The chat's CLI catalog as this machine's own picker lists it, so a
+        // paired device offers the same models and can switch to no other.
+        conversationModelCatalog,
       ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request

@@ -181,6 +181,8 @@ export const fleetApi = {
   }) => command(input.key, { kind: 'answerQuestion', requestId: input.requestId, answers: input.answers }),
   fleetConversationSetPermissionPreset: (input: { key: FleetConversationKey; preset: 'none' | 'bypass' }) =>
     command(input.key, { kind: 'setPermissionPreset', preset: input.preset }),
+  fleetConversationSetModel: (input: { key: FleetConversationKey; modelId: string }) =>
+    command(input.key, { kind: 'setModel', modelId: input.modelId }),
   fleetConversationToolDetail: (input: {
     key: FleetConversationKey
     toolUseId: string
@@ -218,6 +220,7 @@ export const fleetApi = {
   | 'fleetConversationResolveApproval'
   | 'fleetConversationAnswerQuestion'
   | 'fleetConversationSetPermissionPreset'
+  | 'fleetConversationSetModel'
   | 'fleetConversationToolDetail'
   | 'fleetConversationTurnDiff'
 >

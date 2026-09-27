@@ -5,6 +5,9 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import {
   CONVERSATION_CAPABILITY,
+  CONVERSATION_DEFAULT_MODEL_ID,
+  CONVERSATION_MAX_MODEL_OPTIONS,
+  CONVERSATION_MODELS_CAPABILITY,
   CONVERSATION_MAX_CLIENT_FRAME_BYTES,
   CONVERSATION_MAX_MESSAGE_CHARS,
   CONVERSATION_MAX_IMAGES,
@@ -12,6 +15,7 @@ import {
   explainRejectedConversationFrame,
   conversationCloseRetryAfterMs,
   parseConversationClientFrame,
+  parseConversationWireModels,
 } from '../../../../packages/conversation-protocol/src'
 import {
   isKnownConversationServerFrameType,
@@ -27,7 +31,7 @@ test('portable protocol source stays byte-identical to the companion source mirr
   }
   // Update this pin and the companion's pin together only after comparing both
   // source trees. A local digest alone cannot detect a stale peer mirror.
-  assert.equal(hash.digest('hex'), '013d5ea727b4b3906cb8ae29ba5cdbb2018ec7ff22c088ac28a2ab63216bbfc3')
+  assert.equal(hash.digest('hex'), '21e95b94604705abdf318e5122d2a6a0d79aae5f0af33a248add2505e8bfd491')
 })
 
 test('conversation protocol accepts bounded frames and refuses a permanent rule', () => {
@@ -90,6 +94,71 @@ test('conversation protocol accepts bounded frames and refuses a permanent rule'
   for (const preset of ['bypass_all', 'yolo', 7, undefined])
     assert.equal(parseConversationClientFrame(presetFrame(preset)), null)
   assert.equal(parseConversationClientFrame({ type: 'command', command: { kind: 'send', message: 'hello' } }), null)
+})
+
+test('a model switch names one model id and nothing else', () => {
+  assert.equal(CONVERSATION_MODELS_CAPABILITY, 'conversation-models')
+  const modelFrame = (command: Record<string, unknown>) => ({ type: 'command', commandId: 'c', command })
+  for (const modelId of ['opus', CONVERSATION_DEFAULT_MODEL_ID, 'm'.repeat(200)])
+    assert.deepEqual(parseConversationClientFrame(modelFrame({ kind: 'setModel', modelId })), {
+      type: 'command',
+      commandId: 'c',
+      command: { kind: 'setModel', modelId },
+    })
+  // A CLI is not something a switch can name: the extra member is stripped,
+  // not carried to the host.
+  assert.deepEqual(parseConversationClientFrame(modelFrame({ kind: 'setModel', modelId: 'opus', cli: 'codex' })), {
+    type: 'command',
+    commandId: 'c',
+    command: { kind: 'setModel', modelId: 'opus' },
+  })
+  for (const modelId of ['', 7, null, undefined, 'm'.repeat(201)]) {
+    const frame = modelFrame({ kind: 'setModel', modelId })
+    assert.equal(parseConversationClientFrame(frame), null)
+    // A malformed switch is a bad frame, not an unknown command.
+    assert.deepEqual(explainRejectedConversationFrame(frame), {
+      code: 'invalid_frame',
+      message: 'Unsupported conversation frame.',
+      commandId: 'c',
+      commandKind: 'setModel',
+    })
+  }
+})
+
+test('a listed model catalog is validated, bounded and never lists the default row', () => {
+  const catalog = {
+    cli: 'claude-code',
+    cliLabel: 'Claude Code',
+    liveModelSwitch: true,
+    options: [
+      { id: 'opus', label: ' Opus ' },
+      { id: 'sonnet' },
+      { id: CONVERSATION_DEFAULT_MODEL_ID, label: 'Default' },
+      { id: '' },
+      { label: 'no id' },
+      { id: 'haiku', label: 'l'.repeat(201) },
+    ],
+  }
+  assert.deepEqual(parseConversationWireModels(catalog), {
+    cli: 'claude-code',
+    cliLabel: 'Claude Code',
+    liveModelSwitch: true,
+    options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet' }, { id: 'haiku' }],
+  })
+  const long = parseConversationWireModels({
+    ...catalog,
+    options: Array.from({ length: CONVERSATION_MAX_MODEL_OPTIONS + 5 }, (_, index) => ({ id: `m${index}` })),
+  })
+  assert.equal(long?.options.length, CONVERSATION_MAX_MODEL_OPTIONS)
+  for (const broken of [
+    null,
+    [],
+    { ...catalog, cli: '' },
+    { ...catalog, cliLabel: 7 },
+    { ...catalog, liveModelSwitch: 'yes' },
+    { ...catalog, options: {} },
+  ])
+    assert.equal(parseConversationWireModels(broken), null)
 })
 
 test('a resync close reason carries the retry delay any client can read', () => {
@@ -257,4 +326,52 @@ test('server frames are validated before a client applies them, and unknown type
   assert.equal(parseConversationServerFrame({ type: 'presence' }), null)
   assert.equal(isKnownConversationServerFrameType({ type: 'presence' }), false)
   assert.equal(isKnownConversationServerFrameType({ type: 'event' }), true)
+})
+
+test("a listed chat's catalog reaches a client whole or not at all, and a notice rides only an accepted command", () => {
+  const row = {
+    workspaceId: 'w',
+    agentId: 'a',
+    title: 'T',
+    phase: 'idle',
+    updatedAt: 2,
+    createdAt: 1,
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    turnCount: 1,
+    lastSeq: 9,
+  }
+  const models = { cli: 'claude-code', cliLabel: 'Claude Code', liveModelSwitch: true, options: [{ id: 'opus' }] }
+  const listed = parseConversationServerFrame({
+    type: 'sessions',
+    requestId: 'list',
+    sessions: [
+      { ...row, models },
+      // A catalog in the wrong shape leaves the row listed without one.
+      { ...row, agentId: 'b', models: { ...models, liveModelSwitch: 'sometimes' } },
+      // A desktop that does not offer switching lists none.
+      { ...row, agentId: 'c' },
+    ],
+  })
+  assert.ok(listed?.type === 'sessions')
+  assert.deepEqual(listed.sessions[0].models, models)
+  assert.equal('models' in listed.sessions[1], false)
+  assert.equal('models' in listed.sessions[2], false)
+
+  const notice = 'The new model starts with your next message.'
+  assert.deepEqual(parseConversationServerFrame({ type: 'commandResult', commandId: 'c', ok: true, notice }), {
+    type: 'commandResult',
+    commandId: 'c',
+    ok: true,
+    notice,
+  })
+  assert.deepEqual(
+    parseConversationServerFrame({ type: 'commandResult', commandId: 'c', ok: false, code: 'x', notice }),
+    { type: 'commandResult', commandId: 'c', ok: false, code: 'x' },
+  )
+  assert.deepEqual(parseConversationServerFrame({ type: 'commandResult', commandId: 'c', ok: true, notice: 7 }), {
+    type: 'commandResult',
+    commandId: 'c',
+    ok: true,
+  })
 })

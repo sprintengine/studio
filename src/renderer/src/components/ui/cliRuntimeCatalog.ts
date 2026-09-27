@@ -85,7 +85,7 @@ export type CliModelFamily = {
 
 // Group a CLI's model options into families. Catalog order is preserved by
 // first appearance, so a merged catalog (the CLI's list or the seed, then user, see
-// cliRuntimeOptions.mergeModelCatalog) still reads in the order it was built.
+// mergeCliModelCatalog) still reads in the order it was built.
 export function buildModelFamilies(
   options: ReadonlyArray<PluginModelOption & { isNew?: boolean }> | undefined,
 ): CliModelFamily[] {

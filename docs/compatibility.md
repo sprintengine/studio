@@ -96,7 +96,11 @@ WebSocket frames, their client validator and pure tool-presentation helpers.
 It does not change the mobile-control wire or its version number.
 
 The initial `0.1.0` contract requires the `conversations` capability. Additive
-optional fields preserve that contract. Breaking frame changes require a new
+optional fields preserve that contract. Model switching is one such addition: its own
+`conversation-models` capability, a `models` catalog on a listed thread, the
+`setModel` command, the `unsupported_model` code and a `notice` on an accepted
+command. A client hides its model control for a desktop that does not
+advertise it, and such a desktop refuses the command as `unsupported_command`. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
 Both ESM and CommonJS tarball consumers and Node16 declarations are checked by

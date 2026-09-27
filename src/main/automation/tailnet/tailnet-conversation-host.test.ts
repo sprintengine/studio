@@ -11,6 +11,7 @@ import type { ConversationPermissionPreset } from '../../../shared/conversation-
 import { createConversationGatewayHost, readBoundedConversationUpload } from './tailnet-conversation-host'
 import { MAX_ATTACHMENTS_PER_TURN, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import { CONVERSATION_MAX_IMAGES } from '../../../../packages/conversation-protocol/src'
+import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 
 type Preset = ConversationPermissionPreset
 
@@ -21,6 +22,7 @@ async function fixture(
     workspaceRoot?: string
     adapter?: ConversationProviderAdapter
     agentName?: string | null
+    modelCatalog?: (providerId: string) => Promise<ConversationModelCatalog | null>
   } = {},
 ) {
   const workspaceRoot = options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), 'conversation-gateway-')))
@@ -42,6 +44,7 @@ async function fixture(
       return options.defaultPreset ?? 'bypass'
     },
     (asked) => (asked.agentId === key.agentId ? options.agentName : null),
+    ...(options.modelCatalog ? [options.modelCatalog] : []),
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
     runtime.startSession({
@@ -336,5 +339,164 @@ test('a remote lists a conversation by its agent’s name, falling back to the t
     } finally {
       await f.cleanup()
     }
+  }
+})
+
+// A provider that takes a new model mid-conversation, as the CLI chat providers
+// do. `switched` records what reached it; `notice` is what it says back.
+function liveModelProvider(notice?: string) {
+  const switched: string[] = []
+  const adapter: ConversationProviderAdapter = {
+    ...createMockConversationProvider({ liveModelSwitch: true }),
+    listModels: () => ['mock-model', 'mock-large'],
+    setModel: async (input) => {
+      switched.push(input.nextModelId)
+      return { ok: true, ...(notice ? { notice } : {}) }
+    },
+  }
+  return { adapter, switched }
+}
+
+const mockCatalog = async (providerId: string): Promise<ConversationModelCatalog | null> =>
+  providerId === 'mock-provider'
+    ? {
+        cli: 'mock-cli',
+        cliLabel: 'Mock CLI',
+        options: [
+          { id: 'mock-model', label: 'Mock' },
+          { id: 'mock-large', label: 'Mock Large' },
+        ],
+      }
+    : null
+
+test("the list names each chat's CLI catalog and whether its provider switches models mid-conversation", async () => {
+  const { adapter } = liveModelProvider()
+  const f = await fixture({ adapter, modelCatalog: mockCatalog })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    assert.deepEqual((await f.host.list())[0].models, {
+      cli: 'mock-cli',
+      cliLabel: 'Mock CLI',
+      liveModelSwitch: true,
+      options: [
+        { id: 'mock-model', label: 'Mock' },
+        { id: 'mock-large', label: 'Mock Large' },
+      ],
+    })
+    // A stopped chat still names its catalog: the provider's own declaration
+    // answers for the session a switch would resume.
+    await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    assert.equal((await f.host.list())[0].models?.liveModelSwitch, true)
+  } finally {
+    await f.cleanup()
+  }
+  // A provider with no catalog (not a CLI) lists none.
+  const plain = await fixture({ modelCatalog: async () => null })
+  try {
+    assert.ok((await plain.start()).ok)
+    assert.equal('models' in (await plain.host.list())[0], false)
+  } finally {
+    await plain.cleanup()
+  }
+})
+
+test('a remote model switch runs through the runtime, and the list and transcript name the new model', async () => {
+  const notice = 'The new model starts with your next message.'
+  const { adapter, switched } = liveModelProvider(notice)
+  const f = await fixture({ adapter, modelCatalog: mockCatalog })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const result = await f.host.command(f.key, 'phone', 'model-1', { kind: 'setModel', modelId: 'mock-large' })
+    assert.deepEqual(result, { ok: true, notice })
+    assert.deepEqual(switched, ['mock-large'])
+    const listed = (await f.host.list())[0]
+    assert.equal(listed.modelId, 'mock-large')
+    assert.equal(listed.providerId, 'mock-provider', 'the CLI never changes')
+    const transcript = await f.runtime.readTranscript(f.key)
+    assert.ok(transcript.ok)
+    assert.equal(transcript.events.at(-1)?.type, 'session_updated')
+    // The same command id again is the same switch, not a second one.
+    assert.deepEqual(await f.host.command(f.key, 'phone', 'model-1', { kind: 'setModel', modelId: 'mock-large' }), {
+      ok: true,
+      notice,
+    })
+    assert.deepEqual(switched, ['mock-large'])
+    // The CLI's own default is always on offer.
+    assert.equal((await f.host.command(f.key, 'phone', 'model-2', { kind: 'setModel', modelId: 'default' })).ok, true)
+    assert.deepEqual(switched, ['mock-large', 'default'])
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test("a remote model switch outside the chat's CLI catalog is refused before the runtime sees it", async () => {
+  const { adapter, switched } = liveModelProvider()
+  const f = await fixture({ adapter, modelCatalog: mockCatalog })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const setModel = vi.spyOn(f.runtime, 'setModel')
+    for (const modelId of ['other-cli-model', 'gpt-large', 'Mock'])
+      assert.deepEqual(await f.host.command(f.key, 'phone', `m-${modelId}`, { kind: 'setModel', modelId }), {
+        ok: false,
+        code: 'unsupported_model',
+        message: 'Mock CLI does not offer that model.',
+      })
+    assert.equal(setModel.mock.calls.length, 0)
+    assert.deepEqual(switched, [])
+    assert.equal((await f.host.list())[0].modelId, 'mock-model')
+  } finally {
+    await f.cleanup()
+  }
+  // A chat with no catalog at all offers nothing to switch to.
+  const bare = await fixture({ adapter: liveModelProvider().adapter })
+  try {
+    assert.ok((await bare.start()).ok)
+    const refused = await bare.host.command(bare.key, 'phone', 'm', { kind: 'setModel', modelId: 'mock-large' })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.code, 'unsupported_model')
+  } finally {
+    await bare.cleanup()
+  }
+})
+
+test('a provider that binds a session to its model refuses a remote switch without resuming anything', async () => {
+  const f = await fixture({ modelCatalog: mockCatalog })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    assert.equal((await f.host.list())[0].models?.liveModelSwitch, false)
+    const start = vi.spyOn(f.runtime, 'startSession')
+    assert.deepEqual(await f.host.command(f.key, 'phone', 'm', { kind: 'setModel', modelId: 'mock-large' }), {
+      ok: false,
+      message: 'This conversation provider cannot change models mid-conversation.',
+    })
+    assert.equal(start.mock.calls.length, 0)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a remote model switch on a chat with no live session resumes it and switches that session', async () => {
+  const { adapter, switched } = liveModelProvider()
+  const f = await fixture({ adapter, modelCatalog: mockCatalog })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    await f.runtime.stopSession({ sessionId: started.session.sessionId })
+    const result = await f.host.command(f.key, 'phone', 'm', { kind: 'setModel', modelId: 'mock-large' })
+    assert.equal(result.ok, true, result.message ?? '')
+    assert.deepEqual(switched, ['mock-large'])
+    const live = (await f.host.list())[0]
+    assert.ok(live.sessionId, 'the switch resumed a session')
+    assert.equal(live.modelId, 'mock-large')
+  } finally {
+    await f.cleanup()
   }
 })

@@ -373,7 +373,7 @@ export function AgentClisSection({
               const declaredModels = plugin.modelSelection?.options ?? []
               // What the picker offers before the user's own ids: the CLI's
               // own list once it has answered, else the manifest seed
-              // (cliRuntimeOptions.mergeModelCatalog).
+              // (mergeCliModelCatalog in src/shared/cli-model-catalog.ts).
               const discoveredCatalog = cliModelCatalog?.[plugin.id]
               const discoveredModels = discoveredCatalog?.models ?? []
               const listedModels =

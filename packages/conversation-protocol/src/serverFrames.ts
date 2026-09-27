@@ -1,9 +1,10 @@
-import type {
-  ConversationServerFrame,
-  ConversationWireErrorCode,
-  ConversationWireKey,
-  ConversationWirePhase,
-  ConversationWireThread,
+import {
+  parseConversationWireModels,
+  type ConversationServerFrame,
+  type ConversationWireErrorCode,
+  type ConversationWireKey,
+  type ConversationWirePhase,
+  type ConversationWireThread,
 } from './index.js'
 
 // The client half of the frame contract: what a desktop or phone following a
@@ -165,6 +166,9 @@ function thread(value: unknown): ConversationWireThread | null {
     return null
   const flags = record(value.capabilities) ? value.capabilities : null
   const flag = (name: string) => flags?.[name] === true
+  // A catalog in the wrong shape is left out, like an unknown preset: the
+  // model control hides rather than offering rows it could not read.
+  const models = value.models === undefined ? null : parseConversationWireModels(value.models)
   return {
     ...listed,
     title: value.title,
@@ -180,6 +184,7 @@ function thread(value: unknown): ConversationWireThread | null {
     ...(value.permissionPreset === 'none' || value.permissionPreset === 'bypass'
       ? { permissionPreset: value.permissionPreset }
       : {}),
+    ...(models ? { models } : {}),
     ...(flags
       ? {
           capabilities: {
@@ -307,6 +312,10 @@ export function parseConversationServerFrame(value: unknown): ConversationParsed
             ok: frame.ok,
             ...(frame.code === undefined ? {} : { code: frame.code as ConversationWireErrorCode }),
             ...(frame.message === undefined ? {} : { message: frame.message as string }),
+            // A notice this client cannot read is dropped; the result itself stands.
+            ...(frame.ok === true && typeof frame.notice === 'string' && frame.notice.length <= 2_000
+              ? { notice: frame.notice }
+              : {}),
             ...retry(frame),
           }
         : null

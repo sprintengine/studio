@@ -1,4 +1,10 @@
-import type { ConversationClientFrame, ConversationWireThread } from '../../../../packages/conversation-protocol/src'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  type ConversationClientFrame,
+  type ConversationWireErrorCode,
+  type ConversationWireModels,
+  type ConversationWireThread,
+} from '../../../../packages/conversation-protocol/src'
 import { isPlaceholderAgentName } from '../../../shared/agent-names'
 import type {
   ConversationKey,
@@ -9,6 +15,7 @@ import type {
   ConversationSubscribeInput,
 } from '../../../shared/conversation-runtime'
 import type { ConversationRuntime } from '../../conversation-runtime'
+import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 import { ConversationSessionApi } from '../../conversation-session-api'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-settings'
@@ -88,7 +95,19 @@ export type ConversationGatewayHost = {
     deviceId: string,
     commandId: string,
     command: Extract<ConversationClientFrame, { type: 'command' }>['command'],
-  ): Promise<{ ok: boolean; message?: string }>
+  ): Promise<ConversationGatewayCommandResult>
+}
+
+/**
+ * How a command ended. `code` names a refusal the wire has a word for (a model
+ * outside the chat's catalog); any other refusal is `unavailable` with its
+ * message. `notice` qualifies an accepted command, as the runtime words it.
+ */
+export type ConversationGatewayCommandResult = {
+  ok: boolean
+  message?: string
+  code?: ConversationWireErrorCode
+  notice?: string
 }
 
 /**
@@ -107,6 +126,7 @@ export function createConversationGatewayHost(
   defaultPermissionPreset: (key: { workspaceId: string; agentId: string }) => ConversationPermissionPreset = () =>
     DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
+  modelCatalog: (providerId: string) => Promise<ConversationModelCatalog | null> = async () => null,
 ): ConversationGatewayHost {
   // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
   // title says more than it does.
@@ -139,7 +159,7 @@ export function createConversationGatewayHost(
   const starting = new Map<string, ReturnType<ConversationRuntime['startSession']>>()
   const sending = new Map<
     string,
-    { commandId: string; deviceId: string; promise: Promise<{ ok: boolean; message?: string }> }
+    { commandId: string; deviceId: string; promise: Promise<ConversationGatewayCommandResult> }
   >()
   let imageSends = 0
   const sessionFor = (key: ConversationKey) => {
@@ -167,6 +187,28 @@ export function createConversationGatewayHost(
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]
     return latest?.permissionPreset ?? defaultPermissionPreset(key)
   }
+  const threadFor = async (key: ConversationKey) => {
+    const indexed = await runtime.listThreads(key)
+    return indexed.ok ? indexed.threads.find((entry) => entry.agentId === key.agentId) : undefined
+  }
+  // The models a chat can switch between: its CLI's catalog, and whether its
+  // provider takes a new model mid-conversation — as the live session
+  // declared, else as the provider declares for a session it would resume.
+  const modelsFor = async (
+    providerId: string,
+    summary: ConversationSessionSummary | undefined,
+    catalogs: Map<string, Promise<ConversationModelCatalog | null>> = new Map(),
+  ): Promise<ConversationWireModels | null> => {
+    let catalog = catalogs.get(providerId)
+    if (!catalog) {
+      catalog = modelCatalog(providerId).catch(() => null)
+      catalogs.set(providerId, catalog)
+    }
+    const listed = await catalog
+    if (!listed) return null
+    const capabilities = summary?.capabilities ?? runtime.getProviderCapabilities(providerId)
+    return { ...listed, liveModelSwitch: capabilities?.liveModelSwitch === true }
+  }
   const ensureSession = async (key: ConversationKey) => {
     const active = sessionFor(key)
     if (active) return { ok: true as const, session: active }
@@ -174,8 +216,7 @@ export function createConversationGatewayHost(
     let request = starting.get(id)
     if (!request) {
       request = (async () => {
-        const indexed = await runtime.listThreads(key)
-        const thread = indexed.ok ? indexed.threads.find((entry) => entry.agentId === key.agentId) : undefined
+        const thread = await threadFor(key)
         if (!thread) return { ok: false as const, message: 'Conversation is unavailable.' }
         const listed = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
         return runtime.startSession({
@@ -193,11 +234,42 @@ export function createConversationGatewayHost(
       if (starting.get(id) === request) starting.delete(id)
     }
   }
+  // A switch within the chat's own CLI, to a model this machine's picker
+  // offers for it. Checked here, before the runtime sees it: the id must be in
+  // the catalog (or be the CLI's own default), and the provider must take a
+  // new model mid-conversation. A chat with no live session is resumed, as a
+  // send or a preset switch resumes it, and the switch applies to that session.
+  const setModel = async (
+    key: ConversationKey,
+    commandId: string,
+    modelId: string,
+  ): Promise<ConversationGatewayCommandResult> => {
+    let session = sessionFor(key)
+    const providerId = session?.providerId ?? (await threadFor(key))?.providerId
+    if (!providerId) return { ok: false, message: 'Conversation is unavailable.' }
+    const models = await modelsFor(providerId, session)
+    if (!models)
+      return { ok: false, code: 'unsupported_model', message: "This chat's model cannot be changed from here." }
+    if (modelId !== CONVERSATION_DEFAULT_MODEL_ID && !models.options.some((option) => option.id === modelId))
+      return { ok: false, code: 'unsupported_model', message: `${models.cliLabel} does not offer that model.` }
+    if (!models.liveModelSwitch)
+      return { ok: false, message: 'This conversation provider cannot change models mid-conversation.' }
+    if (!session) {
+      const resumed = await ensureSession(key)
+      if (!resumed.ok) return resumed
+      session = resumed.session
+    }
+    const switched = await api.setModel({ sessionId: session.sessionId, commandId, modelId })
+    if (!switched.ok) return { ok: false, message: switched.message }
+    return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
+  }
   return {
     async list() {
       const result = api.listSessions()
       const all = result.ok ? result.sessions : []
       const live = all.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)
+      // One catalog read per provider for the whole list.
+      const catalogs = new Map<string, Promise<ConversationModelCatalog | null>>()
       const byId = new Map<string, ConversationWireThread>()
       for (const workspace of listWorkspaces()) {
         const indexed = await runtime.listThreads(workspace)
@@ -206,6 +278,7 @@ export function createConversationGatewayHost(
           const summary = live.find(
             (session) => session.workspaceId === workspace.workspaceId && session.agentId === thread.agentId,
           )
+          const models = await modelsFor(thread.providerId, summary, catalogs)
           byId.set(`${workspace.workspaceId}:${thread.agentId}`, {
             workspaceId: workspace.workspaceId,
             agentId: thread.agentId,
@@ -218,6 +291,7 @@ export function createConversationGatewayHost(
             turnCount: thread.turnCount,
             lastSeq: thread.lastSeq,
             permissionPreset: presetFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
+            ...(models ? { models } : {}),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
           })
         }
@@ -225,6 +299,7 @@ export function createConversationGatewayHost(
       for (const summary of live) {
         const id = `${summary.workspaceId}:${summary.agentId}`
         if (byId.has(id)) continue
+        const models = await modelsFor(summary.providerId, summary, catalogs)
         byId.set(id, {
           workspaceId: summary.workspaceId,
           agentId: summary.agentId,
@@ -237,6 +312,7 @@ export function createConversationGatewayHost(
           turnCount: 0,
           lastSeq: 0,
           permissionPreset: presetFor(summary, all),
+          ...(models ? { models } : {}),
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
         })
@@ -265,7 +341,8 @@ export function createConversationGatewayHost(
       return id
     },
     command(key, deviceId, commandId, command) {
-      const execute = async (): Promise<{ ok: boolean; message?: string }> => {
+      if (command.kind === 'setModel') return setModel(key, commandId, command.modelId)
+      const execute = async (): Promise<ConversationGatewayCommandResult> => {
         let session = sessionFor(key)
         // A send, or a preset switch, reaches a conversation with no live
         // session by resuming it; the switch then applies to that session.

@@ -123,7 +123,7 @@ export function useConversationTransport(): ConversationTransport {
 }
 
 const commandResult = (result: FleetConversationCommandResult): ConversationTransportResult =>
-  result.ok ? { ok: true } : { ok: false, message: result.message }
+  result.ok ? { ok: true, ...(result.notice ? { notice: result.notice } : {}) } : { ok: false, message: result.message }
 
 /**
  * A conversation on a paired machine, over the Fleet. The key it was made for
@@ -182,5 +182,9 @@ export function createRemoteConversationTransport(input: {
     },
     setPermissionPreset: async (change) =>
       commandResult(await window.api.fleetConversationSetPermissionPreset({ key, preset: change.permissionPreset })),
+    // Offered only while the machine advertises model switching; the pane turns
+    // `modelSwitch` on from its list, and the chip stays locked without it.
+    setModel: async (change) =>
+      commandResult(await window.api.fleetConversationSetModel({ key, modelId: change.modelId })),
   }
 }

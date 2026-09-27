@@ -40,11 +40,30 @@ try {
       'Read notes.md',
     )
     assert.equal(loaded.summarizeToolGroup([{ name: 'Read' }]), 'Read 1 file')
+    assert.equal(loaded.CONVERSATION_MODELS_CAPABILITY, 'conversation-models')
+    assert.deepEqual(
+      loaded.parseConversationClientFrame({
+        type: 'command',
+        commandId: 'c-1',
+        command: { kind: 'setModel', modelId: 'm' },
+      }).command,
+      { kind: 'setModel', modelId: 'm' },
+    )
+    assert.deepEqual(
+      loaded.parseConversationWireModels({
+        cli: 'claude-code',
+        cliLabel: 'Claude Code',
+        liveModelSwitch: true,
+        options: [{ id: 'm', label: 'Model M' }],
+      }).options,
+      [{ id: 'm', label: 'Model M' }],
+    )
   }
-  const consumer = `import { presentToolItem, parseConversationClientFrame, type ConversationClientFrame, type ConversationToolKind } from '@sprintengine/conversation-protocol'
+  const consumer = `import { presentToolItem, parseConversationClientFrame, parseConversationWireModels, type ConversationClientFrame, type ConversationToolKind, type ConversationWireModels } from '@sprintengine/conversation-protocol'
 const kind: ConversationToolKind = 'file_read'
 const frame: ConversationClientFrame | null = parseConversationClientFrame({ type: 'list', requestId: 'list-1' })
-console.log(presentToolItem({ name: 'Read', kind }), frame)
+const models: ConversationWireModels | null = parseConversationWireModels(null)
+console.log(presentToolItem({ name: 'Read', kind }), frame, models)
 `
   for (const extension of ['cts', 'mts']) writeFileSync(join(fixture, `consumer.${extension}`), consumer)
   writeFileSync(

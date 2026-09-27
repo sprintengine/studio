@@ -34,10 +34,19 @@ function pushProvider() {
   let push: (text: string | null) => void = () => undefined
   let started: () => void = () => undefined
   let turnStarted = new Promise<void>((resolve) => (started = resolve))
-  const base = createMockConversationProvider()
+  let running = false
+  const switched: string[] = []
+  // A CLI chat provider takes a new model mid-conversation; mid-turn it says
+  // the reply finishes on the model it started with, as the real ones do.
+  const base = createMockConversationProvider({ liveModelSwitch: true })
   const adapter: ConversationProviderAdapter = {
     ...base,
+    listModels: () => ['mock-model', 'mock-large'],
     setPermissionPreset: async () => ({ ok: true }),
+    setModel: async (input) => {
+      switched.push(input.nextModelId)
+      return running ? { ok: true, notice: MID_TURN_NOTICE } : { ok: true }
+    },
     sendTurn: (input) =>
       (async function* () {
         const queue: Array<string | null> = []
@@ -57,6 +66,7 @@ function pushProvider() {
           type,
           payload,
         })
+        running = true
         yield event('turn_started', { turnId: input.turnId })
         started()
         for (;;) {
@@ -66,16 +76,20 @@ function pushProvider() {
           if (text === null) break
           yield event('content_delta', { turnId: input.turnId, text })
         }
+        running = false
         yield event('turn_completed', { turnId: input.turnId })
       })(),
   }
   return {
     adapter,
+    switched,
     turnStarted: () => turnStarted,
     nextTurn: () => (turnStarted = new Promise<void>((resolve) => (started = resolve))),
     push: (text: string | null) => push(text),
   }
 }
+
+const MID_TURN_NOTICE = 'The new model starts with your next message.'
 
 async function waitFor(predicate: () => boolean, what: string): Promise<void> {
   for (let attempt = 0; attempt < 600 && !predicate(); attempt++) await new Promise((r) => setTimeout(r, 5))
@@ -111,6 +125,20 @@ async function startHarness(): Promise<Harness> {
     runtime,
     (id) => (id === workspaceId ? workspaceRoot : null),
     () => [{ workspaceRoot, workspaceId }],
+    () => 'bypass',
+    () => null,
+    // The chat's CLI catalog, as the host's own picker would list it.
+    async (providerId) =>
+      providerId === provider.adapter.id
+        ? {
+            cli: 'mock-cli',
+            cliLabel: 'Mock CLI',
+            options: [
+              { id: 'mock-model', label: 'Mock' },
+              { id: 'mock-large', label: 'Mock Large' },
+            ],
+          }
+        : null,
   )
   const joins: Harness['joins'] = []
   const conversations: ConversationGatewayHost = {
@@ -283,6 +311,67 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
       assert.ok(relisted.ok)
       assert.equal(relisted.conversations[0]?.permissionPreset, preset)
     }
+  } finally {
+    await h.close()
+  }
+})
+
+test("a paired desktop switches a chat's model within its CLI, and the host's session and list follow", async () => {
+  const h = await startHarness()
+  try {
+    const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
+    const listed = await h.fleet.listConversations(connectionId)
+    assert.ok(listed.ok, listed.ok ? '' : listed.message)
+    assert.equal(listed.modelSwitch, true, 'the host advertises model switching')
+    assert.deepEqual(
+      listed.conversations[0]?.models,
+      {
+        cli: 'mock-cli',
+        cliLabel: 'Mock CLI',
+        liveModelSwitch: true,
+        options: [
+          { id: 'mock-model', label: 'Mock' },
+          { id: 'mock-large', label: 'Mock Large' },
+        ],
+      },
+      'the list carries the catalog across the wire',
+    )
+    assert.equal(listed.conversations[0]?.modelId, 'mock-model')
+
+    const key = { connectionId, workspaceId, agentId }
+    const pane = follower(h.fleet, key)
+    await waitFor(pane.live, 'the follow goes live')
+
+    // Between turns the switch simply applies.
+    assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'mock-large' } }), {
+      ok: true,
+    })
+    assert.deepEqual(h.provider.switched, ['mock-large'])
+    const hostSession = h.runtime.listSessions({ workspaceId, agentId })
+    assert.ok(hostSession.ok)
+    assert.equal(hostSession.sessions[0]?.modelId, 'mock-large', "the host's session is on the new model")
+    const relisted = await h.fleet.listConversations(connectionId)
+    assert.ok(relisted.ok)
+    assert.equal(relisted.conversations[0]?.modelId, 'mock-large', 'and the list names it')
+    await waitFor(
+      () => pane.of('event').some((frame) => frame.event.type === 'session_updated'),
+      "the follower sees the host's own record of the switch",
+    )
+
+    // Mid-turn, the answer says the switch applies from the next turn.
+    const sent = h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
+    await h.provider.turnStarted()
+    assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'default' } }), {
+      ok: true,
+      notice: MID_TURN_NOTICE,
+    })
+    h.provider.push(null)
+    assert.deepEqual(await sent, { ok: true })
+
+    // A model the CLI does not offer is refused by the host with its own code.
+    const refused = await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'gpt-large' } })
+    assert.equal(!refused.ok && refused.code, 'unsupported_model')
+    assert.deepEqual(h.provider.switched, ['mock-large', 'default'])
   } finally {
     await h.close()
   }

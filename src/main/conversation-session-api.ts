@@ -7,6 +7,7 @@ import type {
   ConversationSendTurnInput,
   ConversationInterruptInput,
   ConversationRespondToRequestInput,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationTurnDiffInput,
   ConversationRevertInput,
@@ -125,5 +126,8 @@ export class ConversationSessionApi {
   }
   setPermissionPreset(input: ConversationSetPermissionInput & { commandId: string }) {
     return this.runtime.setPermission(input)
+  }
+  setModel(input: ConversationSetModelInput & { commandId: string }) {
+    return this.runtime.setModel(input)
   }
 }

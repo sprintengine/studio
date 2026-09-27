@@ -5,6 +5,7 @@ import type { AgentState } from '../../../../../shared/agent-state'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
+import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import type { ChatReadiness } from './chatStates'
 
 // What a chat view is bound to besides its transport: the agent fields it reads
@@ -44,6 +45,12 @@ export type ChatBinding = {
   recordUserMessage?(at: number): void
   /** Remember a picked model as the next chat's default. */
   rememberModel?(choice: ChatAgentFields['conversation']): void
+  /**
+   * The chat's CLI and its models as the machine running the chat lists them,
+   * for a chat on another machine. Absent, the picker reads this machine's own
+   * catalog for the chat's CLI.
+   */
+  engine?: CliRuntimeOption
 }
 
 /** A local chat's binding: its agent record in the workspace store. Null until that record has a conversation. */

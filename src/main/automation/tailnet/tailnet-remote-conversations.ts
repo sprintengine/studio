@@ -610,7 +610,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
             follow.access = 'operate'
             emit(follow, linkFrame(follow))
           }
-          command.resolve({ ok: true })
+          command.resolve({ ok: true, ...(frame.notice ? { notice: frame.notice } : {}) })
           return
         }
         if (frame.code === 'conversation_operate_required') {
@@ -751,7 +751,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
           onFrame: (raw) => {
             const frame = isKnownConversationServerFrameType(raw) ? parseConversationServerFrame(raw) : null
             if (frame?.type === 'sessions' && frame.requestId === 'list')
-              settle({ ok: true, conversations: frame.sessions, access })
+              settle({ ok: true, conversations: frame.sessions, access, modelSwitch: false })
             else if (frame?.type === 'result' && frame.requestId === 'list' && !frame.ok)
               settle({
                 ok: false,

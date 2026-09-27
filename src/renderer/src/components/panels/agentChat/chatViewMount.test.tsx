@@ -175,6 +175,7 @@ async function mountChat({
     host,
     act,
     agent: () => useWorkspaceStore.getState().workspaces[0].agents.agent,
+    emit: (frame: ConversationSessionFrame) => frames.at(-1)?.(frame),
     button: (label: string) =>
       Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.includes(label)),
     type: (value: string) => {
@@ -432,6 +433,27 @@ test('a started chat switches models within its CLI from the full catalog, appli
     expect(chat.agent().conversation?.modelId).toBe('claude-fable-5-1')
     expect(chip().getAttribute('aria-label')).toBe('Engine: Fable 5.1')
     expect(chat.host.textContent).toContain('The new model starts with your next message.')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test("a switch made from a paired device moves this chat's record, while one replayed from history does not", async () => {
+  const replayed = event('session_updated', { modelId: 'replayed-model' })
+  const chat = await mountChat({
+    events: [event('user_message', { turnId: 't', text: 'hello' }), replayed],
+    capabilities: { liveModelSwitch: true },
+  })
+  try {
+    // History is history: the record may have moved since that switch.
+    expect(chat.agent().conversation?.modelId).toBe('mock-model')
+    await chat.act(async () =>
+      chat.emit({ type: 'event', event: event('session_updated', { modelId: 'remote-model' }) }),
+    )
+    expect(chat.agent().conversation).toEqual({ providerId: 'mock', modelId: 'remote-model' })
+    // An event that names no model (a notice, a native session id) leaves it.
+    await chat.act(async () => chat.emit({ type: 'event', event: event('session_updated', { notice: 'Resumed.' }) }))
+    expect(chat.agent().conversation?.modelId).toBe('remote-model')
   } finally {
     await chat.unmount()
   }
