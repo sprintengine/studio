@@ -149,6 +149,9 @@ type SessionState = {
   continuationSequence: number
   lastActivityAt: number
   stderrTail: string
+  // The SDK reports cost as a running total for the life of one query() call;
+  // the total already attributed to earlier turns of the live child.
+  queryCostUsd: number
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
@@ -433,6 +436,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
+    state.queryCostUsd = 0
     state.queryAllowsBypass = state.permissionPreset === 'bypass'
     state.inputQueue = inputQueue
     state.abort = abort
@@ -584,6 +588,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         continuationSequence: 0,
         lastActivityAt: now(),
         stderrTail: '',
+        queryCostUsd: 0,
         declinedToolUseIds: new Set(),
       }
       sessions.set(input.sessionId, state)
@@ -1051,6 +1056,7 @@ export function mapSdkMessage(
     modelId: string
     providerSessionId: string | null
     turn: { turnId: string } | null
+    queryCostUsd?: number
     declinedToolUseIds?: Set<string>
   },
   message: Record<string, unknown>,
@@ -1183,6 +1189,14 @@ export function mapSdkMessage(
           }),
         )
       }
+      // A running total for the live query(); each turn reports what it added.
+      // A total below the last one means the SDK started counting again.
+      let costUsd: number | undefined
+      if (typeof message.total_cost_usd === 'number' && Number.isFinite(message.total_cost_usd)) {
+        const seen = state.queryCostUsd ?? 0
+        costUsd = message.total_cost_usd >= seen ? message.total_cost_usd - seen : message.total_cost_usd
+        state.queryCostUsd = message.total_cost_usd
+      }
       const isError = message.is_error === true || message.subtype !== 'success'
       if (isError) {
         const errors = Array.isArray(message.errors) ? message.errors.filter((entry) => typeof entry === 'string') : []
@@ -1198,7 +1212,7 @@ export function mapSdkMessage(
         events.push(
           eventFor(state, 'turn_completed', {
             turnId,
-            ...(typeof message.total_cost_usd === 'number' ? { costUsd: message.total_cost_usd } : {}),
+            ...(costUsd !== undefined ? { costUsd } : {}),
             ...(typeof message.duration_ms === 'number' ? { durationMs: message.duration_ms } : {}),
             ...(typeof message.num_turns === 'number' ? { numTurns: message.num_turns } : {}),
           }),

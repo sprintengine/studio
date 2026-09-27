@@ -1608,9 +1608,28 @@ function mapperState() {
     modelId: 'sonnet',
     providerSessionId: 'native' as string | null,
     turn: { turnId: 'turn_1' } as { turnId: string } | null,
+    queryCostUsd: 0,
     declinedToolUseIds: new Set<string>(),
   }
 }
+
+test('each Claude turn reports the cost it added, not the running total of the live query', () => {
+  const state = mapperState()
+  const result = (total: number) =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'native',
+      total_cost_usd: total,
+    }).find((event) => event.type === 'turn_completed')?.payload?.costUsd
+  assert.equal(result(0.25), 0.25)
+  state.turn = { turnId: 'turn_2' }
+  assert.equal(Number((result(0.4) as number).toFixed(6)), 0.15)
+  // A running total that restarts (a fresh child, or /clear) is all new cost.
+  state.turn = { turnId: 'turn_3' }
+  assert.equal(result(0.1), 0.1)
+})
 
 test('Claude shell results say whether a command was declined, stopped or exited non-zero', () => {
   const state = mapperState()
