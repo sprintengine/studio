@@ -58,3 +58,26 @@ test('tool title changes refresh summaries while token deltas stay silent and bu
   expect(list).toHaveBeenCalledTimes(3)
   expect(unsubscribe).toHaveBeenCalledOnce()
 })
+
+test('a user message refreshes summaries, so a chat is titled when it is sent', async () => {
+  vi.useFakeTimers()
+  const list = vi.fn().mockResolvedValue({ ok: true, sessions: [] })
+  let receive!: (event: ConversationEvent) => void
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        conversationSessionsList: list,
+        onConversationEvent: (listener: typeof receive) => {
+          receive = listener
+          return vi.fn()
+        },
+      },
+    },
+  })
+  useConversationSessions()
+  expect(list).toHaveBeenCalledTimes(1)
+  receive({ type: 'user_message' } as ConversationEvent)
+  await vi.advanceTimersByTimeAsync(200)
+  expect(list).toHaveBeenCalledTimes(2)
+})

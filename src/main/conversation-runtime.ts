@@ -1227,7 +1227,9 @@ export class ConversationRuntime {
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
     if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
-      session.firstUserText ??= event.payload.text.slice(0, 240)
+      // An image-only turn carries no text, and an empty excerpt would pin the
+      // chat's "first message" to nothing: the first turn with words keeps it.
+      if (!session.firstUserText && event.payload.text.trim()) session.firstUserText = event.payload.text.slice(0, 240)
       session.lastUserText = event.payload.text.slice(0, 240)
       session.lastAssistantText = ''
     } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string') {

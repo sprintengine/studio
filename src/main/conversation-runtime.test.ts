@@ -47,6 +47,7 @@ test('conversation-runtime', async () => {
     await testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint()
     await testMultiTurnHistoryAccumulates()
     await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
+    await testImageOnlyFirstTurnLeavesTheFirstMessageToTheNextWords()
     await testSetPermissionAppliesThroughTheAdapterOrRefuses()
     await testSetModelSwitchesALiveSessionOrRefuses()
     await testPermissionTransitionsAreSerialized()
@@ -1601,6 +1602,52 @@ test('conversation-runtime', async () => {
       const userMessages = transcript.events.filter((event) => event.type === 'user_message')
       assert.equal(userMessages.length, 2)
       assert.equal(userMessages[0]?.payload?.text, 'describe')
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // The summary's first message is what a chat is titled and listed by. An
+  // image-only opener has no words to offer, so it must not claim the slot:
+  // the first turn that does say something takes it, restart included.
+  async function testImageOnlyFirstTurnLeavesTheFirstMessageToTheNextWords(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-image-first-'))
+    try {
+      let id = 0
+      let now = 1000
+      const options = {
+        randomId: () => `${++id}`,
+        now: () => ++now,
+        adapters: [createCapturingProvider([])],
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+      }
+      const key = { workspaceRoot, workspaceId: 'w', agentId: 'a' }
+      const runtime = new TrackedConversationRuntime(options)
+      const started = await runtime.startSession({ ...key, providerId: 'capture-provider', modelId: 'capture-model' })
+      assert.equal(started.ok, true)
+      if (!started.ok) return
+      const sessionId = started.session.sessionId
+      const attachment = { id: 'img-1', mediaType: 'image/png', dataBase64: 'Zm9v', byteLength: 3 }
+
+      assert.equal((await runtime.sendTurn({ sessionId, message: '', attachments: [attachment] })).ok, true)
+      const afterImage = runtime.listSessions({ workspaceId: 'w' })
+      assert.equal(afterImage.ok && afterImage.sessions[0]?.firstUserText, undefined)
+
+      assert.equal((await runtime.sendTurn({ sessionId, message: 'Fix the upload retry' })).ok, true)
+      assert.equal((await runtime.sendTurn({ sessionId, message: 'And add a test' })).ok, true)
+      const afterWords = runtime.listSessions({ workspaceId: 'w' })
+      assert.equal(afterWords.ok && afterWords.sessions[0]?.firstUserText, 'Fix the upload retry')
+      assert.equal(afterWords.ok && afterWords.sessions[0]?.lastUserText, 'And add a test')
+
+      await runtime.shutdown()
+      const resumed = await new TrackedConversationRuntime(options).startSession({
+        ...key,
+        providerId: 'capture-provider',
+        modelId: 'capture-model',
+      })
+      assert.equal(resumed.ok && resumed.session.firstUserText, 'Fix the upload retry')
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
