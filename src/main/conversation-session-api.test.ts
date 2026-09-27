@@ -1342,3 +1342,53 @@ test('a command that throws records its failure, so a retry gets that result ins
     await f.cleanup()
   }
 })
+
+test('a turn failure the transcript cannot store still reaches subscribers, numbered', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-unwritable-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  let broken = false
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+    eventLog: {
+      openStream: async () => ({
+        write: async () => {
+          if (broken) throw new Error('disk failed')
+        },
+        close: async () => {},
+      }),
+      onError: (_path, error) => {
+        throw error
+      },
+    },
+  })
+  try {
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok)
+    const frames: ConversationSessionFrame[] = []
+    const joined = new ConversationSessionApi(runtime).subscribe({ key }, (frame) => frames.push(frame))
+    await joined.ready
+    const synchronized = frames.find((frame) => frame.type === 'synchronized')
+    assert.ok(synchronized?.type === 'synchronized')
+    broken = true
+    const result = await runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    assert.equal(result.ok, false)
+    const failed = frames.find((frame) => frame.type === 'event' && frame.event.type === 'turn_failed')
+    assert.ok(failed?.type === 'event', 'the failure is delivered, not dropped for lacking a sequence number')
+    assert.ok(failed.event.seq! > synchronized.seq)
+    joined.dispose()
+
+    // Its numbering is no longer on disk, so a reconnect is sent a snapshot.
+    const again: ConversationSessionFrame[] = []
+    const rejoined = new ConversationSessionApi(runtime).subscribe(
+      { key, afterSeq: synchronized.seq, generation: synchronized.generation },
+      (frame) => again.push(frame),
+    )
+    await rejoined.ready
+    rejoined.dispose()
+    assert.ok(again[0].type === 'snapshot' && again[0].reset)
+  } finally {
+    await runtime.shutdown().catch(() => undefined)
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})

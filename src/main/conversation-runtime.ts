@@ -549,8 +549,18 @@ export class ConversationRuntime {
     const message = error instanceof Error ? error.message : 'Conversation turn failed.'
     const event = this.eventForSession(session, 'turn_failed', { turnId, reason: 'runtime', message })
     try {
-      await this.emit(session, event, { allowCanceledTurnId: turnId })
+      const stamped = await this.emit(session, event, { allowCanceledTurnId: turnId })
+      if (stamped) return { ok: false, message, event: stamped }
     } catch {
+      // The transcript could not take it. Subscribers drop an event with no
+      // sequence number, so it gets the next one; the log can no longer vouch
+      // for its numbering, which sends its reconnects to a full snapshot.
+      const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+      event.id = `conv_evt_${this.eventEpoch}_${++this.eventSequence}`
+      event.seq = (this.sequences.get(path) ?? 0) + 1
+      event.createdAt = this.now()
+      this.sequences.set(path, event.seq)
+      this.nonDurableLogs.add(path)
       this.notify(event)
     }
     return { ok: false, message, event }
