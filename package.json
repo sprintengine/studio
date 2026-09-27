@@ -235,7 +235,7 @@
     "flexlayout-react": "^0.11.0",
     "ignore": "7.0.10",
     "immer": "^11.1.18",
-    "monaco-editor": "^0.56.0",
+    "monaco-editor": "^0.57.0",
     "nanoid": "^6.0.1",
     "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
