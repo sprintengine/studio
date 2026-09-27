@@ -1103,7 +1103,12 @@ export class ConversationRuntime {
         input: event.payload?.input as ConversationJsonValue | undefined,
         status: 'running',
       }).title
-    else if (event.type === 'tool_output' || event.type === 'turn_completed' || event.type === 'turn_failed')
+    // Streamed output (`partial`) arrives while the tool is still running.
+    else if (
+      (event.type === 'tool_output' && event.payload?.partial !== true) ||
+      event.type === 'turn_completed' ||
+      event.type === 'turn_failed'
+    )
       session.currentToolTitle = undefined
     if (event.type === 'turn_completed') session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
