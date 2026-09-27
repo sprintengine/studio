@@ -3,19 +3,9 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
-import type { EntitlementSnapshot, SprintEngineAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
+import type { SprintEngineAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
 import { AccountPhotoCache } from './account-photo-cache'
 import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES } from './deep-link-scheme'
-import {
-  ENTITLEMENT_GRACE_MS,
-  ENTITLEMENT_MAX_CACHE_AGE_MS,
-  EntitlementService,
-  entitlementCacheStatus,
-  entitlementGraceExpiresAt,
-  isEntitlementSnapshot,
-  offlineGraceMessage,
-  type CachedEntitlementSnapshot,
-} from './entitlement-service'
 import {
   CLERK_IDENTITY_PROVIDER,
   IDENTITY_MARKER_FILE_NAME,
@@ -39,9 +29,9 @@ import { getErrorMessage } from './error-message'
 import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
 import { readStudioEnv } from '../shared/studio-env'
 
-// `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where entitlement
-// snapshots come from. It is no longer, by
-// definition, the identity provider: the service publishes which
+// `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where the account
+// profile comes from. It is not, by definition, the identity
+// provider: the service publishes which
 // issuer a sign-in should go to at `/api/auth/identity` — itself on a
 // self-hosted deployment, Clerk on the hosted one — and this bridge follows.
 // The environment variable keeps its historical name so existing overrides
@@ -73,20 +63,20 @@ const AUTH_REDIRECT_MODE =
     : DEFAULT_AUTH_REDIRECT_MODE
 const REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LOOPBACK_REDIRECT_URI =
   AUTH_REDIRECT_MODE === 'loopback' ? LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
+// Names this app to the account service's sign-in page. It identifies the
+// client; it does not ask for, or unlock, anything.
 const PRODUCT_KEY = 'sprintengine' as const
 // `relay:desktop` is still requested although nothing in the app talks to the
 // hosted relay any more: the phone pairs over the tailnet (owner ruling
 // 2026-09-27). The account service's relay authorization is kept for later
 // use, and dropping the scope would change what every sign-in grants — a
 // decision about that service, not a side effect of this app's cleanup.
-const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
+// There is no `entitlements:read`: the app is open source with nothing behind
+// a paywall (owner ruling 2026-09-27), so it never reads what an account is
+// entitled to, and a sign-in does not ask for permission to.
+const MULTIAUTH_DESKTOP_SCOPE = 'openid profile relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 const ACCOUNT_SERVICE_LABEL = 'The SprintEngine account service'
-
-type ElectronRendererAuthState = Pick<
-  SprintEngineAuthState,
-  'authenticated' | 'user' | 'selectedOrganization' | 'entitlements'
->
 
 type PendingDesktopLogin = {
   state: string
@@ -179,7 +169,6 @@ export class SprintEngineAuthBridge {
   private readonly client = new SprintEngineAccountClient({
     baseUrl: MULTIAUTH_BASE_URL,
     clientId: DESKTOP_CLIENT_ID,
-    product: PRODUCT_KEY,
     refreshTokenStores: {
       multiauth: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.multiauth),
       clerk: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.clerk),
@@ -195,9 +184,8 @@ export class SprintEngineAuthBridge {
   private state: SprintEngineAuthState = signedOutAuthState('Checking account.')
   private pendingLogin: PendingDesktopLogin | null = null
   private callbackServer: DesktopCallbackServer | null = null
-  private cachedEntitlements: CachedEntitlementSnapshot | null = null
-  // The account profile (name, email, remote photo URL) behind the cached
-  // entitlements, so an offline boot shows who is signed in — and, through
+  // The account profile (name, email, remote photo URL) from the last
+  // successful fetch, so an offline boot shows who is signed in — and, through
   // the photo cache, their photo — rather than a blank badge.
   private cachedAccount: AccountProfile | null = null
   private photoRefreshInFlight: string | null = null
@@ -205,64 +193,31 @@ export class SprintEngineAuthBridge {
     cachePath: () => join(app.getPath('userData'), 'multiauth-account-photo.json'),
   })
 
-  // This bridge is the account-service ADAPTER behind the entitlement seam. It
-  // answers the two questions `EntitlementProvider` asks and knows nothing
-  // about how a decision is reached; every gate in the app goes through
-  // `entitlements`, so nothing above this class knows which issuer signed the
-  // session in — that is what let the identity provider move
-  // without a caller changing.
-  readonly entitlements = new EntitlementService(
-    {
-      read: () => ({
-        authenticated: this.state.authenticated,
-        snapshot: this.state.entitlements,
-        cache: this.cachedEntitlements,
-        lastRefreshAt: this.state.lastRefreshAt,
-      }),
-      refresh: async () => {
-        await this.refreshEntitlements({ forceRefresh: true })
-      },
-    },
-    {
-      product: PRODUCT_KEY,
-      graceMs: ENTITLEMENT_GRACE_MS,
-      maxCacheAgeMs: ENTITLEMENT_MAX_CACHE_AGE_MS,
-    },
-  )
-
   async initialize(): Promise<SprintEngineAuthState> {
     this.setState({ ...this.state, status: 'checking', message: 'Checking account.' })
 
     try {
       await this.client.resumeStoredSession()
-      return this.refreshEntitlements({ forceRefresh: true })
     } catch {
-      const cache = this.cachedEntitlements ?? (await this.readCachedEntitlements())
-      this.cachedEntitlements = cache
-      if (cache) {
-        const entitlementStatus = entitlementCacheStatus(cache)
-        const graceExpiresAt = entitlementGraceExpiresAt(cache)
-        const account = await this.readOfflineAccount(cache.snapshot)
-        this.setState({
-          ...this.state,
-          ...account,
-          status: 'signed_in',
-          authenticated: true,
-          entitlements: cache.snapshot,
-          entitlementStatus,
-          message:
-            entitlementStatus === 'offline_grace'
-              ? offlineGraceMessage(graceExpiresAt)
-              : 'Sign in again to refresh SprintEngine access.',
-          lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt,
-        })
-        return this.state
-      }
-
-      this.setState(signedOutAuthState(null))
+      // No session could be resumed. An account cached by an earlier session
+      // means one was signed in and the service is out of reach (logout
+      // deletes the cache), so keep showing who it was; the next refresh
+      // resumes the session from the token on disk once the service answers.
+      const account = await this.readOfflineAccount()
+      this.setState(
+        account
+          ? {
+              ...account,
+              authenticated: true,
+              status: 'signed_in',
+              message: `${ACCOUNT_SERVICE_LABEL} could not be reached. Showing your last sign-in.`,
+            }
+          : signedOutAuthState(null),
+      )
       return this.state
     }
+
+    return this.refreshAccount()
   }
 
   getState(): SprintEngineAuthState {
@@ -385,16 +340,14 @@ export class SprintEngineAuthBridge {
       await this.client.selectOrganization(pending.organizationId)
     }
 
-    return this.refreshEntitlements({ forceRefresh: true })
+    return this.refreshAccount()
   }
 
   async logout(): Promise<{ loggedOut: true }> {
     const result = await this.client.logout()
     this.pendingLogin = null
     await this.closeCallbackServer()
-    this.cachedEntitlements = null
     this.cachedAccount = null
-    await unlink(this.cachePath).catch(() => {})
     await unlink(this.accountCachePath).catch(() => {})
     await this.photoCache.clear()
     this.setState(signedOutAuthState(null))
@@ -403,54 +356,46 @@ export class SprintEngineAuthBridge {
 
   async selectOrganization(organizationId: string): Promise<{ organizationId: string }> {
     const result = await this.client.selectOrganization(organizationId)
-    await this.refreshEntitlements({ forceRefresh: true })
+    await this.refreshAccount()
     return result
   }
 
-  async refreshEntitlements(options: { forceRefresh?: boolean } = {}): Promise<SprintEngineAuthState> {
+  // Who is signed in, asked of the account service. Signing in unlocks
+  // nothing — every feature works signed out — so this is identity only: the
+  // name, address and photo the account surfaces show.
+  async refreshAccount(): Promise<SprintEngineAuthState> {
     try {
-      const entitlements = await this.client.getEntitlements({ forceRefresh: options.forceRefresh ?? true })
-      const session = await this.readSessionFromEntitlements(entitlements)
-      const cache = {
-        snapshot: entitlements,
-        lastRefreshAt: new Date().toISOString(),
+      const account = await this.client.getProfile()
+      this.cachedAccount = account
+      await this.writeCachedAccount(account)
+      // Publish with whatever the photo cache holds — the cached bytes, or
+      // nothing — and fetch on the side. The avatar host is not the account
+      // service: a blocked or stalled CDN must not hold the account state (or
+      // the browser's "sign-in complete" page) for the fetch timeout.
+      const photoUrl = await this.photoCache.resolve(account.user.avatarUrl, { allowNetwork: false })
+      if (await this.photoCache.needsFetch(account.user.avatarUrl)) {
+        this.refreshPhotoInBackground(account.user)
       }
-
-      this.cachedEntitlements = cache
-      await this.writeCachedEntitlements(cache)
-      // Same ladder the seam gates on, so a snapshot that arrives already past
-      // its expiry is published as `offline_grace` here and read as
-      // `offline_grace` there — the state and the decisions cannot disagree.
-      const entitlementStatus = entitlementCacheStatus(cache)
-      const graceExpiresAt = entitlementGraceExpiresAt(cache)
       this.setState({
         authenticated: true,
-        user: session.user,
-        selectedOrganization: session.selectedOrganization,
-        entitlements,
+        user: toSessionUser(account.user, photoUrl),
+        selectedOrganization: account.selectedOrganization,
         status: 'signed_in',
-        entitlementStatus,
-        message: entitlementStatus === 'offline_grace' ? offlineGraceMessage(graceExpiresAt) : null,
-        lastRefreshAt: cache.lastRefreshAt,
-        graceExpiresAt,
+        message: null,
       })
     } catch (error) {
-      const cache = this.cachedEntitlements ?? (await this.readCachedEntitlements())
-      this.cachedEntitlements = cache
-      if (cache) {
-        const entitlementStatus = entitlementCacheStatus(cache)
-        const graceExpiresAt = entitlementGraceExpiresAt(cache)
-        const account = await this.readOfflineAccount(cache.snapshot)
+      // The profile could not be read. With a live session (the token
+      // refreshed; only the profile call failed) or an account cached by an
+      // earlier one, the user is still signed in — say what went wrong and
+      // keep the identity already known. Otherwise there is no session.
+      const account = await this.readOfflineAccount()
+      if (account || this.client.currentIdentity()) {
         this.setState({
-          ...this.state,
-          ...account,
+          user: account?.user ?? null,
+          selectedOrganization: account?.selectedOrganization ?? null,
           authenticated: true,
-          entitlements: cache.snapshot,
           status: 'signed_in',
-          entitlementStatus,
-          message: entitlementStatus === 'offline_grace' ? offlineGraceMessage(graceExpiresAt) : getErrorMessage(error),
-          lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt,
+          message: getErrorMessage(error),
         })
         return this.state
       }
@@ -473,27 +418,7 @@ export class SprintEngineAuthBridge {
       authenticated: true,
       user: this.state.user,
       selectedOrganization: this.state.selectedOrganization,
-      session: {
-        id: 'desktop',
-        expiresAt: this.state.entitlements?.expiresAt ?? new Date(0).toISOString(),
-      },
     }
-  }
-
-  async openUpgrade(reason?: string): Promise<{ opened: true; url: string }> {
-    const search = new URLSearchParams({
-      returnTo: 'checkout',
-      product: PRODUCT_KEY,
-    })
-
-    if (reason?.trim()) search.set('reason', reason.trim())
-    if (this.state.selectedOrganization?.id) {
-      search.set('organizationId', this.state.selectedOrganization.id)
-    }
-
-    const url = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
-    await shell.openExternal(url)
-    return { opened: true, url }
   }
 
   // Which issuer this sign-in goes to: the operator override if set, else
@@ -541,51 +466,6 @@ export class SprintEngineAuthBridge {
     await server?.close()
   }
 
-  private async readSessionFromEntitlements(entitlements: EntitlementSnapshot): Promise<ElectronRendererAuthState> {
-    // The entitlement snapshot names the user and organization by id only.
-    // Who they are — name, email, photo — comes from the profile call, made
-    // on every refresh so a changed photo or name follows the provider.
-    const account = await this.fetchAccount(entitlements)
-    if (account) {
-      // Publish with whatever the photo cache holds — the cached bytes, or
-      // nothing — and fetch on the side. The avatar host is not Multiauth:
-      // a blocked or stalled CDN must not hold the account state (or the
-      // browser's "sign-in complete" page) for the fetch timeout.
-      const photoUrl = await this.photoCache.resolve(account.user.avatarUrl, { allowNetwork: false })
-      if (await this.photoCache.needsFetch(account.user.avatarUrl)) {
-        this.refreshPhotoInBackground(account.user)
-      }
-      return {
-        authenticated: true,
-        user: toSessionUser(account.user, photoUrl),
-        selectedOrganization: account.selectedOrganization,
-        entitlements,
-      }
-    }
-
-    // No profile this time (a Multiauth without `/api/auth/me`, or a request
-    // that failed on its own): keep the identity already on screen, else the
-    // one cached from an earlier session, else the ids alone.
-    if (
-      this.state.authenticated &&
-      this.state.user &&
-      this.state.selectedOrganization?.id === entitlements.organizationId
-    ) {
-      return {
-        authenticated: true,
-        user: this.state.user,
-        selectedOrganization: this.state.selectedOrganization,
-        entitlements,
-      }
-    }
-
-    return {
-      authenticated: true,
-      ...(await this.readOfflineAccount(entitlements)),
-      entitlements,
-    }
-  }
-
   // Fetches (or refreshes) the photo and re-publishes the state with it once
   // it lands, if the same user is still signed in. One fetch per source URL
   // at a time; a failure leaves the published photo as it was.
@@ -616,64 +496,19 @@ export class SprintEngineAuthBridge {
       })
   }
 
-  private async fetchAccount(entitlements: EntitlementSnapshot): Promise<AccountProfile | null> {
-    try {
-      const profile = await this.client.getProfile()
-      if (profile.user.id !== entitlements.userId || profile.selectedOrganization.id !== entitlements.organizationId) {
-        console.warn('[auth] account-profile-mismatch', {
-          profileUserId: profile.user.id,
-          entitlementUserId: entitlements.userId,
-        })
-        return null
-      }
-      this.cachedAccount = profile
-      await this.writeCachedAccount(profile)
-      return profile
-    } catch (error) {
-      console.info('[auth] account-profile-unavailable', { message: getErrorMessage(error) })
-      return null
-    }
-  }
-
   // The user and organization to publish when the server cannot be asked:
   // what is already on screen, else the cached profile (photo from the local
-  // cache only — no network), else the ids the entitlement snapshot carries.
-  private async readOfflineAccount(
-    entitlements: EntitlementSnapshot,
-  ): Promise<Pick<SprintEngineAuthState, 'user' | 'selectedOrganization'>> {
-    if (this.state.user && this.state.selectedOrganization?.id === entitlements.organizationId) {
+  // cache only — no network). Null when neither exists.
+  private async readOfflineAccount(): Promise<Pick<SprintEngineAuthState, 'user' | 'selectedOrganization'> | null> {
+    if (this.state.authenticated && this.state.user && this.state.selectedOrganization) {
       return { user: this.state.user, selectedOrganization: this.state.selectedOrganization }
     }
 
     const cached = this.cachedAccount ?? (await this.readCachedAccount())
-    if (
-      cached &&
-      cached.user.id === entitlements.userId &&
-      cached.selectedOrganization.id === entitlements.organizationId
-    ) {
-      this.cachedAccount = cached
-      const photoUrl = await this.photoCache.resolve(cached.user.avatarUrl, { allowNetwork: false })
-      return { user: toSessionUser(cached.user, photoUrl), selectedOrganization: cached.selectedOrganization }
-    }
-
-    return {
-      user: {
-        id: entitlements.userId,
-        email: null,
-        displayName: null,
-        photoUrl: null,
-      },
-      selectedOrganization: {
-        id: entitlements.organizationId,
-        name: entitlements.organizationId,
-        slug: entitlements.organizationId,
-        type: 'team',
-      },
-    }
-  }
-
-  private get cachePath(): string {
-    return join(app.getPath('userData'), 'multiauth-entitlements-cache.json')
+    if (!cached) return null
+    this.cachedAccount = cached
+    const photoUrl = await this.photoCache.resolve(cached.user.avatarUrl, { allowNetwork: false })
+    return { user: toSessionUser(cached.user, photoUrl), selectedOrganization: cached.selectedOrganization }
   }
 
   private get accountCachePath(): string {
@@ -695,25 +530,6 @@ export class SprintEngineAuthBridge {
     } catch (error) {
       console.warn('[auth] account-cache-write-failed', { message: getErrorMessage(error) })
     }
-  }
-
-  private async readCachedEntitlements(): Promise<CachedEntitlementSnapshot | null> {
-    try {
-      const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CachedEntitlementSnapshot>
-      if (!payload.snapshot || typeof payload.lastRefreshAt !== 'string') return null
-      if (!isEntitlementSnapshot(payload.snapshot, PRODUCT_KEY)) return null
-      return {
-        snapshot: payload.snapshot,
-        lastRefreshAt: payload.lastRefreshAt,
-      }
-    } catch {
-      return null
-    }
-  }
-
-  private async writeCachedEntitlements(cache: CachedEntitlementSnapshot): Promise<void> {
-    await mkdir(dirname(this.cachePath), { recursive: true })
-    await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
   }
 
   private setState(state: SprintEngineAuthState): void {
@@ -835,12 +651,8 @@ function signedOutAuthState(message: string | null): SprintEngineAuthState {
     authenticated: false,
     user: null,
     selectedOrganization: null,
-    entitlements: null,
     status: 'signed_out',
-    entitlementStatus: 'missing',
     message,
-    lastRefreshAt: null,
-    graceExpiresAt: null,
   }
 }
 

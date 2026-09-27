@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 
-// The account bar used to decide "Upgrade to Pro" from `plan.code ===
-// 'pro'`. It now asks feature keys, and the plan's name is only ever printed.
-// This renders the real surface because the decision logic's unit coverage
-// (workspaceManagerHelpers.test.ts) cannot show which element each answer
-// drives — which is the half that regressed if the wiring is wrong.
+// The account menu is identity and sign-out, and nothing else: the app is open
+// source and signing in unlocks nothing (owner ruling 2026-09-27), so no plan,
+// tier or upgrade may appear on it. This renders the real surface, because an
+// upgrade row or a plan label is a regression in what the element shows.
 import { JSDOM } from 'jsdom'
 
 import React from 'react'
@@ -14,7 +13,7 @@ import SidebarAccountBar from './SidebarAccountBar'
 import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 import { test } from 'vitest'
 
-test('SidebarAccountBar.entitlements', async () => {
+test('SidebarAccountBar.accountMenu', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost',
     pretendToBeVisual: true,
@@ -47,39 +46,18 @@ test('SidebarAccountBar.entitlements', async () => {
     addListener: () => {},
     removeListener: () => {},
   })) as unknown as typeof dom.window.matchMedia
-  domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
+  domWindow.api = {}
 
-  function state(
-    planCode: string,
-    features: Record<string, boolean>,
-    entitlementStatus: SprintEngineAuthState['entitlementStatus'] = 'fresh',
-  ): SprintEngineAuthState {
+  function state(message: string | null = null): SprintEngineAuthState {
     return {
       authenticated: true,
       user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
-      selectedOrganization: null,
-      entitlements: {
-        userId: 'u1',
-        organizationId: 'o1',
-        product: 'sprintengine',
-        roles: [],
-        features,
-        limits: {},
-        sources: {},
-        plan: { code: planCode, status: 'active' },
-        issuedAt: '2026-08-01T00:00:00.000Z',
-        expiresAt: '2026-08-04T00:00:00.000Z',
-        schemaVersion: 1,
-      },
+      selectedOrganization: { id: 'o1', name: 'Acme', slug: 'acme', type: 'team' },
       status: 'signed_in',
-      entitlementStatus,
-      message: null,
-      lastRefreshAt: null,
-      graceExpiresAt: null,
+      message,
     }
   }
-  const FREE = { 'sprintengine.sprintengine': true, 'sprintengine.mobile_companion': false }
-  const PRO = { 'sprintengine.sprintengine': true, 'sprintengine.mobile_companion': true }
+  let retries = 0
 
   function render(authState: SprintEngineAuthState): HTMLElement {
     const host = dom.window.document.createElement('div')
@@ -90,11 +68,13 @@ test('SidebarAccountBar.entitlements', async () => {
         React.createElement(SidebarAccountBar, {
           collapsed: false,
           authState,
-          authMessage: null,
+          authMessage: authState.message,
           accountOpen: true,
           setAccountOpen: () => {},
           startLogin: () => {},
-          refreshAuthState: () => {},
+          refreshAuthState: () => {
+            retries += 1
+          },
           logout: () => {},
           openSettings: () => {},
           settingsOpen: false,
@@ -109,37 +89,39 @@ test('SidebarAccountBar.entitlements', async () => {
     return buttons.map((button) => (button.textContent ?? '').trim())
   }
 
-  // Free: the upgrade affordance is offered, the badge reads Free.
-  render(state('free', FREE))
-  assert.ok(texts().includes('Upgrade to Pro'), 'free account is offered the upgrade')
-  assert.ok(dom.window.document.body.textContent?.includes('Free plan'), 'free plan label rendered')
+  // Signed in: who, which organisation, and the way out. No plan, no upgrade.
+  render(state())
+  const body = (): string => dom.window.document.body.textContent ?? ''
+  assert.ok(body().includes('Dev Person'), 'the name is shown')
+  assert.ok(body().includes('dev@example.com'), 'the address is shown')
+  assert.ok(body().includes('Acme'), 'the organisation is shown')
+  assert.deepEqual(
+    texts().filter((text) => text === 'Sign out'),
+    ['Sign out'],
+    'sign-out is offered',
+  )
+  for (const word of ['Upgrade', 'Pro', 'Free', 'plan', 'Plan']) {
+    assert.ok(!new RegExp(`\\b${word}\\b`).test(body()), `no "${word}" on the account menu`)
+  }
+  assert.ok(!texts().includes('Try again'), 'nothing to retry while the account read is fine')
   dom.window.document.body.innerHTML = ''
 
-  // Pro: no upgrade affordance, badge reads Pro.
-  render(state('pro', PRO))
-  assert.ok(!texts().includes('Upgrade to Pro'), 'paid account is not offered the upgrade')
-  assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'pro plan label rendered')
-  dom.window.document.body.innerHTML = ''
-
-  // Pro on a stale snapshot: still no upgrade, and the re-check appears.
-  render(state('pro', PRO, 'offline_grace'))
-  assert.ok(!texts().includes('Upgrade to Pro'), 'stale paid account is still not told to upgrade')
-  assert.ok(texts().includes('Check access again'), 'stale access offers the re-check')
-  dom.window.document.body.innerHTML = ''
-
-  // A plan NAMED pro that grants nothing paid: the upgrade is offered (the gate
-  // no longer believes the plan's name), while the label still prints that name.
-  render(state('pro', FREE))
-  assert.ok(texts().includes('Upgrade to Pro'), 'access follows the feature keys, not the plan name')
-  assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'the label still prints the plan name')
-
+  // A failed account read says so and offers a retry, which refreshes the account.
+  render(state('The SprintEngine account service could not be reached.'))
+  assert.ok(body().includes('could not be reached'), 'the message is shown')
+  const retry = [...dom.window.document.querySelectorAll('button')].find(
+    (button) => (button.textContent ?? '').trim() === 'Try again',
+  ) as HTMLButtonElement | undefined
+  assert.ok(retry, 'a retry is offered')
+  act(() => retry.click())
+  assert.equal(retries, 1, 'the retry refreshes the account')
   dom.window.document.body.innerHTML = ''
 
   // The cluster is the account control and the gear, nothing else (app
   // shell, 2026-09-05): the modal-surface trigger glyphs that used to render
   // before the gear are rows of the sidebar's Extensions section now — see
   // ExtensionsRail.test.tsx for that contract.
-  render(state('free', FREE))
+  render(state())
   assert.ok(dom.window.document.querySelector('button[aria-label="Settings"]'), 'the gear keeps its slot')
   assert.deepEqual(
     [...dom.window.document.querySelectorAll('button[aria-label]')]
@@ -149,5 +131,5 @@ test('SidebarAccountBar.entitlements', async () => {
     'the cluster is exactly the account control and the gear — no trigger glyphs',
   )
 
-  console.log('SidebarAccountBar.entitlements.test.tsx: ok')
+  console.log('SidebarAccountBar.accountMenu.test.tsx: ok')
 })

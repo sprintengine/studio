@@ -1,5 +1,5 @@
 // The public deployment a stock build talks to: the account service, for
-// sign-in and entitlements. The phone companion is not on this list: it reaches
+// sign-in. The phone companion is not on this list: it reaches
 // the desktop over the tailnet, never through a hosted service.
 //
 // Three layers, most specific first:

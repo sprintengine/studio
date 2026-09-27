@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict'
-import type {
-  AgentState,
-  SprintEngineAuthState,
-  SessionActivity,
-  TerminalSessionSnapshot,
-} from '../../../../shared/electron-api'
+import type { AgentState, SessionActivity, TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import type { Workspace } from '../../types/workspace'
 import {
@@ -16,7 +11,6 @@ import {
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import type { SessionItem } from './WorkspaceActions'
-import { hasPaidEntitlement, planDisplayTier } from './accountEntitlements'
 import { test } from 'vitest'
 
 test('workspaceManagerHelpers', async () => {
@@ -35,8 +29,6 @@ test('workspaceManagerHelpers', async () => {
     assertWorkspacelessSessionsStillSurface()
     assertDetachedBucketsTrailRealWorkspaces()
     assertSidebarOrderGroupsWorktreesUnderTheirProject()
-    assertPaidAccessIsDecidedByFeatureKeys()
-    assertPlanDisplayTierIsPresentationOnly()
     console.log('workspaceManagerHelpers.test.ts: all assertions passed')
   }
 
@@ -441,131 +433,6 @@ test('workspaceManagerHelpers', async () => {
       sessionsAttentionTone([item({ status: 'failed' }), item({ status: 'needs-input' })]),
       'warn',
       'needs-input outranks failed for tone',
-    )
-  }
-
-  // The account surfaces used to ask `plan.code === 'pro'`, which names
-  // the auth provider's data model rather than the product's own vocabulary. The
-  // two assertions below pin the split that replaced it: access reads feature
-  // keys, display reads the plan's name and decides nothing.
-  function authState(
-    overrides: {
-      authenticated?: boolean
-      planCode?: string
-      planStatus?: string
-      features?: Record<string, boolean>
-      entitlementStatus?: SprintEngineAuthState['entitlementStatus']
-    } = {},
-  ): SprintEngineAuthState {
-    const {
-      authenticated = true,
-      planCode = 'free',
-      planStatus = 'active',
-      features = {},
-      entitlementStatus = 'fresh',
-    } = overrides
-    return {
-      authenticated,
-      user: null,
-      selectedOrganization: null,
-      entitlements: authenticated
-        ? {
-            userId: 'u1',
-            organizationId: 'o1',
-            product: 'sprintengine',
-            roles: [],
-            features,
-            limits: {},
-            sources: {},
-            plan: { code: planCode, status: planStatus },
-            issuedAt: '2026-08-01T00:00:00.000Z',
-            expiresAt: '2026-08-04T00:00:00.000Z',
-            schemaVersion: 1,
-          }
-        : null,
-      status: authenticated ? 'signed_in' : 'signed_out',
-      entitlementStatus,
-      message: null,
-      lastRefreshAt: null,
-      graceExpiresAt: null,
-    }
-  }
-
-  // Multiauth's catalog: Free grants only `sprintengine.sprintengine`; Pro adds
-  // the mobile companion, and nothing else. Functions rather than
-  // consts because this file calls `main()` before its own top-level bindings run.
-  function freeFeatures(): Record<string, boolean> {
-    return {
-      'sprintengine.sprintengine': true,
-      'sprintengine.mobile_companion': false,
-    }
-  }
-  function proFeatures(): Record<string, boolean> {
-    return { ...freeFeatures(), 'sprintengine.mobile_companion': true }
-  }
-
-  function assertPaidAccessIsDecidedByFeatureKeys(): void {
-    assert.equal(hasPaidEntitlement(authState({ authenticated: false })), false, 'signed out is never paid')
-    assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'free', features: freeFeatures() })),
-      false,
-      'free plan holds no paid feature',
-    )
-    assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'pro', features: proFeatures() })),
-      true,
-      'pro plan holds the paid features',
-    )
-
-    // The point of the item: the plan's NAME decides nothing in either direction.
-    assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'pro', features: freeFeatures() })),
-      false,
-      'a plan called pro that grants nothing paid is not paid access',
-    )
-    assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'sprintengine_pro_monthly', features: proFeatures() })),
-      true,
-      'a provider-renamed plan still resolves through its feature keys',
-    )
-
-    // An operator grant for the key on a free plan is real paid access.
-    assert.equal(
-      hasPaidEntitlement(
-        authState({ planCode: 'free', features: { ...freeFeatures(), 'sprintengine.mobile_companion': true } }),
-      ),
-      true,
-      'an admin override counts as paid access',
-    )
-
-    // Retired keys decide nothing: a snapshot from an older server that still
-    // carries `sprintengine.frontier_models` is not paid access on its own.
-    assert.equal(
-      hasPaidEntitlement(
-        authState({ planCode: 'free', features: { ...freeFeatures(), 'sprintengine.frontier_models': true } }),
-      ),
-      false,
-      'a retired key does not count as paid access',
-    )
-
-    // Behaviour parity with the gate this replaced: the cached snapshot still
-    // carries the paid keys while access is stale, so a paid account is not
-    // suddenly told to upgrade the moment its snapshot goes off-fresh.
-    assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'pro', features: proFeatures(), entitlementStatus: 'offline_grace' })),
-      true,
-      'stale access does not revoke paid capability in the UI',
-    )
-  }
-
-  function assertPlanDisplayTierIsPresentationOnly(): void {
-    assert.equal(planDisplayTier(authState({ authenticated: false })), 'free')
-    assert.equal(planDisplayTier(authState({ planCode: 'free', features: freeFeatures() })), 'free')
-    assert.equal(planDisplayTier(authState({ planCode: 'Pro', features: proFeatures() })), 'pro', 'case-insensitive')
-    assert.equal(
-      planDisplayTier(authState({ planCode: 'pro', planStatus: 'past_due', features: proFeatures() })),
-      'free',
-      'a non-active plan does not get the Pro badge',
     )
   }
 })

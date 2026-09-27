@@ -12,7 +12,6 @@ import {
 } from '../ui'
 import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
-import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 import type { RailBadge } from './AppRail'
 
 // The account + Settings cluster lives at the sidebar bottom, relocated from
@@ -28,12 +27,13 @@ import type { RailBadge } from './AppRail'
 // trigger anywhere. Settings stays here because it belongs to the WINDOW rather
 // than to whichever section the sidebar is showing.
 
-// Tier drives the colour of the account glyph: gold for an active Pro plan,
-// green otherwise (free, trial, or entitlements not yet resolved). Presentation
-// only — what the account may do is `hasPaidEntitlement`.
-const ACCOUNT_TIER_STYLE: Record<PlanDisplayTier, { color: string; soft: string; label: string }> = {
-  free: { color: TONE_COLOR_VAR.good, soft: TONE_SOFT_VAR.good, label: 'Free' },
-  pro: { color: TONE_COLOR_VAR.warn, soft: TONE_SOFT_VAR.warn, label: 'Pro' },
+// The account disc's ring and fill. One colour for every account: signing in
+// unlocks nothing (the app is open source, owner ruling 2026-09-27), so the
+// disc says who is signed in and nothing about what they may do.
+const ACCOUNT_DISC_STYLE = {
+  borderColor: TONE_COLOR_VAR.good,
+  backgroundColor: TONE_SOFT_VAR.good,
+  color: TONE_COLOR_VAR.good,
 }
 
 // Symmetric 8-lobe cog (lucide "settings" geometry), centered in the viewBox so
@@ -71,30 +71,6 @@ function GearIcon({ className }: { className?: string }) {
 // (ExtensionsRail, app shell 2026-09-05): one home for every surface a
 // person can open, whether it mounts as a door or as a modal.
 
-function sentenceCase(value: string): string {
-  return value ? value[0].toUpperCase() + value.slice(1).replace(/_/g, ' ') : value
-}
-
-function formatShortDate(value: string | null): string {
-  if (!value) return 'soon'
-  return new Date(value).toLocaleString()
-}
-
-// The plan's own name, for printing: "Pro plan" while active, else the status
-// ("Past due"). Null when there is no plan to name. Presentation only — it
-// reads the plan code to SHOW it, and nothing may branch on what it returns.
-function planLabel(authState: SprintEngineAuthState): string | null {
-  const plan = authState.entitlements?.plan
-  if (!plan) return null
-  return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-}
-
-// The account row's secondary line, which always shows something: the plan's
-// name when there is one, else the tier word.
-function accountPlanLabel(authState: SprintEngineAuthState): string {
-  return planLabel(authState) ?? ACCOUNT_TIER_STYLE[planDisplayTier(authState)].label
-}
-
 function AccountMenuItem({ onSelect, children }: { onSelect: () => void; children: React.ReactNode }) {
   const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
@@ -125,25 +101,17 @@ function AccountMenuItem({ onSelect, children }: { onSelect: () => void; childre
 function AccountPopover({
   authState,
   message,
-  onCheckAccess,
+  onRetry,
   onLogout,
-  onUpgrade,
 }: {
   authState: SprintEngineAuthState
   message: string | null
-  onCheckAccess: () => void
+  onRetry: () => void
   onLogout: () => void
-  onUpgrade: () => void
 }) {
-  const metaLine = [planLabel(authState), authState.selectedOrganization?.name].filter(Boolean).join(' · ')
+  const metaLine = authState.selectedOrganization?.name ?? null
   const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
-  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
-  // Two independent questions that happen to share a section: whether to offer
-  // the upgrade (an access question — does this account already hold paid
-  // capability) and whether to offer a re-check (a freshness question).
-  const offerUpgrade = !hasPaidEntitlement(authState)
-  const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
 
   return (
     <div data-account-menu="true" className="w-64 overflow-hidden">
@@ -153,7 +121,7 @@ function AccountPopover({
         <AccountAvatar
           user={authState.user}
           className="size-control-sm text-body"
-          style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
+          style={ACCOUNT_DISC_STYLE}
           glyphClassName="icon-md"
         />
         <div className="min-w-0 flex-1">
@@ -171,17 +139,15 @@ function AccountPopover({
         </div>
       </div>
 
-      {message || authState.entitlementStatus === 'offline_grace' ? (
-        <div className="border-t border-[color:var(--border-subtle)] px-2.5 py-2 text-body leading-5 text-[color:var(--tone-warn)]">
-          {message ?? `Offline access expires ${formatShortDate(authState.graceExpiresAt)}.`}
-        </div>
-      ) : null}
-
-      {offerUpgrade || accessStale ? (
-        <div className="border-t border-[color:var(--border-subtle)] py-1">
-          {offerUpgrade ? <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem> : null}
-          {accessStale ? <AccountMenuItem onSelect={onCheckAccess}>Check access again</AccountMenuItem> : null}
-        </div>
+      {message ? (
+        <>
+          <div className="border-t border-[color:var(--border-subtle)] px-2.5 py-2 text-body leading-5 text-[color:var(--tone-warn)]">
+            {message}
+          </div>
+          <div className="border-t border-[color:var(--border-subtle)] py-1">
+            <AccountMenuItem onSelect={onRetry}>Try again</AccountMenuItem>
+          </div>
+        </>
       ) : null}
       <div className="border-t border-[color:var(--border-subtle)] py-1">
         <AccountMenuItem onSelect={onLogout}>Sign out</AccountMenuItem>
@@ -208,8 +174,8 @@ export type SidebarAccountBarProps = {
   settingsBadge?: RailBadge | null
 }
 
-// Sidebar-bottom account + Settings row. Expanded: a tier-coloured avatar with
-// name + plan opens the account menu, and the Settings gear sits to its right.
+// Sidebar-bottom account + Settings row. Expanded: the account avatar opens the
+// account menu, and the Settings gear sits to its right.
 // Collapsed: the avatar and gear stack as centred icons in the rail.
 export default function SidebarAccountBar({
   collapsed,
@@ -224,11 +190,10 @@ export default function SidebarAccountBar({
   settingsOpen,
   settingsBadge,
 }: SidebarAccountBarProps) {
-  const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
   const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
 
-  // The tier-coloured ring stays around the photo: the colour is the plan
-  // signal, and the photo replaces only the initials inside it.
+  // The ring stays around the photo, and the photo replaces only the initials
+  // inside it.
   // On the rail (collapsed) the disc steps up with the square it sits in —
   // control-sm inside the rail's control-lg, the same glyph-to-square ratio the
   // section squares keep — so the foot is not a small cluster under big glyphs.
@@ -236,7 +201,7 @@ export default function SidebarAccountBar({
     <AccountAvatar
       user={authState.user}
       className={collapsed ? 'size-control-sm text-body' : 'size-control-xs text-meta'}
-      style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
+      style={ACCOUNT_DISC_STYLE}
       glyphClassName="icon-sm"
     />
   )
@@ -245,12 +210,8 @@ export default function SidebarAccountBar({
     <AccountPopover
       authState={authState}
       message={authMessage}
-      onCheckAccess={() => void refreshAuthState()}
+      onRetry={() => void refreshAuthState()}
       onLogout={() => void logout()}
-      onUpgrade={() => {
-        setAccountOpen(false)
-        void window.api.authOpenUpgrade('sprintengine')
-      }}
     />
   )
 
@@ -284,10 +245,9 @@ export default function SidebarAccountBar({
   )
 
   // Icon-only in BOTH sidebar states (owner, 2026-09-01): the footer spends no
-  // width on the account name or plan — the tier-coloured badge (provider
-  // photo when the session carries one, initials otherwise) is the
-  // whole control, the hover tooltip carries name · plan, and the click
-  // popover keeps the full detail.
+  // width on the account name — the badge (provider photo when the session
+  // carries one, initials otherwise) is the whole control, the hover tooltip
+  // carries the name, and the click popover keeps the full detail.
   const accountControl = authState.authenticated ? (
     <Popover
       open={accountOpen}
@@ -299,13 +259,13 @@ export default function SidebarAccountBar({
         surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
       }}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <Tooltip content={`${accountName} · ${accountPlanLabel(authState)}`} placement={collapsed ? 'right' : 'top'}>
+        <Tooltip content={accountName} placement={collapsed ? 'right' : 'top'}>
           <IconButton
             ref={ref}
             size={collapsed ? 'lg' : 'md'}
             pressed={accountOpen}
             onClick={togglePopover}
-            aria-label={`Account · ${tierStyle.label} plan`}
+            aria-label={`Account · ${accountName}`}
             {...triggerProps}
           >
             {avatar}

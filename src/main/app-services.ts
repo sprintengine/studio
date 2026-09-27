@@ -1788,9 +1788,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logMainPerfEvent,
     mcpConfigService,
     sprintengineAuth,
-    // The provider-agnostic entitlement seam. Feature gates resolve THIS;
-    // `sprintengineAuth` is the account-service adapter sitting behind it.
-    entitlements: sprintengineAuth.entitlements,
     skillsService,
     agentLaunchSettings,
     hosts,
