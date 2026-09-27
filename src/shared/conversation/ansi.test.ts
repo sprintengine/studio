@@ -99,3 +99,12 @@ test('long incomplete OSC and CSI sequences remain linear and terminate across c
   assert.deepEqual(parseAnsi('\x1b]x\x1b[31m', capped).lines, [[{ text: '\x1b]x\x1b[31m' }]])
   assert.equal(capped.pending, '')
 })
+
+test('character set selections leave no stray final byte, even split across chunks', () => {
+  // tput sgr0 emits `ESC ( B` after resetting colors.
+  assert.deepEqual(parseAnsi('\x1b[31mred\x1b(B\x1b[m done'), [[{ text: 'red', fg: fg(1) }, { text: ' done' }]])
+  assert.deepEqual(parseAnsi('a\x1b)0b\x1b#8c'), [[{ text: 'abc' }]])
+  let state = createAnsiState()
+  state = parseAnsi('x\x1b(', state).state
+  assert.deepEqual(parseAnsi('By', state).lines, [[{ text: 'xy' }]])
+})

@@ -18,7 +18,7 @@ export type AnsiState = {
   cursor: number
   style: Omit<AnsiSpan, 'text'>
   pending: string
-  escapeKind?: 'start' | 'csi' | 'osc'
+  escapeKind?: 'start' | 'csi' | 'osc' | 'intermediate'
   oscEscape?: boolean
   consumed: number
 }
@@ -125,6 +125,18 @@ function consumeEscape(state: AnsiState, char: string): boolean {
       state.oscEscape = false
       return false
     }
+    // Intermediate bytes (`ESC ( B` selects a character set) run until a
+    // final byte; ending the escape at the first one printed that final "B".
+    if (char >= ' ' && char <= '/') {
+      state.escapeKind = 'intermediate'
+      return false
+    }
+    state.pending = ''
+    state.escapeKind = undefined
+    return true
+  }
+  if (state.escapeKind === 'intermediate') {
+    if (char >= ' ' && char <= '/') return false
     state.pending = ''
     state.escapeKind = undefined
     return true
