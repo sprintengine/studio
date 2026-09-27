@@ -13,6 +13,10 @@
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
 import { spawn } from 'child_process'
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import { asRecord } from '../../shared/records'
 import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
@@ -113,6 +117,9 @@ type SessionState = {
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
   skillIds?: string[]
+  // The per-child plugin directory that carries the attached skills; removed
+  // with the child that loaded it.
+  skillPluginDir: string | null
   mode?: 'default' | 'plan' | 'ask'
   reasoningEffort?: string
   onBeforeTool?: (name: string) => Promise<void>
@@ -291,6 +298,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.queryAllowsBypass = false
     state.childPid = null
     state.spawnedAt = null
+    if (state.skillPluginDir) void rm(state.skillPluginDir, { recursive: true, force: true }).catch(() => undefined)
+    state.skillPluginDir = null
     return hadChild
   }
 
@@ -354,6 +363,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       agentId: state.agentId,
       sessionId: state.sessionId,
     })
+    const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    const skillPlugin = state.skillIds?.length ? await stageAttachedSkills(state.workspaceRoot, state.skillIds) : null
+    state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
     const permissionMode =
@@ -367,8 +379,18 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       permissionMode,
       ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      ...(state.skillIds?.length ? { skills: state.skillIds, settingSources: ['user', 'project', 'local'] } : {}),
+      systemPrompt: { type: 'preset', preset: 'claude_code', ...(instructions ? { append: instructions } : {}) },
+      // Never the repository's own settings. `.claude/settings.json` and
+      // `settings.local.json` can carry allow rules, which would answer tool
+      // permissions before canUseTool is asked and so bypass the approvals a
+      // Manual session promises, and hooks, which run commands on this machine
+      // as soon as the session starts. Omitting the option loads every source,
+      // so the list is always explicit. What the project contributes that the
+      // agent does need arrives another way: its CLAUDE.md through the system
+      // prompt above, and attached skills as a plugin of their own.
+      settingSources: ['user'],
+      ...(skillPlugin ? { plugins: [{ type: 'local', path: skillPlugin, skipMcpDiscovery: true }] } : {}),
+      ...(state.skillIds?.length ? { skills: state.skillIds.map(attachedSkillName) } : {}),
       env,
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
@@ -535,6 +557,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         cliRuntimes: input.cliRuntimes,
         permissionPreset: input.permissionPreset ?? 'manual',
         allowedTools: input.allowedTools,
+        skillPluginDir: null,
         onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
         query: null,
@@ -620,7 +643,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           role: 'user',
           content: buildUserMessageContent(
             input.skills?.length
-              ? `Use the attached skills: ${input.skills.join(', ')}.\n\n${input.message}`
+              ? `Use the attached skills: ${input.skills.map(attachedSkillName).join(', ')}.\n\n${input.message}`
               : input.message,
             input.attachments,
           ),
@@ -766,6 +789,62 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   }
 
   return adapter
+}
+
+// Attached skills reach the child as one local plugin, because the project's
+// own skill directory is only read together with the project's settings. The
+// resolver has already installed each one under `.claude/skills/<id>`; they are
+// copied so the plugin holds nothing the workspace could later swap.
+const ATTACHED_SKILLS_PLUGIN = 'attached-skills'
+// A plugin-qualified id names a skill of a plugin the user installed, which
+// the user setting source still loads; only workspace skills are staged.
+const attachedSkillName = (id: string) => (id.includes(':') ? id : `${ATTACHED_SKILLS_PLUGIN}:${id}`)
+
+async function stageAttachedSkills(workspaceRoot: string, skillIds: string[]): Promise<string | null> {
+  skillIds = skillIds.filter((id) => !id.includes(':'))
+  if (!skillIds.length) return null
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-claude-skills-'))
+  try {
+    await mkdir(join(dir, '.claude-plugin'))
+    await writeFile(
+      join(dir, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: ATTACHED_SKILLS_PLUGIN, description: 'Skills attached to this conversation.' }),
+    )
+    for (const id of skillIds) {
+      if (!/^[\w.-]+$/.test(id) || id === '.' || id === '..') throw new Error(`Attached skill ${id} is invalid.`)
+      const source = await realpath(join(workspaceRoot, '.claude', 'skills', id))
+      await cp(source, join(dir, 'skills', id), { recursive: true })
+    }
+    return dir
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+// The project instructions Claude Code would read from a trusted checkout. The
+// project setting source is off (see ensureQuery), so they are read here and
+// appended to the system prompt: instructions only, never settings.
+const INSTRUCTION_FILES = ['CLAUDE.md', join('.claude', 'CLAUDE.md')]
+const INSTRUCTION_BYTES = 64 * 1024
+
+async function readWorkspaceInstructions(workspaceRoot: string): Promise<string> {
+  const sections: string[] = []
+  for (const name of INSTRUCTION_FILES) {
+    try {
+      const file = await openConfinedExistingFile(workspaceRoot, name)
+      try {
+        if ((await file.stat()).size > INSTRUCTION_BYTES) continue
+        const text = (await readBoundedConversationFile(file, INSTRUCTION_BYTES)).toString('utf8').trim()
+        if (text) sections.push(`Contents of ${join(workspaceRoot, name)} (project instructions):\n\n${text}`)
+      } finally {
+        await file.close()
+      }
+    } catch {
+      // Absent, a symlink, or unreadable: the session runs without it.
+    }
+  }
+  return sections.join('\n\n')
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code

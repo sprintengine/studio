@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 import {
@@ -155,17 +158,56 @@ test('claude-agent-provider', async () => {
   }
 
   async function testNativeSkillSelectionReachesSdk(): Promise<void> {
-    const { adapter, capturedOptions } = createAdapter((_message, context) => {
-      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'native-skills' })
-    })
-    const input = turnInput()
-    await adapter.startSession(input)
-    for await (const _event of await adapter.sendTurn({ ...input, skills: ['example'] })) {
-      /* drain the turn */
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'claude-skills-'))
+    try {
+      await mkdir(join(workspaceRoot, '.claude', 'skills', 'example'), { recursive: true })
+      await writeFile(
+        join(workspaceRoot, '.claude', 'skills', 'example', 'SKILL.md'),
+        '---\nname: example\n---\nDo it.',
+      )
+      await writeFile(join(workspaceRoot, 'CLAUDE.md'), 'Run the tests before committing.')
+      const prompts: string[] = []
+      const { adapter, capturedOptions } = createAdapter((message, context) => {
+        prompts.push(JSON.stringify(message))
+        context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'native-skills' })
+      })
+      const input = turnInput({ workspaceRoot })
+      await adapter.startSession(input)
+      for await (const _event of await adapter.sendTurn({ ...input, skills: ['example'] })) {
+        /* drain the turn */
+      }
+      // The repository's settings files can pre-approve tools and run hooks,
+      // so they are never loaded, with or without skills attached.
+      assert.deepEqual(capturedOptions[0]?.settingSources, ['user'])
+      assert.deepEqual(capturedOptions[0]?.skills, ['attached-skills:example'])
+      const plugins = capturedOptions[0]?.plugins as Array<{ type: string; path: string }>
+      assert.equal(plugins.length, 1)
+      assert.equal(
+        await readFile(join(plugins[0].path, 'skills', 'example', 'SKILL.md'), 'utf8'),
+        '---\nname: example\n---\nDo it.',
+      )
+      assert.match(await readFile(join(plugins[0].path, '.claude-plugin', 'plugin.json'), 'utf8'), /attached-skills/)
+      assert.match(prompts.join('\n'), /attached-skills:example/)
+      // The project's instructions still reach the model, as prompt text.
+      const systemPrompt = capturedOptions[0]?.systemPrompt as { append?: string }
+      assert.match(systemPrompt.append ?? '', /Run the tests before committing\./)
+      adapter.disposeAll?.()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      await assert.rejects(stat(plugins[0].path), 'the staged plugin is removed with its child')
+
+      const plain = createAdapter((_message, context) => {
+        context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'no-skills' })
+      })
+      await plain.adapter.startSession(turnInput())
+      for await (const _event of await plain.adapter.sendTurn(turnInput())) {
+        /* drain the turn */
+      }
+      assert.deepEqual(plain.capturedOptions[0]?.settingSources, ['user'])
+      assert.equal(plain.capturedOptions[0]?.plugins, undefined)
+      plain.adapter.disposeAll?.()
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
     }
-    assert.deepEqual(capturedOptions[0]?.skills, ['example'])
-    assert.deepEqual(capturedOptions[0]?.settingSources, ['user', 'project', 'local'])
-    adapter.disposeAll?.()
   }
 
   async function testAskModeReadOnlyAndEffort(): Promise<void> {
