@@ -27,7 +27,7 @@ import { isRecord } from '../../../shared/records'
 const DIRECTORY = 'tailnet-remote-conversations'
 const VERSION = 1
 
-export type RemoteConversationCacheKey = { connectionId: string; workspaceId: string; agentId: string }
+type RemoteConversationCacheKey = { connectionId: string; workspaceId: string; agentId: string }
 
 /** A followed conversation's tail and the cursor it ends at. */
 export type RemoteConversationCacheRecord = {
@@ -48,7 +48,7 @@ export type RemoteConversationCache = {
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32)
 
-export function remoteConversationCacheFile(key: RemoteConversationCacheKey): string {
+function remoteConversationCacheFile(key: RemoteConversationCacheKey): string {
   return `${hash(key.connectionId)}-${hash(JSON.stringify([key.workspaceId, key.agentId]))}.json`
 }
 

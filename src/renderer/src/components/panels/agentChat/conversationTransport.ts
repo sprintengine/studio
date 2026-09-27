@@ -62,7 +62,7 @@ export type ConversationTransportCapabilities = {
 }
 
 /** What an action answers: the local session API's result, or a remote command's. */
-export type ConversationTransportResult =
+type ConversationTransportResult =
   { ok: true; session?: ConversationSessionSummary; notice?: string } | { ok: false; message: string }
 
 export type ConversationTransport = {
@@ -95,7 +95,7 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
 }
 
 /** The conversation IPC, read off `window.api` at call time so a test's stub is the one used. */
-export const localConversationTransport: ConversationTransport = {
+const localConversationTransport: ConversationTransport = {
   kind: 'local',
   capabilities: LOCAL_CAPABILITIES,
   subscribe: (input, cb) => window.api.onConversationSession(input, cb),

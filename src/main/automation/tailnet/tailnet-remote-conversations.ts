@@ -80,7 +80,7 @@ const MAX_CACHED_EVENTS = 4_000
 const MAX_CACHED_CHARS = 8 * 1024 * 1024
 
 /** The credential and address main dials a paired machine with. Never leaves main. */
-export type RemoteConversationConnection = {
+type RemoteConversationConnection = {
   id: string
   machineName: string
   endpoint: TailnetEndpoint

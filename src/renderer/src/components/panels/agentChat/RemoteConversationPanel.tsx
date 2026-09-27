@@ -43,7 +43,7 @@ type Props = {
   title?: string
 }
 
-export function remoteConversationReadiness(
+function remoteConversationReadiness(
   link: FleetConversationLink | null,
   access: FleetConversationAccess | null,
   machineName: string,
@@ -59,7 +59,7 @@ export function remoteConversationReadiness(
 }
 
 /** The session a remote row stands for, as the chat view reads one: what that machine said it can do. */
-export function remoteConversationSession(
+function remoteConversationSession(
   thread: FleetConversation | null,
   key: FleetConversationKey,
 ): ConversationSessionSummary {
