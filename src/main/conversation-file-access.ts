@@ -78,11 +78,21 @@ export async function openConfinedExistingFile(
   }
 }
 
-/** Read through short reads, reject growth, and avoid mixing a changing file. */
+/** Read the file as it stood when the read began, through short reads.
+ *
+ * Transcripts are append-only and a streaming turn appends to one every few
+ * tens of milliseconds, so growth during the read is the normal case, not a
+ * race to refuse: the bytes up to the size observed first are complete and
+ * stay put, and whatever lands after them belongs to the next read. What is
+ * still refused is a file that shrank or was rewritten in place (same size, new
+ * mtime) while it was read — then the bytes already read may be mixed. The
+ * descriptor cannot follow a path swap, and openConfinedExistingFile has
+ * already refused inode and parent swaps at open.
+ */
 export async function readBoundedConversationFile(file: FileHandle, limit: number): Promise<Buffer> {
   const before = await file.stat()
   if (!before.isFile() || before.size > limit) throw new Error('File exceeds the conversation read limit.')
-  const buffer = Buffer.alloc(Math.min(before.size + 1, limit + 1))
+  const buffer = Buffer.alloc(before.size)
   let offset = 0
   while (offset < buffer.length) {
     const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset)
@@ -90,8 +100,11 @@ export async function readBoundedConversationFile(file: FileHandle, limit: numbe
     offset += bytesRead
   }
   const after = await file.stat()
-  if (offset > limit || after.size > limit) throw new Error('File exceeds the conversation read limit.')
-  if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || offset !== after.size)
+  if (
+    offset !== before.size ||
+    after.size < before.size ||
+    (after.size === before.size && after.mtimeMs !== before.mtimeMs)
+  )
     throw new Error('File changed while reading it. Retry after filesystem changes have stopped.')
-  return buffer.subarray(0, offset)
+  return buffer
 }
