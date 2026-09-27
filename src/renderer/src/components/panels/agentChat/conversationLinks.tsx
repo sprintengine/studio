@@ -77,6 +77,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
   source = 'text',
   label: givenLabel,
   variant = 'inline',
+  ink = 'accent',
 }: {
   token: string
   source?: LinkTokenContext['source']
@@ -90,6 +91,13 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
    * subject. Either is a link only when it names a file that exists here.
    */
   variant?: 'inline' | 'chip'
+  /**
+   * An inline link's ink. `accent` (the default) is a path inside prose, where
+   * the colour is what makes it findable. `quiet` is a path beside a tool row's
+   * label: it is metadata there, and an accent path on every row would out-shout
+   * the rows themselves.
+   */
+  ink?: 'accent' | 'quiet'
 }) {
   const context = useContext(LinkContext)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -180,7 +188,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
         // `<code>` it keeps the code's mono face and box, inside prose the
         // prose's, and it sits on the line's baseline without growing it.
         <LinkButton
-          ink="accent"
+          ink={ink}
           underline="hover"
           size="inherit"
           aria-label={`Open ${token}`}

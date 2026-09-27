@@ -958,8 +958,8 @@ test('AgentChatView', async () => {
   assert.ok(laneMarkup.includes('aria-busy="true"'), 'the timeline stays live while lanes run')
   assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
 
-  // The same fan-out, finished: the turn counts every step including the ones
-  // that ran inside the lanes, and replayed lanes mount collapsed.
+  // The same fan-out, finished: the settled work folds behind one closed
+  // summary line, with no step count, and nothing inside it is on screen.
   const finishedFanOut = projectConversation([
     ...fanOutEvents,
     ev('tool_output', { turnId: LANE_TURN, toolCallId: 'b1', output: 'hits', parentToolUseId: 'lane-b' }),
@@ -974,8 +974,9 @@ test('AgentChatView', async () => {
       live: false,
     }),
   )
-  assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane children as real steps')
-  assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
+  assert.ok(doneLaneMarkup.includes('Ran 2 agents'), 'the settled fan-out is summarised in one line')
+  assert.ok(!doneLaneMarkup.includes(' steps'), 'the summary does not count steps')
+  assert.ok(!doneLaneMarkup.includes('general-purpose agent'), 'settled lanes fold behind the closed summary')
   assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
   assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
 
@@ -1564,9 +1565,13 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )
-  for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
+  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', 'type="file"']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
+  assert.ok(
+    chatViewSource.includes('dropHandlers={imageDropHandlers}'),
+    'an image dropped anywhere on the chat attaches, not only on the composer',
+  )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf("event.key === 'Backspace'")),
     /selectionStart === 0[\s\S]*?selectionEnd === 0[\s\S]*?if \(attachments.length\) \{\s+event.preventDefault\(\)\s+setAttachments\(\(current\) => current.slice\(0, -1\)\)/,

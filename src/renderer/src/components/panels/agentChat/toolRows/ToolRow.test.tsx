@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ToolBody, ToolRow } from './ToolRow'
+import { displayToolPath, isPreviewableImagePath, ToolBody, ToolRow } from './ToolRow'
+import { ConversationLinkProvider } from '../conversationLinks'
 import type { TranscriptToolEntry } from '../conversationProjection'
 import { JSDOM } from 'jsdom'
 
@@ -359,4 +360,45 @@ test('a tool row whose subject is a folder shows the path as text, never a file 
   )
   expect(html).not.toContain('aria-label="Open /Users/dev/project"')
   expect(html).toContain('/Users/dev/project')
+})
+
+test('an opened step sits in one contained panel with a copy action, not loose text', () => {
+  const body = renderToStaticMarkup(
+    <ToolBody tool={tool({ toolKind: 'command', input: { command: 'git log' }, output: 'b43af0faa chore: tidy' })} />,
+  )
+  const document = new JSDOM(body).window.document
+  const panel = document.querySelector('.rounded-sm.border')
+  expect(panel?.textContent).toContain('$ git log')
+  expect(panel?.textContent).toContain('b43af0faa chore: tidy')
+  expect(document.querySelector('[aria-label="Copy output"]')).not.toBeNull()
+  const search = renderToStaticMarkup(
+    <ToolBody tool={tool({ toolKind: 'search', name: 'Grep', input: { pattern: 'uninstall' }, output: 'src/a.ts' })} />,
+  )
+  expect(new JSDOM(search).window.document.querySelector('.rounded-sm.border')?.textContent).toContain('src/a.ts')
+})
+
+test('a row names its file relative to the workspace and keeps the full path as the link target', () => {
+  const html = renderToStaticMarkup(
+    <ConversationLinkProvider workspaceId="w" cwd="/Users/dev/project" workspaceRoot="/Users/dev/project">
+      <ToolRow tool={tool({ name: 'Read', toolKind: 'file_read', input: { path: '/Users/dev/project/src/app.ts' } })} />
+    </ConversationLinkProvider>,
+  )
+  const document = new JSDOM(html).window.document
+  const link = document.querySelector('[aria-label="Open /Users/dev/project/src/app.ts"]')
+  expect(link?.textContent).toBe('src/app.ts')
+  expect(displayToolPath('/tmp/shot.png', { cwd: '/Users/dev/project', workspaceRoot: '/Users/dev/project' })).toBe(
+    '/tmp/shot.png',
+  )
+})
+
+test('reading an image previews the picture instead of printing its bytes', () => {
+  expect(isPreviewableImagePath('/tmp/Screenshot 2026-09-27 at 22.41.31.png')).toBe(true)
+  expect(isPreviewableImagePath('src/app.ts')).toBe(false)
+  const html = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({ toolKind: 'file_read', name: 'Read', input: { path: '/tmp/shot.png' }, output: 'binary' })}
+    />,
+  )
+  expect(html).not.toContain('binary')
+  expect(html).not.toContain('ds-code-block')
 })

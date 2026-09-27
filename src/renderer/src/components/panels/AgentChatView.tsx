@@ -1580,6 +1580,41 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           .map((preset) => [preset, 'This agent cannot run with this preset.']),
       )
     : undefined
+  // An image dropped anywhere on the chat attaches — over the transcript as
+  // much as on the composer. Aiming a drag at a field a few lines tall is a
+  // needless target, and a drop that missed it used to do nothing at all. The
+  // composer still lights up as the drop's destination.
+  const imageDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
+    onDragEnter: (event) => {
+      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      dragDepthRef.current += 1
+      setDropActive(true)
+    },
+    onDragOver: (event) => {
+      // Claiming the drag is what stops the window from navigating to the
+      // dropped file, so it has to happen on every dragover.
+      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      event.preventDefault()
+    },
+    onDragLeave: (event) => {
+      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+      if (dragDepthRef.current === 0) setDropActive(false)
+    },
+    onDrop: (event) => {
+      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      event.preventDefault()
+      dragDepthRef.current = 0
+      setDropActive(false)
+      const files = imageFilesFromDataTransfer(event.dataTransfer)
+      if (files.length === 0) {
+        setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
+        return
+      }
+      void attachFiles(files)
+    },
+  }
+
   const composerError =
     actionError ??
     persistenceError ??
@@ -1593,7 +1628,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       cwd={workspaceRoot ?? ''}
       workspaceRoot={workspaceRoot ?? ''}
     >
-      <ChatShell shellRef={shellRef}>
+      <ChatShell shellRef={shellRef} dropHandlers={imageDropHandlers}>
         {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. A remote pane brings its own header. */}
@@ -1832,34 +1867,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
               dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
             }`}
-            onDragEnter={(event) => {
-              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-              dragDepthRef.current += 1
-              setDropActive(true)
-            }}
-            onDragOver={(event) => {
-              // Claiming the drag is what stops the window from navigating to the
-              // dropped file, so it has to happen on every dragover.
-              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-              event.preventDefault()
-            }}
-            onDragLeave={(event) => {
-              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-              if (dragDepthRef.current === 0) setDropActive(false)
-            }}
-            onDrop={(event) => {
-              if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-              event.preventDefault()
-              dragDepthRef.current = 0
-              setDropActive(false)
-              const files = imageFilesFromDataTransfer(event.dataTransfer)
-              if (files.length === 0) {
-                setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
-                return
-              }
-              void attachFiles(files)
-            }}
           >
             {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
               can never strand the overlay over a composer that stopped accepting
@@ -2094,14 +2101,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 // editable title sits above the timeline so rename remains directly reachable.
 function ChatShell({
   shellRef,
+  dropHandlers,
   children,
 }: {
   shellRef?: React.RefObject<HTMLDivElement | null>
+  dropHandlers?: React.HTMLAttributes<HTMLDivElement>
   children: React.ReactNode
 }) {
   return (
     <div
       ref={shellRef}
+      {...dropHandlers}
       className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"
     >
       {children}

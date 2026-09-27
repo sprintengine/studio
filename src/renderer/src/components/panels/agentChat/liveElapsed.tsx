@@ -37,3 +37,7 @@ function formatElapsedMs(ms: number): string {
   const remainingSeconds = seconds % 60
   return `${minutes}m ${remainingSeconds}s`
 }
+
+export function formatClockTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}

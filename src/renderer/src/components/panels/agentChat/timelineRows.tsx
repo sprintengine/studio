@@ -17,13 +17,15 @@ import {
   conversationText,
   useConversationLinkContext,
 } from './conversationLinks'
-import { ToolRow, toolPresentationInput } from './toolRows/ToolRow'
+import { ToolRow, toolGlyphInk, toolPresentationInput } from './toolRows/ToolRow'
 import { useConversationDisclosure } from './conversationViewState'
-import { summarizeToolGroup } from '../../../../../shared/conversation/presentation'
+import { presentToolItem, summarizeToolGroup } from '../../../../../shared/conversation/presentation'
+import type { ConversationToolKind } from '../../../../../shared/conversation-runtime'
 import { deriveTurnFold } from './turnFolds'
 import { copyToClipboardWithToast } from '../../../utils/copyToClipboardWithToast'
 import { useLiveRowMotion } from './liveVisibility'
-import { LiveElapsed } from './liveElapsed'
+import { formatClockTime, LiveElapsed } from './liveElapsed'
+import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import React, { useState, useRef } from 'react'
 
@@ -321,23 +323,82 @@ export function WorkTimeline({
   )
 }
 
+// What a collapsed group says about itself: the kind of step it is mostly made
+// of (its glyph) and how many of its steps failed. Collapsed is the resting
+// state, so a failure inside has to surface on the header or it is hidden.
+export function describeToolGroup(tools: TranscriptToolEntry[]): { kind: ConversationToolKind; failed: number } {
+  const counts = new Map<ConversationToolKind, number>()
+  for (const tool of tools) {
+    const kind = presentToolItem(toolPresentationInput(tool)).icon
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  const kind = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'other'
+  const failed = flattenToolEntries(tools).filter(
+    (tool) => tool.status !== 'running' && presentToolItem(toolPresentationInput(tool)).tone === 'error',
+  ).length
+  return { kind, failed }
+}
+
+// Settled steps fold under one summary line and stay folded until asked: the
+// transcript is the conversation, and a turn that ran forty commands should
+// still read as a few lines of prose. The step running now stays outside the
+// fold, so live work is never hidden. Opened, the steps scroll inside a
+// bounded list rather than pushing the conversation off screen.
+// The kind most of a group's steps share, for the group's own mark.
+function dominantToolKind(tools: TranscriptToolEntry[]): ConversationToolKind {
+  const counts = new Map<ConversationToolKind, number>()
+  for (const tool of tools) {
+    const kind = presentToolItem(toolPresentationInput(tool)).icon
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'other'
+}
+
+// Settled steps fold behind one quiet summary line, closed until asked for:
+// they are how the answer was reached, not the answer, and the prose between
+// groups already says what each run of steps was for. Live work stays outside
+// the fold so what is happening now is always on screen. A failure inside a
+// closed group is the one thing that must not fold away, so the header carries
+// it. Opened, the steps scroll inside a bounded rail rather than pushing the
+// conversation a screen down.
 function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
   const context = useConversationLinkContext()
   const settled = tools.filter((tool) => tool.status !== 'running')
   const running = tools.filter((tool) => tool.status === 'running')
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
-  const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, true)
+  const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, false)
   const step = (tool: TranscriptToolEntry) => <WorkTimelineStep key={tool.id} tool={tool} />
+  const failed = flattenToolEntries(settled).filter(
+    (tool) => presentToolItem(toolPresentationInput(tool)).tone === 'error',
+  ).length
+  const summary = summarizeToolGroup(settled.map(toolPresentationInput))
   return (
     <>
       {settled.length > 1 ? (
         <>
-          <GhostButton size="inline" tone="subtle" aria-expanded={open} onClick={() => setOpen(!open)}>
-            <ChevronRightGlyph className={`icon-xs ${open ? 'rotate-90' : ''}`} />
-            {summarizeToolGroup(settled.map(toolPresentationInput))}
-            <span> · {flattenToolEntries(settled).length} steps</span>
-          </GhostButton>
-          {open ? <div className="ml-2">{settled.map(step)}</div> : null}
+          <RowButton
+            density="row"
+            className="group/tool-row text-meta"
+            aria-expanded={open}
+            aria-label={failed ? `${summary}, ${failed} failed` : undefined}
+            onClick={() => setOpen(!open)}
+          >
+            <span className={`flex shrink-0 ${toolGlyphInk(failed ? 'error' : 'neutral')}`}>
+              <ToolKindGlyph kind={dominantToolKind(settled)} />
+            </span>
+            <span className="min-w-0 truncate text-[color:var(--text-subtle)] group-hover/tool-row:text-[color:var(--text-muted)]">
+              {summary}
+            </span>
+            {failed ? <span className="shrink-0 text-[color:var(--tone-error)]">· {failed} failed</span> : null}
+            <ChevronRightGlyph
+              className={`icon-xs ml-auto shrink-0 text-[color:var(--text-disabled)] transition-transform group-hover/tool-row:text-[color:var(--text-subtle)] ${open ? 'rotate-90' : ''}`}
+            />
+          </RowButton>
+          {open ? (
+            <div className="ml-3.5 max-h-[min(28rem,60vh)] overflow-y-auto border-l border-[color:var(--border-subtle)] pl-1.5">
+              {settled.map(step)}
+            </div>
+          ) : null}
         </>
       ) : (
         settled.map(step)
@@ -394,7 +455,11 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${headerInk}`
   const header = (
     <>
-      <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[10px]" />
+      <span
+        className={`flex shrink-0 self-center ${toolGlyphInk(running ? 'running' : presentToolItem(toolPresentationInput(tool)).tone)}`}
+      >
+        <ToolKindGlyph kind="subagent" />
+      </span>
       {expandable ? (
         <ChevronRightGlyph
           className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
@@ -640,10 +705,6 @@ export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineR
   )
 }
 
-export function formatClockTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-}
-
 function MessageTimestamp({ at }: { at?: number }) {
   if (at === undefined || !Number.isFinite(at)) return null
   const date = new Date(at)
@@ -672,14 +733,6 @@ export function CheckGlyph({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-export function ChevronRightGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M4.5 2.5L8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }

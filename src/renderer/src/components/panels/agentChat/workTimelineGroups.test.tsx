@@ -33,3 +33,21 @@ test('prose splits consecutive tool groups and stays outside their disclosures',
   expect(singles).not.toContain(' steps')
   expect(singles).toContain('Now checking the tests.')
 })
+
+test('a settled group rests folded, names its failures, and does not count flat steps', () => {
+  const failed: TranscriptToolEntry = { ...tool('c', 'Bash'), toolKind: 'command', outputStatus: 'error' }
+  const html = renderToStaticMarkup(<WorkTimeline tools={[tool('a'), tool('b'), failed]} live={false} />)
+  expect(html).toContain('aria-expanded="false"')
+  expect(html).not.toContain('data-tool-kind')
+  expect(html).toContain('1 failed')
+  expect(html).toContain('aria-label="Read 2 files and ran 1 command, 1 failed"')
+  expect(html).not.toContain(' steps')
+})
+
+test('the step running now stays outside the fold', () => {
+  const live: TranscriptToolEntry = { ...tool('c', 'Bash'), status: 'running', input: { command: 'npm test' } }
+  const html = renderToStaticMarkup(<WorkTimeline tools={[tool('a'), tool('b'), live]} live />)
+  expect(html).toContain('Read 2 files')
+  expect(html.match(/data-tool-kind=/g)).toHaveLength(1)
+  expect(html).toContain('>running<')
+})
