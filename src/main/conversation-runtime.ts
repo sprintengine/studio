@@ -34,7 +34,14 @@ import type {
   ConversationRevertResult,
 } from '../shared/conversation-runtime'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
-import { readToolDetail, writeToolDetail, redactConversationValue } from './conversation-tool-details'
+import {
+  readToolDetail,
+  writeToolDetail,
+  redactConversationValue,
+  ToolOutputStream,
+  toolOutputStreamPath,
+  TOOL_PREVIEW_CHARS,
+} from './conversation-tool-details'
 import { createConversationSkillsResolver, type ConversationSkillsResolver } from './conversation-skills'
 import { resolveConversationMentions } from './conversation-mentions'
 import { ConversationCheckpoints } from './conversation-checkpoints'
@@ -112,6 +119,8 @@ type RuntimeSession = ConversationSessionSummary & {
   pendingPermissionChanges?: number
   safePermissionTurnId?: string
   allowedTools?: string[]
+  // Detail files of tools still open in this session, closed when a turn ends.
+  toolDetailPaths: Set<string>
 }
 
 type ConversationRuntimeOptions = {
@@ -176,6 +185,11 @@ export class ConversationRuntime {
   // Transcripts with a write that failed this run: a sequence number was
   // published that is not on disk, so they never serve incremental catch-up.
   private readonly nonDurableLogs = new Set<string>()
+  // Per tool detail path: the detail being built, its streamed output, and
+  // the write in flight.
+  private readonly toolDetails = new Map<string, ConversationToolDetail>()
+  private readonly toolStreams = new Map<string, ToolOutputStream>()
+  private readonly toolDetailWrites = new Map<string, Promise<void>>()
   private eventSequence = 0
   // Event ids must stay unique across app restarts: the persisted transcript
   // is replayed into the renderer, which dedupes live pushes against it by id.
@@ -306,6 +320,7 @@ export class ConversationRuntime {
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
+      toolDetailPaths: new Set(),
     }
     await this.initializeSequence(input)
     // Excerpts and the replayed history come from the end of the chat, bounded
@@ -721,6 +736,7 @@ export class ConversationRuntime {
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
     await this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    await this.closeToolStreams(session)
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
@@ -1029,6 +1045,7 @@ export class ConversationRuntime {
       return stamped
     }
     const outcome = await this.persistEvent(session, stamped)
+    if (stamped.type === 'turn_completed' || stamped.type === 'turn_failed') await this.closeToolStreams(session)
     if (stamped.type === 'turn_completed' && session.status !== 'stopped')
       await this.threadIndex.refresh(session).catch(() => undefined)
     // Publish status at the same boundary as the terminal notification, after
@@ -1313,7 +1330,11 @@ export class ConversationRuntime {
     ) {
       return { ok: false, code: 'invalid_input', message: 'Conversation and tool identity are required.' }
     }
-    return readToolDetail(input.workspaceRoot, this.toolDetailPath(input))
+    const path = this.toolDetailPath(input)
+    // A detail asked for mid-stream includes every chunk published so far.
+    await this.toolStreams.get(path)?.settled()
+    await this.toolDetailWrites.get(path)?.catch(() => undefined)
+    return readToolDetail(input.workspaceRoot, path)
   }
 
   /** Explicit deletion removes the paired detail store as well as the transcript. */
@@ -1425,6 +1446,14 @@ export class ConversationRuntime {
     }
   }
 
+  /**
+   * Store a tool event's full input or output in its detail file and leave the
+   * transcript event a bounded preview. Partial output never blocks the
+   * emission queue on the detail file: appended text goes to the tool's output
+   * file and replaced output is rewritten in the background, in order per
+   * tool. The final output waits for all of it, so a finished tool's detail is
+   * complete by the time its event is published.
+   */
   private async prepareToolEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationEvent> {
     if (event.type !== 'tool_started' && event.type !== 'tool_output') return event
     const payload = redactConversationValue({ ...event.payload })
@@ -1434,14 +1463,16 @@ export class ConversationRuntime {
         : typeof payload.toolCallId === 'string'
           ? payload.toolCallId
           : undefined
+    const append = payload.outputMode === 'append'
+    delete payload.outputMode
     if (!toolUseId) return { ...event, payload }
     payload.toolUseId = toolUseId
     const path = this.toolDetailPath({ ...session, toolUseId })
-    const previous = await readToolDetail(session.workspaceRoot, path)
-    const detail: ConversationToolDetail = previous.ok
-      ? previous.detail
-      : { input: {}, output: '', status: 'ok', clipped: false }
     if (event.type === 'tool_started') {
+      const previous = await readToolDetail(session.workspaceRoot, path)
+      const detail: ConversationToolDetail = previous.ok
+        ? previous.detail
+        : { input: {}, output: '', status: 'ok', clipped: false }
       const name =
         typeof payload.name === 'string' ? payload.name : typeof payload.tool === 'string' ? payload.tool : ''
       payload.name = name
@@ -1451,29 +1482,123 @@ export class ConversationRuntime {
         payload.input = {}
         payload.inputTruncated = true
       }
-    } else {
-      detail.output = (payload.output ?? payload.preview ?? '') as ConversationJsonValue
-      if (payload.clipped === true) detail.clipped = true
-      detail.status =
-        payload.status === 'declined' || payload.status === 'stopped' || payload.status === 'error'
-          ? payload.status
-          : payload.isError
-            ? 'error'
-            : 'ok'
-      if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
-      if (typeof payload.mime === 'string') detail.mime = payload.mime
-      const text = typeof detail.output === 'string' ? detail.output : JSON.stringify(detail.output)
-      const binary = detail.mime !== undefined && !/^(text\/|application\/(json|xml))/.test(detail.mime)
-      detail.totalBytes = typeof payload.totalBytes === 'number' ? payload.totalBytes : Buffer.byteLength(text)
-      if (binary) detail.output = ''
-      payload.preview = binary ? '' : text.slice(0, 4000)
-      payload.output = payload.preview
-      payload.totalBytes = detail.totalBytes
-      payload.truncated = binary || text.length > 4000
-      payload.status = detail.status
+      this.toolDetails.set(path, detail)
+      session.toolDetailPaths.add(path)
+      await this.queueToolDetailWrite(session, path, detail)
+      return { ...event, payload }
     }
-    await writeToolDetail(session.workspaceRoot, path, detail)
+
+    const partial = payload.partial === true
+    const output = (payload.output ?? payload.preview ?? '') as ConversationJsonValue
+    const text = typeof output === 'string' ? output : JSON.stringify(output)
+    let stream = this.toolStreams.get(path)
+    if (append && !stream) {
+      stream = new ToolOutputStream(session.workspaceRoot, toolOutputStreamPath(path))
+      this.toolStreams.set(path, stream)
+      session.toolDetailPaths.add(path)
+    }
+    const mime = typeof payload.mime === 'string' ? payload.mime : undefined
+    const binary = mime !== undefined && !/^(text\/|application\/(json|xml))/.test(mime)
+    let totalBytes: number
+    if (append) {
+      stream!.append(text)
+      payload.preview = binary ? '' : stream!.tail
+      payload.truncated = binary || stream!.chars > TOOL_PREVIEW_CHARS
+      totalBytes = stream!.totalBytes
+    } else {
+      // Output that streamed is read from its end, where the new lines are;
+      // a one-shot result (a file read) from its beginning.
+      const streamed = partial || stream !== undefined
+      payload.preview = binary ? '' : streamed ? text.slice(-TOOL_PREVIEW_CHARS) : text.slice(0, TOOL_PREVIEW_CHARS)
+      payload.truncated = binary || text.length > TOOL_PREVIEW_CHARS
+      totalBytes = Buffer.byteLength(text)
+    }
+    if (typeof payload.totalBytes === 'number') totalBytes = Math.max(totalBytes, payload.totalBytes)
+    const status =
+      payload.status === 'declined' || payload.status === 'stopped' || payload.status === 'error'
+        ? payload.status
+        : payload.isError
+          ? 'error'
+          : 'ok'
+    payload.output = payload.preview
+    payload.totalBytes = totalBytes
+    payload.status = status
+
+    if (partial && append) return { ...event, payload }
+    const known = this.toolDetails.get(path)
+    const detail: ConversationToolDetail = known ?? {
+      input: {},
+      output: '',
+      status: 'ok' as const,
+      clipped: false,
+    }
+    detail.status = status
+    detail.totalBytes = totalBytes
+    if (payload.clipped === true) detail.clipped = true
+    if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
+    if (mime !== undefined) detail.mime = mime
+    if (append) detail.output = ''
+    else detail.output = binary ? '' : output
+    if (partial) {
+      // Replaced output mid-stream: the latest version, written behind the queue.
+      this.toolDetails.set(path, detail)
+      // The cached detail itself: a later write serializes the latest output,
+      // and an input merged from disk by the first write stays for the rest.
+      void this.queueToolDetailWrite(session, path, detail, !known)
+      return { ...event, payload }
+    }
+    this.toolDetails.delete(path)
+    this.toolStreams.delete(path)
+    if (stream) {
+      await stream.finish()
+      if (stream.clipped) detail.clipped = true
+      // A final output that carries everything supersedes what streamed.
+      if (!append) await removeConversationStorage(session.workspaceRoot, stream.path).catch(() => undefined)
+    }
+    await this.queueToolDetailWrite(session, path, detail, !known)
+    session.toolDetailPaths.delete(path)
     return { ...event, payload }
+  }
+
+  /**
+   * Write a detail file behind any earlier write for the same tool. A detail
+   * whose input was never seen this run (the tool started before a restart)
+   * keeps the input already on disk.
+   */
+  private queueToolDetailWrite(
+    session: RuntimeSession,
+    path: string,
+    detail: ConversationToolDetail,
+    mergeInput = false,
+  ): Promise<void> {
+    const write = (this.toolDetailWrites.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        if (mergeInput) {
+          const previous = await readToolDetail(session.workspaceRoot, path)
+          if (previous.ok) detail.input = previous.detail.input
+        }
+        await writeToolDetail(session.workspaceRoot, path, detail)
+      })
+    this.toolDetailWrites.set(path, write)
+    void write
+      .finally(() => {
+        if (this.toolDetailWrites.get(path) === write) this.toolDetailWrites.delete(path)
+      })
+      .catch(() => undefined)
+    return write
+  }
+
+  /** Close the output files of tools a turn left unfinished. */
+  private async closeToolStreams(session: RuntimeSession): Promise<void> {
+    for (const path of Array.from(session.toolDetailPaths)) {
+      const stream = this.toolStreams.get(path)
+      this.toolStreams.delete(path)
+      this.toolDetails.delete(path)
+      session.toolDetailPaths.delete(path)
+      await stream?.finish().catch(() => undefined)
+      await this.toolDetailWrites.get(path)?.catch(() => undefined)
+    }
   }
 
   private transcriptPath(workspaceRoot: string, workspaceId: string, agentId: string): string {

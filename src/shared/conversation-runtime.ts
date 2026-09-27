@@ -198,6 +198,12 @@ export type ConversationToolStartedPayload = {
 // Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
 // so a child call's completion lands in the same lane as its start.
 export type ConversationToolOutputPayload = {
+  // How an adapter's `output` relates to the tool's earlier output events.
+  // 'replace' (the default): it is the whole output so far. 'append': it is
+  // only the text produced since the previous event, and the runtime keeps the
+  // rest. Events the runtime publishes are always 'replace': `preview` and
+  // `output` there are the latest text, and the field is removed.
+  outputMode?: 'append' | 'replace'
   partial?: boolean
   clipped?: boolean
   toolUseId?: string

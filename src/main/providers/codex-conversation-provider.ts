@@ -21,19 +21,6 @@ type RecordValue = Record<string, unknown>
 const record = (value: unknown): RecordValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RecordValue) : {}
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
-const OUTPUT_BYTES = 5 * 1024 * 1024
-
-// Keep all output below the detail budget. Beyond it, retain the first context
-// and the newest tail; losing the head would hide the command's initial error.
-function boundedCommandOutput(previous: string, delta: string): string {
-  const bytes = Buffer.from(previous + delta)
-  if (bytes.length <= OUTPUT_BYTES) return previous + delta
-  return (
-    bytes.subarray(0, 1024 * 1024).toString('utf8') +
-    '\n[clipped]\n' +
-    bytes.subarray(-(4 * 1024 * 1024)).toString('utf8')
-  )
-}
 
 class EventQueue implements AsyncIterable<ConversationEvent> {
   private values: ConversationEvent[] = []
@@ -67,7 +54,6 @@ type ActiveTurn = {
   queue: EventQueue
   textItems: Set<string>
   items: Map<string, RecordValue>
-  output: Map<string, string>
   outputBytes: Map<string, number>
 }
 type Session = {
@@ -252,16 +238,16 @@ export function createCodexConversationProvider(
       return
     }
     if (method === 'item/commandExecution/outputDelta') {
+      // Only the new text: the runtime appends it to the tool's output, so a
+      // long command costs each chunk once rather than its whole output again.
       const id = text(params.itemId)
-      const output = boundedCommandOutput(turn.output.get(id) ?? '', text(params.delta))
       const totalBytes = (turn.outputBytes.get(id) ?? 0) + Buffer.byteLength(text(params.delta))
       turn.outputBytes.set(id, totalBytes)
-      turn.output.set(id, output)
       emit(state, 'tool_output', {
         toolUseId: id,
-        output,
+        output: text(params.delta),
+        outputMode: 'append',
         totalBytes,
-        clipped: totalBytes > Buffer.byteLength(output),
         partial: true,
         status: 'ok',
       })
@@ -301,15 +287,16 @@ export function createCodexConversationProvider(
           input: mapped.input,
         })
       if (complete) {
-        const output = item.aggregatedOutput ?? item.result ?? item.text ?? turn.output.get(id) ?? ''
         const partialBytes = turn.outputBytes.get(id)
+        // With no aggregate, the streamed chunks are the output: close it without repeating them.
+        const streamedOnly =
+          item.aggregatedOutput == null && item.result == null && item.text == null && partialBytes !== undefined
+        const output = streamedOnly ? '' : (item.aggregatedOutput ?? item.result ?? item.text ?? '')
         emit(state, 'tool_output', {
           toolUseId: id,
           toolCallId: id,
           output,
-          ...(item.aggregatedOutput == null && typeof output === 'string' && partialBytes !== undefined
-            ? { totalBytes: partialBytes, clipped: partialBytes > Buffer.byteLength(output) }
-            : {}),
+          ...(streamedOnly ? { outputMode: 'append', totalBytes: partialBytes } : {}),
           status: item.status === 'declined' ? 'declined' : item.status === 'failed' ? 'error' : 'ok',
           ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
         })
@@ -425,7 +412,6 @@ export function createCodexConversationProvider(
         queue,
         textItems: new Set(),
         items: new Map(),
-        output: new Map(),
         outputBytes: new Map(),
       }
       emit(state, 'turn_started')

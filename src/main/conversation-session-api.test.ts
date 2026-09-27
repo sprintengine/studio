@@ -1156,3 +1156,129 @@ test('subscribing while a turn appends to the transcript succeeds every time', a
     await f.cleanup()
   }
 })
+
+function streamingToolAdapter(chunks: string[], final: Record<string, unknown>): ConversationProviderAdapter {
+  return {
+    ...createMockConversationProvider(),
+    sendTurn: (input) =>
+      (async function* () {
+        yield event(input, 'tool_started', {
+          turnId: input.turnId,
+          toolCallId: 'cmd',
+          tool: 'Bash',
+          input: { command: 'build' },
+        })
+        for (const output of chunks)
+          yield event(input, 'tool_output', {
+            turnId: input.turnId,
+            toolUseId: 'cmd',
+            output,
+            outputMode: 'append',
+            partial: true,
+            status: 'ok',
+          })
+        yield event(input, 'tool_output', { turnId: input.turnId, toolUseId: 'cmd', status: 'ok', ...final })
+        yield event(input, 'turn_completed', { turnId: input.turnId })
+      })(),
+  }
+}
+
+test('appended tool output streams a tail preview, coalesces in the transcript and builds the full detail once', async () => {
+  const chunks = Array.from({ length: 200 }, (_, index) => `line ${index} ${'.'.repeat(100)}\n`)
+  const f = await fixture(streamingToolAdapter(chunks, { output: '', outputMode: 'append', exitCode: 0 }))
+  try {
+    const events: ConversationEvent[] = []
+    f.runtime.onEvent((value) => events.push(value))
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'build' })
+    const outputs = events.filter((value) => value.type === 'tool_output')
+    const final = outputs.at(-1)!
+    const whole = chunks.join('')
+    assert.equal(final.payload?.preview, whole.slice(-4000), 'the preview follows the newest output')
+    assert.equal(final.payload?.totalBytes, Buffer.byteLength(whole))
+    assert.equal(final.payload?.truncated, true)
+    assert.equal('outputMode' in final.payload!, false, 'published events always carry the whole preview')
+    for (const partial of outputs.slice(0, -1)) assert.equal(String(partial.payload?.preview).length <= 4000, true)
+    const transcript = await readFile(
+      workspaceSidecarPath(f.key.workspaceRoot, 'conversations', 'workspace', 'agent.jsonl'),
+      'utf8',
+    )
+    const persisted = transcript.split('\n').filter((line) => line.includes('"tool_output"'))
+    assert.ok(persisted.length < 10, `tool output is coalesced on disk (${persisted.length} records for 200 chunks)`)
+    const detail = await f.runtime.getToolDetail({ ...f.key, toolUseId: 'cmd' })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.output, whole)
+    assert.deepEqual(detail.detail.input, { command: 'build' })
+    assert.equal(detail.detail.exitCode, 0)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('streamed tool output past the detail budget keeps its head and newest tail', async () => {
+  const chunks = ['first-line\n', ...Array.from({ length: 7 }, () => 'x'.repeat(1024 * 1024)), '\nlast-line']
+  const f = await fixture(streamingToolAdapter(chunks, { output: '', outputMode: 'append' }))
+  try {
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'build' })
+    const detail = await f.runtime.getToolDetail({ ...f.key, toolUseId: 'cmd' })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.clipped, true)
+    assert.match(String(detail.detail.output), /^first-line\n/)
+    assert.match(String(detail.detail.output), /\nlast-line$/)
+    assert.ok(Buffer.byteLength(String(detail.detail.output)) < 5 * 1024 * 1024 + 30)
+    assert.equal(detail.detail.totalBytes, Buffer.byteLength(chunks.join('')))
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('cumulative partial output previews its newest text and keeps the detail current', async () => {
+  const f = await fixture({
+    ...createMockConversationProvider(),
+    sendTurn: (input) => [
+      event(input, 'tool_started', { turnId: input.turnId, toolCallId: 'acp', tool: 'Bash', input: { command: 'ls' } }),
+      // Cumulative adapters send the whole output so far on every update.
+      event(input, 'tool_output', { turnId: input.turnId, toolUseId: 'acp', output: 'a'.repeat(5000), partial: true }),
+      event(input, 'tool_output', {
+        turnId: input.turnId,
+        toolUseId: 'acp',
+        output: `${'a'.repeat(5000)}END`,
+        partial: true,
+      }),
+      event(input, 'turn_completed', { turnId: input.turnId }),
+    ],
+  })
+  try {
+    const events: ConversationEvent[] = []
+    f.runtime.onEvent((value) => events.push(value))
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'ls' })
+    const outputs = events.filter((value) => value.type === 'tool_output')
+    assert.equal(outputs.length, 1, 'the superseded preview is not published')
+    assert.ok(String(outputs[0].payload?.preview).endsWith('END'), 'a live row shows the newest output')
+    const detail = await f.runtime.getToolDetail({ ...f.key, toolUseId: 'acp' })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.output, `${'a'.repeat(5000)}END`)
+    assert.deepEqual(detail.detail.input, { command: 'ls' })
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a full final output replaces what streamed', async () => {
+  const f = await fixture(streamingToolAdapter(['partial one ', 'partial two'], { output: 'complete output' }))
+  try {
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'build' })
+    const detail = await f.runtime.getToolDetail({ ...f.key, toolUseId: 'cmd' })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.output, 'complete output')
+    const streamed = workspaceSidecarPath(
+      f.key.workspaceRoot,
+      'conversations',
+      'workspace',
+      'agent.tools',
+      'cmd.output',
+    )
+    await assert.rejects(stat(streamed), { code: 'ENOENT' })
+  } finally {
+    await f.cleanup()
+  }
+})
