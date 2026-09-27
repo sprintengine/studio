@@ -7,6 +7,7 @@ import {
   readBoundedConversationFile,
   resolveConversationPath,
 } from '../conversation-file-access'
+import { cliSpawnTarget, terminateCliChild } from './cli-child-process'
 import type {
   ClientSideConnection,
   RequestPermissionRequest,
@@ -219,11 +220,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     state.connection = undefined
     if (child && child.exitCode === null) {
       child.stdin.end()
-      child.kill('SIGTERM')
-      const timeout = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL')
-      }, 2000)
-      timeout.unref()
+      terminateCliChild(child)
     }
   }
   const permission = (state: State, params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
@@ -351,18 +348,29 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
-      const child = spawn(command, profile.argv, {
+      const target = cliSpawnTarget(command, profile.argv, { env })
+      const child = spawn(target.file, target.args, {
         cwd: state.input.workspaceRoot,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       })
       state.child = child
       state.spawnedAt = Date.now()
       child.stderr.on('data', () => undefined)
-      child.on('error', () => {
-        /* The stream closure rejects pending protocol requests. */
-      })
+      // A CLI that cannot be started is reported as that, not as a protocol
+      // failure followed by a sign-in hint that would send the person the
+      // wrong way. Later errors close the stream, which rejects what is pending.
+      let spawnError: Error | undefined
+      const spawnFailed = new Promise<never>((_, reject) =>
+        child.on('error', (error) => {
+          if (child.pid !== undefined) return
+          spawnError = error
+          reject(error)
+        }),
+      )
+      spawnFailed.catch(() => undefined)
       child.stdin.on('error', () => undefined)
       child.on('close', () => {
         if (state.child !== child) return
@@ -560,12 +568,17 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       try {
         await Promise.race([
           initialize(),
+          spawnFailed,
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('ACP startup timed out.')), options.startupTimeoutMs ?? 30_000)
           }),
         ])
       } catch (error) {
         dispose(state)
+        if (child.pid === undefined)
+          throw new Error(
+            `${profile.displayName} could not be started from ${command}: ${spawnError?.message ?? 'the process did not start.'}`,
+          )
         throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)

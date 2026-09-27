@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
+import { cliSpawnTarget, terminateCliChild } from './cli-child-process'
 
 export type RpcMessage = {
   id?: string | number
@@ -24,6 +25,7 @@ export type CodexRpcOptions = {
   onClose(error: Error): void
   timeoutMs?: number
   spawnChild?: typeof spawn
+  platform?: NodeJS.Platform
 }
 
 /** Codex answered the request with an error, as opposed to the request never
@@ -32,11 +34,16 @@ export class CodexRpcError extends Error {}
 
 /** JSONL framing is confined here; protocol events never share stderr or shell parsing. */
 export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTransport {
-  const child = (options.spawnChild ?? spawn)(options.command, ['app-server', '--listen', 'stdio://'], {
+  const target = cliSpawnTarget(options.command, ['app-server', '--listen', 'stdio://'], {
+    platform: options.platform,
+    env: options.env,
+  })
+  const child = (options.spawnChild ?? spawn)(target.file, target.args, {
     cwd: options.cwd,
     env: options.env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   }) as ChildProcessWithoutNullStreams
   const pending = new Map<
     number,
@@ -55,13 +62,7 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
       request.reject(error)
     }
     pending.clear()
-    if (child.exitCode === null) {
-      child.kill('SIGTERM')
-      const timer = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL')
-      }, 2_000)
-      timer.unref()
-    }
+    terminateCliChild(child, { platform: options.platform })
     void delivery.then(() => options.onClose(error))
   }
   const write = (message: RpcMessage) => {
@@ -69,7 +70,13 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
     child.stdin.write(`${JSON.stringify(message)}\n`)
   }
   child.stdin.on('error', (error) => finish(error))
-  child.on('error', (error) => finish(error))
+  child.on('error', (error) =>
+    finish(
+      child.pid === undefined
+        ? new Error(`Codex could not be started from ${options.command}: ${error.message}`)
+        : error,
+    ),
+  )
   child.on('close', (code) => finish(new Error(`Codex process exited${code === null ? '' : ` (${code})`}.`)))
   // Drain diagnostics without retaining credentials or dumping them into the transcript.
   child.stderr.on('data', () => undefined)

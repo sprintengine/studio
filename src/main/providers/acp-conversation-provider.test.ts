@@ -261,6 +261,31 @@ test('ACP shutdown during executable discovery never spawns a late child', async
   await expect(pending).rejects.toThrow('stopped during startup')
   expect(provider.listLiveSessions?.()).toEqual([])
 })
+test('ACP reports a CLI that cannot be started without a misleading sign-in hint', async () => {
+  const provider = createAcpConversationProvider(
+    {
+      id: 'missing',
+      displayName: 'Missing',
+      cli: 'test',
+      argv: ['acp'],
+      authHint: 'Run missing login in a terminal.',
+      images: false,
+      planMode: false,
+    },
+    { detect: async () => join(tmpdir(), 'no-such-acp-agent'), buildEnv: async () => ({}) },
+  )
+  const pending = provider.startSession({
+    sessionId: 'missing',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'missing',
+    modelId: 'default',
+    workspaceRoot: tmpdir(),
+  })
+  await expect(pending).rejects.toThrow(/Missing could not be started from .*no-such-acp-agent: .*ENOENT/)
+  await expect(pending).rejects.not.toThrow('login')
+  expect(provider.listLiveSessions?.()).toEqual([])
+})
 test('ACP handshake timeout disposes the child and cannot publish a late connection', async () => {
   const slow = `setTimeout(()=>{process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:0,result:{protocolVersion:1}})+'\\n')},2000);process.stdin.resume()`
   const provider = createAcpConversationProvider(
