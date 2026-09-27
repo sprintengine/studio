@@ -19,11 +19,14 @@ export function RevertTurnAction({
   turnSeq,
   running,
   reverted = false,
+  overwritesLaterWork = false,
   className,
 }: {
   turnSeq: number
   running: boolean
   reverted?: boolean
+  // Undoing this revert would replace changes made after it.
+  overwritesLaterWork?: boolean
   className?: string
 }) {
   const context = useConversationLinkContext()
@@ -41,13 +44,28 @@ export function RevertTurnAction({
       for (;;) {
         if (!preview.ok) throw new Error(preview.message)
         const shown = preview.files
+        const replacesLaterWork = reverted && overwritesLaterWork
         const accepted = await dialog.confirm({
-          title: reverted ? 'Undo this revert?' : 'Revert to before this turn?',
+          title: replacesLaterWork
+            ? 'Undo this revert and replace later changes?'
+            : reverted
+              ? 'Undo this revert?'
+              : 'Revert to before this turn?',
           tone: 'danger',
-          confirmLabel: reverted ? 'Undo revert' : 'Revert files',
+          confirmLabel: replacesLaterWork ? 'Replace later changes' : reverted ? 'Undo revert' : 'Revert files',
           body: (
             <>
               {drift ? <p>{drift}</p> : null}
+              {/* An older revert is offered again once a newer one is undone,
+                  and turns may have run since: its undo puts back files from
+                  before all of that, so it says so rather than reading as the
+                  harmless undo of a moment ago. */}
+              {replacesLaterWork ? (
+                <p>
+                  Files have changed since this revert, in later turns or another revert. Undoing it puts back the files
+                  as they were before it, replacing those later changes in the files below.
+                </p>
+              ) : null}
               <p>
                 The following files will be restored. Your staged changes are left as they are. Your conversation stays
                 in history. A recovery checkpoint is kept before reverting.
@@ -218,12 +236,14 @@ export function ChangedFilesCard({
   running,
   reverted = false,
   undoTurnSeq,
+  undoOverwritesLaterWork,
 }: {
   turnSeq: number
   summary: TurnChangeSummary
   running: boolean
   reverted?: boolean
   undoTurnSeq?: number
+  undoOverwritesLaterWork?: boolean
 }) {
   const context = useConversationLinkContext()
   const conversationKey = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
@@ -405,6 +425,7 @@ export function ChangedFilesCard({
               turnSeq={reverted ? (undoTurnSeq ?? turnSeq) : turnSeq}
               running={running}
               reverted={reverted}
+              overwritesLaterWork={undoOverwritesLaterWork}
             />
           ) : null}
         </>

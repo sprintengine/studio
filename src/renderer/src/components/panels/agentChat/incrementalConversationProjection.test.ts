@@ -305,6 +305,28 @@ test('a revert marks only the turns between its checkpoint and the revert itself
   const undone = [...stacked, revertOf(40, 70, true)]
   assert.equal(projectConversation(undone).revertedAfterSeq, 20)
   assert.deepEqual(marks(undone).slice(2, 6), ['b:reverted/20', 'reply-b:reverted/20', 'c:live', 'reply-c:live'])
+
+  // Undoing a revert replaces whatever changed files after it. Right after the
+  // revert nothing has; once a later turn ran, or a newer revert was undone and
+  // the older one is offered again, its undo has to say it replaces that work.
+  // The undo each revert still offers, and whether it replaces later work.
+  const undoOffers = (events: ConversationEvent[]) => [
+    ...new Set(
+      projectConversation(events).entries.flatMap((entry) =>
+        entry.kind === 'user' && entry.undoRevertSeq !== undefined
+          ? [`${entry.undoRevertSeq}:${entry.undoOverwritesLaterWork ? 'replaces later work' : 'clean'}`]
+          : [],
+      ),
+    ),
+  ]
+  const twoTurns = [...turn('a', 10, 1), ...turn('b', 20, 5)]
+  assert.deepEqual(undoOffers([...twoTurns, revertOf(20, 30)]), ['20:clean'])
+  assert.deepEqual(undoOffers(history), ['20:replaces later work'])
+  assert.deepEqual(undoOffers([...twoTurns, revertOf(20, 30), revertOf(10, 31)]), ['10:clean'])
+  assert.deepEqual(undoOffers([...twoTurns, revertOf(20, 30), revertOf(10, 31), revertOf(10, 32, true)]), [
+    '20:replaces later work',
+  ])
+  assert.deepEqual(undoOffers(undone), ['20:replaces later work'])
 })
 
 test('a failed turn settles the tool calls it left running', () => {

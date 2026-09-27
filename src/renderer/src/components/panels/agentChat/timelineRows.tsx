@@ -141,6 +141,7 @@ export function UserTimelineRow({
             <RevertTurnAction
               turnSeq={entry.reverted ? (entry.undoRevertSeq ?? entry.seq) : entry.seq}
               reverted={entry.reverted}
+              overwritesLaterWork={entry.undoOverwritesLaterWork}
               running={chrome.conversationRunning ?? false}
               className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
             />
@@ -255,6 +256,7 @@ export function AssistantTurnBlock({
           running={chrome.conversationRunning ?? false}
           reverted={entry.reverted}
           undoTurnSeq={entry.undoRevertSeq}
+          undoOverwritesLaterWork={entry.undoOverwritesLaterWork}
         />
       ) : null}
     </div>

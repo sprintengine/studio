@@ -170,3 +170,72 @@ test('a revert confirms the exact files shown and asks again when they changed',
     }
   }
 })
+
+test('undoing a revert that later work followed says it replaces that work, and acts only once confirmed', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const calls: Array<{ turnSeq: number; undo?: boolean; confirmed?: boolean; files?: string[] }> = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      conversationRevertToTurn: async (input: (typeof calls)[number]) => {
+        calls.push(input)
+        const files = [{ path: 'src/later.ts', status: 'modified', addedLines: 3, removedLines: 1, binary: false }]
+        return input.confirmed ? { ok: true, files, reverted: true } : { ok: true, files, reverted: false }
+      },
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { RevertTurnAction } = await import('./changedFilesCard')
+  const { ConversationLinkProvider } = await import('./conversationLinks')
+  const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    Array.from(dom.window.document.querySelectorAll('button')).find((item) => item.textContent === label)
+  const text = () => dom.window.document.body.textContent ?? ''
+  try {
+    await act(async () => {
+      root.render(
+        <ConfirmDialogProvider>
+          <ConversationLinkProvider
+            workspaceId="undo-test"
+            workspaceRoot="/workspace/app"
+            cwd="/workspace/app"
+            agentId="agent"
+          >
+            <RevertTurnAction turnSeq={20} running={false} reverted overwritesLaterWork />
+          </ConversationLinkProvider>
+        </ConfirmDialogProvider>,
+      )
+    })
+    await act(async () => button('Undo revert')!.click())
+    expect(text()).toContain('Undo this revert and replace later changes?')
+    expect(text()).toContain('replacing those later changes in the files below')
+    expect(text()).toContain('src/later.ts · +3 −1')
+    await act(async () => button('Cancel')!.click())
+    expect(calls.filter((call) => call.confirmed)).toEqual([])
+    await act(async () => button('Undo revert')!.click())
+    await act(async () => button('Replace later changes')!.click())
+    expect(calls.filter((call) => call.confirmed)).toEqual([
+      { key: expect.anything(), turnSeq: 20, undo: true, confirmed: true, files: ['src/later.ts'] },
+    ])
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

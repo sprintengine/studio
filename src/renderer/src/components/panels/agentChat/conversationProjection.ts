@@ -65,6 +65,9 @@ export type TranscriptEntry =
       // The turnSeq that undoes the revert covering this turn; set only on the
       // turns of the most recent revert, the one an undo can still restore.
       undoRevertSeq?: number
+      // Files changed after that revert (a later turn, another revert or undo),
+      // so undoing it would replace that later work.
+      undoOverwritesLaterWork?: boolean
       text: string
       // Images the user attached to this turn (D3/1774). Live-only: they come
       // from the local send, never from the replayed transcript, so a bubble
@@ -98,6 +101,7 @@ export type TranscriptEntry =
       checkpointSummary?: { files: number; addedLines: number; removedLines: number }
       reverted?: boolean
       undoRevertSeq?: number
+      undoOverwritesLaterWork?: boolean
     }
   | TranscriptToolEntry
   | {
@@ -389,6 +393,8 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // checkpoint up to the revert itself: a turn sent after a revert started from
   // the reverted files and is not undone by it. An undo removes its revert.
   const reverts: Array<{ afterSeq: number; beforeSeq: number }> = []
+  // The last event that could have changed files: a turn sent, a revert, an undo.
+  let lastFileChangeSeq = 0
   let highestSeq = 0
 
   const ensureTurn = (turnId: string): TurnAccumulator => {
@@ -447,6 +453,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         if (notice) sessionNotice = notice
         const reverted = readNumber(event.payload, 'revertedAfterSeq')
         if (reverted !== undefined) {
+          lastFileChangeSeq = event.seq ?? highestSeq + 1
           if (event.payload?.undo === true) {
             const undone = reverts.findLastIndex((range) => range.afterSeq === reverted)
             if (undone !== -1) reverts.splice(undone, 1)
@@ -458,6 +465,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         break
       }
       case 'user_message': {
+        if (event.seq !== undefined) lastFileChangeSeq = event.seq
         if (turnId) {
           ensureTurn(turnId)
           const localTurnId = readString(event.payload, 'localTurnId')
@@ -756,8 +764,17 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       const range = covering(
         entry.kind === 'user' ? entry.seq : (entry.checkpointTurnSeq ?? turns.get(entry.turnId)?.seq),
       )
-      if (range)
-        entries[index] = { ...entry, reverted: true, ...(range === latest ? { undoRevertSeq: range.afterSeq } : {}) }
+      if (!range) continue
+      entries[index] = {
+        ...entry,
+        reverted: true,
+        ...(range === latest
+          ? {
+              undoRevertSeq: range.afterSeq,
+              ...(lastFileChangeSeq > range.beforeSeq ? { undoOverwritesLaterWork: true } : {}),
+            }
+          : {}),
+      }
     }
   }
   return {
