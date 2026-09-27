@@ -41,6 +41,7 @@ test('groups largest counts first with natural plurals', () => {
     ]),
   ).toBe('Read 3 files, ran 2 commands and edited 1 file')
   expect(summarizeToolGroup([{ name: 'ls' }, { name: 'ls' }])).toBe('Listed 2 directories')
+  expect(summarizeToolGroup([{ name: 'Grep' }, { name: 'Grep' }])).toBe('Searched 2 queries')
 })
 test('command failure is neutral with exit status, runtime failure is an error', () => {
   expect(presentToolItem({ name: 'Bash', status: 'error', exitCode: 1 })).toMatchObject({

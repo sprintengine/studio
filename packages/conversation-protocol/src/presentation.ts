@@ -163,13 +163,14 @@ export function summarizeToolGroup(items: PresentableTool[]): string {
     todo: 'plan',
     other: 'tool',
   }
+  const plurals: Partial<Record<string, string>> = { directory: 'directories', query: 'queries' }
   const clauses = [...counts]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(
-      ([kind, count]) =>
-        `${verbs[kind][0].toLowerCase()} ${count} ${count > 1 && kind === 'list' ? 'directories' : nouns[kind] + (count === 1 ? '' : 's')}`,
-    )
+    .map(([kind, count]) => {
+      const noun = nouns[kind]
+      return `${verbs[kind][0].toLowerCase()} ${count} ${count === 1 ? noun : (plurals[noun] ?? `${noun}s`)}`
+    })
   const joined =
     clauses.length > 1 ? `${clauses.slice(0, -1).join(', ')} and ${clauses.at(-1)}` : clauses[0] || 'No tool calls'
   return joined[0].toUpperCase() + joined.slice(1)
