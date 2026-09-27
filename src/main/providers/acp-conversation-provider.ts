@@ -315,6 +315,11 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     if (state.connection) return
     if (state.starting) return state.starting
     state.starting = (async () => {
+      // The agent would run on this machine against a workspace that lives on
+      // the other host; refuse rather than edit the wrong tree.
+      const hostId = state.input.cliRuntimes?.[profile.cli]?.hostId
+      if (hostId && hostId !== 'local')
+        throw new Error(`${profile.displayName} conversation requires a local CLI runtime.`)
       const command = await (
         options.detect ??
         (async (input) => {
