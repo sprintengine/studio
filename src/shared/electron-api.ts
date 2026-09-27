@@ -761,7 +761,7 @@ export type ElectronApi = {
     connectionId: string
     workspaceId?: string
     name?: string
-    /** Launch identity, forwarded verbatim; the remote gateway validates (and refuses bypass). */
+    /** Launch identity, forwarded verbatim; the remote gateway validates it, and takes either preset. */
     cli?: string
     prompt?: string
     cliModel?: string

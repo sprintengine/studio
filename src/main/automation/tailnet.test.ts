@@ -2088,8 +2088,9 @@ test('tailnet', async () => {
       assert.equal(payload.isError, undefined, JSON.stringify(payload.structuredContent))
       const sessionId = payload.structuredContent.sessionId
       assert.equal(sessionId, 'spawned-1')
-      // No preset named, and bypass never crosses this surface: `none`.
-      assert.equal(payload.structuredContent.permissionPreset, 'none')
+      // No preset named: the launch service on this machine resolves it, the
+      // same as a launch from its own desktop (owner ruling 2026-09-27).
+      assert.equal(launches[0].permissionPreset, undefined, 'an unnamed preset is not floored for a remote caller')
       assert.equal(launches[0].workspaceId, 'ws-mini')
 
       // …and the id it handed back is attachable, on the same connection's token.
@@ -2129,6 +2130,24 @@ test('tailnet', async () => {
         terminalsListed.some((entry) => entry.sessionId === sessionId),
         true,
       )
+
+      // A remote caller that names bypass, by either spelling, gets it: the
+      // tailnet is not a narrower door than the desktop's own launcher.
+      for (const [id, spelling] of [
+        [3, 'bypass'],
+        [4, 'bypass_all'],
+      ] as const) {
+        const asked = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+          token: laptop.deviceToken,
+          body: rpc(id, 'tools/call', {
+            name: 'terminal.create',
+            arguments: { workspaceName: 'Mac Mini', permissionPreset: spelling },
+          }),
+        })
+        const answer = (asked.body as { result: { isError?: boolean; structuredContent: unknown } }).result
+        assert.equal(answer.isError, undefined, JSON.stringify(answer.structuredContent))
+        assert.equal(launches.at(-1)?.permissionPreset, 'bypass', `${spelling} launches as bypass`)
+      }
     } finally {
       await harness.close()
     }

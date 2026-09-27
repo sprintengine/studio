@@ -3332,10 +3332,10 @@ export default function WorkspaceManager() {
   // A chat started on a paired machine (remote-sessions-ux /
   // new-chat-on-a-remote-machine): the agent is created THERE over the
   // audited fleet client — cli, prompt, model, and preset forwarded verbatim,
-  // so the remote's own refusals (bypass, scopes) surface word for word — and
-  // what appears here is a solo workspace whose lone pane is the fleet
-  // attachment onto that session, provenance-badged by the two-line row. A
-  // failure leaves the panel open with the remote's message as a toast; no
+  // so the remote's own refusals (a scope, a CLI it lacks) surface word for
+  // word — and what appears here is a solo workspace whose lone pane is the
+  // fleet attachment onto that session, provenance-badged by the two-line row.
+  // A failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
   // A session on a paired machine, opened from the sidebar's Remote band
   // (remote-sessions-in-the-sidebar): the row that already is that session

@@ -926,8 +926,8 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         return { ok: false, code: 'not_following', message: 'Open this conversation before sending to it.' }
       if (follow.finished) return { ok: false, code: follow.code ?? 'closed', message: follow.detail }
       const commandId = `desk-${randomBytes(12).toString('base64url')}`
-      // The same validation the far end applies: a permanent rule or a bypass
-      // preset is refused here with the far end's own words, without a trip.
+      // The same validation the far end applies: a permanent rule is refused
+      // here with the far end's own words, without a trip.
       const candidate = { type: 'command', commandId, command }
       const frame = parseConversationClientFrame(candidate)
       if (!frame || frame.type !== 'command') {

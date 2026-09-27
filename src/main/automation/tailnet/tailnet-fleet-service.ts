@@ -1251,8 +1251,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     const checkout: FleetCheckoutRequest = checkoutRequestOf(input.checkout) ?? { mode: 'current' }
     // Launch identity forwarded verbatim (remote-sessions-ux /
     // new-chat-on-a-remote-machine): the remote gateway validates every
-    // field itself — including refusing `bypass` — and its refusal
-    // surfaces to the caller word for word rather than being smoothed here.
+    // field itself, and any refusal surfaces to the caller word for word
+    // rather than being smoothed here. The preset crosses as named, bypass
+    // included (owner ruling 2026-09-27); absent, the far end resolves it from
+    // its own settings, as a launch at that machine would.
     const identity = {
       ...(typeof input.workspaceId === 'string' && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(typeof input.name === 'string' && input.name ? { name: input.name } : {}),
