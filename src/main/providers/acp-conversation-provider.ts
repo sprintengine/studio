@@ -451,7 +451,20 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         }
         if (profile.authenticate && hello.authMethods?.some((method) => method.id === profile.authenticate))
           await connection.authenticate({ methodId: profile.authenticate })
+        // Replayed history is suppressed while loading. The flag must drop on
+        // every exit, or the failure this startup reports is suppressed too
+        // and the turn that triggered a reload never receives a terminal event.
         state.loading = true
+        try {
+          await openSession(connection)
+        } finally {
+          state.loading = false
+        }
+        if (state.closed || state.child !== child || child.exitCode !== null)
+          throw new Error('Conversation was stopped during startup.')
+        state.connection = connection
+      }
+      const openSession = async (connection: ClientSideConnection) => {
         const resumeId = state.nativeId ?? state.input.resumeSessionId
         state.replayHistory = Boolean(resumeId && !state.loadSupported)
         const session =
@@ -486,10 +499,6 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             })
           else throw new Error('This ACP agent does not expose model selection. Choose the default model.')
         }
-        state.loading = false
-        if (state.closed || state.child !== child || child.exitCode !== null)
-          throw new Error('Conversation was stopped during startup.')
-        state.connection = connection
       }
       let timer: ReturnType<typeof setTimeout> | undefined
       try {

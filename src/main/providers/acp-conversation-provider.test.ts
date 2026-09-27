@@ -18,6 +18,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
  if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[]});
+ if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
    return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
@@ -143,6 +144,21 @@ test('ACP idle disposal resumes its native session without replaying old text in
     expect(events.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text)).toEqual([
       'Done',
     ])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP reports a failed session reload as a failed turn instead of dropping it', async () => {
+  const f = await fixture()
+  try {
+    await turn(f, 'first')
+    expect(f.provider.disposeChildProcess?.('session')).toBe(true)
+    await writeFile(join(f.root, 'fail-session'), '')
+    const events = await turn(f, 'second')
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed' })
+    expect(String(events.at(-1)?.payload?.message)).toContain('session store unavailable')
+    await rm(join(f.root, 'fail-session'))
+    expect((await turn(f, 'third')).at(-1)?.type).toBe('turn_completed')
   } finally {
     await f.cleanup()
   }
