@@ -35,6 +35,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  const permission=await request('session/request_permission',{sessionId:'native',toolCall:{toolCallId:'tool',kind:'edit',name:'Write'},options:[{kind:text==='broad'?'allow_always':'allow_once',optionId:'allow',name:'Allow'},{kind:'reject_once',optionId:'deny',name:'Deny'}]});
  if(permission.outcome?.outcome==='selected'&&permission.outcome.optionId==='allow'){
   if(text==='write')await request('fs/write_text_file',{sessionId:'native',path:process.cwd()+'/result.txt',content:'approved write'});
+  if(text==='create'){const w=await request('fs/write_text_file',{sessionId:'native',path:process.cwd()+'/new.txt',content:'fresh'});update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:w.error?'refused: '+w.error.message+' '+JSON.stringify(w.error.data):'created'}})}
   update({sessionUpdate:'tool_call_update',toolCallId:'tool',status:'completed',content:[{type:'diff',path:'result.txt',oldText:'',newText:'approved write'}]});
  }
  update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:permission.outcome?.outcome==='selected'?'Done':'Denied'}});
@@ -125,12 +126,34 @@ test('ACP streams text, reasoning, typed edits, permissions, usage and workspace
       input: { path: 'result.txt' },
     })
     expect(events.filter((event) => event.type === 'approval_requested')).toHaveLength(2)
+    // The write approval shows the change itself, not only where it lands.
+    expect(events.filter((event) => event.type === 'approval_requested')[1]?.payload?.input).toMatchObject({
+      oldText: 'before edit',
+      newText: 'approved write',
+    })
     expect(await readFile(join(f.root, 'result.txt'), 'utf8')).toBe('approved write')
     expect(f.provider.listLiveSessions?.()[0]).toMatchObject({
       hasChildProcess: true,
       turnActive: false,
       providerSessionId: 'native',
     })
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP refuses a new-file write before asking for approval it cannot use', async () => {
+  const f = await fixture()
+  try {
+    const events = await turn(f, 'create')
+    // Only the agent's own tool permission; the callback write is refused unasked.
+    expect(events.filter((event) => event.type === 'approval_requested')).toHaveLength(1)
+    expect(
+      events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.payload?.text)
+        .join(''),
+    ).toContain('can edit existing files only')
+    await expect(readFile(join(f.root, 'new.txt'), 'utf8')).rejects.toThrow()
   } finally {
     await f.cleanup()
   }

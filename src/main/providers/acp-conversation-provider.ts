@@ -148,6 +148,10 @@ type State = {
   replayHistory: boolean
   assistantText: string
 }
+// A change larger than this is approved by path and size: the approval card is
+// persisted with the transcript, and a multi-megabyte diff would dominate it.
+const WRITE_PREVIEW_BYTES = 256 * 1024
+
 type Options = {
   detect?: (input: MockAdapterSessionInput) => Promise<string>
   buildEnv?: (input: MockAdapterSessionInput) => Promise<NodeJS.ProcessEnv>
@@ -411,24 +415,48 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             if (Buffer.byteLength(params.content) > 2 * 1024 * 1024)
               throw new Error('File exceeds the conversation write limit.')
             const path = await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
+            // Creating through an unanchored parent path can escape after a
+            // directory swap, even with O_NOFOLLOW. Native CLI tools may create
+            // files under their own policy; this callback edits existing files.
+            // That is checked before asking, so an approval is never spent on a
+            // write that cannot happen, and the current text becomes the
+            // before side of the change the person is asked to approve.
+            const openExisting = (access: 'read' | 'write') =>
+              openConfinedExistingFile(state.input.workspaceRoot!, path, access).catch((error) => {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+                  throw new Error(
+                    'Conversation file callbacks can edit existing files only. Use the native CLI file tool to create a file.',
+                  )
+                throw error
+              })
+            const current = await openExisting('read')
+            let oldText: string | undefined
+            try {
+              if ((await current.stat()).size <= WRITE_PREVIEW_BYTES) {
+                const text = (await readBoundedConversationFile(current, WRITE_PREVIEW_BYTES)).toString('utf8')
+                if (!text.includes('\0')) oldText = text
+              }
+            } finally {
+              await current.close()
+            }
+            const preview =
+              oldText !== undefined && Buffer.byteLength(params.content) <= WRITE_PREVIEW_BYTES
+                ? { oldText, newText: params.content }
+                : { bytes: Buffer.byteLength(params.content) }
             const decision = await permission(state, {
               sessionId: params.sessionId,
-              toolCall: { toolCallId: `write_${++requestSequence}`, kind: 'edit', name: 'Write', rawInput: { path } },
+              toolCall: {
+                toolCallId: `write_${++requestSequence}`,
+                kind: 'edit',
+                name: 'Write',
+                rawInput: { path, ...preview },
+              },
               options: [{ optionId: 'once', name: 'Allow once', kind: 'allow_once' }],
             })
             if (decision.outcome.outcome !== 'selected') throw new Error('File write was not approved.')
             await state.input.onBeforeTool?.('Write')
             await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
-            // Creating through an unanchored parent path can escape after a
-            // directory swap, even with O_NOFOLLOW. Native CLI tools may create
-            // files under their own policy; this callback edits existing files.
-            const file = await openConfinedExistingFile(state.input.workspaceRoot!, path, 'write').catch((error) => {
-              if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-                throw new Error(
-                  'Conversation file callbacks can edit existing files only. Use the native CLI file tool to create a file.',
-                )
-              throw error
-            })
+            const file = await openExisting('write')
             try {
               await file.truncate(0)
               await file.writeFile(params.content, 'utf8')
