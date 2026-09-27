@@ -3,6 +3,11 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 
 export const MAX_DRAFT_CHARS = 120_000
 export const MAX_COMPOSER_DRAFTS = 200
+// All drafts together stay well inside the origin's storage quota, which other
+// renderer stores share: at 200 × 120k characters the blob alone would exceed it.
+export const MAX_TOTAL_DRAFT_CHARS = 1_000_000
+// Writes rewrite the whole blob, so a burst of edits and reads lands as one.
+const WRITE_DELAY_MS = 250
 export type { ConversationMentionRef as ComposerMentionRef } from '../../../../../shared/conversation/mentions'
 import {
   parseConversationMentions,
@@ -25,13 +30,96 @@ function normalizeDraft(value: unknown): ComposerDraft | null {
     updatedAt: raw.updatedAt,
   }
 }
+// Most recently used first, dropping the rest once either the draft count or
+// the character budget is spent. The newest draft is always kept.
 function bounded(records: Record<string, ComposerDraft>): Record<string, ComposerDraft> {
-  return Object.fromEntries(
-    Object.entries(records)
-      .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
-      .slice(0, MAX_COMPOSER_DRAFTS),
-  )
+  let chars = 0
+  const kept: [string, ComposerDraft][] = []
+  for (const entry of Object.entries(records).sort((a, b) => b[1].updatedAt - a[1].updatedAt)) {
+    chars += draftChars(entry[1])
+    if (kept.length >= MAX_COMPOSER_DRAFTS || (kept.length > 0 && chars > MAX_TOTAL_DRAFT_CHARS)) break
+    kept.push(entry)
+  }
+  return Object.fromEntries(kept)
 }
+const draftChars = (draft: ComposerDraft) =>
+  draft.text.length + JSON.stringify(draft.skillIds).length + JSON.stringify(draft.mentions).length
+
+/**
+ * Storage that coalesces writes, and when the quota refuses one gives up the
+ * least recently used drafts until the rest fit. `failed` reports whether the
+ * last write landed, for the composer's warning; `flush` writes now.
+ */
+function draftStorage(storage: StateStorage) {
+  let pending: { name: string; value: string } | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let failed = false
+  const listeners = new Set<() => void>()
+  const report = (next: boolean) => {
+    if (next === failed) return
+    failed = next
+    for (const listener of listeners) listener()
+  }
+  const write = (name: string, value: string) => {
+    let blob = value
+    for (;;) {
+      try {
+        storage.setItem(name, blob)
+        report(false)
+        return
+      } catch {
+        const smaller = withoutOldestDraft(blob)
+        if (smaller === null) break
+        blob = smaller
+      }
+    }
+    report(true)
+  }
+  const flush = () => {
+    if (timer !== null) clearTimeout(timer)
+    timer = null
+    const next = pending
+    pending = null
+    if (next) write(next.name, next.value)
+  }
+  const wrapped: StateStorage = {
+    getItem: (name) => (pending?.name === name ? pending.value : storage.getItem(name)),
+    setItem: (name, value) => {
+      pending = { name, value }
+      timer ??= setTimeout(flush, WRITE_DELAY_MS)
+    },
+    removeItem: (name) => {
+      if (pending?.name === name) pending = null
+      storage.removeItem(name)
+    },
+  }
+  return {
+    storage: wrapped,
+    flush,
+    failed: () => failed,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
+
+// The persisted envelope minus its least recently used draft; null when only
+// one is left (the one being edited) or the envelope is not ours.
+function withoutOldestDraft(blob: string): string | null {
+  try {
+    const envelope = JSON.parse(blob) as { state?: { drafts?: Record<string, ComposerDraft> } }
+    const drafts = envelope.state?.drafts
+    if (!drafts || Object.keys(drafts).length <= 1) return null
+    const oldest = Object.entries(drafts).sort((a, b) => a[1].updatedAt - b[1].updatedAt)[0][0]
+    const rest = { ...drafts }
+    delete rest[oldest]
+    return JSON.stringify({ ...envelope, state: { ...envelope.state, drafts: rest } })
+  } catch {
+    return null
+  }
+}
+
 type DraftState = {
   drafts: Record<string, ComposerDraft>
   read(workspaceId: string, agentId: string): ComposerDraft
@@ -45,7 +133,8 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
   // millisecond, or the device clock moves backwards after a restart.
   const nextAccess = (records: Record<string, ComposerDraft>) =>
     Math.max(now(), ...Object.values(records).map((draft) => draft.updatedAt + 1))
-  return createStore<DraftState>()(
+  const persisted = draftStorage(storage)
+  const store = createStore<DraftState>()(
     persist(
       (set, get) => ({
         drafts: {},
@@ -55,12 +144,7 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
           const saved = records[key]
           if (!saved) return EMPTY_DRAFT
           const touched = { ...saved, updatedAt: nextAccess(records) }
-          try {
-            set({ drafts: { ...records, [key]: touched } })
-          } catch {
-            // Reading an existing draft must still work if storage is full.
-            // Actual edits surface persistence failures through the composer.
-          }
+          set({ drafts: { ...records, [key]: touched } })
           return touched
         },
         put: (workspaceId, agentId, draft) => {
@@ -81,7 +165,7 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
       {
         name: 'sprintengine-conversation-drafts',
         version: 1,
-        storage: createJSONStorage(() => storage),
+        storage: createJSONStorage(() => persisted.storage),
         partialize: (state) => ({ drafts: state.drafts }),
         merge: (persisted, current) => {
           const raw = persisted && typeof persisted === 'object' && 'drafts' in persisted ? persisted.drafts : null
@@ -96,6 +180,11 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
       },
     ),
   )
+  return Object.assign(store, {
+    flushDrafts: persisted.flush,
+    draftWriteFailed: persisted.failed,
+    subscribeDraftWrites: persisted.subscribe,
+  })
 }
 let sharedStore: ReturnType<typeof createComposerDraftStore> | undefined
 export function composerDraftStore() {

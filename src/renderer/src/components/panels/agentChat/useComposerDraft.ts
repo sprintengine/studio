@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type SetStateAction } from 'react'
 import { composerDraftStore, MAX_DRAFT_CHARS, type ComposerDraft } from './draftStore'
 
 type DraftValue = Omit<ComposerDraft, 'updatedAt'>
@@ -24,19 +24,17 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
   values.current.set(key, current)
   const pending = useRef(new Map<string, { token: symbol; snapshot: DraftValue }>())
   const activeKeys = useRef(new Set<string>())
-  const [persistenceError, setPersistenceError] = useState<string | null>(null)
+  // Storage writes land shortly after an edit, so a refused write is reported
+  // by the store rather than thrown from the edit that caused it.
+  const writeFailed = useSyncExternalStore(store.subscribeDraftWrites, store.draftWriteFailed)
+  const persistenceError = writeFailed
+    ? 'This draft could not be saved on this device. Keep this tab open or copy the text before closing it.'
+    : null
   const write = useCallback(
     (target: string, workspace: string, agent: string) => {
       const value = values.current.get(target) ?? empty()
       const protectedSend = pending.current.get(target)
-      try {
-        store.getState().put(workspace, agent, protectedSend && isEmpty(value) ? protectedSend.snapshot : value)
-        setPersistenceError(null)
-      } catch {
-        setPersistenceError(
-          'This draft could not be saved on this device. Keep this tab open or copy the text before closing it.',
-        )
-      }
+      store.getState().put(workspace, agent, protectedSend && isEmpty(value) ? protectedSend.snapshot : value)
     },
     [store],
   )
@@ -71,14 +69,18 @@ export function useComposerDraft(workspaceId: string, agentId: string, prefill =
   }, [current, flushDraft])
   useEffect(() => {
     activeKeys.current.add(key)
-    const flush = () => write(key, workspaceId, agentId)
+    // Leaving the page or the chat cannot wait for the store's write delay.
+    const flush = () => {
+      write(key, workspaceId, agentId)
+      store.flushDrafts()
+    }
     window.addEventListener('pagehide', flush)
     return () => {
       flush()
       activeKeys.current.delete(key)
       window.removeEventListener('pagehide', flush)
     }
-  }, [key, workspaceId, agentId, write])
+  }, [key, workspaceId, agentId, write, store])
 
   const beginDraftSend = useCallback(
     (message: string): symbol | null => {
