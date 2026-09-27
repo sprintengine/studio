@@ -108,12 +108,13 @@ function countOpenTabs(model: Model | null): number {
 // Dev Tools panels. The canonical `editor` panel is
 // served through the renderer host (gated on the dev-tools module). The local
 // `EditorPanel` below backs `file-editor`, a per-file editor that takes the
-// `filePath` prop the host contract omits. It shares the editor chunk with the
-// host-served panel, so a disabled dev-tools module ships none of it.
+// `filePath` prop the host contract omits. It shares the editor panel's chunk
+// with the host-served panel, so a disabled dev-tools module loads none of it.
 // The agent tab's panel — the chat composer, its transcript and the terminal
-// under them. Lazy like every other panel in this factory (bundle-budget
-// ratchet): it is the largest thing the boot graph used to carry that no first
-// paint can show before a workspace layout has resolved its tabs, and the
+// under them. Lazy like every other panel in this factory, so the first paint
+// does not wait on code it cannot show: it is the largest thing boot used to
+// evaluate that no first paint can show before a workspace layout has resolved
+// its tabs, and the
 // terminal inside it is already fetched on demand, so a tab that opens goes
 // through one Suspense step it was going through anyway. It also kept the kit's
 // skill picker (and the skills catalogue behind it) eager for everyone.

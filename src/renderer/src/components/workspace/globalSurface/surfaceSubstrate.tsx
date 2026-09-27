@@ -132,8 +132,8 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
 // ── GlobalSurfaceErrorBoundary ───────────────────────────────────────────────
 // The boundary itself moved to `surfaceErrorBoundary.tsx` — it is the ONE piece
 // of this module the shell must hold before any door opens, and importing it
-// from here dragged the rail, its filter menu and its search input into the
-// eager boot chunk (bundle-budget ratchet). Re-exported so every existing
+// from here dragged the rail, its filter menu and its search input into what
+// boot evaluates before the first paint. Re-exported so every existing
 // importer, and the door tests, still name this module.
 export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 

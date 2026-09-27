@@ -1,4 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+/* The two families the design system names, in the weights the app draws them
+   at, bundled from npm and emitted beside the renderer's own assets. Nothing the
+   renderer draws is fetched from a font CDN at runtime: a window opened offline
+   paints in the same faces as one opened online, and Monaco measures the face it
+   will actually draw (see utils/fonts.ts). */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
 @import "tailwindcss";
 /* The design system is the authority on the palette (design-system/USAGE.md).
    The base dark block and the light block below alias these `--sem-*`

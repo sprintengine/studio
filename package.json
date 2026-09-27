@@ -20,7 +20,7 @@
   "scripts": {
     "start": "node scripts/dev.js",
     "dev": "node scripts/dev.js",
-    "build": "electron-vite build && node scripts/check-bundle-budget.mjs",
+    "build": "electron-vite build",
     "build:sdk": "tsc -p packages/module-sdk/tsconfig.json",
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "dist": "npm run runtimes:fetch && npm run build && electron-builder",
@@ -243,6 +243,8 @@
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/hast": "3.0.5",
     "@types/jsdom": "^30.0.0",

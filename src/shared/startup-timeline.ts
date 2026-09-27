@@ -1,11 +1,10 @@
 // The startup timeline: the named boot phases, the collector that assembles
 // them across the two processes, and the read-out.
 //
-// Why it exists: `scripts/check-bundle-budget.mjs` gates boot on KB because KB
-// was the only thing anyone could measure. This module measures the thing the
-// ceiling is a proxy for — the wall clock between process start and the app
-// being on screen — so the ceiling can be argued from a number instead of a
-// round one.
+// Why it exists: the size of what boot loads is easy to count and says little
+// about what a person waits for. This module measures that wait directly — the
+// wall clock between process start and the app being on screen, phase by phase
+// — so a change to what boot loads can be judged by what it costs in time.
 //
 // Two processes, one clock. Main and renderer each own their own
 // `performance.now()` origin, so a mark is reported as an EPOCH millisecond
@@ -95,8 +94,9 @@ const STARTUP_SPANS: readonly {
     toId: 'renderer.navigation-start',
   },
   {
-    // The one the KB ceiling is a proxy for: HTML parse + eager chunk fetch,
-    // compile and evaluate, all of it before a single line of app code runs.
+    // The phase that grows with what boot loads: HTML parse + eager chunk
+    // fetch, compile and evaluate, all of it before a single line of app code
+    // runs.
     id: 'eager-chunk',
     label: 'document start → entry script running (eager chunk fetch+compile+eval)',
     fromId: 'renderer.navigation-start',

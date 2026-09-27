@@ -44,6 +44,13 @@
       // A TypeError from `(x?.y as T).z` in a test is a failed test, which is
       // the outcome the assertion wanted anyway.
       "rules": { "no-unsafe-optional-chaining": "off" }
+    },
+    {
+      "files": ["src/renderer/src/utils/monacoRuntime.ts"],
+      // Vite's `?worker` imports have a default export that Vite synthesises at
+      // build time (the worker's constructor); the rule reads the underlying
+      // worker script, which has none, and cannot know about the suffix.
+      "rules": { "import/default": "off" }
     }
   ]
 }

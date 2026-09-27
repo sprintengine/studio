@@ -45,9 +45,9 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 // The two title-bar popovers' bodies. Both hang off a glyph in this cluster and
 // neither is rendered until that glyph is pressed — the Remote list of machines
 // and pair-request cards, and the notification reports with their per-report
-// actions — so they are fetched at open time rather than carried through boot
-// (bundle-budget ratchet; same shape as the Settings surfaces in
-// WorkspaceManager). The glyphs themselves, and the state they wear, stay eager:
+// actions — so they are fetched at open time rather than evaluated before the
+// first paint (same shape as the Settings surfaces in WorkspaceManager). The
+// glyphs themselves, and the state they wear, stay eager:
 // `remoteGlyph.ts` holds that half.
 const RemotePopover = React.lazy(() => import('./topbar/RemotePopover').then((m) => ({ default: m.RemotePopover })))
 const NotificationsPopover = React.lazy(() =>

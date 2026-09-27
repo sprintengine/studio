@@ -3,6 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Where code may come from. Scripts and workers load from this document's
+      own origin (the bundle beside it, or the dev server in development) and
+      from blob: URLs, which is how trusted third-party module entries and the
+      shared-runtime import map are evaluated (modules/third-party-loader.ts).
+      No remote origin is allowed for either: the renderer fetches no code at
+      runtime — Monaco and its workers are bundled (utils/monacoRuntime.ts) —
+      so a remote script is always a mistake, and it fails here rather than
+      running. 'unsafe-inline' covers the theme pre-paint below and that import
+      map; 'wasm-unsafe-eval' covers the WebAssembly the syntax highlighter
+      compiles. The renderer makes no network requests of its own (main owns
+      the network), so connect-src is local too: studio-module: is a module's
+      packaged assets, data: and blob: are in-memory reads. Fonts are the
+      bundled files and nothing else. Images and frames are not restricted —
+      a marketplace logo or an embedded page is content, not code.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: studio-module:; font-src 'self' data:; object-src 'none'; base-uri 'self'"
+    />
     <title>SprintEngine</title>
     <link rel="icon" type="image/svg+xml" href="./src/assets/brand/sprintengine/mark-on-dark.svg" />
     <script>

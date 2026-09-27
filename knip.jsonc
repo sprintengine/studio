@@ -36,6 +36,9 @@
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
     "tailwindcss",
+    // The bundled UI and mono faces, imported from index.css for the same reason.
+    "@fontsource/inter",
+    "@fontsource/jetbrains-mono",
     // The pack check installs the freshly packed tarball and imports it by name.
     "@sprintengine/conversation-protocol",
   ],

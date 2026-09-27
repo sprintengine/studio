@@ -1,3 +1,4 @@
+import * as MonacoReact from '@monaco-editor/react'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as ReactDOMClient from 'react-dom/client'
@@ -52,18 +53,20 @@ export function getThirdPartyRendererLoadState(moduleId: string): ThirdPartyRend
 // maps, Chromium ≥ 133), and a map only affects modules resolved after it is
 // inserted — i.e. exactly the blob-URL entry bundles imported below.
 
-// React is eager because the app is already holding it; everything below is
-// resolved on first third-party load. The UI kit, the door shell and Monaco
-// are bridged the same way (D6) so a module renders with the app's own
-// components — but they must not join the boot graph, hence the dynamic
-// imports in installSharedRuntimeImportMap rather than static ones here. The
-// bundle-budget ratchet (scripts/check-bundle-budget.mjs) fails the build if
-// Monaco ever lands in the eager chunk.
+// React is eager because the app is already holding it, and so is the Monaco
+// wrapper: Monaco is loaded as the renderer boots (utils/monacoRuntime.ts), so
+// a module's `import { DiffEditor } from '@monaco-editor/react'` reaches the
+// same wrapper the app's editors use, already configured with the bundled
+// Monaco — a module can never start a second, CDN-loaded copy. The UI kit and
+// the door shell are bridged the same way (D6) so a module renders with the
+// app's own components; they are resolved on first third-party load instead,
+// because nothing in the shell's first render needs them.
 const EAGER_SHARED_MODULE_SPECIFIERS: Record<string, object> = {
   react: React,
   'react-dom': ReactDOM,
   'react-dom/client': ReactDOMClient,
   'react/jsx-runtime': ReactJsxRuntime,
+  '@monaco-editor/react': MonacoReact,
 }
 
 // Resolved lazily, in parallel, the first time a third-party entry is loaded.
@@ -73,7 +76,6 @@ const EAGER_SHARED_MODULE_SPECIFIERS: Record<string, object> = {
 const LAZY_SHARED_MODULE_LOADERS: Record<string, () => Promise<object>> = {
   '@sprintengine/module-sdk/ui': () => import('./sdk-ui'),
   '@sprintengine/module-sdk/surface': () => import('./sdk-surface'),
-  '@monaco-editor/react': () => import('@monaco-editor/react'),
 }
 
 const SHARED_RUNTIME_GLOBAL = '__sprintengineSharedModuleRuntime'

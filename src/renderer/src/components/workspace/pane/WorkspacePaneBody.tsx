@@ -21,15 +21,15 @@ import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './Float
 
 const FileExplorer = React.lazy(() => import('../../panels/FileExplorer'))
 const PlainTerminalPanel = React.lazy(() => import('../../panels/PlainTerminalPanel'))
-// Monaco rides with the diff viewer; lazy so a pane without a Diff tab never
-// pays for it.
+// The diff viewer's own UI (Monaco itself is loaded at boot, see
+// utils/monacoRuntime.ts); lazy so a pane without a Diff tab never evaluates it.
 const DiffViewer = React.lazy(() =>
   import('../../auxWindows/DiffViewer').then((module) => ({ default: module.DiffViewer })),
 )
 const BrowserTab = React.lazy(() => import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })))
 // The canvas editor is the heaviest dependency in the tree, and this is the
-// boundary that keeps it out of the boot chunk (scripts/check-bundle-budget.mjs
-// fails the build if its signature reaches there). A local lazy const rather
+// boundary that keeps it off the boot path: nothing is drawn on a board until a
+// Canvas tab is on screen, so its evaluation waits for one. A local lazy const rather
 // than a host-registered panel because the tab needs the tab RECORD — which
 // board it is on — and whether it is the one on screen, and a host panel is
 // handed neither; the same split dev-tools makes for its explorer.
