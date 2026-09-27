@@ -1511,6 +1511,11 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             This session is using an API key, not your subscription.
           </InlineNotice>
         ) : null}
+        {sessionId !== null && projection.sessionNotice !== null ? (
+          <InlineNotice tone="warn" className="mx-3 my-2">
+            {projection.sessionNotice}
+          </InlineNotice>
+        ) : null}
 
         <div
           role="log"

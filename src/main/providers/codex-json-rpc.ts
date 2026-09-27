@@ -26,6 +26,10 @@ export type CodexRpcOptions = {
   spawnChild?: typeof spawn
 }
 
+/** Codex answered the request with an error, as opposed to the request never
+ * being answered (a timeout, or the process closing). */
+export class CodexRpcError extends Error {}
+
 /** JSONL framing is confined here; protocol events never share stderr or shell parsing. */
 export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTransport {
   const child = (options.spawnChild ?? spawn)(options.command, ['app-server', '--listen', 'stdio://'], {
@@ -92,7 +96,7 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
         if (!request) continue
         clearTimeout(request.timer)
         pending.delete(message.id)
-        if (message.error) request.reject(new Error(message.error.message ?? 'Codex request failed.'))
+        if (message.error) request.reject(new CodexRpcError(message.error.message ?? 'Codex request failed.'))
         else request.resolve(message.result)
       } else if (typeof message.method === 'string') {
         delivery = delivery

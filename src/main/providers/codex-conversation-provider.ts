@@ -10,6 +10,7 @@ import type {
   MockAdapterTurnInput,
 } from './conversation-provider-adapter'
 import {
+  CodexRpcError,
   createCodexRpcTransport,
   type CodexRpcOptions,
   type CodexRpcTransport,
@@ -58,6 +59,8 @@ type ActiveTurn = {
   items: Map<string, RecordValue>
   outputBytes: Map<string, number>
   deferredApprovals: Map<string, (item: RecordValue) => void>
+  message: string
+  text: string
 }
 type Session = {
   closed: boolean
@@ -67,6 +70,10 @@ type Session = {
   starting?: Promise<void>
   turn: ActiveTurn | null
   pending: Map<string, { rpcId: string | number; kind: 'tool' | 'question'; questions?: RecordValue[] }>
+  // Completed exchanges of this process, replayed with the persisted history
+  // when the thread they belonged to cannot be resumed.
+  history: Array<{ user: string; assistant: string }>
+  replayHistory: boolean
   lastActivityAt: number
   spawnedAt: number | null
 }
@@ -121,6 +128,7 @@ export function createCodexConversationProvider(
   function emit(state: Session, type: ConversationEvent['type'], payload: RecordValue = {}) {
     state.lastActivityAt = Date.now()
     const next = event(state, type, payload)
+    if (state.turn && type === 'content_delta') state.turn.text += text(payload.text)
     if (state.turn) state.turn.queue.push(next)
     else state.input.onSessionEvent?.(next)
   }
@@ -128,6 +136,8 @@ export function createCodexConversationProvider(
     if (!state.turn) return
     for (const requestId of state.pending.keys()) emit(state, 'approval_resolved', { requestId, approved: false })
     state.pending.clear()
+    if (!failure && !interrupted && !state.turn.cancelled)
+      state.history.push({ user: state.turn.message, assistant: state.turn.text })
     emit(
       state,
       failure ? 'turn_failed' : 'turn_completed',
@@ -366,18 +376,39 @@ export function createCodexConversationProvider(
         if (account.requiresOpenaiAuth === true && !account.account && !hasApiKey(env))
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
         const policy = codexPermissionPolicy(state.input.permissionPreset)
-        const result = record(
-          await transport.request(state.threadId ? 'thread/resume' : 'thread/start', {
-            ...(state.threadId ? { threadId: state.threadId } : {}),
-            cwd: state.input.workspaceRoot,
-            model: state.input.modelId,
-            ...(policy.approvalPolicy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
-          }),
-        )
+        const threadParams = {
+          cwd: state.input.workspaceRoot,
+          model: state.input.modelId,
+          ...(policy.approvalPolicy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
+        }
+        let resumeLost = false
+        let result: RecordValue
+        if (state.threadId) {
+          try {
+            result = record(await transport.request('thread/resume', { ...threadParams, threadId: state.threadId }))
+          } catch (error) {
+            // Codex no longer has the thread (its history was cleared, or the
+            // cursor came from another machine). Retrying the same id would
+            // fail on every turn, so continue in a new thread, carry the
+            // conversation over as context, and say so.
+            if (!(error instanceof CodexRpcError)) throw error
+            result = record(await transport.request('thread/start', threadParams))
+            resumeLost = true
+          }
+        } else result = record(await transport.request('thread/start', threadParams))
         const id = text(record(result.thread).id)
         if (!id) throw new Error('Codex did not return a conversation identity.')
         state.threadId = id
-        emit(state, 'session_updated', { providerSessionId: id })
+        if (resumeLost) state.replayHistory = true
+        emit(state, 'session_updated', {
+          providerSessionId: id,
+          ...(resumeLost
+            ? {
+                notice:
+                  'The previous Codex thread could not be resumed, so this conversation continues in a new thread. The earlier messages were passed to it as context.',
+              }
+            : {}),
+        })
       } catch (error) {
         state.transport = null
         state.spawnedAt = null
@@ -417,6 +448,8 @@ export function createCodexConversationProvider(
         transport: null,
         turn: null,
         pending: new Map(),
+        history: [],
+        replayHistory: false,
         lastActivityAt: Date.now(),
         spawnedAt: null,
       }
@@ -438,6 +471,8 @@ export function createCodexConversationProvider(
         items: new Map(),
         outputBytes: new Map(),
         deferredApprovals: new Map(),
+        message: input.message,
+        text: '',
       }
       emit(state, 'turn_started')
       const abort = () => {
@@ -467,7 +502,7 @@ export function createCodexConversationProvider(
               model: input.modelId,
               ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
               input: [
-                { type: 'text', text: input.message, text_elements: [] },
+                { type: 'text', text: withReplayedHistory(state, input.message), text_elements: [] },
                 ...(input.attachments ?? []).map((attachment) => ({
                   type: 'image',
                   url: `data:${attachment.mediaType};base64,${attachment.dataBase64}`,
@@ -570,6 +605,18 @@ export function createCodexConversationProvider(
       sessions.clear()
     },
   }
+}
+
+// The first message to a thread that replaced a lost one carries the
+// conversation so far, which is the only context the new thread gets.
+function withReplayedHistory(state: Session, message: string): string {
+  if (!state.replayHistory) return message
+  state.replayHistory = false
+  const prior = [
+    ...(state.input.fallbackHistory ?? []).map((entry) => `${entry.role}: ${entry.content}`),
+    ...state.history.map((turn) => `User: ${turn.user}\nAssistant: ${turn.assistant}`),
+  ].join('\n\n')
+  return prior ? `Previous conversation:\n${prior}\n\nUser: ${message}` : message
 }
 
 async function interrupt(state: Session): Promise<void> {

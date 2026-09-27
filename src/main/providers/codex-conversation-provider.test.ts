@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { createCodexConversationProvider, codexPermissionPolicy, codexChildEnv } from './codex-conversation-provider'
-import type { CodexRpcOptions, RpcMessage } from './codex-json-rpc'
+import { CodexRpcError, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 
 function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (params: unknown) => unknown } = {}) {
@@ -22,6 +22,7 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
           calls.push({ method, params })
           if (method === 'account/read')
             return setup.account ?? { requiresOpenaiAuth: true, account: { type: 'chatgpt' } }
+          if (method === 'thread/resume' && setup.resume) return setup.resume(params)
           if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: 'native-thread' } }
           if (method === 'turn/start') {
             resolveStarted()
@@ -359,4 +360,44 @@ test('an API key in the environment reaches the Codex child and counts as signed
   await signedOut.adapter.startSession(signedOut.input)
   await signedOut.send()
   expect(String(signedOut.events.at(-1)?.payload?.message)).toContain('not logged in')
+})
+
+test('a thread Codex no longer has continues in a new thread with the conversation replayed', async () => {
+  const f = fixture({
+    resume: () => {
+      throw new CodexRpcError('thread not found')
+    },
+  })
+  await f.adapter.startSession({
+    ...f.input,
+    resumeSessionId: 'lost-thread',
+    fallbackHistory: [
+      { role: 'user', content: 'persisted question' },
+      { role: 'assistant', content: 'persisted answer' },
+    ],
+  })
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.calls.map((call) => call.method)).toContain('thread/resume')
+  const update = f.events.find((event) => event.type === 'session_updated')
+  expect(update?.payload?.providerSessionId).toBe('native-thread')
+  expect(String(update?.payload?.notice)).toContain('could not be resumed')
+  const prompt = JSON.stringify(f.calls.find((call) => call.method === 'turn/start')?.params)
+  expect(prompt).toContain('persisted question')
+  expect(prompt).toContain('Make a change.')
+  expect(f.events.at(-1)?.type).toBe('turn_completed')
+})
+
+test('a resume that is never answered fails the turn instead of dropping the thread', async () => {
+  const f = fixture({
+    resume: () => {
+      throw new Error('Codex thread/resume timed out.')
+    },
+  })
+  await f.adapter.startSession({ ...f.input, resumeSessionId: 'slow-thread' })
+  await f.send()
+  expect(f.calls.map((call) => call.method)).not.toContain('thread/start')
+  expect(f.events.at(-1)).toMatchObject({ type: 'turn_failed' })
 })

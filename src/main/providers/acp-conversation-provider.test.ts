@@ -18,6 +18,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
  if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[]});
+ if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
@@ -42,7 +43,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  result(m.id,{stopReason:'end_turn',usage:{inputTokens:10,outputTokens:2,totalTokens:12}});prompt=null;
 });
 `
-async function fixture(resume = false) {
+async function fixture(resume = false, lostSessionId?: string) {
   const root = await mkdtemp(join(tmpdir(), 'acp-provider-'))
   const input = {
     sessionId: 'session',
@@ -51,9 +52,9 @@ async function fixture(resume = false) {
     providerId: 'test-acp',
     modelId: 'default',
     workspaceRoot: root,
-    ...(resume
+    ...(resume || lostSessionId
       ? {
-          resumeSessionId: 'old',
+          resumeSessionId: lostSessionId ?? 'old',
           fallbackHistory: [
             { role: 'user' as const, content: 'persisted question' },
             { role: 'assistant' as const, content: 'persisted answer' },
@@ -77,8 +78,9 @@ async function fixture(resume = false) {
       startupTimeoutMs: 2000,
     },
   )
-  await provider.startSession(input)
+  const started = (await provider.startSession(input)) as ConversationEvent[]
   return {
+    started,
     root,
     input,
     provider,
@@ -211,6 +213,19 @@ test('ACP without native loading restores persisted history after application re
     const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
     expect(content).toContain('persisted question')
     expect(content).toContain('persisted answer')
+    expect(content).toContain('inspect history')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP continues in a new session with replayed history when its stored session is gone', async () => {
+  const f = await fixture(false, 'gone')
+  try {
+    const notice = f.started.find((event) => event.type === 'session_updated')
+    expect(notice?.payload).toMatchObject({ providerSessionId: 'native' })
+    expect(String(notice?.payload?.notice)).toContain('could not reopen its previous session')
+    const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(content).toContain('persisted question')
     expect(content).toContain('inspect history')
   } finally {
     await f.cleanup()

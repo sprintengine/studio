@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { expect, test } from 'vitest'
-import { createCodexRpcTransport, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
+import { CodexRpcError, createCodexRpcTransport, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
 
 function fixture(timeoutMs = 1000) {
   const child = Object.assign(new EventEmitter(), {
@@ -70,4 +70,13 @@ test('timeouts and process exit reject outstanding calls and close once', async 
   await new Promise((resolve) => setImmediate(resolve))
   expect(f.closed).toHaveLength(1)
   await expect(f.transport.request('after-close', {})).rejects.toThrow('closed')
+})
+
+test('an error answer is told apart from a request that was never answered', async () => {
+  const f = fixture(10)
+  const refused = f.transport.request('thread/resume', {})
+  f.child.stdout.write('{"id":1,"error":{"code":-32600,"message":"thread not found"}}\n')
+  await expect(refused).rejects.toBeInstanceOf(CodexRpcError)
+  await expect(f.transport.request('slow', {})).rejects.not.toBeInstanceOf(CodexRpcError)
+  f.transport.close()
 })

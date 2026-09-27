@@ -739,6 +739,22 @@ test('AgentChatView', async () => {
   ])
   assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
 
+  // --- a provider's session notice rides session_updated until the next session ---
+
+  assert.equal(empty.sessionNotice, null)
+  const replaced = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'new-thread', notice: 'The previous thread could not be resumed.' }),
+    ev('session_updated', { providerSessionId: 'new-thread' }),
+  ])
+  assert.equal(replaced.sessionNotice, 'The previous thread could not be resumed.')
+  const restarted = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'new-thread', notice: 'The previous thread could not be resumed.' }),
+    ev('session_started'),
+  ])
+  assert.equal(restarted.sessionNotice, null, "a new session does not inherit the previous one's notice")
+
   // --- subagent lanes: parent-linked tool events nest under their Task lane ---
 
   const LANE_TURN = 'turn-lane'

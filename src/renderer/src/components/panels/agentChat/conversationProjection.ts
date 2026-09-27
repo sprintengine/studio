@@ -146,6 +146,9 @@ export type ConversationProjection = {
   // login, the guaranteed path). Anything else means the session is billing
   // outside the subscription and the chat must say so.
   apiKeySource: string | null
+  // A provider's note about the live session the person should know, such as
+  // a stored session that could not be reopened and was replaced.
+  sessionNotice: string | null
   revertedAfterSeq: number | null
 }
 
@@ -372,6 +375,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let usage: ConversationUsage | null = null
   let lastError: string | null = null
   let apiKeySource: string | null = null
+  let sessionNotice: string | null = null
   let revertedAfterSeq: number | null = null
 
   const ensureTurn = (turnId: string): TurnAccumulator => {
@@ -412,11 +416,14 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         // source must not carry over (a replayed transcript would otherwise
         // false-alarm the API-key banner after a restart).
         apiKeySource = null
+        sessionNotice = null
         break
       }
       case 'session_updated': {
         const source = readString(event.payload, 'apiKeySource')
         if (source) apiKeySource = source
+        const notice = readString(event.payload, 'notice')
+        if (notice) sessionNotice = notice
         const reverted = readNumber(event.payload, 'revertedAfterSeq')
         if (reverted !== undefined) revertedAfterSeq = event.payload?.undo === true ? null : reverted
         break
@@ -716,7 +723,17 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       }
     }
   }
-  return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError, apiKeySource, revertedAfterSeq }
+  return {
+    sessionStatus,
+    activeTurn,
+    awaitingApproval,
+    entries,
+    usage,
+    lastError,
+    apiKeySource,
+    sessionNotice,
+    revertedAfterSeq,
+  }
 }
 
 // Index of which calls hang off which lane, built once per projection over

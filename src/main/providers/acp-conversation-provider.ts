@@ -146,6 +146,9 @@ type State = {
   modeConfigId?: string
   history: Array<{ user: string; assistant: string }>
   replayHistory: boolean
+  // Set when a stored session could not be reopened; reported once, with the
+  // replacement session's identity, so the person knows context was replayed.
+  resumeNotice?: string
   assistantText: string
 }
 // A change larger than this is approved by path and size: the approval card is
@@ -503,10 +506,27 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const openSession = async (connection: ClientSideConnection) => {
         const resumeId = state.nativeId ?? state.input.resumeSessionId
         state.replayHistory = Boolean(resumeId && !state.loadSupported)
-        const session =
-          resumeId && state.loadSupported
-            ? await connection.loadSession({ sessionId: resumeId, cwd: state.input.workspaceRoot!, mcpServers: [] })
-            : await connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers: [] })
+        const fresh = () => connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers: [] })
+        let session: Awaited<ReturnType<typeof fresh>> | Awaited<ReturnType<ClientSideConnection['loadSession']>>
+        if (resumeId && state.loadSupported) {
+          try {
+            session = await connection.loadSession({
+              sessionId: resumeId,
+              cwd: state.input.workspaceRoot!,
+              mcpServers: [],
+            })
+          } catch (error) {
+            // The agent answered that it cannot load this session (it was
+            // deleted, or the cursor came from another machine). Asking again
+            // would fail on every turn, so continue in a new session, carry the
+            // conversation over as context, and say so. A request that was
+            // never answered is still a startup failure.
+            if (typeof (error as { code?: unknown }).code !== 'number') throw error
+            session = await fresh()
+            state.replayHistory = true
+            state.resumeNotice = `${profile.displayName} could not reopen its previous session, so this conversation continues in a new one. The earlier messages were passed to it as context.`
+          }
+        } else session = await fresh()
         state.nativeId = 'sessionId' in session ? String(session.sessionId) : resumeId
         state.modes = session.modes?.availableModes.map((mode) => mode.id) ?? []
         state.defaultMode = session.modes?.currentModeId
@@ -589,7 +609,12 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         sessions.delete(input.sessionId)
         throw error
       }
-      return [event(state, 'session_started', { providerSessionId: state.nativeId, capabilities: state.capabilities })]
+      const notice = state.resumeNotice
+      state.resumeNotice = undefined
+      return [
+        event(state, 'session_started', { providerSessionId: state.nativeId, capabilities: state.capabilities }),
+        ...(notice ? [event(state, 'session_updated', { providerSessionId: state.nativeId, notice })] : []),
+      ]
     },
     sendTurn(input) {
       const state = sessions.get(input.sessionId)
@@ -609,7 +634,15 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
+          const previousId = state.nativeId
           await ensure(state)
+          // A reconnect can land in a different session; record it as the
+          // resume cursor, or the next restart would try the old one again.
+          if (state.nativeId !== previousId || state.resumeNotice) {
+            const notice = state.resumeNotice
+            state.resumeNotice = undefined
+            emit(state, 'session_updated', { providerSessionId: state.nativeId, ...(notice ? { notice } : {}) })
+          }
           if (input.signal?.aborted || state.cancelled) throw new Error('interrupted')
           if (input.mode || state.defaultMode) {
             const desired = !input.mode || input.mode === 'default' ? state.defaultMode : input.mode
