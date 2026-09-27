@@ -230,3 +230,20 @@ test('opening a folded turn does not flash the jump-to-latest pill', async () =>
     await chat.unmount()
   }
 })
+
+test('a turn shows its cost only when the provider reports cost', async () => {
+  const events = [
+    event('user_message', { turnId: 'priced', text: 'Summarize' }),
+    event('turn_started', { turnId: 'priced' }),
+    event('content_delta', { turnId: 'priced', text: 'Done.' }),
+    event('turn_completed', { turnId: 'priced', costUsd: 0.0123 }),
+  ]
+  for (const cost of [false, true]) {
+    const chat = await mountChat({ events, capabilities: { cost } })
+    try {
+      expect(chat.host.textContent?.includes('$0.0123')).toBe(cost)
+    } finally {
+      await chat.unmount()
+    }
+  }
+})

@@ -43,6 +43,9 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
 // name models, and where Retry routes.
 export type TimelineChrome = {
   checkpointsEnabled?: boolean
+  // The provider reports a real per-turn cost; otherwise a number in the
+  // payload is not one to show.
+  costEnabled?: boolean
   conversationRunning?: boolean
   checkpointSeqs?: ReadonlySet<number>
   latestTurnId?: string
@@ -225,7 +228,7 @@ export function AssistantTurnBlock({
       {entry.status !== 'streaming' ? (
         <div className="flex items-center gap-2 text-meta text-[color:var(--sem-color-text-muted)]">
           {entry.durationMs !== undefined ? <span>{formatStepDuration(entry.durationMs)}</span> : null}
-          {entry.costUsd !== undefined ? <span>${entry.costUsd.toFixed(4)}</span> : null}
+          {chrome.costEnabled && entry.costUsd !== undefined ? <span>${entry.costUsd.toFixed(4)}</span> : null}
           <GhostButton
             size="inline"
             className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"

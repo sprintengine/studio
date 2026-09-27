@@ -1427,6 +1427,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     oldChrome.onRetry === retry &&
     oldChrome.retryDisabled === composerDisabled &&
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
+    oldChrome.costEnabled === (capabilities?.cost === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs
       ? oldChrome
@@ -1438,6 +1439,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           onRetry: retry,
           retryDisabled: composerDisabled,
           checkpointsEnabled: capabilities?.checkpoints === true,
+          costEnabled: capabilities?.cost === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,
         }
