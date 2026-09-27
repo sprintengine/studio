@@ -6,6 +6,7 @@ import {
   parseConversationClientFrame,
   type ConversationClientFrame,
   type ConversationServerFrame,
+  type ConversationWireCommand,
   type ConversationWireErrorCode,
 } from '../../../../packages/conversation-protocol/src'
 import { tailnetScopeGrantsAccess, type TailnetScope } from '../../../shared/tailnet'
@@ -30,6 +31,33 @@ const RESYNC_CLOSE_CODE = 4409
 const PING_MS = 25_000
 const PONG_TIMEOUT_MS = 60_000
 
+const COMMAND_KINDS: Record<ConversationWireCommand['kind'], true> = {
+  send: true,
+  interrupt: true,
+  resolveApproval: true,
+  answerQuestion: true,
+  setPermissionPreset: true,
+}
+
+/**
+ * The audit names of remote conversation commands. They are mutations in the
+ * gateway's own classification, which is what puts every one of them — a
+ * refused one included — in the audit beside the MCP tools a device calls.
+ */
+export const CONVERSATION_COMMAND_TOOL_NAMES: readonly string[] = Object.keys(COMMAND_KINDS).map(
+  (kind) => `conversation.${kind}`,
+)
+
+/** One remote command as the audit records it: who, which conversation, what kind, how it ended. Never its text. */
+export type ConversationCommandAudit = {
+  tool: string
+  commandId: string
+  key: Pick<ConversationKey, 'workspaceId' | 'agentId'> | null
+  ok: boolean
+  code?: ConversationWireErrorCode
+  durationMs: number
+}
+
 export type TailnetConversationStream = {
   deviceId: string
   close(code: number, reason: string): void
@@ -43,7 +71,7 @@ export type TailnetConversationStreamOptions = {
   scopes: readonly TailnetScope[]
   host: ConversationGatewayHost
   onClosed(): void
-  audit(command: string, workspaceId: string, agentId: string): void
+  audit(entry: ConversationCommandAudit): void
   now?: () => number
 }
 
@@ -213,22 +241,30 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       return
     }
     if (frame.type === 'command') {
-      if (!mayOperate) {
-        send({ type: 'commandResult', commandId: frame.commandId, ok: false, code: 'conversation_operate_required' })
-        return
+      const started = now()
+      const key = currentKey
+      const finish = (ok: boolean, code?: ConversationWireErrorCode, message?: string): void => {
+        options.audit({
+          tool: `conversation.${frame.command.kind}`,
+          commandId: frame.commandId,
+          key: key ? { workspaceId: key.workspaceId, agentId: key.agentId } : null,
+          ok,
+          ...(code ? { code } : {}),
+          durationMs: now() - started,
+        })
+        send({
+          type: 'commandResult',
+          commandId: frame.commandId,
+          ok,
+          ...(code ? { code } : {}),
+          ...(message ? { message } : {}),
+        })
       }
-      if (!currentKey) {
-        send({ type: 'commandResult', commandId: frame.commandId, ok: false, code: 'not_found' })
-        return
-      }
-      options.audit(frame.command.kind, currentKey.workspaceId, currentKey.agentId)
-      const commandResult = await host.command(currentKey, options.deviceId, frame.commandId, frame.command)
-      send({
-        type: 'commandResult',
-        commandId: frame.commandId,
-        ok: commandResult.ok,
-        ...(commandResult.ok ? {} : { code: 'unavailable', message: commandResult.message }),
-      })
+      if (!mayOperate) return finish(false, 'conversation_operate_required')
+      if (!key) return finish(false, 'not_found')
+      const commandResult = await host.command(key, options.deviceId, frame.commandId, frame.command)
+      if (commandResult.ok) finish(true)
+      else finish(false, 'unavailable', commandResult.message)
     }
   }
 

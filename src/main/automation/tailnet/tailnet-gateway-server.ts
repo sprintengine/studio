@@ -9,6 +9,7 @@ import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../../shared/product-identity'
 import {
   toolError,
+  toolSuccess,
   type McpConnectionContext,
   type McpToolRegistration,
   type McpToolResult,
@@ -965,12 +966,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         onClosed: () => {
           if (registration.stream) conversationStreams.delete(registration.stream)
         },
-        audit: (kind, workspaceId, agentId) =>
+        // The device is the connection's identity; the conversation and the
+        // command id are the targets. A message's text never reaches the audit.
+        audit: (entry) =>
           options.onToolCall?.({
             context: contextFor(currentDevice, peerNode),
-            tool: `conversation.${kind}`,
-            args: { deviceId: device.id, workspaceId, agentId },
-            durationMs: 0,
+            tool: entry.tool,
+            args: { ...entry.key, id: entry.commandId },
+            durationMs: entry.durationMs,
+            result: entry.ok
+              ? toolSuccess({ ok: true })
+              : toolError(entry.code ?? 'unavailable', 'The conversation command was not carried out.'),
           }),
       })
       registration.stream = stream

@@ -62,7 +62,10 @@ test('tailnet', async () => {
   // real TCP socket on loopback — the transport, the auth, and the audit are the
   // thing under test, so a fake would prove nothing about any of them.
 
-  const MUTATIONS = new Set(['backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
+  // The production classification, never a set of the test's own: the audit
+  // decision is part of what these tests cover, and a private list is how a
+  // family of remote commands once went unaudited while every test passed.
+  const isMutation = (name: string): boolean => isStudioGatewayMutation(name)
 
   function testTools(calls: string[] = []): McpToolRegistration[] {
     const tool = (name: string): McpToolRegistration => ({
@@ -121,7 +124,7 @@ test('tailnet', async () => {
       serverName: 'sprintengine-studio',
       serverVersion: '9.9.9',
       resolveTools: () => options.tools ?? testTools(calls),
-      isMutation: (name) => MUTATIONS.has(name),
+      isMutation,
       devices,
       // `null` stands for a build with terminal streaming unwired, so the route's
       // own refusal is testable; every other harness gets the stub host.
@@ -132,7 +135,7 @@ test('tailnet', async () => {
         ? { resolve: options.resolvePeer }
         : createTailnetPeerResolver({ runWhois: async () => options.peerNode ?? null }),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!MUTATIONS.has(tool)) return
+        if (!isMutation(tool)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       ...(options.changePushIntervalMs !== undefined ? { changePushIntervalMs: options.changePushIntervalMs } : {}),
@@ -628,7 +631,7 @@ test('tailnet', async () => {
         serverName: 'sprintengine-studio',
         serverVersion: '9.9.9',
         resolveTools: () => testTools(),
-        isMutation: (name) => MUTATIONS.has(name),
+        isMutation,
         resolveBindAddress: () => '127.0.0.1',
       })
       const initial = await service.initialize()
@@ -2441,9 +2444,38 @@ test('tailnet', async () => {
       assert.deepEqual(await socket.nextMessage(), { type: 'synchronized', seq: 0 })
       socket.send({ type: 'command', commandId: 'deny-read-mutation', command: { kind: 'interrupt' } })
       assert.equal((await socket.nextMessage()).code, 'conversation_operate_required')
+      const operatorTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: operator.deviceToken })
+      const operatorSocket = await openWebSocket(harness.port, (operatorTicket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      operatorSocket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
+      assert.deepEqual(await operatorSocket.nextMessage(), { type: 'synchronized', seq: 0 })
+      operatorSocket.send({
+        type: 'command',
+        commandId: 'remote-send',
+        command: { kind: 'send', message: 'words only the conversation may keep' },
+      })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'commandResult',
+        commandId: 'remote-send',
+        ok: true,
+      })
+      // Every remote command is audited with the device, the conversation and
+      // its kind — the refused one too — and never with what was typed.
+      const audited = (await harness.auditRecords()).filter((record) => record.tool.startsWith('conversation.'))
+      assert.deepEqual(
+        audited.map((record) => [record.tool, record.connection.deviceId, record.outcome, record.errorCode ?? null]),
+        [
+          ['conversation.interrupt', reader.deviceId, 'failure', 'conversation_operate_required'],
+          ['conversation.send', operator.deviceId, 'success', null],
+        ],
+      )
+      assert.deepEqual(audited[1].targets, { workspaceId: 'workspace', agentId: 'agent', id: 'remote-send' })
+      assert.equal(JSON.stringify(audited).includes('words only'), false)
       harness.devices.revokeDevice(reader.deviceId)
       assert.equal(await socket.closed, WEBSOCKET_CLOSE_REVOKED)
-      assert.equal(disposed, 1)
+      assert.equal(disposed, 1, "revoking one device leaves another device's socket open")
+      operatorSocket.socket.destroy()
       const revokedDuringLookup = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
       const staleTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, {
         token: revokedDuringLookup.deviceToken,
