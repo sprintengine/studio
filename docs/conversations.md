@@ -103,15 +103,58 @@ it keeps falling behind. Requests beyond the per-socket bound are answered
 `busy`, and responses over 32 MB are answered `too_large`; neither closes the
 socket. Every refusal is answered under the id of what it refuses.
 
+Every snapshot and fence names the conversation it belongs to. When a socket
+switches conversations, the old replay stops at the next whole frame and never
+sends its fence, and a client ignores frames for a conversation it no longer
+follows. Live events that arrive while a replay is still going out wait behind
+it, bounded by size rather than count, so a busy turn during a large catch-up
+does not force a resync before the fence.
+
 The portable protocol lives in `packages/conversation-protocol`; its README is
 the frame reference. Its source mirror and digest in the companion must be
 updated together until the companion adopts a published package version.
 Building this branch does not publish that package.
 
-Phase changes reach a client while its socket is open. Background push
-notifications are not provided. A conversation deep link is
+Phase changes reach a client while its socket is open, and every paired
+device's change feed says when the conversation list moved — a conversation
+started, finished, or began waiting on a person — so a list re-reads on the
+change rather than on a timer. Background push notifications are not provided. A conversation deep link is
 `sprintengine://conversation/<deviceId>/<workspaceId>/<agentId>` (each component
 URL-encoded); it resolves only against an already paired desktop.
+
+### Following from another desktop
+
+A Studio desktop paired to this one follows its conversations the way it
+attaches to its terminals, with the same pairing and grant. The sidebar's
+Remote band lists each chat on the paired machine as its own row, with the
+presence its phase says: running, needs approval, or done. Opening one makes a
+solo workspace whose pane is the regular chat view, following the conversation
+over the tailnet, with the machine on the tab and above the transcript.
+
+- **The copy is kept.** Main follows over one socket per conversation, shared
+  by every window showing it, and keeps the transcript tail with its cursor
+  (log generation and last sequence) in the app profile. A dropped link or an
+  app restart shows the conversation at once and asks only for what came after
+  the cursor; another generation, or a cursor too far behind, gets a reset
+  snapshot that replaces the copy. Forgetting the machine deletes its copies.
+- **Every frame is validated** against the protocol before it touches the copy.
+  A frame of a known type in the wrong shape ends the follow with a sentence
+  rather than being skipped, since skipping an event and moving the cursor past
+  it would lose it.
+- **The link follows the host's advice.** A resync close waits the delay it
+  names, a wake does not cut that short, `busy` is retried after its delay under
+  the same id, a revoked device or a lost read grant ends the follow without
+  retrying, and a socket silent past two of the host's pings is re-dialled.
+- **What the view offers is what the grant and the lane allow.** A pairing
+  without `conversation:operate` sees the conversation with the composer,
+  approvals and stop closed. A remote view never offers a permanent approval
+  rule, a bypass or CLI-managed preset, a checkpoint revert, a model switch, or
+  this machine's skills, files and images; the preset picker is hidden because
+  the list does not say which preset is in force over there. File paths in a
+  remote transcript are not links, since they name files on the other disk. A
+  send is answered when its turn ends, as on the desktop itself, and a send in
+  flight across a reconnect is sent again under the same command id and
+  accepted once.
 
 ## Manual verification
 
@@ -129,6 +172,11 @@ URL-encoded); it resolves only against an already paired desktop.
    without a reset), and verify an offline send appears once after
    acknowledgement. Narrow the device to read-only in Settings and confirm the
    next command is refused.
+6. Pair a second Studio desktop with conversation access. Open a chat from its
+   Remote band, send, approve and stop from there; drop Wi-Fi mid-reply and
+   rejoin (no reset, no repeated text); quit and relaunch it (the transcript is
+   on screen before it reconnects, then catches up). Narrow the pairing to read
+   and confirm the composer closes with the reason.
 
 Mocked native UI fixtures and protocol tests do not replace a live provider or
 physical-device test. Authentication-dependent checks should record which CLI
