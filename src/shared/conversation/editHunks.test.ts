@@ -40,3 +40,10 @@ test('patch input and word emphasis preserve source', () => {
       .join(''),
   ).toBe('next')
 })
+test('a whole-file write is not claimed as a new file unless the previous version was empty', () => {
+  const [write] = deriveEditHunks({ file_path: 'app.ts', content: 'a\nb\n' })
+  expect(write).toMatchObject({ newFile: false, contentsOnly: true, added: 2 })
+  const [created] = deriveEditHunks({ path: 'app.ts', oldText: '', newText: 'a\n' })
+  expect(created).toMatchObject({ newFile: true })
+  expect(created?.contentsOnly).toBeUndefined()
+})

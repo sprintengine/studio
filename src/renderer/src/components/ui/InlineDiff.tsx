@@ -10,6 +10,8 @@ export function InlineDiff({ edit, onOpen }: { edit: ConversationEdit; onOpen?: 
   const [all, setAll] = useState(false)
   const [highlighted, setHighlighted] = useState<Map<string, { content: string; color?: string }[]>>(new Map())
   const limited = edit.added + edit.removed > 400
+  // A new file or a whole-file write is all additions: show its head only.
+  const wholeFile = edit.newFile || edit.contentsOnly === true
   const hunks = limited && !all ? edit.hunks.slice(0, 3) : edit.hunks
   const sourceHunks = useMemo(() => edit.hunks.map((hunk) => hunk.lines), [edit.hunks])
   useEffect(() => {
@@ -64,7 +66,7 @@ export function InlineDiff({ edit, onOpen }: { edit: ConversationEdit; onOpen?: 
         {hunks.map((hunk, hunkIndex) => (
           <div key={hunkIndex}>
             <div className="ds-inline-diff__header">{formatHunkHeader(hunk)}</div>
-            {(edit.newFile && !all ? hunk.lines.slice(0, 40) : hunk.lines).map((line, index) => {
+            {(wholeFile && !all ? hunk.lines.slice(0, 40) : hunk.lines).map((line, index) => {
               const added = line.startsWith('+'),
                 removed = line.startsWith('-')
               const sibling =
@@ -90,7 +92,8 @@ export function InlineDiff({ edit, onOpen }: { edit: ConversationEdit; onOpen?: 
           </div>
         ))}
       </div>
-      {((edit.newFile && edit.added > 40) || limited) && !all ? (
+      {edit.contentsOnly ? <p>Wrote the whole file. Its previous contents were not recorded.</p> : null}
+      {((wholeFile && edit.added > 40) || limited) && !all ? (
         <GhostButton size="inline" onClick={() => (onOpen ? onOpen() : setAll(true))}>
           Open full diff
         </GhostButton>

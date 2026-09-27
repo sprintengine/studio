@@ -8,6 +8,9 @@ export type ConversationEdit = {
   added: number
   removed: number
   newFile: boolean
+  // A whole-file write whose previous contents the tool did not report: every
+  // line reads as added, but the file may well have existed before.
+  contentsOnly?: boolean
   limited?: boolean
 }
 function record(value: unknown): Record<string, unknown> {
@@ -63,12 +66,16 @@ export function deriveEditHunks(value: ConversationJsonValue | undefined): Conve
       counted(file.newPath ?? file.oldPath ?? path, file.hunks, file.oldPath === null && file.newPath !== null),
     )
   }
+  const reportsOld = typeof (input.oldText ?? input.old_string) === 'string'
   const oldText = text(input.oldText ?? input.old_string)
   const newText = text(input.newText ?? input.new_string ?? input.content)
   if (!path || (!newText && !oldText)) return []
+  // Only an explicitly empty previous version makes this a new file.
+  const newFile = reportsOld && !oldText
+  const contentsOnly = !reportsOld ? { contentsOnly: true } : {}
   const patch = structuredPatch(path, path, oldText, newText, undefined, undefined, { context: 3, timeout: 50 })
-  if (!patch) return [{ path, hunks: [], added: 0, removed: 0, newFile: !oldText, limited: true }]
-  return [counted(path, patch.hunks, !oldText)]
+  if (!patch) return [{ path, hunks: [], added: 0, removed: 0, newFile, ...contentsOnly, limited: true }]
+  return [{ ...counted(path, patch.hunks, newFile), ...contentsOnly }]
 }
 
 export function emphasizeChangedWords(
