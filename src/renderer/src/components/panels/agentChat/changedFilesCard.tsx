@@ -34,35 +34,62 @@ export function RevertTurnAction({
     setPending(true)
     const key = { workspaceRoot: context.workspaceRoot, workspaceId: context.workspaceId, agentId: context.agentId }
     try {
-      const preview = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted })
-      if (!preview.ok) throw new Error(preview.message)
-      const accepted = await dialog.confirm({
-        title: reverted ? 'Undo this revert?' : 'Revert to before this turn?',
-        tone: 'danger',
-        confirmLabel: reverted ? 'Undo revert' : 'Revert files',
-        body: (
-          <>
-            <p>
-              The following files and their staged state will be restored. Your conversation stays in history. A
-              recovery checkpoint is kept before reverting.
-            </p>
-            <ul className="max-h-60 overflow-auto">
-              {preview.files.map((file) => (
-                <li key={file.path}>
-                  {file.path} · +{file.addedLines} −{file.removedLines}
-                </li>
-              ))}
-            </ul>
-          </>
-        ),
-      })
-      if (!accepted) return
-      const result = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted, confirmed: true })
-      if (!result.ok) throw new Error(result.message)
-      showToast({
-        tone: 'good',
-        title: reverted ? 'Revert undone' : 'Files reverted. Undo revert can restore the previous state.',
-      })
+      let preview = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted })
+      let drift: string | undefined
+      // The runtime acts only on the exact paths the dialog showed. When the
+      // files moved while it was open, show the new list and ask again.
+      for (;;) {
+        if (!preview.ok) throw new Error(preview.message)
+        const shown = preview.files
+        const accepted = await dialog.confirm({
+          title: reverted ? 'Undo this revert?' : 'Revert to before this turn?',
+          tone: 'danger',
+          confirmLabel: reverted ? 'Undo revert' : 'Revert files',
+          body: (
+            <>
+              {drift ? <p>{drift}</p> : null}
+              <p>
+                The following files will be restored. Your staged changes are left as they are. Your conversation stays
+                in history. A recovery checkpoint is kept before reverting.
+              </p>
+              <ul className="max-h-60 overflow-auto">
+                {shown.map((file) => (
+                  <li key={file.path}>
+                    {file.path} · +{file.addedLines} −{file.removedLines}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ),
+        })
+        if (!accepted) return
+        const result = await window.api.conversationRevertToTurn({
+          key,
+          turnSeq,
+          undo: reverted,
+          confirmed: true,
+          files: shown.map((file) => file.path),
+        })
+        if (!result.ok && result.changed) {
+          drift = result.message
+          preview = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted })
+          continue
+        }
+        if (!result.ok) throw new Error(result.message)
+        showToast({
+          tone: 'good',
+          title: reverted ? 'Revert undone' : 'Files reverted. Undo revert can restore the previous state.',
+        })
+        // A new file git ignores most likely existed, ignored, before the turn,
+        // so the runtime keeps it; say so rather than leave it unexplained.
+        if (result.kept?.length)
+          showToast({
+            tone: 'warn',
+            title: 'Some new files were left in place',
+            description: `Git ignores them, so they may predate this turn: ${result.kept.join(', ')}`,
+          })
+        return
+      }
     } catch (error) {
       showToast({
         tone: 'error',

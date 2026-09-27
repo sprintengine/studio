@@ -94,3 +94,79 @@ test('changed files load on disclosure and the tree supports one-tab-stop naviga
     }
   }
 })
+
+test('a revert confirms the exact files shown and asks again when they changed', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const file = (path: string) => ({ path, status: 'modified', addedLines: 1, removedLines: 0, binary: false })
+  const previews = [[file('src/a.ts')], [file('src/a.ts'), file('src/b.ts')]]
+  const calls: Array<{ confirmed?: boolean; files?: string[] }> = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      conversationRevertToTurn: async (input: { confirmed?: boolean; files?: string[] }) => {
+        calls.push(input)
+        if (!input.confirmed) return { ok: true, files: previews.shift(), reverted: false }
+        if (input.files?.length === 1)
+          return { ok: false, changed: true, message: 'The files to restore changed since they were shown.' }
+        return { ok: true, files: [], reverted: true, kept: ['dist/cache.bin'] }
+      },
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { RevertTurnAction } = await import('./changedFilesCard')
+  const { ConversationLinkProvider } = await import('./conversationLinks')
+  const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
+  const { useToastStore } = await import('../../../store/toastStore')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    Array.from(dom.window.document.querySelectorAll('button')).find((item) => item.textContent === label)
+  try {
+    await act(async () => {
+      root.render(
+        <ConfirmDialogProvider>
+          <ConversationLinkProvider
+            workspaceId="revert-test"
+            workspaceRoot="/workspace/app"
+            cwd="/workspace/app"
+            agentId="agent"
+          >
+            <RevertTurnAction turnSeq={4} running={false} />
+          </ConversationLinkProvider>
+        </ConfirmDialogProvider>,
+      )
+    })
+    await act(async () => button('Revert to before this turn')!.click())
+    expect(dom.window.document.body.textContent).toContain('Your staged changes are left as they are.')
+    expect(dom.window.document.body.textContent).not.toContain('staged state')
+    await act(async () => button('Revert files')!.click())
+    // The refused confirmation re-shows the dialog with the new list.
+    expect(dom.window.document.body.textContent).toContain('changed since they were shown')
+    expect(dom.window.document.body.textContent).toContain('src/b.ts')
+    await act(async () => button('Revert files')!.click())
+    expect(calls.filter((call) => call.confirmed).map((call) => call.files)).toEqual([
+      ['src/a.ts'],
+      ['src/a.ts', 'src/b.ts'],
+    ])
+    const toasts = useToastStore.getState().toasts
+    expect(toasts.some((toast) => toast.tone === 'warn' && toast.description?.includes('dist/cache.bin'))).toBe(true)
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
