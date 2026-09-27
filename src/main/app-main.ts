@@ -312,6 +312,7 @@ registerAppLifecycle({
   automationService: services.automationService,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
+  removeSessionIntegrations: services.removeSessionIntegrations,
   canvasService: services.canvasService,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,

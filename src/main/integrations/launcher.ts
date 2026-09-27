@@ -25,10 +25,9 @@
 // `initialize` and lists nothing — so the CLI starts with one quiet server
 // rather than an error about a missing one. One cost remains: a status line of
 // the person's own that ours wraps (`--wrap`) shows nothing once the app is
-// gone, because nothing is left to run it through — removing the app's
-// integrations (Settings, or the Windows uninstaller) puts theirs back. A WSL
-// distribution gets the same
-// pair under its own home, pointing at the distribution's pinned Node and the
+// gone, because nothing is left to run it through — which only happens when
+// the app quit without its clean-up (every quit puts theirs back). A WSL
+// distribution gets the same pair under its own home, pointing at the distribution's pinned Node and the
 // helper's installed payload.
 //
 // The launcher is invoked through `/bin/sh` on POSIX rather than executed, so a
@@ -262,8 +261,8 @@ export function renderPosixLauncher(): string {
 # CLI's configuration runs this script rather than naming the app directly, so
 # none of them breaks when the app moves, updates or is uninstalled. It reads
 # the app's location from ./${LAUNCHER_POINTER_NAME}. When the app is gone, a hook exits
-# quietly and the MCP server offers no tools. Settings -> Remove integrations
-# in the app removes every entry that names this file, and this file.
+# quietly and the MCP server offers no tools. The app removes every entry that
+# names this file, and this file, each time it quits.
 ${POSIX_EMPTY_MCP}
 target=\${1:-}
 [ $# -gt 0 ] && shift
@@ -308,8 +307,8 @@ export function renderWindowsLauncher(): string {
     '@echo off',
     'rem SprintEngine Studio launcher. Written by the app; rewritten on every start.',
     'rem Every hook and MCP entry SprintEngine Studio writes runs this file, so none of',
-    'rem them breaks when the app moves, updates or is uninstalled. Settings -> Remove',
-    'rem integrations in the app removes every entry that names this file, and this file.',
+    'rem them breaks when the app moves, updates or is uninstalled. The app removes every',
+    'rem entry that names this file, and this file, each time it quits.',
     'setlocal',
     'set "SE_TARGET=%~1"',
     'set "SE_SCRIPT="',

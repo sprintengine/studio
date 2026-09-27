@@ -2,17 +2,17 @@
 //
 // Every file, entry and piece of machine state the app wrote outside its own
 // data directory is listed (`ledger.ts`, plus a fresh scan for anything the
-// ledger missed), grouped for the person to confirm, and removed in reverse
-// dependency order: the entries that name the launcher first, the launcher
-// last. Each removal reads its target again and takes out only what the marker
+// ledger missed), and removed in reverse dependency order: the entries that
+// name the launcher first, the launcher last. Each removal reads its target again and takes out only what the marker
 // identifies — a block between our markers, a key we own, an entry of the
 // shape we write, a file whose content is recognisably ours — so the person's
 // own content around it is untouched, and a target already gone is a skip, not
 // a failure. Running it twice is the same as running it once.
 //
-// Used by Settings (after a confirmation that lists everything first), by the
-// `--remove-integrations` command line the Windows uninstaller runs, and for
-// one WSL distribution when it is removed from Machines.
+// Used every time the app quits, for what the app writes again whenever it
+// needs it (`SESSION_INTEGRATION_KINDS`), so nothing of it is left behind when
+// the app is deleted; and by the `--remove-integrations` command line the
+// Windows uninstaller runs, for everything.
 
 import { existsSync } from 'node:fs'
 import { readdir, readFile, rm, rmdir } from 'node:fs/promises'
@@ -24,9 +24,7 @@ import {
   summarizeRemoval,
   type IntegrationRemovalGroup,
   type IntegrationRemovalItem,
-  type IntegrationRemovalOptions,
   type IntegrationRemovalOutcome,
-  type IntegrationRemovalPlan,
   type IntegrationRemovalReport,
 } from '../../shared/integration-removal'
 import type { PluginAgentStateSpec } from '../../shared/plugin-manifest'
@@ -67,18 +65,86 @@ export type IntegrationRemovalDeps = {
   unsharePort?: (servePort: number) => Promise<{ ok: true } | { ok: false; message: string }>
   /** Unregisters a link scheme (`app.removeAsDefaultProtocolClient`). */
   removeProtocolClient?: (scheme: string) => boolean
-  /** The paths "Also delete Studio's data" names. */
-  appDataPaths?: () => string[]
-  /** Deletes the app's data once the app has quit. */
-  scheduleAppDataDeletion?: (paths: string[]) => Promise<void>
   env?: NodeJS.ProcessEnv
   /**
    * Whether to scan for writes the ledger never saw before removing. Default
-   * true; the uninstaller turns it off, because the first start of a build
-   * with a ledger already scanned, and an uninstall has a time limit.
+   * true; the uninstaller and the quit turn it off, because the first start of
+   * a build with a ledger already scanned, and both have a time limit.
    */
   scan?: boolean
 }
+
+type LedgerKind = IntegrationLedgerEntry['kind']
+
+export type IntegrationRemovalOptions = {
+  /** Only entries of these kinds. Absent: every kind. */
+  kinds?: ReadonlySet<LedgerKind>
+  /** Only this machine's entries (`local`, `wsl:<distro>`). Absent: every machine. */
+  hostId?: string
+  /** Stop before the next entry once `Date.now()` passes this; what is left stays listed for the next run. */
+  deadline?: number
+  /** Asked before each kind of entry: true stops the run there, leaving the rest listed. */
+  stop?: () => boolean | Promise<boolean>
+  /** Leave the launcher, whatever this run removes: entries it cannot see (another profile's) still run it. */
+  keepLauncher?: boolean
+  /**
+   * Leave an entry in a file whose committed version has it too. The quit
+   * does, since the app writes it straight back and taking it out would leave
+   * the checkout modified whenever the app is closed; the uninstaller does not.
+   */
+  keepCommitted?: boolean
+}
+
+/**
+ * What the app writes again whenever it next needs it — before the next agent
+ * launch, or at the next start — and so takes back out every time it quits.
+ * Left out, because each one does its job while the app is closed or is the
+ * person's own choice: worktree locks (they keep agent worktrees safe from a
+ * prune), tailnet shares (the person published them), the link handler (it is
+ * what opens the app from a sign-in link), the knowledge-activity hook (a
+ * per-repository opt-in), and a distribution's own files (its Node and helper).
+ * Left to the uninstaller too: a locked worktree's git excludes (the worktree
+ * outlives the quit, and without them its generated files show as untracked
+ * until the next connector launch), the reporter copies earlier builds made
+ * (the start's migration deletes each once nothing names it), and Claude Code's
+ * own marketplace list.
+ */
+export const SESSION_INTEGRATION_KINDS: ReadonlySet<LedgerKind> = new Set<LedgerKind>([
+  'agent-state-hooks',
+  'status-line',
+  'mcp-gateway',
+  'mcp-approval',
+  'studio-plugin-copy',
+  'claude-plugin-setting',
+  'skill-copy',
+  'launcher',
+])
+
+/** Whether any of `entries` on `hostId` is of a kind that runs that machine's launcher. */
+export function entriesRunLauncher(entries: readonly IntegrationLedgerEntry[], hostId: string): boolean {
+  return entries.some((entry) => entry.hostId === hostId && RUNS_LAUNCHER.has(entry.kind))
+}
+
+// How many files one kind's removal works on at once. The quit has a time
+// limit, and most entries wait on a git process. One at a time for the kinds
+// that change state shared across files: a repository's git config, the
+// tailnet's serve config, the link registration.
+const REMOVAL_CONCURRENCY = 8
+const ONE_AT_A_TIME: ReadonlySet<LedgerKind> = new Set<LedgerKind>([
+  'git-exclude',
+  'worktree-lock',
+  'tailnet-share',
+  'protocol-handler',
+])
+
+// The kinds whose entries run the launcher: while one of them stays, so does it.
+const RUNS_LAUNCHER: ReadonlySet<LedgerKind> = new Set<LedgerKind>([
+  'agent-state-hooks',
+  'status-line',
+  'knowledge-activity-hook',
+  'mcp-gateway',
+  'studio-plugin-copy',
+])
 
 // ── Planning ────────────────────────────────────────────────────────────────
 
@@ -175,7 +241,8 @@ function toItem(entry: IntegrationLedgerEntry): IntegrationRemovalItem {
 }
 
 function inScope(entry: IntegrationLedgerEntry, options: IntegrationRemovalOptions): boolean {
-  return options.hostId ? entry.hostId === options.hostId : true
+  if (options.hostId && entry.hostId !== options.hostId) return false
+  return options.kinds ? options.kinds.has(entry.kind) : true
 }
 
 /** Record what a fresh scan finds, so the plan covers writes the ledger never saw. */
@@ -191,25 +258,6 @@ async function refreshLedger(deps: IntegrationRemovalDeps, options: IntegrationR
   await deps.ledger.record(found)
 }
 
-function sortEntries(entries: IntegrationLedgerEntry[]): IntegrationLedgerEntry[] {
-  return [...entries].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
-}
-
-export async function planIntegrationRemoval(
-  deps: IntegrationRemovalDeps,
-  options: IntegrationRemovalOptions = {},
-): Promise<IntegrationRemovalPlan> {
-  await refreshLedger(deps, options)
-  const entries = sortEntries((await deps.ledger.list()).filter((entry) => inScope(entry, options)))
-  return {
-    items: entries.map(toItem),
-    lockedWorktrees: entries
-      .filter((entry) => entry.kind === 'worktree-lock')
-      .map((entry) => ({ path: entry.path, repo: entry.repo ?? '' })),
-    appDataPaths: options.hostId ? [] : (deps.appDataPaths?.() ?? []),
-  }
-}
-
 // ── Removing ────────────────────────────────────────────────────────────────
 
 type Result = { status: 'removed' } | { status: 'skipped'; reason: string } | { status: 'failed'; reason: string }
@@ -219,6 +267,16 @@ const skip = (reason: string): Result => ({ status: 'skipped', reason })
 const ALREADY_GONE = 'Already gone.'
 const NOT_OURS_BY_PATH = 'That path is not one Studio writes, so it was left alone.'
 const TRACKED = 'The repository has it committed, so it was left for the project to remove.'
+const COMMITTED = 'The repository has this entry committed, so it was left for the project to change.'
+
+// What a file's committed version holds when the project committed an entry of
+// this kind: the launcher command, a reporter's name, the server id.
+const COMMITTED_TEXT: Partial<Record<LedgerKind, readonly string[]>> = {
+  'agent-state-hooks': ['studio-run', 'sprintengine-agent-state'],
+  'status-line': ['studio-run', 'sprintengine-status-line'],
+  'mcp-gateway': [STUDIO_MCP_SERVER_ID, RETIRED_SPRINTENGINE_MCP_SERVER_ID],
+  'mcp-approval': [STUDIO_MCP_SERVER_ID],
+}
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -238,10 +296,16 @@ async function isTrackedByGit(path: string, runGit: RunGit): Promise<boolean> {
   return !/not a git repository/iu.test(`${result.stderr}\n${result.message ?? ''}`)
 }
 
-/** Whether the committed (`HEAD`) version of a file contains `text`. False outside git. */
-async function committedVersionMentions(path: string, text: string, runGit: RunGit): Promise<boolean> {
+/** Whether the committed (`HEAD`) version of a file contains `text` (any of them). False outside git. */
+async function committedVersionMentions(
+  path: string,
+  text: string | readonly string[],
+  runGit: RunGit,
+): Promise<boolean> {
+  if (!existsSync(dirname(path))) return false
   const shown = await runGit(dirname(path), ['show', `HEAD:./${basename(path)}`]).catch(() => null)
-  return shown?.ok === true && shown.stdout.includes(text)
+  const texts = typeof text === 'string' ? [text] : text
+  return shown?.ok === true && texts.some((one) => shown.stdout.includes(one))
 }
 
 /**
@@ -447,11 +511,7 @@ async function turnOffWorktreeConfigIfUnused(worktree: string, runGit: RunGit): 
   await runGit(worktree, ['config', '--unset', 'extensions.worktreeConfig'])
 }
 
-async function removeWorktreeLock(
-  entry: IntegrationLedgerEntry,
-  runGit: RunGit,
-  options: IntegrationRemovalOptions,
-): Promise<Result> {
+async function removeWorktreeLock(entry: IntegrationLedgerEntry, runGit: RunGit): Promise<Result> {
   const repo = entry.repo
   if (!repo || !existsSync(repo)) return skip('The repository is gone.')
   const listing = await runGit(repo, ['worktree', 'list', '--porcelain', '-z'])
@@ -469,15 +529,6 @@ async function removeWorktreeLock(
   if (agentWorktreeLockOwner(reason) !== 'this-profile') return skip('The lock is not this profile’s.')
   const unlocked = await runGit(repo, ['worktree', 'unlock', entry.path])
   if (!unlocked.ok) return { status: 'failed', reason: unlocked.message ?? 'git could not unlock the worktree.' }
-  if (options.removeWorktrees) {
-    // Never forced: git refuses a worktree with uncommitted or untracked
-    // changes, and it is kept, unlocked, with git's own reason.
-    const removedTree = await runGit(repo, ['worktree', 'remove', entry.path])
-    if (!removedTree.ok) {
-      const why = (removedTree.stderr || removedTree.message || '').trim().split('\n')[0]
-      return skip(`Unlocked, and kept: ${why || 'git would not remove it.'}`)
-    }
-  }
   return removed
 }
 
@@ -521,6 +572,8 @@ async function removeEntry(
 ): Promise<Result> {
   const runGit = deps.runGit ?? runGitCommand
   const deleteIfEmpty = () => mayDeleteEmpty(entry, runGit)
+  const committedText = options.keepCommitted ? COMMITTED_TEXT[entry.kind] : undefined
+  if (committedText && (await committedVersionMentions(entry.path, committedText, runGit))) return skip(COMMITTED)
   switch (entry.kind) {
     case 'agent-state-hooks':
     case 'status-line': {
@@ -629,7 +682,7 @@ async function removeEntry(
     case 'git-exclude':
       return removeGitExclude(entry, runGit)
     case 'worktree-lock':
-      return removeWorktreeLock(entry, runGit, options)
+      return removeWorktreeLock(entry, runGit)
     case 'tailnet-share':
       return removeTailnetShare(entry, deps)
     case 'protocol-handler': {
@@ -657,19 +710,23 @@ export async function removeIntegrations(
   options: IntegrationRemovalOptions = {},
 ): Promise<IntegrationRemovalReport> {
   if (deps.scan !== false) await refreshLedger(deps, options)
-  const entries = sortEntries((await deps.ledger.list()).filter((entry) => inScope(entry, options)))
-  // The launcher goes last only once nothing still names it: when something
-  // failed, the entries left behind still run it.
+  const listed = await deps.ledger.list()
+  const entries = listed.filter((entry) => inScope(entry, options))
+  // The machines whose launcher stays: an entry this run leaves alone, or
+  // leaves in place, still runs it.
+  const keptRunners = new Set(
+    listed.filter((entry) => !inScope(entry, options) && RUNS_LAUNCHER.has(entry.kind)).map((entry) => entry.hostId),
+  )
+  let failedAbove = false
   const outcomes: IntegrationRemovalOutcome[] = []
   const done: string[] = []
-  for (const entry of entries) {
-    const item = toItem(entry)
+
+  async function removeOne(entry: IntegrationLedgerEntry): Promise<void> {
     let result: Result
-    if (
-      entry.kind === 'launcher' &&
-      outcomes.some((outcome) => outcome.status === 'failed' && outcome.group !== 'tailnet')
-    ) {
+    if (entry.kind === 'launcher' && failedAbove) {
       result = skip('Kept, because an entry above that runs it could not be removed.')
+    } else if (entry.kind === 'launcher' && (options.keepLauncher || keptRunners.has(entry.hostId))) {
+      result = skip('Kept, because an entry left in place still runs it.')
     } else {
       try {
         result = await removeEntry(entry, deps, options)
@@ -677,6 +734,7 @@ export async function removeIntegrations(
         result = { status: 'failed', reason: message(error) }
       }
     }
+    const item = toItem(entry)
     outcomes.push({
       id: item.id,
       group: item.group,
@@ -685,6 +743,14 @@ export async function removeIntegrations(
       status: result.status,
       ...(result.status === 'removed' ? {} : { reason: result.reason }),
     })
+    if (result.status === 'failed' && item.group !== 'tailnet') failedAbove = true
+    // Committed, or in a file it could not safely edit: still on disk, and so
+    // still running the launcher. (Gone, or a path Studio never writes, is not.)
+    const stillThere =
+      result.status === 'skipped' && result.reason !== ALREADY_GONE && result.reason !== NOT_OURS_BY_PATH
+    if (stillThere && RUNS_LAUNCHER.has(entry.kind)) {
+      keptRunners.add(entry.hostId)
+    }
     if (
       result.status !== 'failed' &&
       !(entry.kind === 'launcher' && result.status === 'skipped' && existsSync(entry.path))
@@ -692,18 +758,29 @@ export async function removeIntegrations(
       done.push(ledgerKey(entry))
     }
   }
-  await deps.ledger.forget(done)
 
-  // Only once nothing failed: the data holds the ledger, and deleting it would
-  // take away the list the next run retries from.
-  let appDataScheduled = false
-  const anyFailed = outcomes.some((outcome) => outcome.status === 'failed')
-  if (options.deleteAppData && !options.hostId && !anyFailed && deps.scheduleAppDataDeletion) {
-    const paths = deps.appDataPaths?.() ?? []
-    if (paths.length > 0) {
-      await deps.scheduleAppDataDeletion(paths)
-      appDataScheduled = true
+  // One kind after another, in dependency order; within a kind, different
+  // files at once and one file's entries one after another.
+  for (const kind of KIND_ORDER) {
+    const byPath = new Map<string, IntegrationLedgerEntry[]>()
+    for (const entry of entries) {
+      if (entry.kind === kind) byPath.set(entry.path, [...(byPath.get(entry.path) ?? []), entry])
     }
+    if (byPath.size === 0) continue
+    if (await options.stop?.()) break
+    const queue = [...byPath.values()]
+    const worker = async (): Promise<void> => {
+      for (let bucket = queue.shift(); bucket; bucket = queue.shift()) {
+        for (const entry of bucket) {
+          if (options.deadline !== undefined && Date.now() >= options.deadline) return
+          await removeOne(entry)
+        }
+      }
+    }
+    const width = ONE_AT_A_TIME.has(kind) ? 1 : REMOVAL_CONCURRENCY
+    await Promise.all(Array.from({ length: Math.min(width, queue.length) }, worker))
+    if (options.deadline !== undefined && Date.now() >= options.deadline) break
   }
-  return summarizeRemoval(outcomes, appDataScheduled)
+  await deps.ledger.forget(done)
+  return summarizeRemoval(outcomes)
 }

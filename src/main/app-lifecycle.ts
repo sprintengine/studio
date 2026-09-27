@@ -62,6 +62,12 @@ type RegisterAppLifecycleOptions = {
     /** Persist the debounced workspace registry write before the app exits. */
     flush(): Promise<void>
   }
+  /**
+   * Takes back out the hooks, MCP entries and launcher the app writes into
+   * repositories and CLI configuration, which it writes again when next needed:
+   * so deleting the app leaves none of them behind. Once no agent is running.
+   */
+  removeSessionIntegrations?: () => Promise<void>
   // The Canvas pane's service: it holds a board mid-write (temp file, then a
   // rename), a directory watcher per open board, and a hidden worker window.
   // Quitting between those two fs calls would leave a stray temp file in the
@@ -125,6 +131,7 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  removeSessionIntegrations,
   canvasService,
   pullRequestRecord,
   analytics,
@@ -454,10 +461,13 @@ export function registerAppLifecycle({
   //  4. What the terminal legs fed: captured pull requests. Then the chat
   //     sessions' own stop, the canvas's in-flight write, and the registry
   //     once more for anything the legs above changed.
-  //  5. What costs nothing if lost: the WSL helpers (they exit when this
+  //  5. The integrations the app writes into repositories, now that no agent
+  //     it launched is left to run them (a cut-short removal resumes next quit).
+  //  6. What costs nothing if lost: the WSL helpers (they exit when this
   //     process's end closes their stdin), telemetry's network send, and the
   //     module kernel's own shutdown.
   let shutdownRun: Promise<void> | null = null
+  let leavingForUpdate = false
   // Who hears about each leg as it finishes: "Restart to update" passes one in,
   // which drives the progress window and the diagnostics timings. Joined late
   // (the shutdown already running), it still hears the legs that are left.
@@ -502,6 +512,10 @@ export function registerAppLifecycle({
       ['chats', () => conversationRuntime?.shutdown()],
       ['canvas', () => canvasService?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
+      // Not when leaving for an update: the new build starts straight away and
+      // writes them back, and the installer's time limit is better spent on
+      // the legs after this one.
+      ['integrations', () => (leavingForUpdate ? undefined : removeSessionIntegrations?.())],
       // Each WSL helper is told to shut down (it would also go on its own when
       // this process's end closes its stdin).
       ['WSL helpers', () => hostRegistry().dispose()],
@@ -559,6 +573,7 @@ export function registerAppLifecycle({
   })
 
   updateService.setPrepareForInstall(async (report) => {
+    if (!shutdownRun) leavingForUpdate = true
     const run = runShutdown(report)
     let bounded: NodeJS.Timeout | undefined
     await Promise.race([

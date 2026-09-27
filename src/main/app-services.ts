@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { homedir, hostname } from 'os'
 import { execFile } from 'child_process'
@@ -173,19 +173,19 @@ import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
 import { prepareStudioIntegrations, wslLedgerMirrorPath } from './integrations/integration-boot'
-import { scheduleAppDataDeletion } from './integrations/app-data-deletion'
-import { wslHomesFromLedger } from './integrations/removal-sources'
 import {
-  planIntegrationRemoval,
-  removeIntegrations,
-  type IntegrationRemovalDeps,
-} from './integrations/remove-integrations'
-import { readServedPortsOrNull, unshareServePort } from './automation/tailnet/tailscale-serve'
-import { getManagedRuntimeShimDir } from './managed-runtime'
-import type { IntegrationRemovalOptions, IntegrationRemovalReport } from '../shared/integration-removal'
+  holdLauncher,
+  launcherHeldByOthers,
+  leaveLiveInstances,
+  otherInstanceRunning,
+  registerLiveInstance,
+  releaseLauncher,
+} from './integrations/live-instances'
+import { entriesRunLauncher, removeIntegrations, SESSION_INTEGRATION_KINDS } from './integrations/remove-integrations'
 
-// Long enough for the dialog to show the result before Studio quits to delete its data.
-const APP_DATA_QUIT_DELAY_MS = 2_500
+// How long the quit gives the session integrations' removal. What it does not
+// reach stays listed, and the next quit takes it out.
+const QUIT_INTEGRATION_REMOVAL_BUDGET_MS = 5_000
 /** The conversation events that change what a paired device's list says: a start, an end, a phase. */
 const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
   'session_started',
@@ -197,7 +197,6 @@ const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
   'approval_requested',
   'approval_resolved',
 ])
-import type { ExecutionHostId } from '../shared/execution-host'
 import {
   createIntegrationLedger,
   hostIdForPath,
@@ -433,6 +432,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     const launcherWritten = new Promise<void>((resolve) => {
       launcherReady = resolve
     })
+    // Listed as running before anything is written, so another instance's
+    // quit leaves what this one is about to use (integrations/live-instances.ts).
+    await registerLiveInstance(homedir()).catch(() => undefined)
     void prepareStudioIntegrations({
       onLauncherReady: () => launcherReady(),
       ledger: integrationLedgerStore,
@@ -831,8 +833,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .state.workspaces.find((workspace) => workspace.id === workspaceId)?.hostId
       return typeof hostId === 'string' ? hostId : null
     },
-    prepareAgentStateHook: (workspaceRoot, cli, execution) =>
-      agentStateService.installForWorkspace(workspaceRoot, cli, execution),
+    prepareAgentStateHook: async (workspaceRoot, cli, execution) => {
+      // A workspace's Studio skills, before the CLI reads its skill folder: the
+      // boot pass reaches the known workspaces one at a time, and the last quit
+      // took every copy back out. Settled, this costs nothing. A workspace
+      // folder only — never an agent worktree, which the pass never writes to.
+      const [root] = uniqueResolvedRoots([workspaceRoot])
+      if (root && listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()).includes(root)) {
+        await studioPluginService.ensureInstalled(root)
+      }
+      return agentStateService.installForWorkspace(workspaceRoot, cli, execution)
+    },
   })
   // The conversation pull request record (epic `pull-request-marks`, decision
   // 10): main owns which pull requests a conversation has and what state each is
@@ -1704,64 +1715,73 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
   }
 
-  // Settings ▸ General ▸ Remove integrations, and Machines' clean-up of one
-  // distribution: the ledger replayed in reverse (integrations/remove-integrations.ts).
-  const integrationRemovalDeps = (): IntegrationRemovalDeps => ({
-    ledger: integrationLedgerStore,
-    listRoots: () =>
-      workspaceRegistry
-        .getState()
-        .workspaces.flatMap((workspace) =>
-          workspace.folderPath ? [{ path: workspace.folderPath, hostId: hostIdForPath(workspace.folderPath) }] : [],
-        ),
-    listHomes: async () => [
-      { native: homedir(), hostId: 'local' },
-      ...wslHomesFromLedger(await integrationLedgerStore.list()),
-    ],
-    readServedPorts: () => readServedPortsOrNull(),
-    unsharePort: (servePort) => unshareServePort({ servePort }),
-    // A development build registered itself with its app path as an argument,
-    // and only the same pair unregisters it.
-    removeProtocolClient: (scheme) =>
-      app.isPackaged
-        ? app.removeAsDefaultProtocolClient(scheme)
-        : app.removeAsDefaultProtocolClient(scheme, process.execPath, [app.getAppPath()]),
-    appDataPaths: () => [app.getPath('userData'), getManagedRuntimeShimDir()],
-    scheduleAppDataDeletion: (paths) => scheduleAppDataDeletion(paths),
-  })
-  // One removal at a time: Settings and Machines can both start one.
-  let removalInFlight: Promise<IntegrationRemovalReport> | null = null
-  const integrationRemoval = {
-    plan: (options: IntegrationRemovalOptions) => planIntegrationRemoval(integrationRemovalDeps(), options),
-    remove(options: IntegrationRemovalOptions): Promise<IntegrationRemovalReport> {
-      if (removalInFlight) return removalInFlight
-      removalInFlight = (async () => {
-        // Each distribution being cleaned stops its helper first: the helper
-        // runs from the folder the clean-up deletes. Only distributions the
-        // ledger has written into — never one the renderer merely named.
-        const written = new Set((await integrationLedgerStore.list()).map((entry) => entry.hostId))
-        for (const hostId of written) {
-          if (hostId === 'local' || (options.hostId && options.hostId !== hostId)) continue
-          await hosts
-            .get(hostId as ExecutionHostId)
-            .dispose()
-            .catch(() => undefined)
+  // This profile, as the launcher's other users know it (integrations/live-instances.ts).
+  const launcherProfile = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 16)
+  // Every quit takes back out what the app writes again whenever it next needs
+  // it (SESSION_INTEGRATION_KINDS): nothing Studio put into a repository or a
+  // CLI's configuration outlives it, and deleting the app — which nothing
+  // announces on macOS or Linux — leaves none of it behind. This machine's
+  // entries only: reaching into a distribution would boot it just as its
+  // helper is being stopped (the Windows uninstaller takes those out).
+  async function removeSessionIntegrations(): Promise<void> {
+    const home = homedir()
+    // Held first: should the quit be cut short, what it leaves in place keeps
+    // the launcher it runs, whichever profile quits next.
+    await holdLauncher(home, launcherProfile).catch(() => undefined)
+    const { othersRunning } = await leaveLiveInstances(home)
+    // Another Studio (a development build beside the packaged app) runs the
+    // same entries; they stay listed here, for a quit with nobody else running.
+    if (othersRunning) return
+    const removal = removeIntegrations(
+      { ledger: integrationLedgerStore, scan: false },
+      {
+        kinds: SESSION_INTEGRATION_KINDS,
+        hostId: 'local',
+        keepCommitted: true,
+        keepLauncher: await launcherHeldByOthers(home, launcherProfile),
+        // Stops early enough to record what it did before the leg is cut off,
+        // and as soon as another Studio starts.
+        deadline: Date.now() + QUIT_INTEGRATION_REMOVAL_BUDGET_MS - 500,
+        stop: () => otherInstanceRunning(home),
+      },
+    ).then(
+      async (report) => {
+        if (!entriesRunLauncher(await integrationLedgerStore.list(), 'local')) {
+          await releaseLauncher(home, launcherProfile)
         }
-        const report = await removeIntegrations(integrationRemovalDeps(), options)
-        // The data is deleted by a process that waits for this one to exit,
-        // so it goes now — not at some later quit the person did not connect
-        // with the checkbox.
-        if (report.appDataScheduled) setTimeout(() => app.quit(), APP_DATA_QUIT_DELAY_MS)
-        return report
-      })().finally(() => {
-        removalInFlight = null
-      })
-      return removalInFlight
-    },
+        if (report.failed === 0) return
+        void writeDiagnosticLog({
+          level: 'warning',
+          title: 'Integrations not removed at quit',
+          message: `${report.failed} of Studio's entries could not be removed; the next quit tries them again.`,
+          details: report.outcomes
+            .filter((outcome) => outcome.status === 'failed')
+            .map((outcome) => `${outcome.label}\t${outcome.path}\t${outcome.reason ?? ''}`)
+            .join('\n'),
+          source: 'workspace',
+        })
+      },
+      (error: unknown) => {
+        void writeDiagnosticLog({
+          level: 'warning',
+          title: 'Integrations not removed at quit',
+          message: error instanceof Error ? error.message : String(error),
+          source: 'workspace',
+        })
+      },
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      removal,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, QUIT_INTEGRATION_REMOVAL_BUDGET_MS)
+      }),
+    ])
+    if (timer) clearTimeout(timer)
   }
 
   return {
-    integrationRemoval,
+    removeSessionIntegrations,
     startDeferredBootJobs,
     agentConfigImportService,
     agentStateService,
