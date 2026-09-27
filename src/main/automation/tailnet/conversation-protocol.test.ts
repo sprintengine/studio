@@ -13,6 +13,10 @@ import {
   conversationCloseRetryAfterMs,
   parseConversationClientFrame,
 } from '../../../../packages/conversation-protocol/src'
+import {
+  isKnownConversationServerFrameType,
+  parseConversationServerFrame,
+} from '../../../../packages/conversation-protocol/src/serverFrames'
 
 test('portable protocol source stays byte-identical to the companion source mirror', () => {
   const hash = createHash('sha256')
@@ -157,4 +161,86 @@ test('a refused frame is explained under the id it carries', () => {
     code: 'invalid_frame',
     message: 'Unsupported conversation frame.',
   })
+})
+
+test('server frames are validated before a client applies them, and unknown types stay distinguishable', () => {
+  const event = {
+    id: 'e1',
+    seq: 4,
+    sessionId: 's',
+    workspaceId: 'w',
+    agentId: 'a',
+    providerId: 'p',
+    modelId: 'm',
+    type: 'content_delta',
+    createdAt: 1,
+    payload: { text: 'hi' },
+    extra: true,
+  }
+  const { extra: _extra, ...kept } = event
+  assert.deepEqual(parseConversationServerFrame({ type: 'event', event }), { type: 'event', event: kept })
+  assert.equal(parseConversationServerFrame({ type: 'event', event: { ...event, seq: -1 } }), null)
+  assert.deepEqual(
+    parseConversationServerFrame({
+      type: 'snapshot',
+      page: { events: [event], hasMore: true, beforeCursor: 4 },
+      reset: true,
+      generation: 'g',
+      part: { index: 0, total: 2 },
+    }),
+    {
+      type: 'snapshot',
+      page: { events: [kept], hasMore: true, beforeCursor: 4 },
+      reset: true,
+      generation: 'g',
+      part: { index: 0, total: 2 },
+    },
+  )
+  assert.equal(
+    parseConversationServerFrame({
+      type: 'snapshot',
+      page: { events: [], hasMore: false, beforeCursor: null },
+      part: { index: 2, total: 2 },
+    }),
+    null,
+    'a part outside its total',
+  )
+  assert.equal(parseConversationServerFrame({ type: 'synchronized', seq: 3, generation: '' }), null)
+  assert.deepEqual(
+    parseConversationServerFrame({ type: 'commandResult', commandId: 'c', ok: false, code: 'busy', retryAfterMs: 250 }),
+    {
+      type: 'commandResult',
+      commandId: 'c',
+      ok: false,
+      code: 'busy',
+      retryAfterMs: 250,
+    },
+  )
+  assert.equal(parseConversationServerFrame({ type: 'chunk', frameId: 'f', index: 3, total: 3, json: '' }), null)
+  // One unreadable row does not hide the rest of a list.
+  const listed = parseConversationServerFrame({
+    type: 'sessions',
+    requestId: 'list',
+    sessions: [
+      {
+        workspaceId: 'w',
+        agentId: 'a',
+        title: 'T',
+        phase: 'running',
+        updatedAt: 2,
+        createdAt: 1,
+        providerId: 'p',
+        modelId: 'm',
+        turnCount: 1,
+        lastSeq: 9,
+        capabilities: { images: true },
+      },
+      { workspaceId: 'w', agentId: 'b', phase: 'dancing' },
+    ],
+  })
+  assert.equal(listed?.type === 'sessions' && listed.sessions.length, 1)
+  assert.equal(listed?.type === 'sessions' && listed.sessions[0].capabilities?.checkpoints, false)
+  assert.equal(parseConversationServerFrame({ type: 'presence' }), null)
+  assert.equal(isKnownConversationServerFrameType({ type: 'presence' }), false)
+  assert.equal(isKnownConversationServerFrameType({ type: 'event' }), true)
 })
