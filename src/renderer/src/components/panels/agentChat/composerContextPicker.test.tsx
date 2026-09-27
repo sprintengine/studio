@@ -137,9 +137,10 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
       })
     })
     expect(search.rows).toEqual([{ path: 'file.ts', kind: 'file' }])
-    const key = (name: string) =>
+    const key = (name: string, shiftKey = false) =>
       ({
         key: name,
+        shiftKey,
         nativeEvent: { isComposing: false },
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
@@ -153,6 +154,16 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
     })
     expect(move).toHaveBeenCalledWith(1)
     expect(select).toHaveBeenCalledOnce()
+    // Shift+Enter is a newline even with a highlighted result.
+    expect(picker.handleKeyDown(key('Enter', true))).toBe(false)
+    expect(select).toHaveBeenCalledOnce()
+    // With nothing highlighted (no match yet, or the search still debouncing)
+    // Enter sends, Tab moves focus and arrows move the caret.
+    picker.pickerRef.current = { pickActive: select, moveSelection: move, matchCount: () => 0 }
+    for (const name of ['Enter', 'Tab', 'ArrowUp', 'ArrowDown']) expect(picker.handleKeyDown(key(name))).toBe(false)
+    expect(select).toHaveBeenCalledOnce()
+    expect(move).toHaveBeenCalledOnce()
+    picker.pickerRef.current = { pickActive: select, moveSelection: move, matchCount: () => 1 }
     await act(async () => {
       expect(picker.handleKeyDown(key('Escape'))).toBe(true)
     })

@@ -197,11 +197,17 @@ export function useComposerContextPicker({
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
       if (!trigger || event.nativeEvent.isComposing) return false
+      // A token under the caret is not a request to pick: "ping @alice" + Enter
+      // sends, arrows move the caret and Tab moves focus unless the open picker
+      // has a highlighted result to act on. Shift+Enter is always a newline.
+      const picker = pickerRef.current
+      const highlighted = (picker?.matchCount() ?? 0) > 0
       if (event.key === 'Escape') dismiss()
-      else if (event.key === 'ArrowUp' || event.key === 'ArrowDown')
-        pickerRef.current?.moveSelection(event.key === 'ArrowUp' ? -1 : 1)
-      else if (event.key === 'Enter' || event.key === 'Tab') pickerRef.current?.pickActive()
-      else return false
+      else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && highlighted)
+        picker?.moveSelection(event.key === 'ArrowUp' ? -1 : 1)
+      else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && highlighted) {
+        if (!picker?.pickActive()) return false
+      } else return false
       event.preventDefault()
       event.stopPropagation()
       return true
