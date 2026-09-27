@@ -37,7 +37,6 @@
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
     "tailwindcss",
     // The pack check installs the freshly packed tarball and imports it by name.
-    "@sprintengine/mobile-control-protocol",
     "@sprintengine/conversation-protocol",
   ],
 }

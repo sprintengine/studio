@@ -20,7 +20,7 @@ import type {
   MobileControlBacklogEpicSnapshot,
   MobileControlBacklogItemSnapshot,
   MobileControlBacklogWorkspaceSnapshot,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { MobileControlCommandError } from './command-error'
 import {
   backlogAbsolutePath,

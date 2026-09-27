@@ -7,7 +7,7 @@ import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { resolvePermissionArgs } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
-import { mobileSnapshotCollections } from '../../../packages/mobile-control-protocol/src/index'
+import { mobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,

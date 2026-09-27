@@ -13,7 +13,7 @@ import {
   mobileControlProtocolVersion,
   mobileSnapshotCollections,
   validateMobileControlSnapshot,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { test } from 'vitest'
 
 test('snapshot', async () => {

@@ -23,17 +23,12 @@ import type {
 
 export { MobileControlCommandError } from './command-error'
 
-// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
-// command types from there and re-export them so this module stays the public
-// surface for consumers, without re-declaring (and risking drift from) the
-// protocol. Adding a new command type is an edit to protocol.ts alone.
-export { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
+// The wire schema is owned by ./protocol. Import the command types from there
+// and re-export them so this module stays the public surface for consumers,
+// without re-declaring (and risking drift from) the protocol.
+export { mobileControlProtocolVersion } from './protocol'
 
-import type {
-  MobileControlCommand,
-  MobileControlCommandType,
-  MobileControlError,
-} from '../../../../packages/mobile-control-protocol/src/index'
+import type { MobileControlCommand, MobileControlCommandType, MobileControlError } from './protocol'
 
 export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 
@@ -290,14 +285,11 @@ export class MobileControlCommandService {
         return this.executeBacklogCreateCommand(command, scope)
       case 'automations.control':
         return this.executeAutomationsControlCommand(command, scope)
-      // Everything `allowedCommandTypes` already refused, restated so the switch
-      // stays exhaustive over the protocol's union — the compiler, not a reader,
-      // is what keeps a new command type from falling through here silently.
-      // Both are read elsewhere: `snapshot.request` is answered by the bridge's
-      // snapshot dispatcher and `device.revoke` by its revoke path, before either
-      // reaches the command service.
+      // Already refused by `allowedCommandTypes`, restated so the switch stays
+      // exhaustive over the protocol's union — the compiler, not a reader, is
+      // what keeps a new command type from falling through here silently. A
+      // snapshot is read through `workspace.snapshot`, never dispatched.
       case 'snapshot.request':
-      case 'device.revoke':
         return this.resultRecorder.reject(
           command,
           'command_not_supported',

@@ -73,7 +73,7 @@ import {
   mobileSnapshotCollections,
   type MobileControlCommandType,
   type MobileSnapshotCollection,
-} from '../../packages/mobile-control-protocol/src/index'
+} from './mobile/control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'

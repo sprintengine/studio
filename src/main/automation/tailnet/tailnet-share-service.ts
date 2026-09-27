@@ -1,4 +1,4 @@
-import type { MobileControlWebTargetSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
+import type { MobileControlWebTargetSnapshot } from '../../mobile/control/protocol'
 import {
   EMPTY_TAILNET_SHARE_STATUS,
   type TailnetShareResult,

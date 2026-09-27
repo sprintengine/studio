@@ -140,7 +140,7 @@ The repository is licensed under the **MIT License**. You may use, modify and
 redistribute it, including in commercial products. The full text is in
 [LICENSE](LICENSE).
 
-`packages/module-sdk` and `packages/mobile-control-protocol` carry their own
+`packages/module-sdk` and `packages/conversation-protocol` carry their own
 MIT licence files as well, so an SDK consumer does not have to take the whole
 application tree.
 

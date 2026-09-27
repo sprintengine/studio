@@ -1,15 +1,8 @@
 import { scheduleCadenceSummaryWithZone } from '../../../shared/automations/cadence'
 import { SCHEDULE_TRIGGER_KIND } from '../../../shared/automations/contracts'
 import type { AutomationDefinition, AutomationRun } from '../../../shared/automations/contracts'
-import {
-  automationRecentRunsMax,
-  automationRunTextMaxChars,
-  automationsPerProjectMax,
-} from '../../../../packages/mobile-control-protocol/src/index'
-import type {
-  MobileControlAutomationRunSummary,
-  MobileControlAutomationSnapshot,
-} from '../../../../packages/mobile-control-protocol/src/index'
+import { automationRecentRunsMax, automationRunTextMaxChars, automationsPerProjectMax } from './protocol'
+import type { MobileControlAutomationRunSummary, MobileControlAutomationSnapshot } from './protocol'
 import { validateScheduleTriggerConfig } from '../../automations/schedule'
 import { AutomationsStore } from '../../automations/store'
 import { deriveWorkspaceId } from './workspace-id'

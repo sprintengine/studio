@@ -13,6 +13,3 @@ design-system/foundations/tokens.css
 resources/marketplace/
 # Committed build output of the two published packages.
 packages/*/dist/
-# Mirrored byte-for-byte into the phone app's repository and pinned by hash in
-# src/main/mobile/control/snapshot.test.ts; it keeps the style it is mirrored in.
-packages/mobile-control-protocol/

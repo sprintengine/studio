@@ -1,9 +1,8 @@
 import { createHash } from 'crypto'
 import { resolve } from 'path'
-import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
-// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
-// snapshot type tree from there (aliased to this module's established local
-// names) and re-export it, rather than re-declaring it and risking drift from
+import { mobileControlProtocolVersion } from './protocol'
+// The wire schema is owned by ./protocol. Import the snapshot type tree from
+// there and re-export it, rather than re-declaring it and risking drift from
 // the validator (validateMobileControlSnapshot) that consumes the same schema.
 import type {
   MobileControlBacklogWorkspaceSnapshot,
@@ -11,7 +10,7 @@ import type {
   MobileControlSnapshot,
   MobileControlWebTargetSnapshot,
   MobileSnapshotCollection,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
@@ -20,18 +19,16 @@ import { deepRedactLocalPaths } from './relay-path-safety'
 export type { MobileControlSnapshot }
 
 /**
- * The commands this desktop will actually execute.
- *
- * The Sprint Engine's removal stopped advertising the nine sprint commands while leaving them in the
- * protocol's union; protocol v3 deleted them, so this list and that union are now
- * the same five members and the `satisfies` below is what keeps them so.
+ * Every command the command service knows, advertised when a caller names no
+ * narrower set. A transport that serves fewer — the tailnet gateway serves
+ * `snapshot.request` and `backlog.update` — passes its own list, so the phone
+ * draws only the controls that will work over it.
  *
  * `snapshot.commands` is `string[]` on the wire by design, so a phone reads this
  * list to decide which controls to draw rather than inferring them from a version.
  */
 const mobileSnapshotCommandTypes = [
   'snapshot.request',
-  'device.revoke',
   'backlog.update',
   'backlog.create',
   'automations.control',
