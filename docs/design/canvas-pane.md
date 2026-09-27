@@ -438,7 +438,18 @@ The error, loading and not-yet-sized states fill the body with the kit
 
 ### 3.6 Build
 
-- `@excalidraw/excalidraw@0.18.1`; `overrides.mermaid: "~11.13.0"`.
+- `@excalidraw/excalidraw@0.18.1`; `overrides.mermaid: "~11.13.0"`. The pin
+  is load-bearing: from 11.14 Mermaid renders its SVG with element ids the
+  importer no longer finds, and every flowchart, class, ER and state definition
+  falls back to a single picture instead of shapes (sequence diagrams still
+  convert). Move it only together with an importer release that reads the new
+  ids, and check a flowchart import turns into shapes, not an image. It is
+  also why `npm audit` keeps reporting the Mermaid advisories fixed in 11.16.1:
+  there is no patched 11.13.
+- The other `overrides` entries under the two editor packages resolve pins
+  they carry to patched or React 19 releases — `nanoid`, the unused
+  `@mermaid-js/parser` 0.6 declaration, `@radix-ui/react-tabs` — and are safe
+  to drop once the editor ships with those versions itself.
 - `@excalidraw/mermaid-to-excalidraw@2.2.2` as a DIRECT dependency, at the
   version the editor package pins: the worker imports it by name, and a
   transitive dependency is not a contract.
