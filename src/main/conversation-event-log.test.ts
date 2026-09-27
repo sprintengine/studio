@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test, vi } from 'vitest'
@@ -11,6 +11,7 @@ import {
   expandCoalescedDeltas,
   type AppendStream,
 } from './conversation-event-log'
+import { ConversationTranscriptReader } from './conversation-transcript-reader'
 
 let sequence = 0
 
@@ -248,6 +249,27 @@ test('the default stream appends to a real file, creating its directory', async 
       .split('\n')
       .flatMap((line) => expandCoalescedDeltas(JSON.parse(line) as ConversationEvent))
     assert.deepEqual(replayed, emitted)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an append after a torn last line starts a line of its own and stays readable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-event-log-'))
+  try {
+    const filePath = join(root, 'agent.jsonl')
+    const first = { ...event('turn_started', { turnId: 't1' }), seq: 1 }
+    const torn = JSON.stringify({ ...event('content_delta', { turnId: 't1', text: 'lost' }), seq: 2 })
+    // What a crash or a full disk leaves behind: a record cut off mid-line.
+    await writeFile(filePath, `${JSON.stringify(first)}\n${torn.slice(0, 20)}`, { mode: 0o600 })
+    const log = new ConversationEventLog()
+    const next = { ...event('user_message', { text: 'hi' }), seq: 3 }
+    assert.equal(await log.append(filePath, next, root), 'written')
+    const after = { ...event('turn_completed', { turnId: 't1' }), seq: 4 }
+    assert.equal(await log.append(filePath, after, root), 'written')
+    await log.closeAll()
+    const seqs = (await new ConversationTranscriptReader().tail(root, filePath)).map((item) => item.seq)
+    assert.deepEqual(seqs, [1, 3, 4], 'every event reported written is readable')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

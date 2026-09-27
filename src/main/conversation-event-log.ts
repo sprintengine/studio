@@ -1,4 +1,5 @@
 import { dirname } from 'path'
+import { openConfinedExistingFile } from './conversation-file-access'
 import { openConversationAppendFile } from './conversation-persistence'
 
 import type { ConversationEvent } from '../shared/conversation-runtime'
@@ -377,10 +378,34 @@ function isDeltaPart(value: unknown): value is DeltaPart {
 
 async function openAppendStream(filePath: string, storageRoot = dirname(filePath)): Promise<AppendStream> {
   const file = await openConversationAppendFile(storageRoot, filePath)
+  let unterminated: boolean
+  try {
+    unterminated = await endsMidLine(storageRoot, filePath, (await file.stat()).size)
+  } catch (error) {
+    await file.close()
+    throw error
+  }
   return {
     write: async (chunk) => {
-      await file.writeFile(chunk, 'utf8')
+      // A crash or a full disk can leave the last record without its newline.
+      // Appending straight after it would glue the next record onto the
+      // fragment, and both would be unreadable although this write succeeded
+      // and its events were published. The fragment gets a line of its own.
+      await file.writeFile(unterminated ? `\n${chunk}` : chunk, 'utf8')
+      unterminated = false
     },
     close: () => file.close(),
+  }
+}
+
+async function endsMidLine(storageRoot: string, filePath: string, size: number): Promise<boolean> {
+  if (size === 0) return false
+  const reader = await openConfinedExistingFile(storageRoot, filePath)
+  try {
+    const last = Buffer.alloc(1)
+    const { bytesRead } = await reader.read(last, 0, 1, size - 1)
+    return bytesRead === 1 && last[0] !== 0x0a
+  } finally {
+    await reader.close()
   }
 }
