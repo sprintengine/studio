@@ -13,6 +13,7 @@ import { createConversationGatewayHost, type ConversationGatewayHost } from './t
 import {
   createResyncBackoff,
   createTailnetConversationStream,
+  redactHostPaths,
   type ConversationCommandAudit,
 } from './tailnet-conversation-stream'
 import { createWebSocketFrameDecoder, encodeMaskedTextFrame } from './websocket-frames'
@@ -466,6 +467,48 @@ test('a device removed while its socket is open is closed as revoked', async () 
   assert.equal(
     (socket.output() as Frame[]).some((frame) => frame.type === 'sessions'),
     false,
+  )
+})
+
+test('host paths are rewritten by whole segments, and workspace paths read relative to the workspace', () => {
+  const rewrite = (text: string) => redactHostPaths(text, { home: '/Users/dev', workspaceRoot: '/Users/dev/proj' })
+  assert.deepEqual(
+    [
+      '/Users/dev/proj/src/a.ts',
+      'cd /Users/dev/proj && npm test',
+      'ls /Users/dev/proj/',
+      '/Users/dev/proj-two/z.ts',
+      '/Users/dev/other/y.md',
+      '/Users/dev',
+      '"/Users/dev/.zshrc"',
+      'file:///Users/dev/other',
+      '/Users/developer/notes.md',
+      '/Users/dev.old/notes.md',
+      '/opt/Users/dev/x',
+    ].map(rewrite),
+    [
+      'src/a.ts',
+      'cd . && npm test',
+      'ls ./',
+      '[home]/proj-two/z.ts',
+      '[home]/other/y.md',
+      '[home]',
+      '"[home]/.zshrc"',
+      'file://[home]/other',
+      '/Users/developer/notes.md',
+      '/Users/dev.old/notes.md',
+      '/opt/Users/dev/x',
+    ],
+  )
+  assert.deepEqual(
+    redactHostPaths(
+      { input: { path: '/Users/dev/proj/a' }, list: ['/Users/dev/b'] },
+      {
+        home: '/Users/dev',
+        workspaceRoot: null,
+      },
+    ),
+    { input: { path: '[home]/proj/a' }, list: ['[home]/b'] },
   )
 })
 

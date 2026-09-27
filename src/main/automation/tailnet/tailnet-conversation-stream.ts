@@ -291,7 +291,13 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       writing = false
     }
   }
-  const redact = <T>(frame: T): T => redactHomePaths(redactConversationValue(frame), homedir())
+  // Paths are rewritten against the conversation the socket follows, so its
+  // own files read workspace-relative, as they do on the desktop.
+  const redact = <T>(frame: T): T =>
+    redactHostPaths(redactConversationValue(frame), {
+      home: homedir(),
+      workspaceRoot: currentKey?.workspaceRoot ?? null,
+    })
   /** Extend a waiting delta with a later one of the same message. */
   const extend = (into: LiveEntry & { delta: object }, event: ConversationEvent): void => {
     const text = String(event.payload!.text)
@@ -801,11 +807,55 @@ function snapshotParts(frame: SnapshotFrame): {
   }
 }
 
-function redactHomePaths<T>(value: T, home: string): T {
-  if (typeof value === 'string') return value.replaceAll(home, '[home]') as T
-  if (Array.isArray(value)) return value.map((entry) => redactHomePaths(entry, home)) as T
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactHomePaths(entry, home)])) as T
+// Characters that continue a path segment. A prefix only matches when what
+// follows it does not continue its last segment, so `/Users/dev` never matches
+// inside `/Users/developer` or `/Users/dev.old`.
+const SEGMENT_CHAR = String.raw`[\w.~\-]`
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+type PathRewriter = (text: string) => string
+const rewriters = new Map<string, PathRewriter>()
+
+function pathRewriter(home: string, workspaceRoot: string | null): PathRewriter {
+  const cacheKey = JSON.stringify([home, workspaceRoot])
+  const cached = rewriters.get(cacheKey)
+  if (cached) return cached
+  const flags = process.platform === 'win32' ? 'gi' : 'g'
+  // A prefix starts a path: at the start of the text, after a character that
+  // cannot be inside one, or right after a `file://` scheme.
+  const start = String.raw`(?:(?<![\w.~\-/\\])|(?<=file://))`
+  const steps: Array<[RegExp, string]> = []
+  const root = workspaceRoot?.replace(/[\\/]+$/, '') ?? ''
+  if (root.length > 1) {
+    const prefix = escapeRegExp(root)
+    // In the workspace: the path from its root, and the root itself as `.`.
+    steps.push([new RegExp(`${start}${prefix}[\\\\/](?=${SEGMENT_CHAR})`, flags), ''])
+    steps.push([new RegExp(`${start}${prefix}(?!${SEGMENT_CHAR})`, flags), '.'])
   }
-  return value
+  const homeRoot = home.replace(/[\\/]+$/, '')
+  if (homeRoot.length > 1)
+    steps.push([new RegExp(`${start}${escapeRegExp(homeRoot)}(?!${SEGMENT_CHAR})`, flags), '[home]'])
+  const rewrite: PathRewriter = (text) =>
+    steps.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text)
+  if (rewriters.size > 64) rewriters.clear()
+  rewriters.set(cacheKey, rewrite)
+  return rewrite
+}
+
+/**
+ * Host paths as a remote reader sees them. A path inside the conversation's
+ * workspace becomes relative to it, as the desktop shows it; anything else in
+ * the home directory starts `[home]`. Only whole path segments match, and a
+ * path that merely contains the home path further along is left alone.
+ */
+export function redactHostPaths<T>(value: T, input: { home: string; workspaceRoot: string | null }): T {
+  const rewrite = pathRewriter(input.home, input.workspaceRoot)
+  const walk = (entry: unknown): unknown => {
+    if (typeof entry === 'string') return rewrite(entry)
+    if (Array.isArray(entry)) return entry.map(walk)
+    if (entry && typeof entry === 'object')
+      return Object.fromEntries(Object.entries(entry).map(([key, child]) => [key, walk(child)]))
+    return entry
+  }
+  return walk(value) as T
 }
