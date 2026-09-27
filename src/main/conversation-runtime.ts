@@ -1787,13 +1787,28 @@ export class ConversationRuntime {
     const throttle = this.toolPreviews.get(key)
     if (!throttle) return
     throttle.timer = null
-    const held = throttle.held
-    throttle.held = null
-    if (throttle.session.status === 'stopped') this.toolPreviews.delete(key)
-    if (!held || throttle.session.status === 'stopped') return
-    throttle.sentAt = Date.now()
-    throttle.shown = `${String(held.event.payload?.totalBytes ?? '')}:${String(held.event.payload?.preview ?? '')}`
-    this.runInBackground(this.emit(throttle.session, held.event, { ...held.options, prepared: true }))
+    if (throttle.session.status === 'stopped') {
+      this.toolPreviews.delete(key)
+      return
+    }
+    if (!throttle.held) return
+    // Decide in the emission queue, not here: the tool's final output may
+    // already be queued ahead of this preview, and a preview released after
+    // it would show stale output over the finished tool.
+    const session = throttle.session
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const release = (this.emissionTails.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => {
+        const held = throttle.held
+        if (this.toolPreviews.get(key) !== throttle || !held || session.status === 'stopped') return null
+        throttle.held = null
+        throttle.sentAt = Date.now()
+        throttle.shown = `${String(held.event.payload?.totalBytes ?? '')}:${String(held.event.payload?.preview ?? '')}`
+        return this.emitNow(session, held.event, { ...held.options, prepared: true })
+      })
+    this.emissionTails.set(path, release)
+    this.runInBackground(release)
   }
 
   /** Emit a session's waiting previews now, from inside the emission queue, and end their throttles. */

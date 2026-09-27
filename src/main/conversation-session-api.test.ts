@@ -1387,7 +1387,7 @@ test('a turn failure the transcript cannot store still reaches subscribers, numb
   }
 })
 
-async function throttledRuntime(sendTurn: ConversationProviderAdapter['sendTurn']) {
+async function throttledRuntime(sendTurn: ConversationProviderAdapter['sendTurn'], toolPreviewIntervalMs = 250) {
   const adapter = { ...createMockConversationProvider(), sendTurn }
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-session-'))
   const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
@@ -1396,7 +1396,7 @@ async function throttledRuntime(sendTurn: ConversationProviderAdapter['sendTurn'
     getProviderById: () => undefined,
     // The log alone would write a running tool's preview every 20 ms here.
     eventLog: { flushDelayMs: 5, toolOutputFlushDelayMs: 20 },
-    toolPreviewIntervalMs: 250,
+    toolPreviewIntervalMs,
   })
   const started = await runtime.startSession({ ...key, providerId: adapter.id, modelId: adapter.listModels()[0] })
   assert.ok(started.ok)
@@ -1418,6 +1418,45 @@ async function throttledRuntime(sendTurn: ConversationProviderAdapter['sendTurn'
     },
   }
 }
+
+test('a preview released while the final output is being prepared never lands after it', async () => {
+  // The second preview is held with a short timer; the final output behind it
+  // is large, so storing it outlasts that timer. The held preview must not be
+  // published after the final output and leave stale output on a finished tool.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const f = await throttledRuntime(
+      (input) =>
+        (async function* () {
+          yield event(input, 'tool_started', { turnId: input.turnId, toolCallId: 'cmd', tool: 'Bash', input: {} })
+          for (const output of ['first\n', 'second\n']) {
+            yield event(input, 'tool_output', {
+              turnId: input.turnId,
+              toolUseId: 'cmd',
+              output,
+              outputMode: 'append',
+              partial: true,
+            })
+          }
+          yield event(input, 'tool_output', {
+            turnId: input.turnId,
+            toolUseId: 'cmd',
+            output: 'x'.repeat(4 * 1024 * 1024),
+            outputMode: 'append',
+          })
+          yield event(input, 'turn_completed', { turnId: input.turnId })
+        })(),
+      1,
+    )
+    try {
+      await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'build' })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      const outputs = f.published.filter((value) => value.type === 'tool_output')
+      assert.equal(outputs.at(-1)?.payload?.partial, undefined, 'the final output is the last one published')
+    } finally {
+      await f.cleanup()
+    }
+  }
+})
 
 test('a long-running tool writes a preview only every preview interval, and its final output at the end', async () => {
   const chunks = Array.from({ length: 120 }, (_, index) => `line ${index} ${'.'.repeat(100)}\n`)
