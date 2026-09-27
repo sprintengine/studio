@@ -35,6 +35,11 @@ import {
 // reader stalls. Only a reader that stops reading reaches these.
 const MAX_LIVE_FRAMES = 256
 const MAX_LIVE_BYTES = 4 * 1024 * 1024
+// Live frames queued behind a replay still being paced out are bounded by
+// bytes alone, and generously: a busy turn during a large catch-up is not a
+// reader that stopped, and a resync before the fence would hand the client
+// the same cursor, and so the same replay, again.
+const MAX_LIVE_BYTES_BEHIND_REPLAY = 16 * 1024 * 1024
 // Replay and large responses are produced one wire frame at a time, paced by
 // socket write completion, and do not count against the live limits. A read
 // waits for room here instead of failing.
@@ -170,6 +175,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   let subscriptionGeneration = 0
   let readsInFlight = 0
   let commandsInFlight = 0
+  // Subscriptions whose replay is still queued or being written.
+  const replaying = new Set<number>()
 
   const close = (code: number, reason: string): void => {
     if (closed) return
@@ -282,6 +289,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         if (next.done) {
           pending.shift()
           bulkBytes -= entry.bytes
+          if (entry.subscription !== undefined) replaying.delete(entry.subscription)
           releaseBulkWaiters()
           continue
         }
@@ -337,12 +345,14 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     const event = frame.type === 'event' ? (frame.event as ConversationEvent) : null
     const key = event ? deltaKey(event) : null
     const tail = pending.at(-1)
+    const behindReplay = subscription !== undefined && replaying.has(subscription)
+    const byteBound = behindReplay ? MAX_LIVE_BYTES_BEHIND_REPLAY : MAX_LIVE_BYTES
     if (key && event && mergeable(tail, key, subscription)) {
       // Only an unsent frame is ever in the queue, so this merges only while
       // the reader is behind. The merged delta keeps its first id and takes
       // the last sequence, which is how a stored run reads back too.
       extend(tail as LiveEntry & { delta: object }, event)
-      if (liveBytes > MAX_LIVE_BYTES) resync()
+      if (liveBytes > byteBound) resync()
       return
     }
     const toolUseId =
@@ -354,7 +364,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         removeLive(queued)
     }
     const bytes = Buffer.byteLength(JSON.stringify(frame))
-    if (liveFrames >= MAX_LIVE_FRAMES || liveBytes + bytes > MAX_LIVE_BYTES) {
+    if ((!behindReplay && liveFrames >= MAX_LIVE_FRAMES) || liveBytes + bytes > byteBound) {
       resync()
       return
     }
@@ -429,10 +439,16 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         encoded.push(() => wireFrames(json))
       }
     }
+    replaying.add(subscription)
     sendBulk(
       (function* () {
-        for (const produce of encoded) {
+        for (const [index, produce] of encoded.entries()) {
           if (!current()) return
+          // The fence is the replay's last frame. Once it is on its way the
+          // client holds a newer cursor, so live frames behind it count
+          // against the usual bound again: a resync from here on still moves
+          // the client forward, and one that has stopped reading is found.
+          if (index === encoded.length - 1) replaying.delete(subscription)
           yield* produce()
         }
       })(),
@@ -485,6 +501,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       else if (!entry.started) {
         pending.splice(pending.indexOf(entry), 1)
         bulkBytes -= entry.bytes
+        replaying.delete(entry.subscription)
       }
     }
     releaseBulkWaiters()

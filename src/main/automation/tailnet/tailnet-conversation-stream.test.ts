@@ -952,6 +952,33 @@ test('a large escaped tool detail is paced and reassembles without a resync clos
   stream.close(1000, '')
 })
 
+test('a busy turn during a large catch-up is queued behind it, not resynced before the fence', async () => {
+  const { socket, stream, emit } = await joinedSocket()
+  socket.delayMs = 1
+  const events = Array.from({ length: 200 }, (_, index) =>
+    wireEvent(index + 1, 'tool_output', { toolUseId: `t${index}`, preview: 'x'.repeat(20_000) }),
+  )
+  emit({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: 1 }, generation: 'g' })
+  emit({ type: 'synchronized', seq: 200, generation: 'g' })
+  // More than the live bound of frames that cannot merge, all while the
+  // snapshot is still being paced out.
+  for (let seq = 201; seq <= 600; seq++)
+    emit({ type: 'event', event: wireEvent(seq, 'tool_started', { toolUseId: `live-${seq}` }) })
+  await until(() => assemble(socket.output()).some((frame) => frame.event?.seq === 600), 'every live frame drains')
+  assert.equal(stream.isClosed(), false, 'no resync while the replay was still going out')
+  const frames = assemble(socket.output())
+  assert.equal(
+    frames.some((frame) => frame.type === 'error'),
+    false,
+  )
+  const fence = frames.findIndex((frame) => frame.type === 'synchronized')
+  assert.deepEqual(
+    frames.slice(fence + 1).map((frame) => frame.event?.seq),
+    Array.from({ length: 400 }, (_, index) => 201 + index),
+  )
+  stream.close(1000, '')
+})
+
 test('switching conversations mid-replay stops the old replay and names the conversation on every fence', async () => {
   const socket = new Socket()
   socket.delayMs = 1
