@@ -145,6 +145,8 @@ type ConversationRuntimeOptions = {
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
+/** `lost`: highest sequence number published but not written; `recorded`: highest one on disk as such. */
+type NonDurableLog = { root: string; lost: number; recorded: number; recording: boolean }
 
 // Cap on how many persisted events a transcript replay returns to the
 // renderer; the JSONL on disk keeps everything.
@@ -186,7 +188,9 @@ export class ConversationRuntime {
   private readonly receiptWrites = new Map<string, Promise<void>>()
   // Transcripts with a write that failed this run: a sequence number was
   // published that is not on disk, so they never serve incremental catch-up.
-  private readonly nonDurableLogs = new Set<string>()
+  // The highest such number is also recorded beside the transcript, so the
+  // next run numbers above it rather than reusing numbers a client has seen.
+  private readonly nonDurableLogs = new Map<string, NonDurableLog>()
   // Per tool detail path: the detail being built, its streamed output, and
   // the write in flight.
   private readonly toolDetails = new Map<string, ConversationToolDetail>()
@@ -562,7 +566,7 @@ export class ConversationRuntime {
       event.seq = (this.sequences.get(path) ?? 0) + 1
       event.createdAt = this.now()
       this.sequences.set(path, event.seq)
-      this.nonDurableLogs.add(path)
+      this.markNonDurable(session.workspaceRoot, path, event.seq)
       this.notify(event)
     }
     return { ok: false, message, event }
@@ -575,10 +579,54 @@ export class ConversationRuntime {
    * log can no longer vouch for its sequence numbers, so catch-up on it falls
    * back to a full snapshot until the process restarts.
    */
-  private publish(path: string, event: ConversationEvent, outcome: ConversationAppendOutcome): void {
+  private publish(root: string, path: string, event: ConversationEvent, outcome: ConversationAppendOutcome): void {
     if (outcome === 'superseded') return
-    if (outcome === 'failed') this.nonDurableLogs.add(path)
+    if (outcome === 'failed') this.markNonDurable(root, path, event.seq ?? 0)
+    // The disk took a write again: record a lost number the first attempt could not.
+    else if (this.nonDurableLogs.has(path)) this.recordLostSequence(path)
     this.notify(event)
+  }
+
+  private markNonDurable(root: string, path: string, seq: number): void {
+    const log = this.nonDurableLogs.get(path) ?? { root, lost: 0, recorded: 0, recording: false }
+    log.lost = Math.max(log.lost, seq)
+    this.nonDurableLogs.set(path, log)
+    this.recordLostSequence(path)
+  }
+
+  /**
+   * Keep the highest published-but-unwritten sequence number on disk. Without
+   * it a restart would resume numbering from the end of the file, reissue
+   * numbers a client already holds under the same log generation, and that
+   * client's catch-up would skip the new events carrying them.
+   */
+  private recordLostSequence(path: string): void {
+    const log = this.nonDurableLogs.get(path)
+    if (!log || log.recording || log.recorded >= log.lost) return
+    log.recording = true
+    const target = log.lost
+    this.runInBackground(
+      writeConversationStorage(log.root, lostSequencePath(path), JSON.stringify({ seq: target })).then(
+        () => {
+          log.recording = false
+          log.recorded = Math.max(log.recorded, target)
+          this.recordLostSequence(path)
+        },
+        () => {
+          // Still failing: the next successful append or failure tries again.
+          log.recording = false
+        },
+      ),
+    )
+  }
+
+  private async readLostSequence(root: string, path: string): Promise<number> {
+    try {
+      const seq = JSON.parse((await readConversationStorage(root, lostSequencePath(path), 1024)).toString('utf8'))?.seq
+      return Number.isSafeInteger(seq) && seq > 0 ? seq : 0
+    } catch {
+      return 0
+    }
   }
 
   private notify(event: ConversationEvent): void {
@@ -1061,7 +1109,7 @@ export class ConversationRuntime {
     // still see sequence order.
     if (isStreamedEvent(stamped)) {
       this.persistEvent(session, stamped).then(
-        (outcome) => this.publish(path, stamped, outcome),
+        (outcome) => this.publish(session.workspaceRoot, path, stamped, outcome),
         () => undefined,
       )
       return stamped
@@ -1077,7 +1125,7 @@ export class ConversationRuntime {
       session.status = stamped.type === 'turn_completed' ? 'ready' : 'failed'
       session.updatedAt = this.now()
     }
-    this.publish(path, stamped, outcome)
+    this.publish(session.workspaceRoot, path, stamped, outcome)
     if (automaticRequestId)
       void this.respondToRequest({
         sessionId: session.sessionId,
@@ -1480,7 +1528,7 @@ export class ConversationRuntime {
             payload: { conversationTitle: title, titleSource },
           }
           this.sequences.set(path, event.seq!)
-          this.publish(path, event, await this.eventLog.append(path, event, input.workspaceRoot))
+          this.publish(input.workspaceRoot, path, event, await this.eventLog.append(path, event, input.workspaceRoot))
         })
       this.emissionTails.set(path, pending)
       await pending
@@ -1519,6 +1567,7 @@ export class ConversationRuntime {
       await this.receiptWrites.get(receiptsPath)
       await removeConversationStorage(input.workspaceRoot, receiptsPath)
       await removeConversationStorage(input.workspaceRoot, `${receiptsPath}.corrupt`)
+      await removeConversationStorage(input.workspaceRoot, lostSequencePath(path))
       this.receipts.delete(receiptsPath)
       this.transcripts.forget(path)
       this.nonDurableLogs.delete(path)
@@ -1729,7 +1778,10 @@ export class ConversationRuntime {
     )
     return {
       ok: true,
-      events: [...bounded, ...(options.closeOpenTurns !== false && !live ? syntheticTurnClosures(bounded) : [])],
+      events: [
+        ...bounded,
+        ...(options.closeOpenTurns !== false && !live ? syntheticTurnClosures(bounded, bounded.at(-1)?.seq ?? 0) : []),
+      ],
     }
   }
 
@@ -1802,9 +1854,10 @@ export class ConversationRuntime {
         session.agentId === input.agentId &&
         session.status !== 'stopped',
     )
-    const closures = sync.kind === 'snapshot' && !live ? syntheticTurnClosures(sync.page.events) : []
+    const floor = Math.max(sync.head, await this.readLostSequence(input.workspaceRoot, path))
+    const closures = sync.kind === 'snapshot' && !live ? syntheticTurnClosures(sync.page.events, floor) : []
     for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
-    this.sequences.set(path, closures.at(-1)?.seq ?? sync.head)
+    this.sequences.set(path, closures.at(-1)?.seq ?? floor)
     // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
     this.runInBackground(
       this.threadIndex
@@ -1897,7 +1950,7 @@ export class ConversationRuntime {
               if (session.workspaceId === input.key.workspaceId && session.agentId === input.key.agentId)
                 this.updateExcerpts(session, event)
             }
-            this.publish(path, event, outcome)
+            this.publish(input.key.workspaceRoot, path, event, outcome)
           })
         this.emissionTails.set(path, pending)
         await pending
@@ -1999,7 +2052,7 @@ function safeSegment(value: string): string {
 // verbatim would leave the projection permanently "streaming" and block the
 // composer, so unfinished turns are closed with synthetic interrupt events —
 // not persisted, only appended to the replay result.
-function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[] {
+function syntheticTurnClosures(events: ConversationEvent[], after: number): ConversationEvent[] {
   const openTurns = new Map<string, ConversationEvent>()
   for (const event of events) {
     const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
@@ -2013,7 +2066,7 @@ function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[]
   let sequence = 0
   return Array.from(openTurns.entries()).map(([turnId, source]) => ({
     id: `conv_evt_replay_close_${++sequence}`,
-    seq: (events.at(-1)?.seq ?? 0) + sequence,
+    seq: after + sequence,
     sessionId: source.sessionId,
     workspaceId: source.workspaceId,
     agentId: source.agentId,
@@ -2023,6 +2076,11 @@ function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[]
     createdAt: source.createdAt,
     payload: { turnId, reason: 'interrupted', message: 'The app closed while this turn was streaming.' },
   }))
+}
+
+/** Beside the transcript: the highest sequence number published that may not be in it. */
+function lostSequencePath(transcriptPath: string): string {
+  return transcriptPath.replace(/\.jsonl$/, '.lost-seq.json')
 }
 
 function isAsyncIterable(

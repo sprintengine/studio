@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'vitest'
 
 import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
@@ -252,4 +252,75 @@ test('after a completed turn the transcript rebuilds the full message', async ()
       .join('')
     assert.equal(text, 'The whole answer.')
   })
+})
+
+test('numbers published but lost to a failed write are never reissued after a restart', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-persistence-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const provider = streamingProvider(['lost ', 'to ', 'the ', 'disk'])
+  provider.release()
+  const run = async (diskFills: boolean) => {
+    let full = false
+    const runtime = new ConversationRuntime({
+      adapters: [provider.adapter],
+      getProviderById: () => undefined,
+      eventLog: {
+        flushDelayMs: 1,
+        openStream: async (filePath) => {
+          await mkdir(dirname(filePath), { recursive: true })
+          return {
+            write: async (chunk) => {
+              // The disk fills mid-answer and stays full until the app is gone.
+              full ||= diskFills && chunk.includes('"content_delta"')
+              if (full) throw new Error('ENOSPC: no space left on device')
+              await appendFile(filePath, chunk)
+            },
+            close: async () => undefined,
+          }
+        },
+      },
+    })
+    const published: number[] = []
+    runtime.onEvent((event) => published.push(event.seq!))
+    const started = await runtime.startSession({ ...key, providerId: 'streaming-provider', modelId: 'model' })
+    assert.ok(started.ok)
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'hi' })
+    return { runtime, published }
+  }
+  try {
+    const first = await run(true)
+    await first.runtime.shutdown()
+    const lost = Math.max(...first.published)
+
+    const second = await run(false)
+    try {
+      assert.ok(second.published.length > 0)
+      assert.ok(
+        second.published.every((seq) => seq > lost),
+        `the next run numbers above ${lost}, a cursor a client may hold, not from the end of the file`,
+      )
+      const joined = await second.runtime.readConversationSync(key, { turnLimit: 1 })
+      assert.ok(joined.ok)
+      const caught = await second.runtime.readConversationSync(key, { afterSeq: lost, generation: joined.generation })
+      assert.ok(caught.ok && caught.kind === 'events')
+      assert.deepEqual(
+        caught.events.map((event) => event.type),
+        // The first run's unfinished turn is closed when the log is reopened.
+        [
+          'turn_failed',
+          'session_started',
+          'session_ready',
+          'user_message',
+          'turn_started',
+          'content_delta',
+          'turn_completed',
+        ],
+        'a client holding the lost cursor catches up on everything published since',
+      )
+    } finally {
+      await second.runtime.shutdown()
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 })
