@@ -8,11 +8,12 @@ export type JsonSchema = Record<string, unknown>
 // CLI permission preset for a spawned automation agent. Mirrors
 // CliPermissionPreset (src/shared/electron-api.ts) so the automations
 // contract stays self-contained; kept in sync as a closed union.
-export type AutomationCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+export type AutomationCliPermissionPreset = 'none' | 'bypass'
 
 // The preset an agent-backed automation runs on when its definition names none.
-// An automation agent runs with nobody at its terminal, so `manual` would stop
-// at the first approval prompt and hang the run until the idle reaper fails it.
+// An automation agent runs with nobody at its terminal, so a CLI left to its
+// own default could stop at the first approval prompt and hang the run until
+// the idle reaper fails it.
 // Resolved in parseSpawnAgentConfig (src/main/automations/actions/spawn-agent.ts)
 // so every start path lands on the same answer, and read by the editor so the
 // control shows what an unset automation will actually run on. A definition that

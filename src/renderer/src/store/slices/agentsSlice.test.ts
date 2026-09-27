@@ -90,9 +90,14 @@ test('agentsSlice', async () => {
       ...defaultAgent('agent-normalize'),
       cliPermissionPreset: 'invalid' as never,
     }).cliPermissionPreset,
-    // Corruption floors to `manual` since the preset rename: no flag stopped being the
-    // conservative answer once Claude Code began reading it as auto mode.
-    'manual',
+    // A value no version wrote reads as the spawn default.
+    'bypass',
+  )
+  assert.equal(
+    normalizeAgentState({ ...defaultAgent('agent-normalize-legacy'), cliPermissionPreset: 'manual' as never })
+      .cliPermissionPreset,
+    'none',
+    'an agent record saved on a retired preset keeps its nearest meaning, never bypass',
   )
   assert.equal(
     normalizeAgentState(

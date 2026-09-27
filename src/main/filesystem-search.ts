@@ -11,11 +11,17 @@ import type {
 import { describeRipgrepSpawnFailure, markRipgrepUnusable, ripgrepBinary, type RipgrepBinary } from './ripgrep-binary'
 import { watchEventPaths } from '../shared/file-watch-event'
 import { getWatchHub, type WatchHub, type WatchSubscription } from './workspace-watch-hub'
+import ignore, { type Ignore } from 'ignore'
+import { rankMentionCandidates } from '../shared/conversation/searchRanking'
+import { openConfinedExistingFile, readBoundedConversationFile } from './conversation-file-access'
 
 export type FileSearchRequest = {
   rootPath: string
   query: string
   limit?: number
+  purpose?: 'mention'
+  channel?: string
+  recentAt?: Record<string, number>
 }
 
 export type ContentSearchRequest = FileSearchRequest
@@ -63,7 +69,7 @@ const FILE_SEARCH_DEFAULT_EXCLUDES = [
   'coverage',
 ]
 
-const activeFileSearches = new Map<number, ChildProcessWithoutNullStreams>()
+const activeFileSearches = new Map<string, ChildProcessWithoutNullStreams>()
 const cancelledFileSearches = new WeakSet<ChildProcessWithoutNullStreams>()
 const activeContentSearches = new Map<number, ChildProcessWithoutNullStreams>()
 const cancelledContentSearches = new WeakSet<ChildProcessWithoutNullStreams>()
@@ -113,10 +119,25 @@ function sortFileSearchResults(results: FileSearchEntry[], query: string): FileS
   })
 }
 
-function cancelActiveFileSearch(senderId: number): void {
-  const activeSearch = activeFileSearches.get(senderId)
+function fileSearchKey(senderId: number, channel?: string): string {
+  return `${senderId}:${typeof channel === 'string' && channel.length <= 200 ? channel : ''}`
+}
+
+export function cancelActiveFileSearch(senderId: number, channel?: string): void {
+  cancelFileSearchKey(fileSearchKey(senderId, channel))
+}
+
+export function cancelAllFileSearches(senderId: number): void {
+  for (const key of new Set([...fileSearchTickets.keys(), ...activeFileSearches.keys()])) {
+    if (key.startsWith(`${senderId}:`)) cancelFileSearchKey(key)
+  }
+}
+
+function cancelFileSearchKey(key: string): void {
+  fileSearchTickets.delete(key)
+  const activeSearch = activeFileSearches.get(key)
   if (!activeSearch) return
-  activeFileSearches.delete(senderId)
+  activeFileSearches.delete(key)
   cancelledFileSearches.add(activeSearch)
   try {
     activeSearch.kill()
@@ -165,7 +186,7 @@ function spawnRipgrep(
 }
 
 async function searchFilesWithRipgrep(
-  senderId: number,
+  senderId: string,
   binaryPath: string,
   rootPath: string,
   query: string,
@@ -434,6 +455,11 @@ function withContentSearchDiagnostics(result: ContentSearchEngineResult, started
 
 export async function searchFiles(senderId: number, input: FileSearchRequest): Promise<FileSearchResult> {
   const startedAt = Date.now()
+  const key = fileSearchKey(senderId, input.channel)
+  cancelFileSearchKey(key)
+  const ticket = Symbol()
+  fileSearchTickets.set(key, ticket)
+  const superseded = () => fileSearchTickets.get(key) !== ticket
   const rootPath = typeof input.rootPath === 'string' ? input.rootPath : ''
   const query = typeof input.query === 'string' ? input.query.trim() : ''
   const limit = normalizeFileSearchLimit(input.limit)
@@ -454,10 +480,14 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
     }
   }
 
-  cancelActiveFileSearch(senderId)
-  const ticket = (fileSearchTickets.get(senderId) ?? 0) + 1
-  fileSearchTickets.set(senderId, ticket)
-  const superseded = () => fileSearchTickets.get(senderId) !== ticket
+  if (superseded())
+    return withFileSearchDiagnostics({ ok: true, results: [], truncated: false, engine: 'ripgrep' }, startedAt)
+
+  if (input.purpose === 'mention')
+    return withFileSearchDiagnostics(
+      await searchMentionPaths(rootPath, query, limit, superseded, input.recentAt),
+      startedAt,
+    )
 
   const listing = await fileListCache.list(rootPath)
   // Read after the listing, which is where a binary that will not start is
@@ -471,7 +501,7 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
 
   // Too large to hold, or the listing failed: walk for this query alone.
   if (rg.ok) {
-    const result = await searchFilesWithRipgrep(senderId, rg.path, rootPath, query, limit)
+    const result = await searchFilesWithRipgrep(key, rg.path, rootPath, query, limit)
     // A ripgrep that could not start has just been given up on; walk instead.
     const after = await ripgrepBinary()
     if (result.ok || after.ok) return withFileSearchDiagnostics(result, startedAt)
@@ -480,7 +510,7 @@ export async function searchFiles(senderId: number, input: FileSearchRequest): P
   return withFileSearchDiagnostics(await searchFilesWithWalker(rootPath, query, limit, superseded), startedAt)
 }
 
-const fileSearchTickets = new Map<number, number>()
+const fileSearchTickets = new Map<string, symbol>()
 
 let reportedWalkerFallback = false
 
@@ -739,6 +769,112 @@ function listFilesWithRipgrep(
 }
 
 const WALKER_EXCLUDED_NAMES = new Set(FILE_SEARCH_DEFAULT_EXCLUDES)
+
+type MentionIgnoreLayer = { prefix: string; rules: Ignore; priority: number }
+
+/** Mention search ranks the whole bounded walk, not an arbitrary first page.
+ * Each ignore file stays relative to its own directory. Later/deeper rules
+ * override matching ancestors; ignore-file precedence follows the search engine.
+ * Ignored directories are pruned, so a child cannot resurrect an excluded parent.
+ */
+async function searchMentionPaths(
+  rootPath: string,
+  query: string,
+  limit: number,
+  superseded: () => boolean,
+  recentAt?: Record<string, number>,
+): Promise<FileSearchEngineResult> {
+  const visits = new Map(
+    Object.entries(recentAt && typeof recentAt === 'object' ? recentAt : {})
+      .slice(0, 1000)
+      .filter(([, stamp]) => typeof stamp === 'number' && Number.isFinite(stamp)),
+  )
+  const pending: Array<{ path: string; layers: MentionIgnoreLayer[] }> = [{ path: '', layers: [] }]
+  let best: Array<{ path: string; kind: 'file' | 'folder'; recentAt?: number }> = []
+  let visited = 0,
+    matched = 0,
+    ruleBytes = 0,
+    truncated = false
+  const deadline = Date.now() + 5000
+  while (pending.length) {
+    if (superseded()) return { ok: true, results: [], truncated: false, engine: 'walker' }
+    if (visited >= 50_000 || Date.now() > deadline) {
+      truncated = true
+      break
+    }
+    const directory = pending.pop()!
+    const layers = [...directory.layers]
+    let readableRules = true
+    for (const [priority, name] of ['.gitignore', '.ignore', '.rgignore'].entries()) {
+      let file
+      try {
+        file = await openConfinedExistingFile(rootPath, join(directory.path, name))
+        const body = await readBoundedConversationFile(file, 64 * 1024)
+        ruleBytes += body.length
+        if (ruleBytes > 1024 * 1024) {
+          readableRules = false
+          break
+        }
+        layers.push({
+          prefix: directory.path ? `${directory.path}/` : '',
+          rules: ignore({ ignorecase: false }).add(body.toString('utf8')),
+          priority,
+        })
+      } catch (error) {
+        // An unreadable/oversized rule file must not expose paths it may exclude.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') readableRules = false
+      } finally {
+        await file?.close()
+      }
+    }
+    if (!readableRules) {
+      truncated = true
+      continue
+    }
+    layers.sort((a, b) => a.priority - b.priority)
+    let dir
+    try {
+      dir = await opendir(join(rootPath, directory.path))
+    } catch {
+      continue
+    }
+    try {
+      for await (const entry of dir) {
+        if (superseded()) return { ok: true, results: [], truncated: false, engine: 'walker' }
+        if (++visited > 50_000 || Date.now() > deadline) {
+          truncated = true
+          break
+        }
+        if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue
+        const isDir = entry.isDirectory()
+        if ((!isDir && !entry.isFile()) || (isDir && WALKER_EXCLUDED_NAMES.has(entry.name))) continue
+        const path = directory.path ? `${directory.path}/${entry.name}` : entry.name
+        let ignored = false
+        for (const layer of layers) {
+          const match = layer.rules.test(path.slice(layer.prefix.length) + (isDir ? '/' : ''))
+          if (match.ignored) ignored = true
+          else if (match.unignored) ignored = false
+        }
+        if (ignored) continue
+        if (isDir) pending.push({ path, layers })
+        const candidate = { path, kind: isDir ? ('folder' as const) : ('file' as const), recentAt: visits.get(path) }
+        const ranked = rankMentionCandidates([candidate], query, 1)
+        if (ranked.length) {
+          matched++
+          best = rankMentionCandidates([...best, candidate], query, limit)
+        }
+      }
+    } catch {
+      truncated = true
+    }
+  }
+  return {
+    ok: true,
+    engine: 'walker',
+    truncated: truncated || matched > limit,
+    results: best.map((entry) => ({ ...toFileSearchEntry(rootPath, entry.path), isDir: entry.kind === 'folder' })),
+  }
+}
 
 /**
  * The files under `rootPath`, root-relative, as close to `rg --files` as a

@@ -39,7 +39,8 @@ const INVALID_CASES: Array<{ name: string; manifest: unknown }> = [
   { name: 'missing binary', manifest: without(VALID_CLI, 'binary') },
   { name: 'missing displayName', manifest: without(VALID_CLI, 'displayName') },
   { name: 'non-positive version', manifest: { ...VALID_CLI, version: 0 } },
-  { name: 'empty permissionPresets', manifest: { ...VALID_CLI, permissionPresets: {} } },
+  { name: 'non-object permissionPresets', manifest: { ...VALID_CLI, permissionPresets: [] } },
+  { name: 'preset without args', manifest: { ...VALID_CLI, permissionPresets: { bypass: { label: 'Bypass' } } } },
   { name: 'empty launch.argv', manifest: { ...VALID_CLI, launch: { argv: [] } } },
   { name: 'output-sentinel without sentinel', manifest: { ...VALID_CLI, completion: { mode: 'output-sentinel' } } },
   {

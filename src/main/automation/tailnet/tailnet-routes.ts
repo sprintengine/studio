@@ -24,6 +24,8 @@ export const TAILNET_WS_TICKET_PATH = `${TAILNET_ROUTE_PREFIX}/ws-ticket`
 export const TAILNET_STREAM_PATH = `${TAILNET_ROUTE_PREFIX}/stream`
 /** One WebSocket per attached terminal, so a chatty session cannot stall the RPC stream. */
 export const TAILNET_TERMINAL_PATH = `${TAILNET_ROUTE_PREFIX}/terminal`
+/** One scoped conversation stream, independently resumable by event sequence. */
+export const TAILNET_CONVERSATION_PATH = `${TAILNET_ROUTE_PREFIX}/conversation`
 /**
  * The change feed (2026-09-05): one idle WebSocket per paired device on which
  * this machine says "the terminal list changed" or "the workspace list
@@ -88,7 +90,7 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * replay, whose missing `position` says so — but may read it to know whether a
  * reconnect will repaint.
  */
-export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload', 'terminal-resume'] as const
+export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload', 'terminal-resume', 'conversations'] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
 

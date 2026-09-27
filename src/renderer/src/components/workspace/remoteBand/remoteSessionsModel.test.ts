@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 
-import type {
-  FleetBrowse,
-  FleetConnection,
-  FleetLiveAttachment,
-  FleetMachineReachability,
-  FleetTerminal,
+import {
+  fleetConversationPresence,
+  fleetConversationSessionId,
+  type FleetBrowse,
+  type FleetConnection,
+  type FleetConversation,
+  type FleetLiveAttachment,
+  type FleetMachineReachability,
+  type FleetTerminal,
 } from '../../../../../shared/tailnet-fleet'
 import type { Workspace } from '../../../types/workspace'
 import {
@@ -13,6 +16,7 @@ import {
   attachedWorkspaceFor,
   buildRemoteBand,
   conversationsOf,
+  openSpecOfConversation,
   remoteConversationTitle,
   remoteLinkStateOf,
   remoteWorkspaceName,
@@ -507,4 +511,91 @@ test('remoteSessionsModel', async () => {
   assert.equal(titled('Tara Boyle', ''), 'Tara Boyle', 'a remote that never named its chat leaves the name as it is')
 
   console.log('remote sessions model tests passed')
+})
+
+test('chats on a paired machine are rows of their own, with the presence their phase says, and open in the chat view', () => {
+  const mini: FleetConnection = {
+    id: 'c-mini',
+    machineName: 'mac-mini',
+    endpoint: 'mac-mini.tail1234.ts.net:8471',
+    deviceId: 'tnd_mini',
+    deviceName: 'dev-macbook-air',
+    scopes: ['conversation:read', 'conversation:operate'],
+    pairedAt: '2026-09-05T00:00:00.000Z',
+    lastConnectedAt: null,
+    pairedVia: 'request',
+  }
+  const chat = (agentId: string, phase: FleetConversation['phase'], title: string): FleetConversation => ({
+    workspaceId: 'rw1',
+    agentId,
+    title,
+    phase,
+    updatedAt: 2_000,
+    createdAt: 1_000,
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    turnCount: 3,
+    lastSeq: 40,
+  })
+  const entry = {
+    browse: null,
+    loading: false,
+    error: null,
+    at: 1,
+    conversations: [
+      chat('a-running', 'running', 'Profile the importer'),
+      chat('a-waiting', 'waiting_for_approval', 'Rename the store'),
+      chat('a-done', 'completed', 'Write the changelog'),
+    ],
+  }
+  const opened = {
+    id: 'local-1',
+    remoteOrigin: {
+      connectionId: 'c-other',
+      machineName: 'build-box',
+      workspaceId: 'rw1',
+      workspaceName: '',
+      sessionId: 'unrelated',
+    },
+    layoutModel: {
+      layout: {
+        type: 'row',
+        children: [
+          {
+            type: 'tab',
+            component: 'fleet-conversation',
+            config: { connectionId: 'c-mini', remoteSessionId: fleetConversationSessionId('rw1', 'a-done') },
+          },
+        ],
+      },
+    },
+  } as unknown as Workspace
+  const [group] = buildRemoteBand({
+    connections: [mini],
+    browses: new Map([[mini.id, entry]]),
+    attachments: new Map(),
+    reachability: new Map(),
+    workspaces: [opened],
+  })
+  assert.deepEqual(
+    group.rows.map((row) => [row.title, row.kind, row.activity, row.status.label]),
+    [
+      ['Profile the importer', 'chat', 'working', 'Running'],
+      ['Rename the store', 'chat', 'needs-input', 'Needs approval'],
+      ['Write the changelog', 'chat', 'idle', 'Done'],
+    ],
+  )
+  // A pane already following a chat here is the window a click focuses.
+  assert.equal(group.rows[2].attachedWorkspaceId, 'local-1')
+  // Each chat is a conversation of its own, titled with its own name, even
+  // when they stand in one workspace over there.
+  const conversations = conversationsOf(group)
+  assert.deepEqual(
+    conversations.map((conversation) => conversation.title),
+    ['Profile the importer', 'Rename the store', 'Write the changelog'],
+  )
+  assert.deepEqual(openSpecOfConversation(conversations[1]).conversation, { workspaceId: 'rw1', agentId: 'a-waiting' })
+  assert.equal(fleetConversationPresence('waiting_for_input'), 'needs-input')
+  assert.equal(fleetConversationPresence('starting'), 'running')
+  assert.equal(fleetConversationPresence('failed'), 'idle')
 })

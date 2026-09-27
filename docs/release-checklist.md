@@ -44,7 +44,9 @@ of the first release that ships it, then delete the line.
   worktree, its own branch, and a pull request nothing merges automatically.
   And an automation with no explicit permission preset now launches its agent on
   `bypass_all` (item 2033) rather than stopping for an approval nobody is awake
-  to give. An agent still cannot grant itself bypass through the MCP tools.
+  to give. The MCP tools take bypass as well (owner ruling 2026-09-27): an
+  agent launched or an automation created through them may name it, and one
+  that names no preset runs on the machine's spawn default.
 - Automation autonomy field on the module SDK (item 2032): `autonomyDefault` is
   removed from `AutomationDefinition`, `AutomationDefinitionDraft` and the patch
   type in `@sprintengine/module-sdk`. This is a **breaking type change** for a

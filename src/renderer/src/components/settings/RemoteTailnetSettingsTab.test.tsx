@@ -236,7 +236,7 @@ test('RemoteTailnetSettingsTab', async () => {
     assert.match(text, /terminal:observe/)
     assert.match(text, /terminal:control/)
     // The sentence the whole rebuild exists for.
-    assert.match(text, /can't see chats or terminals here/)
+    assert.match(text, /can't see terminals or terminal agents here/)
 
     const grant = [...dom.window.document.body.querySelectorAll('button')].find(
       (button) => (button.textContent ?? '').trim() === 'Grant',
@@ -251,6 +251,8 @@ test('RemoteTailnetSettingsTab', async () => {
       'workspace:operate',
       'backlog:read',
       'backlog:operate',
+      'conversation:read',
+      'conversation:operate',
       'terminal:observe',
       'terminal:control',
     ])
@@ -284,13 +286,15 @@ test('RemoteTailnetSettingsTab', async () => {
     assert.match(text, /Read only/)
     assert.match(text, /Standard/)
     // Every row, named for what it reveals.
-    assert.match(text, /Watch chats & terminals/)
-    assert.match(text, /Drive chats & terminals/)
+    assert.match(text, /View conversations/)
+    assert.match(text, /Operate conversations/)
+    assert.match(text, /Watch terminals/)
+    assert.match(text, /Drive terminals/)
     assert.match(text, /Arbitrary shell on this machine/)
-    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 6)
+    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 8)
     // Standard is the default preset, terminal:control included (owner ruling
     // 2026-09-10) — so every box is ticked when the dialog opens.
-    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 6)
+    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 8)
 
     const create = [...dom.window.document.body.querySelectorAll('button')].find(
       (button) => (button.textContent ?? '').trim() === 'Create link',
@@ -303,6 +307,8 @@ test('RemoteTailnetSettingsTab', async () => {
       'workspace:operate',
       'backlog:read',
       'backlog:operate',
+      'conversation:read',
+      'conversation:operate',
       'terminal:observe',
       'terminal:control',
     ])

@@ -119,6 +119,10 @@ import type {
   FleetTerminalEvent,
   FleetRequestPairingResult,
   TailnetForgetMachineResult,
+  FleetConversationCommandResult,
+  FleetConversationFrame,
+  FleetConversationKey,
+  FleetConversationListResult,
 } from './tailnet-fleet'
 import type {
   AutomationsBuiltinInstallInput,
@@ -171,8 +175,28 @@ import type {
   ConversationStopSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationSubscribeInput,
+  ConversationLoadEarlierInput,
+  ConversationSessionFrame,
+  ConversationPageResult,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationApprovalRulesResult,
+  ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type {
+  ConversationWorkspaceKey,
+  ConversationThreadsResult,
+  ConversationSearchInput,
+  ConversationSearchResult,
+  ConversationRenameInput,
+} from './conversation-index'
+import type { ConversationSearchHit } from './conversation-index'
 import type { ModuleEventEnvelope } from './modules/events'
 import type {
   ThirdPartyModuleInstallResult,
@@ -737,7 +761,7 @@ export type ElectronApi = {
     connectionId: string
     workspaceId?: string
     name?: string
-    /** Launch identity, forwarded verbatim; the remote gateway validates (and refuses bypass). */
+    /** Launch identity, forwarded verbatim; the remote gateway validates it, and takes either preset. */
     cli?: string
     prompt?: string
     cliModel?: string
@@ -775,6 +799,49 @@ export type ElectronApi = {
    * window, credential-free. Returns the unsubscribe.
    */
   onFleetEvent: (cb: (event: FleetEvent) => void) => () => void
+  /**
+   * Conversations on a paired machine, the same calls the local session API
+   * makes with the machine named in the key. Main follows over the tailnet
+   * and keeps the transcript tail; the renderer never holds a credential.
+   */
+  fleetConversationList: (connectionId: string) => Promise<FleetConversationListResult>
+  onFleetConversationSession: (
+    input: { key: FleetConversationKey; turnLimit?: number },
+    cb: (frame: FleetConversationFrame) => void,
+  ) => () => void
+  fleetConversationLoadEarlier: (input: {
+    key: FleetConversationKey
+    beforeCursor: number
+    turnLimit?: number
+  }) => Promise<ConversationPageResult>
+  fleetConversationSend: (input: {
+    key: FleetConversationKey
+    message: string
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationInterrupt: (input: { key: FleetConversationKey }) => Promise<FleetConversationCommandResult>
+  fleetConversationResolveApproval: (input: {
+    key: FleetConversationKey
+    requestId: string
+    decision: 'once' | 'conversation' | 'deny'
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationAnswerQuestion: (input: {
+    key: FleetConversationKey
+    requestId: string
+    answers: Record<string, string>
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationSetPermissionPreset: (input: {
+    key: FleetConversationKey
+    preset: 'none' | 'bypass'
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationToolDetail: (input: {
+    key: FleetConversationKey
+    toolUseId: string
+  }) => Promise<ConversationToolDetailResult>
+  fleetConversationTurnDiff: (input: {
+    key: FleetConversationKey
+    turnSeq: number
+    path?: string
+  }) => Promise<ConversationTurnDiffResult>
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
@@ -823,9 +890,14 @@ export type ElectronApi = {
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
+  searchFiles: (
+    rootPath: string,
+    query: string,
+    options?: { limit?: number; purpose?: 'mention'; channel?: string; recentAt?: Record<string, number> },
+  ) => Promise<FileSearchResult>
   searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>
+  cancelFileSearch: (channel?: string) => Promise<void>
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>
@@ -925,6 +997,24 @@ export type ElectronApi = {
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
+  conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
+  conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
+  conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
+  conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
+  conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
+  conversationThreads: (input: ConversationWorkspaceKey) => Promise<ConversationThreadsResult>
+  conversationSearch: (input: ConversationSearchInput) => Promise<ConversationSearchResult>
+  onConversationSearchBatch: (
+    callback: (batch: { requestId: string; hits: ConversationSearchHit[] }) => void,
+  ) => () => void
+  conversationCancelSearch: (input: { requestId: string }) => Promise<{ ok: boolean }>
+  conversationRename: (input: ConversationRenameInput) => Promise<{ ok: true } | { ok: false; message: string }>
+  conversationDelete: (input: ConversationTranscriptInput) => Promise<{ ok: true } | { ok: false; message: string }>
+  conversationRevokeApprovalRule: (input: { ruleId: string }) => Promise<ConversationApprovalRuleRevokeResult>
+  onConversationSession: (
+    input: ConversationSubscribeInput,
+    cb: (frame: ConversationSessionFrame) => void,
+  ) => () => void
   onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>

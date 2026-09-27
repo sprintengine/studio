@@ -1,54 +1,48 @@
 /**
  * Core CLI permission-preset vocabulary. The values are what every agent CLI
- * launch understands.
+ * launch understands: `bypass` sends the CLI's own skip-every-prompt flag
+ * (Codex calls it YOLO), and `none` sends no permission flag at all, so the
+ * CLI's own configuration decides.
  */
-export type CliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+export type CliPermissionPreset = 'none' | 'bypass'
 
 /**
- * Spellings written before the preset rename. Accepted forever on read (persisted
- * settings, saved automations, third-party plugin manifests, external MCP
- * callers) and never emitted. `normalizeCliPermissionPreset` is the one place
- * that maps them.
+ * Two modes, and nothing between them (owner ruling 2026-09-27): every agent
+ * spawns with its CLI's bypass flag, and an organization that forbids that
+ * picks `none`, which passes no flag and leaves the CLI on its own default.
+ * The rungs between — ask before every action, a classifier or a sandbox
+ * deciding — were each a different mechanism per CLI, and choosing among them
+ * was a decision the CLI's own configuration already makes better.
+ *
+ * Retired values map to `none`, never to `bypass`. Every one of them was a
+ * choice to be asked more often than bypass asks, and a migration that quietly
+ * widened what an agent may do without asking would override that choice.
+ * `none` is the honest remainder: the CLI does what it is configured to do.
+ *
+ * Retired spellings are accepted forever on read (persisted settings, saved
+ * automations, agent records, third-party plugin manifests, external MCP
+ * callers, older paired clients) and never emitted; this is the one place that
+ * maps them. Only the absence of a value, or one no version ever wrote, takes
+ * the default, which is `bypass`.
  */
-export type LegacyCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
-
-/**
- * Legacy `default` maps to `manual`, NOT to `none`, even though `none` is what
- * reproduces its exact argv. Two reasons, both found the hard way:
- *
- *  1. `default` was doing double duty — a real preset AND the "this run has no
- *     local override" sentinel that persistence and run settings test against.
- *     Mapping it to `none` makes it a third real value and the sentinel stops
- *     matching, so a factory-default run silently stops inheriting the app
- *     default (caught by the v61 persistence migration test).
- *  2. It is the conservative direction. `none` sends no flag, and no flag now
- *     means whatever the CLI defaults to — auto mode on Claude Code 2.1.228+
- *     with a Pro/Max/Team plan. `manual` is the value that still means what
- *     the old preset's label promised: ask before every action.
- *
- * The cost is that a saved `default` now sends `--permission-mode default`
- * where it used to send nothing. Nobody chose that distinction: the old UI
- * offered one option labelled "Default (Claude prompts for permissions)", and
- * `manual` is the preset that keeps that promise.
- *
- * Anything unrecognised floors to `manual` for the same reason.
- */
-export function normalizeCliPermissionPreset(
-  input: CliPermissionPreset | LegacyCliPermissionPreset | null | undefined,
-): CliPermissionPreset {
+export function parseCliPermissionPreset(input: unknown): CliPermissionPreset | null {
   switch (input) {
     case 'none':
-    case 'manual':
-    case 'auto':
     case 'bypass':
       return input
-    case 'default':
-      return 'manual'
-    case 'auto_workspace':
-      return 'auto'
     case 'bypass_all':
       return 'bypass'
+    case 'manual':
+    case 'auto':
+    case 'default':
+    case 'auto_workspace':
+      return 'none'
     default:
-      return 'manual'
+      return null
   }
+}
+
+/** A preset from any stored or received value; see `parseCliPermissionPreset`. */
+export function normalizeCliPermissionPreset(input: unknown): CliPermissionPreset {
+  return parseCliPermissionPreset(input) ?? 'bypass'
 }

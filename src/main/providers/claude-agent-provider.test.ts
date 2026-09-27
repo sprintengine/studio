@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 import {
@@ -10,6 +13,7 @@ import {
   stripAnthropicAuthEnv,
   STRIPPED_ANTHROPIC_AUTH_ENV_KEYS,
   summarizeToolInput,
+  sweepStaleSkillPlugins,
   type ClaudeAgentProviderAdapter,
 } from './claude-agent-provider'
 import type { MockAdapterTurnInput } from './mock-conversation-provider'
@@ -23,8 +27,11 @@ test('claude-agent-provider', async () => {
     testMapSdkMessageCoversCanonicalShapes()
     await testTurnStreamsDeltasToolsUsageAndCompletion()
     await testImageAttachmentsBecomeMultimodalContent()
+    await testNativeSkillSelectionReachesSdk()
+    await testAskModeReadOnlyAndEffort()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
+    await testDeniedToolResultReadsAsDeclined()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
     await testExitPlanModeBecomesPlanCard()
     await testPermissionPresetMapsToSdkPermissionMode()
@@ -150,6 +157,87 @@ test('claude-agent-provider', async () => {
       now: () => 1000,
     })
     return { adapter, capturedOptions: sdk.capturedOptions, permissionModes: sdk.permissionModes }
+  }
+
+  async function testNativeSkillSelectionReachesSdk(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'claude-skills-'))
+    try {
+      await mkdir(join(workspaceRoot, '.claude', 'skills', 'example'), { recursive: true })
+      await writeFile(
+        join(workspaceRoot, '.claude', 'skills', 'example', 'SKILL.md'),
+        '---\nname: example\n---\nDo it.',
+      )
+      await writeFile(join(workspaceRoot, 'CLAUDE.md'), 'Run the tests before committing.')
+      const prompts: string[] = []
+      const { adapter, capturedOptions } = createAdapter((message, context) => {
+        prompts.push(JSON.stringify(message))
+        context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'native-skills' })
+      })
+      const input = turnInput({ workspaceRoot })
+      await adapter.startSession(input)
+      for await (const _event of await adapter.sendTurn({ ...input, skills: ['example'] })) {
+        /* drain the turn */
+      }
+      // The repository's settings files can pre-approve tools and run hooks,
+      // so they are never loaded, with or without skills attached.
+      assert.deepEqual(capturedOptions[0]?.settingSources, ['user'])
+      assert.deepEqual(capturedOptions[0]?.skills, ['attached-skills:example'])
+      const plugins = capturedOptions[0]?.plugins as Array<{ type: string; path: string }>
+      assert.equal(plugins.length, 1)
+      assert.equal(
+        await readFile(join(plugins[0].path, 'skills', 'example', 'SKILL.md'), 'utf8'),
+        '---\nname: example\n---\nDo it.',
+      )
+      assert.match(await readFile(join(plugins[0].path, '.claude-plugin', 'plugin.json'), 'utf8'), /attached-skills/)
+      assert.match(prompts.join('\n'), /attached-skills:example/)
+      // The project's instructions still reach the model, as prompt text.
+      const systemPrompt = capturedOptions[0]?.systemPrompt as { append?: string }
+      assert.match(systemPrompt.append ?? '', /Run the tests before committing\./)
+      adapter.disposeAll?.()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      await assert.rejects(stat(plugins[0].path), 'the staged plugin is removed with its child')
+
+      const plain = createAdapter((_message, context) => {
+        context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'no-skills' })
+      })
+      await plain.adapter.startSession(turnInput())
+      for await (const _event of await plain.adapter.sendTurn(turnInput())) {
+        /* drain the turn */
+      }
+      assert.deepEqual(plain.capturedOptions[0]?.settingSources, ['user'])
+      assert.equal(plain.capturedOptions[0]?.plugins, undefined)
+      plain.adapter.disposeAll?.()
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  async function testAskModeReadOnlyAndEffort(): Promise<void> {
+    const { adapter, capturedOptions } = createAdapter((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'ask-mode' })
+    })
+    const input = turnInput()
+    await adapter.startSession(input)
+    for await (const _event of await adapter.sendTurn({ ...input, mode: 'ask', reasoningEffort: 'high' })) {
+      /* drain */
+    }
+    assert.equal(capturedOptions[0]?.permissionMode, 'plan')
+    assert.equal(capturedOptions[0]?.effort, 'high')
+    const hooks = capturedOptions[0]?.hooks as {
+      PreToolUse: Array<{ hooks: Array<(input: unknown) => Promise<unknown>> }>
+    }
+    const hook = hooks.PreToolUse[0].hooks[0]
+    const denied = (await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash' })) as {
+      hookSpecificOutput?: { permissionDecision: string }
+    }
+    assert.equal(denied.hookSpecificOutput?.permissionDecision, 'deny')
+    assert.deepEqual(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Read' }), {})
+    await adapter.setPermissionPreset({ ...input, permissionPreset: 'bypass' })
+    for await (const _event of await adapter.sendTurn({ ...input, turnId: 'default', mode: 'default' })) {
+      /* drain */
+    }
+    assert.equal(capturedOptions[1]?.permissionMode, 'bypassPermissions')
+    adapter.disposeAll()
   }
 
   const SESSION_INPUT = {
@@ -419,6 +507,9 @@ test('claude-agent-provider', async () => {
     assert.equal('subagentType' in (nestedLane[0]?.payload ?? {}), false, 'no invented type when the call names none')
 
     const success = mapSdkMessage(state, {
+      total_cost_usd: 0.025,
+      duration_ms: 1234,
+      num_turns: 2,
       type: 'result',
       subtype: 'success',
       is_error: false,
@@ -431,6 +522,7 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(success[0]?.payload?.inputTokens, 15)
     assert.equal(success[0]?.payload?.outputTokens, 3)
+    assert.deepEqual(success[1]?.payload, { turnId: 'turn_9', costUsd: 0.025, durationMs: 1234, numTurns: 2 })
 
     const failure = mapSdkMessage(state, {
       type: 'result',
@@ -507,7 +599,9 @@ test('claude-agent-provider', async () => {
     assert.equal(options?.pathToClaudeCodeExecutable, '/fake/bin/claude')
     assert.equal(options?.model, 'sonnet')
     assert.equal(options?.includePartialMessages, true)
-    assert.equal(options?.permissionMode, 'default')
+    // No preset named: no permission mode is pinned, so the CLI's own default applies.
+    assert.equal(options?.permissionMode, undefined)
+    assert.equal(options?.allowDangerouslySkipPermissions, undefined)
     assert.equal(options?.resume, undefined)
     assert.equal((options?.env as Record<string, string>)[CLAUDE_AGENT_SESSION_ENV_KEY], 'conv_1')
 
@@ -577,6 +671,42 @@ test('claude-agent-provider', async () => {
     assert.equal(updated?.payload?.providerSessionId, 'resumed-2')
   }
 
+  // A tool the person refused comes back from the CLI as an ordinary error
+  // result; it must read as declined, not as a command that failed.
+  async function testDeniedToolResultReadsAsDeclined(): Promise<void> {
+    const { adapter } = createAdapter(async (_message, context) => {
+      const canUseTool = context.options.canUseTool as (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: { signal?: AbortSignal; toolUseID: string },
+      ) => Promise<Record<string, unknown>>
+      await canUseTool('Bash', { command: 'rm -rf build' }, { signal: undefined, toolUseID: 'toolu_denied' })
+      context.emit({
+        type: 'user',
+        session_id: 'declined',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_denied', is_error: true, content: 'Denied.' }],
+        },
+      })
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'declined' })
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
+      if (event.type === 'approval_requested')
+        void collect(
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_1',
+            requestId: String(event.payload?.requestId),
+            approved: false,
+          }) as ConversationEvent[],
+        )
+    })
+    assert.equal(events.find((event) => event.type === 'tool_output')?.payload?.status, 'declined')
+    adapter.disposeAll()
+  }
+
   async function testCanUseToolApprovalFlowApproveAndDeny(): Promise<void> {
     const decisions: Array<Record<string, unknown>> = []
     const { adapter } = createAdapter(async (userMessage, context) => {
@@ -586,7 +716,13 @@ test('claude-agent-provider', async () => {
         options: { signal?: AbortSignal },
       ) => Promise<Record<string, unknown>>
       const text = (userMessage.message as { content: string }).content
-      const decision = await canUseTool('Bash', { command: `run ${text}` }, {})
+      const permissionContext = {
+        signal: undefined,
+        agentID: 'research-agent',
+        defaultToNo: true,
+        suppressAlwaysAllowRule: true,
+      }
+      const decision = await canUseTool('Bash', { command: `run ${text}` }, permissionContext)
       decisions.push(decision)
       context.emit({
         type: 'result',
@@ -607,6 +743,9 @@ test('claude-agent-provider', async () => {
           assert.equal(event.payload?.requestId, 'approval_1')
           assert.equal(event.payload?.action, 'Bash')
           assert.equal(event.payload?.summary, 'Bash: run first')
+          assert.equal(event.payload?.originAgentId, 'research-agent')
+          assert.equal(event.payload?.defaultToNo, true)
+          assert.equal(event.payload?.suppressAlwaysAllowRule, true)
           void collect(
             adapter.resolveApproval({
               ...SESSION_INPUT,
@@ -738,7 +877,7 @@ test('claude-agent-provider', async () => {
 
   async function testExitPlanModeBecomesPlanCard(): Promise<void> {
     const decisions: Array<Record<string, unknown>> = []
-    const { adapter } = createAdapter(async (_userMessage, context) => {
+    const { adapter, permissionModes, capturedOptions } = createAdapter(async (_userMessage, context) => {
       const canUseTool = context.options.canUseTool as (
         toolName: string,
         input: Record<string, unknown>,
@@ -753,26 +892,54 @@ test('claude-agent-provider', async () => {
         usage: { input_tokens: 1, output_tokens: 1 },
       })
     })
-    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
-    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
-      if (event.type === 'approval_requested') {
-        assert.equal(event.payload?.kind, 'plan')
-        assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
-        void collect(
-          adapter.resolveApproval({
-            ...SESSION_INPUT,
-            turnId: 'turn_1',
-            requestId: 'approval_1',
-            approved: true,
-          }) as ConversationEvent[],
-        )
-      }
-    })
+    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
+    const events = await collect(
+      adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>,
+      (event) => {
+        if (event.type === 'approval_requested') {
+          assert.equal(event.payload?.kind, 'plan')
+          assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
+          void collect(
+            adapter.resolveApproval({
+              ...SESSION_INPUT,
+              turnId: 'turn_1',
+              requestId: 'approval_1',
+              approved: true,
+            }) as ConversationEvent[],
+          )
+        }
+      },
+    )
     assert.equal(
       events.some((event) => event.type === 'approval_resolved' && event.payload?.approved === true),
       true,
     )
     assert.equal(decisions[0]?.behavior, 'allow')
+    assert.equal(capturedOptions[0]?.permissionMode, 'plan')
+    assert.equal(capturedOptions[0]?.allowDangerouslySkipPermissions, true, 'plan mode keeps the bypass opt-in')
+    assert.deepEqual(
+      permissionModes,
+      ['bypassPermissions'],
+      'accepting a plan restores the prior native permission mode',
+    )
+    await collect(
+      adapter.sendTurn(
+        turnInput({ turnId: 'turn_2', requestId: 'approval_2', mode: 'default' }),
+      ) as AsyncIterable<ConversationEvent>,
+      (event) => {
+        if (event.type === 'approval_requested')
+          void collect(
+            adapter.resolveApproval({
+              ...SESSION_INPUT,
+              turnId: 'turn_2',
+              requestId: 'approval_2',
+              approved: false,
+            }) as ConversationEvent[],
+          )
+      },
+    )
+    assert.equal(capturedOptions.length, 1, 'accepting the plan also exits the adapter mode without respawning')
+    adapter.disposeAll()
   }
 
   async function testPermissionPresetMapsToSdkPermissionMode(): Promise<void> {
@@ -792,17 +959,28 @@ test('claude-agent-provider', async () => {
     assert.equal(bypass.capturedOptions[0]?.permissionMode, 'bypassPermissions')
     assert.equal(bypass.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
-    const auto = createAdapter((_userMessage, context) => emitResult(context))
-    await collect(auto.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
-    await collect(auto.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.equal(auto.capturedOptions[0]?.permissionMode, 'auto')
-    assert.equal(auto.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+    // `none` pins no mode at all: the SDK leaves the CLI on its own configured
+    // default, rather than on 'default', which a user's settings can override.
+    const none = createAdapter((_userMessage, context) => emitResult(context))
+    await collect(none.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
+    await collect(none.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    assert.equal(none.capturedOptions[0]?.permissionMode, undefined)
+    assert.equal(none.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+
+    // Plan mode is a separate toggle, not a preset: it spawns 'plan' under either.
+    for (const permissionPreset of ['none', 'bypass'] as const) {
+      const plan = createAdapter((_userMessage, context) => emitResult(context))
+      await collect(plan.adapter.startSession({ ...SESSION_INPUT, permissionPreset }) as ConversationEvent[])
+      await collect(plan.adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>)
+      assert.equal(plan.capturedOptions[0]?.permissionMode, 'plan', permissionPreset)
+      plan.adapter.disposeAll()
+    }
   }
 
-  // 1771: the preset is switchable while the session runs. With a live child the
-  // new mode goes down the SDK control channel; the recorded preset also survives
-  // into a respawn. A child that refuses the change must not leave the adapter
-  // claiming a preset it is not honoring.
+  // The preset is switchable while the session runs. Neither preset is a mode
+  // the control channel can deliver — bypass comes only from the spawn flag, and
+  // `none` is the absence of one — so a change is recorded and the child
+  // replaced: the next turn respawns into the same provider session.
   async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Promise<void> {
     const emitResult = (context: FakeQueryContext): void => {
       context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
@@ -815,7 +993,11 @@ test('claude-agent-provider', async () => {
       })
     }
 
-    const live = createAdapter((_userMessage, context) => emitResult(context))
+    const live = createAdapter((_userMessage, context) => emitResult(context), {
+      onSetPermissionMode: () => {
+        throw new Error('a preset change must not ride the control channel')
+      },
+    })
     await collect(live.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
 
     // Before the child exists the preset is only recorded — it lands at spawn,
@@ -823,32 +1005,46 @@ test('claude-agent-provider', async () => {
     assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
     })
-    assert.deepEqual(live.permissionModes, [], 'no control request without a child')
     await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
     assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
     assert.equal(live.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
-    // With the child running the switch rides the control channel.
-    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {
+    // Choosing the preset already in force leaves the child alone.
+    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
     })
-    assert.deepEqual(live.permissionModes, ['auto'])
+    assert.equal(live.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
-    // The recorded preset carries into the respawn after idle disposal.
-    assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
+    // Leaving bypass on an idle child replaces it, so no bypass grant lingers.
+    assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.deepEqual(live.permissionModes, [])
+    assert.equal(live.adapter.listLiveSessions()[0]?.hasChildProcess, false)
     await collect(
       live.adapter.sendTurn(
         turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
       ) as AsyncIterable<ConversationEvent>,
     )
-    assert.equal(live.capturedOptions[1]?.permissionMode, 'auto')
+    assert.equal(live.capturedOptions[1]?.permissionMode, undefined)
     assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
+    assert.equal(live.capturedOptions[1]?.resume, 'cursor-1')
+
+    // The recorded preset carries into the respawn after idle disposal.
+    assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
+    await collect(
+      live.adapter.sendTurn(
+        turnInput({ turnId: 'turn_3', requestId: 'approval_3' }),
+      ) as AsyncIterable<ConversationEvent>,
+    )
+    assert.equal(live.capturedOptions[2]?.permissionMode, undefined)
+    assert.equal(live.capturedOptions[2]?.allowDangerouslySkipPermissions, undefined)
 
     assert.deepEqual(
       await live.adapter.setPermissionPreset({
         ...SESSION_INPUT,
         sessionId: 'conv_missing',
-        permissionPreset: 'manual',
+        permissionPreset: 'bypass',
       }),
       {
         ok: false,
@@ -856,32 +1052,6 @@ test('claude-agent-provider', async () => {
       },
     )
     await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
-
-    // A child that refuses the mode: the failure is surfaced and the preset stays
-    // as it was, so a later respawn does not silently adopt the rejected mode.
-    // (Bypass no longer reaches this path — see the respawn test — so the refusal
-    // is exercised on the transition that still rides the control channel.)
-    const refusing = createAdapter((_userMessage, context) => emitResult(context), {
-      onSetPermissionMode: () => {
-        throw new Error('permission mode auto is unavailable in this CLI build')
-      },
-    })
-    await collect(
-      refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'manual' }) as ConversationEvent[],
-    )
-    await collect(refusing.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {
-      ok: false,
-      message: 'Claude Code refused the permission change: permission mode auto is unavailable in this CLI build',
-    })
-    assert.equal(refusing.adapter.disposeChildProcess('conv_1'), true)
-    await collect(
-      refusing.adapter.sendTurn(
-        turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
-      ) as AsyncIterable<ConversationEvent>,
-    )
-    assert.equal(refusing.capturedOptions[1]?.permissionMode, 'default', 'the refused preset was not recorded')
-    await collect(refusing.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
   async function testAbortSignalEndsTheTurnStream(): Promise<void> {
@@ -1292,10 +1462,10 @@ test('claude-agent-provider', async () => {
     await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
-  // 1808: Bypass is the one preset the SDK control channel cannot deliver — Claude
-  // Code reads it from the flag its child was spawned with. Switching to it on a
-  // session spawned Default/Auto respawns the child with `resume` instead of
-  // surfacing a refusal the user cannot act on.
+  // Bypass is a preset the SDK control channel cannot deliver — Claude Code reads
+  // it from the flag its child was spawned with. Switching to it on a session
+  // spawned without it respawns the child with `resume` instead of surfacing a
+  // refusal the user cannot act on.
   async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): Promise<void> {
     const emitResult = (context: FakeQueryContext): void => {
       context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
@@ -1317,7 +1487,7 @@ test('claude-agent-provider', async () => {
     })
     await collect(idle.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
     await collect(idle.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.equal(idle.capturedOptions[0]?.permissionMode, 'default')
+    assert.equal(idle.capturedOptions[0]?.permissionMode, undefined)
     assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
     assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
@@ -1359,7 +1529,7 @@ test('claude-agent-provider', async () => {
         usage: { input_tokens: 1, output_tokens: 1 },
       })
     })
-    await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
+    await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
     const streamed: ConversationEvent[] = []
     const streaming = (async () => {
       for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
@@ -1369,7 +1539,8 @@ test('claude-agent-provider', async () => {
 
     assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
       ok: true,
-      notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
+      notice:
+        'The new permissions start with your next message — this reply finishes under the permissions it started with.',
     })
     assert.equal(inFlight.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the streaming reply is not torn down')
 
@@ -1418,10 +1589,13 @@ test('claude-agent-provider', async () => {
     events: ConversationEvent[],
     type: ConversationEvent['type'],
   ): Promise<string> {
-    for (let i = 0; i < 200; i += 1) {
+    // A wall-clock deadline, not a tick count: under full-suite load the fake
+    // query's first event can take longer than a few hundred turns of the loop.
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
       const match = events.find((event) => event.type === type)
       if (match) return typeof match.payload?.requestId === 'string' ? match.payload.requestId : ''
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 5))
     }
     throw new Error(`Timed out waiting for continuation ${type}`)
   }
@@ -1432,4 +1606,210 @@ test('claude-agent-provider', async () => {
   })
 
   await suiteRun
+})
+
+function mapperState() {
+  return {
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    providerSessionId: 'native' as string | null,
+    turn: { turnId: 'turn_1' } as { turnId: string } | null,
+    queryCostUsd: 0,
+    declinedToolUseIds: new Set<string>(),
+  }
+}
+
+test('a Claude result that reports no cost does not make the next turn report the whole session', () => {
+  const state = mapperState()
+  const result = (total: number, crashed = false) =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: crashed ? 'error_during_execution' : 'success',
+      is_error: crashed,
+      session_id: 'native',
+      total_cost_usd: total,
+    }).find((event) => event.type === 'turn_completed')?.payload?.costUsd
+  assert.equal(result(0.25), 0.25)
+  // A crash reports a zero total; it is not a restarted count.
+  state.turn = { turnId: 'turn_2' }
+  result(0, true)
+  state.turn = { turnId: 'turn_3' }
+  assert.equal(Number((result(0.3) as number).toFixed(6)), 0.05)
+})
+
+test('each Claude turn reports the cost it added, not the running total of the live query', () => {
+  const state = mapperState()
+  const result = (total: number) =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'native',
+      total_cost_usd: total,
+    }).find((event) => event.type === 'turn_completed')?.payload?.costUsd
+  assert.equal(result(0.25), 0.25)
+  state.turn = { turnId: 'turn_2' }
+  assert.equal(Number((result(0.4) as number).toFixed(6)), 0.15)
+  // A running total that restarts (a fresh child, or /clear) is all new cost.
+  state.turn = { turnId: 'turn_3' }
+  assert.equal(result(0.1), 0.1)
+})
+
+test('Claude shell results say whether a command was declined, stopped or exited non-zero', () => {
+  const state = mapperState()
+  const output = (id: string, block: Record<string, unknown>, structured?: Record<string, unknown>) =>
+    mapSdkMessage(state, {
+      type: 'user',
+      session_id: 'native',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, ...block }] },
+      ...(structured ? { tool_use_result: structured } : {}),
+    }).find((event) => event.type === 'tool_output')?.payload
+
+  assert.deepEqual(
+    [output('ok', { content: 'done', is_error: false }, { stdout: 'done', stderr: '', interrupted: false })].map(
+      (payload) => [payload?.status, payload?.exitCode],
+    ),
+    [['ok', 0]],
+  )
+  const failed = output('failed', { content: 'Exit code 2\nnpm ERR! missing script', is_error: true })
+  assert.equal(failed?.status, 'error')
+  assert.equal(failed?.exitCode, 2)
+  const stopped = output(
+    'stopped',
+    { content: 'partial', is_error: false },
+    { stdout: 'partial', stderr: '', interrupted: true },
+  )
+  assert.equal(stopped?.status, 'stopped')
+  state.declinedToolUseIds.add('declined')
+  const declined = output('declined', { content: 'The user denied this tool use in SprintEngine.', is_error: true })
+  assert.equal(declined?.status, 'declined')
+  assert.equal(declined?.exitCode, undefined)
+  assert.equal(state.declinedToolUseIds.size, 0)
+  // Other tools keep their plain error status and carry no exit code.
+  const read = output('read', { content: 'File does not exist.', is_error: true })
+  assert.deepEqual([read?.status, read?.exitCode], ['error', undefined])
+})
+
+/** A stand-in SDK whose queries answer every prompt with a result, after an optional delay in loading. */
+function skillsHarness(tempDir: string, loadDelayMs = 0) {
+  const queries: Record<string, unknown>[] = []
+  const query = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
+    queries.push(params.options)
+    const pending: Record<string, unknown>[] = []
+    let wake = null as (() => void) | null
+    let ended = false
+    void (async () => {
+      for await (const _message of params.prompt) {
+        pending.push({ type: 'result', subtype: 'success', is_error: false, session_id: 'native' })
+        wake?.()
+      }
+    })()
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!ended) {
+          if (!pending.length) await new Promise<void>((resolve) => (wake = resolve))
+          while (pending.length) yield pending.shift()!
+        }
+      },
+      interrupt: async () => {
+        ended = true
+        wake?.()
+      },
+      setPermissionMode: async () => undefined,
+    }
+  }
+  const loadQuery = async () => {
+    await new Promise((resolve) => setTimeout(resolve, loadDelayMs))
+    return query
+  }
+  const adapter = createClaudeAgentProvider({
+    loadQuery: loadQuery as never,
+    resolveExecutable: async () => '/fake/bin/claude',
+    buildEnv: () => ({ PATH: '/usr/bin' }),
+    tempDir,
+  })
+  return { adapter, queries }
+}
+
+async function skillsWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), 'claude-skill-plugins-'))
+  const workspaceRoot = join(root, 'workspace')
+  const tempDir = join(root, 'tmp')
+  await mkdir(join(workspaceRoot, '.claude', 'skills', 'example'), { recursive: true })
+  await mkdir(tempDir)
+  await writeFile(join(workspaceRoot, '.claude', 'skills', 'example', 'SKILL.md'), '---\nname: example\n---\nDo it.')
+  const turn = (turnId: string): MockAdapterTurnInput => ({
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    workspaceRoot,
+    turnId,
+    requestId: `approval_${turnId}`,
+    message: 'hello',
+    skills: ['example'],
+  })
+  return { root, tempDir, turn }
+}
+
+async function drain(stream: AsyncIterable<ConversationEvent> | ConversationEvent[]): Promise<ConversationEvent[]> {
+  const events: ConversationEvent[] = []
+  for await (const event of stream) events.push(event)
+  return events
+}
+
+test('turns racing to start the Claude child stage one skills plugin and spawn one child', async () => {
+  const f = await skillsWorkspace()
+  const { adapter, queries } = skillsHarness(f.tempDir, 30)
+  try {
+    await adapter.startSession(f.turn('turn_1'))
+    const first = adapter.sendTurn(f.turn('turn_1'))
+    const second = adapter.sendTurn(f.turn('turn_2'))
+    await Promise.all([drain(await first), drain(await second)])
+    assert.equal(queries.length, 1)
+    assert.equal((await readdir(f.tempDir)).length, 1)
+  } finally {
+    await adapter.disposeAll()
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
+test('disposing every Claude child settles only once their skills plugins are removed', async () => {
+  const f = await skillsWorkspace()
+  const { adapter } = skillsHarness(f.tempDir)
+  try {
+    await adapter.startSession(f.turn('turn_1'))
+    await drain(await adapter.sendTurn(f.turn('turn_1')))
+    assert.equal((await readdir(f.tempDir)).length, 1)
+    await adapter.disposeAll()
+    assert.deepEqual(await readdir(f.tempDir), [])
+  } finally {
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
+test('a skills plugin left by a process that is gone is swept, one a live process owns is kept', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'claude-skill-sweep-'))
+  try {
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    const folders = {
+      // No process can have this id on macOS, Linux or Windows.
+      dead: 'sprintengine-claude-skills-99999999-abc',
+      live: `sprintengine-claude-skills-${process.ppid}-abc`,
+      legacy: 'sprintengine-claude-skills-abc123',
+      unrelated: 'other-tool-99999999-abc',
+    }
+    for (const name of Object.values(folders)) {
+      await mkdir(join(tempDir, name, '.claude-plugin'), { recursive: true })
+      await utimes(join(tempDir, name), old, old)
+    }
+    await sweepStaleSkillPlugins(tempDir)
+    assert.deepEqual((await readdir(tempDir)).sort(), [folders.live, folders.unrelated].sort())
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
 })

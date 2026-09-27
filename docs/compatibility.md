@@ -73,7 +73,7 @@ and nothing a capability flag cannot describe should ship without one.
 
 ## The wire version and the npm version
 
-The mobile protocol is the one wire that ships as a package —
+The hosted mobile-control protocol ships as a package —
 `@sprintengine/mobile-control-protocol`, built from
 `packages/mobile-control-protocol` — so it has two numbers where the others have
 one: `mobileControlProtocolVersion`, the integer on the wire, and the package's
@@ -105,6 +105,26 @@ Note what this does **not** do: it does not put the package's version on the
 wire. Nothing negotiates over semver. The integer is still the only thing a peer
 sees, and the window in `mobileControlSupportedProtocolVersions` is still the only
 thing that decides whether it is accepted.
+
+### Direct conversation lane
+
+`@sprintengine/conversation-protocol` is a separate portable package for the
+additive `conversations` tailnet capability. It owns the direct conversation
+WebSocket frames, their client validator and pure tool-presentation helpers.
+It does not change the hosted mobile-control wire or its version number;
+transcripts never travel through that relay.
+
+The initial `0.1.0` contract requires the `conversations` capability. Additive
+optional fields preserve that contract. Breaking frame changes require a new
+negotiated capability or the tailnet version-window process above, not merely
+a package version change. Presentation-only fixes use a package patch.
+Both ESM and CommonJS tarball consumers and Node16 declarations are checked by
+`npm run test:conversation-protocol:pack` as part of `verify:app`.
+
+Until a published version is adopted, the phone carries the same portable source
+files with a shared SHA-256 pin. A wire or presentation edit must update both
+copies and both pins in companion changes; passing one repo's local hash check
+alone does not prove the two peers agree. Publishing is a separate release step.
 
 ## Changing a wire format
 

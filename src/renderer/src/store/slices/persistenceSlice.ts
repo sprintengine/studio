@@ -12,7 +12,7 @@ import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import {
   defaultAppSettings,
   normalizeAppSettings,
-  normalizeAgentSpawnPermissionPreset,
+  normalizeCliPermissionPreset,
   normalizeRecentWorkspaceFolders,
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
@@ -384,9 +384,7 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
         ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(
-        current.appSettings?.lastAgentSpawnPermissionPreset,
-      ),
+      lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(current.appSettings?.lastAgentSpawnPermissionPreset),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
         state.workspaces.map((ws) => ws.folderPath),

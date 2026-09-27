@@ -329,7 +329,7 @@ export function fleetPanesOf(workspace: Workspace): Array<{ tabId: string; machi
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; id?: unknown; component?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+    if (record.type === 'tab' && (record.component === 'fleet-terminal' || record.component === 'fleet-conversation')) {
       const config = record.config as { machineName?: unknown; cli?: unknown; remoteSessionId?: unknown } | undefined
       const machine = config?.machineName
       if (typeof machine === 'string' && machine) {

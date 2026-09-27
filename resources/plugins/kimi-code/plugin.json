@@ -8,16 +8,8 @@
   "icon": "icon.svg",
   "binary": "kimi",
   "permissionPresets": {
-    "manual": {
-      "label": "Manual — Kimi prompts for approvals",
-      "args": []
-    },
-    "auto": {
-      "$comment": "Kimi's two flags read backwards from their names, and were mapped backwards here until a later fix. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the MORE permissive of the two and belongs on the bypass rung.",
-      "label": "Auto — approves tool calls, may still ask",
-      "args": ["--yolo"]
-    },
     "bypass": {
+      "$comment": "Kimi's two flags read backwards from their names. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the more permissive of the two, and the one that means bypass.",
       "label": "Bypass all approvals (dangerous)",
       "args": ["--auto"]
     }

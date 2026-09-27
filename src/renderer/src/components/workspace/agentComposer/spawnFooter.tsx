@@ -154,25 +154,11 @@ function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): s
 export function SpawnPermissionFooter({
   cli,
   fallback,
-  disabledReasons,
-  shown,
-  onSelect,
 }: {
   cli: AgentCli
   fallback: CliPermissionPreset
-  /** Presets this target cannot take, each with the one line it dims with. */
-  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
-  /**
-   * What the chip shows for the stored preset, when this target launches on
-   * something else — a remote machine narrows Bypass to Auto for its own launch
-   * without rewriting the choice every local launch of the CLI reads.
-   */
-  shown?: (stored: CliPermissionPreset) => CliPermissionPreset
-  /** Notified after the CLI's preset is written (the remote note clears on it). */
-  onSelect?: (preset: CliPermissionPreset) => void
 }): JSX.Element {
-  const stored = useCliPermissionPreset(cli, fallback)
-  const preset = shown ? shown(stored) : stored
+  const preset = useCliPermissionPreset(cli, fallback)
   return (
     <FooterMenu
       ariaLabel={permissionAccessibleName(preset, cli)}
@@ -180,7 +166,7 @@ export function SpawnPermissionFooter({
       label={permissionLabel(preset, cli)}
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
       // wears amber everywhere else in the app.
-      tone={preset === 'bypass' ? 'warn' : preset === 'auto' ? 'accent' : 'quiet'}
+      tone={preset === 'bypass' ? 'warn' : 'quiet'}
       placement="top-end"
       chevron
       // The rows need the width their summaries were written for, and they land
@@ -193,10 +179,8 @@ export function SpawnPermissionFooter({
         <PermissionPresetMenuRows
           cli={cli}
           value={preset}
-          {...(disabledReasons ? { disabledReasons } : {})}
           onSelect={(next) => {
             setCliPermissionPreset(cli, next)
-            onSelect?.(next)
             close()
           }}
         />

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
+  conversationLaunchDraftPatch,
+  conversationNewChatSeed,
   resolveDefaultConversationOption,
 } from './conversationSpawnOptions'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
@@ -19,6 +21,7 @@ test('conversationSpawnOptions', async () => {
       providerType: 'model-provider',
       models: [],
       supportsDynamicModels: false,
+      credentialSource: 'api-key',
       adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       ...overrides,
     }
@@ -256,6 +259,42 @@ test('conversationSpawnOptions', async () => {
   assert.equal('cliSessionId' in patch && patch.cliSessionId, undefined, 'no terminal session id is assigned')
   assert.equal(patch.cli, undefined, 'no CLI is selected for a conversation agent')
   assert.equal(patch.cliStartupPrompt, undefined, 'no startup prompt is queued')
+  assert.deepEqual(
+    conversationLaunchDraftPatch([{ id: 'review' }, { id: 'tests' }], 'Check this change'),
+    { conversationSkills: ['review', 'tests'], chatComposerPrefill: 'Check this change' },
+    'two launch skills persist as chips while the typed prompt remains separate',
+  )
+  assert.deepEqual(
+    conversationLaunchDraftPatch([{ id: 'review' }]),
+    { conversationSkills: ['review'] },
+    'a skill-only launch does not fabricate prompt text',
+  )
 
   console.log('conversationSpawnOptions tests passed')
+})
+
+test('a New chat door opens the model picked in its Chat roster, not the default', () => {
+  const fallback = {
+    providerId: 'claude-agent',
+    providerLabel: 'Claude',
+    providerType: 'agent-harness' as const,
+    modelId: 'sonnet',
+    modelLabel: 'Sonnet',
+  }
+  const picked = conversationNewChatSeed(
+    { provider: { providerId: 'claude-agent', modelId: 'opus', modelLabel: 'Opus' }, skills: [{ id: 'review' }] },
+    fallback,
+    { prompt: 'Look at the tests', permissionPreset: 'none' },
+  )
+  assert.deepEqual(picked?.runtime, { providerId: 'claude-agent', modelId: 'opus' })
+  assert.equal(picked?.tabName, 'Opus')
+  assert.deepEqual(picked?.agentPatch.conversation, { providerId: 'claude-agent', modelId: 'opus' })
+  assert.equal(picked?.agentPatch.chatComposerPrefill, 'Look at the tests')
+  assert.deepEqual(picked?.agentPatch.conversationSkills, ['review'])
+  assert.equal(picked?.agentPatch.cliPermissionPreset, 'none')
+  assert.deepEqual(conversationNewChatSeed({}, fallback, { permissionPreset: 'none' })?.runtime, {
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+  })
+  assert.equal(conversationNewChatSeed({}, null, { permissionPreset: 'none' }), null)
 })

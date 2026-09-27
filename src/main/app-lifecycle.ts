@@ -19,6 +19,8 @@ import type { SprintEngineUpdateService } from './update-service'
 import type { ShutdownLegReport } from './update-install-progress'
 import type { AgentPhaseListener } from '../shared/agent-runtime'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
+import { createConversationAttentionListener } from './conversation-attention'
+import type { ConversationEvent } from '../shared/conversation-runtime'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
@@ -41,6 +43,7 @@ type RegisterAppLifecycleOptions = {
   // Conversation-agent runtime: quit must dispose its headless child
   // processes too — they live outside the PTY reaper's sight.
   conversationRuntime?: {
+    onEvent?(listener: (event: ConversationEvent) => void): () => void
     /** Buffered transcript text to disk, before the slower session stops. */
     flushTranscripts?(): Promise<void>
     shutdown(): Promise<void>
@@ -407,6 +410,10 @@ export function registerAppLifecycle({
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
+    const disposeConversationAttention = conversationRuntime?.onEvent?.(
+      createConversationAttentionListener(agentAttention),
+    )
+    if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
     onAgentAttentionReady?.(agentAttention)
     app.on('browser-window-focus', (_event, win) => {
       if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()

@@ -1,0 +1,285 @@
+import { useMemo, useRef, useState } from 'react'
+import type { ConversationToolDetail, ConversationJsonValue } from '../../../../../../shared/conversation-runtime'
+import { presentToolItem, type PresentableTool } from '../../../../../../shared/conversation/presentation'
+import { labelCommand } from '../../../../../../shared/conversation/commandLabel'
+import { parseAnsi } from '../../../../../../shared/conversation/ansi'
+import { Checkbox, GhostButton, InlineNotice, RowButton, Spinner, StatusDot } from '../../../ui'
+import { CodeBlock } from '../../../ui/CodeBlock'
+import { ConversationFileLink, conversationText, useConversationLinkContext } from '../conversationLinks'
+import { useConversationDisclosure } from '../conversationViewState'
+import type { TranscriptToolEntry } from '../conversationProjection'
+import { AnsiOutput } from '../AnsiOutput'
+import { deriveEditHunks } from '../../../../../../shared/conversation/editHunks'
+import { InlineDiff } from '../../../ui/InlineDiff'
+import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
+import { useLiveRowMotion } from '../liveVisibility'
+import { LiveElapsed } from '../liveElapsed'
+import { useConversationTransport } from '../conversationTransport'
+
+export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
+  return {
+    kind: tool.toolKind,
+    name: tool.name,
+    input: tool.input,
+    status: tool.status === 'running' ? 'running' : (tool.outputStatus ?? 'ok'),
+    exitCode: tool.exitCode,
+    summary: tool.summary,
+    subagentType: tool.subagentType,
+  }
+}
+function pretty(value: ConversationJsonValue | undefined): string {
+  return typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2)
+}
+function object(value: ConversationJsonValue | undefined): Record<string, ConversationJsonValue> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?: ConversationToolDetail }) {
+  const input = object(detail?.input ?? tool.input)
+  const output = pretty(detail?.output ?? tool.output)
+  const kind = presentToolItem(toolPresentationInput(tool)).icon
+  // Parsing megabytes of fetched output on every render (each streamed token
+  // re-renders the turn) stalls the chat; it only changes with the output.
+  const ansi = useMemo(() => (kind === 'command' ? parseAnsi(output) : null), [kind, output])
+  const path = String(input.path ?? input.file_path ?? '')
+  const status = detail?.status ?? tool.outputStatus
+  if (status === 'declined' || status === 'stopped')
+    return <p>{status === 'declined' ? 'Tool request declined' : 'Tool stopped'}</p>
+  if (kind === 'command')
+    return (
+      <>
+        <pre className="whitespace-pre-wrap font-mono">
+          $ {String(input.command ?? input.cmd ?? tool.summary ?? '')}
+        </pre>
+        <AnsiOutput lines={ansi ?? []} />
+        {(detail?.exitCode ?? tool.exitCode) !== undefined ? <p>exit {detail?.exitCode ?? tool.exitCode}</p> : null}
+      </>
+    )
+  if (kind === 'file_read')
+    return (
+      <>
+        <ConversationFileLink token={path} source="inlineCode" />
+        <ReadOutput output={output} path={path} />
+      </>
+    )
+  if (kind === 'file_edit' || kind === 'file_write')
+    return <EditBody input={detail?.input ?? tool.input} toolUseId={tool.id} />
+  if (kind === 'todo') {
+    const todos = Array.isArray(input.todos) ? input.todos : []
+    return (
+      <ul>
+        {todos.map((value, index) => {
+          const todo = object(value)
+          return (
+            <li key={index}>
+              <Checkbox
+                readOnly
+                checked={todo.status === 'completed'}
+                ariaLabel={String(todo.content ?? todo.description ?? 'Task')}
+              />{' '}
+              {String(todo.content ?? todo.description ?? '')}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+  if (kind === 'search' || kind === 'list' || kind === 'web')
+    return (
+      <>
+        <p>{conversationText(String(input.query ?? input.pattern ?? input.url ?? input.path ?? ''))}</p>
+        <pre className="whitespace-pre-wrap font-mono">{conversationText(output)}</pre>
+      </>
+    )
+  return (
+    <>
+      <CodeBlock code={pretty(detail?.input ?? tool.input)} language="json" />
+      <pre className="whitespace-pre-wrap font-mono">{output}</pre>
+    </>
+  )
+}
+
+function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefined; toolUseId: string }) {
+  const context = useConversationLinkContext()
+  // The diff window reads this machine's checkpoints; a remote edit has none here.
+  const openable = useConversationTransport().capabilities.localFiles
+  const edits = useMemo(() => deriveEditHunks(input), [input])
+  return (
+    <>
+      {edits.map((edit, index) => (
+        <div key={index}>
+          <ConversationFileLink token={edit.path} source="inlineCode" />
+          <InlineDiff
+            edit={edit}
+            onOpen={
+              context?.agentId && openable
+                ? () =>
+                    void openCheckpointDiffWindow({
+                      key: {
+                        workspaceId: context.workspaceId,
+                        workspaceRoot: context.workspaceRoot,
+                        agentId: context.agentId!,
+                      },
+                      toolUseId,
+                      editIndex: index,
+                      path: edit.path,
+                    })
+                : undefined
+            }
+          />
+        </div>
+      ))}
+    </>
+  )
+}
+
+function ReadOutput({ output, path }: { output: string; path: string }) {
+  const [all, setAll] = useState(false)
+  const lines = output.split('\n')
+  return (
+    <>
+      <CodeBlock code={all ? output : lines.slice(0, 40).join('\n')} language={path.split('.').at(-1)} />
+      {lines.length > 40 ? (
+        <GhostButton size="inline" onClick={() => setAll(!all)}>
+          {all ? 'Show less' : 'Show all'}
+        </GhostButton>
+      ) : null}
+    </>
+  )
+}
+
+// Fetched full output, kept by call id: the virtualized timeline unmounts a row
+// scrolled out of view, and scrolling back must not lose (or refetch) it. The
+// cap is on size, not count: one detail can be megabytes, and twenty of those
+// would pin a hundred of them in the renderer for the session.
+const MAX_CACHED_DETAIL_BYTES = 16 * 1024 * 1024
+const detailCache = new Map<string, { detail: ConversationToolDetail; bytes: number }>()
+let cachedDetailBytes = 0
+// What the detail holds in memory: its strings are UTF-16, two bytes a unit.
+function detailBytes(detail: ConversationToolDetail): number {
+  return (pretty(detail.output).length + pretty(detail.input).length) * 2
+}
+function cachedDetail(key: string): ConversationToolDetail | undefined {
+  const entry = detailCache.get(key)
+  if (entry) {
+    detailCache.delete(key)
+    detailCache.set(key, entry)
+  }
+  return entry?.detail
+}
+function forgetDetail(key: string): void {
+  const entry = detailCache.get(key)
+  if (!entry) return
+  detailCache.delete(key)
+  cachedDetailBytes -= entry.bytes
+}
+function cacheDetail(key: string, detail: ConversationToolDetail): void {
+  forgetDetail(key)
+  const bytes = detailBytes(detail)
+  if (bytes > MAX_CACHED_DETAIL_BYTES) return
+  detailCache.set(key, { detail, bytes })
+  cachedDetailBytes += bytes
+  while (cachedDetailBytes > MAX_CACHED_DETAIL_BYTES) forgetDetail(detailCache.keys().next().value!)
+}
+
+export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
+  const context = useConversationLinkContext()
+  const transport = useConversationTransport()
+  const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
+  const detailKey = `${transport.kind === 'remote' ? `remote:${transport.machineName}:` : ''}${key}:${tool.id}`
+  const [open, setOpen] = useConversationDisclosure(key, `tool:${tool.id}`, false)
+  const [detail, setDetail] = useState<ConversationToolDetail | undefined>(() => cachedDetail(detailKey))
+  // Output fetched while the tool was still running is a snapshot of a moving
+  // target: it is shown but never cached, and can be fetched again.
+  const [partial, setPartial] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string>()
+  const [fullHeight, setFullHeight] = useState(() => detail !== undefined)
+  const presentation = presentToolItem(toolPresentationInput(tool), (command) => labelCommand(command).label)
+  const running = tool.status === 'running'
+  const rowRef = useRef<HTMLDivElement>(null)
+  useLiveRowMotion(rowRef, running)
+  async function fetchDetail() {
+    if (!context?.agentId) {
+      setError('Tool detail is unavailable for this conversation')
+      return
+    }
+    const stillRunning = running
+    setLoading(true)
+    setError(undefined)
+    try {
+      const result = await transport.toolDetail({
+        workspaceRoot: context.workspaceRoot,
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+        toolUseId: tool.id,
+      })
+      if (result.ok) {
+        if (stillRunning) forgetDetail(detailKey)
+        else cacheDetail(detailKey, result.detail)
+        setPartial(stillRunning)
+        setDetail(result.detail)
+        setFullHeight(true)
+      } else setError(result.message)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Could not load tool output')
+    } finally {
+      setLoading(false)
+    }
+  }
+  return (
+    <div ref={rowRef} data-tool-kind={presentation.icon}>
+      <div className="flex min-w-0 items-center gap-2">
+        <RowButton density="row" className="min-w-0 flex-1" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span aria-hidden="true">{open ? '⌄' : '›'}</span>
+          <StatusDot tone={running ? 'accent' : presentation.tone === 'error' ? 'error' : 'neutral'} pulse={running} />
+          <span className="min-w-0 flex-1 truncate">{presentation.title}</span>
+          {running ? <span className="sr-only">running</span> : null}
+        </RowButton>
+        {presentation.subtitle ? (
+          <span className="min-w-0 truncate text-meta text-[color:var(--sem-color-text-muted)]">
+            {conversationText(presentation.subtitle, 'inlineCode')}
+          </span>
+        ) : null}
+        {running && tool.startedAt !== undefined ? (
+          <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
+            <LiveElapsed startedAt={tool.startedAt} />
+          </span>
+        ) : null}
+      </div>
+      {open ? (
+        <div className={`ml-2 px-3 py-2 text-meta ${fullHeight ? '' : 'max-h-80 overflow-auto'}`}>
+          <ToolBody tool={tool} detail={detail} />
+          {detail?.clipped ? (
+            <InlineNotice tone="warn">
+              Output exceeded the stored detail limit; the beginning and end are shown.
+            </InlineNotice>
+          ) : null}
+          {loading ? <Spinner label="Loading tool output" /> : null}
+          {error ? (
+            <InlineNotice
+              tone="error"
+              action={
+                <GhostButton size="inline" onClick={() => void fetchDetail()}>
+                  Retry
+                </GhostButton>
+              }
+            >
+              {error}
+            </InlineNotice>
+          ) : null}
+          {!detail && !loading && (tool.truncated || tool.inputTruncated) ? (
+            <GhostButton size="inline" onClick={() => void fetchDetail()}>
+              Show full output
+            </GhostButton>
+          ) : null}
+          {detail && partial && !loading ? (
+            <GhostButton size="inline" onClick={() => void fetchDetail()}>
+              {running ? 'Refresh output' : 'Show final output'}
+            </GhostButton>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}

@@ -1,4 +1,7 @@
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { Duplex } from 'stream'
 
@@ -6,6 +9,7 @@ import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../../shared/product-identity'
 import {
   toolError,
+  toolSuccess,
   type McpConnectionContext,
   type McpToolRegistration,
   type McpToolResult,
@@ -35,11 +39,13 @@ import {
   TAILNET_EVENTS_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  TAILNET_CONVERSATION_PATH,
   TAILNET_TRANSPORT_VERSION,
   TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
 import { resolveUploadDestination, UPLOAD_MAX_BYTES } from './tailnet-uploads'
+import { ATTACHABLE_IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import {
   createTailnetTerminalStream,
   terminalAttachScopeFor,
@@ -47,6 +53,12 @@ import {
   type TailnetTerminalStream,
 } from './tailnet-terminal-stream'
 import type { TerminalRemoteHost } from '../../terminal-remote-attach'
+import {
+  createResyncBackoff,
+  createTailnetConversationStream,
+  type TailnetConversationStream,
+} from './tailnet-conversation-stream'
+import type { ConversationGatewayHost } from './tailnet-conversation-host'
 import type { TailnetCollectOutcome, TailnetDeviceStore } from './tailnet-devices'
 import type { TailnetPeerResolver } from './tailnet-peer-identity'
 import { normalizeAddress } from './tailnet-peer-identity'
@@ -90,6 +102,7 @@ export {
   TAILNET_WS_TICKET_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_TERMINAL_PATH,
+  TAILNET_CONVERSATION_PATH,
   // The wire's own version and feature list live beside the paths; re-exported
   // here so a caller that already imports the server keeps one import.
   TAILNET_CAPABILITIES,
@@ -122,6 +135,7 @@ export type TailnetGatewayServerOptions = {
    * is unaffected either way.
    */
   terminals?: TerminalRemoteHost
+  conversations?: ConversationGatewayHost
   /**
    * Fired when a peer asks to pair, so the surfaces that answer these
    * can refresh without polling. It carries no detail: a listener's job is to
@@ -184,6 +198,12 @@ export type TailnetGatewayServer = {
    */
   notifyTerminalsChanged(): void
   notifyWorkspacesChanged(): void
+  /**
+   * The conversation list changed: one started, ended, or moved phase (a turn
+   * began, finished, or waits on a person). A device re-reads through the
+   * conversation socket's `list`, which its own grant governs.
+   */
+  notifyConversationsChanged(): void
   /** Live WebSocket streams, by device — diagnostics and tests. */
   streamCount(): number
   /** Live attached terminals — diagnostics and tests. */
@@ -202,7 +222,7 @@ type StreamSession = {
 
 type EventStream = { socket: Duplex; deviceId: string }
 
-type ChangeKind = 'terminals' | 'workspaces'
+type ChangeKind = 'terminals' | 'workspaces' | 'conversations'
 
 /**
  * The floor between two pushes of one kind. A session broadcast already
@@ -217,6 +237,14 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   let unsubscribeRevocations: (() => void) | null = null
   const streams = new Set<StreamSession>()
   const terminalStreams = new Set<TailnetTerminalStream>()
+  const conversationStreams = new Set<TailnetConversationStream>()
+  // Conversation images are opaque, short-lived inputs, not workspace files.
+  // Stage them under a process-owned private directory so workspace symlinks
+  // cannot redirect a remote upload into another part of the filesystem.
+  let conversationUploadDirectory: Promise<string> | null = null
+  // Per device, so a phone that keeps falling behind is told to wait longer
+  // each time instead of reconnecting straight into the same backlog.
+  const conversationResyncDelay = createResyncBackoff(now)
   const eventStreams = new Set<EventStream>()
   const tickets = new Map<string, { deviceId: string; expiresAtMs: number }>()
 
@@ -224,10 +252,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   // A revision per kind, so a watcher that reconnects can see it missed
   // something and re-read; a throttle per kind, so a burst is one push.
   const changePushIntervalMs = Math.max(0, options.changePushIntervalMs ?? TAILNET_CHANGE_PUSH_INTERVAL_MS)
-  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0 }
+  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0, conversations: 0 }
   const changePush: Record<ChangeKind, { lastSentAt: number; timer: ReturnType<typeof setTimeout> | null }> = {
     terminals: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
     workspaces: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
+    conversations: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
   }
 
   function notifyChanged(what: ChangeKind): void {
@@ -284,7 +313,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       encodeTextFrame(
         JSON.stringify({
           type: 'hello',
-          revisions: { terminals: changeRevisions.terminals, workspaces: changeRevisions.workspaces },
+          revisions: { ...changeRevisions },
         }),
       ),
     )
@@ -357,7 +386,20 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // Revocation must reach a device that is already mid-stream, not just its
     // next request: a live WebSocket would otherwise keep serving a device the
     // user just removed.
-    unsubscribeRevocations = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
+    const unsubscribeRevoked = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
+    // A narrowed grant reaches an open conversation or terminal socket the
+    // same way: it re-reads the device and closes, or stops accepting commands
+    // or keystrokes. The RPC stream needs no push: it re-reads the device on
+    // every message it answers.
+    const unsubscribeScopes = options.devices.onDeviceScopesChanged((device) => {
+      for (const conversation of [...conversationStreams])
+        if (conversation.deviceId === device.id) conversation.refreshScopes()
+      for (const terminal of [...terminalStreams]) if (terminal.deviceId === device.id) terminal.refreshScopes()
+    })
+    unsubscribeRevocations = () => {
+      unsubscribeRevoked()
+      unsubscribeScopes()
+    }
     server = next
   }
 
@@ -377,6 +419,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     streams.clear()
     for (const terminal of [...terminalStreams]) terminal.close(WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
     terminalStreams.clear()
+    for (const conversation of [...conversationStreams])
+      conversation.close(WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
+    conversationStreams.clear()
     for (const kind of ['terminals', 'workspaces'] as const) {
       const state = changePush[kind]
       if (state.timer) clearTimeout(state.timer)
@@ -388,10 +433,15 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     }
     eventStreams.clear()
     await new Promise<void>((resolve) => current.close(() => resolve()))
+    if (conversationUploadDirectory) {
+      const directory = await conversationUploadDirectory.catch(() => null)
+      conversationUploadDirectory = null
+      if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {})
+    }
   }
 
   /**
-   * One file from a paired device into a thread's own folder (backlog id 88).
+   * One file from a paired device, scoped to an eligible session.
    *
    * The destination comes from the SESSION, never the request: the phone names
    * a file, and the working directory it lands under is whatever the terminal
@@ -409,20 +459,28 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     device: TailnetDevice,
     url: URL,
   ): Promise<void> {
+    const conversationUpload = url.searchParams.get('kind') === 'conversation'
     // Writing a file into someone's project is a mutation on the terminal
     // family, so it takes the tier that types rather than the one that watches.
-    if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'terminal:control')) {
+    if (
+      !tailnetScopeGrantsAccess(
+        new Set(device.scopes),
+        conversationUpload ? 'conversation:operate' : 'terminal:control',
+      )
+    ) {
       writeJson(response, 403, {
         error: {
           code: 'tailnet_scope_required',
-          message: 'This device may watch terminals but not write files into them.',
+          message: conversationUpload
+            ? 'This device may read conversations but not attach images to them.'
+            : 'This device may watch terminals but not write files into them.',
         },
       })
       return
     }
-    if (!options.terminals) {
+    if (conversationUpload ? !options.conversations : !options.terminals) {
       writeJson(response, 501, {
-        error: { code: 'terminal_unavailable', message: 'This build serves no terminals.' },
+        error: { code: 'upload_unavailable', message: 'This build cannot receive uploads for this session.' },
       })
       return
     }
@@ -434,10 +492,35 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       })
       return
     }
-    const session = options.terminals.listSessions().find((candidate) => candidate.sessionId === sessionId)
+    const conversation = conversationUpload
+      ? (await options.conversations?.list())?.find((candidate) => candidate.sessionId === sessionId)
+      : null
+    const conversationKey = conversation
+      ? options.conversations?.resolveKey(conversation.workspaceId, conversation.agentId)
+      : null
+    const session = conversationUpload
+      ? conversationKey
+        ? { cwd: conversationKey.workspaceRoot }
+        : null
+      : options.terminals?.listSessions().find((candidate) => candidate.sessionId === sessionId)
     if (!session) {
       writeJson(response, 404, {
-        error: { code: 'unknown_terminal', message: 'No terminal on this machine has that session id.' },
+        error: conversationUpload
+          ? { code: 'unknown_conversation', message: 'No eligible conversation on this machine has that id.' }
+          : { code: 'unknown_terminal', message: 'No terminal on this machine has that session id.' },
+      })
+      return
+    }
+    const mediaType = (headerOf(request, 'content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+    if (conversationUpload && !ATTACHABLE_IMAGE_TYPES.includes(mediaType as (typeof ATTACHABLE_IMAGE_TYPES)[number])) {
+      writeJson(response, 415, {
+        error: { code: 'invalid_media_type', message: 'Only PNG, JPEG, WebP and GIF images can be attached.' },
+      })
+      return
+    }
+    if (conversationUpload && conversation?.capabilities?.images !== true) {
+      writeJson(response, 409, {
+        error: { code: 'images_unsupported', message: 'This conversation cannot accept images.' },
       })
       return
     }
@@ -448,7 +531,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // photo of the same name met the sink's exclusive `wx` create and came
     // back as an unexplained 500 instead of a new file.
     const probe = resolveUploadDestination({ cwd: session.cwd, sessionId, name })
-    const destination = probe.ok
+    let destination = probe.ok
       ? resolveUploadDestination({ cwd: session.cwd, sessionId, name, taken: await namesTakenIn(probe.directory) })
       : probe
     if (!destination.ok) {
@@ -459,22 +542,60 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     }
     // A declared length over the cap is refused before a byte is read.
     const declared = Number(request.headers['content-length'] ?? '')
-    if (Number.isFinite(declared) && declared > UPLOAD_MAX_BYTES) {
+    const maxBytes = conversationUpload ? MAX_ATTACHMENT_BYTES : UPLOAD_MAX_BYTES
+    if (Number.isFinite(declared) && declared > maxBytes) {
       // Drained before the answer, not after: see `drainRefusedBody`.
       if (await drainRefusedBody(request)) {
         writeJson(response, 413, {
           error: {
             code: 'too_large',
-            message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.`,
+            message: `That file is over the ${Math.floor(maxBytes / (1024 * 1024))}MB limit.`,
           },
         })
       }
       return
     }
     try {
-      const written = await streamUploadToDisk(request, destination)
-      options.log?.(`tailnet upload: ${device.name} wrote ${written} bytes to ${destination.path}`)
-      writeJson(response, 200, { path: destination.path, bytes: written })
+      if (conversationUpload) {
+        // Created once and shared, but a failed creation is not remembered:
+        // the next upload tries again instead of every upload failing until
+        // the app restarts.
+        if (!conversationUploadDirectory) {
+          const creating = mkdtemp(join(tmpdir(), 'studio-conversation-images-'))
+          conversationUploadDirectory = creating
+          creating.catch(() => {
+            if (conversationUploadDirectory === creating) conversationUploadDirectory = null
+          })
+        }
+        const directory = await conversationUploadDirectory
+        destination = { ok: true, directory, path: join(directory, randomUUID()) }
+      }
+      const written = await streamUploadToDisk(request, destination, maxBytes)
+      // A conversation upload returns an opaque id, never its filesystem path.
+      // Only the originating device and session can spend that id on a send.
+      if (conversationUpload) {
+        const uploadPath = destination.path
+        const uploadId = options.conversations?.registerUpload?.({
+          deviceId: device.id,
+          sessionId,
+          path: uploadPath,
+          name,
+          mediaType,
+          bytes: written,
+          dispose: () => {
+            void rm(uploadPath, { force: true }).catch(() => {})
+          },
+        })
+        if (!uploadId) {
+          await rm(destination.path, { force: true }).catch(() => {})
+          writeJson(response, 503, { error: { code: 'upload_unavailable' } })
+          return
+        }
+        writeJson(response, 200, { uploadId, bytes: written })
+      } else {
+        options.log?.(`tailnet upload: ${device.name} wrote ${written} bytes to ${destination.path}`)
+        writeJson(response, 200, { path: destination.path, bytes: written })
+      }
     } catch (error) {
       if (error instanceof UploadTooLarge) {
         // Drained before the answer, not after: see `drainRefusedBody`.
@@ -482,13 +603,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
           writeJson(response, 413, {
             error: {
               code: 'too_large',
-              message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.`,
+              message: `That file is over the ${Math.floor(maxBytes / (1024 * 1024))}MB limit.`,
             },
           })
         }
         return
       }
       options.log?.(`tailnet upload failed: ${message(error)}`)
+      // A staging directory removed underneath the app (a temp cleaner) is
+      // made again on the next upload.
+      if (conversationUpload && (error as NodeJS.ErrnoException | null)?.code === 'ENOENT')
+        conversationUploadDirectory = null
       writeJson(response, 500, { error: { code: 'internal_error', message: 'The file could not be written.' } })
     }
   }
@@ -826,7 +951,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   async function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     if (request.headers.origin) return rejectUpgrade(socket, 403, 'origin_not_allowed')
     const path = pathOf(request.url)
-    if (path !== TAILNET_STREAM_PATH && path !== TAILNET_TERMINAL_PATH && path !== TAILNET_EVENTS_PATH) {
+    if (
+      path !== TAILNET_STREAM_PATH &&
+      path !== TAILNET_TERMINAL_PATH &&
+      path !== TAILNET_CONVERSATION_PATH &&
+      path !== TAILNET_EVENTS_PATH
+    ) {
       return rejectUpgrade(socket, 404, 'not_found')
     }
     if ((headerOf(request, 'upgrade') ?? '').toLowerCase() !== 'websocket')
@@ -849,6 +979,52 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       options.devices.recordSeen(device.id, eventsPeer)
       acceptUpgrade(socket, key)
       openEventStream(socket, device, head)
+      return
+    }
+
+    if (path === TAILNET_CONVERSATION_PATH) {
+      if (!options.conversations) return rejectUpgrade(socket, 503, 'conversation_streaming_unavailable')
+      if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'conversation:read'))
+        return rejectUpgrade(socket, 403, 'conversation_scope_required')
+      const peerAddress = normalizeAddress(remoteAddressOf(socket))
+      const peerNode = await options.peers.resolve(peerAddress)
+      // Peer discovery awaits external work. Revocation during that await must
+      // not create a stream after the revocation listener has already fired.
+      const currentDevice = options.devices.listDevices().find((entry) => entry.id === device.id)
+      if (!currentDevice) return rejectUpgrade(socket, 401, 'unauthorized')
+      if (!tailnetScopeGrantsAccess(new Set(currentDevice.scopes), 'conversation:read'))
+        return rejectUpgrade(socket, 403, 'conversation_scope_required')
+      options.devices.recordSeen(currentDevice.id, peerNode)
+      acceptUpgrade(socket, key)
+      const registration: { stream: TailnetConversationStream | null } = { stream: null }
+      const stream = createTailnetConversationStream({
+        socket,
+        deviceId: currentDevice.id,
+        deviceName: currentDevice.name,
+        // Read live, never captured: every frame and every scope change is
+        // judged by the grant the device holds now.
+        scopes: () => options.devices.listDevices().find((entry) => entry.id === currentDevice.id)?.scopes ?? null,
+        host: options.conversations,
+        onClosed: () => {
+          if (registration.stream) conversationStreams.delete(registration.stream)
+        },
+        resyncRetryAfterMs: () => conversationResyncDelay(currentDevice.id),
+        // The device is the connection's identity; the conversation and the
+        // command id are the targets. A message's text never reaches the audit.
+        audit: (entry) =>
+          options.onToolCall?.({
+            context: contextFor(currentDevice, peerNode),
+            tool: entry.tool,
+            args: { ...entry.key, id: entry.commandId },
+            durationMs: entry.durationMs,
+            result: entry.ok
+              ? toolSuccess({ ok: true })
+              : toolError(entry.code ?? 'unavailable', 'The conversation command was not carried out.'),
+          }),
+      })
+      registration.stream = stream
+      if (!stream.isClosed()) conversationStreams.add(stream)
+      if (head?.length) socket.emit('data', head)
       return
     }
 
@@ -876,7 +1052,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         ...(resume ? { resume } : {}),
         deviceId: device.id,
         deviceName: device.name,
-        scopes: device.scopes,
+        // Read live, never captured, as for a conversation socket: a grant
+        // narrowed in Settings reaches the terminal that is already attached.
+        scopes: () => options.devices.listDevices().find((entry) => entry.id === device.id)?.scopes ?? null,
         terminals: options.terminals,
         onClosed: () => {
           // Emit only when the stream was actually tracked: a stream that
@@ -1011,6 +1189,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     for (const terminal of [...terminalStreams]) {
       if (terminal.deviceId === deviceId) terminal.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
     }
+    for (const conversation of [...conversationStreams]) {
+      if (conversation.deviceId === deviceId)
+        conversation.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
+    }
     for (const stream of [...eventStreams]) {
       if (stream.deviceId === deviceId)
         closeEventStream(stream, WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
@@ -1103,6 +1285,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     },
     notifyTerminalsChanged: () => notifyChanged('terminals'),
     notifyWorkspacesChanged: () => notifyChanged('workspaces'),
+    notifyConversationsChanged: () => notifyChanged('conversations'),
     eventStreamCount: () => eventStreams.size,
     streamCount: () => streams.size,
     terminalStreamCount: () => terminalStreams.size,
@@ -1320,6 +1503,7 @@ class UploadTooLarge extends Error {}
 async function streamUploadToDisk(
   request: IncomingMessage,
   destination: { directory: string; path: string },
+  maxBytes = UPLOAD_MAX_BYTES,
 ): Promise<number> {
   const { mkdir, rm, writeFile } = await import('node:fs/promises')
   const { createWriteStream, existsSync } = await import('node:fs')
@@ -1332,12 +1516,16 @@ async function streamUploadToDisk(
   const ignore = join(destination.directory, '.gitignore')
   if (!existsSync(ignore)) await writeFile(ignore, '*\n', 'utf8').catch(() => {})
   const sink = createWriteStream(destination.path, { flags: 'wx' })
+  let created = false
+  sink.once('open', () => {
+    created = true
+  })
   let written = 0
   try {
     await new Promise<void>((resolve, reject) => {
       const count = (chunk: Buffer): void => {
         written += chunk.length
-        if (written > UPLOAD_MAX_BYTES) fail(new UploadTooLarge('upload over the ceiling'))
+        if (written > maxBytes) fail(new UploadTooLarge('upload over the ceiling'))
       }
       // Every listener this put on the request comes off again, because the
       // request outlives the sink: a refused body is drained afterwards, and a
@@ -1362,7 +1550,9 @@ async function streamUploadToDisk(
       request.pipe(sink)
     })
   } catch (error) {
-    await rm(destination.path, { force: true }).catch(() => {})
+    // An exclusive-create failure means the path belongs to someone else.
+    // Cleanup may remove only the partial file this request actually created.
+    if (created) await rm(destination.path, { force: true }).catch(() => {})
     throw error
   }
   return written

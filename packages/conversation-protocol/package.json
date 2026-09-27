@@ -1,0 +1,20 @@
+{
+  "name": "@sprintengine/conversation-protocol",
+  "version": "0.1.0",
+  "description": "Portable conversation frames and validation for Studio's tailnet chat lane.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
+      "require": { "types": "./dist/cjs/index.d.ts", "default": "./dist/cjs/index.js" }
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": { "build": "node build.mjs", "prepack": "npm run build" }
+}

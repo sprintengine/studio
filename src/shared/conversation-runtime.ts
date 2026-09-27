@@ -1,3 +1,14 @@
+import type {
+  ConversationJsonValue,
+  ConversationToolKind,
+  ConversationToolStatus,
+} from '../../packages/conversation-protocol/src/tool-types'
+export type {
+  ConversationJsonValue,
+  ConversationToolKind,
+  ConversationToolStatus,
+} from '../../packages/conversation-protocol/src/tool-types'
+
 export type ConversationSessionStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
 
 export type ConversationEventType =
@@ -25,6 +36,8 @@ export type ConversationEventType =
 
 export type ConversationEvent = {
   id: string
+  // Absent only on legacy events and provider events before runtime stamping.
+  seq?: number
   sessionId: string
   workspaceId: string
   agentId: string
@@ -44,9 +57,16 @@ export type ConversationSessionSummary = {
   status: ConversationSessionStatus
   createdAt: number
   updatedAt: number
+  displayName?: string
+  capabilities?: ConversationCapabilities
+  phase?: import('./conversation/phase').ConversationPhase
+  currentToolTitle?: string
+  firstUserText?: string
+  lastUserText?: string
+  lastAssistantText?: string
   // The preset currently in force, when the session carries one. Absent means
-  // the session never set one and the provider's own default ('default', ask
-  // per tool) applies. Changing it mid-conversation goes through
+  // the session never set one and the provider passes no permission override,
+  // as `none` does. Changing it mid-conversation goes through
   // `conversation:sessions:set-permission`.
   permissionPreset?: ConversationPermissionPreset
 }
@@ -62,7 +82,7 @@ export type ConversationCliRuntimeOverrides = Record<
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
 // (CliPermissionPreset) without importing electron-api types. The
 // value tuple is exported so the IPC boundary validates against one list.
-export const CONVERSATION_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const
+export const CONVERSATION_PERMISSION_PRESETS = ['none', 'bypass'] as const
 
 export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
@@ -73,11 +93,10 @@ export type ConversationStartSessionInput = {
   providerId: string
   modelId: string
   cliRuntimes?: ConversationCliRuntimeOverrides
-  // How tool permissions behave for CLI-backed stateful providers: 'none'
-  // passes no flag and lets the CLI's own default win, 'manual' asks per tool
-  // (approval cards), 'auto' runs with the CLI's supervised-autonomy mode,
-  // 'bypass' skips permission checks entirely (explicit opt-in surfaces only,
-  // e.g. wizard designer sessions).
+  // How tool permissions behave for CLI-backed stateful providers: 'bypass'
+  // skips the CLI's permission prompts (the default for every agent), 'none'
+  // passes no override and lets the CLI's own configuration decide — which
+  // can still ask, as approval cards.
   permissionPreset?: ConversationPermissionPreset
   // Tools auto-allowed without an approval card. Lets unattended flows (the
   // long-running authoring sessions) run file writes without stalling while interactive tools
@@ -112,6 +131,11 @@ export type ConversationImageAttachment = {
 }
 
 export type ConversationSendTurnInput = {
+  mentions?: import('./conversation/mentions').ConversationMentionRef[]
+  reasoningEffort?: string
+  mode?: 'default' | 'plan' | 'ask'
+  commandId?: string
+  skills?: ConversationSkillRef[]
   sessionId: string
   message: string
   // Renderer-generated id of the optimistic user bubble for this send; echoed
@@ -125,10 +149,13 @@ export type ConversationSendTurnInput = {
 }
 
 export type ConversationInterruptInput = {
+  commandId?: string
   sessionId: string
 }
 
 export type ConversationRespondToRequestInput = {
+  commandId?: string
+  decision?: import('./conversation/approvalRules').ConversationApprovalDecision
   sessionId: string
   requestId: string
   approved: boolean
@@ -144,10 +171,15 @@ export type ConversationRespondToRequestInput = {
 // group them under that parent instead of flattening them into the turn (or,
 // as before, dropping them). Absent means an ordinary top-level tool call.
 export type ConversationToolStartedPayload = {
+  toolUseId?: string
+  kind?: ConversationToolKind
+  name?: string
+  input?: ConversationJsonValue
+  inputTruncated?: boolean
   turnId?: string
   toolCallId?: string
   tool: string
-  summary: string
+  summary?: string
   addedLines?: number
   removedLines?: number
   parentToolUseId?: string
@@ -165,6 +197,21 @@ export type ConversationToolStartedPayload = {
 // Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
 // so a child call's completion lands in the same lane as its start.
 export type ConversationToolOutputPayload = {
+  // How an adapter's `output` relates to the tool's earlier output events.
+  // 'replace' (the default): it is the whole output so far. 'append': it is
+  // only the text produced since the previous event, and the runtime keeps the
+  // rest. Events the runtime publishes are always 'replace': `preview` and
+  // `output` there are the latest text, and the field is removed.
+  outputMode?: 'append' | 'replace'
+  partial?: boolean
+  clipped?: boolean
+  toolUseId?: string
+  preview?: string
+  totalBytes?: number
+  truncated?: boolean
+  status?: ConversationToolStatus
+  exitCode?: number
+  mime?: string
   turnId?: string
   toolCallId?: string
   output: string
@@ -194,8 +241,9 @@ export type ConversationQuestion = {
 // Change how tool permissions behave on a session that is already running. The
 // interactive path only: the change reaches the live provider session and takes
 // effect on its next tool call, without recreating the session or losing
-// history. The automation MCP surface still refuses `bypass` outright.
+// history.
 export type ConversationSetPermissionInput = {
+  commandId?: string
   sessionId: string
   permissionPreset: ConversationPermissionPreset
 }
@@ -221,3 +269,114 @@ export type ConversationSessionActionResult =
 
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }
+
+export type ConversationToolDetail = {
+  input: ConversationJsonValue
+  output: ConversationJsonValue
+  status: ConversationToolStatus
+  exitCode?: number
+  mime?: string
+  totalBytes?: number
+  clipped: boolean
+}
+export type ConversationToolDetailInput = ConversationTranscriptInput & { toolUseId: string }
+export type ConversationToolEvent =
+  | (Omit<ConversationEvent, 'type' | 'payload'> & {
+      type: 'tool_started'
+      payload: ConversationToolStartedPayload & {
+        toolUseId: string
+        kind: ConversationToolKind
+        name: string
+        input: ConversationJsonValue
+      }
+    })
+  | (Omit<ConversationEvent, 'type' | 'payload'> & {
+      type: 'tool_output'
+      payload: ConversationToolOutputPayload & {
+        toolUseId: string
+        preview: string
+        totalBytes: number
+        truncated: boolean
+        status: ConversationToolStatus
+      }
+    })
+export type ConversationToolDetailResult =
+  | { ok: true; detail: ConversationToolDetail }
+  | { ok: false; code: 'not_found' | 'invalid_input' | 'unavailable'; message: string }
+export type ConversationCapabilities = {
+  permissionPresets?: ConversationPermissionPreset[]
+  tools: boolean
+  approvals: boolean
+  questions: boolean
+  planMode: boolean
+  images: boolean
+  skills: 'native' | 'context' | 'none'
+  reasoningEfforts: string[] | null
+  interrupt: boolean
+  resume: boolean
+  subagents: boolean
+  cost: boolean
+  contextMeter: boolean
+  liveModelSwitch: boolean
+  checkpoints?: boolean
+  // The provider reads `@path` in a prompt as a reference to that workspace
+  // file and opens it itself, so a mention can be passed as `@path`.
+  atMentions?: boolean
+}
+export type ConversationCheckpointFile = {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+  addedLines: number
+  removedLines: number
+  binary: boolean
+}
+export type ConversationCheckpointDiff = { files: ConversationCheckpointFile[]; submodulesExcluded: true }
+export type ConversationTurnDiffInput = { key: ConversationKey; turnSeq: number; path?: string }
+export type ConversationTurnDiffResult =
+  | { ok: true; diff: ConversationCheckpointDiff; patch?: string; original?: string; modified?: string }
+  | { ok: false; message: string }
+/** A confirmed revert names the exact paths the preview showed; any drift refuses with `changed`. */
+export type ConversationRevertInput = {
+  key: ConversationKey
+  turnSeq: number
+  confirmed?: boolean
+  undo?: boolean
+  files?: string[]
+}
+export type ConversationRevertResult =
+  | {
+      ok: true
+      files: ConversationCheckpointFile[]
+      reverted: boolean
+      undoRef?: string
+      /** Listed as added but left in place: the checkpoint's ignore rules ignore them. */
+      kept?: string[]
+    }
+  | { ok: false; message: string; changed?: true }
+export type ConversationSkillRef = { id: string; sourcePath?: string }
+export type ConversationApprovalRulesResult =
+  | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }
+  | { ok: false; message: string }
+export type ConversationApprovalRuleRevokeResult = { ok: true } | { ok: false; message: string }
+
+export type ConversationKey = ConversationTranscriptInput
+// `afterSeq` with the `generation` from an earlier snapshot or synchronized
+// frame asks for only the events after that sequence. A cursor the log cannot
+// vouch for (another generation, ahead of the log, or too far behind) gets a
+// reset snapshot instead, as does a cursor sent without a generation.
+export type ConversationSubscribeInput = {
+  key: ConversationKey
+  afterSeq?: number
+  generation?: string
+  turnLimit?: number
+}
+export type ConversationPage = { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
+export type ConversationLoadEarlierInput = { key: ConversationKey; beforeCursor: number; turnLimit?: number }
+export type ConversationPageResult = { ok: true; page: ConversationPage } | { ok: false; message: string }
+export type ConversationSessionFrame =
+  | { type: 'event'; event: ConversationEvent }
+  // Page events keep a merged run of deltas as one event numbered with the
+  // run's last sequence; `beforeCursor` is the first sequence the page covers.
+  | { type: 'snapshot'; page: ConversationPage; reset?: true; generation?: string }
+  | { type: 'synchronized'; seq: number; generation?: string }
+  | { type: 'error'; message: string }

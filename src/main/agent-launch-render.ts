@@ -208,7 +208,7 @@ function buildLaunchRenderContext(
     binary,
     sessionId: input.sessionId,
     prompt,
-    permissionPreset: input.cliPermissionPreset ?? 'default',
+    permissionPreset: input.cliPermissionPreset,
     model: input.cliModel,
     reasoning: input.cliReasoning,
     colorScheme: input.colorScheme,

@@ -28,7 +28,25 @@ import {
   type FleetPairResult,
   type FleetRequestPairingResult,
   type FleetTerminalEvent,
+  fleetConversationFrameChannel,
+  FLEET_CONVERSATION_COMMAND_CHANNEL,
+  FLEET_CONVERSATION_EARLIER_CHANNEL,
+  FLEET_CONVERSATION_FOLLOW_CHANNEL,
+  FLEET_CONVERSATION_LIST_CHANNEL,
+  FLEET_CONVERSATION_TOOL_DETAIL_CHANNEL,
+  FLEET_CONVERSATION_TURN_DIFF_CHANNEL,
+  FLEET_CONVERSATION_UNFOLLOW_CHANNEL,
+  type FleetConversationCommand,
+  type FleetConversationCommandResult,
+  type FleetConversationFrame,
+  type FleetConversationKey,
+  type FleetConversationListResult,
 } from '../../shared/tailnet-fleet'
+import type {
+  ConversationPageResult,
+  ConversationToolDetailResult,
+  ConversationTurnDiffResult,
+} from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
 import type { ElectronApi } from '../../shared/electron-api'
 
@@ -109,6 +127,71 @@ export const fleetApi = {
     ipcRenderer.on(FLEET_EVENT_CHANNEL, handler)
     return () => ipcRenderer.removeListener(FLEET_EVENT_CHANNEL, handler)
   },
+  fleetConversationList: (connectionId: string): Promise<FleetConversationListResult> =>
+    ipcRenderer.invoke(FLEET_CONVERSATION_LIST_CHANNEL, connectionId) as Promise<FleetConversationListResult>,
+  // The same shape as `onConversationSession`: listen first, then ask main
+  // to follow, and hand back the unsubscribe. A follow that could not start
+  // reaches the callback as an `error` frame, never as a throw.
+  onFleetConversationSession: (
+    input: { key: FleetConversationKey; turnLimit?: number },
+    cb: (frame: FleetConversationFrame) => void,
+  ): (() => void) => {
+    const followId = `follow-${Date.now()}-${++nextFollowId}`
+    const channel = fleetConversationFrameChannel(followId)
+    let disposed = false
+    const handler = (_: IpcRendererEvent, frame: FleetConversationFrame) => {
+      if (!disposed) cb(frame)
+    }
+    ipcRenderer.on(channel, handler)
+    const followed = ipcRenderer.invoke(FLEET_CONVERSATION_FOLLOW_CHANNEL, { followId, ...input }) as Promise<
+      { ok: true } | { ok: false; code: string; message: string }
+    >
+    void followed
+      .then((result) => {
+        if (!disposed && !result.ok) cb({ type: 'error', message: result.message })
+      })
+      .catch((error: unknown) => {
+        if (!disposed) cb({ type: 'error', message: String(error) })
+      })
+    return () => {
+      if (disposed) return
+      disposed = true
+      ipcRenderer.removeListener(channel, handler)
+      void followed.then(() => ipcRenderer.invoke(FLEET_CONVERSATION_UNFOLLOW_CHANNEL, followId)).catch(() => undefined)
+    }
+  },
+  fleetConversationLoadEarlier: (input: {
+    key: FleetConversationKey
+    beforeCursor: number
+    turnLimit?: number
+  }): Promise<ConversationPageResult> =>
+    ipcRenderer.invoke(FLEET_CONVERSATION_EARLIER_CHANNEL, input) as Promise<ConversationPageResult>,
+  fleetConversationSend: (input: { key: FleetConversationKey; message: string }) =>
+    command(input.key, { kind: 'send', message: input.message }),
+  fleetConversationInterrupt: (input: { key: FleetConversationKey }) => command(input.key, { kind: 'interrupt' }),
+  fleetConversationResolveApproval: (input: {
+    key: FleetConversationKey
+    requestId: string
+    decision: 'once' | 'conversation' | 'deny'
+  }) => command(input.key, { kind: 'resolveApproval', requestId: input.requestId, decision: input.decision }),
+  fleetConversationAnswerQuestion: (input: {
+    key: FleetConversationKey
+    requestId: string
+    answers: Record<string, string>
+  }) => command(input.key, { kind: 'answerQuestion', requestId: input.requestId, answers: input.answers }),
+  fleetConversationSetPermissionPreset: (input: { key: FleetConversationKey; preset: 'none' | 'bypass' }) =>
+    command(input.key, { kind: 'setPermissionPreset', preset: input.preset }),
+  fleetConversationToolDetail: (input: {
+    key: FleetConversationKey
+    toolUseId: string
+  }): Promise<ConversationToolDetailResult> =>
+    ipcRenderer.invoke(FLEET_CONVERSATION_TOOL_DETAIL_CHANNEL, input) as Promise<ConversationToolDetailResult>,
+  fleetConversationTurnDiff: (input: {
+    key: FleetConversationKey
+    turnSeq: number
+    path?: string
+  }): Promise<ConversationTurnDiffResult> =>
+    ipcRenderer.invoke(FLEET_CONVERSATION_TURN_DIFF_CHANNEL, input) as Promise<ConversationTurnDiffResult>,
 } satisfies Pick<
   ElectronApi,
   | 'fleetListConnections'
@@ -127,4 +210,23 @@ export const fleetApi = {
   | 'onFleetTerminalEvent'
   | 'fleetGetLiveState'
   | 'onFleetEvent'
+  | 'fleetConversationList'
+  | 'onFleetConversationSession'
+  | 'fleetConversationLoadEarlier'
+  | 'fleetConversationSend'
+  | 'fleetConversationInterrupt'
+  | 'fleetConversationResolveApproval'
+  | 'fleetConversationAnswerQuestion'
+  | 'fleetConversationSetPermissionPreset'
+  | 'fleetConversationToolDetail'
+  | 'fleetConversationTurnDiff'
 >
+
+let nextFollowId = 0
+
+function command(key: FleetConversationKey, input: FleetConversationCommand): Promise<FleetConversationCommandResult> {
+  return ipcRenderer.invoke(FLEET_CONVERSATION_COMMAND_CHANNEL, {
+    key,
+    command: input,
+  }) as Promise<FleetConversationCommandResult>
+}

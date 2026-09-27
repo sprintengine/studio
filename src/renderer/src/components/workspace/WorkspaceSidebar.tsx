@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
+import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { conversationLineText } from './sidebar/conversationLines'
+import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
@@ -169,6 +173,7 @@ type WorkspaceSidebarProps = {
   // can walk back into and speak to, which is what the foreground is for.
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
+  conversationSessions?: ConversationSessionSummary[]
   // The unseen-completion marks, as they change — the app rail's Home badge
   // counts them (useRailBadges). The sidebar stays their owner: it is the layer
   // that knows what was looked at, and nothing outside it writes a mark.
@@ -246,6 +251,7 @@ function WorkspaceSidebar({
   activityByWorkspaceId,
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
+  conversationSessions = [],
   onUnseenDoneChange,
   onSnoozedWorkspacesChange,
   onSelectWorkspace,
@@ -301,6 +307,15 @@ function WorkspaceSidebar({
     }
     return map
   }, [terminalSessions])
+  const conversationsByWorkspaceId = useMemo(() => {
+    const map = new Map<string, ConversationSessionSummary[]>()
+    for (const session of conversationSessions) {
+      const list = map.get(session.workspaceId)
+      if (list) list.push(session)
+      else map.set(session.workspaceId, [session])
+    }
+    return map
+  }, [conversationSessions])
   // The same grouping WITHOUT the alive-process filter, for the conversation
   // peek alone. The map above is deliberately live-only — line 2 and the git
   // poll are about a checkout's current state, which a parked chat has no claim
@@ -386,6 +401,14 @@ function WorkspaceSidebar({
     for (const session of terminalSessions) {
       if (session.workspaceId && isHookSettledSession(session)) settledWorkspaceIds.add(session.workspaceId)
     }
+    for (const session of conversationSessions) {
+      if (
+        conversationSummaryPhase(session) === 'completed' ||
+        (session.status === 'ready' && session.lastAssistantText)
+      ) {
+        settledWorkspaceIds.add(session.workspaceId)
+      }
+    }
     const before = workingSinceRef.current
     workingSinceRef.current = workingSinceNow
     setUnseenDoneIds((previous) => {
@@ -399,7 +422,7 @@ function WorkspaceSidebar({
       if (next.size === previous.size && [...next].every((id) => previous.has(id))) return previous
       return next
     })
-  }, [terminalRecencyByWorkspaceId, terminalSessions, activeWorkspaceId])
+  }, [terminalRecencyByWorkspaceId, terminalSessions, conversationSessions, activeWorkspaceId])
   useEffect(() => {
     onUnseenDoneChange?.(unseenDoneIds)
   }, [unseenDoneIds, onUnseenDoneChange])
@@ -1653,6 +1676,7 @@ function WorkspaceSidebar({
         rowConversation={remoteConversationByWorkspace.get(workspace.id) ?? null}
         liveSessions={sessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
         peekSessions={peekSessionsByWorkspaceId.get(workspace.id) ?? NO_SESSIONS}
+        conversationSessions={conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS}
         gitSummaries={rowGitSummaries.get(workspace.id) ?? NO_GIT_SUMMARIES}
         rowConversationPullRequests={conversationPullRequests[workspace.id]}
         moduleOverrides={moduleOverrides}
@@ -1886,6 +1910,7 @@ function WorkspaceSidebar({
             flatProject: flatProjectOfRemote(conversation),
           }),
         )}
+        <ConversationHistoryRows workspaces={localRailWorkspaces} sessions={conversationSessions} />
         {snoozedRows.length > 0 ? (
           <>
             <ShelfFoldRow
@@ -2673,6 +2698,7 @@ type WorkspaceRowOptions = {
 }
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
+const NO_CONVERSATIONS: ConversationSessionSummary[] = []
 
 // A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar
 // render was a new prop for a memoized row, which re-rendered it every time.
@@ -2746,6 +2772,7 @@ type WorkspaceRowProps = {
   rowConversation: RemoteConversation | null
   liveSessions: TerminalSessionSnapshot[]
   peekSessions: TerminalSessionSnapshot[]
+  conversationSessions: ConversationSessionSummary[]
   /** Only this row's checkouts, so a sweep that moved another row's numbers leaves this one alone. */
   gitSummaries: RowGitSummaries
   rowConversationPullRequests: ConversationPullRequests[string] | undefined
@@ -2778,6 +2805,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   rowConversation,
   liveSessions,
   peekSessions,
+  conversationSessions,
   gitSummaries,
   rowConversationPullRequests,
   moduleOverrides,
@@ -2895,7 +2923,11 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // closed the pane did not stop the chat. The browse saying the agents are
   // there is the better answer, and without this the row went silent the
   // moment its pane closed even though the machine was still working.
-  const rowIsLive = liveSessions.length > 0 || fleetPanesOf(workspace).length > 0 || rowConversation !== null
+  const rowIsLive =
+    liveSessions.length > 0 ||
+    conversationSessions.length > 0 ||
+    fleetPanesOf(workspace).length > 0 ||
+    rowConversation !== null
   // A settled row is the one-liner by construction: rest is the point, and
   // a checkout's branch and ±lines are not facts about a chat at rest.
   const rowLines =
@@ -2947,7 +2979,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // request but no worktree branch used to have no line at all, which is
   // exactly the row the owner could not read anything off.
   const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
-  const metaHasSubstance = rowLines.lines.length > 0 || parkedLine
+  const visibleConversations =
+    rowIsLive && !options?.settled && !options?.snoozed ? conversationSessions : NO_CONVERSATIONS
+  const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
   // The row's status seat: run glyph / working dots + elapsed / tone dot /
   // idle recency, with the hover-revealed row actions layered over it.
@@ -3206,6 +3240,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const peekIdentities = rowConversationPeekIdentities({
     workspace,
     sessions: peekSessions,
+    conversations: conversationSessions,
     status: peekStatusOf(activity, idleRecencyText),
     now,
   })
@@ -3538,6 +3573,21 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           />
         )
       })}
+      {visibleConversations.map((session, index) => (
+        <div
+          key={session.sessionId}
+          data-peek-session={session.sessionId}
+          className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'}`}
+        >
+          <Tooltip content={`${session.displayName ?? 'Chat'} · ${session.modelId}`} placement="bottom">
+            <span role="img" aria-label="Chat agent" className="flex shrink-0 items-center">
+              <ChatGlyph className="icon-xs" />
+            </span>
+          </Tooltip>
+          <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
+          {index === 0 && rowLines.lines.length === 0 && !flatProject ? statusSeat : null}
+        </div>
+      ))}
       {rowLines.overflow > 0 ? (
         <div
           className={`flex h-5 items-center text-micro ${

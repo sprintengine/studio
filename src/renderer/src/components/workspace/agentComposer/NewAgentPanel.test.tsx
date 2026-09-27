@@ -60,7 +60,7 @@ test('NewAgentPanel', async () => {
   // own argv renderer; here it stands in so the test can assert the surface SHOWS
   // what main said, verbatim, rather than composing a line of its own.
   const previewCalls: Array<Record<string, unknown>> = []
-  const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
+  const PREVIEW_DISPLAY = 'claude --model claude-opus-5'
 
   // The fleet the remote-machine tests drive (remote-sessions-ux /
   // new-chat-on-a-remote-machine). Reassigned per check.
@@ -295,7 +295,7 @@ test('NewAgentPanel', async () => {
             workspaceId: 'ws-1',
             conversationAvailable: false,
             initialSelection: { kind: 'general' },
-            permissionPreset: 'auto',
+            permissionPreset: 'none',
             debugMode: false,
             onChangeDebugMode: () => {},
             onLaunch: (launch: Record<string, unknown>) => launches.push(launch),
@@ -344,7 +344,7 @@ test('NewAgentPanel', async () => {
       // property of the runtime the row names, so they moved INSIDE the model
       // picker (owner, 2026-09-05) and are remembered per CLI — the row itself
       // no longer carries the value.
-      assert.ok(!text.includes('Auto'), 'access is not a second chip on the row')
+      assert.ok(!text.includes('No flag'), 'access is not a second chip on the row')
       assert.ok(
         [...view.container.querySelectorAll('button')].some((button) =>
           (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
@@ -383,7 +383,7 @@ test('NewAgentPanel', async () => {
       assert.equal(previewCalls[0]?.cli, 'claude-code', 'it asked about the selected agent’s CLI')
       assert.equal(
         previewCalls[0]?.cliPermissionPreset,
-        'auto',
+        'none',
         'and forwarded the approval preset, so the line moves when the chip does',
       )
       assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
@@ -499,12 +499,10 @@ test('NewAgentPanel', async () => {
       }
 
       const menu = await openMore()
-      // Listed whether or not a provider is configured — an option that vanishes
-      // reads as unimplemented rather than unconfigured.
-      assert.ok((menu?.textContent ?? '').includes('Chat'), 'the chat launch is listed')
+      assert.ok(!(menu?.textContent ?? '').includes('Chat'), 'Chat has its own visible segment')
       assert.ok(
-        (menu?.textContent ?? '').includes('An agent in a chat window'),
-        'and says what it is, where a provider can serve one',
+        view.container.querySelector('[role="radio"][aria-label="Chat"]') ||
+          [...view.container.querySelectorAll('[role="radio"]')].some((radio) => radio.textContent === 'Chat'),
       )
       const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
         (button.textContent ?? '').startsWith('Terminal'),
@@ -580,35 +578,116 @@ test('NewAgentPanel', async () => {
     // 2b-ii. A surface that offers a conversation agent must ASK for the provider
     //        catalog — the row is gated on availability, and while the catalog was
     //        loaded by the top bar's menu alone this option could never appear here.
-    // 2b-iii. Unavailable is not invisible: with no provider the row stays, says
-    //         what is missing, and routes to Settings instead of disappearing.
-    await check('the chat launch is listed even with no provider configured', async () => {
+    // 2b-iii. Chat stays selectable when no provider is configured.
+    await check('the Chat segment explains an unavailable provider and offers Settings', async () => {
       seedStore()
       const view = await render({ conversationAvailable: false })
-      const more = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
+      const chat = [...view.container.querySelectorAll<HTMLElement>('[role="radio"]')].find(
+        (radio) => radio.textContent === 'Chat',
       )
+      assert.ok(chat, 'Chat remains visible')
       await act(async () => {
-        more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        chat!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-      const chatRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Chat'),
-      )
-      assert.ok(chatRow, 'the row is there')
-      assert.equal(chatRow?.getAttribute('aria-disabled'), 'true', 'marked unavailable')
+      assert.ok(view.text().includes('No chat provider is connected.'), 'the body names the missing provider')
       assert.ok(
-        (chatRow?.textContent ?? '').includes('Needs a model provider'),
-        'and says what is missing rather than vanishing',
+        [...view.container.querySelectorAll('button')].some((button) => button.textContent === 'Connect a provider'),
       )
-      // The whole sentence, not "connect one in S…": these hints wrap, because a
-      // tooltip to recover text the surface had room for is a worse answer.
-      assert.ok(
-        (chatRow?.textContent ?? '').includes('connect one in Settings'),
-        'the reason is readable in full, not truncated',
-      )
-      assert.ok(!chatRow?.querySelector('.truncate'), 'no truncation inside a row whose text IS the explanation')
       view.unmount()
+    })
+
+    await check('Chat names a workspace-mode limit without a provider action', async () => {
+      seedStore()
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        conversationAvailable: false,
+        conversationWorkspaceSupported: false,
+      })
+      assert.ok(view.text().includes('Chat is unavailable in this workspace.'))
+      assert.ok(
+        ![...view.container.querySelectorAll('button')].some((button) => button.textContent === 'Connect a provider'),
+      )
+      view.unmount()
+    })
+
+    await check('Chat waits for the catalog before offering provider setup', async () => {
+      seedStore()
+      const view = await render({ initialSelection: { kind: 'conversation' }, conversationCatalogLoading: true })
+      assert.ok(view.text().includes('Loading chat providers…'))
+      assert.ok(!view.text().includes('Connect a provider'))
+      view.unmount()
+    })
+
+    await check('Chat model roster chooses the provider and switching keeps the draft', async () => {
+      seedStore()
+      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      writeNewChatDraft('win-1', {
+        prompt: 'Check the tests',
+        images: [{ id: 'shot', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }],
+      })
+      const view = await render({
+        draftKey: 'win-1',
+        conversationAvailable: true,
+        conversationOptions: [
+          {
+            providerId: 'harness',
+            providerLabel: 'Harness',
+            providerType: 'agent-harness',
+            modelId: 'first',
+            modelLabel: 'First',
+          },
+          {
+            providerId: 'harness',
+            providerLabel: 'Harness',
+            providerType: 'agent-harness',
+            modelId: 'second',
+            modelLabel: 'Second',
+          },
+        ],
+        conversationDefaultOption: {
+          providerId: 'harness',
+          providerLabel: 'Harness',
+          providerType: 'agent-harness',
+          modelId: 'second',
+          modelLabel: 'Second',
+        },
+      })
+      const segment = (name: string) =>
+        [...view.container.querySelectorAll<HTMLElement>('[role="radio"]')].find((radio) => radio.textContent === name)!
+      await act(async () => {
+        segment('Chat').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.ok(
+        [...view.container.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+          .find((row) => row.textContent?.includes('Second'))
+          ?.getAttribute('aria-checked') === 'true',
+      )
+      assert.equal(view.container.querySelector('textarea')?.value, 'Check the tests')
+      assert.ok(view.container.querySelector('img[src^="data:image/png"]'))
+      const second = [...view.container.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((row) =>
+        row.textContent?.includes('Second'),
+      )!
+      await act(async () => {
+        second.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => {
+        segment('Terminal').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => {
+        segment('Chat').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.equal(view.container.querySelector('textarea')?.value, 'Check the tests')
+      assert.ok(view.container.querySelector('img[src^="data:image/png"]'))
+      const start = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Start agent',
+      )!
+      await act(async () => {
+        start.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.deepEqual(view.launches[0]?.provider, { providerId: 'harness', modelId: 'second', modelLabel: 'Second' })
+      view.unmount()
+      resetNewChatDraftsForTests()
     })
 
     await check('the feature flag removes the chat launch and skips its catalog request', async () => {
@@ -809,11 +888,11 @@ test('NewAgentPanel', async () => {
       })
       const permissions = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Permissions: YOLO"]')!
       await act(async () => permissions.click())
-      const manual = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
-        (row) => row.textContent?.startsWith('Manual'),
+      const noFlag = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+        (row) => row.textContent?.startsWith('No flag'),
       )!
-      await act(async () => manual.click())
-      assert.equal(storedCliPermissionPreset('codex'), 'manual', 'the highlighted model’s CLI owns the choice')
+      await act(async () => noFlag.click())
+      assert.equal(storedCliPermissionPreset('codex'), 'none', 'the highlighted model’s CLI owns the choice')
       assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'the previous runtime is untouched')
       await act(async () => {
         sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -829,7 +908,7 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
       assert.equal(
         resolveCliPermissionPreset(String(view.launches[0]?.cli), 'bypass'),
-        'manual',
+        'none',
         'the launch host resolves the launched CLI’s permission choice',
       )
       assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
@@ -1137,10 +1216,14 @@ test('NewAgentPanel', async () => {
     // 7. Nothing installed: the install route, not live-looking controls.
     await check('with no agent CLI the surface offers the install route', async () => {
       seedStore({ plugins: [] })
-      const view = await render()
+      const view = await render({ initialSelection: { kind: 'general' } })
       const text = view.text()
       assert.ok(text.includes('No agent CLI is installed'), 'it says so plainly')
-      assert.equal(view.container.querySelector('textarea'), null, 'and offers no prompt that could not run')
+      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
+      assert.ok(
+        [...view.container.querySelectorAll('[role="radio"]')].some((radio) => radio.textContent === 'Chat'),
+        'the Chat choice remains available',
+      )
       view.unmount()
     })
 
@@ -1563,7 +1646,7 @@ test('NewAgentPanel', async () => {
     )
 
     await check(
-      'a remote target disables the presets its gateway refuses and moves the choice with a note',
+      'a remote target offers both presets and launches on the one the launcher shows, bypass included',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1579,52 +1662,55 @@ test('NewAgentPanel', async () => {
           terminals: [],
           gaps: [],
         })
-        const view = await remoteRender({ permissionPreset: 'bypass' })
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          permissionPreset: 'bypass',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
         await settle()
         await pickMachine(view, 'Air')
-        // The narrowing is what THIS launch runs on, not a rewrite of the stored
-        // choice: every local launch of Claude Code still reads Bypass.
-        assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
-        // Bypass shows as the nearest supported preset, Auto, for the remote.
-        await openPermissionsMenu(view, 'Auto')
-        assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'and nothing is written for the CLI')
-        view.unmount()
-
-        const local = await remoteRender({ permissionPreset: 'auto' })
-        await settle()
-        await pickMachine(local, 'Air')
-        const menu = await openPermissionsMenu(local, 'Auto')
-        assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
+        // Picking a machine moves nothing: the chip still reads Bypass, and no
+        // row is dimmed for the remote.
+        assert.ok(!/Switched permissions/.test(view.text()), 'no narrowing note')
+        const menu = await openPermissionsMenu(view, 'Bypass permissions')
+        assert.ok(!/Not available/.test(menu.textContent ?? ''), 'no row carries a remote refusal')
         const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+        assert.equal(rows.length, 2, 'the switcher lists exactly the two presets')
         assert.deepEqual(
           rows.map((row) => row.disabled),
-          [true, false, false, true],
-          'None and Bypass are disabled for a remote',
+          [false, false],
+          'both presets are open on a remote machine',
         )
-        assert.equal(
-          (menu.textContent ?? '').match(/Not available on a remote machine/g)?.length,
-          2,
-          'each with the one-line reason',
-        )
-        // Roving skips the disabled rows and wraps.
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
-        assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
-        assert.equal(checked.tabIndex, 0, 'which is the one tab stop')
-        const key = (el: Element, k: string) =>
-          act(async () => {
-            el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
-          })
-        await key(checked, 'ArrowDown')
+        assert.equal(checked, rows[0], 'Bypass is the checked row')
+        await act(async () => {
+          dom.window.document.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+
+        const textarea = view.container.querySelector('textarea')!
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+          setter.call(textarea, 'fix the build')
+          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          textarea.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+        assert.equal(remoteLaunches.length, 1, 'the launch travels')
         assert.equal(
-          dom.window.document.activeElement,
-          rows[1],
-          'ArrowDown from Auto wraps past Bypass and None to Manual',
+          remoteLaunches[0]?.permissionPreset,
+          'bypass',
+          'named explicitly, so the far end runs on what this launcher showed',
         )
-        await key(rows[1]!, 'End')
-        assert.equal(dom.window.document.activeElement, rows[2], 'End lands on the last enabled row')
-        await key(rows[2]!, 'Home')
-        assert.equal(dom.window.document.activeElement, rows[1], 'Home on the first enabled row')
-        local.unmount()
+        view.unmount()
       },
     )
 
@@ -2411,23 +2497,24 @@ test('NewAgentPanel', async () => {
       seedStore()
       resetRememberedMachineForTests()
       fleetConnections = []
-      const view = await render({ permissionPreset: 'manual' })
-      const menu = await openPermissionsMenu(view, 'Manual')
+      const view = await render({ permissionPreset: 'none' })
+      const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 4)
-      assert.ok(rows[0]?.textContent?.includes('None'), 'the no-flag row says None, not "CLI default"')
-      assert.ok(menu.textContent?.includes('Default'), 'and still wears the Default chip')
-      assert.ok(menu.querySelector('.rounded-xs'), 'on the token chip radius')
+      assert.equal(rows.length, 2, 'exactly two presets: Bypass and No flag')
+      assert.ok(rows[0]?.textContent?.startsWith('Bypass permissions'), 'Bypass, the default, leads')
+      assert.ok(rows[1]?.textContent?.startsWith('No flag'), 'the no-flag row follows')
+      assert.ok(!/Manual|Auto\b/.test(menu.textContent ?? ''), 'the retired presets are gone')
       assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
         act(async () => {
           el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
         })
-      await key(rows[1]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[0])
+      await key(rows[1]!, 'ArrowDown')
+      assert.equal(dom.window.document.activeElement, rows[0], 'ArrowDown wraps to the start')
       await key(rows[0]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
-      await key(rows[3]!, 'Enter')
+      assert.equal(dom.window.document.activeElement, rows[1], 'ArrowUp wraps to the end')
+      await key(rows[1]!, 'ArrowUp')
+      await key(rows[0]!, 'Enter')
       assert.equal(
         storedCliPermissionPreset('claude-code'),
         'bypass',
@@ -2494,10 +2581,10 @@ test('NewAgentPanel', async () => {
             (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === name,
           )
 
-        const view = await render({ permissionPreset: 'manual' })
+        const view = await render({ permissionPreset: 'none' })
         await click(engineChip(view))
         await hover('Opus 5')
-        await click(chip('Manual') as HTMLElement)
+        await click(chip('No flag') as HTMLElement)
         const bypass = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
           (row) => row.textContent?.startsWith('Bypass'),
         )
@@ -2508,14 +2595,14 @@ test('NewAgentPanel', async () => {
         assert.ok(chip('Bypass permissions'), 'Sonnet shows the Bypass that was chosen on Opus')
         await click(tab('Codex'))
         await hover('GPT-5.6 Sol')
-        assert.ok(chip('Manual'), 'Codex keeps its own value, the app-wide default it never moved from')
+        assert.ok(chip('No flag'), 'Codex keeps its own value, the app-wide default it never moved from')
         assert.equal(chip('YOLO'), null, 'and does not inherit Claude’s bypass')
         assert.equal(storedCliPermissionPreset('codex'), undefined)
         view.unmount()
 
         // A fresh panel reads the choice back from the launch-settings read
         // model, which is what main's record fills on every window's boot.
-        const again = await render({ permissionPreset: 'manual' })
+        const again = await render({ permissionPreset: 'none' })
         await click(engineChip(again))
         await click(tab('Claude Code'))
         await hover('Sonnet 5')
@@ -2531,7 +2618,7 @@ test('NewAgentPanel', async () => {
         assert.equal(again.launches[0]?.cli, 'claude-code')
         assert.equal(again.launches[0]?.model, 'claude-sonnet-5')
         assert.equal(
-          resolveCliPermissionPreset('claude-code', 'manual'),
+          resolveCliPermissionPreset('claude-code', 'none'),
           'bypass',
           'and the launch host resolves Bypass for a model it was never chosen on',
         )

@@ -1,6 +1,6 @@
-import type { ConversationProviderListResult } from '../../../../shared/electron-api'
+import type { ConversationProviderListResult, WorkspaceSkill } from '../../../../shared/electron-api'
 import type { ConversationProviderType } from '../../../../shared/plugin-manifest'
-import type { AgentConversationRuntime, AgentState } from '../../types/workspace'
+import type { AgentConversationRuntime, AgentState, CliPermissionPreset } from '../../types/workspace'
 
 // One selectable spawn row in the agent menu: a single provider/model pair the
 // user can launch as a conversation-backed agent. Provider and model ids are
@@ -54,6 +54,45 @@ export function conversationAgentRuntimePatch(providerId: string, modelId: strin
     cliHasLaunched: false,
     cliResumeAvailable: false,
     cliSessionId: undefined,
+  }
+}
+
+/** Skill chips and typed text travel independently through either launch door. */
+export function conversationLaunchDraftPatch(
+  skills?: readonly Pick<WorkspaceSkill, 'id'>[],
+  prompt?: string,
+): Partial<AgentState> {
+  return {
+    ...(skills?.length ? { conversationSkills: skills.map((skill) => skill.id) } : {}),
+    ...(prompt ? { chatComposerPrefill: prompt } : {}),
+  }
+}
+
+/**
+ * The agent a New chat door's conversation confirm opens: the model picked in
+ * the door's Chat roster when it named one, the resolved default otherwise.
+ * Null when there is neither, so the door has nothing to open.
+ */
+export function conversationNewChatSeed(
+  confirm: {
+    provider?: { providerId: string; modelId: string; modelLabel: string }
+    skills?: readonly Pick<WorkspaceSkill, 'id'>[]
+  },
+  fallback: ConversationSpawnOption | null,
+  launch: { prompt?: string; permissionPreset: CliPermissionPreset },
+): { runtime: AgentConversationRuntime; tabName: string; agentPatch: Partial<AgentState> } | null {
+  const target = confirm.provider ?? fallback
+  if (!target) return null
+  const tabName = target.modelLabel || 'Conversation Agent'
+  return {
+    runtime: { providerId: target.providerId, modelId: target.modelId },
+    tabName,
+    agentPatch: {
+      name: tabName,
+      ...conversationAgentRuntimePatch(target.providerId, target.modelId),
+      cliPermissionPreset: launch.permissionPreset,
+      ...conversationLaunchDraftPatch(confirm.skills, launch.prompt),
+    },
   }
 }
 

@@ -84,7 +84,7 @@ export function layoutFleetSignature(workspace: Pick<Workspace, 'layoutModel'>):
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; component?: unknown; id?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+    if (record.type === 'tab' && (record.component === 'fleet-terminal' || record.component === 'fleet-conversation')) {
       parts.push(JSON.stringify([record.id ?? null, record.config ?? null]))
     }
     if (Array.isArray(record.children)) for (const child of record.children) walk(child)

@@ -7,7 +7,11 @@ import type {
   ConversationQuestion,
   ConversationSessionStatus,
   ConversationEvent,
+  ConversationJsonValue,
+  ConversationToolKind,
+  ConversationToolStatus,
 } from '../../../../../shared/conversation-runtime'
+import { parseConversationMentions, type ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -23,6 +27,14 @@ export type TranscriptToolEntry = {
   name: string
   status: 'running' | 'done'
   output?: string
+  toolKind?: ConversationToolKind
+  input?: ConversationJsonValue
+  inputTruncated?: boolean
+  truncated?: boolean
+  totalBytes?: number
+  outputStatus?: ConversationToolStatus
+  exitCode?: number
+  mime?: string
   // One-line input summary from the provider (e.g. "Bash: npm test") —
   // the row reads as "what it did", not just the tool name.
   summary?: string
@@ -47,16 +59,28 @@ export type TranscriptEntry =
   | {
       kind: 'user'
       id: string
+      createdAt?: number
+      seq?: number
+      reverted?: boolean
+      // The turnSeq that undoes the revert covering this turn; set only on the
+      // turns of the most recent revert, the one an undo can still restore.
+      undoRevertSeq?: number
+      // Files changed after that revert (a later turn, another revert or undo),
+      // so undoing it would replace that later work.
+      undoOverwritesLaterWork?: boolean
       text: string
       // Images the user attached to this turn (D3/1774). Live-only: they come
       // from the local send, never from the replayed transcript, so a bubble
       // restored after a restart is text-only by design.
       attachments?: ConversationImageAttachment[]
+      mentions?: ConversationMentionRef[]
+      skills?: string[]
     }
   | {
       kind: 'assistant'
       turnId: string
       text: string
+      intermediateText?: { text: string; beforeToolUseId: string }[]
       reasoning: string
       status: 'streaming' | 'complete' | 'failed' | 'interrupted'
       failureReason?: string
@@ -69,6 +93,15 @@ export type TranscriptEntry =
       modelId?: string
       // First reasoning_delta → first non-reasoning event; feeds "Thought for Ns".
       reasoningDurationMs?: number
+      costUsd?: number
+      durationMs?: number
+      numTurns?: number
+      checkpointTurnSeq?: number
+      checkpointAvailable?: boolean
+      checkpointSummary?: { files: number; addedLines: number; removedLines: number }
+      reverted?: boolean
+      undoRevertSeq?: number
+      undoOverwritesLaterWork?: boolean
     }
   | TranscriptToolEntry
   | {
@@ -79,6 +112,13 @@ export type TranscriptEntry =
       // Tool name behind the request ("Bash", "Edit"…), so the permission card
       // can render the literal command instead of generic copy.
       action?: string
+      input?: ConversationJsonValue
+      cwd?: string
+      originAgentId?: string
+      defaultToNo?: boolean
+      suppressAlwaysAllowRule?: boolean
+      autoApproved?: boolean
+      ruleLabel?: string
       status: 'pending' | 'approved' | 'denied' | 'cancelled'
       // Structured request cards: 'question' renders options as buttons,
       // 'plan' renders the plan text with approve/reject. Absent/'tool' is a
@@ -91,7 +131,14 @@ export type TranscriptEntry =
       answers?: Record<string, string>
     }
 
-export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
+export type UserTurn = {
+  id: string
+  text: string
+  createdAt?: number
+  attachments?: ConversationImageAttachment[]
+  mentions?: ConversationMentionRef[]
+  skills?: string[]
+}
 
 /** Token counts the session has reported so far; null until the first report. */
 export type ConversationUsage = { inputTokens: number; outputTokens: number }
@@ -107,6 +154,14 @@ export type ConversationProjection = {
   // login, the guaranteed path). Anything else means the session is billing
   // outside the subscription and the chat must say so.
   apiKeySource: string | null
+  // A provider's note about the live session the person should know, such as
+  // a stored session that could not be reopened and was replaced.
+  sessionNotice: string | null
+  // Why this session's turns carry no file checkpoints (too many or too large
+  // untracked files), so a missing "Revert" reads as explained, not broken.
+  checkpointNotice: string | null
+  // The checkpoint the most recent revert still in effect went back to.
+  revertedAfterSeq: number | null
 }
 
 export function readString(payload: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
@@ -165,6 +220,66 @@ export function readBoolean(payload: Record<string, unknown> | undefined, key: s
   return typeof value === 'boolean' ? value : undefined
 }
 
+function readCheckpointSummary(
+  payload: Record<string, unknown> | undefined,
+): { files: number; addedLines: number; removedLines: number } | undefined {
+  const summary = payload?.checkpointSummary
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return undefined
+  const values = summary as Record<string, unknown>
+  if (
+    typeof values.files !== 'number' ||
+    typeof values.addedLines !== 'number' ||
+    typeof values.removedLines !== 'number'
+  )
+    return undefined
+  return { files: values.files, addedLines: values.addedLines, removedLines: values.removedLines }
+}
+
+function readJson(payload: Record<string, unknown> | undefined, key: string): ConversationJsonValue | undefined {
+  const value = payload?.[key]
+  if (value === undefined) return undefined
+  try {
+    return JSON.parse(JSON.stringify(value)) as ConversationJsonValue
+  } catch {
+    return undefined
+  }
+}
+
+function inferToolKind(name: string): ConversationToolKind {
+  if (/^(Bash|Shell|Command)$/iu.test(name)) return 'command'
+  if (/^(Edit|MultiEdit|NotebookEdit)$/iu.test(name)) return 'file_edit'
+  if (/^(Read|Get-Content)$/iu.test(name)) return 'file_read'
+  if (/^(Write|Set-Content)$/iu.test(name)) return 'file_write'
+  if (/^(Grep|Glob|Search)$/iu.test(name)) return 'search'
+  if (/^(Task|Agent)$/iu.test(name)) return 'subagent'
+  if (name.startsWith('Web')) return 'web'
+  return 'other'
+}
+
+function readToolKind(payload: Record<string, unknown> | undefined, name: string): ConversationToolKind {
+  const kind = payload?.kind
+  if (
+    kind === 'command' ||
+    kind === 'file_edit' ||
+    kind === 'file_read' ||
+    kind === 'file_write' ||
+    kind === 'search' ||
+    kind === 'list' ||
+    kind === 'web' ||
+    kind === 'mcp' ||
+    kind === 'subagent' ||
+    kind === 'todo' ||
+    kind === 'other'
+  )
+    return kind
+  return inferToolKind(name)
+}
+
+function readToolStatus(payload: Record<string, unknown> | undefined): ConversationToolStatus | undefined {
+  const status = payload?.status
+  return status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped' ? status : undefined
+}
+
 export function readAnswers(payload: Record<string, unknown> | undefined): Record<string, string> | undefined {
   const raw = payload?.answers
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -178,6 +293,7 @@ export function readAnswers(payload: Record<string, unknown> | undefined): Recor
 export type TurnAccumulator = {
   turnId: string
   text: string
+  intermediateText?: { text: string; beforeToolUseId: string }[]
   reasoning: string
   status: 'streaming' | 'complete' | 'failed' | 'interrupted'
   failureReason?: string
@@ -187,6 +303,13 @@ export type TurnAccumulator = {
   modelId?: string
   reasoningStartedAt?: number
   reasoningEndedAt?: number
+  costUsd?: number
+  durationMs?: number
+  numTurns?: number
+  checkpointTurnSeq?: number
+  checkpointAvailable?: boolean
+  checkpointSummary?: { files: number; addedLines: number; removedLines: number }
+  seq?: number
   // Every tool call of the turn keyed by call id, subagent children included;
   // nesting into lanes happens once, when the transcript entries are built.
   tools: Map<string, ToolAccumulator>
@@ -200,6 +323,14 @@ export type ToolAccumulator = {
   name: string
   status: 'running' | 'done'
   output?: string
+  toolKind?: ConversationToolKind
+  input?: ConversationJsonValue
+  inputTruncated?: boolean
+  truncated?: boolean
+  totalBytes?: number
+  outputStatus?: ConversationToolStatus
+  exitCode?: number
+  mime?: string
   summary?: string
   startedAt?: number
   completedAt?: number
@@ -222,7 +353,10 @@ export function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEn
     kind: 'user',
     id: userTurn.id,
     text: userTurn.text,
+    ...(userTurn.createdAt !== undefined ? { createdAt: userTurn.createdAt } : {}),
     ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
+    ...(userTurn.mentions?.length ? { mentions: userTurn.mentions } : {}),
+    ...(userTurn.skills?.length ? { skills: userTurn.skills } : {}),
   }
 }
 
@@ -232,7 +366,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // User bubbles recorded in the event stream itself (persisted transcript);
   // when present these are authoritative and the locally tracked userTurns
   // only fill the optimistic gap between a send and its first event.
-  const eventUserTurns = new Map<string, { id: string; text: string; localTurnId?: string }>()
+  const eventUserTurns = new Map<string, UserTurn & { seq?: number; localTurnId?: string }>()
   const representedLocalTurnIds = new Set<string>()
   // Attachments are live-only (D3/1774): the persisted `user_message` event
   // carries text alone, so the images a bubble shows are looked up from the
@@ -253,6 +387,15 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let usage: ConversationUsage | null = null
   let lastError: string | null = null
   let apiKeySource: string | null = null
+  let sessionNotice: string | null = null
+  let checkpointNotice: string | null = null
+  // Reverts still in effect, oldest first. Each covers the turns from its
+  // checkpoint up to the revert itself: a turn sent after a revert started from
+  // the reverted files and is not undone by it. An undo removes its revert.
+  const reverts: Array<{ afterSeq: number; beforeSeq: number }> = []
+  // The last event that could have changed files: a turn sent, a revert, an undo.
+  let lastFileChangeSeq = 0
+  let highestSeq = 0
 
   const ensureTurn = (turnId: string): TurnAccumulator => {
     let turn = turns.get(turnId)
@@ -284,6 +427,13 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   for (const event of events) {
     const sessionMapped = SESSION_STATUS_BY_EVENT[event.type]
     if (sessionMapped) sessionStatus = sessionMapped
+    if (event.seq !== undefined && event.seq > highestSeq) highestSeq = event.seq
+    // The runtime attaches a checkpoint capture failure to whichever event
+    // follows it, once per session.
+    if (event.type !== 'session_updated') {
+      const notice = readString(event.payload, 'notice')
+      if (notice) checkpointNotice = notice
+    }
 
     const turnId = readString(event.payload, 'turnId')
     switch (event.type) {
@@ -292,22 +442,47 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         // source must not carry over (a replayed transcript would otherwise
         // false-alarm the API-key banner after a restart).
         apiKeySource = null
+        sessionNotice = null
+        checkpointNotice = null
         break
       }
       case 'session_updated': {
         const source = readString(event.payload, 'apiKeySource')
         if (source) apiKeySource = source
+        const notice = readString(event.payload, 'notice')
+        if (notice) sessionNotice = notice
+        const reverted = readNumber(event.payload, 'revertedAfterSeq')
+        if (reverted !== undefined) {
+          lastFileChangeSeq = event.seq ?? highestSeq + 1
+          if (event.payload?.undo === true) {
+            const undone = reverts.findLastIndex((range) => range.afterSeq === reverted)
+            if (undone !== -1) reverts.splice(undone, 1)
+          } else {
+            // A revert event read without a seq still bounds what came before it.
+            reverts.push({ afterSeq: reverted, beforeSeq: event.seq ?? highestSeq + 1 })
+          }
+        }
         break
       }
       case 'user_message': {
+        if (event.seq !== undefined) lastFileChangeSeq = event.seq
         if (turnId) {
           ensureTurn(turnId)
           const localTurnId = readString(event.payload, 'localTurnId')
           eventUserTurns.set(turnId, {
-            id: event.id,
+            // The acknowledgement replaces an optimistic bubble in place. The
+            // local identity is persisted too, so remounts keep the same key.
+            id: localTurnId ?? event.id,
             text: readString(event.payload, 'text') ?? '',
+            createdAt: event.createdAt,
+            ...(event.seq !== undefined ? { seq: event.seq } : {}),
             ...(localTurnId ? { localTurnId } : {}),
+            mentions: parseConversationMentions(event.payload?.mentions) ?? undefined,
+            skills: Array.isArray(event.payload?.skills)
+              ? event.payload.skills.filter((id): id is string => typeof id === 'string')
+              : undefined,
           })
+          ensureTurn(turnId).seq = event.seq
           if (localTurnId) representedLocalTurnIds.add(localTurnId)
         }
         break
@@ -341,11 +516,23 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         if (!turnId) break
         const turn = ensureTurn(turnId)
         closeReasoning(turn, event.createdAt)
-        const id = readString(event.payload, 'callId', 'id', 'toolCallId') ?? `${turnId}:${turn.tools.size}`
+        const id =
+          readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId') ?? `${turnId}:${turn.tools.size}`
+        const name = readString(event.payload, 'name', 'toolName', 'tool') ?? 'tool'
+        // Prose before a tool explains that work, rather than ending the turn.
+        // Updates to an existing call must not shift the explanation again.
+        if (!turn.tools.has(id) && !readString(event.payload, 'parentToolUseId') && turn.text) {
+          turn.intermediateText ??= []
+          turn.intermediateText.push({ text: turn.text, beforeToolUseId: id })
+          turn.text = ''
+        }
         const tool: ToolAccumulator = {
           id,
           turnId,
-          name: readString(event.payload, 'name', 'toolName', 'tool') ?? 'tool',
+          name,
+          toolKind: readToolKind(event.payload, name),
+          input: readJson(event.payload, 'input'),
+          inputTruncated: readBoolean(event.payload, 'inputTruncated'),
           status: 'running',
           summary: readString(event.payload, 'summary'),
           startedAt: event.createdAt,
@@ -362,7 +549,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       case 'tool_output': {
         if (!turnId) break
         const turn = ensureTurn(turnId)
-        const id = readString(event.payload, 'callId', 'id', 'toolCallId')
+        const id = readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')
         // A call id closes that exact call wherever it started — a lane opened
         // in an earlier turn closes on the continuation turn that carries its
         // result. Without an id, fall back inside the event's own turn and
@@ -372,9 +559,16 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           (id && toolsById.get(id)) ||
           [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
         if (existing) {
-          existing.status = 'done'
-          existing.completedAt = event.createdAt
-          existing.output = readString(event.payload, 'output', 'text') ?? existing.output
+          if (event.payload?.partial !== true) {
+            existing.status = 'done'
+            existing.completedAt = event.createdAt
+          }
+          existing.output = readString(event.payload, 'preview', 'output', 'text') ?? existing.output
+          existing.truncated = readBoolean(event.payload, 'truncated') ?? existing.truncated
+          existing.totalBytes = readNumber(event.payload, 'totalBytes') ?? existing.totalBytes
+          existing.outputStatus = readToolStatus(event.payload) ?? existing.outputStatus
+          existing.exitCode = readNumber(event.payload, 'exitCode') ?? existing.exitCode
+          existing.mime = readString(event.payload, 'mime') ?? existing.mime
         }
         break
       }
@@ -387,6 +581,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turnId,
           summary: readString(event.payload, 'summary', 'action') ?? 'Approval requested.',
           action: readString(event.payload, 'action'),
+          input: readJson(event.payload, 'input'),
+          cwd: readString(event.payload, 'cwd'),
+          originAgentId: readString(event.payload, 'originAgentId'),
+          defaultToNo: readBoolean(event.payload, 'defaultToNo'),
+          suppressAlwaysAllowRule: readBoolean(event.payload, 'suppressAlwaysAllowRule'),
           status: 'pending',
           requestKind,
           questions: requestKind === 'question' ? readQuestions(event.payload) : undefined,
@@ -403,6 +602,8 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           const approved = event.payload?.approved === true
           approval.status = approved ? 'approved' : 'denied'
           approval.answers = readAnswers(event.payload)
+          approval.autoApproved = readBoolean(event.payload, 'autoApproved')
+          approval.ruleLabel = readString(event.payload, 'ruleLabel')
         }
         break
       }
@@ -422,6 +623,12 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           closeReasoning(turn, event.createdAt)
           turn.status = 'complete'
           turn.completedAt = event.createdAt
+          turn.costUsd = readNumber(event.payload, 'costUsd') ?? turn.costUsd
+          turn.durationMs = readNumber(event.payload, 'durationMs') ?? turn.durationMs
+          turn.numTurns = readNumber(event.payload, 'numTurns') ?? turn.numTurns
+          turn.checkpointTurnSeq = readNumber(event.payload, 'checkpointTurnSeq') ?? turn.checkpointTurnSeq
+          turn.checkpointAvailable = readBoolean(event.payload, 'checkpointAvailable') ?? turn.checkpointAvailable
+          turn.checkpointSummary = readCheckpointSummary(event.payload) ?? turn.checkpointSummary
         }
         break
       }
@@ -439,6 +646,17 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turn.failureReason = reason
           turn.failureDetail = readString(event.payload, 'message') ?? turn.failureDetail
           turn.completedAt = event.createdAt
+          turn.checkpointTurnSeq = readNumber(event.payload, 'checkpointTurnSeq') ?? turn.checkpointTurnSeq
+          turn.checkpointAvailable = readBoolean(event.payload, 'checkpointAvailable') ?? turn.checkpointAvailable
+          turn.checkpointSummary = readCheckpointSummary(event.payload) ?? turn.checkpointSummary
+          // A call the provider never closed before the turn ended is not still
+          // running; left open its row would pulse forever.
+          for (const tool of turn.tools.values()) {
+            if (tool.status !== 'running') continue
+            tool.status = 'done'
+            tool.completedAt = event.createdAt
+            tool.outputStatus ??= 'stopped'
+          }
           // A resolved turn can't keep a pending approval blocking the composer.
           for (const requestId of turn.approvals) {
             const approval = approvals.get(requestId)
@@ -478,7 +696,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         entries.push({
           kind: 'user',
           id: eventUserTurn.id,
+          ...(eventUserTurn.seq !== undefined ? { seq: eventUserTurn.seq } : {}),
           text: eventUserTurn.text,
+          createdAt: eventUserTurn.createdAt,
+          mentions: eventUserTurn.mentions,
+          skills: eventUserTurn.skills,
           ...(attachments ? { attachments } : {}),
         })
       }
@@ -493,6 +715,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       kind: 'assistant',
       turnId: turn.turnId,
       text: turn.text,
+      intermediateText: turn.intermediateText,
       reasoning: turn.reasoning,
       status: turn.status,
       failureReason: turn.failureReason,
@@ -504,6 +727,12 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         turn.reasoningStartedAt !== undefined && turn.reasoningEndedAt !== undefined
           ? Math.max(0, turn.reasoningEndedAt - turn.reasoningStartedAt)
           : undefined,
+      costUsd: turn.costUsd,
+      durationMs: turn.durationMs,
+      numTurns: turn.numTurns,
+      checkpointTurnSeq: turn.checkpointTurnSeq,
+      checkpointAvailable: turn.checkpointAvailable,
+      checkpointSummary: turn.checkpointSummary,
     })
     for (const tool of nestSubagentLanes(turn, laneIndex)) entries.push(tool)
     for (const requestId of turn.approvals) {
@@ -525,7 +754,41 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     if (approval && !approval.turnId) entries.push({ kind: 'approval', ...approval })
   }
 
-  return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError, apiKeySource }
+  if (reverts.length > 0) {
+    const latest = reverts.at(-1)!
+    const covering = (seq: number | undefined) =>
+      seq === undefined ? undefined : reverts.findLast((range) => seq >= range.afterSeq && seq < range.beforeSeq)
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]
+      if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+      const range = covering(
+        entry.kind === 'user' ? entry.seq : (entry.checkpointTurnSeq ?? turns.get(entry.turnId)?.seq),
+      )
+      if (!range) continue
+      entries[index] = {
+        ...entry,
+        reverted: true,
+        ...(range === latest
+          ? {
+              undoRevertSeq: range.afterSeq,
+              ...(lastFileChangeSeq > range.beforeSeq ? { undoOverwritesLaterWork: true } : {}),
+            }
+          : {}),
+      }
+    }
+  }
+  return {
+    sessionStatus,
+    activeTurn,
+    awaitingApproval,
+    entries,
+    usage,
+    lastError,
+    apiKeySource,
+    sessionNotice,
+    checkpointNotice,
+    revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
+  }
 }
 
 // Index of which calls hang off which lane, built once per projection over
@@ -569,6 +832,14 @@ export function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): Tran
       name: tool.name,
       status: tool.status,
       output: tool.output,
+      toolKind: tool.toolKind,
+      input: tool.input,
+      inputTruncated: tool.inputTruncated,
+      truncated: tool.truncated,
+      totalBytes: tool.totalBytes,
+      outputStatus: tool.outputStatus,
+      exitCode: tool.exitCode,
+      mime: tool.mime,
       summary: tool.summary,
       startedAt: tool.startedAt,
       completedAt: tool.completedAt,

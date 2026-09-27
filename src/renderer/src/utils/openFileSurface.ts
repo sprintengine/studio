@@ -4,6 +4,7 @@ import { dispatchEditorFocusEvent } from './editorFocus'
 import { queueEditorLanding } from './agentEditorReveal'
 import { openExternalFileWindow } from '../components/auxWindows/openFileWindow'
 import type { EditorRange } from '../../../shared/editor-reveal'
+import { rememberFileVisit } from './recentFileVisits'
 
 export type OpenFileSurfaceInput = {
   workspaceId: string
@@ -36,13 +37,21 @@ export type OpenFileSurfaceInput = {
 // external editor window (pop-up); when off, it opens as a workspace editor tab.
 // Migrate file-open call sites here so the preference applies uniformly.
 export function openFileSurface(input: OpenFileSurfaceInput): void {
+  if (!input.background && input.takeFocus !== false) rememberFileVisit(input.path)
   const store = useWorkspaceStore.getState()
   if (store.openFilesInExternalWindow) {
+    // A file link's line hint must survive the user's separate-window
+    // preference, just like an explicit range from an editor reveal.
+    const range =
+      input.range ??
+      (input.lineNumber !== undefined
+        ? { startLine: input.lineNumber, ...(input.column !== undefined ? { startColumn: input.column } : {}) }
+        : undefined)
     void openExternalFileWindow({
       workspaceId: input.workspaceId,
       path: input.path,
       name: input.name,
-      ...(input.range ? { range: input.range } : {}),
+      ...(range ? { range } : {}),
       ...(input.takeFocus === false ? { takeFocus: false } : {}),
       ...(input.background ? { background: true } : {}),
       rootPath: input.rootPath,

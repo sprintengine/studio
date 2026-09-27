@@ -32,7 +32,21 @@ import {
   type FleetCheckoutRequest,
   type FleetForgetMachineResult,
   type FleetWorkspaceCheckoutResult,
+  type FleetConversationCommandResult,
+  type FleetConversationFrame,
+  type FleetConversationListResult,
 } from '../../../shared/tailnet-fleet'
+import type {
+  ConversationPageResult,
+  ConversationToolDetailResult,
+  ConversationTurnDiffResult,
+} from '../../../shared/conversation-runtime'
+import { createRemoteConversationCache } from './tailnet-remote-conversation-cache'
+import {
+  createRemoteConversations,
+  fleetConversationKeyOf,
+  type RemoteConversationsOptions,
+} from './tailnet-remote-conversations'
 import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
 import { tailnetPeerSupports } from './tailnet-routes'
 import {
@@ -220,6 +234,33 @@ export type TailnetFleetService = {
    * window that mounts after a pane went live is not stuck on "paired".
    */
   getLiveState(): FleetLiveState
+  /**
+   * The conversations a paired machine holds, over its conversation socket.
+   * The identity read comes first, as for a browse, so the access reported is
+   * the grant as it stands now.
+   */
+  listConversations(connectionId: unknown): Promise<FleetConversationListResult>
+  /**
+   * Follow one conversation on a paired machine. `emit` receives the kept
+   * copy at once (when there is one), then the link state and live frames,
+   * until `unfollowConversation`. Windows showing the same conversation
+   * share one socket.
+   */
+  followConversation(input: {
+    followId: string
+    key: unknown
+    turnLimit?: unknown
+    emit: (frame: FleetConversationFrame) => void
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }>
+  unfollowConversation(followId: unknown): void
+  conversationLoadEarlier(input: {
+    key: unknown
+    beforeCursor: unknown
+    turnLimit?: unknown
+  }): Promise<ConversationPageResult>
+  conversationCommand(input: { key: unknown; command: unknown }): Promise<FleetConversationCommandResult>
+  conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
+  conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
   shutdown(): void
 }
 
@@ -266,6 +307,11 @@ export type TailnetFleetServiceOptions = {
   reachabilityIntervalMs?: number
   reachabilityTimeoutMs?: number
   createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetFleetStore
+  /** Timing for followed conversations; tests shorten it. */
+  conversations?: Pick<
+    RemoteConversationsOptions,
+    'retry' | 'requestTimeoutMs' | 'commandTimeoutMs' | 'listTimeoutMs' | 'livenessTimeoutMs' | 'saveDelayMs'
+  >
   log?: (message: string) => void
 }
 
@@ -319,6 +365,38 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     revision += 1
     options.onEvent?.({ ...event, revision })
   }
+
+  // Conversations followed on paired machines: the chat half of an attached
+  // terminal, with its copy kept on disk so a restart resumes rather than
+  // replays. Reachability is fed the same way a terminal dial feeds it.
+  const remoteConversations = createRemoteConversations({
+    ...options.conversations,
+    cache: createRemoteConversationCache({ resolveUserDataDir: options.resolveUserDataDir, log: options.log }),
+    resolveConnection: (connectionId) => {
+      const stored = store.find(connectionId)
+      return stored
+        ? {
+            id: stored.id,
+            machineName: stored.machineName,
+            endpoint: endpointOf(stored),
+            token: stored.deviceToken,
+            scopes: stored.scopes,
+          }
+        : null
+    },
+    onUnauthorized: (connectionId, detail) => {
+      const connection = store.find(connectionId)
+      if (connection) recordReachability(connection, { reachable: false, unauthorized: true, detail })
+    },
+    onReachable: (connectionId) => {
+      const connection = store.find(connectionId)
+      if (!connection) return
+      store.markConnected(connection.id)
+      if (!reachabilityFor(connection).reachable)
+        recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+    },
+    log: options.log,
+  })
 
   function connectionFor(connectionId: unknown): StoredFleetConnection | null {
     return typeof connectionId === 'string' ? store.find(connectionId) : null
@@ -915,7 +993,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function handleWatchFrame(watch: Watch, frame: Record<string, unknown>): void {
     if (frame.type !== 'changed') return
-    const what = frame.what === 'terminals' ? 'terminals' : frame.what === 'workspaces' ? 'workspaces' : null
+    const what =
+      frame.what === 'terminals' || frame.what === 'workspaces' || frame.what === 'conversations' ? frame.what : null
     if (!what) return
     const connection = store.find(watch.connectionId)
     if (!connection) return
@@ -936,6 +1015,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function onWake(): void {
     void checkAllReachability()
+    remoteConversations.onWake()
     for (const attachment of attachments.values()) {
       if (attachment.released || attachment.socket) continue
       if (!attachment.retryTimer) continue
@@ -1171,8 +1251,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     const checkout: FleetCheckoutRequest = checkoutRequestOf(input.checkout) ?? { mode: 'current' }
     // Launch identity forwarded verbatim (remote-sessions-ux /
     // new-chat-on-a-remote-machine): the remote gateway validates every
-    // field itself — including refusing `bypass` — and its refusal
-    // surfaces to the caller word for word rather than being smoothed here.
+    // field itself, and any refusal surfaces to the caller word for word
+    // rather than being smoothed here. The preset crosses as named, bypass
+    // included (owner ruling 2026-09-27); absent, the far end resolves it from
+    // its own settings, as a launch at that machine would.
     const identity = {
       ...(typeof input.workspaceId === 'string' && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(typeof input.name === 'string' && input.name ? { name: input.name } : {}),
@@ -1569,6 +1651,9 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
     }
     stopWatch(connectionId)
+    // Its followed conversations end, and what was kept of them goes too: a
+    // transcript from a machine no longer paired is not this machine's to keep.
+    void remoteConversations.forgetConnection(connectionId, 'This machine was removed from your fleet.')
     store.forget(connectionId)
     if (forgotten) broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
     // Never the stored record itself: it carries the device token, and nothing
@@ -1625,6 +1710,80 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     workspaceCheckout,
     attachTerminal,
 
+    async listConversations(connectionId): Promise<FleetConversationListResult> {
+      const connection = connectionFor(connectionId)
+      if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+      const identity = await readRemoteIdentity({ endpoint: endpointOf(connection), token: connection.deviceToken })
+      if (!identity.ok) {
+        recordReachability(connection, {
+          reachable: false,
+          unauthorized: identity.code === 'unauthorized',
+          detail: identity.message,
+        })
+        return { ok: false, code: identity.code, message: identity.message }
+      }
+      store.updateScopes(connection.id, identity.value.scopes)
+      store.markConnected(connection.id)
+      rememberCapabilities(connection.id, identity.value.capabilities)
+      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+      // A published list without the lane is a machine that cannot answer;
+      // one that published none is asked anyway and answers for itself.
+      if (identity.value.capabilities && !tailnetPeerSupports(identity.value.capabilities, 'conversations')) {
+        return {
+          ok: false,
+          code: 'conversations_unsupported',
+          message: `${connection.machineName} does not serve conversations. Update Studio there to follow them from here.`,
+        }
+      }
+      return remoteConversations.list(connection.id)
+    },
+
+    async followConversation(input) {
+      const key = fleetConversationKeyOf(input.key)
+      if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the machine and conversation to follow.' }
+      return remoteConversations.follow({
+        followId: input.followId,
+        key,
+        ...(isPositiveInteger(input.turnLimit) && input.turnLimit <= 100 ? { turnLimit: input.turnLimit } : {}),
+        emit: input.emit,
+      })
+    },
+
+    unfollowConversation(followId): void {
+      if (typeof followId === 'string') remoteConversations.unfollow(followId)
+    },
+
+    async conversationLoadEarlier(input): Promise<ConversationPageResult> {
+      const key = fleetConversationKeyOf(input.key)
+      if (!key || !isNonNegativeInteger(input.beforeCursor))
+        return { ok: false, message: 'Name the conversation and where to page back from.' }
+      return remoteConversations.loadEarlier(
+        key,
+        input.beforeCursor,
+        isPositiveInteger(input.turnLimit) && input.turnLimit <= 100 ? input.turnLimit : undefined,
+      )
+    },
+
+    async conversationCommand(input): Promise<FleetConversationCommandResult> {
+      const key = fleetConversationKeyOf(input.key)
+      if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
+      return remoteConversations.command(key, input.command)
+    },
+
+    async conversationToolDetail(input): Promise<ConversationToolDetailResult> {
+      const key = fleetConversationKeyOf(input.key)
+      if (!key || typeof input.toolUseId !== 'string' || !input.toolUseId || input.toolUseId.length > 200)
+        return { ok: false, code: 'invalid_input', message: 'Name the conversation and the tool call.' }
+      return remoteConversations.toolDetail(key, input.toolUseId)
+    },
+
+    async conversationTurnDiff(input): Promise<ConversationTurnDiffResult> {
+      const key = fleetConversationKeyOf(input.key)
+      if (!key || !isNonNegativeInteger(input.turnSeq)) return { ok: false, message: 'Name the conversation and turn.' }
+      const path = typeof input.path === 'string' && input.path.length <= 4096 ? input.path : undefined
+      return remoteConversations.turnDiff(key, input.turnSeq, path)
+    },
+
     sendInput(attachId, data): void {
       const attachment = typeof attachId === 'string' ? attachments.get(attachId) : undefined
       if (!attachment || typeof data !== 'string' || !data) return
@@ -1646,6 +1805,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     getLiveState,
 
     shutdown(): void {
+      remoteConversations.shutdown()
       for (const attachment of [...attachments.values()]) detachTerminal(attachment.attachId)
       for (const connectionId of [...watches.keys()]) stopWatch(connectionId)
       if (reachabilityTimer) clearInterval(reachabilityTimer)
@@ -1692,6 +1852,10 @@ function defaultDeviceName(): string {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 /** A stream offset off the wire, or null when the frame carries none this build can read. */

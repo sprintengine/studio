@@ -22,6 +22,22 @@ import type {
 } from '../shared/conversation-runtime'
 import { test } from 'vitest'
 
+// Every runtime a case creates is shut down before its workspace is removed.
+// A runtime left running holds its transcript streams open until the garbage
+// collector closes them, which newer Node versions report as an error.
+const liveRuntimes = new Set<ConversationRuntime>()
+class TrackedConversationRuntime extends ConversationRuntime {
+  constructor(options?: ConstructorParameters<typeof ConversationRuntime>[0]) {
+    super(options)
+    liveRuntimes.add(this)
+  }
+}
+async function shutdownRuntimes(): Promise<void> {
+  const runtimes = Array.from(liveRuntimes)
+  liveRuntimes.clear()
+  await Promise.all(runtimes.map((runtime) => runtime.shutdown().catch(() => undefined)))
+}
+
 test('conversation-runtime', async () => {
   async function main(): Promise<void> {
     await testMockSessionTurnApprovalInterruptStopAndPersistence()
@@ -32,6 +48,7 @@ test('conversation-runtime', async () => {
     await testMultiTurnHistoryAccumulates()
     await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
     await testSetPermissionAppliesThroughTheAdapterOrRefuses()
+    await testPermissionTransitionsAreSerialized()
     await testInterruptSuppressesLateAsyncProviderEvents()
     await testStopSessionSuppressesLateAsyncProviderEvents()
     await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
@@ -47,6 +64,7 @@ test('conversation-runtime', async () => {
     await testListLiveConversationRootsMapsAdapterInventory()
     await testClaudeConversationPreparesStudioMcpBeforeSession()
 
+    await shutdownRuntimes()
     console.log('conversation-runtime tests passed')
   }
 
@@ -64,7 +82,7 @@ test('conversation-runtime', async () => {
       stopSession: () => [],
     }
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -87,7 +105,7 @@ test('conversation-runtime', async () => {
       assert.equal(started.ok, true)
       assert.deepEqual(prepared, [{ workspaceRoot, workspaceId: 'ws-1', agentId: 'agent-a' }])
 
-      const blocked = new ConversationRuntime({
+      const blocked = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -102,6 +120,7 @@ test('conversation-runtime', async () => {
       })
       assert.deepEqual(refused, { ok: false, message: 'Studio MCP config failed.' })
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -218,7 +237,7 @@ test('conversation-runtime', async () => {
           return [runtimeEvent(input, 'session_closed')]
         },
       }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [crashingProvider],
@@ -245,6 +264,7 @@ test('conversation-runtime', async () => {
       if (!retried.ok) return
       assert.equal(retried.session.status, 'ready')
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -254,7 +274,7 @@ test('conversation-runtime', async () => {
     try {
       let clock = 1_000_000
       const capture = lifecycleCapture()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         now: () => clock,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -300,6 +320,7 @@ test('conversation-runtime', async () => {
       clock += 1
       assert.deepEqual(runtime.sweepIdleSessions(clock + 61_000), [sessionId])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -308,7 +329,7 @@ test('conversation-runtime', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const capture = lifecycleCapture()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createLifecycleProvider(capture)],
@@ -335,6 +356,7 @@ test('conversation-runtime', async () => {
       const listed = runtime.listSessions({})
       assert.equal(listed.ok && listed.sessions.every((session) => session.status === 'stopped'), true)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -370,7 +392,7 @@ test('conversation-runtime', async () => {
         spawnedAt: null,
       },
     )
-    const runtime = new ConversationRuntime({
+    const runtime = new TrackedConversationRuntime({
       getProviderById: () => undefined,
       secretStore: unusedSecretStore(),
       adapters: [createLifecycleProvider(capture)],
@@ -455,7 +477,7 @@ test('conversation-runtime', async () => {
         resumeSessionIds: [],
         messages: [],
       }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -517,6 +539,7 @@ test('conversation-runtime', async () => {
       assert.equal(second.ok, true)
       assert.deepEqual(capture.messages, [undefined, undefined])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -582,7 +605,7 @@ test('conversation-runtime', async () => {
         sink: ConversationSessionEventSink | null
         resolved: Array<{ requestId: string; approved: boolean }>
       } = { base: null, sink: null, resolved: [] }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createContinuationProvider(capture)],
@@ -662,6 +685,7 @@ test('conversation-runtime', async () => {
       const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
       assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -678,7 +702,7 @@ test('conversation-runtime', async () => {
         sink: ConversationSessionEventSink | null
         resolved: Array<{ requestId: string; approved: boolean }>
       } = { base: null, sink: null, resolved: [] }
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createContinuationProvider(capture)],
@@ -724,6 +748,7 @@ test('conversation-runtime', async () => {
       assert.equal(flushed.ok, true)
       assert.equal(events.filter((event) => event.type === 'user_message').length, 2)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -771,7 +796,7 @@ test('conversation-runtime', async () => {
         stopSession: (input) => [runtimeEvent(input, 'session_closed')],
       }
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -817,6 +842,7 @@ test('conversation-runtime', async () => {
         false,
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -871,7 +897,7 @@ test('conversation-runtime', async () => {
         stopSession: (input) => [runtimeEvent(input, 'session_closed')],
       }
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [adapter],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -908,11 +934,16 @@ test('conversation-runtime', async () => {
         }),
       )
       sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
-      // The continuation channel is serialized off the send path, so wait for the
-      // late child rather than assuming it landed.
-      for (let i = 0; i < 100 && !events.some((event) => event.payload?.toolCallId === 'child_2'); i += 1) {
+      // The continuation channel is serialized off the send path. Its terminal
+      // event also drains the index refresh before fixture files are removed.
+      for (
+        let i = 0;
+        i < 100 && !events.some((event) => event.type === 'turn_completed' && event.payload?.turnId === 'cont_turn_1');
+        i += 1
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
+      assert.ok(events.some((event) => event.type === 'turn_completed' && event.payload?.turnId === 'cont_turn_1'))
 
       const laneRows = events.filter((event) => event.type === 'tool_started' || event.type === 'tool_output')
       assert.deepEqual(
@@ -932,6 +963,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(persistedRows[0]?.payload?.subagentLane, true)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -979,7 +1011,7 @@ test('conversation-runtime', async () => {
         'utf-8',
       )
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [createStatefulProvider(capture)],
@@ -994,6 +1026,7 @@ test('conversation-runtime', async () => {
       assert.equal(started.ok, true)
       assert.deepEqual(capture.resumeSessionIds, ['cursor-from-disk'])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1013,7 +1046,7 @@ test('conversation-runtime', async () => {
       ]
       await writeFile(join(dir, 'agent.jsonl'), lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf-8')
 
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
         adapters: [],
@@ -1031,6 +1064,7 @@ test('conversation-runtime', async () => {
       const missing = await runtime.readTranscript({ workspaceRoot, workspaceId: 'workspace', agentId: 'nobody' })
       assert.deepEqual(missing, { ok: true, events: [] })
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1040,7 +1074,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       const gate = createDeferred<void>()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -1077,6 +1111,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(JSON.stringify(persisted).includes('late output'), false)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1086,7 +1121,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       const gate = createDeferred<void>()
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
@@ -1130,6 +1165,7 @@ test('conversation-runtime', async () => {
       )
       assert.equal(JSON.stringify(persisted).includes('late output'), false)
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1145,7 +1181,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 1000
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         getProviderById: () => provider,
@@ -1207,6 +1243,7 @@ test('conversation-runtime', async () => {
     } finally {
       server.close()
       await once(server, 'close')
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1216,7 +1253,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 100
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         getProviderById: () => undefined,
@@ -1281,6 +1318,7 @@ test('conversation-runtime', async () => {
         'session_closed',
       ])
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1288,7 +1326,7 @@ test('conversation-runtime', async () => {
   async function testStartFailuresAreExplicit(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
       })
@@ -1324,6 +1362,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Conversation model is invalid.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1331,7 +1370,7 @@ test('conversation-runtime', async () => {
   async function testProviderWithAuthRequiresConfiguredSecret(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [],
         getProviderById: () => ({
           manifest: {
@@ -1374,6 +1413,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Conversation provider secret is not configured.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1381,7 +1421,7 @@ test('conversation-runtime', async () => {
   async function testBlockedExecutableProviderTrustErrorSurfaces(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [],
         getProviderById: () => ({
           manifest: {
@@ -1422,6 +1462,7 @@ test('conversation-runtime', async () => {
         { ok: false, message: 'Unsigned executable provider adapters cannot run in production mode.' },
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1440,7 +1481,7 @@ test('conversation-runtime', async () => {
     try {
       let id = 0
       let now = 1000
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         adapters: [createCapturingProvider(captured)],
@@ -1484,6 +1525,7 @@ test('conversation-runtime', async () => {
         'the second turn carries the prior completed turn as context',
       )
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1498,7 +1540,7 @@ test('conversation-runtime', async () => {
       let id = 0
       let now = 1000
       const capturing = createCapturingProvider(captured)
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         randomId: () => `${++id}`,
         now: () => ++now,
         adapters: [
@@ -1559,6 +1601,7 @@ test('conversation-runtime', async () => {
       assert.equal(userMessages.length, 2)
       assert.equal(userMessages[0]?.payload?.text, 'describe')
     } finally {
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }
@@ -1573,7 +1616,7 @@ test('conversation-runtime', async () => {
     try {
       const captured: ConversationMessage[][] = []
       const capturing = createCapturingProvider(captured)
-      const runtime = new ConversationRuntime({
+      const runtime = new TrackedConversationRuntime({
         adapters: [
           {
             ...capturing,
@@ -1596,12 +1639,12 @@ test('conversation-runtime', async () => {
         agentId: 'a',
         providerId: 'capture-provider',
         modelId: 'capture-model',
-        permissionPreset: 'manual',
+        permissionPreset: 'none',
       })
       assert.equal(started.ok, true)
       if (!started.ok) return
       const sessionId = started.session.sessionId
-      assert.equal(started.session.permissionPreset, 'manual', 'the summary reports the preset in force')
+      assert.equal(started.session.permissionPreset, 'none', 'the summary reports the preset in force')
 
       const switched = await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
       assert.equal(switched.ok, true)
@@ -1612,7 +1655,7 @@ test('conversation-runtime', async () => {
 
       // A provider refusal is surfaced verbatim and does not move the session.
       refusal = 'Claude Code refused the permission change.'
-      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'auto' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'none' }), {
         ok: false,
         message: refusal,
       })
@@ -1620,7 +1663,7 @@ test('conversation-runtime', async () => {
       assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass')
       refusal = null
 
-      assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'manual' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'none' }), {
         ok: false,
         message: 'Conversation session is invalid.',
       })
@@ -1638,17 +1681,83 @@ test('conversation-runtime', async () => {
       if (!staticSession.ok) return
       assert.equal(staticSession.session.permissionPreset, undefined, 'no preset chosen means none reported')
       assert.deepEqual(
-        await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto' }),
+        await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'bypass' }),
         { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' },
       )
 
       const stopped = await runtime.stopSession({ sessionId })
       assert.equal(stopped.ok, true)
-      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'manual' }), {
+      assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'none' }), {
         ok: false,
         message: 'Conversation session is stopped.',
       })
     } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Preset changes reach the provider one at a time, in the order they were
+  // made, and nothing about the preset gates a send: a chat in Bypass takes a
+  // turn like any other.
+  async function testPermissionTransitionsAreSerialized(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-permission-order-'))
+    const turnGate = createDeferred<void>()
+    const permissionGate = createDeferred<void>()
+    const permissionEntered = createDeferred<void>()
+    let pausePermissions = true
+    const applied: ConversationPermissionPreset[] = []
+    const events: string[] = []
+    const runtime = new TrackedConversationRuntime({
+      adapters: [
+        {
+          ...createSlowProvider(turnGate),
+          async setPermissionPreset(input) {
+            applied.push(input.permissionPreset)
+            if (pausePermissions) {
+              permissionEntered.resolve()
+              await permissionGate.promise
+            }
+            return { ok: true }
+          },
+        },
+      ],
+      getProviderById: () => undefined,
+    })
+    runtime.onEvent((event) => events.push(event.type))
+    try {
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'slow-provider',
+        modelId: 'slow-model',
+        permissionPreset: 'none',
+      })
+      assert.ok(started.ok)
+      const sessionId = started.session.sessionId
+      const bypass = runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
+      await permissionEntered.promise
+      const none = runtime.setPermission({ sessionId, permissionPreset: 'none' })
+      assert.deepEqual(applied, ['bypass'], 'the second change waits for the first')
+      pausePermissions = false
+      permissionGate.resolve()
+      assert.ok((await bypass).ok)
+      assert.ok((await none).ok)
+      assert.deepEqual(applied, ['bypass', 'none'])
+
+      assert.ok((await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })).ok)
+      const sending = runtime.sendTurn({ sessionId, message: 'go' })
+      await waitForEvent(events, 'turn_started')
+      turnGate.resolve()
+      const sent = await sending
+      assert.ok(sent.ok, 'a send to a chat in Bypass is accepted')
+      assert.equal(sent.session.permissionPreset, 'bypass')
+    } finally {
+      permissionGate.resolve()
+      turnGate.resolve()
+      await runtime.shutdown()
+      await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
     }
   }

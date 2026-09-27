@@ -381,24 +381,6 @@ import { DEFAULT_AGENT_LAUNCH_CLI, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from 
 
 export { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET }
 
-// ONLY an absent value adopts the app default. A present-but-unrecognised value
-// is corruption, and corruption must never ESCALATE permissions — it falls to
-// the conservative floor, which the preset rename moved from `default` to `manual`. That
-// move is the point: `default` used to mean "no permission flag", which was the
-// safe answer until Claude Code started reading no-flag as auto mode. `manual`
-// is the value that still means what `default` meant.
-//
-// A recognised LEGACY spelling is not corruption and does not floor: `default`
-// -> `manual`, `auto_workspace` -> `auto`, `bypass_all` -> `bypass`. See
-// normalizeCliPermissionPreset for why `default` lands on `manual` rather than
-// on the argv-identical `none`.
-export function normalizeAgentSpawnPermissionPreset(
-  input: CliPermissionPreset | null | undefined,
-): CliPermissionPreset {
-  if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
-  return normalizeCliPermissionPreset(input)
-}
-
 // A remembered model + reasoning-effort pick. Kept only when it names a CLI and
 // carries at least one choice for it; a partial blob drops back to "no
 // override" so resolution falls through to the CLI's own default (no model and
@@ -588,15 +570,20 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
+// What "New chat in project" opens before the person has ever picked: a plain
+// Terminal, the one choice that needs no provider or CLI set up (owner ruling
+// 2026-09-26). After the first pick the launcher remembers the last one.
+const FIRST_RUN_NEW_CHAT_AGENT: NewChatAgentChoice = { kind: 'terminal' }
+
 // Persisted "New chat in project" agent choice. Anything that is not one of the
 // three spawn kinds — a malformed blob, a shape from an older build — falls
-// back to the General agent here.
+// back to the first-run choice. A remembered explicit choice still wins.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
-  if (!input || typeof input !== 'object') return { kind: 'general' }
+  if (!input || typeof input !== 'object') return { ...FIRST_RUN_NEW_CHAT_AGENT }
   const choice = input as Partial<NewChatAgentChoice>
-  if (choice.kind === 'terminal') return { kind: 'terminal' }
-  if (choice.kind === 'conversation') return { kind: 'conversation' }
-  return { kind: 'general' }
+  if (choice.kind === 'terminal' || choice.kind === 'general' || choice.kind === 'conversation')
+    return { kind: choice.kind }
+  return { ...FIRST_RUN_NEW_CHAT_AGENT }
 }
 
 // Module-contributed settings sections persist their values in a `module:<id>`
@@ -692,7 +679,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
   lastSelectedConversationModel: null,
   textGeneration: { enabled: true, engine: null },
-  lastNewChatAgent: { kind: 'general' },
+  lastNewChatAgent: { ...FIRST_RUN_NEW_CHAT_AGENT },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,
@@ -757,7 +744,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     textGeneration: normalizeTextGenerationSettings(settings?.textGeneration),
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
-    lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
@@ -1465,8 +1452,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       }),
 
     setLastAgentSpawnPermissionPreset: (preset) => {
-      // An explicit user pick, so the plain normalizer: choosing 'default'
-      // must stay 'default' and not snap back to the app-wide bypass default.
       const normalized = normalizeCliPermissionPreset(preset)
       set((state) => {
         state.appSettings.lastAgentSpawnPermissionPreset = normalized

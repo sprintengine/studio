@@ -13,8 +13,15 @@
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
 import { spawn } from 'child_process'
+import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import { asRecord } from '../../shared/records'
 import { isWslHostId } from '../../shared/execution-host'
+import { inferConversationToolKind } from '../../shared/conversation/toolKind'
+import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
+export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
   Options,
@@ -43,7 +50,7 @@ import type {
   MockAdapterPermissionInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
-} from './mock-conversation-provider'
+} from './conversation-provider-adapter'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
 // The CLI accepts these on --model regardless of account tier; they track the
@@ -68,12 +75,14 @@ export type ClaudeAgentProviderOptions = {
     sessionId: string
   }) => Record<string, string> | Promise<Record<string, string>>
   now?: () => number
+  // Where attached-skill plugins are staged; tests point it at their own folder.
+  tempDir?: string
 }
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
   disposeChildProcess(sessionId: string): boolean
-  disposeAll(): void
+  disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
 }
 
@@ -109,6 +118,13 @@ type SessionState = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
+  skillIds?: string[]
+  // The per-child plugin directory that carries the attached skills; removed
+  // with the child that loaded it.
+  skillPluginDir: string | null
+  mode?: 'default' | 'plan' | 'ask'
+  reasoningEffort?: string
+  onBeforeTool?: (name: string) => Promise<void>
   providerSessionId: string | null
   query: Query | null
   inputQueue: PushStream<SDKUserMessage> | null
@@ -119,10 +135,11 @@ type SessionState = {
   // Claude Code can hold several permission callbacks open at once (parallel
   // tool_use blocks), so pending permissions are keyed by requestId.
   pendingPermissions: Map<string, PendingPermission>
-  // Whether the live child was spawned with the bypass opt-in. Claude Code
-  // refuses `bypassPermissions` over the control channel on a child that was
-  // not, so switching to it is a respawn, not a mode change.
-  queryAllowsBypass: boolean
+  // The preset the live child was spawned with. Claude Code takes bypass only
+  // from the flag its child started with, and `none` means leaving the child
+  // on whatever its own configuration starts it on, which no control-channel
+  // mode names. So a preset change is a respawn (resumed), not a mode change.
+  spawnedPreset: ConversationPermissionPreset | null
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
@@ -135,6 +152,14 @@ type SessionState = {
   continuationSequence: number
   lastActivityAt: number
   stderrTail: string
+  // The SDK reports cost as a running total for the life of one query() call;
+  // the total already attributed to earlier turns of the live child.
+  queryCostUsd: number
+  // The child being spawned, while it is; see ensureQuery.
+  spawning: Promise<void> | null
+  // Tool calls this app refused, so their results read as declined rather
+  // than as tools that failed on their own.
+  declinedToolUseIds: Set<string>
 }
 
 // Event types that belong to a turn (carry a turnId and must be suppressed by
@@ -190,7 +215,20 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   const resolveExecutable = options.resolveExecutable ?? defaultResolveExecutable
   const buildEnv = options.buildEnv ?? defaultBuildEnv
   const now = options.now ?? Date.now
+  const tempDir = options.tempDir ?? tmpdir()
   const sessions = new Map<string, SessionState>()
+  // Staged plugin folders still being removed, so shutdown can wait for them.
+  const removals = new Set<Promise<void>>()
+  // A quit that never finished removing (a crash, a force-quit) leaves plugin
+  // folders behind; the next start clears those, then stages anything new.
+  const swept = sweepStaleSkillPlugins(tempDir).catch(() => undefined)
+
+  function removeSkillPlugin(dir: string): void {
+    const removal = rm(dir, { recursive: true, force: true })
+      .catch(() => undefined)
+      .finally(() => removals.delete(removal))
+    removals.add(removal)
+  }
 
   function deliver(state: SessionState, events: ConversationEvent[]): void {
     for (const event of events) {
@@ -281,17 +319,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort?.abort()
     state.abort = null
     state.query = null
-    state.queryAllowsBypass = false
+    state.spawnedPreset = null
     state.childPid = null
     state.spawnedAt = null
+    if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
+    state.skillPluginDir = null
     return hadChild
   }
 
-  // Whether the live child can honor the session's recorded preset. Only bypass
-  // is gated: Claude Code takes it solely from the flag it was spawned with, so
-  // a child spawned Default or Auto can never be talked into it.
+  // Whether the live child runs under the session's recorded preset.
   function childHonorsPreset(state: SessionState): boolean {
-    return state.permissionPreset !== 'bypass' || state.queryAllowsBypass
+    return state.spawnedPreset === state.permissionPreset
   }
 
   async function pump(state: SessionState, q: Query): Promise<void> {
@@ -330,13 +368,22 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
   }
 
-  async function ensureQuery(state: SessionState): Promise<void> {
-    // A preset the live child cannot honor (bypass chosen after it spawned) is
+  function ensureQuery(state: SessionState): Promise<void> {
+    // A preset the live child does not run under (changed after it spawned) is
     // reconciled here, so the turn about to start runs under the preset the
     // session actually recorded. The respawn below resumes the same provider
     // session, so the conversation continues rather than restarting.
     if (state.query && !childHonorsPreset(state)) disposeChild(state)
-    if (state.query) return
+    if (state.query) return Promise.resolve()
+    // Two callers racing past the check above would each stage a plugin folder
+    // and spawn a child, and only one of either would ever be cleaned up.
+    state.spawning ??= spawnQuery(state).finally(() => {
+      state.spawning = null
+    })
+    return state.spawning
+  }
+
+  async function spawnQuery(state: SessionState): Promise<void> {
     if (isWslHostId(state.cliRuntimes?.['claude-code']?.hostId)) {
       throw new Error('Claude conversation agents are not supported on a WSL machine yet.')
     }
@@ -347,22 +394,68 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       agentId: state.agentId,
       sessionId: state.sessionId,
     })
+    const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    await swept
+    const skillPlugin = state.skillIds?.length
+      ? await stageAttachedSkills(tempDir, state.workspaceRoot, state.skillIds)
+      : null
+    state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
-    const permissionMode = SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    const permissionMode =
+      state.mode === 'plan' || state.mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
     const queryOptions: Options = {
       cwd: state.workspaceRoot,
       pathToClaudeCodeExecutable: executablePath,
       model: state.modelId,
+      ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
       permissionMode,
-      ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+      ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      systemPrompt: { type: 'preset', preset: 'claude_code', ...(instructions ? { append: instructions } : {}) },
+      // Never the repository's own settings. `.claude/settings.json` and
+      // `settings.local.json` can carry allow rules, which would answer tool
+      // permissions before canUseTool is asked and so skip the approvals a
+      // session on the CLI's default would show here, and hooks, which run
+      // commands on this machine as soon as the session starts. Omitting the option loads every source,
+      // so the list is always explicit. What the project contributes that the
+      // agent does need arrives another way: its CLAUDE.md through the system
+      // prompt above, and attached skills as a plugin of their own.
+      settingSources: ['user'],
+      ...(skillPlugin ? { plugins: [{ type: 'local', path: skillPlugin, skipMcpDiscovery: true }] } : {}),
+      ...(state.skillIds?.length ? { skills: state.skillIds.map(attachedSkillName) } : {}),
       env,
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
-        handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal),
+        handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal, callbackOptions),
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              async (input) => {
+                if (input.hook_event_name === 'PreToolUse') {
+                  if (
+                    state.mode === 'ask' &&
+                    !['file_read', 'search', 'list', 'web'].includes(inferConversationToolKind(input.tool_name))
+                  ) {
+                    state.declinedToolUseIds.add(input.tool_use_id)
+                    return {
+                      hookSpecificOutput: {
+                        hookEventName: 'PreToolUse' as const,
+                        permissionDecision: 'deny' as const,
+                        permissionDecisionReason: 'Ask mode permits read-only tools only.',
+                      },
+                    }
+                  }
+                  await state.onBeforeTool?.(input.tool_name)
+                }
+                return {}
+              },
+            ],
+          },
+        ],
+      },
       // Spawn the child ourselves (same command/args the SDK computed) so the
       // PID is known: process-tree diagnostics attribute the headless child to
       // this session, and the SDK exposes no PID of its own.
@@ -371,7 +464,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
-    state.queryAllowsBypass = permissionMode === 'bypassPermissions'
+    state.queryCostUsd = 0
+    state.spawnedPreset = state.permissionPreset
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -382,6 +476,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     toolName: string,
     toolInput: Record<string, unknown>,
     signal?: AbortSignal,
+    permissionContext?: {
+      agentID?: string
+      toolUseID?: string
+      defaultToNo?: boolean
+      suppressAlwaysAllowRule?: boolean
+    },
   ): Promise<PermissionResult> {
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
@@ -401,6 +501,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       turnId: turn.turnId,
       requestId,
       action: toolName,
+      input: toolInput,
+      toolKind: inferConversationToolKind(toolName),
+      cwd: state.workspaceRoot,
+      ...(permissionContext?.agentID ? { originAgentId: permissionContext.agentID } : {}),
+      ...(permissionContext?.defaultToNo ? { defaultToNo: true } : {}),
+      ...(permissionContext?.suppressAlwaysAllowRule ? { suppressAlwaysAllowRule: true } : {}),
       summary: questions
         ? (questions[0]?.question ?? 'The agent has a question.')
         : plan !== null
@@ -423,6 +529,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       )
     })
     state.pendingPermissions.delete(requestId)
+    let planTransitionError: string | undefined
+    if (decision.approved && plan !== null && state.mode === 'plan') {
+      try {
+        await state.query?.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset] ?? 'default')
+        state.mode = 'default'
+      } catch (error) {
+        decision.approved = false
+        planTransitionError = error instanceof Error ? error.message : 'Could not leave plan mode.'
+      }
+    }
     turn.queue.push(
       eventFor(state, 'approval_resolved', {
         turnId: turn.turnId,
@@ -432,13 +548,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }),
     )
     if (!decision.approved) {
+      if (permissionContext?.toolUseID) state.declinedToolUseIds.add(permissionContext.toolUseID)
       return {
         behavior: 'deny',
-        message: questions
-          ? 'The user dismissed the question without answering.'
-          : plan !== null
-            ? 'The user rejected this plan. Revise it and keep planning.'
-            : 'The user denied this tool use in SprintEngine.',
+        message:
+          planTransitionError ??
+          (questions
+            ? 'The user dismissed the question without answering.'
+            : plan !== null
+              ? 'The user rejected this plan. Revise it and keep planning.'
+              : 'The user denied this tool use in SprintEngine.'),
       }
     }
     if (questions) {
@@ -451,6 +570,23 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   const adapter: ClaudeAgentProviderAdapter = {
     id: CLAUDE_AGENT_PROVIDER_ID,
+    displayName: 'Claude Code',
+    capabilities: {
+      tools: true,
+      approvals: true,
+      questions: true,
+      planMode: true,
+      images: true,
+      skills: 'native',
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      interrupt: true,
+      resume: true,
+      subagents: true,
+      cost: true,
+      contextMeter: false,
+      liveModelSwitch: false,
+      atMentions: true,
+    },
     sessions: 'stateful',
     listModels: () => [...CLAUDE_AGENT_MODELS],
 
@@ -463,8 +599,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         modelId: input.modelId,
         workspaceRoot: input.workspaceRoot ?? '',
         cliRuntimes: input.cliRuntimes,
-        permissionPreset: input.permissionPreset ?? 'manual',
+        permissionPreset: input.permissionPreset ?? 'none',
         allowedTools: input.allowedTools,
+        skillPluginDir: null,
+        onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
         query: null,
         inputQueue: null,
@@ -473,12 +611,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         spawnedAt: null,
         turn: null,
         pendingPermissions: new Map(),
-        queryAllowsBypass: false,
+        spawnedPreset: null,
         pendingSessionEvents: [],
         onSessionEvent: input.onSessionEvent ?? null,
         continuationSequence: 0,
         lastActivityAt: now(),
         stderrTail: '',
+        queryCostUsd: 0,
+        spawning: null,
+        declinedToolUseIds: new Set(),
       }
       sessions.set(input.sessionId, state)
       return [
@@ -498,6 +639,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       yield eventFor(state, 'turn_started', { turnId: input.turnId })
       try {
+        if (state.mode !== (input.mode ?? 'default') || state.reasoningEffort !== input.reasoningEffort) {
+          disposeChild(state)
+          state.mode = input.mode ?? 'default'
+          state.reasoningEffort = input.reasoningEffort
+        }
+        const skillIds = [...new Set(input.skills ?? [])].sort()
+        if (JSON.stringify(skillIds) !== JSON.stringify(state.skillIds ?? [])) {
+          disposeChild(state)
+          state.skillIds = skillIds
+        }
         await ensureQuery(state)
       } catch (error) {
         yield eventFor(state, 'turn_failed', {
@@ -535,7 +686,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       state.inputQueue?.push({
         type: 'user',
-        message: { role: 'user', content: buildUserMessageContent(input.message, input.attachments) },
+        message: {
+          role: 'user',
+          content: buildUserMessageContent(
+            input.skills?.length
+              ? `Use the attached skills: ${input.skills.map(attachedSkillName).join(', ')}.\n\n${input.message}`
+              : input.message,
+            input.attachments,
+          ),
+        },
         parent_tool_use_id: null,
         session_id: state.providerSessionId ?? '',
       })
@@ -564,59 +723,31 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return []
     },
 
-    // Live permission switch. With a running child the new mode goes down the
-    // SDK control channel, so the next tool call honors it; the recorded preset
-    // also carries into any later respawn (idle disposal keeps the session).
-    // With no child yet the recorded preset is the whole job — ensureQuery reads
-    // it at spawn, including the bypass opt-in flag.
-    //
-    // Bypass is the one mode the control channel cannot deliver: Claude Code
-    // takes it from the flag its child was spawned with. So a child spawned
-    // Default or Auto is replaced rather than asked — the preset is recorded and
-    // the child disposed, and the next turn respawns with `resume`, keeping the
-    // conversation. Mid-turn the disposal waits (it would drop the reply the
-    // user is reading); ensureQuery makes the swap at the next turn instead.
+    // Live permission switch. The preset is recorded, and a running child is
+    // replaced rather than asked: the next turn respawns it with `resume`, so
+    // the conversation continues under the new preset (childHonorsPreset).
+    // Mid-turn the disposal waits — it would drop the reply the user is
+    // reading — and ensureQuery makes the swap at the next turn instead.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
-      if (state.query && input.permissionPreset === 'bypass' && !state.queryAllowsBypass) {
-        state.permissionPreset = input.permissionPreset
-        state.lastActivityAt = now()
-        if (state.turn) {
-          return {
-            ok: true,
-            // Not "the current permissions": the chip has already moved to
-            // Bypass by the time this is read, so "current" would name the mode
-            // that is NOT in force for the reply on screen. The permissions the
-            // reply started under is the one phrase that stays true either way.
-            notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
-          }
-        }
-        disposeChild(state)
-        return { ok: true }
-      }
-      if (state.query) {
-        const sdkMode = SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset]
-        // `none` has no SDK mode to set — it means "leave the harness on its own
-        // default" — so there is nothing to ask Claude Code to change.
-        if (sdkMode === undefined) return { ok: true }
-        try {
-          await state.query.setPermissionMode(sdkMode)
-        } catch (error) {
-          // Claude Code owns the decision (it can refuse a mode the session did
-          // not opt into at spawn). Surface its refusal instead of recording a
-          // preset it is not honoring.
-          return {
-            ok: false,
-            message:
-              error instanceof Error && error.message.trim()
-                ? `Claude Code refused the permission change: ${error.message}`
-                : 'Claude Code refused the permission change.',
-          }
-        }
-      }
       state.permissionPreset = input.permissionPreset
       state.lastActivityAt = now()
+      if (state.mode === 'ask' || state.mode === 'plan')
+        return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
+      if (!state.query || childHonorsPreset(state)) return { ok: true }
+      if (state.turn) {
+        return {
+          ok: true,
+          // Not "the current permissions": the chip has already moved by the
+          // time this is read, so "current" would name the preset that is NOT
+          // in force for the reply on screen. The permissions the reply started
+          // under is the one phrase that stays true either way.
+          notice:
+            'The new permissions start with your next message — this reply finishes under the permissions it started with.',
+        }
+      }
+      disposeChild(state)
       return { ok: true }
     },
 
@@ -661,26 +792,115 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return disposeChild(state)
     },
 
-    disposeAll(): void {
+    async disposeAll(): Promise<void> {
       for (const state of sessions.values()) disposeChild(state)
+      await Promise.all(removals)
     },
   }
 
   return adapter
 }
 
+// Attached skills reach the child as one local plugin, because the project's
+// own skill directory is only read together with the project's settings. The
+// resolver has already installed each one under `.claude/skills/<id>`; they are
+// copied so the plugin holds nothing the workspace could later swap.
+const ATTACHED_SKILLS_PLUGIN = 'attached-skills'
+// A plugin-qualified id names a skill of a plugin the user installed, which
+// the user setting source still loads; only workspace skills are staged.
+const attachedSkillName = (id: string) => (id.includes(':') ? id : `${ATTACHED_SKILLS_PLUGIN}:${id}`)
+
+// Staged folders are named for the process that made them, so a sweep can
+// tell one a running app still uses from one a dead process left behind.
+const SKILL_PLUGIN_PREFIX = 'sprintengine-claude-skills-'
+
+async function stageAttachedSkills(tempDir: string, workspaceRoot: string, skillIds: string[]): Promise<string | null> {
+  skillIds = skillIds.filter((id) => !id.includes(':'))
+  if (!skillIds.length) return null
+  const dir = await mkdtemp(join(tempDir, `${SKILL_PLUGIN_PREFIX}${process.pid}-`))
+  try {
+    await mkdir(join(dir, '.claude-plugin'))
+    await writeFile(
+      join(dir, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: ATTACHED_SKILLS_PLUGIN, description: 'Skills attached to this conversation.' }),
+    )
+    for (const id of skillIds) {
+      if (!/^[\w.-]+$/.test(id) || id === '.' || id === '..') throw new Error(`Attached skill ${id} is invalid.`)
+      const source = await realpath(join(workspaceRoot, '.claude', 'skills', id))
+      await cp(source, join(dir, 'skills', id), { recursive: true })
+    }
+    return dir
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+/**
+ * Remove plugin folders that no running process owns: named for a process
+ * that has exited, or from before folders were named for one and older than
+ * a day. A folder of this process, or of another app still running, stays.
+ * Only real directories this user owns, created before this process started,
+ * are ever touched.
+ */
+export async function sweepStaleSkillPlugins(tempDir: string): Promise<void> {
+  const startedAt = Date.now() - process.uptime() * 1000
+  const uid = process.getuid?.()
+  for (const name of await readdir(tempDir)) {
+    if (!name.startsWith(SKILL_PLUGIN_PREFIX)) continue
+    const path = join(tempDir, name)
+    const info = await lstat(path).catch(() => null)
+    if (!info?.isDirectory() || info.isSymbolicLink() || info.mtimeMs >= startedAt) continue
+    if (uid !== undefined && info.uid !== uid) continue
+    const owner = /^(\d+)-/.exec(name.slice(SKILL_PLUGIN_PREFIX.length))?.[1]
+    if (owner ? isRunning(Number(owner)) : Date.now() - info.mtimeMs < 24 * 60 * 60 * 1000) continue
+    await rm(path, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+function isRunning(pid: number): boolean {
+  if (pid === process.pid) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: it exists, it just is not ours to signal.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+// The project instructions Claude Code would read from a trusted checkout. The
+// project setting source is off (see ensureQuery), so they are read here and
+// appended to the system prompt: instructions only, never settings.
+const INSTRUCTION_FILES = ['CLAUDE.md', join('.claude', 'CLAUDE.md')]
+const INSTRUCTION_BYTES = 64 * 1024
+
+async function readWorkspaceInstructions(workspaceRoot: string): Promise<string> {
+  const sections: string[] = []
+  for (const name of INSTRUCTION_FILES) {
+    try {
+      const file = await openConfinedExistingFile(workspaceRoot, name)
+      try {
+        if ((await file.stat()).size > INSTRUCTION_BYTES) continue
+        const text = (await readBoundedConversationFile(file, INSTRUCTION_BYTES)).toString('utf8').trim()
+        if (text) sections.push(`Contents of ${join(workspaceRoot, name)} (project instructions):\n\n${text}`)
+      } finally {
+        await file.close()
+      }
+    } catch {
+      // Absent, a symlink, or unreadable: the session runs without it.
+    }
+  }
+  return sections.join('\n\n')
+}
+
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
-// plugin manifest's permissionPresets flags (`--permission-mode default|auto|
-// bypassPermissions`). `none` maps to undefined on purpose: it means "pass no
-// permission flag and let the harness's own default win", which for the SDK is
-// leaving permissionMode unset rather than pinning it to 'default'.
-const SDK_PERMISSION_MODE_BY_PRESET: Record<
-  ConversationPermissionPreset,
-  'default' | 'auto' | 'bypassPermissions' | undefined
-> = {
+// plugin manifest's bypass flag (`--permission-mode bypassPermissions`). `none`
+// maps to undefined on purpose: it means "pass no permission flag and let the
+// harness's own default win", which for the SDK is leaving permissionMode unset
+// rather than pinning it to 'default'.
+const SDK_PERMISSION_MODE_BY_PRESET: Record<ConversationPermissionPreset, 'bypassPermissions' | undefined> = {
   none: undefined,
-  manual: 'default',
-  auto: 'auto',
   bypass: 'bypassPermissions',
 }
 
@@ -861,6 +1081,8 @@ export function mapSdkMessage(
     modelId: string
     providerSessionId: string | null
     turn: { turnId: string } | null
+    queryCostUsd?: number
+    declinedToolUseIds?: Set<string>
   },
   message: Record<string, unknown>,
 ): ConversationEvent[] {
@@ -921,7 +1143,17 @@ export function mapSdkMessage(
           turnId,
           toolCallId: typeof block.id === 'string' ? block.id : undefined,
           tool: block.name,
-          summary: summarizeToolInput(block.name, toolInput),
+          toolUseId: typeof block.id === 'string' ? block.id : undefined,
+          name: block.name,
+          kind: inferConversationToolKind(block.name),
+          input: JSON.parse(
+            JSON.stringify({
+              ...toolInput,
+              ...(typeof toolInput.file_path === 'string' ? { path: toolInput.file_path } : {}),
+              ...(typeof toolInput.old_string === 'string' ? { oldText: toolInput.old_string } : {}),
+              ...(typeof toolInput.new_string === 'string' ? { newText: toolInput.new_string } : {}),
+            }),
+          ),
           ...computeEditDiffCounts(block.name, toolInput),
           ...(parentToolUseId ? { parentToolUseId } : {}),
           ...subagentLaneFields(block.name, toolInput),
@@ -937,10 +1169,27 @@ export function mapSdkMessage(
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_result') continue
+        const binary = Array.isArray(block.content)
+          ? block.content.map(asRecord).find((entry) => entry?.type === 'image' || entry?.type === 'document')
+          : undefined
+        const source = asRecord(binary?.source)
+        const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined
+        const output = extractResultText(block.content)
+        const declined = toolUseId !== undefined && state.declinedToolUseIds?.delete(toolUseId) === true
+        const command = commandOutcome(message.tool_use_result, block.is_error === true, output)
         const payload: ConversationToolOutputPayload = {
           turnId,
-          toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-          output: truncate(extractResultText(block.content), 4000),
+          toolCallId: toolUseId,
+          toolUseId,
+          output,
+          status: declined ? 'declined' : command.stopped ? 'stopped' : block.is_error === true ? 'error' : 'ok',
+          ...(command.exitCode !== undefined && !declined ? { exitCode: command.exitCode } : {}),
+          ...(typeof source?.media_type === 'string'
+            ? {
+                mime: source.media_type,
+                totalBytes: typeof source.data === 'string' ? Buffer.byteLength(source.data, 'base64') : 0,
+              }
+            : {}),
           isError: block.is_error === true,
           ...(parentToolUseId ? { parentToolUseId } : {}),
         }
@@ -965,6 +1214,20 @@ export function mapSdkMessage(
           }),
         )
       }
+      // A running total for the live query(); each turn reports what it added.
+      // A lower, non-zero total means the SDK started counting again (/clear).
+      // A zero total below the last one is a result that carries no cost at
+      // all (a crash): taking it as a restart would make the next turn report
+      // the whole session again, so the total stays until a new child starts.
+      let costUsd: number | undefined
+      if (typeof message.total_cost_usd === 'number' && Number.isFinite(message.total_cost_usd)) {
+        const seen = state.queryCostUsd ?? 0
+        const total = message.total_cost_usd
+        if (total >= seen || total > 0) {
+          costUsd = total >= seen ? total - seen : total
+          state.queryCostUsd = total
+        }
+      }
       const isError = message.is_error === true || message.subtype !== 'success'
       if (isError) {
         const errors = Array.isArray(message.errors) ? message.errors.filter((entry) => typeof entry === 'string') : []
@@ -977,7 +1240,14 @@ export function mapSdkMessage(
           }),
         )
       } else {
-        events.push(eventFor(state, 'turn_completed', { turnId }))
+        events.push(
+          eventFor(state, 'turn_completed', {
+            turnId,
+            ...(costUsd !== undefined ? { costUsd } : {}),
+            ...(typeof message.duration_ms === 'number' ? { durationMs: message.duration_ms } : {}),
+            ...(typeof message.num_turns === 'number' ? { numTurns: message.num_turns } : {}),
+          }),
+        )
       }
       break
     }
@@ -985,6 +1255,22 @@ export function mapSdkMessage(
       break
   }
   return events
+}
+
+// What a shell command's result says about how it ended. The structured
+// result of the Bash tool carries `interrupted` but no exit status; a command
+// that exited non-zero is reported as an error whose text starts with it.
+function commandOutcome(
+  structured: unknown,
+  isError: boolean,
+  output: string,
+): { stopped: boolean; exitCode?: number } {
+  const result = asRecord(structured)
+  const isCommand = typeof result?.interrupted === 'boolean' && typeof result.stdout === 'string'
+  const stopped = result?.interrupted === true
+  const reported = isError ? /^Exit code (-?\d+)\b/.exec(output) : null
+  if (reported) return { stopped, exitCode: Number(reported[1]) }
+  return isCommand && !isError && !stopped ? { stopped, exitCode: 0 } : { stopped }
 }
 
 // The SDK stamps every message produced inside a spawned agent with the id of
@@ -1069,20 +1355,6 @@ function computeEditDiffCounts(
 
 function countLines(value: unknown): number {
   return typeof value === 'string' && value.length > 0 ? value.split('\n').length : 0
-}
-
-export function summarizeToolInput(tool: string, input: Record<string, unknown>): string {
-  for (const key of ['command', 'file_path', 'path', 'url', 'pattern', 'query', 'description', 'prompt']) {
-    const value = input[key]
-    if (typeof value === 'string' && value.trim()) return `${tool}: ${truncate(value.trim(), 200)}`
-  }
-  let json = ''
-  try {
-    json = JSON.stringify(input) ?? ''
-  } catch {
-    json = ''
-  }
-  return json && json !== '{}' ? `${tool}: ${truncate(json, 200)}` : tool
 }
 
 function extractResultText(content: unknown): string {

@@ -275,7 +275,7 @@ function launchInWsl(cwd: string, sessionId: string, target: WslTarget): ReturnT
     'claude-code',
     'hello',
     { 'claude-code': { command: 'claude', hostId: target.distro ? `wsl:${target.distro}` : undefined } },
-    'manual',
+    'none',
     undefined,
     undefined,
     undefined,

@@ -31,6 +31,11 @@ type MarkdownRenderOptions = {
   lineChanges?: GitLineChange[]
   density?: MarkdownDensity
   links?: MarkdownLinkResolver
+  codeBlock?: React.ComponentType<{ code: string; language?: string; filename?: string; streaming?: boolean }>
+  streaming?: boolean
+  bare?: boolean
+  renderText?: (text: string, source: 'text' | 'inlineCode') => React.ReactNode
+  renderLink?: (href: string, label: React.ReactNode) => React.ReactNode | null
 }
 
 type MarkdownNode = Element | undefined
@@ -161,9 +166,41 @@ function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | un
   return kind ? `markdown-change-block markdown-change-${kind}` : null
 }
 
-export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
+const StreamingContext = React.createContext(false)
+
+// A link's label is already one control. Turning a path in it into a file chip
+// would nest a second button inside the first — two focus targets, and a click
+// that opens both — so text under a link renders as plain text and code.
+const LinkLabelContext = React.createContext(false)
+
+function StreamingCode({
+  component: Code,
+  ...props
+}: {
+  component: NonNullable<MarkdownRenderOptions['codeBlock']>
+  code: string
+  language?: string
+  filename?: string
+}): React.ReactNode {
+  return <Code {...props} streaming={React.useContext(StreamingContext)} />
+}
+
+function markdownComponents(options: MarkdownRenderOptions): Components {
   const { lineChanges, links } = options
   const scale = MARKDOWN_SCALE[options.density ?? 'document']
+  const Prose = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+    const inLinkLabel = React.useContext(LinkLabelContext)
+    const { renderText } = options
+    if (!renderText || inLinkLabel) return children
+    return React.Children.map(children, (child) => (typeof child === 'string' ? renderText(child, 'text') : child))
+  }
+  const prose = (children: React.ReactNode) => <Prose>{children}</Prose>
+  const InlineCode = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+    const inLinkLabel = React.useContext(LinkLabelContext)
+    return options.renderText && typeof children === 'string' && !inLinkLabel
+      ? options.renderText(children, 'inlineCode')
+      : children
+  }
 
   const components: Components = {
     h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
@@ -185,9 +222,12 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>{children}</h6>
     ),
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
-      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{children}</p>
+      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{prose(children)}</p>
     ),
-    a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
+    a: ({ children: label, href, className }: MarkdownComponentProps<'a'>) => {
+      const children = <LinkLabelContext.Provider value>{label}</LinkLabelContext.Provider>
+      const custom = href ? options.renderLink?.(href, children) : null
+      if (custom) return custom
       const target = links && typeof href === 'string' ? links.resolve(href) : null
 
       if (target?.kind === 'file') {
@@ -239,17 +279,39 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       )
     },
     strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
-      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>{children}</strong>
+      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>
+        {prose(children)}
+      </strong>
     ),
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
-      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{children}</em>
+      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{prose(children)}</em>
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
-      <code className={joinClasses(className, scale.code)}>{children}</code>
+      <code className={joinClasses(className, scale.code)}>
+        <InlineCode>{children}</InlineCode>
+      </code>
     ),
-    pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => (
-      <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
-    ),
+    pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => {
+      const Code = options.codeBlock
+      const codeNode = node?.children.find((child) => child.type === 'element' && child.tagName === 'code')
+      if (Code && codeNode?.type === 'element') {
+        const text = codeNode.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
+        const classes = codeNode.properties.className
+        const languageClass = Array.isArray(classes)
+          ? classes.find((value) => String(value).startsWith('language-'))
+          : undefined
+        const meta = (codeNode.data as { meta?: string } | undefined)?.meta
+        return (
+          <StreamingCode
+            component={Code}
+            code={text.replace(/\n$/, '')}
+            language={languageClass ? String(languageClass).slice(9) : undefined}
+            filename={meta?.match(/title="([^"]+)"/)?.[1]}
+          />
+        )
+      }
+      return <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
+    },
     blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
       <blockquote className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}>
         {children}
@@ -272,7 +334,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
     li: ({ node, children, className, value }: MarkdownComponentProps<'li'>) => (
       <li value={value} className={joinClasses(className, changedBlockClass(node, lineChanges))}>
-        {children}
+        {prose(children)}
       </li>
     ),
     // A GFM task-list marker: the state comes from the document, so it is the
@@ -317,18 +379,44 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
   }
 
+  return components
+}
+
+function MarkdownRenderer({
+  markdown,
+  options,
+}: {
+  markdown: string
+  options: MarkdownRenderOptions
+}): React.ReactNode {
+  const { lineChanges, links, density, renderText, renderLink, codeBlock } = options
+  // Component types must outlive a streamed source update: recreating them
+  // remounts code blocks, discards their wrap state, and destroys text selection.
+  // Streaming state travels through context without changing those types.
+  const components = React.useMemo(
+    () => markdownComponents({ lineChanges, links, density, renderText, renderLink, codeBlock }),
+    [lineChanges, links, density, renderText, renderLink, codeBlock],
+  )
+
   // A resolver's own hrefs survive the protocol guard so the `a` component can
   // see them; everything else still has to be http, https or mailto to keep
   // its href at all.
-  const urlTransform: UrlTransform = links
-    ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
-    : safeMarkdownUrlTransform
+  const urlTransform: UrlTransform = options.renderLink
+    ? (url) => url
+    : links
+      ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
+      : safeMarkdownUrlTransform
 
-  return (
-    <div className="markdown-rendered">
+  const content = (
+    <StreamingContext.Provider value={options.streaming ?? false}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
         {markdown}
       </ReactMarkdown>
-    </div>
+    </StreamingContext.Provider>
   )
+  return options.bare ? content : <div className="markdown-rendered">{content}</div>
+}
+
+export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
+  return <MarkdownRenderer markdown={markdown} options={options} />
 }

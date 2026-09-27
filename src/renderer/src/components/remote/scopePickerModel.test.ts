@@ -47,18 +47,22 @@ test('scopePickerModel', async () => {
     }
   })
 
-  check('the terminal rows say what they are about', () => {
-    const observe = SCOPE_ROWS.find((row) => row.scope === 'terminal:observe')
-    const control = SCOPE_ROWS.find((row) => row.scope === 'terminal:control')
-    // "Terminals — control" was the old wording, and it read as being about
-    // shells; the scope also reveals every cross-machine conversation.
-    assert.equal(observe?.title, 'Watch chats & terminals')
-    assert.equal(control?.title, 'Drive chats & terminals')
-    assert.match(control?.description ?? '', /Arbitrary shell on this machine/u)
+  check('each row names only what its scope grants', () => {
+    const row = (scope: TailnetScope) => SCOPE_ROWS.find((candidate) => candidate.scope === scope)!
+    // Chats belong to the conversation scopes alone: a terminal or workspace
+    // row that mentioned them would read as granting `conversation:read`.
+    for (const scope of TAILNET_SCOPES.filter((candidate) => !candidate.startsWith('conversation:')))
+      assert.doesNotMatch(`${row(scope).title} ${row(scope).description}`, /chat|conversation/iu, scope)
+    assert.equal(row('conversation:read').title, 'View conversations')
+    assert.match(row('conversation:read').description, /chat transcripts/u)
+    assert.equal(row('conversation:operate').title, 'Operate conversations')
+    assert.equal(row('terminal:observe').title, 'Watch terminals')
+    assert.equal(row('terminal:control').title, 'Drive terminals')
+    assert.match(row('terminal:control').description, /Arbitrary shell on this machine/u)
   })
 
   check('read only is every :read plus terminal:observe', () => {
-    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'terminal:observe'])
+    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'conversation:read', 'terminal:observe'])
   })
 
   check('standard is every scope, terminal:control included', () => {
@@ -71,7 +75,7 @@ test('scopePickerModel', async () => {
   check('presetFor names a set, whatever order it arrived in', () => {
     assert.equal(presetFor(scopesForPreset('standard')), 'standard')
     assert.equal(presetFor(scopesForPreset('read-only')), 'read-only')
-    const shuffled: TailnetScope[] = ['terminal:observe', 'backlog:read', 'workspace:read']
+    const shuffled: TailnetScope[] = ['terminal:observe', 'conversation:read', 'backlog:read', 'workspace:read']
     assert.equal(presetFor(shuffled), 'read-only')
   })
 
@@ -91,16 +95,23 @@ test('scopePickerModel', async () => {
   })
 
   check('missingScopes is the complement, in vocabulary order', () => {
-    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), ['workspace:operate', 'backlog:operate', 'terminal:control'])
+    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), [
+      'workspace:operate',
+      'backlog:operate',
+      'conversation:operate',
+      'terminal:control',
+    ])
     assert.deepEqual(missingScopes(STANDARD_SCOPES), [])
   })
 
-  check('the terminal note appears when EITHER terminal scope is missing', () => {
+  check('the terminal note says what the missing terminal scope costs', () => {
     assert.equal(terminalGapNote(STANDARD_SCOPES), null)
-    const note = "It can't see chats or terminals here."
-    assert.equal(terminalGapNote(READ_ONLY_SCOPES), note)
-    assert.equal(terminalGapNote(missingScopes(['terminal:observe'])), note)
-    assert.equal(terminalGapNote([]), note)
+    // Control implies watching, so it alone leaves nothing out.
+    assert.equal(terminalGapNote(['terminal:control']), null)
+    assert.equal(terminalGapNote(READ_ONLY_SCOPES), 'It can watch terminals here but not type into them.')
+    const blind = "It can't see terminals or terminal agents here."
+    assert.equal(terminalGapNote(missingScopes(['terminal:observe', 'terminal:control'])), blind)
+    assert.equal(terminalGapNote([]), blind)
   })
 
   if (failures > 0) {

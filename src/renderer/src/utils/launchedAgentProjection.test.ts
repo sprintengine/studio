@@ -27,7 +27,7 @@ test('launchedAgentProjection', async () => {
       agentId: 'agent-claude-code-abc123',
       name: 'Scout',
       cli: 'claude-code',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'none',
       ...overrides,
     }
   }
@@ -71,7 +71,7 @@ test('launchedAgentProjection', async () => {
     assert.equal(projected[0]!.agentId, 'agent-claude-code-abc123')
     assert.equal(projected[0]!.agent.name, 'Scout')
     assert.equal(projected[0]!.agent.cli, 'claude-code')
-    assert.equal(projected[0]!.agent.cliPermissionPreset, 'auto')
+    assert.equal(projected[0]!.agent.cliPermissionPreset, 'none')
   })
 
   run('the projected record attaches instead of launching a second process', () => {
@@ -224,7 +224,7 @@ function launchedSession(overrides: Partial<TerminalSessionSnapshot> = {}): Term
       agentId: 'agent-claude-code-4f2a1c',
       name: 'Scout',
       cli: 'claude-code',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'none',
     },
     visible: false,
     suspended: false,
@@ -336,7 +336,7 @@ test('only live launched sessions whose record the store holds are revealed', ()
         // A record the store does not hold yet is the projection's to create.
         launchedSession({
           sessionId: 'new',
-          agentRecord: { agentId: 'agent-new', name: 'New', cli: 'claude-code', cliPermissionPreset: 'auto' },
+          agentRecord: { agentId: 'agent-new', name: 'New', cli: 'claude-code', cliPermissionPreset: 'none' },
         }),
         launchedSession({ sessionId: 'elsewhere', workspaceId: 'ws-unknown' }),
       ],

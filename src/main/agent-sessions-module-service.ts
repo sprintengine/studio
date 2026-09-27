@@ -50,6 +50,7 @@
  * (a module still cannot reach another's agents) but forgets across a restart.
  */
 import { isAbsolute } from 'path'
+import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 
 import type { AgentSessionExitEvent } from '../shared/agent-runtime'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../shared/agent-launch'
@@ -284,6 +285,9 @@ export function createAgentSessionsModuleRegistry(deps: AgentSessionsModuleDeps)
       await deps.ensureSkillInstalled(cwd, skillId).catch(() => {})
     }
 
+    // A module built against an older SDK can still send a retired preset; it
+    // keeps the nearest meaning it has rather than failing the spawn.
+    const permissionPreset = parseCliPermissionPreset(request.permissionPreset)
     const launched = await deps.launchAgent({
       workspaceId,
       cwd,
@@ -293,7 +297,7 @@ export function createAgentSessionsModuleRegistry(deps: AgentSessionsModuleDeps)
       ...(request.cli?.trim() ? { cli: request.cli.trim() } : {}),
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
       ...(request.label?.trim() ? { name: request.label.trim() } : {}),
-      ...(request.permissionPreset ? { permissionPreset: request.permissionPreset } : {}),
+      ...(permissionPreset ? { permissionPreset } : {}),
       ...(skillId ? { spawnSkillId: skillId } : {}),
     })
     if (!launched.ok) {

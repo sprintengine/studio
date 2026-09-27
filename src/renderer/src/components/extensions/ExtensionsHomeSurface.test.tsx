@@ -564,12 +564,12 @@ test('ExtensionsHomeSurface', async () => {
           ...state.appSettings,
           lastSelectedCli: 'claude-code',
           cliRuntimes: { 'claude-code': { command: 'claude', models: [MODEL] } },
-          lastAgentSpawnPermissionPreset: 'manual' as const,
+          lastAgentSpawnPermissionPreset: 'none' as const,
         },
       }))
     })
     __resetCliPermissionPresetsForTest()
-    setCliPermissionPreset('claude-code', 'auto')
+    setCliPermissionPreset('claude-code', 'bypass')
 
     // With no host registered (no WorkspaceManager mounted), opening the picker
     // and choosing from it is a no-op that must not throw: the same guard every
@@ -643,7 +643,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 1, 'choosing a row runs the card exactly once')
       assert.deepEqual(
         ran[0]?.launch,
-        { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'bypass' },
         'and it runs on THAT row — its cli, its model, and the preset stored for its CLI rather than the app-wide default',
       )
       assert.equal(ran[0]?.slug, 'big-task', 'on the card whose Go was pressed')
@@ -686,7 +686,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(cardButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
 
       // The preset belongs to the CLI, not the model: the CLI's own default-model
-      // row launches on the same Auto. A CLI nobody has set falls back to the
+      // row launches on the same Bypass. A CLI nobody has set falls back to the
       // APP-WIDE default in Settings, not to something invented here, so with
       // the store emptied that row launches on `lastAgentSpawnPermissionPreset`.
       act(() => {
@@ -698,7 +698,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 2)
       assert.deepEqual(
         ran[1]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'bypass' },
         'every model of the CLI launches on the preset stored for it',
       )
       settlers.pop()?.()
@@ -717,11 +717,11 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 3)
       assert.deepEqual(
         ran[2]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'none' },
         'a CLI nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
       )
       // Put the stored choice back: the checks below still launch Claude Code on it.
-      setCliPermissionPreset('claude-code', 'auto')
+      setCliPermissionPreset('claude-code', 'bypass')
       settlers.pop()?.()
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
@@ -894,7 +894,7 @@ test('ExtensionsHomeSurface', async () => {
       })
       assert.deepEqual(
         ran.at(-1)?.launch,
-        { cli: 'claude-code', model: MODEL, reasoning: 'high', permissionPreset: 'auto' },
+        { cli: 'claude-code', model: MODEL, reasoning: 'high', permissionPreset: 'bypass' },
         'the level chosen here is the level the run launches at, on the row that was clicked',
       )
       // The whole point of holding the choice locally: a card is how to run ONE
@@ -1065,7 +1065,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran[0]?.slug, 'opens-a-door')
       assert.deepEqual(
         ran[0]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'bypass' },
         'on the app’s own defaults and the preset stored for that CLI — the wire shape is unchanged, so nothing downstream learns a second kind of press',
       )
 

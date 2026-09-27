@@ -250,7 +250,7 @@ test('automations-ipc', async () => {
                 // still accepts so a definition saved before the rename validates.
                 permissionPreset: {
                   type: 'string',
-                  enum: ['none', 'manual', 'auto', 'bypass', 'default', 'auto_workspace', 'bypass_all'],
+                  enum: ['none', 'bypass', 'manual', 'auto', 'default', 'auto_workspace', 'bypass_all'],
                 },
                 name: { type: 'string', minLength: 1 },
                 prompt: { type: 'string', minLength: 1 },

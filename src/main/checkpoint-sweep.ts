@@ -1,4 +1,4 @@
-import { readFile, readdir, rm } from 'fs/promises'
+import { readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 import { runGitCommand } from './git-utils'
@@ -26,7 +26,12 @@ import { runGitCommand } from './git-utils'
  * bookkeeping and is self-healing in the right direction: if a repo's refs
  * cannot be deleted this launch, the index survives and the sweep runs again
  * next launch. A machine that never ran the checkpoint builds has no index and
- * does no work at all.
+ * does no work at all. Completion is recorded per repo: a repo that finished
+ * leaves the index, so a retry visits only the repos that did not.
+ *
+ * Conversation checkpoints write under the same prefix, so a ref is deleted
+ * only when it has the exact shape the retired capture wrote. A retry would
+ * otherwise take the checkpoints of live conversations with it.
  *
  * That self-healing is only real if the index removal is GATED on every repo
  * having actually finished — a review found it removing the index
@@ -38,6 +43,12 @@ import { runGitCommand } from './git-utils'
 const INDEX_FILE = 'checkpoint-index.json'
 const CORRUPT_SUFFIX = '.corrupt'
 const REFS_PREFIX = 'refs/sprintengine/checkpoints/'
+/**
+ * `<prefix><base64url workspace id>/turn/<n>`, the one shape the retired capture
+ * wrote. Conversation checkpoints are `<prefix><hex identity>/<turn>-<point>`:
+ * two segments and no `turn`, so they never match.
+ */
+const RETIRED_REF = /^refs\/sprintengine\/checkpoints\/[A-Za-z0-9_-]+\/turn\/(?:0|[1-9][0-9]*)$/
 /** Temp index files a capture killed mid-flight could not remove. */
 const TEMP_INDEX_PREFIX = 'sprintengine-checkpoint-index-'
 
@@ -81,8 +92,34 @@ export function checkoutsFromIndex(raw: string): string[] {
 }
 
 /**
- * Delete every checkpoint ref in one repo, and any temp index file a killed
- * capture left in its git dir. Returns how many refs went.
+ * The index without the turns of repos that finished, or null when none is left.
+ * Unfinished repos keep their entries exactly as they were.
+ */
+export function indexWithout(raw: string, finished: ReadonlySet<string>): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  const workspaces = (parsed as { workspaces?: unknown } | null)?.workspaces
+  if (typeof workspaces !== 'object' || workspaces === null) return null
+  const kept: Record<string, { turns: unknown[] }> = {}
+  for (const [id, timeline] of Object.entries(workspaces as Record<string, unknown>)) {
+    const turns = (timeline as { turns?: unknown } | null)?.turns
+    if (!Array.isArray(turns)) continue
+    const unfinished = turns.filter((turn) => {
+      const cwd = (turn as { cwd?: unknown } | null)?.cwd
+      return typeof cwd === 'string' && cwd.length > 0 && !finished.has(cwd)
+    })
+    if (unfinished.length) kept[id] = { ...(timeline as object), turns: unfinished }
+  }
+  return Object.keys(kept).length ? JSON.stringify({ workspaces: kept }) : null
+}
+
+/**
+ * Delete every retired checkpoint ref in one repo, and any temp index file a
+ * killed capture left in its git dir. Returns how many refs went.
  *
  * Deleting these cannot lose anyone's work: the commits are parentless, nothing
  * else references them, and nothing under `refs/heads` or `refs/remotes` is
@@ -97,9 +134,9 @@ export async function sweepCheckpointRefs(cwd: string): Promise<{ deleted: numbe
   const refs = listed.stdout
     .split('\n')
     .map((line) => line.trim())
-    // Belt and braces: only ever delete under our own prefix, whatever
-    // for-each-ref returned.
-    .filter((line) => line.startsWith(REFS_PREFIX))
+    // Only the retired shape, never merely the prefix: conversation checkpoints
+    // live beside these refs.
+    .filter((line) => RETIRED_REF.test(line))
 
   // One process per ref rather than a single `update-ref --stdin` transaction:
   // `runGitCommand` has no stdin channel, and widening a util every other git
@@ -182,19 +219,25 @@ export async function sweepRetiredCheckpoints(userDataDir: string): Promise<Chec
   // Serially: these are git writes against repos the user may be working in, and
   // a burst of `update-ref` transactions across many repos at launch is the wrong
   // thing to do to a machine that is still starting up.
-  let allFinished = true
+  const finished = new Set<string>()
   for (const cwd of checkouts) {
     const swept = await sweepCheckpointRefs(cwd)
     result.refsDeleted += swept.deleted
-    if (!swept.ok) allFinished = false
+    if (swept.ok) finished.add(cwd)
   }
 
   // The index goes last, and ONLY when every repo it named actually finished.
   // A repo on an unmounted volume, or one whose refs are locked by a concurrent
   // gc, must keep its entry: this file is deleted a release from now, so an
   // index dropped over an unswept repo leaks its tree-pinning refs forever.
-  if (!allFinished) {
+  // The repos that did finish leave it now, so the retry never visits them.
+  const remaining = indexWithout(raw, finished)
+  if (remaining !== null) {
     result.indexRemoved = false
+    const temporary = `${indexPath}.${process.pid}.tmp`
+    await writeFile(temporary, remaining)
+      .then(() => rename(temporary, indexPath))
+      .catch(() => rm(temporary, { force: true }).catch(() => {}))
     return result
   }
   try {

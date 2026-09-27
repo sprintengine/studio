@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { TAILNET_STRUCTURED_SCOPES, type TailnetPairRequest } from '../../../../shared/tailnet'
+import { TAILNET_LEGACY_REQUEST_SCOPES, type TailnetPairRequest } from '../../../../shared/tailnet'
 import { GhostButton, Input, PrimaryButton } from '../ui'
 import { shortMachineName } from './machineRowModel'
 import { usePairRequestAnswer } from './pairRequestAnswer'
@@ -27,8 +27,10 @@ export function PairRequestToastAccept({ request }: { request: TailnetPairReques
   const asker = shortMachineName(request.peerNode ?? request.peerAddress)
   const disabled = busy !== null
   // Absent on a request from a build older than the field, which reads as the
-  // set every pairing path defaulted to before it existed.
-  const requested = [...(request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES)]
+  // set every pairing path defaulted to before it existed — never a scope added
+  // since, such as the conversation pair, which that build could not have
+  // asked for. The same fallback the pair-request card and the store use.
+  const requested = [...(request.requestedScopes ?? TAILNET_LEGACY_REQUEST_SCOPES)]
 
   return (
     <div className="mt-1.5">

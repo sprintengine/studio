@@ -1,0 +1,70 @@
+import type { AgentPhaseEvent } from '../shared/agent-runtime'
+import type { ConversationEvent } from '../shared/conversation-runtime'
+import type { AgentAttention } from './agent-attention'
+
+/** Adapt live conversation events into the same passive OS attention channel
+ * as terminal agents. Tokens/tool output never notify, and concurrent approval
+ * callbacks keep attention until the final human decision resolves.
+ */
+export function createConversationAttentionListener(attention: Pick<AgentAttention, 'onAgentPhase'>) {
+  const sessions = new Map<string, { phase: AgentPhaseEvent['phase']; pending: Set<string> }>()
+  return (event: ConversationEvent): void => {
+    const state = sessions.get(event.sessionId) ?? { phase: 'idle', pending: new Set<string>() }
+    let phase: AgentPhaseEvent['phase']
+    let turnEnd = false
+    switch (event.type) {
+      case 'session_started':
+        phase = 'starting'
+        break
+      case 'user_message':
+      case 'turn_started':
+        phase = 'thinking'
+        break
+      case 'tool_started':
+        if (state.pending.size) return
+        phase = 'tool_use'
+        break
+      case 'approval_requested':
+        if (event.payload?.autoApproved === true) return
+        if (typeof event.payload?.requestId !== 'string') return
+        state.pending.add(event.payload.requestId)
+        phase = 'awaiting_input'
+        break
+      case 'approval_resolved':
+        if (typeof event.payload?.requestId !== 'string') return
+        if (!state.pending.has(event.payload.requestId)) return
+        state.pending.delete(event.payload.requestId)
+        if (state.pending.size) return
+        phase = 'thinking'
+        break
+      case 'turn_completed':
+      case 'turn_failed':
+        state.pending.clear()
+        phase = 'idle'
+        turnEnd = true
+        break
+      case 'session_closed':
+        // A deliberate close clears any stale badge through the existing
+        // working transition; it must not create another completion notice.
+        phase = 'thinking'
+        break
+      default:
+        return
+    }
+    attention.onAgentPhase({
+      workspaceId: event.workspaceId,
+      agentId: event.agentId,
+      executionId: event.sessionId,
+      phase,
+      previousPhase: state.phase,
+      event: event.type,
+      turnEnd,
+      turnFailure: event.type === 'turn_failed',
+      ts: event.createdAt,
+      pendingWakeupAt: null,
+    })
+    state.phase = phase
+    if (event.type === 'session_closed') sessions.delete(event.sessionId)
+    else sessions.set(event.sessionId, state)
+  }
+}

@@ -35,6 +35,7 @@ import {
   type ExtensionSkillRow,
   type ExtensionSourceRow,
 } from '../palette/extensionsProvider'
+import { createConversationHistoryProvider } from '../palette/conversationHistoryProvider'
 import {
   decidePaletteTarget,
   handSkillToAgent,
@@ -1061,6 +1062,10 @@ export default function CommandPalette({
   // popping the chip also lifts or reapplies the per-group cap, and a new array
   // is how the runner is told to ask again. The provider objects are unchanged,
   // so a warm already done is not repeated.
+  const conversationHistoryProvider = useMemo(
+    () => createConversationHistoryProvider(),
+    [activeFolderPath, activeWorkspaceId],
+  )
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
     // Installed inventory owns Skills; catalogue providers run in All only.
@@ -1068,8 +1073,9 @@ export default function CommandPalette({
     if (groupInScope('skills', scope)) active.push(skillsProvider)
     if (groupInScope('extensions', scope)) active.push(extensionsProvider)
     if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
+    if (groupInScope('agents', scope)) active.push(conversationHistoryProvider)
     return active
-  }, [skillsProvider, extensionsProvider, diskProvider, scope])
+  }, [skillsProvider, extensionsProvider, diskProvider, conversationHistoryProvider, scope])
   const providerContext = useMemo(
     (): PaletteProviderContext => ({
       workspaceRoot: activeFolderPath,

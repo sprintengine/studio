@@ -71,13 +71,21 @@ test('cards-ipc', async () => {
         envelope({
           model: 'claude-opus-5',
           reasoning: 'high',
-          permissionPreset: 'auto',
+          permissionPreset: 'bypass',
         }),
       )
       assert.equal(result.ok, true)
       assert.equal(result.chat?.model, 'claude-opus-5')
       assert.equal(result.chat?.reasoning, 'high')
-      assert.equal(result.chat?.permissionPreset, 'auto', 'the preset the row carried is the preset handed back')
+      assert.equal(result.chat?.permissionPreset, 'bypass', 'the preset the row carried is the preset handed back')
+    }
+
+    // ── A window built before the two-mode change sends a retired preset ────────
+    // It keeps the nearest meaning it still has, never a wider one.
+    {
+      const result = await run(null, envelope({ permissionPreset: 'manual' }))
+      assert.equal(result.ok, true)
+      assert.equal(result.chat?.permissionPreset, 'none')
     }
 
     // ── A row that is not a row is dropped, and the card still runs ──────────────

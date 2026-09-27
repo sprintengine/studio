@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { checkoutsFromIndex, sweepCheckpointRefs, sweepRetiredCheckpoints } from './checkpoint-sweep'
+import { checkoutsFromIndex, indexWithout, sweepCheckpointRefs, sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { test } from 'vitest'
 
 test('checkpoint-sweep', async () => {
@@ -186,6 +186,52 @@ test('checkpoint-sweep', async () => {
       assert.equal(result.refsDeleted, 2, 'the reachable repo is still swept')
       assert.equal(result.indexRemoved, false, 'the marker survives so the other repo is retried')
       assert.equal(existsSync(join(data, 'checkpoint-index.json')), true)
+    })
+
+    await run('conversation checkpoints beside the retired refs are never touched', async () => {
+      const dir = repoWithCheckpoints(2)
+      const head = git(dir, 'rev-parse', 'HEAD').trim()
+      // Conversation checkpoints share the prefix: `<hex identity>/<turn>-<point>`.
+      const identity = 'a1b2c3d4e5f60718293a4b5c'
+      const live = [
+        `refs/sprintengine/checkpoints/${identity}/1-pre`,
+        `refs/sprintengine/checkpoints/${identity}/1-post`,
+        `refs/sprintengine/checkpoints/${identity}/1-undo`,
+        `refs/sprintengine/checkpoints/${identity}/12-redo-3`,
+        // Neither is the exact retired shape, so neither is ours to delete.
+        `refs/sprintengine/checkpoints/${identity}/turn/1/extra`,
+        `refs/sprintengine/checkpoints/${identity}/turn/01`,
+      ]
+      for (const ref of live) git(dir, 'update-ref', ref, head)
+      const before = refsIn(dir, 'refs/sprintengine/checkpoints/').filter((line) => live.includes(line.split(' ')[0]))
+      const swept = await sweepCheckpointRefs(dir)
+      assert.deepEqual(swept, { deleted: 2, ok: true })
+      assert.deepEqual(refsIn(dir, 'refs/sprintengine/checkpoints/'), before, 'every live ref byte-identical')
+    })
+
+    await run('a retry visits only the repos that did not finish', async () => {
+      const alive = repoWithCheckpoints(2)
+      const unreachable = join(tmpdir(), 'sprintengine-sweep-unmounted-volume')
+      const data = userData(
+        JSON.stringify({
+          workspaces: {
+            alive: { turns: [{ cwd: alive, ref: 'x' }] },
+            both: {
+              turns: [
+                { cwd: alive, ref: 'y' },
+                { cwd: unreachable, ref: 'z' },
+              ],
+            },
+          },
+        }),
+      )
+      assert.equal((await sweepRetiredCheckpoints(data)).reposVisited, 2)
+      const index = readFileSync(join(data, 'checkpoint-index.json'), 'utf8')
+      assert.deepEqual(checkoutsFromIndex(index), [unreachable], 'the finished repo left the index')
+      assert.deepEqual(JSON.parse(index), { workspaces: { both: { turns: [{ cwd: unreachable, ref: 'z' }] } } })
+      const retry = await sweepRetiredCheckpoints(data)
+      assert.deepEqual(retry, { reposVisited: 1, refsDeleted: 0, indexRemoved: false })
+      assert.equal(indexWithout(index, new Set([unreachable])), null, 'nothing left means the index goes')
     })
 
     await run('stale temp index files go with the refs', async () => {

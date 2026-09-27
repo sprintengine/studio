@@ -1,0 +1,13 @@
+{
+  "kind": "provider",
+  "id": "grok-agent",
+  "displayName": "Grok",
+  "publisher": "sprintengine",
+  "version": 1,
+  "summary": "Grok conversations through the Agent Client Protocol.",
+  "category": "Agent Runtime",
+  "icon": "icon.svg",
+  "providerType": "agent-harness",
+  "models": [{ "id": "default", "displayName": "CLI default" }],
+  "adapter": { "kind": "declarative" }
+}

@@ -23,7 +23,8 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
     mcp: { syncEnabled: true, servers: {} },
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',
-    lastAgentSpawnPermissionPreset: 'auto',
+    // A migration offer from a profile written before the two-mode change.
+    lastAgentSpawnPermissionPreset: 'auto' as never,
     cliPermissionPresets: {},
     ...overrides,
   }
@@ -80,7 +81,8 @@ test('a migrated record is what main reads after a restart, with no window', asy
     const afterRestart = harness.create()
     const read = afterRestart.get()
     assert.equal(read.lastSelectedCli, 'claude-code')
-    assert.equal(read.lastAgentSpawnPermissionPreset, 'auto')
+    // A retired `auto` migrates to `none`: never to the wider bypass.
+    assert.equal(read.lastAgentSpawnPermissionPreset, 'none')
     assert.equal(read.mcp.syncEnabled, true)
     assert.equal(read.cliRuntimes.claude?.command, 'claude')
     assert.equal(afterRestart.getRecord()?.revision, 1)
@@ -159,9 +161,14 @@ test('update writes only the fields its patch names', async () => {
     assert.deepEqual(result.record.settings.projectKnowledgeRoots, { '/repo': 'docs' })
 
     // The scalar fields, and `null` returning one to "never chosen".
-    result = store.update({ lastSelectedCli: 'codex', lastAgentSpawnPermissionPreset: 'manual' }, 'ui')
+    result = store.update({ lastSelectedCli: 'codex', lastAgentSpawnPermissionPreset: 'none' }, 'ui')
     assert.equal(result.record.settings.lastSelectedCli, 'codex')
-    assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, 'manual')
+    assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, 'none')
+    // A window built before the two-mode change still sends `manual`; it is
+    // read as `none` rather than dropped.
+    result = store.update({ lastAgentSpawnPermissionPreset: 'bypass' }, 'ui')
+    result = store.update({ lastAgentSpawnPermissionPreset: 'manual' as never }, 'ui')
+    assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, 'none')
     result = store.update({ lastAgentSpawnPermissionPreset: null }, 'ui')
     assert.equal(result.record.settings.lastAgentSpawnPermissionPreset, null)
     assert.equal(result.record.settings.lastSelectedCli, 'codex')
@@ -171,10 +178,10 @@ test('update writes only the fields its patch names', async () => {
     // others alone, so two windows setting two CLIs both land, and `null`
     // returns a CLI to the app-wide default.
     result = store.update({ cliPermissionPresets: { 'claude-code': 'bypass' } }, 'ui')
-    result = store.update({ cliPermissionPresets: { codex: 'manual' } }, 'ui')
-    assert.deepEqual(result.record.settings.cliPermissionPresets, { 'claude-code': 'bypass', codex: 'manual' })
-    result = store.update({ cliPermissionPresets: { 'claude-code': null, gemini: 'everything' } }, 'ui')
-    assert.deepEqual(result.record.settings.cliPermissionPresets, { codex: 'manual' }, 'an unknown preset is dropped')
+    result = store.update({ cliPermissionPresets: { codex: 'auto' as never } }, 'ui')
+    assert.deepEqual(result.record.settings.cliPermissionPresets, { 'claude-code': 'bypass', codex: 'none' })
+    result = store.update({ cliPermissionPresets: { 'claude-code': null, gemini: 'everything' as never } }, 'ui')
+    assert.deepEqual(result.record.settings.cliPermissionPresets, { codex: 'none' }, 'an unknown preset is dropped')
     await result.persisted
 
     assert.deepEqual(harness.create().get(), result.record.settings, 'every partial write reached the file')

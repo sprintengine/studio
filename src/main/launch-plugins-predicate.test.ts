@@ -92,7 +92,7 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
           'claude-code',
           undefined,
           { 'claude-code': { command: 'claude' } },
-          'manual',
+          'none',
           undefined,
           undefined,
           undefined,

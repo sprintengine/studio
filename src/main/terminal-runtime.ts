@@ -3408,7 +3408,7 @@ async function spawnTerminalFromIpc(
     executionMode,
     worktreeId,
     worktreePath,
-    cliPermissionPreset = 'manual',
+    cliPermissionPreset = 'none',
     debugMode = false,
     cliModel,
     cliReasoning,

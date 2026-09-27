@@ -26,6 +26,7 @@ import { createTailnetPeerResolver, type TailnetPeerResolver } from './tailnet-p
 import { createTailnetPeerScanner, type TailnetPeerScanner } from './tailnet-peers'
 import { readTailnetSettings, writeTailnetSettings, type TailnetSettings } from './tailnet-settings'
 import type { TerminalRemoteHost } from '../../terminal-remote-attach'
+import type { ConversationGatewayHost } from './tailnet-conversation-host'
 
 // Lifecycle for tailnet remote control: settings, paired devices, and the
 // listener itself.
@@ -124,6 +125,7 @@ export type TailnetRemoteService = {
   /** The change feed: this machine's terminal list, or workspace list, changed. No-ops with no listener. */
   notifyTerminalsChanged(): void
   notifyWorkspacesChanged(): void
+  notifyConversationsChanged(): void
   shutdown(): Promise<void>
 }
 
@@ -147,6 +149,7 @@ export type TailnetRemoteServiceOptions = {
    * route refusing with a stated reason; nothing else about the listener changes.
    */
   terminals?: TerminalRemoteHost
+  conversations?: ConversationGatewayHost
   /**
    * The live-state push (remote-sessions-ux): fired on every observable change
    * — listener up/down, a pair request arriving or resolving, a device's
@@ -484,6 +487,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       devices,
       peers,
       terminals: options.terminals,
+      conversations: options.conversations,
       onToolCall: options.onToolCall,
       onPairRequested: () => announcePairRequests(),
       onReverseGrant: (input) => {
@@ -785,6 +789,10 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     notifyWorkspacesChanged(): void {
       server?.notifyWorkspacesChanged()
+    },
+
+    notifyConversationsChanged(): void {
+      server?.notifyConversationsChanged()
     },
 
     async shutdown(): Promise<void> {

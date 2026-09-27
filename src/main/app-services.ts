@@ -92,7 +92,8 @@ import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/h
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
-import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
+import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import {
   configureCliVersionService,
@@ -150,6 +151,9 @@ import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
+import type { ConversationEventType } from '../shared/conversation-runtime'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
@@ -180,6 +184,17 @@ import type { IntegrationRemovalOptions, IntegrationRemovalReport } from '../sha
 
 // Long enough for the dialog to show the result before Studio quits to delete its data.
 const APP_DATA_QUIT_DELAY_MS = 2_500
+/** The conversation events that change what a paired device's list says: a start, an end, a phase. */
+const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
+  'session_started',
+  'session_closed',
+  'user_message',
+  'turn_started',
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'approval_resolved',
+])
 import type { ExecutionHostId } from '../shared/execution-host'
 import {
   createIntegrationLedger,
@@ -517,6 +532,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // dispose its child processes and diagnostics can inventory them.
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
+    approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
     prepareStudioMcp: async ({ workspaceRoot }) => {
       await whenAgentLaunchReady()
       const result = await syncStudioMcpConfig(
@@ -1312,6 +1328,26 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.
     resolveTerminalHost: () => terminalRuntime.remoteHost,
+    resolveConversationHost: () =>
+      createConversationGatewayHost(
+        conversationRuntime,
+        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+        () =>
+          workspaceRegistry
+            .getRecords()
+            .filter((record) => Boolean(record.folderPath))
+            .map((record) => ({
+              workspaceId: record.id,
+              workspaceRoot: record.folderPath!,
+            })),
+        // A chat's own agent record carries the preset the person last chose
+        // for it; a chat without one starts on the app-wide spawn default, as a
+        // new chat in a window does.
+        (key) =>
+          parseCliPermissionPreset(
+            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
+          ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+      ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
@@ -1362,17 +1398,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
           launchAgent: (request) => agentLaunchService.launch(request),
-          // Read live, never captured: the same store the launch service reads, so
-          // a preset changed in Settings reaches the next terminal.create without
-          // a restart.
-          // The CLI's own preset, else the app-wide one, and a never-chosen
-          // preset reads as the app default: the same resolution the window's
-          // pickers and the launch service use. With no CLI named, the launch
-          // runs on the last-selected one, so that is whose preset applies.
-          getAgentSpawnPermissionDefault: (cli) => {
-            const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
-            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
-          },
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
@@ -1580,6 +1605,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // testable.
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
+    readConversationEvents: async (sessionId) => {
+      const listed = conversationRuntime.listSessions()
+      const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
+      if (!summary) return null
+      const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
+      if (!workspaceRoot) return []
+      const transcript = await conversationRuntime.readTranscript(
+        {
+          workspaceRoot,
+          workspaceId: summary.workspaceId,
+          agentId: summary.agentId,
+        },
+        { all: true },
+      )
+      return transcript.ok ? transcript.events : []
+    },
   })
 
   // The change feed (2026-09-05): paired devices used to poll terminal.list
@@ -1592,6 +1633,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // adopted, so a launch-time write that did not land is not the end of it.
   terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // A conversation's row on another machine shows its phase: running, waiting
+  // on a person, done. The events that move it (never a token of a reply)
+  // become the same throttled push.
+  conversationRuntime.onEvent((event) => {
+    if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
+  })
   // The app's own plugin goes into every workspace it opens, at the two moments
   // a workspace becomes real to main: the roots the registry already holds when
   // this process starts, and every accepted registry event after that. Not at

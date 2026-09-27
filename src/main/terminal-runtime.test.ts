@@ -922,7 +922,7 @@ test('terminal-runtime', async () => {
       getLaunchSettings: () => ({
         ...emptyAgentLaunchSettings(),
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
+        lastAgentSpawnPermissionPreset: 'bypass',
         mcp: { syncEnabled: true, servers: {} },
       }),
       terminal: {
@@ -953,7 +953,7 @@ test('terminal-runtime', async () => {
       // handed to the config sync, and the caller's prompt carried verbatim.
       const startupScript = await readFile(String(mockPty.spawnCalls[0]!.args.at(-1)), 'utf8')
       assert.match(startupScript, /claude/, 'the last-selected CLI is what launched')
-      assert.match(startupScript, /--permission-mode auto/, 'the app-level spawn preset reached the argv')
+      assert.match(startupScript, /--permission-mode bypassPermissions/, 'the app-level spawn preset reached the argv')
       assert.match(startupScript, /Audit the auth flow\./, 'and carries the caller directive')
       assert.deepEqual(
         syncInputs.at(-1)?.settings,
@@ -966,7 +966,7 @@ test('terminal-runtime', async () => {
       const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === launched.sessionId)
       assert.equal(snapshot?.agentRecord?.agentId, launched.agentId)
       assert.equal(snapshot?.agentRecord?.cli, 'claude-code')
-      assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto')
+      assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'bypass')
 
       // The run's correlation key. An agent-backed automation finalizes on its
       // agent's exit, and the runtime only reports that exit for a session with an
@@ -5080,14 +5080,13 @@ test('terminal-runtime', async () => {
         `the guard must test the probed path: ${startupScript}`,
       )
       assert.ok(
-        // The permission flag sits between the binary and --session-id since
-        // An unnamed preset resolves to `manual`, which for Claude Code
-        // is an explicit `--permission-mode default` rather than no flag at all.
-        // An agent bound to a workspace also carries its host context (the
-        // editor tools section) as a file flag before the session id.
-        new RegExp(
-          `${probedPath} --permission-mode default (--append-system-prompt-file \\S+ )?--session-id session-preflight-resolved`,
-        ).test(startupScript),
+        // An unnamed preset passes no permission flag, so the binary is
+        // followed directly by the launch's own flags. An agent bound to a
+        // workspace also carries its host context (the editor tools section)
+        // as a file flag before the session id.
+        new RegExp(`${probedPath} (--append-system-prompt-file \\S+ )?--session-id session-preflight-resolved`).test(
+          startupScript,
+        ),
         `the launch must execute the probed path: ${startupScript}`,
       )
       assert.ok(

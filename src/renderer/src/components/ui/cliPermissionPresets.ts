@@ -4,10 +4,10 @@ import type { AgentCli, CliPermissionPreset } from '../../types/workspace'
 // The permission preset an agent spawns on, remembered PER CLI: one value for
 // Claude Code, one for Codex, and so on (owner ruling 2026-09-24).
 //
-// A preset is a property of the runtime, not of the app — Claude Code's auto
-// mode is not Codex's sandbox, and the two CLIs do not even name their presets
-// the same way — so one app-wide value cannot say what a person wants from
-// both. But it is not a property of the MODEL either. It was remembered per
+// A preset is a property of the runtime, not of the app — skipping Claude
+// Code's prompts is not lifting Codex's sandbox, and a person can trust one CLI
+// in a repository without trusting another — so one app-wide value cannot say
+// what a person wants from both. But it is not a property of the MODEL either. It was remembered per
 // model row for a while (owner, 2026-09-05), and that meant choosing Bypass for
 // one Claude model and then choosing it again for every other Claude model the
 // picker offered. A person trusts a runtime in a repository; which of its

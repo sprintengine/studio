@@ -15,6 +15,7 @@ import {
   TAILNET_PAIR_PATH,
   TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
+  TAILNET_CONVERSATION_PATH,
   TAILNET_EVENTS_PATH,
   TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
@@ -23,6 +24,7 @@ import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
   encodeMaskedCloseFrame,
+  encodeMaskedPingFrame,
   encodeMaskedPongFrame,
   encodeMaskedTextFrame,
   MAX_WEBSOCKET_MESSAGE_BYTES,
@@ -51,6 +53,8 @@ const REQUEST_TIMEOUT_MS = 10_000
 const HANDSHAKE_TIMEOUT_MS = 10_000
 /** Enough for any control response; a body larger than this is not our listener answering. */
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+/** Silence on a conversation socket longer than two of the far end's 25-second pings means the link is gone. */
+const CONVERSATION_LIVENESS_TIMEOUT_MS = 70_000
 
 export type TailnetEndpoint = { host: string; port: number }
 
@@ -521,37 +525,15 @@ export async function openRemoteTerminalSocket(input: {
   resume?: { stream: string; position: number } | null
   handlers: RemoteTerminalSocketHandlers
 }): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
-  // The upgrade carries a 30-second single-use ticket, never the device token:
-  // a query string lands in logs and history, so the long-lived credential is
-  // only ever an Authorization header.
-  let ticketAnswer: JsonAnswer
-  try {
-    ticketAnswer = await requestTailnetJson({
-      endpoint: input.endpoint,
-      method: 'POST',
-      path: TAILNET_WS_TICKET_PATH,
-      token: input.token,
-      body: {},
-    })
-  } catch (error) {
-    return { ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }
-  }
-  if (ticketAnswer.status === 401) return { ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE }
-  const ticket = asRecord(ticketAnswer.body)?.ticket
-  if (ticketAnswer.status !== 200 || typeof ticket !== 'string') {
-    return {
-      ok: false,
-      code: `http_${ticketAnswer.status}`,
-      message: `That machine would not open a stream (HTTP ${ticketAnswer.status}).`,
-    }
-  }
+  const ticket = await requestSocketTicket(input.endpoint, input.token, 'a stream')
+  if (!ticket.ok) return ticket
 
   const query: Record<string, string> = { sessionId: input.sessionId }
   if (input.resume) {
     query.stream = input.resume.stream
     query.after = String(input.resume.position)
   }
-  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_TERMINAL_PATH, query)
+  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_TERMINAL_PATH, query)
   if (!upgraded.ok) return upgraded
 
   return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
@@ -568,17 +550,60 @@ export async function openRemoteEventsSocket(input: {
   token: string
   handlers: RemoteTerminalSocketHandlers
 }): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
+  const ticket = await requestSocketTicket(input.endpoint, input.token, 'a change feed')
+  if (!ticket.ok) return ticket
+  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_EVENTS_PATH, {})
+  if (!upgraded.ok) return upgraded
+  return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
+}
+
+/**
+ * Follow conversations on a machine over its conversation socket: one
+ * socket, one followed conversation at a time, as that route is scoped.
+ * Frames arrive on `onFrame` as parsed JSON, unvalidated — the conversation
+ * client validates them against the protocol, because only it knows which
+ * frame a broken one would have been.
+ *
+ * The far end pings every 25 seconds. A socket that has heard nothing for
+ * `livenessTimeoutMs` is a peer that vanished without a close (a laptop lid,
+ * a dropped route), and is ended so the caller re-dials instead of waiting on
+ * a link that will never speak again. Its own pings keep an idle link from
+ * looking dead to a middlebox in the meantime.
+ */
+export async function openRemoteConversationSocket(input: {
+  endpoint: TailnetEndpoint
+  token: string
+  handlers: RemoteTerminalSocketHandlers
+  livenessTimeoutMs?: number
+}): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
+  const ticket = await requestSocketTicket(input.endpoint, input.token, 'a conversation stream')
+  if (!ticket.ok) return ticket
+  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_CONVERSATION_PATH, {})
+  if (!upgraded.ok) return upgraded
+  return {
+    ok: true,
+    value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers, {
+      livenessTimeoutMs: input.livenessTimeoutMs ?? CONVERSATION_LIVENESS_TIMEOUT_MS,
+      unreadable: 'That machine sent a conversation frame this build could not read.',
+    }),
+  }
+}
+
+/**
+ * A 30-second single-use ticket for one upgrade, never the device token: a
+ * query string lands in logs and history, so the long-lived credential is only
+ * ever an Authorization header.
+ */
+async function requestSocketTicket(
+  endpoint: TailnetEndpoint,
+  token: string,
+  what: string,
+): Promise<RemoteCallOutcome<string>> {
   let ticketAnswer: JsonAnswer
   try {
-    ticketAnswer = await requestTailnetJson({
-      endpoint: input.endpoint,
-      method: 'POST',
-      path: TAILNET_WS_TICKET_PATH,
-      token: input.token,
-      body: {},
-    })
+    ticketAnswer = await requestTailnetJson({ endpoint, method: 'POST', path: TAILNET_WS_TICKET_PATH, token, body: {} })
   } catch (error) {
-    return { ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }
+    return { ok: false, code: 'unreachable', message: describeUnreachable(endpoint, error) }
   }
   if (ticketAnswer.status === 401) return { ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE }
   const ticket = asRecord(ticketAnswer.body)?.ticket
@@ -586,12 +611,10 @@ export async function openRemoteEventsSocket(input: {
     return {
       ok: false,
       code: `http_${ticketAnswer.status}`,
-      message: `That machine would not open a change feed (HTTP ${ticketAnswer.status}).`,
+      message: `That machine would not open ${what} (HTTP ${ticketAnswer.status}).`,
     }
   }
-  const upgraded = await upgradeSocket(input.endpoint, ticket, TAILNET_EVENTS_PATH, {})
-  if (!upgraded.ok) return upgraded
-  return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
+  return { ok: true, value: ticket }
 }
 
 /** Open the TCP socket and complete the RFC 6455 handshake against one of the listener's WebSocket routes. */
@@ -683,26 +706,47 @@ function upgradeSocket(
   })
 }
 
-/** Frame loop for an upgraded terminal socket. */
+/** Frame loop for an upgraded JSON socket: a terminal, the change feed, or a conversation. */
 function driveTerminalSocket(
   socket: Socket,
   leftover: Buffer,
   handlers: RemoteTerminalSocketHandlers,
+  options: { livenessTimeoutMs?: number; unreadable?: string } = {},
 ): RemoteTerminalSocket {
   const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES, 'client')
   let closed = false
   let closeCode: number | null = null
   let closeReason = 'The connection to that machine ended.'
+  let heardAt = Date.now()
+  const liveness = options.livenessTimeoutMs
+  const heartbeat =
+    liveness === undefined
+      ? null
+      : setInterval(
+          () => {
+            if (closed) return
+            if (Date.now() - heardAt > liveness) {
+              closeReason = 'That machine stopped answering.'
+              finish()
+              return
+            }
+            if (!socket.destroyed) socket.write(encodeMaskedPingFrame())
+          },
+          Math.max(10, Math.floor(liveness / 3)),
+        )
+  heartbeat?.unref?.()
 
   const finish = (): void => {
     if (closed) return
     closed = true
+    if (heartbeat) clearInterval(heartbeat)
     socket.destroy()
     handlers.onClosed({ code: closeCode, reason: closeReason })
   }
 
   const consume = (chunk: Buffer): void => {
     if (closed) return
+    heardAt = Date.now()
     const decoded = decoder.push(chunk)
     if (decoded.kind === 'error') {
       closeReason = decoded.reason
@@ -727,7 +771,7 @@ function driveTerminalSocket(
       } catch {
         // A frame we cannot read is a protocol failure, not something to skip:
         // silently dropping it would leave a pane waiting for output forever.
-        closeReason = 'That machine sent a terminal frame this build could not read.'
+        closeReason = options.unreadable ?? 'That machine sent a terminal frame this build could not read.'
         finish()
         return
       }
@@ -779,12 +823,18 @@ function refusalMessage(code: string, status: number): string {
     return 'This pairing may not open terminals on that machine. Pair again with the terminal scope.'
   }
   if (code === 'terminal_streaming_unavailable') return 'That machine is not serving terminals right now.'
+  if (code === 'conversation_scope_required') {
+    return 'This pairing may not read conversations on that machine. Pair again with conversation access.'
+  }
+  if (code === 'conversation_streaming_unavailable') return 'That machine is not serving conversations right now.'
   if (code === 'unauthorized') return UNAUTHORIZED_MESSAGE
   return `That machine refused the terminal stream (HTTP ${status}, ${code}).`
 }
 
 function closeReasonFor(code: number): string {
   if (code === 4401) return 'That machine revoked this pairing, so the terminal was disconnected.'
+  if (code === 4403) return 'This pairing may no longer read conversations on that machine.'
+  if (code === 4409) return 'That machine asked this device to reconnect and catch up.'
   if (code === 1000 || code === 1001) return 'That machine closed the terminal stream.'
   return `The terminal stream closed (code ${code}).`
 }

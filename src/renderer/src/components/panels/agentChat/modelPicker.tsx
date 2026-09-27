@@ -21,7 +21,9 @@ import {
   agentPermissionOptions,
   PermissionPresetMenuRows,
 } from '../../workspace/agentComposer/agentSpawnShared'
-import { LockGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
+import { PresetDialGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
+import { ChatGlyph } from '../../AppIcons'
+export { ChatGlyph } from '../../AppIcons'
 import { useState, useEffect, useCallback } from 'react'
 
 // The in-composer model selector. Before the conversation starts it is a pill
@@ -30,9 +32,9 @@ import { useState, useEffect, useCallback } from 'react'
 export type ModelGroup = {
   providerId: string
   providerLabel: string
-  // True for agent-harness providers — the user's own subscription, annotated
-  // in the menu so metered API providers are visibly different.
-  subscription?: boolean
+  // Native CLI credentials and app-managed API keys remain visibly distinct;
+  // neither native login nor a tool capability implies a subscription plan.
+  credentialSource?: 'native' | 'api-key' | 'none'
   // Plain-language reason the provider cannot start sessions; renders the
   // group disabled instead of hiding it.
   unavailable?: string
@@ -45,11 +47,11 @@ export type ModelGroup = {
 
 // What the picker actually lists, given the search box and the provider chip.
 // Search matches the provider as well as the model: "claude" must keep the
-// Claude Code (subscription) group visible even though its models are named
-// Sonnet/Opus/Haiku — otherwise the search silently hides the subscription and
-// leaves only metered lookalikes. Browsing (no query) keeps every provider group
+// Claude Code group visible even though its models are named Sonnet/Opus/Haiku
+// — otherwise the search silently hides native credentials and leaves only
+// app-managed API entries. Browsing (no query) keeps every provider group
 // so a key-configured provider never disappears for an empty catalog — its empty
-// state renders inline (1772/D5) — and respects the active chip; a query looks
+// state renders inline — and respects the active chip; a query looks
 // across every provider, because a filter must never hide a search hit.
 export function filterModelGroups(groups: ModelGroup[], query: string, activeFilter: string): ModelGroup[] {
   const normalized = query.trim().toLowerCase()
@@ -75,18 +77,14 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
 }
 
 // Plain-language name for a tool-permission preset, as the composer pill reads
-// it. The spawn picker's own labels ("Default permissions") name the setting;
-// the pill has to name the BEHAVIOR, because at rest it is the answer to "will
-// this agent stop and ask me before it acts?".
+// it: at rest it is the answer to "will this agent stop and ask me before it
+// acts?".
 export function permissionPresetLabel(preset: CliPermissionPreset, cli?: string): string {
   // `none` cannot claim "asks before tools": it sends no flag, so the answer is
-  // whatever the CLI does — auto mode on Claude Code 2.1.228+ with a Pro, Max or
-  // Team plan. Naming the behaviour is the whole job of this pill, and the one
-  // behaviour it must not assert here is the one it cannot know.
+  // whatever the CLI is configured to do, and the one behaviour this pill must
+  // not assert is the one it cannot know.
   if (preset === 'none') return 'CLI default'
-  if (preset === 'auto') return 'Auto'
-  if (preset === 'bypass') return agentPermissionOptions(cli).find((option) => option.value === preset)!.label
-  return 'Asks before tools'
+  return agentPermissionOptions(cli).find((option) => option.value === preset)!.label
 }
 
 // When a preset change actually bites. A live session takes it on the running
@@ -100,9 +98,9 @@ export function permissionChangeScopeLabel(live: boolean): string {
 // The composer footer's tool-permission control. Replaces the read-only "Asks
 // before tools" chip: the preset was start-time-only, so a conversation was
 // stuck with whatever it spawned on. The pill names the current behavior at
-// rest and opens the SHARED Default/Auto/Bypass row (the same control the spawn
-// picker and Automations editor use) rather than three always-on chips, so the
-// footer keeps one control per concern.
+// rest and opens the SHARED preset rows (the same control the spawn picker and
+// Automations editor use) rather than always-on chips, so the footer keeps one
+// control per concern.
 export function PermissionPresetPill({
   cli,
   preset,
@@ -111,6 +109,8 @@ export function PermissionPresetPill({
   open,
   onOpenChange,
   onChange,
+  mode = 'default',
+  allowedPresets,
 }: {
   cli?: string
   preset: CliPermissionPreset
@@ -123,8 +123,9 @@ export function PermissionPresetPill({
   open: boolean
   onOpenChange: (open: boolean) => void
   onChange: (preset: CliPermissionPreset) => void
+  mode?: 'default' | 'plan' | 'ask'
+  allowedPresets?: CliPermissionPreset[]
 }) {
-  const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
   // rows. Land focus on the preset in force (Escape returns it to the trigger)
   // — the one helper the launch panel's pill uses too.
@@ -142,8 +143,10 @@ export function PermissionPresetPill({
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip
           content={
-            agentPermissionOptions(cli).find((option) => option.value === preset)?.title ??
-            permissionPresetLabel(preset, cli)
+            mode !== 'default'
+              ? 'Return to the default mode to change tool permissions.'
+              : (agentPermissionOptions(cli).find((option) => option.value === preset)?.title ??
+                permissionPresetLabel(preset, cli))
           }
           placement="top"
         >
@@ -155,12 +158,13 @@ export function PermissionPresetPill({
           <ChipButton
             ref={ref}
             tone={preset === 'bypass' ? 'warn' : 'subtle'}
+            disabled={mode !== 'default'}
             onClick={togglePopover}
             className="shrink-0"
             {...triggerProps}
           >
-            {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
-            {permissionPresetLabel(preset, cli)}
+            {preset === 'bypass' ? <UnlockedGlyph className="icon-xs" /> : <PresetDialGlyph className="icon-xs" />}
+            {mode === 'plan' ? 'Plan' : mode === 'ask' ? 'Ask' : permissionPresetLabel(preset, cli)}
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
           </ChipButton>
         </Tooltip>
@@ -169,7 +173,21 @@ export function PermissionPresetPill({
       {/* The menu spec's stacked items, shared with the launch panel's pill
           (remote-sessions-ux / selector-menus-premium): glyph + name +
           description per row, full-bleed on the list's own vertical inset. */}
-      <PermissionPresetMenuRows cli={cli} value={preset} onSelect={onChange} disabled={changing} />
+      <PermissionPresetMenuRows
+        cli={cli}
+        value={preset}
+        onSelect={onChange}
+        disabled={changing || mode !== 'default'}
+        disabledReasons={
+          allowedPresets
+            ? Object.fromEntries(
+                (['none', 'bypass'] as const)
+                  .filter((value) => !allowedPresets.includes(value))
+                  .map((value) => [value, 'This provider does not support this permission preset.']),
+              )
+            : undefined
+        }
+      />
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
         {permissionChangeScopeLabel(live)}
@@ -210,23 +228,14 @@ export function ModelPickerPill({
 }) {
   const [query, setQuery] = useState('')
   // Provider filter chips: pick one provider to browse, or All.
-  // `null` means "not chosen yet" — resolved to the subscription provider when
-  // one exists, so opening the picker never starts in a metered catalog.
+  // `null` means "not chosen yet" — resolved to the native-credential provider
+  // when one exists, so app-managed keys never silently displace native login.
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
-  if (locked) {
-    return (
-      <Tooltip content="Model is fixed once the conversation starts" placement="top">
-        <span className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
-          <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
-          <span className="max-w-[200px] truncate">{label}</span>
-        </span>
-      </Tooltip>
-    )
-  }
-  // Default to the subscription provider only when it can actually be picked —
+  // Default to the native-credential provider only when it can actually be picked —
   // an unavailable harness must not leave the at-rest view all-disabled while
   // selectable providers hide behind the filter.
-  const defaultFilter = groups.find((group) => group.subscription && !group.unavailable)?.providerId ?? 'all'
+  const defaultFilter =
+    groups.find((group) => group.credentialSource === 'native' && !group.unavailable)?.providerId ?? 'all'
   const activeFilter = providerFilter ?? defaultFilter
   const normalized = query.trim().toLowerCase()
   const filtered = filterModelGroups(groups, query, activeFilter)
@@ -240,7 +249,7 @@ export function ModelPickerPill({
   const jumpRowsKey = jumpRows.map((row) => `${row.providerId}:${row.modelId}`).join('\n')
   const jumpModifier = window.api.platform === 'darwin' ? '⌘' : 'Ctrl+'
   useEffect(() => {
-    if (!open) return
+    if (!open || locked) return
     // Capture on window, like the shell's dispatcher, so the digit never
     // reaches the search field as text. The workspace-switch chords on the
     // same keys are suppressed by the shell while focus is in the search
@@ -258,7 +267,7 @@ export function ModelPickerPill({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
     // jumpRows is derived per render; re-subscribe only when the rows change.
-  }, [open, onSelect, jumpRowsKey])
+  }, [open, locked, onSelect, jumpRowsKey])
   // Focus lands in the search field when there is one, else on the checked
   // row — the surface is portaled, so Tab from the trigger never reaches it.
   const focusOnOpen = useCallback((surface: HTMLElement) => {
@@ -273,6 +282,18 @@ export function ModelPickerPill({
       if (surface.isConnected) target.focus()
     })
   }, [])
+  // Hydration and the first send can lock an already-mounted picker. Keep its
+  // hook order unchanged across that transition, then choose the drawing.
+  if (locked) {
+    return (
+      <Tooltip content="Model is fixed once the conversation starts" placement="top">
+        <span className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
+          <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
+          <span className="max-w-[200px] truncate">{label}</span>
+        </span>
+      </Tooltip>
+    )
+  }
   return (
     <Popover
       open={open}
@@ -346,11 +367,14 @@ export function ModelPickerPill({
                       { value: 'all', label: 'All providers' },
                       ...groups.map((group) => ({
                         value: group.providerId,
-                        label: group.subscription ? `${group.providerLabel} (subscription)` : group.providerLabel,
+                        label:
+                          group.credentialSource === 'native'
+                            ? `${group.providerLabel} (CLI credentials)`
+                            : group.providerLabel,
                       })),
                     ],
                     value: activeFilter,
-                    // The subscription-first default view is the baseline, not
+                    // The native-credentials-first default view is the baseline, not
                     // an applied filter.
                     defaultValue: defaultFilter,
                     onChange: (value) => {
@@ -383,11 +407,13 @@ export function ModelPickerPill({
                   <span className="text-micro text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'
-                      : group.subscription
-                        ? 'your Claude subscription'
-                        : group.emptyState === 'add-key'
-                          ? 'needs an API key'
-                          : 'uses your API key'}
+                      : group.credentialSource === 'native'
+                        ? 'uses your CLI credentials'
+                        : group.credentialSource === 'none'
+                          ? 'no API key required'
+                          : group.emptyState === 'add-key'
+                            ? 'needs an API key'
+                            : 'uses your API key'}
                   </span>
                 </div>
                 {group.unavailable ? (
@@ -463,19 +489,6 @@ export function ModelPickerPill({
         </div>
       </div>
     </Popover>
-  )
-}
-
-export function ChatGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }
 

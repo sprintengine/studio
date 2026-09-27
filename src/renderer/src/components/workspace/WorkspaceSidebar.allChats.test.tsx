@@ -48,10 +48,11 @@ test('WorkspaceSidebar.allChats', async () => {
   anyGlobal.ResizeObserver = NoopResizeObserver
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
+  let terminalAnswer: unknown[] = []
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
-    terminalList: async () => [],
+    terminalList: async () => terminalAnswer,
     onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
@@ -62,6 +63,7 @@ test('WorkspaceSidebar.allChats', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { refreshTerminalSessions } = await import('../../hooks/useTerminalSessions')
     const { useWorkspaceStore } = await import('../../store/workspaceStore')
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     type Workspace = SidebarProps['workspaces'][number]
@@ -265,6 +267,57 @@ test('WorkspaceSidebar.allChats', async () => {
       )
       assert.deepEqual(starredNames(), ['Echo'], 'and Echo is still only in Starred')
       assert.equal(streamOrFolderNames().includes('Echo'), false, 'not under apples')
+
+      // One chat can hold both a terminal agent and a conversation agent.
+      // Each has its own head and the conversation's line carries its phase.
+      terminalAnswer = [
+        {
+          sessionId: 'terminal-agent-1',
+          workspaceId: 'w1',
+          agentId: 'terminal-agent',
+          agentName: 'CLI agent',
+          kind: 'agent',
+          processAlive: true,
+          visible: true,
+          suspended: false,
+          reapExempt: false,
+          startedAt: now - MINUTE,
+          lastInputAt: now - MINUTE,
+          lastOutputAt: now - MINUTE,
+          lastVisibleAt: now,
+          exitedAt: null,
+          activity: { kind: 'working', since: now - MINUTE },
+          fileChanges: [],
+        },
+      ]
+      await act(async () => {
+        await refreshTerminalSessions()
+      })
+      act(() => {
+        root.render(
+          React.createElement(WorkspaceSidebar, {
+            ...props,
+            conversationSessions: [
+              {
+                sessionId: 'conversation-1',
+                workspaceId: 'w1',
+                agentId: 'conversation-agent',
+                providerId: 'provider-1',
+                modelId: 'model-1',
+                status: 'awaiting_approval',
+                createdAt: now - MINUTE,
+                updatedAt: now,
+              },
+            ],
+            activityByWorkspaceId: { ...props.activityByWorkspaceId, w1: 'needs-input' },
+          }),
+        )
+      })
+      await settle()
+      const alpha = rowFor('Alpha')
+      assert.equal(alpha.querySelectorAll('[data-peek-session]').length, 2, 'one terminal and one chat head')
+      assert.ok(alpha.textContent?.includes('Needs approval'), 'the chat line states what is pending')
+      assert.ok(alpha.querySelector('[aria-label="Chat agent"]'), 'the chat head has its own glyph')
     } finally {
       act(() => {
         root.unmount()

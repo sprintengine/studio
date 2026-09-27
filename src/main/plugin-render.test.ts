@@ -34,7 +34,7 @@ test('plugin-render', async () => {
     testLiteralSubstitution()
     testContextOverridesBinary()
     testPermissionArgsSpread()
-    testUndeclaredPresetDegradesToTheMostPermissiveDeclared()
+    testOnlyBypassReadsTheManifest()
     testValueIfPresentAndAbsent()
     testEnvSubstitution()
     testVariableDefaults()
@@ -87,46 +87,55 @@ test('plugin-render', async () => {
     assert.deepEqual(withDefault.argv, ['test', '--session-id', 'exec_2'])
   }
 
-  // Automations launch on `bypass`, and not every CLI declares it. An unknown
-  // CLI flag is fatal, so an undeclared preset degrades DOWN to the most permissive
-  // preset the manifest actually declares — never up, and never passed through.
-  function testUndeclaredPresetDegradesToTheMostPermissiveDeclared(): void {
+  // Only `bypass` reads the manifest. `none` passes no flag whatever the
+  // manifest declares, a CLI with no bypass flag launches with none rather
+  // than an unknown one (fatal to the CLI), and keys for retired presets that
+  // an older third-party manifest still declares are never rendered.
+  function testOnlyBypassReadsTheManifest(): void {
     const argv = ['{{binary}}', { spreadIf: 'permissionArgs' }] as PluginManifest['launch']['argv']
-    const presets = {
-      default: { label: 'Default', args: [] },
-      auto: { label: 'Auto', args: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'] },
-    }
-
-    const noBypass = baseManifest({ permissionPresets: presets, launch: { argv } })
-    assert.deepEqual(
-      renderPluginLaunch(noBypass, { permissionPreset: 'bypass' }).argv,
-      ['test', '--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
-      'a CLI with no bypass launches on its most permissive declared preset',
-    )
-    assert.deepEqual(
-      renderPluginLaunch(noBypass, { permissionPreset: 'auto' }).argv,
-      ['test', '--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
-      'a declared preset is used verbatim',
-    )
-
-    // Nothing between bypass and default ⇒ default. Degrading never escalates:
-    // asking for `default` on a CLI that declares only bypass renders no args.
-    const onlyDefault = baseManifest({
-      permissionPresets: { default: { label: 'Default', args: [] } },
+    const legacy = baseManifest({
+      permissionPresets: {
+        default: { label: 'Default', args: ['--ask'] },
+        manual: { label: 'Manual', args: ['--permission-mode', 'default'] },
+        auto: { label: 'Auto', args: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'] },
+      },
       launch: { argv },
     })
-    assert.deepEqual(renderPluginLaunch(onlyDefault, { permissionPreset: 'bypass' }).argv, ['test'])
+    assert.deepEqual(
+      renderPluginLaunch(legacy, { permissionPreset: 'bypass' }).argv,
+      ['test'],
+      'a CLI with no bypass flag launches with no permission flag, never a narrower rung',
+    )
+    for (const retired of ['manual', 'auto', 'default', 'auto_workspace']) {
+      assert.deepEqual(
+        renderPluginLaunch(legacy, { permissionPreset: retired }).argv,
+        ['test'],
+        `a stored "${retired}" runs as none`,
+      )
+    }
+
+    const empty = baseManifest({ permissionPresets: {}, launch: { argv } })
+    assert.deepEqual(renderPluginLaunch(empty, { permissionPreset: 'bypass' }).argv, ['test'])
 
     const onlyBypass = baseManifest({
       permissionPresets: { bypass: { label: 'Bypass', args: ['--yolo'] } },
       launch: { argv },
     })
-    assert.deepEqual(
-      renderPluginLaunch(onlyBypass, { permissionPreset: 'manual' }).argv,
-      ['test'],
-      'a narrower request never degrades UP into a more permissive preset',
-    )
+    assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'none' }).argv, ['test'])
+    assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'manual' }).argv, ['test'])
+    assert.deepEqual(renderPluginLaunch(onlyBypass, {}).argv, ['test'], 'no preset at all is no flag')
     assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'bypass' }).argv, ['test', '--yolo'])
+
+    const preRename = baseManifest({
+      permissionPresets: { bypass_all: { label: 'Bypass', args: ['--yolo'] } },
+      launch: { argv },
+    })
+    assert.deepEqual(
+      renderPluginLaunch(preRename, { permissionPreset: 'bypass' }).argv,
+      ['test', '--yolo'],
+      "a manifest's pre-rename bypass_all is still its bypass",
+    )
+    assert.deepEqual(renderPluginLaunch(preRename, { permissionPreset: 'bypass_all' }).argv, ['test', '--yolo'])
   }
 
   function testValueIfPresentAndAbsent(): void {
@@ -245,7 +254,7 @@ test('plugin-render', async () => {
 
     const resumed = renderPluginResume(claude, {
       sessionId: 'sid_42',
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
     })
     assert.deepEqual(resumed?.argv, ['claude', '--resume', 'sid_42'])
   }
@@ -257,11 +266,7 @@ test('plugin-render', async () => {
       version: 1,
       binary: 'codex',
       permissionPresets: {
-        default: { label: 'Default', args: [] },
-        auto: {
-          label: 'Auto',
-          args: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
-        },
+        bypass: { label: 'YOLO', args: ['--dangerously-bypass-approvals-and-sandbox'] },
       },
       launch: {
         argv: ['{{binary}}', { spreadIf: 'permissionArgs' }, { valueIf: 'prompt', value: '{{prompt}}' }],
@@ -287,24 +292,17 @@ test('plugin-render', async () => {
 
     const launched = renderPluginLaunch(codex, {
       prompt: 'fix the parser bug',
-      permissionPreset: 'auto',
+      permissionPreset: 'bypass',
     })
-    assert.deepEqual(launched.argv, [
-      'codex',
-      '--ask-for-approval',
-      'never',
-      '--sandbox',
-      'workspace-write',
-      'fix the parser bug',
-    ])
+    assert.deepEqual(launched.argv, ['codex', '--dangerously-bypass-approvals-and-sandbox', 'fix the parser bug'])
 
     // Targeted resume: when the harness session id is known it is appended, so
     // Codex reattaches that specific conversation (`codex resume <id>`).
-    const resumedTargeted = renderPluginResume(codex, { permissionPreset: 'manual', sessionId: 'codex-conv-xyz' })
+    const resumedTargeted = renderPluginResume(codex, { permissionPreset: 'none', sessionId: 'codex-conv-xyz' })
     assert.deepEqual(resumedTargeted?.argv, ['codex', 'resume', 'codex-conv-xyz'])
 
     // Bare fallback: no id known yet → plain `codex resume` (Codex's last session).
-    const resumedBare = renderPluginResume(codex, { permissionPreset: 'manual' })
+    const resumedBare = renderPluginResume(codex, { permissionPreset: 'none' })
     assert.deepEqual(resumedBare?.argv, ['codex', 'resume'])
   }
 

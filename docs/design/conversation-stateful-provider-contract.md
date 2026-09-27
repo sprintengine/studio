@@ -1,11 +1,10 @@
 # Stateful conversation-provider contract (Claude Agent SDK)
 
-Design note for the Claude Agent SDK conversation provider. Written before
-implementation; reviewed against the running code on 2026-07-07.
+Contract for the conversation providers, reviewed against the runtime on 2026-09-26.
 
 ## Problem
 
-`ConversationRuntime` assumes every provider is **stateless**: it owns the
+For stateless providers, `ConversationRuntime` owns the
 chat history (`RuntimeSession.history`), replays `[...history, user]` on every
 turn, and treats a provider "session" as nothing more than a namespace for
 events. The Claude Agent SDK is the opposite: `query()` with a streaming-input
@@ -13,7 +12,7 @@ prompt holds a **long-lived child process** that owns its own history, emits
 `SDKMessage`s across turns, supports native `interrupt()`, and persists a
 resume cursor (`session_id`) that survives app restarts.
 
-## Contract change
+## Adapter contract
 
 One new optional capability on the adapter, discriminated by a `sessions`
 field. The stateless shape stays exactly as-is (OpenRouter/mock regression
@@ -23,6 +22,8 @@ surface is zero):
 // src/main/providers/conversation-provider-adapter.ts (extracted, main-only)
 export type ConversationProviderAdapter = {
   id: string
+  displayName?: string
+  capabilities?: ConversationCapabilities
   listModels(): string[]
   // 'stateless' (default): runtime replays full history each turn.
   // 'stateful': adapter owns history + resume; runtime must NOT replay.
@@ -35,7 +36,7 @@ export type ConversationProviderAdapter = {
 }
 ```
 
-The method set is unchanged — statefulness changes the *semantics*, not the
+The method set is unchanged — statefulness changes the _semantics_, not the
 shape, so the runtime keeps one code path for event fan-out/persistence:
 
 - `sendTurn` on a stateful adapter receives only the new user `message`
@@ -104,19 +105,56 @@ as `input.resumeSessionId`. No new store, no settings-store setter.
 
 ### Event mapping (SDKMessage → ConversationEvent)
 
-| SDK | Canonical |
-| --- | --- |
-| `system/init` | `session_started` payload `{ providerSessionId, model }` |
-| `stream_event: content_block_delta text_delta` | `content_delta` |
-| `stream_event: content_block_delta thinking_delta` | `reasoning_delta` |
-| `assistant` message `tool_use` blocks | `tool_started` (name + input summary) |
-| `user` message `tool_result` blocks | `tool_output` |
-| `result success` | `usage_updated` + `turn_completed` |
-| `result error*` | `turn_failed` |
-| `canUseTool` callback | `approval_requested` … `approval_resolved` |
-| rate-limit / auth notices | `turn_failed` reason `auth` (v1) |
+| SDK                                                | Canonical                                                |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| `system/init`                                      | `session_started` payload `{ providerSessionId, model }` |
+| `stream_event: content_block_delta text_delta`     | `content_delta`                                          |
+| `stream_event: content_block_delta thinking_delta` | `reasoning_delta`                                        |
+| `assistant` message `tool_use` blocks              | `tool_started` (name + input summary)                    |
+| `user` message `tool_result` blocks                | `tool_output`                                            |
+| `result success`                                   | `usage_updated` + `turn_completed`                       |
+| `result error*`                                    | `turn_failed`                                            |
+| `canUseTool` callback                              | `approval_requested` … `approval_resolved`               |
+| rate-limit / auth notices                          | `turn_failed` reason `auth` (v1)                         |
 
 Everything unrecognized is dropped (forward-compatible with SDK churn).
+
+### Capabilities and structured tools
+
+`src/main/providers/conversation-provider-adapter.ts` owns the adapter and stream
+types. `src/shared/conversation-runtime.ts` owns `ConversationCapabilities`,
+`ConversationToolEvent`, and the detail result discriminated union. Every bundled
+adapter declares its capabilities; the runtime includes them and its display name
+in the session summary before the first turn. Optional declarations accommodate
+legacy adapters. UI controls read capabilities rather than provider identities.
+
+| Capability                                               | Claude Code | API  | Mock   |
+| -------------------------------------------------------- | ----------- | ---- | ------ |
+| tools, approvals, questions, planMode, images, subagents | yes         | no   | yes    |
+| skills                                                   | native      | none | native |
+| interrupt                                                | yes         | yes  | yes    |
+| resume                                                   | yes         | no   | no     |
+| cost, contextMeter, liveModelSwitch                      | no          | no   | no     |
+| reasoningEfforts                                         | null        | null | null   |
+
+Tool starts preserve structured input and a normalized kind. Tool outputs carry
+a bounded preview and byte count. Full redacted inputs and outputs live in the
+conversation's paired `.tools` directory; `conversation:tool-detail` retrieves
+them. Details larger than 5 MB retain a bounded head and tail with `clipped:true`.
+
+### Continuation channel and replay
+
+The session input's `onSessionEvent` callback carries provider events after the
+current send stream ends. A continuation opens a fresh `turn_started`, streams
+its tools and approvals, and closes with `turn_completed` or `turn_failed`.
+The runtime serializes these events with normal sends, mirrors the active turn,
+and routes approval responses to the same provider session.
+
+`src/main/conversation-session-api.ts` has no Electron dependency. It attaches a
+live listener before reading catch-up, deduplicates by per-conversation `seq`,
+and emits a synchronized marker before draining queued live events. Large
+catch-ups use pages ending on user-turn boundaries. Commands with a client UUID
+reuse one of the conversation's last 256 persisted receipts.
 
 ### Process lifecycle
 

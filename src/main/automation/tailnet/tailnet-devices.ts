@@ -6,7 +6,7 @@ import { hashSecret } from '../../mobile/bridge/crypto'
 import {
   normalizeTailnetScopes,
   PAIR_REQUEST_CODE_ATTEMPTS,
-  TAILNET_STRUCTURED_SCOPES,
+  TAILNET_LEGACY_REQUEST_SCOPES,
   type TailnetDevice,
   type TailnetDeviceOrigin,
   type TailnetPairingState,
@@ -175,6 +175,8 @@ export type TailnetDeviceStore = {
   updateDeviceScopes(deviceId: string, scopes: unknown): TailnetDevice
   /** Fires with the revoked device id so live streams for it can be closed. */
   onDeviceRevoked(listener: (deviceId: string) => void): () => void
+  /** Fires with the device after its scopes changed, so live streams can narrow or close to match. */
+  onDeviceScopesChanged(listener: (device: TailnetDevice) => void): () => void
   recordSeen(deviceId: string, peerNode: string | null): void
 
   // ── Pairing by approval here ─────────────────────────────────
@@ -237,6 +239,7 @@ export function createTailnetDeviceStore(options: {
   const now = options.now ?? (() => new Date())
   const pairRequestTtlMs = Math.max(1, options.pairRequestTtlMs ?? DEFAULT_PAIR_REQUEST_TTL_MS)
   const revokeListeners = new Set<(deviceId: string) => void>()
+  const scopeListeners = new Set<(device: TailnetDevice) => void>()
   let devices: StoredDevice[] = readDevices(options.resolveUserDataDir(), options.log)
   let pairing: {
     tokenHash: string
@@ -427,12 +430,26 @@ export function createTailnetDeviceStore(options: {
       // a restart would silently narrow again, so the write must reach the
       // caller if it fails.
       persist()
-      return publicDevice(device)
+      const updated = publicDevice(device)
+      // A socket opened under the old grant must not keep it.
+      for (const listener of scopeListeners) {
+        try {
+          listener(updated)
+        } catch (error) {
+          options.log?.(`Tailnet scope listener threw: ${message(error)}`)
+        }
+      }
+      return updated
     },
 
     onDeviceRevoked(listener): () => void {
       revokeListeners.add(listener)
       return () => revokeListeners.delete(listener)
+    },
+
+    onDeviceScopesChanged(listener): () => void {
+      scopeListeners.add(listener)
+      return () => scopeListeners.delete(listener)
     },
 
     recordSeen(deviceId, peerNode): void {
@@ -664,9 +681,9 @@ export function createTailnetDeviceStore(options: {
  * asking for no access at all.
  */
 function readRequestedScopes(value: unknown): TailnetScope[] {
-  if (value === undefined || value === null) return [...TAILNET_STRUCTURED_SCOPES]
+  if (value === undefined || value === null) return [...TAILNET_LEGACY_REQUEST_SCOPES]
   const named = normalizeTailnetScopes(value)
-  return named.length > 0 ? named : [...TAILNET_STRUCTURED_SCOPES]
+  return named.length > 0 ? named : [...TAILNET_LEGACY_REQUEST_SCOPES]
 }
 
 function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {

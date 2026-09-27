@@ -43,11 +43,12 @@ the main process — a call that returns success has a live session behind it.
 id ready to attach — it launches a CLI under a permission preset through the
 same path `agent_launch` uses, and `terminal_list`'s `kind` filter counts it as
 `agent`, not as a plain shell. There is no tool here that opens a bare shell.
-Name the workspace by `workspaceId` or by `workspaceName`. The CLI and
+Name the workspace by `workspaceId` or by `workspaceName`. The CLI and the
 permission preset default to this machine's own launch settings unless you name
-them; when you do name one it must be `manual` or `auto`. `bypass` is refused
-here as everywhere on this surface, and so is its old spelling `bypass_all`; if
-a task genuinely needs it, say so and let a person set it in the app.
+them: the preset chosen for that CLI, else `bypass`, exactly as the app's
+launcher would. Name `none` (no permission flag, so the CLI's own configuration
+decides) when the person asks for it; the answer reports the preset the launch
+resolved.
 
 `terminal_list` lists open sessions — session id, agent name, CLI, working
 directory, workspace, whether the process is live or the session is paused, and

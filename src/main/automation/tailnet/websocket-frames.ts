@@ -42,6 +42,12 @@ type WebSocketFrame =
   | { kind: 'pong' }
   /** Code/reason are carried for a client that must report WHY the peer hung up (4401 revoked, say). */
   | { kind: 'close'; code: number; reason: string }
+  /**
+   * A text message over the size cap that the decoder was asked to skip
+   * rather than close on. Its payload is discarded as it arrives; only its
+   * first bytes are kept, so the reply can name what the message was.
+   */
+  | { kind: 'oversized'; bytes: number; prefix: string }
 
 type WebSocketDecodeResult =
   { kind: 'frames'; frames: WebSocketFrame[] } | { kind: 'error'; code: number; reason: string }
@@ -62,17 +68,35 @@ export type WebSocketFrameDecoder = {
  */
 export type WebSocketDecoderRole = 'server' | 'client'
 
+const OVERSIZED_PREFIX_BYTES = 1024
+
 export function createWebSocketFrameDecoder(
   maxMessageBytes: number = MAX_WEBSOCKET_MESSAGE_BYTES,
   role: WebSocketDecoderRole = 'server',
+  /**
+   * Text messages over `maxMessageBytes` but no larger than this are skipped
+   * and reported as `oversized` instead of failing the connection, for a
+   * transport that answers them with a typed refusal. Beyond it, or with no
+   * value, an oversized message still closes the socket.
+   */
+  skipOversizedTextUpTo = 0,
 ): WebSocketFrameDecoder {
   let buffer: Buffer = Buffer.alloc(0)
+  // Payload bytes of a skipped message still to arrive and be discarded.
+  let skipping = 0
+  const hardLimit = Math.max(maxMessageBytes, skipOversizedTextUpTo)
 
   return {
     push(chunk: Buffer): WebSocketDecodeResult {
       buffer = buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk])
       const frames: WebSocketFrame[] = []
       for (;;) {
+        if (skipping > 0) {
+          const dropped = Math.min(skipping, buffer.length)
+          buffer = buffer.subarray(dropped)
+          skipping -= dropped
+          if (skipping > 0) return { kind: 'frames', frames }
+        }
         if (buffer.length < 2) return { kind: 'frames', frames }
         const first = buffer[0]
         const second = buffer[1]
@@ -105,7 +129,7 @@ export function createWebSocketFrameDecoder(
         } else if (length === 127) {
           if (buffer.length < offset + 8) return { kind: 'frames', frames }
           const extended = buffer.readBigUInt64BE(offset)
-          if (extended > BigInt(maxMessageBytes)) {
+          if (extended > BigInt(hardLimit)) {
             return {
               kind: 'error',
               code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG,
@@ -115,14 +139,34 @@ export function createWebSocketFrameDecoder(
           length = Number(extended)
           offset += 8
         }
-        if (length > maxMessageBytes) {
+        if (length > maxMessageBytes && !(opcode === 0x1 && fin && length <= skipOversizedTextUpTo)) {
           return {
             kind: 'error',
             code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG,
             reason: `Frame exceeds the ${maxMessageBytes}-byte limit.`,
           }
         }
+        if (opcode >= 0x8 && length > 125) {
+          return {
+            kind: 'error',
+            code: WEBSOCKET_CLOSE_PROTOCOL_ERROR,
+            reason: 'Control frame exceeds the 125-byte limit.',
+          }
+        }
         const maskLength = masked ? 4 : 0
+        if (length > maxMessageBytes) {
+          // Keep the first bytes, discard the rest as it streams in: a message
+          // this size is never buffered whole.
+          const kept = Math.min(length, OVERSIZED_PREFIX_BYTES)
+          if (buffer.length < offset + maskLength + kept) return { kind: 'frames', frames }
+          const mask = masked ? buffer.subarray(offset, offset + 4) : null
+          const prefix = Buffer.from(buffer.subarray(offset + maskLength, offset + maskLength + kept))
+          if (mask) for (let index = 0; index < prefix.length; index += 1) prefix[index] ^= mask[index % 4]
+          frames.push({ kind: 'oversized', bytes: length, prefix: prefix.toString('utf8') })
+          buffer = buffer.subarray(offset + maskLength)
+          skipping = length
+          continue
+        }
         if (buffer.length < offset + maskLength + length) return { kind: 'frames', frames }
 
         const mask = masked ? buffer.subarray(offset, offset + 4) : null
@@ -178,6 +222,10 @@ export function encodePongFrame(payload: Buffer): Buffer {
   return encodeFrame(0xa, payload)
 }
 
+export function encodePingFrame(payload: Buffer = Buffer.alloc(0)): Buffer {
+  return encodeFrame(0x9, payload.subarray(0, 125))
+}
+
 export function encodeCloseFrame(code: number, reason = ''): Buffer {
   const reasonBytes = Buffer.from(reason, 'utf8')
   // The close body is a 2-byte code plus an optional reason, capped at 125
@@ -200,6 +248,10 @@ export function encodeMaskedCloseFrame(code: number, reason = ''): Buffer {
 
 export function encodeMaskedPongFrame(payload: Buffer): Buffer {
   return encodeMaskedFrame(0xa, payload)
+}
+
+export function encodeMaskedPingFrame(payload: Buffer = Buffer.alloc(0)): Buffer {
+  return encodeMaskedFrame(0x9, payload)
 }
 
 /**

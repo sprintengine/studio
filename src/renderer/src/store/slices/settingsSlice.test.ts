@@ -90,7 +90,7 @@ test('settingsSlice', async () => {
   assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
-  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'manual')
+  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'bypass', 'a value no version wrote takes the default')
   assert.deepEqual(normalized.projectKnowledgeRoots, {
     '/Users/example/project': 'docs/knowledge',
   })
@@ -153,42 +153,37 @@ test('settingsSlice', async () => {
     'standalone keybinding normalization rejects duplicates and invalid chords',
   )
 
-  assert.equal(normalizeCliPermissionPreset('auto'), 'auto')
-  assert.equal(normalizeCliPermissionPreset('bypass'), 'bypass')
-  // Corruption floors to `manual`, which the preset rename moved from `default`: no flag
-  // is no longer the conservative answer now that Claude Code reads it as auto.
-  assert.equal(normalizeCliPermissionPreset('bad' as never), 'manual')
-  // A recognised legacy spelling is not corruption — it maps, it does not floor.
-  assert.equal(normalizeCliPermissionPreset('default' as never), 'manual')
-  assert.equal(normalizeCliPermissionPreset('auto_workspace' as never), 'auto')
-  assert.equal(normalizeCliPermissionPreset('bypass_all' as never), 'bypass')
-
-  // The preset rename's rule: migration must NEVER escalate. Ordered least → most
-  // permissive, `none` sits outside the order because what it grants depends on
-  // the CLI (no flag now means auto mode on Claude Code), so it is checked
-  // separately: nothing may migrate INTO it, since that would hand the decision
-  // to a CLI whose default the user never chose.
-  {
-    const rank: Record<string, number> = { manual: 0, auto: 1, bypass: 2 }
-    const legacyRank: Record<string, number> = { default: 0, auto_workspace: 1, bypass_all: 2 }
-    for (const [legacy, before] of Object.entries(legacyRank)) {
-      const after = normalizeCliPermissionPreset(legacy as never)
-      assert.notEqual(after, 'none', `${legacy} must not migrate into the CLI's own default`)
-      assert.ok(rank[after] <= before, `${legacy} migrated UP the ladder to ${after} — migration may never grant more`)
-    }
-    // Corruption floors, and the floor is the least permissive rung.
-    assert.equal(rank[normalizeCliPermissionPreset('nonsense' as never)], 0)
+  // The two-mode migration table (owner ruling 2026-09-27). Every retired
+  // preset asked more often than bypass does, so each lands on `none` — the CLI's
+  // own default — and none of them is ever widened into bypass. Only the
+  // pre-rename spelling of bypass itself, an absent value, or one no version
+  // ever wrote reads as `bypass`, the default.
+  const migration: Array<[unknown, 'none' | 'bypass']> = [
+    ['none', 'none'],
+    ['bypass', 'bypass'],
+    ['manual', 'none'],
+    ['auto', 'none'],
+    ['default', 'none'],
+    ['auto_workspace', 'none'],
+    ['bypass_all', 'bypass'],
+    [undefined, 'bypass'],
+    [null, 'bypass'],
+    ['nonsense', 'bypass'],
+    [42, 'bypass'],
+  ]
+  for (const [stored, expected] of migration) {
+    assert.equal(normalizeCliPermissionPreset(stored), expected, `${String(stored)} reads as ${expected}`)
   }
 
   // New-chat agent choice: the three spawn kinds round-trip; only malformed
-  // shapes and missing values fall back to general.
+  // shapes and missing values use the first-run choice, which is Terminal.
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'terminal' }), { kind: 'terminal' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'conversation' }), { kind: 'conversation' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'general' }), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'general' })
-  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'general' })
+  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice('conversation'), { kind: 'terminal' })
+  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'terminal' })
 
   // A model override keeps only a well-formed { cli, model } pair.
   assert.deepEqual(normalizeCliModelSelection({ cli: 'claude-code', model: ' opus ' }), {
@@ -567,11 +562,11 @@ test('settingsSlice', async () => {
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass')
   slice.setLastAgentSpawnPermissionPreset('none')
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'none')
-  slice.setLastAgentSpawnPermissionPreset('nonsense' as never)
+  slice.setLastAgentSpawnPermissionPreset('manual' as never)
   assert.equal(
     carrier.appSettings.lastAgentSpawnPermissionPreset,
-    'manual',
-    'a corrupt pick floors at the least permissive rung',
+    'none',
+    'a retired pick from an older window keeps its nearest meaning',
   )
 
   const store = useWorkspaceStore.getState()

@@ -16,6 +16,7 @@ import {
 } from './agent-launch-render'
 import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
+import { resolvePermissionArgs } from './plugin-render'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest, getPluginById } from './plugin-registry-instance'
 import { test } from 'vitest'
@@ -43,7 +44,8 @@ test('agent-launch-render', async () => {
       testClaudeCodeRenderWithRuntimeBinaryOverride()
       testLaunchExecutesProbedPathAndGuardFailsHard()
       testCodexRenderDefault()
-      testCodexRenderWithAutoWorkspace()
+      testCodexRenderWithBypass()
+      testEveryBundledCliRendersBothModes()
       testCodexRenderResume()
       testOpenCodeRenderDefault()
       testOpenCodeRenderWithBypassAndModel()
@@ -572,14 +574,54 @@ test('agent-launch-render', async () => {
     assert.deepEqual(out.argv, ['codex', 'fix the parser'])
   }
 
-  function testCodexRenderWithAutoWorkspace(): void {
+  function testCodexRenderWithBypass(): void {
     const out = renderAgentLaunchArgv({
       cli: 'codex',
       sessionId: 'sid_y',
       initialPrompt: 'fix it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
-    assert.deepEqual(out.argv, ['codex', '--ask-for-approval', 'never', '--sandbox', 'workspace-write', 'fix it'])
+    assert.deepEqual(out.argv, ['codex', '--dangerously-bypass-approvals-and-sandbox', 'fix it'])
+  }
+
+  // The two modes, for every bundled CLI: `bypass` is that CLI's own
+  // skip-every-prompt flag, `none` is no permission flag at all. A CLI with no
+  // documented bypass flag launches with none either way.
+  function testEveryBundledCliRendersBothModes(): void {
+    const bypassArgs: Record<string, string[]> = {
+      'claude-code': ['--permission-mode', 'bypassPermissions'],
+      'kimi-claude': ['--permission-mode', 'bypassPermissions'],
+      zai: ['--permission-mode', 'bypassPermissions'],
+      codex: ['--dangerously-bypass-approvals-and-sandbox'],
+      cursor: ['--force'],
+      grok: ['--always-approve', '--trust'],
+      opencode: ['--auto'],
+      'kimi-code': ['--auto'],
+      muse: [],
+      'generic-shell': [],
+    }
+    for (const [cli, expected] of Object.entries(bypassArgs)) {
+      const plugin = getPluginById(cli)
+      assert.ok(plugin, `bundled ${cli} is loaded`)
+      assert.deepEqual(resolvePermissionArgs(plugin!.manifest, 'bypass'), expected, `${cli}: bypass flags`)
+      assert.deepEqual(resolvePermissionArgs(plugin!.manifest, 'none'), [], `${cli}: none passes no flag`)
+      for (const retired of ['manual', 'auto', 'default']) {
+        assert.deepEqual(
+          resolvePermissionArgs(plugin!.manifest, retired),
+          [],
+          `${cli}: a stored ${retired} runs as none`,
+        )
+      }
+    }
+
+    // And through the launch itself: no flag between the binary and the prompt.
+    const none = renderAgentLaunchArgv({
+      cli: 'claude-code',
+      sessionId: 'sid_n',
+      initialPrompt: 'go',
+      cliPermissionPreset: 'none',
+    })
+    assert.deepEqual(none.argv, ['claude', '--session-id', 'sid_n', 'go'])
   }
 
   function testCodexRenderResume(): void {
@@ -719,10 +761,16 @@ test('agent-launch-render', async () => {
       cli: 'claude-code',
       sessionId: 'sid_win',
       initialPrompt: 'do it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
     assert.equal(claude.argv[0], 'claude')
-    assert.deepEqual(claude.argv.slice(1), ['--permission-mode', 'auto', '--session-id', 'sid_win', 'do it'])
+    assert.deepEqual(claude.argv.slice(1), [
+      '--permission-mode',
+      'bypassPermissions',
+      '--session-id',
+      'sid_win',
+      'do it',
+    ])
 
     const claudeOverride = renderAgentLaunchArgv({
       cli: 'claude-code',
@@ -738,11 +786,11 @@ test('agent-launch-render', async () => {
       cli: 'codex',
       sessionId: 'sid_y',
       initialPrompt: 'fix it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
     assert.equal(
       out,
-      `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --ask-for-approval never --sandbox workspace-write 'fix it'`,
+      `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --dangerously-bypass-approvals-and-sandbox 'fix it'`,
     )
 
     const resumeOut = buildAgentShellCommand({
@@ -868,7 +916,7 @@ test('agent-launch-render', async () => {
   // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
   // permission surface.
   function testDebugModeOrthogonality(): void {
-    const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+    const presets: CliPermissionPreset[] = ['none', 'bypass']
     const prompt = 'investigate the crash'
     for (const cli of ['claude-code', 'codex'] as const) {
       for (const preset of presets) {
@@ -964,7 +1012,7 @@ test('agent-launch-render', async () => {
           cwd,
           'go',
           runtime,
-          'manual',
+          'none',
           'gpt-5.6-sol',
           false,
           reasoning,
@@ -973,33 +1021,11 @@ test('agent-launch-render', async () => {
 
     assert.deepEqual(
       script('high'),
-      [
-        '-C',
-        cwd,
-        '--ask-for-approval',
-        'on-request',
-        '--sandbox',
-        'read-only',
-        '--model',
-        'gpt-5.6-sol',
-        '-c',
-        'model_reasoning_effort="high"',
-        'go',
-      ],
+      ['-C', cwd, '--model', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', 'go'],
       'codex-legacy renders the effort flag after the model flag',
     )
     const baseline = script(undefined)
-    assert.deepEqual(baseline, [
-      '-C',
-      cwd,
-      '--ask-for-approval',
-      'on-request',
-      '--sandbox',
-      'read-only',
-      '--model',
-      'gpt-5.6-sol',
-      'go',
-    ])
+    assert.deepEqual(baseline, ['-C', cwd, '--model', 'gpt-5.6-sol', 'go'])
     for (const level of [undefined, '', 'medium', 'bogus']) {
       assert.deepEqual(script(level), baseline, `codex-legacy passes no effort flag for ${JSON.stringify(level)}`)
     }
@@ -1013,7 +1039,7 @@ test('agent-launch-render', async () => {
           cwd,
           undefined,
           runtime,
-          'manual',
+          'none',
           'gpt-5.6-sol',
           false,
           reasoning,
@@ -1035,7 +1061,7 @@ test('agent-launch-render', async () => {
   // when debugMode is on, and (b) keep launch/permission args byte-identical with
   // debug on vs off — the same orthogonality invariant the shared paths hold.
   function testCodexLegacyWindowsDebugInjection(): void {
-    const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+    const presets: CliPermissionPreset[] = ['none', 'bypass']
     const cwd = 'C:/work/repo'
     const runtime = { command: '' }
     const prompt = 'investigate the crash'
@@ -1104,7 +1130,7 @@ test('agent-launch-render', async () => {
       cwd,
       undefined,
       runtime,
-      'manual',
+      'none',
       undefined,
       false,
     )
@@ -1114,7 +1140,7 @@ test('agent-launch-render', async () => {
       cwd,
       undefined,
       runtime,
-      'manual',
+      'none',
       undefined,
       true,
     )
@@ -1129,7 +1155,7 @@ test('agent-launch-render', async () => {
       cwd,
       '',
       runtime,
-      'manual',
+      'none',
       undefined,
       true,
     )
@@ -1150,7 +1176,8 @@ test('agent-launch-render', async () => {
     const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: CliPermissionPreset }> = [
       { cli: 'claude-code' },
       { cli: 'claude-code', preset: 'bypass', model: 'claude-opus-5' },
-      { cli: 'codex', preset: 'auto' },
+      { cli: 'codex', preset: 'bypass' },
+      { cli: 'codex', preset: 'none' },
       { cli: 'opencode', model: 'anthropic/claude-opus-5' },
     ]
 

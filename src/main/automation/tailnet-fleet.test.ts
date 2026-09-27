@@ -574,7 +574,7 @@ test('tailnet-fleet', async () => {
         workspaceId: 'ws-1',
         cli: 'claude-code',
         prompt: 'Fix the relay snapshot race',
-        permissionPreset: 'auto',
+        permissionPreset: 'none',
         checkout: { mode: 'worktree', name: 'fix', baseRef: 'feat/x' },
       })
       assert.ok(created.ok, created.ok ? '' : created.message)
@@ -589,7 +589,7 @@ test('tailnet-fleet', async () => {
       assert.deepEqual(wire?.worktree, { name: 'fix', baseRef: 'feat/x' })
       assert.equal(wire?.cli, 'claude-code')
       assert.equal(wire?.prompt, 'Fix the relay snapshot race')
-      assert.equal(wire?.permissionPreset, 'auto')
+      assert.equal(wire?.permissionPreset, 'none')
       assert.equal(terminalCreateArgs.length, before, 'terminal.create was not asked')
 
       // The current checkout is still terminal.create, and says so.
@@ -630,7 +630,7 @@ test('tailnet-fleet', async () => {
         cli: 'claude-code',
         prompt: 'Fix the relay snapshot race',
         cliModel: 'claude-fable-5',
-        permissionPreset: 'auto',
+        permissionPreset: 'none',
       })
       assert.ok(created.ok, created.ok ? '' : created.message)
       assert.equal(created.sessionId, 'session_two')
@@ -641,7 +641,7 @@ test('tailnet-fleet', async () => {
       assert.equal(wire?.cli, 'claude-code')
       assert.equal(wire?.prompt, 'Fix the relay snapshot race')
       assert.equal(wire?.cliModel, 'claude-fable-5')
-      assert.equal(wire?.permissionPreset, 'auto')
+      assert.equal(wire?.permissionPreset, 'none')
       // The remote machine really made the session the id names.
       harness.terminals.create(created.sessionId)
 

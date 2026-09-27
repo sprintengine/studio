@@ -1,6 +1,8 @@
 import { isSessionWorking } from '../../hooks/useTerminalSessions'
 import { formatRelativeMs } from '../../utils/relativeTime'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { AgentState, Workspace } from '../../types/workspace'
 import type { ConversationPeekIdentity, ConversationPeekStatus } from './ConversationPeekCard'
 
@@ -104,6 +106,7 @@ export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: str
 export function rowConversationPeekIdentities(input: {
   workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
   sessions: ReadonlyArray<TerminalSessionSnapshot>
+  conversations?: ReadonlyArray<ConversationSessionSummary>
   status: ConversationPeekStatus
   now: number
 }): ConversationPeekIdentity[] {
@@ -148,6 +151,38 @@ export function rowConversationPeekIdentities(input: {
       live: session.exitedAt === null,
       at: activityAt(session),
     })
+  }
+
+  for (const session of input.conversations ?? []) {
+    const phase = conversationSummaryPhase(session)
+    byId.set(session.sessionId, {
+      identity: {
+        name: input.workspace.name,
+        status:
+          phase === 'running' || phase === 'starting'
+            ? { kind: 'working', label: 'Working' }
+            : phase === 'waiting_for_approval'
+              ? { kind: 'attention', label: 'Needs approval' }
+              : phase === 'waiting_for_input'
+                ? { kind: 'attention', label: 'Asked a question' }
+                : phase === 'failed'
+                  ? { kind: 'attention', label: 'Failed' }
+                  : { kind: 'idle', label: 'Idle' },
+        agent: {
+          sessionId: session.sessionId,
+          agentId: session.agentId,
+          cli: null,
+          model: session.modelId,
+          fileChanges: [],
+          pullRequests: [],
+          activeSubagents: 0,
+          contextUsage: null,
+        },
+      },
+      live: phase !== 'completed',
+      at: session.updatedAt,
+    })
+    seenAgents.add(session.agentId)
   }
 
   // Parked records, for the chats main's session list has never heard of. Never

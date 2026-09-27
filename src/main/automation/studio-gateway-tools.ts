@@ -2,6 +2,7 @@ import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
 import { EDITOR_MUTATION_TOOL_NAMES } from './editor-tools'
 import type { McpToolContribution } from '../module-host/main-host'
+import { CONVERSATION_COMMAND_TOOL_NAMES } from './tailnet/tailnet-conversation-stream'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
 import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
@@ -24,6 +25,11 @@ const APP_MUTATION_TOOLS = new Set([
   'backlog.repair',
   'backlog.update',
   'backlog.work',
+  // A paired device's commands on a conversation socket: send, stop, answer,
+  // approve, change the permission preset. They are not MCP tools, but they
+  // act on this machine for a remote device exactly as one does, so each
+  // attempt lands in the same audit with the device that made it.
+  ...CONVERSATION_COMMAND_TOOL_NAMES,
   // Configuring who may drive this machine. Classified as mutations so every
   // one of them is audited — minting a pairing code is the most consequential
   // write on this surface. The tailnet listener never serves them at all

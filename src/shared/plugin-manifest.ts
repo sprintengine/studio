@@ -672,6 +672,7 @@ export type PluginRegistryListEntry = {
 }
 
 export type ConversationProviderListEntry = {
+  capabilities?: import('./conversation-runtime').ConversationCapabilities
   id: string
   displayName: string
   source: PluginSource
@@ -682,6 +683,9 @@ export type ConversationProviderListEntry = {
   // renderer then treats `models` as a seed and trusts the live catalog instead
   // of blocking on static membership.
   supportsDynamicModels: boolean
+  // Authentication/catalog ownership, independent of tool capabilities or
+  // billing. Native CLI credentials may themselves use a plan or an API key.
+  credentialSource: 'native' | 'api-key' | 'none'
   adapter: ConversationProviderAdapterClassification
   // Plain-language reason this provider cannot start sessions right now (e.g.
   // its agent-harness CLI was not found). An unavailable provider is still

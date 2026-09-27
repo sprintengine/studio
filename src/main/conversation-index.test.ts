@@ -1,0 +1,283 @@
+import { mkdtemp, mkdir, readFile, writeFile, appendFile, rm, symlink, stat, link } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test } from 'vitest'
+import { ConversationIndex, conversationIndexTranscriptPath, firstMessageTitle } from './conversation-index'
+import type { ConversationEvent } from '../shared/conversation-runtime'
+
+async function fixture(
+  run: (key: { workspaceRoot: string; workspaceId: string; agentId: string }, path: string) => Promise<void>,
+) {
+  const root = await mkdtemp(join(tmpdir(), 'conversation-index-'))
+  const key = { workspaceRoot: root, workspaceId: 'workspace', agentId: 'agent' }
+  const path = conversationIndexTranscriptPath(key)
+  await mkdir(join(root, '.sprintengine', 'conversations', 'workspace'), { recursive: true })
+  try {
+    await run(key, path)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+function event(
+  seq: number,
+  type: ConversationEvent['type'],
+  payload: Record<string, unknown>,
+  agentId = 'agent',
+): ConversationEvent {
+  return {
+    id: `event-${seq}`,
+    seq,
+    sessionId: 'session',
+    workspaceId: 'workspace',
+    agentId,
+    providerId: 'provider',
+    modelId: 'model',
+    createdAt: seq * 1000,
+    type,
+    payload,
+  }
+}
+const lines = (events: ConversationEvent[]) => `${events.map((value) => JSON.stringify(value)).join('\n')}\n`
+
+test('missing, corrupt and old-version caches rebuild from authoritative events', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'turn', text: 'Build a useful chat' }),
+        event(2, 'turn_completed', { turnId: 'turn' }),
+      ]),
+    )
+    const index = new ConversationIndex(),
+      cache = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId, 'index.json')
+    expect(await index.list(key)).toMatchObject([
+      { agentId: 'agent', title: 'Build a useful chat', titleSource: 'first-message', turnCount: 1, lastSeq: 2 },
+    ])
+    for (const invalid of ['{broken', '{"version":0,"threads":[],"files":[]}']) {
+      await writeFile(cache, invalid)
+      expect((await index.list(key))[0]?.title).toBe('Build a useful chat')
+    }
+    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe(2)
+  }))
+
+test('conversation cost includes old turns and deduplicates completion records', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+        event(2, 'turn_completed', { turnId: 'second', costUsd: 0.5 }),
+        event(3, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+        event(4, 'turn_completed', { turnId: 'third', costUsd: -1 }),
+      ]),
+    )
+    expect((await new ConversationIndex().list(key))[0]?.totalCostUsd).toBe(0.75)
+    expect((await new ConversationIndex().list(key))[0]?.totalCostUsd).toBe(0.75)
+  }))
+
+test('user rename survives rebuild and always wins over a generated title', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { text: 'Initial title' }),
+        event(2, 'session_updated', { conversationTitle: 'My title', titleSource: 'user' }),
+        event(3, 'session_updated', { conversationTitle: 'Generated later', titleSource: 'generated' }),
+      ]),
+    )
+    expect((await new ConversationIndex().list(key))[0]).toMatchObject({ title: 'My title', titleSource: 'user' })
+    expect(firstMessageTitle('  one\n two  ')).toBe('one two')
+    expect(firstMessageTitle('x'.repeat(100))).toHaveLength(60)
+  }))
+
+test('search joins split assistant deltas and returns a jumpable user-turn sequence', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'turn', text: 'Question' }),
+        event(2, 'content_delta', { turnId: 'turn', text: 'The alpha ' }),
+        event(3, 'content_delta', { turnId: 'turn', text: 'beta answer.' }),
+      ]),
+    )
+    const batches: unknown[] = []
+    expect(
+      await new ConversationIndex().search(
+        { ...key, query: 'ALPHA BETA' },
+        { onBatch: (batch) => batches.push(batch) },
+      ),
+    ).toEqual([{ agentId: 'agent', seq: 1, turnId: 'turn', snippet: 'The alpha beta answer.' }])
+    expect(batches).toHaveLength(1)
+  }))
+
+test('refresh creates the cache and a later append invalidates a stale cache', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 'one', text: 'First' })]))
+    const index = new ConversationIndex()
+    await index.refresh(key)
+    expect(
+      await stat(join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId, 'index.json')),
+    ).toBeDefined()
+    await appendFile(path, lines([event(2, 'user_message', { turnId: 'two', text: 'Second' })]))
+    expect((await index.list(key))[0]?.turnCount).toBe(2)
+  }))
+
+test('search caps hits, emits bounded batches and honours cancellation', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines(
+        Array.from({ length: 500 }, (_, index) =>
+          event(index + 1, 'user_message', { turnId: `turn-${index}`, text: 'match' }),
+        ),
+      ),
+    )
+    const index = new ConversationIndex(),
+      batches: number[] = []
+    expect(
+      await index.search({ ...key, query: 'match' }, { onBatch: (batch) => batches.push(batch.length) }),
+    ).toHaveLength(200)
+    expect(batches).toEqual(Array.from({ length: 10 }, () => 20))
+    const controller = new AbortController()
+    controller.abort()
+    await expect(index.search({ ...key, query: 'match' }, { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+  }))
+
+test('delete closes the transcript and removes only its log, detail directory and cache row', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { text: 'One' })]))
+    const other = conversationIndexTranscriptPath({ ...key, agentId: 'other' })
+    await writeFile(other, lines([event(1, 'user_message', { text: 'Other' }, 'other')]))
+    const tools = path.replace(/\.jsonl$/, '.tools')
+    await mkdir(tools)
+    await writeFile(join(tools, 'tool.json'), '{}')
+    const closed: string[] = [],
+      index = new ConversationIndex({
+        close: async (value) => {
+          closed.push(value)
+        },
+      })
+    await index.list(key)
+    await index.delete(key)
+    expect(closed).toEqual([path])
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(tools)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await index.list(key)).toMatchObject([{ agentId: 'other' }])
+    expect(await readFile(other, 'utf8')).toContain('Other')
+  }))
+
+test('cancellation during a streamed batch stops without leaking a stream error', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines(
+        Array.from({ length: 1000 }, (_, index) =>
+          event(index + 1, 'user_message', { turnId: `turn-${index}`, text: `match ${'padding '.repeat(200)}` }),
+        ),
+      ),
+    )
+    const controller = new AbortController()
+    await expect(
+      new ConversationIndex().search(
+        { ...key, query: 'match' },
+        {
+          signal: controller.signal,
+          onBatch: () => controller.abort(),
+        },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  }))
+
+test('a symlink transcript is neither searched nor deleted through', async () =>
+  fixture(async (key, path) => {
+    const outside = join(key.workspaceRoot, 'private.jsonl')
+    await writeFile(outside, lines([event(1, 'user_message', { text: 'private match' })]))
+    await symlink(outside, path)
+    const index = new ConversationIndex()
+    expect(await index.search({ ...key, query: 'private' })).toEqual([])
+    await expect(index.delete(key)).rejects.toThrow('symbolic link')
+    expect(await readFile(outside, 'utf8')).toContain('private match')
+  }))
+
+test('coalesced delta sequence ranges survive index rebuild', async () =>
+  fixture(async (key, path) => {
+    const merged = {
+      ...event(2, 'content_delta', { turnId: 'turn', text: 'ab' }),
+      parts: [
+        ['first', 2000, 1, 2],
+        ['second', 3000, 1, 3],
+      ],
+    }
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'turn', text: 'Question' }),
+        merged,
+        event(4, 'turn_completed', { turnId: 'turn' }),
+      ]),
+    )
+    expect((await new ConversationIndex().list(key))[0]?.lastSeq).toBe(4)
+  }))
+
+test('a transcript past the read limit is listed and searched from its opening and its end', async () =>
+  fixture(async (key, path) => {
+    const events = [event(1, 'user_message', { turnId: 't0', text: 'Opening question' })]
+    for (let seq = 2; seq < 400; seq++)
+      events.push(event(seq, 'content_delta', { turnId: 't0', text: `filler ${'x'.repeat(200)}` }))
+    events.push(event(400, 'user_message', { turnId: 't1', text: 'Closing needle question' }))
+    events.push(event(401, 'turn_completed', { turnId: 't1' }))
+    await writeFile(path, lines(events))
+    const size = (await stat(path)).size
+    // Below the file, and far enough below it that the middle is skipped.
+    const index = new ConversationIndex({ maxTranscriptBytes: Math.floor(size / 4) })
+    const [thread] = await index.list(key)
+    expect(thread).toMatchObject({ agentId: 'agent', title: 'Opening question', lastSeq: 401 })
+    expect(await index.search({ ...key, query: 'needle' })).toMatchObject([{ agentId: 'agent', seq: 400 }])
+  }))
+
+test('an unreadable transcript gets a row of its own instead of failing the whole list and search', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat' })]))
+    const folder = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId)
+    const other = join(folder, 'other.jsonl')
+    await writeFile(other, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat too' }, 'other')]))
+    // A hard link is refused by confined file access, like any other unsafe file.
+    const linked = join(tmpdir(), `conversation-index-link-${process.pid}-${Date.now()}`)
+    await link(other, linked)
+    try {
+      const threads = await new ConversationIndex().list(key)
+      expect(threads.map((thread) => [thread.agentId, thread.title]).sort()).toEqual([
+        ['agent', 'Readable chat'],
+        ['other', 'Unreadable conversation'],
+      ])
+    } finally {
+      await rm(linked, { force: true })
+    }
+    await link(other, linked)
+    try {
+      expect(await new ConversationIndex().search({ ...key, query: 'readable' })).toMatchObject([{ agentId: 'agent' }])
+    } finally {
+      await rm(linked, { force: true })
+    }
+  }))
+
+test('an unreadable transcript whose file name is not valid percent-encoding still gets its row', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat' })]))
+    const folder = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId)
+    const odd = join(folder, '50%.jsonl')
+    await writeFile(odd, lines([event(1, 'user_message', { turnId: 't', text: 'Hidden' }, '50%')]))
+    const linked = join(tmpdir(), `conversation-index-link-${process.pid}-${Date.now()}`)
+    await link(odd, linked)
+    try {
+      const threads = await new ConversationIndex().list(key)
+      expect(threads.map((thread) => [thread.agentId, thread.title]).sort()).toEqual([
+        ['50%', 'Unreadable conversation'],
+        ['agent', 'Readable chat'],
+      ])
+    } finally {
+      await rm(linked, { force: true })
+    }
+  }))

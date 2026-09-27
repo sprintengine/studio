@@ -17,6 +17,15 @@ import {
   FLEET_TERMINAL_INPUT_CHANNEL,
   FLEET_TERMINAL_RESIZE_CHANNEL,
   type FleetTerminalEvent,
+  fleetConversationFrameChannel,
+  FLEET_CONVERSATION_COMMAND_CHANNEL,
+  FLEET_CONVERSATION_EARLIER_CHANNEL,
+  FLEET_CONVERSATION_FOLLOW_CHANNEL,
+  FLEET_CONVERSATION_LIST_CHANNEL,
+  FLEET_CONVERSATION_TOOL_DETAIL_CHANNEL,
+  FLEET_CONVERSATION_TURN_DIFF_CHANNEL,
+  FLEET_CONVERSATION_UNFOLLOW_CHANNEL,
+  type FleetConversationFrame,
 } from '../../shared/tailnet-fleet'
 import type { AutomationService } from '../automation/automation-service'
 import { asRecord } from '../../shared/records'
@@ -39,11 +48,20 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   const owners = new Map<string, WebContents>()
   const trackedSenders = new Set<number>()
 
+  // followId -> the window following, for the same reason: a followed
+  // conversation's frames go to one window, and end with it.
+  const followers = new Map<string, WebContents>()
+
   const releaseSender = (senderId: number): void => {
     for (const [attachId, sender] of [...owners]) {
       if (sender.id !== senderId) continue
       owners.delete(attachId)
       service.fleet().detachTerminal(attachId)
+    }
+    for (const [followId, sender] of [...followers]) {
+      if (sender.id !== senderId) continue
+      followers.delete(followId)
+      service.fleet().unfollowConversation(followId)
     }
     trackedSenders.delete(senderId)
   }
@@ -129,6 +147,55 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   ipcMain.handle(FLEET_DETACH_TERMINAL_CHANNEL, (_event, attachId: unknown) => {
     if (typeof attachId === 'string') owners.delete(attachId)
     service.fleet().detachTerminal(attachId)
+  })
+
+  // Conversations on a paired machine. Like every `fleet:*` channel these
+  // are IPC-only: following another machine's chat is something a person
+  // here asks for, reachable from no MCP tool.
+  ipcMain.handle(FLEET_CONVERSATION_LIST_CHANNEL, (_event, connectionId: unknown) =>
+    service.fleet().listConversations(connectionId),
+  )
+  ipcMain.handle(FLEET_CONVERSATION_FOLLOW_CHANNEL, (event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    const followId = typeof record.followId === 'string' ? record.followId : ''
+    if (!followId) {
+      return { ok: false, code: 'invalid_arguments', message: 'A follow needs an id to deliver its frames on.' }
+    }
+    trackSender(event)
+    followers.set(followId, event.sender)
+    const channel = fleetConversationFrameChannel(followId)
+    return service.fleet().followConversation({
+      followId,
+      key: record.key,
+      turnLimit: record.turnLimit,
+      emit: (frame: FleetConversationFrame) => {
+        const sender = followers.get(followId)
+        if (!sender || sender.isDestroyed()) return
+        sender.send(channel, frame)
+      },
+    })
+  })
+  ipcMain.handle(FLEET_CONVERSATION_UNFOLLOW_CHANNEL, (_event, followId: unknown) => {
+    if (typeof followId === 'string') followers.delete(followId)
+    service.fleet().unfollowConversation(followId)
+  })
+  ipcMain.handle(FLEET_CONVERSATION_EARLIER_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service
+      .fleet()
+      .conversationLoadEarlier({ key: record.key, beforeCursor: record.beforeCursor, turnLimit: record.turnLimit })
+  })
+  ipcMain.handle(FLEET_CONVERSATION_COMMAND_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.fleet().conversationCommand({ key: record.key, command: record.command })
+  })
+  ipcMain.handle(FLEET_CONVERSATION_TOOL_DETAIL_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.fleet().conversationToolDetail({ key: record.key, toolUseId: record.toolUseId })
+  })
+  ipcMain.handle(FLEET_CONVERSATION_TURN_DIFF_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.fleet().conversationTurnDiff({ key: record.key, turnSeq: record.turnSeq, path: record.path })
   })
 
   // Keystrokes and resizes are `send`, not `invoke`: a keystroke that waits for

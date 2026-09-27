@@ -20,10 +20,21 @@ afterAll(() => __resetPluginRegistryForTest())
 
 const permissionArgs: Record<CliPermissionPreset, string[]> = {
   none: [],
-  manual: ['--ask-for-approval', 'on-request', '--sandbox', 'read-only'],
-  auto: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
   bypass: ['--dangerously-bypass-approvals-and-sandbox'],
 }
+
+test('a retired Codex preset renders no permission flag rather than a widened one', () => {
+  for (const retired of ['manual', 'auto', 'default', 'auto_workspace']) {
+    const rendered = renderAgentLaunchArgv({
+      cli: 'codex',
+      sessionId: 'session-example',
+      resume: false,
+      cliPermissionPreset: retired as CliPermissionPreset,
+      initialPrompt: 'fix the parser',
+    })
+    assert.deepEqual(rendered.argv, ['codex', 'fix the parser'], retired)
+  }
+})
 
 function scriptArgs(script: string): string[] {
   const line = script.split('\r\n').find((entry) => entry.startsWith('$arguments = @('))!

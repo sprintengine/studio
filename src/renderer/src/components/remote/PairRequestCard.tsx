@@ -2,7 +2,7 @@ import React from 'react'
 
 import {
   PAIR_REQUEST_CODE_ATTEMPTS,
-  TAILNET_STRUCTURED_SCOPES,
+  TAILNET_LEGACY_REQUEST_SCOPES,
   type TailnetPairRequest,
   type TailnetScope,
 } from '../../../../shared/tailnet'
@@ -44,7 +44,7 @@ export function PairRequestCard({
   // as the structured set — what every pairing path defaulted to before the
   // field existed.
   const requested = React.useMemo<TailnetScope[]>(
-    () => [...(request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES)],
+    () => [...(request.requestedScopes ?? TAILNET_LEGACY_REQUEST_SCOPES)],
     [request.requestedScopes],
   )
   const [scopes, setScopes] = React.useState<TailnetScope[]>(requested)

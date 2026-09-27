@@ -143,7 +143,7 @@ test('main-launched projections persist their name and config exactly once', asy
   const app = await harness()
   const sessions = [
     session({
-      agentRecord: { agentId: 'agent-codex-abc123', name: 'Scout', cli: 'codex', cliPermissionPreset: 'manual' },
+      agentRecord: { agentId: 'agent-codex-abc123', name: 'Scout', cli: 'codex', cliPermissionPreset: 'none' },
     }),
   ]
   assert.equal(app.store.getState().projectLaunchedAgentSessions(sessions).length, 1)
@@ -252,7 +252,7 @@ test('recovery checks workspace and session identity and can use the original la
           agentId: 'agent-codex-abc123',
           name: 'Scout',
           cli: 'codex',
-          cliPermissionPreset: 'manual',
+          cliPermissionPreset: 'none',
         },
       }),
     ],

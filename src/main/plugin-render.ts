@@ -1,4 +1,5 @@
 import { toTomlBasicString } from '../shared/host-context/document'
+import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 import type {
   PluginArgvToken,
   PluginManifest,
@@ -125,52 +126,21 @@ function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext):
   return injection.env
 }
 
-// The ordered presets the app can ask for, least → most permissive. A manifest
-// need not declare all three, and an undeclared one must not be passed through
-// as an unknown flag — that is fatal to the CLI. It degrades DOWN this ladder
-// instead, to the most permissive preset the CLI actually declares, which can
-// never grant more than was requested.
+// Only `bypass` reads the manifest. `none` passes no permission flag and lets
+// the CLI's own configuration decide, which every CLI can express, so no
+// manifest declares it. A manifest that declares no bypass renders no flag
+// either: passing a flag the CLI does not know is fatal to it, and the one
+// fallback that can never grant more than was asked for is none at all.
 //
-// `none` is deliberately NOT on the ladder. It means "pass no permission flag
-// and let the CLI's own default win", which is always expressible, so it never
-// degrades and no manifest declares it. It is also not a floor: on Claude Code
-// 2.1.228+ with a Pro/Max/Team plan, passing no flag now starts the session in
-// auto mode, so `none` can be more permissive than `manual`. Ordering it would
-// make degradation escalate.
-const PERMISSION_PRESET_LADDER = ['manual', 'auto', 'bypass'] as const
-
-// Pre-rename manifest keys. Bundled manifests use the new names, but a
-// third-party plugin installed before the rename still declares the old ones,
-// and an unknown flag is fatal — so resolution falls back through the alias
-// rather than treating the preset as undeclared.
-const LEGACY_PRESET_KEYS: Record<string, string> = {
-  manual: 'default',
-  auto: 'auto_workspace',
-  bypass: 'bypass_all',
-}
-
-function declaredPreset(manifest: PluginManifest, name: string): PluginPermissionPreset | undefined {
-  const legacy = LEGACY_PRESET_KEYS[name]
-  return manifest.permissionPresets[name] ?? (legacy ? manifest.permissionPresets[legacy] : undefined)
-}
-
+// A third-party plugin written before the two-mode change can still declare
+// keys for the retired presets (`manual`, `auto`, `default`, `auto_workspace`).
+// They are read as nothing. Its pre-rename `bypass_all` is still its bypass.
 function resolvePermissionPreset(
   manifest: PluginManifest,
   requested: string | undefined,
 ): PluginPermissionPreset | undefined {
-  const name = requested ?? 'manual'
-  // `none` short-circuits to no args without consulting the manifest at all.
-  if (name === 'none') return undefined
-  const declared = declaredPreset(manifest, name)
-  if (declared) return declared
-  const rung = PERMISSION_PRESET_LADDER.indexOf(name as (typeof PERMISSION_PRESET_LADDER)[number])
-  for (let below = rung - 1; below >= 0; below -= 1) {
-    const candidate = declaredPreset(manifest, PERMISSION_PRESET_LADDER[below])
-    if (candidate) return candidate
-  }
-  // A name outside the ladder has no ordering to walk. Render no permission
-  // args rather than inventing one — never the most permissive thing declared.
-  return undefined
+  if (parseCliPermissionPreset(requested) !== 'bypass') return undefined
+  return manifest.permissionPresets.bypass ?? manifest.permissionPresets.bypass_all
 }
 
 /**

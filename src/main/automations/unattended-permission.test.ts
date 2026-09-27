@@ -201,7 +201,7 @@ test('unattended-permission', async () => {
   // The default is a default, not an override: a definition that names a preset
   // gets exactly it, on the same path.
   async function assertExplicitPresetSurvivesTheStartPath(): Promise<void> {
-    for (const preset of ['manual', 'auto'] as const) {
+    for (const preset of ['none'] as const) {
       const definition = scheduledDefinition({
         action: { kind: 'spawn-agent', config: { prompt: 'Sweep the repo.', permissionPreset: preset } },
       })

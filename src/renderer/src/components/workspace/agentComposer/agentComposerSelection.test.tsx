@@ -97,25 +97,23 @@ test('agentComposerSelection', async () => {
   })
 
   // Source-contract for the other half of the New-chat seed: the
-  // manager seeds every New chat with the plain agent row, unconditionally. It
-  // used to derive it from a remembered top-bar pick, so Enter on a plain message
-  // fetched an identity nobody asked for. That remembered state is gone with the
-  // picker; nothing in the manager may read it back.
+  // The launch panel follows the saved interface choice. Explicit commands
+  // may override it for one opening without changing the saved preference.
   const managerSource = readFileSync(
     join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
     'utf8',
   )
 
-  run('New chat opens on the plain agent row: the manager seeds { kind: general }', () => {
+  run('New chat opens on the remembered interface choice', () => {
     assert.match(
       managerSource,
-      /const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = \{ kind: 'general' \}/,
-      'the composer seed is the agent row, not a remembered identity',
+      /initialSelection=\{newChatPanelState\.forcedSelection \?\? lastNewChatAgent\}/,
+      'a forced command wins for one opening, then the saved choice applies',
     )
     assert.match(
       managerSource,
-      /<NewAgentPanel[\s\S]{0,400}initialSelection=\{COMPOSER_INITIAL_SELECTION\}/,
-      'the New chat panel is seeded from that constant',
+      /initialSelection=\{lastNewChatAgent\}/,
+      'the in-workspace launcher also reads the saved choice',
     )
   })
 
