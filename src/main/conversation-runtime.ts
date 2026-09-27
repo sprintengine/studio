@@ -137,6 +137,8 @@ type ConversationRuntimeOptions = {
   transcriptLimits?: Partial<ConversationTranscriptLimits>
   now?: () => number
   randomId?: () => string
+  // Least time between two running previews of one tool's output; tests shorten it.
+  toolPreviewIntervalMs?: number
   prepareStudioMcp?: (input: {
     workspaceRoot: string
     workspaceId: string
@@ -147,6 +149,26 @@ type ConversationRuntimeOptions = {
 type ConversationRuntimeListener = (event: ConversationEvent) => void
 /** `lost`: highest sequence number published but not written; `recorded`: highest one on disk as such. */
 type NonDurableLog = { root: string; lost: number; recorded: number; recording: boolean }
+/** One running tool's preview cadence: when the last went out, what it showed, and the one waiting. */
+type ToolPreviewThrottle = {
+  session: RuntimeSession
+  sentAt: number
+  shown: string | null
+  held: { event: ConversationEvent; options: EmitOptions } | null
+  timer: NodeJS.Timeout | null
+}
+type EmitOptions = { turnId?: string; allowCanceledTurnId?: string | null; prepared?: boolean }
+
+/**
+ * A running tool's preview is a tail of up to {@link TOOL_PREVIEW_CHARS} of its
+ * output, and every one that is published is also a transcript line, because
+ * a client may hold its sequence number. At the log's own cadence a ten-minute
+ * build left megabytes of near-identical previews, crowding a reconnecting
+ * client out of its catch-up budget. The first preview goes out at once, then
+ * at most one every this long, and only when it changed; the full output is in
+ * the tool's detail file and its final event regardless.
+ */
+const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
 
 // Cap on how many persisted events a transcript replay returns to the
 // renderer; the JSONL on disk keeps everything.
@@ -196,6 +218,8 @@ export class ConversationRuntime {
   private readonly toolDetails = new Map<string, ConversationToolDetail>()
   private readonly toolStreams = new Map<string, ToolOutputStream>()
   private readonly toolDetailWrites = new Map<string, Promise<void>>()
+  private readonly toolPreviews = new Map<string, ToolPreviewThrottle>()
+  private readonly toolPreviewIntervalMs: number
   private eventSequence = 0
   // Event ids must stay unique across app restarts: the persisted transcript
   // is replayed into the renderer, which dedupes live pushes against it by id.
@@ -237,6 +261,7 @@ export class ConversationRuntime {
       maxTranscriptBytes: this.transcriptLimits.fullReadBytes,
     })
     this.now = options.now ?? Date.now
+    this.toolPreviewIntervalMs = options.toolPreviewIntervalMs ?? DEFAULT_TOOL_PREVIEW_INTERVAL_MS
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
     this.prepareStudioMcp = options.prepareStudioMcp
     this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
@@ -911,6 +936,7 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       adapter.disposeAll?.()
     }
+    this.dropToolPreviews()
     await Promise.allSettled(this.background)
     await this.eventLog.closeAll()
   }
@@ -1019,7 +1045,7 @@ export class ConversationRuntime {
   private async emit(
     session: RuntimeSession,
     event: ConversationEvent,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
+    options: EmitOptions = {},
   ): Promise<ConversationEvent | null> {
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
     const result = (this.emissionTails.get(path) ?? Promise.resolve())
@@ -1032,12 +1058,19 @@ export class ConversationRuntime {
   private async emitNow(
     session: RuntimeSession,
     event: ConversationEvent,
-    options: { turnId?: string; allowCanceledTurnId?: string | null },
+    options: EmitOptions,
   ): Promise<ConversationEvent | null> {
     if (this.shouldSuppressEvent(session, event, options)) return null
+    // A preview still waiting when its turn ends is the newest output of a
+    // tool that never sent a final one: it goes out ahead of the turn's end.
+    if (event.type === 'turn_completed' || event.type === 'turn_failed') await this.flushToolPreviews(session)
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    // Preparing stores the output in the tool's detail file, so it happens for
+    // every event, including a preview that is then held back.
+    const prepared = options.prepared ? event : await this.prepareToolEvent(session, event)
+    if (!options.prepared && this.holdToolPreview(session, prepared, options)) return null
     const stamped: ConversationEvent = {
-      ...(await this.prepareToolEvent(session, event)),
+      ...prepared,
       id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
       seq: (this.sequences.get(path) ?? 0) + 1,
       createdAt: this.now(),
@@ -1726,6 +1759,74 @@ export class ConversationRuntime {
   }
 
   /** Close the output files of tools a turn left unfinished. */
+  /**
+   * Hold a running tool's preview back when one went out less than the
+   * preview interval ago, keeping only the latest for when it has passed; drop
+   * one that shows nothing new. True when the event is not to be emitted now.
+   * A final output ends the tool's throttle and always goes out.
+   */
+  private holdToolPreview(session: RuntimeSession, event: ConversationEvent, options: EmitOptions): boolean {
+    const toolUseId = event.type === 'tool_output' ? event.payload?.toolUseId : undefined
+    if (typeof toolUseId !== 'string') return false
+    const key = `${session.sessionId}\0${toolUseId}`
+    const throttle = this.toolPreviews.get(key)
+    if (event.payload?.partial !== true) {
+      if (throttle?.timer) clearTimeout(throttle.timer)
+      this.toolPreviews.delete(key)
+      return false
+    }
+    const shown = `${String(event.payload.totalBytes ?? '')}:${String(event.payload.preview ?? '')}`
+    const now = Date.now()
+    if (!throttle) {
+      this.toolPreviews.set(key, { session, sentAt: now, shown, held: null, timer: null })
+      return false
+    }
+    if (shown === throttle.shown) {
+      throttle.held = null
+      return true
+    }
+    const wait = throttle.sentAt + this.toolPreviewIntervalMs - now
+    if (wait <= 0 && !throttle.timer) {
+      throttle.sentAt = now
+      throttle.shown = shown
+      return false
+    }
+    throttle.held = { event, options }
+    if (!throttle.timer) {
+      throttle.timer = setTimeout(() => this.releaseToolPreview(key), Math.max(0, wait))
+      throttle.timer.unref?.()
+    }
+    return true
+  }
+
+  private releaseToolPreview(key: string): void {
+    const throttle = this.toolPreviews.get(key)
+    if (!throttle) return
+    throttle.timer = null
+    const held = throttle.held
+    throttle.held = null
+    if (throttle.session.status === 'stopped') this.toolPreviews.delete(key)
+    if (!held || throttle.session.status === 'stopped') return
+    throttle.sentAt = Date.now()
+    throttle.shown = `${String(held.event.payload?.totalBytes ?? '')}:${String(held.event.payload?.preview ?? '')}`
+    this.runInBackground(this.emit(throttle.session, held.event, { ...held.options, prepared: true }))
+  }
+
+  /** Emit a session's waiting previews now, from inside the emission queue, and end their throttles. */
+  private async flushToolPreviews(session: RuntimeSession): Promise<void> {
+    for (const [key, throttle] of Array.from(this.toolPreviews)) {
+      if (throttle.session !== session) continue
+      if (throttle.timer) clearTimeout(throttle.timer)
+      this.toolPreviews.delete(key)
+      if (throttle.held) await this.emitNow(session, throttle.held.event, { ...throttle.held.options, prepared: true })
+    }
+  }
+
+  private dropToolPreviews(): void {
+    for (const throttle of this.toolPreviews.values()) if (throttle.timer) clearTimeout(throttle.timer)
+    this.toolPreviews.clear()
+  }
+
   private async closeToolStreams(session: RuntimeSession): Promise<void> {
     for (const path of Array.from(session.toolDetailPaths)) {
       const stream = this.toolStreams.get(path)

@@ -1401,3 +1401,101 @@ test('a turn failure the transcript cannot store still reaches subscribers, numb
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+async function throttledRuntime(sendTurn: ConversationProviderAdapter['sendTurn']) {
+  const adapter = { ...createMockConversationProvider(), sendTurn }
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-session-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const runtime = new ConversationRuntime({
+    adapters: [adapter],
+    getProviderById: () => undefined,
+    // The log alone would write a running tool's preview every 20 ms here.
+    eventLog: { flushDelayMs: 5, toolOutputFlushDelayMs: 20 },
+    toolPreviewIntervalMs: 250,
+  })
+  const started = await runtime.startSession({ ...key, providerId: adapter.id, modelId: adapter.listModels()[0] })
+  assert.ok(started.ok)
+  const published: ConversationEvent[] = []
+  runtime.onEvent((value) => published.push(value))
+  const persistedPreviews = async () =>
+    (await readFile(workspaceSidecarPath(workspaceRoot, 'conversations', 'workspace', 'agent.jsonl'), 'utf8'))
+      .split('\n')
+      .filter((line) => line.includes('"tool_output"') && line.includes('"partial":true'))
+  return {
+    runtime,
+    key,
+    sessionId: started.session.sessionId,
+    published,
+    persistedPreviews,
+    cleanup: async () => {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    },
+  }
+}
+
+test('a long-running tool writes a preview only every preview interval, and its final output at the end', async () => {
+  const chunks = Array.from({ length: 120 }, (_, index) => `line ${index} ${'.'.repeat(100)}\n`)
+  const f = await throttledRuntime((input) =>
+    (async function* () {
+      yield event(input, 'tool_started', { turnId: input.turnId, toolCallId: 'cmd', tool: 'Bash', input: {} })
+      for (const output of chunks) {
+        yield event(input, 'tool_output', {
+          turnId: input.turnId,
+          toolUseId: 'cmd',
+          output,
+          outputMode: 'append',
+          partial: true,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      yield event(input, 'tool_output', { turnId: input.turnId, toolUseId: 'cmd', output: '', outputMode: 'append' })
+      yield event(input, 'turn_completed', { turnId: input.turnId })
+    })(),
+  )
+  try {
+    const began = Date.now()
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'build' })
+    const elapsed = Date.now() - began
+    const previews = f.published.filter((value) => value.type === 'tool_output' && value.payload?.partial === true)
+    const onDisk = await f.persistedPreviews()
+    assert.equal(onDisk.length, previews.length, 'every published preview is on disk')
+    assert.ok(
+      previews.length <= Math.ceil(elapsed / 250) + 1,
+      `${previews.length} previews in ${elapsed} ms, at most one per interval`,
+    )
+    const final = f.published.filter((value) => value.type === 'tool_output').at(-1)!
+    assert.equal(final.payload?.partial, undefined)
+    assert.equal(final.payload?.preview, chunks.join('').slice(-4000))
+    const detail = await f.runtime.getToolDetail({ ...f.key, toolUseId: 'cmd' })
+    assert.ok(detail.ok)
+    assert.equal(detail.detail.output, chunks.join(''), 'every held-back chunk is still in the detail')
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a running preview that shows nothing new is not written again', async () => {
+  const f = await throttledRuntime((input) =>
+    (async function* () {
+      yield event(input, 'tool_started', { turnId: input.turnId, toolCallId: 'acp', tool: 'Bash', input: {} })
+      for (let index = 0; index < 4; index++) {
+        yield event(input, 'tool_output', { turnId: input.turnId, toolUseId: 'acp', output: 'same', partial: true })
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+      yield event(input, 'tool_output', { turnId: input.turnId, toolUseId: 'acp', output: 'same, done' })
+      yield event(input, 'turn_completed', { turnId: input.turnId })
+    })(),
+  )
+  try {
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: 'ls' })
+    assert.equal((await f.persistedPreviews()).length, 1)
+    const outputs = f.published.filter((value) => value.type === 'tool_output')
+    assert.deepEqual(
+      outputs.map((value) => value.payload?.preview),
+      ['same', 'same, done'],
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
