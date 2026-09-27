@@ -238,3 +238,121 @@ test('saved program-wide command grants are narrowed or dropped', () => {
   expect(rg.matcher).toEqual({ type: 'command', program: 'rg' })
   expect(matchesApprovalRule(rg, { action: 'Bash', input: { command: 'rg other' } }, '/w')).toBe(true)
 })
+
+// Git runs an unambiguous prefix of any long option as the option itself, so
+// each of these executed against a real repository as the full, dangerous form.
+test.each([
+  "git push --ex='./evil.sh' origin main",
+  "git fetch --upload-p='./evil.sh' .",
+  "git grep --open-files='./evil.sh' -e x",
+  "git rebase --exe='./evil.sh' main",
+  'git push --de origin topic',
+  'git push --mir origin',
+  'git push --pru origin',
+  'git push --for origin main',
+  'git push --rec=./evil.sh',
+  'git reset --har',
+  'git reset --merg',
+  'git reset --kee',
+  'git branch -d --forc topic',
+  'git rebase --inter main',
+  'git switch --discard main',
+  'git tag --del v1',
+  'git mv --forc a b',
+  'git worktree remove --forc wt',
+  'git commit --templ=./evil.txt',
+  'git commit -q --templ=./evil.txt',
+  'git log --outp=/tmp/x',
+  'git fetch -f origin +main:main',
+  'git fetch origin +main:main',
+  'git pull origin +main:main',
+  'git pull --force',
+  'git stash -q drop',
+  'git reflog expire --all',
+  'git pull --rebase=interactive',
+  'git merge -s ours topic',
+  'git diff --ext-diff',
+  'git commit --gpg-sign',
+  'make test --ev=x',
+])('never remembers the abbreviated or unlisted option in %s', (command) => {
+  expect(approvalRuleCandidate({ action: 'Bash', input: { command } }, '/w')).toBeNull()
+  const push = {
+    ...approvalRuleCandidate({ action: 'Bash', input: { command: 'git push origin topic' } }, '/w')!,
+    id: 'r',
+    createdAt: 1,
+  }
+  expect(matchesApprovalRule(push, { action: 'Bash', input: { command } }, '/w')).toBe(false)
+})
+
+test.each([
+  ['git log --oneline --graph -n 20', 'log'],
+  ['git log -p -5 -- src', 'log'],
+  ['git show --stat HEAD', 'show'],
+  ['git diff --cached --name-only', 'diff'],
+  ['git status -sb', 'status'],
+  ['git commit -am wip', 'commit'],
+  ['git commit -m "fix: thing" --no-verify', 'commit'],
+  ['git push -u origin topic', 'push'],
+  ['git push origin topic:topic', 'push'],
+  ['git fetch --prune origin', 'fetch'],
+  ['git pull --rebase', 'pull'],
+  ['git branch -vv', 'branch'],
+  ['git grep -n -e needle -- src', 'grep'],
+  ['git stash push -m wip', 'stash push'],
+  ['git stash pop --index', 'stash pop'],
+  ['git worktree add -b topic ../wt', 'worktree add'],
+  ['git reset --soft origin/main', 'reset'],
+  ['git rebase --continue', 'rebase'],
+])('remembers %s when every option is a listed one', (command, subcommand) => {
+  expect(approvalRuleCandidate({ action: 'Bash', input: { command } }, '/w')?.matcher).toEqual({
+    type: 'command',
+    program: 'git',
+    subcommand,
+  })
+})
+
+test.each([
+  'pip install requests',
+  'pip3 install -r requirements.txt',
+  'pip3.12 install .',
+  'uv pip install requests',
+  'uv add requests',
+  'uv run evil',
+  'cargo install ripgrep',
+  'gem install rails',
+  'go install example.com/tool@latest',
+  'brew install jq',
+])('never remembers an installer that runs package code: %s', (command) => {
+  expect(approvalRuleCandidate({ action: 'Bash', input: { command } }, '/w')).toBeNull()
+})
+
+test('a remembered read stays inside the workspace', () => {
+  const rule = {
+    ...approvalRuleCandidate({ action: 'Bash', input: { command: 'cat README.md' } }, '/Users/dev/app')!,
+    id: 'r',
+    createdAt: 1,
+  }
+  const matches = (command: string) =>
+    matchesApprovalRule(rule, { action: 'Bash', input: { command } }, '/Users/dev/app')
+  expect(matches('cat src/main.ts')).toBe(true)
+  expect(matches('cat /Users/dev/app/src/main.ts')).toBe(true)
+  expect(matches('cat src/../README.md')).toBe(true)
+  for (const command of [
+    'cat /Users/dev/.ssh/id_ed25519',
+    'cat ../other/.env',
+    'cat src/../../other/.env',
+    'cat C:/Users/dev/secret',
+    'cat -n/etc/passwd',
+  ])
+    expect(matches(command)).toBe(false)
+  for (const command of [
+    'head -n 5 /etc/passwd',
+    'tail ../secret.log',
+    'rg token /Users/dev',
+    'grep -r token ..',
+    'ls ../..',
+    'wc --files0-from=/etc/hosts',
+  ])
+    expect(approvalRuleCandidate({ action: 'Bash', input: { command } }, '/Users/dev/app')).toBeNull()
+  expect(approvalRuleCandidate({ action: 'Bash', input: { command: 'echo /tmp' } }, '/Users/dev/app')).not.toBeNull()
+})
