@@ -396,6 +396,30 @@ test('a thread Codex no longer has continues in a new thread with the conversati
   expect(f.events.at(-1)?.type).toBe('turn_completed')
 })
 
+test('a resume Codex refuses for now fails the turn and keeps the thread to resume next time', async () => {
+  let busy = true
+  const f = fixture({
+    resume: () => {
+      if (busy) throw new CodexRpcError('thread is busy with another turn; rate limit reached')
+      return { thread: { id: 'kept-thread' } }
+    },
+  })
+  await f.adapter.startSession({ ...f.input, resumeSessionId: 'kept-thread' })
+  // Falling back to a new thread would start the turn and wait on it.
+  expect(await Promise.race([f.send().then(() => 'failed'), f.started.then(() => 'started')])).toBe('failed')
+  expect(f.calls.map((call) => call.method)).not.toContain('thread/start')
+  expect(f.events.at(-1)).toMatchObject({ type: 'turn_failed' })
+  expect(f.events.some((event) => event.type === 'session_updated')).toBe(false)
+  busy = false
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  const resumes = f.calls.filter((call) => call.method === 'thread/resume')
+  expect(resumes.map((call) => (call.params as { threadId?: string }).threadId)).toEqual(['kept-thread', 'kept-thread'])
+  expect(f.calls.map((call) => call.method)).not.toContain('thread/start')
+})
+
 test('a resume that is never answered fails the turn instead of dropping the thread', async () => {
   const f = fixture({
     resume: () => {

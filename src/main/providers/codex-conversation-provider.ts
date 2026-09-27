@@ -390,8 +390,10 @@ export function createCodexConversationProvider(
             // Codex no longer has the thread (its history was cleared, or the
             // cursor came from another machine). Retrying the same id would
             // fail on every turn, so continue in a new thread, carry the
-            // conversation over as context, and say so.
-            if (!(error instanceof CodexRpcError)) throw error
+            // conversation over as context, and say so. Any other answer — the
+            // thread is busy, a rate limit — fails this turn and keeps the id,
+            // since the thread is still there to resume next time.
+            if (!isMissingThreadError(error)) throw error
             result = record(await transport.request('thread/start', threadParams))
             resumeLost = true
           }
@@ -659,4 +661,12 @@ export function codexChildEnv(env: NodeJS.ProcessEnv, input: Pick<MockAdapterSes
     delete next[key]
   next.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
   return next
+}
+
+/** Codex's answer to `thread/resume` says the thread does not exist, rather than that it cannot be used right now. */
+function isMissingThreadError(error: unknown): boolean {
+  return (
+    error instanceof CodexRpcError &&
+    /not found|no rollout|no such thread|unknown thread|invalid thread id|does not exist/i.test(error.message)
+  )
 }

@@ -619,9 +619,11 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             // The agent answered that it cannot load this session (it was
             // deleted, or the cursor came from another machine). Asking again
             // would fail on every turn, so continue in a new session, carry the
-            // conversation over as context, and say so. A request that was
-            // never answered is still a startup failure.
-            if (typeof (error as { code?: unknown }).code !== 'number') throw error
+            // conversation over as context, and say so. Any other answer (the
+            // session is busy, a rate limit, an internal error) and a request
+            // that was never answered fail this turn and keep the id, since
+            // the session may still be there to reopen next time.
+            if (!isMissingSessionError(error)) throw error
             session = await fresh()
             state.replayHistory = true
             state.resumeNotice = `${profile.displayName} could not reopen its previous session, so this conversation continues in a new one. The earlier messages were passed to it as context.`
@@ -893,4 +895,21 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       }))
     },
   }
+}
+
+/** The agent answered `session/load` that the session does not exist, rather than that it cannot be opened now. */
+function isMissingSessionError(error: unknown): boolean {
+  const { code, message, data } = (error ?? {}) as { code?: unknown; message?: unknown; data?: unknown }
+  if (typeof code !== 'number') return false
+  // JSON-RPC "resource not found".
+  if (code === -32002) return true
+  let detail = ''
+  try {
+    detail = data === undefined ? '' : JSON.stringify(data)
+  } catch {
+    // Unserializable detail says nothing about the session.
+  }
+  return /not found|no such session|unknown session|does not exist|invalid session/i.test(
+    `${typeof message === 'string' ? message : ''} ${detail}`,
+  )
 }

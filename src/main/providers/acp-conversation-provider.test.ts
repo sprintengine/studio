@@ -25,6 +25,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
  if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[]});
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
+ if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
    opened=m.method;
@@ -249,6 +250,22 @@ test('ACP reports a failed session reload as a failed turn instead of dropping i
     expect(String(events.at(-1)?.payload?.message)).toContain('session store unavailable')
     await rm(join(f.root, 'fail-session'))
     expect((await turn(f, 'third')).at(-1)?.type).toBe('turn_completed')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP keeps its session when reopening it fails for a reason other than it being gone', async () => {
+  const f = await fixture()
+  try {
+    await turn(f, 'first')
+    expect(f.provider.disposeChildProcess?.('session')).toBe(true)
+    await writeFile(join(f.root, 'busy-session'), '')
+    const events = await turn(f, 'second')
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed' })
+    expect(events.some((event) => String(event.payload?.notice ?? '').includes('could not reopen'))).toBe(false)
+    await rm(join(f.root, 'busy-session'))
+    const reopened = (await turn(f, 'argv')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(JSON.parse(String(reopened)).opened).toBe('session/load')
   } finally {
     await f.cleanup()
   }
