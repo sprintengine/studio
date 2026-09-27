@@ -373,7 +373,7 @@ export function createCodexConversationProvider(
         })
         transport.notify('initialized', {})
         const account = record(await transport.request('account/read', { refreshToken: false }))
-        if (account.requiresOpenaiAuth === true && !account.account && !hasApiKey(env))
+        if (account.requiresOpenaiAuth === true && !account.account)
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
         const policy = codexPermissionPolicy(state.input.permissionPreset)
         const threadParams = {
@@ -642,16 +642,21 @@ async function buildEnv(input: MockAdapterSessionInput): Promise<NodeJS.ProcessE
   )
 }
 
-/** The environment a conversation's Codex child starts with. The OpenAI
- * credentials a terminal Codex would see are kept: a person who signs in with
- * an API key rather than a Codex login has no other way to authenticate. They
- * go to this child only; nothing here widens what other agents receive. */
+/** The environment a conversation's Codex child starts with. Conversations
+ * are subscription-authenticated by contract, the rule the Claude provider
+ * enforces too: an inherited OpenAI key would silently bill API usage instead
+ * of the person's Codex login, and headless chat has no CLI chrome to say so. */
 export function codexChildEnv(env: NodeJS.ProcessEnv, input: Pick<MockAdapterSessionInput, 'sessionId'>) {
   const next = { ...env }
-  delete next.ELECTRON_RUN_AS_NODE
+  for (const key of [
+    'OPENAI_API_KEY',
+    'CODEX_API_KEY',
+    'OPENAI_BASE_URL',
+    'OPENAI_ORG_ID',
+    'OPENAI_PROJECT_ID',
+    'ELECTRON_RUN_AS_NODE',
+  ])
+    delete next[key]
   next.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
   return next
 }
-
-// An API key in the environment authenticates Codex without an account login.
-const hasApiKey = (env: NodeJS.ProcessEnv) => Boolean(env.OPENAI_API_KEY?.trim() || env.CODEX_API_KEY?.trim())

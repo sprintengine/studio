@@ -345,18 +345,24 @@ test('Ask is read-only without escalation even when the session preset bypasses 
   await done
 })
 
-test('an API key in the environment reaches the Codex child and counts as signed in', async () => {
+test('OpenAI API keys never reach the Codex child, so a chat cannot bill API usage', async () => {
   expect(
-    codexChildEnv({ OPENAI_API_KEY: 'sk-test', PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1' }, { sessionId: 'session' }),
-  ).toEqual({ OPENAI_API_KEY: 'sk-test', PATH: '/usr/bin', SPRINTENGINE_CONVERSATION_SESSION_ID: 'session' })
-  const f = fixture({ env: { OPENAI_API_KEY: 'sk-test' }, account: { requiresOpenaiAuth: true, account: null } })
-  await f.adapter.startSession(f.input)
-  const done = f.send()
-  await f.started
-  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
-  await done
-  expect(f.events.at(-1)?.type).toBe('turn_completed')
-  const signedOut = fixture({ account: { requiresOpenaiAuth: true, account: null } })
+    codexChildEnv(
+      {
+        OPENAI_API_KEY: 'sk-test',
+        CODEX_API_KEY: 'ck-test',
+        OPENAI_BASE_URL: 'https://example.com',
+        PATH: '/usr/bin',
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+      { sessionId: 'session' },
+    ),
+  ).toEqual({ PATH: '/usr/bin', SPRINTENGINE_CONVERSATION_SESSION_ID: 'session' })
+  // A key alone is not a Codex login: the person is sent to codex login.
+  const signedOut = fixture({
+    env: { OPENAI_API_KEY: 'sk-test' },
+    account: { requiresOpenaiAuth: true, account: null },
+  })
   await signedOut.adapter.startSession(signedOut.input)
   await signedOut.send()
   expect(String(signedOut.events.at(-1)?.payload?.message)).toContain('not logged in')
