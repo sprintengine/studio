@@ -119,6 +119,10 @@ import type {
   FleetTerminalEvent,
   FleetRequestPairingResult,
   TailnetForgetMachineResult,
+  FleetConversationCommandResult,
+  FleetConversationFrame,
+  FleetConversationKey,
+  FleetConversationListResult,
 } from './tailnet-fleet'
 import type {
   AutomationsBuiltinInstallInput,
@@ -795,6 +799,49 @@ export type ElectronApi = {
    * window, credential-free. Returns the unsubscribe.
    */
   onFleetEvent: (cb: (event: FleetEvent) => void) => () => void
+  /**
+   * Conversations on a paired machine, the same calls the local session API
+   * makes with the machine named in the key. Main follows over the tailnet
+   * and keeps the transcript tail; the renderer never holds a credential.
+   */
+  fleetConversationList: (connectionId: string) => Promise<FleetConversationListResult>
+  onFleetConversationSession: (
+    input: { key: FleetConversationKey; turnLimit?: number },
+    cb: (frame: FleetConversationFrame) => void,
+  ) => () => void
+  fleetConversationLoadEarlier: (input: {
+    key: FleetConversationKey
+    beforeCursor: number
+    turnLimit?: number
+  }) => Promise<ConversationPageResult>
+  fleetConversationSend: (input: {
+    key: FleetConversationKey
+    message: string
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationInterrupt: (input: { key: FleetConversationKey }) => Promise<FleetConversationCommandResult>
+  fleetConversationResolveApproval: (input: {
+    key: FleetConversationKey
+    requestId: string
+    decision: 'once' | 'conversation' | 'deny'
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationAnswerQuestion: (input: {
+    key: FleetConversationKey
+    requestId: string
+    answers: Record<string, string>
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationSetPermissionPreset: (input: {
+    key: FleetConversationKey
+    preset: 'manual' | 'auto'
+  }) => Promise<FleetConversationCommandResult>
+  fleetConversationToolDetail: (input: {
+    key: FleetConversationKey
+    toolUseId: string
+  }) => Promise<ConversationToolDetailResult>
+  fleetConversationTurnDiff: (input: {
+    key: FleetConversationKey
+    turnSeq: number
+    path?: string
+  }) => Promise<ConversationTurnDiffResult>
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
