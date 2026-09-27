@@ -2,14 +2,20 @@ import { mkdtemp, writeFile, readFile, rm, symlink, mkdir, realpath } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { createAcpConversationProvider, confinedAcpPath, acpToolKind } from './acp-conversation-provider'
-import type { ConversationEvent } from '../../shared/conversation-runtime'
+import {
+  ACP_PROFILES,
+  acpLaunchArgv,
+  acpToolKind,
+  confinedAcpPath,
+  createAcpConversationProvider,
+} from './acp-conversation-provider'
+import type { ConversationEvent, ConversationPermissionPreset } from '../../shared/conversation-runtime'
 
 // A separate process speaks JSON-RPC over real stdio, including agent-to-client
 // permission and file requests. No installed CLI or network is needed in CI.
 const agent = `
 const { createInterface } = require('node:readline');
-let prompt, serial=100, pending=new Map();
+let prompt, opened, serial=100, pending=new Map();
 const send=value=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
 const result=(id,result)=>send({id,result});
 const update=update=>send({method:'session/update',params:{sessionId:'native',update}});
@@ -21,6 +27,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
+   opened=m.method;
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
    return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
  }
@@ -29,6 +36,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  if(m.method!=='session/prompt')return result(m.id,{});
  prompt=m.id;const text=p.prompt[0].text;
  if(text.includes('inspect history')){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text}});result(m.id,{stopReason:'end_turn'});return}
+ if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text==='crash')process.exit(2);
  update({sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Thinking'}});
  if(text==='hang'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'waiting'}});return}
@@ -89,6 +97,63 @@ async function fixture(resume = false, lostSessionId?: string) {
       await rm(root, { recursive: true, force: true })
     },
   }
+}
+// A shipped profile whose CLI is the stand-in agent: the script path leads
+// every argv, so the agent receives exactly the flags the profile launches with.
+async function presetFixture(
+  profileId: string,
+  permissionPreset: ConversationPermissionPreset,
+  cursorConfig?: Record<string, unknown>,
+) {
+  const root = await mkdtemp(join(tmpdir(), 'acp-preset-'))
+  const support = await mkdtemp(join(tmpdir(), 'acp-preset-support-'))
+  const script = join(support, 'agent.js')
+  await writeFile(script, agent)
+  if (cursorConfig) await writeFile(join(support, 'cli-config.json'), JSON.stringify(cursorConfig))
+  const shipped = ACP_PROFILES.find((profile) => profile.id === profileId)!
+  const provider = createAcpConversationProvider(
+    {
+      ...shipped,
+      argv: [script, ...shipped.argv],
+      presetArgv: Object.fromEntries(
+        Object.entries(shipped.presetArgv ?? {}).map(([preset, argv]) => [preset, [script, ...argv]]),
+      ),
+      authenticate: undefined,
+    },
+    {
+      detect: async () => process.execPath,
+      buildEnv: async () => ({ PATH: process.env.PATH, CURSOR_CONFIG_DIR: support }),
+      startupTimeoutMs: 2000,
+    },
+  )
+  const input = {
+    sessionId: 'session',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: shipped.id,
+    modelId: 'default',
+    workspaceRoot: root,
+    permissionPreset,
+  }
+  const started = (await provider.startSession(input)) as ConversationEvent[]
+  return {
+    started,
+    root,
+    input,
+    provider,
+    cleanup: async () => {
+      provider.disposeAll?.()
+      await rm(root, { recursive: true, force: true })
+      await rm(support, { recursive: true, force: true })
+    },
+  }
+}
+async function launched(f: { provider: ReturnType<typeof createAcpConversationProvider>; input: object }) {
+  const text = (await turn(f as Awaited<ReturnType<typeof fixture>>, 'argv'))
+    .filter((event) => event.type === 'content_delta')
+    .map((event) => event.payload?.text)
+    .join('')
+  return JSON.parse(text) as { argv: string[]; opened: string }
 }
 async function turn(f: Awaited<ReturnType<typeof fixture>>, message: string) {
   const events: ConversationEvent[] = []
@@ -396,5 +461,100 @@ test('ACP file helpers reject traversal, absolute escapes and symlink ancestors'
     expect(acpToolKind('think')).toBe('other')
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+test('ACP offers every permission preset for Cursor and Grok and launches each with its own flags', () => {
+  const cursor = ACP_PROFILES.find((profile) => profile.id === 'cursor-agent')!
+  const grok = ACP_PROFILES.find((profile) => profile.id === 'grok-agent')!
+  for (const profile of [cursor, grok])
+    expect(createAcpConversationProvider(profile).capabilities?.permissionPresets).toEqual([
+      'none',
+      'manual',
+      'auto',
+      'bypass',
+    ])
+  // Manual passes no permission flag, so Cursor asks through the protocol.
+  expect(acpLaunchArgv(cursor, 'manual')).toEqual(['acp'])
+  expect(acpLaunchArgv(cursor, 'auto')).toEqual(['--auto-review', 'acp'])
+  expect(acpLaunchArgv(cursor, 'bypass')).toEqual(['--force', 'acp'])
+  expect(acpLaunchArgv(cursor, 'none')).toEqual(['acp'])
+  expect(acpLaunchArgv(grok, 'manual')).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'auto')).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'bypass')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'none')).toEqual(['agent', '--no-leader', 'stdio'])
+})
+test('ACP respawns the child with the new preset flags and reloads the same session', async () => {
+  const f = await presetFixture('cursor-agent', 'manual')
+  try {
+    expect((await launched(f)).argv).toEqual(['acp'])
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'bypass' })).toEqual({ ok: true })
+    // The old child is gone at once; the flags it was launched with cannot change.
+    expect(f.provider.listLiveSessions?.()[0]).toMatchObject({ hasChildProcess: false, providerSessionId: 'native' })
+    expect(await launched(f)).toEqual({ argv: ['--force', 'acp'], opened: 'session/load' })
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'auto' })).toEqual({ ok: true })
+    expect((await launched(f)).argv).toEqual(['--auto-review', 'acp'])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP manual preset turns the agent permission requests into approval cards', async () => {
+  const f = await presetFixture('grok-agent', 'manual')
+  try {
+    expect((await launched(f)).argv).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
+    await writeFile(join(f.root, 'result.txt'), 'before edit')
+    const approvals = (await turn(f, 'write')).filter((event) => event.type === 'approval_requested')
+    expect(approvals[0]?.payload).toMatchObject({ kind: 'tool', toolKind: 'file_edit', toolUseId: 'tool' })
+    expect(await readFile(join(f.root, 'result.txt'), 'utf8')).toBe('approved write')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP says what Cursor still does without asking under the manual preset', async () => {
+  const notice = (events: ConversationEvent[]) =>
+    String(events.find((event) => event.type === 'session_updated')?.payload?.notice ?? '')
+  const defaults = await presetFixture('cursor-agent', 'manual')
+  try {
+    expect(notice(defaults.started)).toContain('edits files in this workspace without asking')
+    // Leaving manual needs no notice; returning to it says it again.
+    expect(await defaults.provider.setPermissionPreset?.({ ...defaults.input, permissionPreset: 'auto' })).toEqual({
+      ok: true,
+    })
+    expect(
+      await defaults.provider.setPermissionPreset?.({ ...defaults.input, permissionPreset: 'manual' }),
+    ).toMatchObject({ ok: true, notice: expect.stringContaining('without asking') })
+  } finally {
+    await defaults.cleanup()
+  }
+  const runEverything = await presetFixture('cursor-agent', 'manual', { approvalMode: 'unrestricted' })
+  try {
+    expect(notice(runEverything.started)).toContain('Run Everything')
+  } finally {
+    await runEverything.cleanup()
+  }
+  const bypass = await presetFixture('cursor-agent', 'bypass')
+  try {
+    expect(bypass.started.some((event) => event.type === 'session_updated')).toBe(false)
+  } finally {
+    await bypass.cleanup()
+  }
+})
+test('ACP refuses Grok permission commands that would undo the chosen preset', async () => {
+  const manual = await presetFixture('grok-agent', 'manual')
+  try {
+    for (const command of ['/always-approve', '  /AUTO please']) {
+      const events = await turn(manual, command)
+      expect(events.map((event) => event.type)).toEqual(['turn_failed'])
+      expect(String(events[0]?.payload?.message)).toContain('permission picker')
+    }
+    expect((await turn(manual, 'write')).at(-1)?.type).toBe('turn_completed')
+  } finally {
+    await manual.cleanup()
+  }
+  const auto = await presetFixture('grok-agent', 'auto')
+  try {
+    expect((await turn(auto, '/always-approve')).map((event) => event.type)).toEqual(['turn_failed'])
+    expect((await turn(auto, '/auto')).at(-1)?.type).toBe('turn_completed')
+  } finally {
+    await auto.cleanup()
   }
 })
