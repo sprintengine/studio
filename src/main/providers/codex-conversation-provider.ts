@@ -21,6 +21,8 @@ type RecordValue = Record<string, unknown>
 const record = (value: unknown): RecordValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RecordValue) : {}
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+// How long a patch approval waits for its item (and so its diff) to arrive.
+const PATCH_APPROVAL_WAIT_MS = 1_000
 
 class EventQueue implements AsyncIterable<ConversationEvent> {
   private values: ConversationEvent[] = []
@@ -55,6 +57,7 @@ type ActiveTurn = {
   textItems: Set<string>
   items: Map<string, RecordValue>
   outputBytes: Map<string, number>
+  deferredApprovals: Map<string, (item: RecordValue) => void>
 }
 type Session = {
   closed: boolean
@@ -184,42 +187,62 @@ export function createCodexConversationProvider(
         state.transport?.reject(rpcId, 'This client does not support this request.')
         return
       }
-      const item = turn.items.get(text(params.itemId)) ?? {}
-      const mapped = isCommand
-        ? {
-            name: 'Bash',
-            kind: 'command',
-            input: { command: params.command ?? item.command, cwd: params.cwd ?? item.cwd },
-          }
-        : tool(item)
+      const itemId = text(params.itemId)
       const requestId = `${turn.id}:${String(rpcId)}`
       const questions = Array.isArray(params.questions) ? params.questions.map(record) : []
       state.pending.set(requestId, { rpcId, kind: isQuestion ? 'question' : 'tool', questions })
-      emit(state, 'approval_requested', {
-        requestId,
-        action: isQuestion ? 'AskUserQuestion' : (mapped?.name ?? 'Edit'),
-        kind: isQuestion ? 'question' : 'tool',
-        input: mapped?.input ?? { reason: params.reason },
-        toolKind: mapped?.kind ?? 'file_edit',
-        cwd: state.input.workspaceRoot,
-        summary:
-          text(params.reason) ||
-          (isCommand
-            ? text(params.command ?? item.command)
-            : isPatch
-              ? 'Apply the proposed file changes?'
-              : text(questions[0]?.question)),
-        ...(isQuestion
+      const raise = (item: RecordValue) => {
+        if (state.turn !== turn || !state.pending.has(requestId)) return
+        const mapped = isCommand
           ? {
-              questions: questions.map((question) => ({
-                question: text(question.question),
-                header: text(question.header),
-                multiSelect: false,
-                options: Array.isArray(question.options) ? question.options : [],
-              })),
+              name: 'Bash',
+              kind: 'command',
+              input: { command: params.command ?? item.command, cwd: params.cwd ?? item.cwd },
             }
-          : {}),
-      })
+          : tool(item)
+        emit(state, 'approval_requested', {
+          requestId,
+          action: isQuestion ? 'AskUserQuestion' : (mapped?.name ?? 'Edit'),
+          kind: isQuestion ? 'question' : 'tool',
+          input: mapped?.input ?? { reason: params.reason },
+          toolKind: mapped?.kind ?? 'file_edit',
+          cwd: state.input.workspaceRoot,
+          summary:
+            text(params.reason) ||
+            (isCommand
+              ? text(params.command ?? item.command)
+              : isPatch
+                ? 'Apply the proposed file changes?'
+                : text(questions[0]?.question)),
+          ...(isQuestion
+            ? {
+                questions: questions.map((question) => ({
+                  question: text(question.question),
+                  header: text(question.header),
+                  multiSelect: false,
+                  options: Array.isArray(question.options) ? question.options : [],
+                })),
+              }
+            : {}),
+        })
+      }
+      const known = turn.items.get(itemId)
+      if (isPatch && Array.isArray(params.changes)) raise({ type: 'fileChange', changes: params.changes })
+      else if (isPatch && !known && itemId) {
+        // A patch approval can arrive before the item that carries its diff.
+        // Asking without the diff would have the person approve blind, so the
+        // card waits for the item, and only asks without it if none arrives.
+        const timer = setTimeout(() => {
+          turn.deferredApprovals.delete(itemId)
+          raise({})
+        }, PATCH_APPROVAL_WAIT_MS)
+        timer.unref?.()
+        turn.deferredApprovals.set(itemId, (item) => {
+          clearTimeout(timer)
+          turn.deferredApprovals.delete(itemId)
+          raise(item)
+        })
+      } else raise(known ?? {})
       return
     }
     if (!turn) return
@@ -286,6 +309,7 @@ export function createCodexConversationProvider(
           kind: mapped.kind,
           input: mapped.input,
         })
+      turn.deferredApprovals.get(id)?.(item)
       if (complete) {
         const partialBytes = turn.outputBytes.get(id)
         // With no aggregate, the streamed chunks are the output: close it without repeating them.
@@ -413,6 +437,7 @@ export function createCodexConversationProvider(
         textItems: new Set(),
         items: new Map(),
         outputBytes: new Map(),
+        deferredApprovals: new Map(),
       }
       emit(state, 'turn_started')
       const abort = () => {

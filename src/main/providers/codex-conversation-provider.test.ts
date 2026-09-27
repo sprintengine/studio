@@ -179,6 +179,31 @@ test('command and patch approvals stay pending until individually answered', asy
   ).toMatchObject({ edits: [{ path: 'src/a.ts', patch: expect.stringContaining('+new') }] })
 })
 
+test('a patch approval that arrives before its item waits for the diff', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({ id: 'early', method: 'item/fileChange/requestApproval', params: { itemId: 'patch' } })
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(f.events.some((event) => event.type === 'approval_requested')).toBe(false)
+  await f.message({
+    method: 'item/started',
+    params: {
+      item: { type: 'fileChange', id: 'patch', changes: [{ path: 'src/b.ts', diff: '@@ -1 +1 @@\n-old\n+new\n' }] },
+    },
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  const approval = f.events.find((event) => event.type === 'approval_requested')
+  expect(approval?.payload?.input).toMatchObject({
+    edits: [{ path: 'src/b.ts', patch: expect.stringContaining('+new') }],
+  })
+  await f.adapter.resolveApproval({ ...f.input, turnId: 'turn', requestId: 'turn:early', approved: true })
+  expect(f.replies).toEqual([{ id: 'early', result: { decision: 'accept' } }])
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+})
+
 test('interrupt uses native turn identity and ends the event stream', async () => {
   const f = fixture()
   await f.adapter.startSession(f.input)
