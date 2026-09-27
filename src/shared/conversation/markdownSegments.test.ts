@@ -39,6 +39,14 @@ test('freezes only independent closed fences followed by a complete blank line',
     ['<!-- open\n```\na\n```\n\n', 0],
     ['<div>\n</div>\n```\na\n```\n\n', 1],
     ['<!-- closed -->\n```\na\n```\n\n', 1],
+    // An indented fence still opens a code block: the unindented ``` after it
+    // closes it, and the next ``` opens a block that is still unclosed.
+    ['  ```\n```\nx\n```\n\n', 0],
+    [' ~~~\n~~~\n\n', 0],
+    // HTML inside inline code or a code block is text, not an open element.
+    ['Use `<div>` here\n```\na\n```\n\n', 1],
+    ['Use ``<div>`` here\n```\na\n```\n\n', 1],
+    ['```html\n<div>\n```\n\n```\nb\n```\n\n', 2],
   ]
   assert.ok(cases.length >= 30)
   for (const [source, count] of cases) {
