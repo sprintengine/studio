@@ -104,6 +104,15 @@ export class ConversationCheckpoints {
       const current = await this.worktreeTree(root)
       const { files } = await this.diff(root, target, current)
       if (!input.confirmed) return { ok: true, files, reverted: false }
+      // Act only on what the dialog showed. A file that changed state since the
+      // preview could otherwise be restored or removed without being seen.
+      const shown = new Set(input.files ?? [])
+      if (!input.files || shown.size !== files.length || files.some((file) => !shown.has(file.path)))
+        return {
+          ok: false,
+          changed: true,
+          message: 'The files to restore changed since they were shown. Review the new list and confirm again.',
+        }
       // Record the exact state about to be replaced before changing any path,
       // for an undo as much as for a revert: work done after a revert is as
       // much the user's as work done before it. Each recovery ref is new, so a

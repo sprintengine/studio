@@ -353,7 +353,9 @@ export function registerConversationIpc(
       !Number.isSafeInteger(input.turnSeq) ||
       Number(input.turnSeq) < 1 ||
       (input.confirmed !== undefined && typeof input.confirmed !== 'boolean') ||
-      (input.undo !== undefined && typeof input.undo !== 'boolean')
+      (input.undo !== undefined && typeof input.undo !== 'boolean') ||
+      (input.files !== undefined &&
+        (!Array.isArray(input.files) || !input.files.every((path) => typeof path === 'string')))
     )
       return { ok: false, message: 'Turn sequence and explicit confirmation are required.' }
     const key = parseTranscriptInput(input.key)
@@ -364,6 +366,7 @@ export function registerConversationIpc(
         turnSeq: Number(input.turnSeq),
         confirmed: input.confirmed === true,
         undo: input.undo === true,
+        ...(Array.isArray(input.files) ? { files: input.files as string[] } : {}),
       }) ?? { ok: false, message: 'Checkpoints are unavailable.' }
     )
   })

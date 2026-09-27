@@ -7,12 +7,25 @@ import { ConversationCheckpoints } from './conversation-checkpoints'
 import { runGitCommand } from './git-utils'
 import { ConversationRuntime } from './conversation-runtime'
 import { createMockConversationProvider } from './providers/mock-conversation-provider'
-import type { ConversationEvent } from '../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationRevertInput,
+  ConversationRevertResult,
+} from '../shared/conversation-runtime'
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const result = await runGitCommand(cwd, args)
   assert.ok(result.ok, result.message ?? result.stderr)
   return result.stdout
+}
+/** What the dialog does: preview, then confirm exactly the files it showed. */
+async function previewThenRevert(
+  revert: (input: ConversationRevertInput) => Promise<ConversationRevertResult>,
+  input: Omit<ConversationRevertInput, 'confirmed' | 'files'>,
+): Promise<ConversationRevertResult> {
+  const preview = await revert(input)
+  if (!preview.ok) return preview
+  return revert({ ...input, confirmed: true, files: preview.files.map((file) => file.path) })
 }
 async function repository() {
   const directory = await mkdtemp(join(tmpdir(), 'conversation-checkpoints-'))
@@ -60,7 +73,7 @@ test('revert locks all conversations sharing files until the transaction settles
     })
     assert.ok(a.ok && b.ok)
     assert.ok((await new ConversationCheckpoints().capture(f.key, 1, 'pre')).ok)
-    const reverting = runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true })
+    const reverting = runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true, files: [] })
     await running
     assert.equal((await runtime.sendTurn({ sessionId: a.session.sessionId, message: 'edit' })).ok, false)
     assert.equal((await runtime.sendTurn({ sessionId: b.session.sessionId, message: 'edit' })).ok, false)
@@ -116,7 +129,7 @@ test('reverting a closed conversation persists markers and the next-send file-st
     await initial.shutdown()
     assert.ok((await new ConversationCheckpoints().capture(f.key, 1, 'pre')).ok)
     await writeFile(join(f.root, 'existing.txt'), 'changed\n')
-    assert.ok((await runtime.revertToTurn({ key: f.key, turnSeq: 1, confirmed: true })).ok)
+    assert.ok((await previewThenRevert((input) => runtime.revertToTurn(input), { key: f.key, turnSeq: 1 })).ok)
     const transcript = await runtime.readTranscript(f.key, { all: true })
     assert.ok(transcript.ok)
     assert.equal(transcript.events.at(-1)?.payload?.revertedAfterSeq, 1)
@@ -200,13 +213,13 @@ test('revert restores modified/deleted files, removes later files, and can undo 
     const preview = await checkpoints.revert({ key: f.key, turnSeq: 3 })
     assert.ok(preview.ok && !preview.reverted)
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'after\nsecond\n')
-    const reverted = await checkpoints.revert({ key: f.key, turnSeq: 3, confirmed: true })
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 3 })
     assert.ok(reverted.ok && reverted.reverted)
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'original\n')
     assert.equal(await readFile(join(f.root, 'deleted.txt'), 'utf8'), 'keep\n')
     await assert.rejects(stat(join(f.root, 'created.txt')), { code: 'ENOENT' })
     assert.equal(await readFile(join(f.root, 'ignored.txt'), 'utf8'), 'private ignored content')
-    const undo = await checkpoints.revert({ key: f.key, turnSeq: 3, confirmed: true, undo: true })
+    const undo = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 3, undo: true })
     assert.ok(undo.ok)
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'after\nsecond\n')
     assert.equal(await readFile(join(f.root, 'created.txt'), 'utf8'), 'created\n')
@@ -232,7 +245,7 @@ test('checkpoint capture supports linked worktrees and refuses oversized untrack
     assert.ok((await checkpoints.capture(key, 1, 'pre')).ok)
     await writeFile(join(root, 'existing.txt'), 'linked work\n')
     assert.ok((await checkpoints.capture(key, 1, 'post')).ok)
-    assert.ok((await checkpoints.revert({ key, turnSeq: 1, confirmed: true })).ok)
+    assert.ok((await previewThenRevert((input) => checkpoints.revert(input), { key, turnSeq: 1 })).ok)
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'original\n')
     await writeFile(join(root, 'too-large.txt'), '12345')
     const limited = new ConversationCheckpoints({ bytes: 4, files: 100 })
@@ -300,7 +313,7 @@ test('runtime captures lazily around writes, reports totals, blocks active rever
     assert.ok(diff.ok)
     assert.equal(diff.original, 'original\n')
     assert.equal(diff.modified, 'changed\n')
-    const reverted = await runtime.revertToTurn({ key: f.key, turnSeq, confirmed: true })
+    const reverted = await previewThenRevert((input) => runtime.revertToTurn(input), { key: f.key, turnSeq })
     assert.ok(reverted.ok)
     await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'continue' })
     assert.match(lastMessage, /Files were reverted/)
@@ -328,7 +341,7 @@ test('revert restores work tree files only and leaves the index exactly as the u
     const staged = await git(f.root, ['ls-files', '--stage'])
     const preview = await checkpoints.revert({ key: f.key, turnSeq: 1 })
     assert.ok(preview.ok)
-    const reverted = await checkpoints.revert({ key: f.key, turnSeq: 1, confirmed: true })
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1 })
     assert.ok(reverted.ok && reverted.reverted, JSON.stringify(reverted))
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'unstaged by user\n')
     assert.equal(await readFile(join(f.root, 'notes.txt'), 'utf8'), 'untracked by user\n')
@@ -352,21 +365,54 @@ test('undo keeps a recovery point of work done after the revert, and repeated re
     const checkpoints = new ConversationCheckpoints()
     assert.ok((await checkpoints.capture(f.key, 2, 'pre')).ok)
     await writeFile(join(f.root, 'existing.txt'), 'agent one\n')
-    const first = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true })
+    const first = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 2 })
     assert.ok(first.ok && first.reverted)
     await writeFile(join(f.root, 'existing.txt'), 'agent two\n')
-    const second = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true })
+    const second = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 2 })
     assert.ok(second.ok && second.reverted)
     assert.notEqual(first.undoRef, second.undoRef)
     assert.deepEqual(await refs(), ['2-pre', '2-undo-1', '2-undo-2'])
     assert.equal(await git(f.root, ['show', `${first.undoRef}:existing.txt`]), 'agent one\n')
     // Work the user does after reverting must survive an undo.
     await writeFile(join(f.root, 'existing.txt'), 'user work after revert\n')
-    const undo = await checkpoints.revert({ key: f.key, turnSeq: 2, confirmed: true, undo: true })
+    const undo = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 2, undo: true })
     assert.ok(undo.ok && undo.reverted && undo.undoRef)
     assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'agent two\n')
     assert.equal(await git(f.root, ['show', `${undo.undoRef}:existing.txt`]), 'user work after revert\n')
     assert.deepEqual(await refs(), ['2-pre', '2-redo-1', '2-undo-1', '2-undo-2'])
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})
+
+test('a confirmed revert acts only on the files the dialog showed', async () => {
+  const f = await repository()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    await writeFile(join(f.root, 'existing.txt'), 'agent edit\n')
+    const preview = await checkpoints.revert({ key: f.key, turnSeq: 1 })
+    assert.ok(preview.ok)
+    assert.deepEqual(
+      preview.files.map((file) => file.path),
+      ['existing.txt'],
+    )
+    // Written after the dialog opened: never shown, so never removed.
+    await writeFile(join(f.root, 'late.txt'), 'written while the dialog was open\n')
+    const refused = await checkpoints.revert({ key: f.key, turnSeq: 1, confirmed: true, files: ['existing.txt'] })
+    assert.ok(!refused.ok && refused.changed)
+    assert.equal(await readFile(join(f.root, 'late.txt'), 'utf8'), 'written while the dialog was open\n')
+    assert.equal(await readFile(join(f.root, 'existing.txt'), 'utf8'), 'agent edit\n')
+    const unlisted = await checkpoints.revert({ key: f.key, turnSeq: 1, confirmed: true })
+    assert.ok(!unlisted.ok && unlisted.changed)
+    const confirmed = await checkpoints.revert({
+      key: f.key,
+      turnSeq: 1,
+      confirmed: true,
+      files: ['late.txt', 'existing.txt'],
+    })
+    assert.ok(confirmed.ok && confirmed.reverted)
+    await assert.rejects(stat(join(f.root, 'late.txt')), { code: 'ENOENT' })
   } finally {
     await rm(f.directory, { recursive: true, force: true })
   }

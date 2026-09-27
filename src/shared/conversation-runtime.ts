@@ -333,10 +333,17 @@ export type ConversationTurnDiffInput = { key: ConversationKey; turnSeq: number;
 export type ConversationTurnDiffResult =
   | { ok: true; diff: ConversationCheckpointDiff; patch?: string; original?: string; modified?: string }
   | { ok: false; message: string }
-export type ConversationRevertInput = { key: ConversationKey; turnSeq: number; confirmed?: boolean; undo?: boolean }
+/** A confirmed revert names the exact paths the preview showed; any drift refuses with `changed`. */
+export type ConversationRevertInput = {
+  key: ConversationKey
+  turnSeq: number
+  confirmed?: boolean
+  undo?: boolean
+  files?: string[]
+}
 export type ConversationRevertResult =
   | { ok: true; files: ConversationCheckpointFile[]; reverted: boolean; undoRef?: string }
-  | { ok: false; message: string }
+  | { ok: false; message: string; changed?: true }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
 export type ConversationApprovalRulesResult =
   | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }
