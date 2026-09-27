@@ -181,7 +181,7 @@ test('exclusive creation refuses an existing file and append refuses external li
   }
 })
 
-test('oversized detail and transcript files fail before allocating their contents', async () => {
+test('oversized detail files fail before allocating their contents and oversized transcripts still open', async () => {
   const f = await fixture()
   try {
     const folder = join(f.root, '.sprintengine/conversations/workspace')
@@ -196,9 +196,11 @@ test('oversized detail and transcript files fail before allocating their content
     }
     expect(await readToolDetail(f.root, join(folder, 'agent.tools/large.json'))).toMatchObject({ ok: false })
     const runtime = new ConversationRuntime({ adapters: [] })
+    // A transcript past the old whole-file limit still opens: its end is read,
+    // and a file with no complete line has no events yet.
     expect(
       await runtime.readTranscript({ workspaceRoot: f.root, workspaceId: 'workspace', agentId: 'agent' }),
-    ).toMatchObject({ ok: false })
+    ).toMatchObject({ ok: true, events: [] })
     await expect(new ConversationIndex().list({ workspaceRoot: f.root, workspaceId: 'workspace' })).rejects.toThrow(
       'limit',
     )

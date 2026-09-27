@@ -1,7 +1,6 @@
-import { stat, readFile } from 'fs/promises'
+import { stat } from 'fs/promises'
 import {
   MAX_CONVERSATION_METADATA_BYTES,
-  MAX_CONVERSATION_TRANSCRIPT_BYTES,
   readConversationStorage,
   removeConversationStorage,
   writeConversationStorage,
@@ -9,6 +8,7 @@ import {
 
 import type {
   ConversationCliRuntimeOverrides,
+  ConversationPageResult,
   ConversationEvent,
   ConversationInterruptInput,
   ConversationPermissionPreset,
@@ -65,10 +65,15 @@ import { ACP_PROFILES, createAcpConversationProvider } from './providers/acp-con
 import { workspaceSidecarPath } from './workspace-sidecar'
 import {
   ConversationEventLog,
-  expandCoalescedDeltas,
   type ConversationAppendOutcome,
   type ConversationEventLogOptions,
 } from './conversation-event-log'
+import {
+  ConversationTranscriptReader,
+  DEFAULT_TRANSCRIPT_LIMITS,
+  type ConversationTranscriptLimits,
+  type TranscriptSyncResult,
+} from './conversation-transcript-reader'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -116,10 +121,11 @@ type ConversationRuntimeOptions = {
   secretStore?: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   getProviderById?: typeof getConversationProviderById
   stat?: typeof stat
-  readFile?: typeof readFile
   // How transcript lines reach disk; tests shorten the delta flush or stub the
   // stream. Defaults to one append stream per transcript file.
   eventLog?: ConversationEventLogOptions
+  // Read budgets for transcripts; tests shrink them to exercise long chats.
+  transcriptLimits?: Partial<ConversationTranscriptLimits>
   now?: () => number
   randomId?: () => string
   prepareStudioMcp?: (input: {
@@ -148,7 +154,8 @@ export class ConversationRuntime {
   private readonly stat: typeof stat
   private readonly eventLog: ConversationEventLog
   private readonly threadIndex: ConversationIndex
-  private readonly readFile?: typeof readFile
+  private readonly transcripts: ConversationTranscriptReader
+  private readonly transcriptLimits: ConversationTranscriptLimits
   private readonly now: () => number
   private readonly randomId: () => string
   private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
@@ -202,7 +209,8 @@ export class ConversationRuntime {
       },
       ...options.eventLog,
     })
-    this.readFile = options.readFile
+    this.transcriptLimits = { ...DEFAULT_TRANSCRIPT_LIMITS, ...options.transcriptLimits }
+    this.transcripts = new ConversationTranscriptReader(this.transcriptLimits)
     this.threadIndex = new ConversationIndex({
       flush: (path) => this.eventLog.flush(path),
       close: (path) => this.eventLog.close(path),
@@ -299,8 +307,22 @@ export class ConversationRuntime {
       allowedTools: input.allowedTools,
     }
     await this.initializeSequence(input)
-    const previousTranscript = await this.readTranscript(input, { all: true, closeOpenTurns: false })
+    // Excerpts and the replayed history come from the end of the chat, bounded
+    // like a page: a model's context holds far less than a long transcript.
+    const previousTranscript = await this.readTranscript(input, {
+      all: true,
+      closeOpenTurns: false,
+      maxBytes: this.transcriptLimits.pageBytes,
+    })
     if (previousTranscript.ok) {
+      const first = await this.transcripts
+        .findFirst(
+          input.workspaceRoot,
+          this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
+          (event) => event.type === 'user_message',
+        )
+        .catch(() => undefined)
+      if (first) this.updateExcerpts(session, first)
       for (const event of previousTranscript.events) this.updateExcerpts(session, event)
       session.history = completedHistory(previousTranscript.events)
     }
@@ -1329,12 +1351,17 @@ export class ConversationRuntime {
       const pending = (this.emissionTails.get(path) ?? Promise.resolve())
         .catch(() => undefined)
         .then(async () => {
-          const replay = await this.readTranscript(input, { all: true, closeOpenTurns: false })
-          if (!replay.ok) throw new Error(replay.message)
-          const previous = replay.events.at(-1)
+          const previous = (await this.transcripts.tail(input.workspaceRoot, path, { events: 1 })).at(-1)
           if (!previous) throw new Error('Conversation was not found.')
           // The source event is authoritative even if another rename raced the index lookup.
-          if (titleSource === 'generated' && replay.events.some((event) => event.payload?.titleSource === 'user'))
+          if (
+            titleSource === 'generated' &&
+            (await this.transcripts.findLast(
+              input.workspaceRoot,
+              path,
+              (event) => event.payload?.titleSource === 'user',
+            ))
+          )
             return
           const event: ConversationEvent = {
             ...previous,
@@ -1384,6 +1411,8 @@ export class ConversationRuntime {
       await this.receiptWrites.get(receiptsPath)
       await removeConversationStorage(input.workspaceRoot, receiptsPath)
       this.receipts.delete(receiptsPath)
+      this.transcripts.forget(path)
+      this.nonDurableLogs.delete(path)
       this.sequences.delete(path)
       this.emissionTails.delete(path)
       for (const session of matching) this.sessions.delete(session.sessionId)
@@ -1456,10 +1485,12 @@ export class ConversationRuntime {
   }
 
   // Replay the persisted transcript for one agent, bounded to the most recent
-  // events so a long-lived chat cannot flood the renderer.
+  // events so a long-lived chat cannot flood the renderer. `all` lifts the
+  // event count but not the byte budget: a transcript longer than that comes
+  // back as its newest part rather than as an error.
   async readTranscript(
     input: ConversationTranscriptInput,
-    options: { all?: boolean; closeOpenTurns?: boolean } = {},
+    options: { all?: boolean; closeOpenTurns?: boolean; maxBytes?: number } = {},
   ): Promise<ConversationTranscriptResult> {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim()) {
       return { ok: false, message: 'Conversation transcript request is invalid.' }
@@ -1467,41 +1498,15 @@ export class ConversationRuntime {
     const filePath = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
     // Buffered deltas first, so a reload mid-stream sees everything emitted.
     await this.eventLog.flush(filePath)
-    let raw: string
+    let bounded: ConversationEvent[]
     try {
-      raw = this.readFile
-        ? ((await this.readFile(filePath, 'utf-8')) as string)
-        : (await readConversationStorage(input.workspaceRoot, filePath, MAX_CONVERSATION_TRANSCRIPT_BYTES)).toString(
-            'utf8',
-          )
+      bounded = await this.transcripts.tail(input.workspaceRoot, filePath, {
+        events: options.all ? undefined : MAX_TRANSCRIPT_REPLAY_EVENTS,
+        bytes: options.maxBytes,
+      })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, events: [] }
       return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
     }
-    const events: ConversationEvent[] = []
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        const parsed = JSON.parse(trimmed) as ConversationEvent
-        // A merged run of deltas comes back as the deltas that were emitted,
-        // ids included — the chat view dedupes replay against live pushes.
-        if (parsed && typeof parsed.type === 'string') {
-          if (parsed.type === 'tool_started' && parsed.payload && !parsed.payload.kind) {
-            parsed.payload.kind = inferConversationToolKind(String(parsed.payload.name ?? parsed.payload.tool ?? ''))
-          }
-          events.push(...expandCoalescedDeltas(parsed))
-        }
-      } catch {
-        // Skip torn/corrupt lines (e.g. a crash mid-append).
-      }
-    }
-    let seq = 0
-    for (const event of events) {
-      event.seq = typeof event.seq === 'number' && event.seq > seq ? event.seq : seq + 1
-      seq = event.seq
-    }
-    const bounded = options.all ? events : events.slice(-MAX_TRANSCRIPT_REPLAY_EVENTS)
     const live = Array.from(this.sessions.values()).some(
       (session) =>
         session.workspaceRoot === input.workspaceRoot &&
@@ -1512,6 +1517,42 @@ export class ConversationRuntime {
     return {
       ok: true,
       events: [...bounded, ...(options.closeOpenTurns !== false && !live ? syntheticTurnClosures(bounded) : [])],
+    }
+  }
+
+  /**
+   * What a subscriber needs to join: the events after its cursor when the
+   * cursor provably belongs to this log, otherwise a snapshot of the last
+   * turns. Only published events are ever on disk ahead of a reader, so
+   * nothing read here can be missing from, or repeated by, the live stream a
+   * subscriber attached before calling this.
+   */
+  async readConversationSync(
+    key: ConversationTranscriptInput,
+    input: { afterSeq?: number; generation?: string; turnLimit?: number },
+  ): Promise<({ ok: true } & TranscriptSyncResult) | { ok: false; message: string }> {
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    try {
+      const result = await this.transcripts.sync(key.workspaceRoot, path, {
+        ...input,
+        forceSnapshot: this.nonDurableLogs.has(path),
+      })
+      return { ok: true, ...result }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
+    }
+  }
+
+  async readConversationPage(
+    key: ConversationTranscriptInput,
+    beforeCursor: number,
+    turnLimit?: number,
+  ): Promise<ConversationPageResult> {
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    try {
+      return { ok: true, page: await this.transcripts.before(key.workspaceRoot, path, beforeCursor, turnLimit) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
     }
   }
 
@@ -1537,12 +1578,20 @@ export class ConversationRuntime {
   private async initializeSequenceNow(input: ConversationTranscriptInput): Promise<void> {
     const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
     if (this.sequences.has(path)) return
-    const transcript = await this.readTranscript(input, { all: true })
-    if (!transcript.ok) throw new Error(transcript.message)
-    for (const event of transcript.events) {
-      if (event.id.startsWith('conv_evt_replay_close_')) await this.eventLog.append(path, event, input.workspaceRoot)
-    }
-    this.sequences.set(path, transcript.events.at(-1)?.seq ?? 0)
+    await this.eventLog.flush(path)
+    // Only the last turn can still be open, so the end of the log is all this
+    // needs: its last sequence number and any turn it left unfinished.
+    const sync = await this.transcripts.sync(input.workspaceRoot, path, { turnLimit: 1 })
+    const live = Array.from(this.sessions.values()).some(
+      (session) =>
+        session.workspaceRoot === input.workspaceRoot &&
+        session.workspaceId === input.workspaceId &&
+        session.agentId === input.agentId &&
+        session.status !== 'stopped',
+    )
+    const closures = sync.kind === 'snapshot' && !live ? syntheticTurnClosures(sync.page.events) : []
+    for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
+    this.sequences.set(path, closures.at(-1)?.seq ?? sync.head)
     await this.checkpoints.collectExpired(input.workspaceRoot)
   }
 
@@ -1604,9 +1653,8 @@ export class ConversationRuntime {
         const pending = (this.emissionTails.get(path) ?? Promise.resolve())
           .catch(() => undefined)
           .then(async () => {
-            const transcript = await this.readTranscript(input.key, { all: true, closeOpenTurns: false })
-            if (!transcript.ok) throw new Error(transcript.message)
-            const previous = transcript.events.at(-1)
+            await this.eventLog.flush(path)
+            const previous = (await this.transcripts.tail(input.key.workspaceRoot, path, { events: 1 })).at(-1)
             const event: ConversationEvent = {
               id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
               seq: (this.sequences.get(path) ?? 0) + 1,
@@ -1643,15 +1691,22 @@ export class ConversationRuntime {
     workspaceId: string,
     agentId: string,
   ): Promise<string | undefined> {
-    const transcript = await this.readTranscript({ workspaceRoot, workspaceId, agentId })
-    if (!transcript.ok) return undefined
-    for (let index = transcript.events.length - 1; index >= 0; index -= 1) {
-      const event = transcript.events[index]
-      if (event.type !== 'session_updated' && event.type !== 'session_started') continue
+    const cursorOf = (event: ConversationEvent) => {
+      if (event.type !== 'session_updated' && event.type !== 'session_started') return undefined
       const cursor = event.payload?.providerSessionId
-      if (typeof cursor === 'string' && cursor.trim()) return cursor.trim()
+      return typeof cursor === 'string' && cursor.trim() ? cursor.trim() : undefined
     }
-    return undefined
+    try {
+      await this.eventLog.flush(this.transcriptPath(workspaceRoot, workspaceId, agentId))
+      const event = await this.transcripts.findLast(
+        workspaceRoot,
+        this.transcriptPath(workspaceRoot, workspaceId, agentId),
+        (candidate) => cursorOf(candidate) !== undefined,
+      )
+      return event ? cursorOf(event) : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private toSummary(session: RuntimeSession): ConversationSessionSummary {

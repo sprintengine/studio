@@ -425,7 +425,7 @@ test('reconnecting replaces cached history authoritatively and excludes unrelate
   }
 })
 
-test('crash-era cursors ahead of, equal to, and behind a reused sequence receive reset snapshots before live events', async () => {
+test('cursors without a generation, or ahead of the log, receive reset snapshots before live events', async () => {
   const f = await fixture()
   try {
     const api = new ConversationSessionApi(f.runtime)
@@ -443,7 +443,7 @@ test('crash-era cursors ahead of, equal to, and behind a reused sequence receive
       const snapshot = frames[0]
       assert.ok(snapshot.type === 'snapshot' && snapshot.reset)
       assert.deepEqual(snapshot.page.events, before.events)
-      assert.deepEqual(frames[1], { type: 'synchronized', seq: before.events.at(-1)!.seq })
+      assert.equal(frames[1].type === 'synchronized' && frames[1].seq, before.events.at(-1)!.seq)
       await f.runtime.sendTurn({ sessionId: f.sessionId, message: '/tools' })
       const live = frames.filter((frame) => frame.type === 'event')
       assert.ok(live.length > 0)
@@ -525,9 +525,9 @@ test('throwing providers and listeners leave a retryable session', async () => {
 })
 
 test('subscribe joins a racing replay without gaps or duplicates and disposes synchronously', async () => {
-  let resolveRead!: (value: { ok: true; events: ConversationEvent[] }) => void
+  let resolveRead!: (value: unknown) => void
   const listeners = new Set<(event: ConversationEvent) => void>()
-  const read = new Promise<{ ok: true; events: ConversationEvent[] }>((resolve) => {
+  const read = new Promise((resolve) => {
     resolveRead = resolve
   })
   const runtime = {
@@ -536,7 +536,7 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    readTranscript: () => read,
+    readConversationSync: () => read,
   } as unknown as ConversationRuntime
   const api = new ConversationSessionApi(runtime)
   const key = { workspaceRoot: '/workspace', workspaceId: 'workspace', agentId: 'agent' }
@@ -546,7 +546,13 @@ test('subscribe joins a racing replay without gaps or duplicates and disposes sy
   const frames: ConversationSessionFrame[] = []
   const subscription = api.subscribe({ key, afterSeq: 0 }, (frame) => frames.push(frame))
   for (const listener of listeners) listener(second)
-  resolveRead({ ok: true, events: [first, second] })
+  resolveRead({
+    ok: true,
+    kind: 'snapshot',
+    page: { events: [first, second], hasMore: false, beforeCursor: 1 },
+    head: 2,
+    generation: 'g',
+  })
   await subscription.ready
   for (const listener of listeners) listener({ ...second, seq: 3 })
   assert.deepEqual(
@@ -818,5 +824,335 @@ test('remembered approvals auto-resolve later matching tools and persistence fai
   } finally {
     await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+/** A provider whose turn streams whatever the test pushes, until it ends the turn. */
+function pushProvider() {
+  let push: (text: string | null) => void = () => undefined
+  let started!: () => void
+  const turnStarted = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const adapter: ConversationProviderAdapter = {
+    ...createMockConversationProvider(),
+    sendTurn: (input) =>
+      (async function* () {
+        const queue: Array<string | null> = []
+        let wake: (() => void) | null = null
+        push = (text) => {
+          queue.push(text)
+          wake?.()
+        }
+        yield event(input, 'turn_started', { turnId: input.turnId })
+        started()
+        for (;;) {
+          if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve))
+          wake = null
+          const text = queue.shift()!
+          if (text === null) break
+          yield event(input, 'content_delta', { turnId: input.turnId, text })
+        }
+        yield event(input, 'turn_completed', { turnId: input.turnId })
+      })(),
+  }
+  return { adapter, turnStarted, push: (text: string | null) => push(text) }
+}
+
+const frameSeqs = (frames: ConversationSessionFrame[]) =>
+  frames.flatMap((frame) => (frame.type === 'event' ? [frame.event.seq!] : []))
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !predicate(); attempt++) await new Promise((r) => setTimeout(r, 5))
+  assert.ok(predicate())
+}
+
+test('a reconnect mid-turn with its cursor gets exactly the missed events while deltas keep streaming', async () => {
+  const provider = pushProvider()
+  const f = await fixture(provider.adapter)
+  try {
+    const api = new ConversationSessionApi(f.runtime)
+    const first: ConversationSessionFrame[] = []
+    const joined = api.subscribe({ key: f.key }, (frame) => first.push(frame))
+    await joined.ready
+    const sending = f.runtime.sendTurn({ sessionId: f.sessionId, message: 'stream' })
+    await provider.turnStarted
+    for (let index = 0; index < 5; index++) provider.push(`before-${index} `)
+    await waitFor(() => first.some((frame) => frame.type === 'event' && frame.event.payload?.text === 'before-4 '))
+    const synchronized = first.find((frame) => frame.type === 'synchronized')
+    assert.ok(synchronized?.type === 'synchronized' && synchronized.generation)
+    const cursor = Math.max(...frameSeqs(first))
+    joined.dispose()
+
+    // Offline: more deltas land and are published to nobody.
+    for (let index = 0; index < 5; index++) provider.push(`missed-${index} `)
+    const watcher: number[] = []
+    const stopWatching = f.runtime.onEvent((value) => watcher.push(value.seq!))
+    await waitFor(() => watcher.length >= 5)
+
+    const rejoined: ConversationSessionFrame[] = []
+    const again = api.subscribe({ key: f.key, afterSeq: cursor, generation: synchronized.generation }, (frame) =>
+      rejoined.push(frame),
+    )
+    // Deltas keep arriving while the reconnect is reading.
+    for (let index = 0; index < 5; index++) provider.push(`during-${index} `)
+    await again.ready
+    for (let index = 0; index < 3; index++) provider.push(`after-${index} `)
+    provider.push(null)
+    await sending
+    await waitFor(() => rejoined.some((frame) => frame.type === 'event' && frame.event.type === 'turn_completed'))
+    stopWatching()
+
+    assert.equal(
+      rejoined.some((frame) => frame.type === 'snapshot'),
+      false,
+      'a cursor the log can vouch for is not answered with a reset',
+    )
+    const seqs = frameSeqs(rejoined)
+    assert.deepEqual(
+      seqs,
+      [...seqs].sort((a, b) => a - b),
+      'in order',
+    )
+    assert.equal(new Set(seqs).size, seqs.length, 'no duplicates')
+    assert.ok(seqs[0] > cursor)
+    const text = rejoined
+      .flatMap((frame) =>
+        frame.type === 'event' && frame.event.type === 'content_delta' ? [frame.event.payload!.text] : [],
+      )
+      .join('')
+    const expected = [
+      ...Array.from({ length: 5 }, (_, index) => `missed-${index} `),
+      ...Array.from({ length: 5 }, (_, index) => `during-${index} `),
+      ...Array.from({ length: 3 }, (_, index) => `after-${index} `),
+    ].join('')
+    assert.equal(text, expected, 'every missed and later delta exactly once, none from before the cursor')
+    const transcript = await f.runtime.readTranscript(f.key, { all: true, closeOpenTurns: false })
+    assert.ok(transcript.ok)
+    const head = transcript.events.at(-1)!.seq!
+    assert.equal(seqs.at(-1), head, 'caught up to the end of the log')
+    again.dispose()
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a cursor from another log generation or too far behind gets a reset snapshot', async () => {
+  const f = await fixture()
+  try {
+    const api = new ConversationSessionApi(f.runtime)
+    await f.runtime.sendTurn({ sessionId: f.sessionId, message: '/tools' })
+    const frames: ConversationSessionFrame[] = []
+    const joined = api.subscribe({ key: f.key }, (frame) => frames.push(frame))
+    await joined.ready
+    joined.dispose()
+    const synchronized = frames.find((frame) => frame.type === 'synchronized')
+    assert.ok(synchronized?.type === 'synchronized' && synchronized.generation)
+
+    const stale: ConversationSessionFrame[] = []
+    const other = api.subscribe({ key: f.key, afterSeq: 1, generation: 'another-log' }, (frame) => stale.push(frame))
+    await other.ready
+    other.dispose()
+    assert.ok(stale[0].type === 'snapshot' && stale[0].reset)
+
+    const current: ConversationSessionFrame[] = []
+    const caughtUp = api.subscribe({ key: f.key, afterSeq: 1, generation: synchronized.generation }, (frame) =>
+      current.push(frame),
+    )
+    await caughtUp.ready
+    caughtUp.dispose()
+    assert.equal(current[0].type, 'event')
+
+    // The log is deleted and a new one takes its path: the old cursor must not replay against it.
+    assert.equal((await f.runtime.deleteTranscript(f.key)).ok, true)
+    const restarted = await f.runtime.startSession({ ...f.key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(restarted.ok)
+    await f.runtime.sendTurn({ sessionId: restarted.session.sessionId, message: '/tools' })
+    const recreated: ConversationSessionFrame[] = []
+    const fresh = api.subscribe({ key: f.key, afterSeq: 1, generation: synchronized.generation }, (frame) =>
+      recreated.push(frame),
+    )
+    await fresh.ready
+    fresh.dispose()
+    assert.ok(recreated[0].type === 'snapshot' && recreated[0].reset)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a reconnect further behind than the catch-up budget gets a snapshot', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-behind-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+    transcriptLimits: { catchUpEvents: 3 },
+  })
+  try {
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok)
+    const api = new ConversationSessionApi(runtime)
+    const frames: ConversationSessionFrame[] = []
+    const joined = api.subscribe({ key }, (frame) => frames.push(frame))
+    await joined.ready
+    joined.dispose()
+    const synchronized = frames.find((frame) => frame.type === 'synchronized')
+    assert.ok(synchronized?.type === 'synchronized')
+    await runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+    const behind: ConversationSessionFrame[] = []
+    const again = api.subscribe({ key, afterSeq: synchronized.seq, generation: synchronized.generation }, (frame) =>
+      behind.push(frame),
+    )
+    await again.ready
+    again.dispose()
+    assert.ok(behind[0].type === 'snapshot' && behind[0].reset)
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a transcript past the whole-file limit still subscribes, catches up, pages and resumes', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-large-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const path = workspaceSidecarPath(workspaceRoot, 'conversations', 'workspace', 'agent.jsonl')
+  const envelope = { ...key, sessionId: 'old', providerId: 'mock-provider', modelId: 'mock-model' }
+  const lines: string[] = []
+  let seq = 0
+  lines.push(
+    JSON.stringify({ ...event(envelope, 'session_started', { providerSessionId: 'native-1' }), id: 'e0', seq: ++seq }),
+  )
+  for (let turn = 0; turn < 60; turn++) {
+    lines.push(
+      JSON.stringify({
+        ...event(envelope, 'user_message', { turnId: `t${turn}`, text: `Question ${turn}` }),
+        id: `u${turn}`,
+        seq: ++seq,
+      }),
+    )
+    const parts = ['An', 'swer ', `${turn}`].map((text, index) => [`d${turn}_${index}`, 1, text.length, ++seq])
+    lines.push(
+      JSON.stringify({
+        ...event(envelope, 'content_delta', { turnId: `t${turn}`, text: `Answer ${turn}` }),
+        id: `d${turn}_0`,
+        seq: parts[0][3],
+        parts,
+      }),
+    )
+    lines.push(
+      JSON.stringify({ ...event(envelope, 'turn_completed', { turnId: `t${turn}` }), id: `c${turn}`, seq: ++seq }),
+    )
+  }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, lines.join('\n') + '\n')
+  const size = (await stat(path)).size
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+    // Well under the file: before, any read past this failed outright.
+    transcriptLimits: { fullReadBytes: Math.floor(size / 4), pageBytes: Math.floor(size / 8) },
+  })
+  try {
+    const api = new ConversationSessionApi(runtime)
+    const frames: ConversationSessionFrame[] = []
+    const joined = api.subscribe({ key, turnLimit: 5 }, (frame) => frames.push(frame))
+    await joined.ready
+    joined.dispose()
+    const snapshot = frames[0]
+    assert.ok(snapshot.type === 'snapshot', JSON.stringify(frames[0]))
+    assert.equal(snapshot.page.events.filter((item) => item.type === 'user_message').length, 5)
+    assert.equal(snapshot.page.hasMore, true)
+    const merged = snapshot.page.events.find((item) => item.type === 'content_delta')!
+    assert.equal(merged.payload?.text, 'Answer 55', 'a merged run stays one event in a snapshot')
+    assert.equal('parts' in merged, false)
+    const synchronized = frames.find((frame) => frame.type === 'synchronized')
+    assert.ok(synchronized?.type === 'synchronized')
+    assert.equal(synchronized.seq, seq)
+
+    // Page all the way back: every turn exactly once, in order.
+    const questions: string[] = []
+    let page = snapshot.page
+    questions.unshift(
+      ...page.events.filter((item) => item.type === 'user_message').map((item) => String(item.payload?.text)),
+    )
+    while (page.hasMore) {
+      const earlier = await api.loadEarlier({ key, beforeCursor: page.beforeCursor!, turnLimit: 7 })
+      assert.ok(earlier.ok)
+      page = earlier.page
+      questions.unshift(
+        ...page.events.filter((item) => item.type === 'user_message').map((item) => String(item.payload?.text)),
+      )
+    }
+    assert.deepEqual(
+      questions,
+      Array.from({ length: 60 }, (_, index) => `Question ${index}`),
+    )
+    assert.equal(page.events[0].type, 'session_started')
+
+    // A cursor in the middle of a merged run gets the rest of the run only.
+    const midRun = seq - 2
+    const caught: ConversationSessionFrame[] = []
+    const again = api.subscribe({ key, afterSeq: midRun, generation: synchronized.generation }, (frame) =>
+      caught.push(frame),
+    )
+    await again.ready
+    again.dispose()
+    assert.deepEqual(
+      caught.flatMap((frame) =>
+        frame.type === 'event' ? [[frame.event.type, frame.event.payload?.text ?? null]] : [],
+      ),
+      [
+        ['content_delta', '59'],
+        ['turn_completed', null],
+      ],
+    )
+
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok, 'a long chat still starts')
+    assert.equal(started.session.firstUserText, 'Question 0')
+    assert.equal((await runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })).ok, true)
+    const tail = await runtime.readTranscript(key, { all: true, closeOpenTurns: false })
+    assert.ok(tail.ok)
+    assert.ok((tail.events.at(-1)?.seq ?? 0) > seq, 'new events continue the stored sequence')
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('subscribing while a turn appends to the transcript succeeds every time', async () => {
+  const provider = pushProvider()
+  const f = await fixture(provider.adapter)
+  try {
+    const api = new ConversationSessionApi(f.runtime)
+    const sending = f.runtime.sendTurn({ sessionId: f.sessionId, message: 'stream' })
+    await provider.turnStarted
+    let streaming = true
+    const pump = (async () => {
+      for (let index = 0; streaming; index++) {
+        provider.push(`token-${index} `)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      }
+    })()
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const frames: ConversationSessionFrame[] = []
+      const joined = api.subscribe({ key: f.key }, (frame) => frames.push(frame))
+      await joined.ready
+      joined.dispose()
+      assert.equal(
+        frames.some((frame) => frame.type === 'error'),
+        false,
+        JSON.stringify(frames.find((frame) => frame.type === 'error')),
+      )
+      assert.ok(frames.some((frame) => frame.type === 'synchronized'))
+      const page = await api.loadEarlier({ key: f.key, beforeCursor: Number.MAX_SAFE_INTEGER })
+      assert.equal(page.ok, true)
+    }
+    streaming = false
+    await pump
+    provider.push(null)
+    await sending
+  } finally {
+    await f.cleanup()
   }
 })

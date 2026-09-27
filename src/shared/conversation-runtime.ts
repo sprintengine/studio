@@ -338,12 +338,23 @@ export type ConversationApprovalRulesResult =
 export type ConversationApprovalRuleRevokeResult = { ok: true } | { ok: false; message: string }
 
 export type ConversationKey = ConversationTranscriptInput
-export type ConversationSubscribeInput = { key: ConversationKey; afterSeq?: number; turnLimit?: number }
+// `afterSeq` with the `generation` from an earlier snapshot or synchronized
+// frame asks for only the events after that sequence. A cursor the log cannot
+// vouch for (another generation, ahead of the log, or too far behind) gets a
+// reset snapshot instead, as does a cursor sent without a generation.
+export type ConversationSubscribeInput = {
+  key: ConversationKey
+  afterSeq?: number
+  generation?: string
+  turnLimit?: number
+}
 export type ConversationPage = { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
 export type ConversationLoadEarlierInput = { key: ConversationKey; beforeCursor: number; turnLimit?: number }
 export type ConversationPageResult = { ok: true; page: ConversationPage } | { ok: false; message: string }
 export type ConversationSessionFrame =
   | { type: 'event'; event: ConversationEvent }
-  | { type: 'snapshot'; page: ConversationPage; reset?: true }
-  | { type: 'synchronized'; seq: number }
+  // Page events keep a merged run of deltas as one event numbered with the
+  // run's last sequence; `beforeCursor` is the first sequence the page covers.
+  | { type: 'snapshot'; page: ConversationPage; reset?: true; generation?: string }
+  | { type: 'synchronized'; seq: number; generation?: string }
   | { type: 'error'; message: string }

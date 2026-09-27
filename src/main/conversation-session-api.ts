@@ -3,7 +3,6 @@ import type {
   ConversationSubscribeInput,
   ConversationSessionFrame,
   ConversationLoadEarlierInput,
-  ConversationPage,
   ConversationPageResult,
   ConversationSendTurnInput,
   ConversationInterruptInput,
@@ -65,27 +64,35 @@ export class ConversationSessionApi {
       deliver({ type: 'event', event })
     }
     // Subscribe before any asynchronous read so the join has no blind window.
+    // An event is published only after it is on disk, so each one either is in
+    // the read below or arrives here afterwards; the sequence filter drops the
+    // overlap.
     unsubscribe = this.runtime.onEvent(live)
     const ready = (async () => {
       await this.runtime.recoverTranscript(input.key)
-      const transcript = await this.runtime.readTranscript(input.key, { all: true, closeOpenTurns: false })
+      const sync = await this.runtime.readConversationSync(input.key, {
+        afterSeq: input.afterSeq,
+        generation: input.generation,
+        turnLimit: input.turnLimit,
+      })
       if (disposed) return
-      if (!transcript.ok) {
-        deliver({ type: 'error', message: transcript.message })
+      if (!sync.ok) {
+        deliver({ type: 'error', message: sync.message })
         dispose()
         return
       }
-      // Buffered deltas may have reached a client but not disk at a crash.
-      // Recovery can reuse those sequence numbers, even below today's tail
-      // after another client continues. A sequence alone cannot prove that a
-      // cached prefix belongs to this log: replace it at every reconnect.
-      deliver({
-        type: 'snapshot',
-        page: pageTurns(transcript.events, input.turnLimit),
-        ...(input.afterSeq !== undefined ? { reset: true as const } : {}),
-      })
-      seen = transcript.events.at(-1)?.seq ?? 0
-      deliver({ type: 'synchronized', seq: seen })
+      if (sync.kind === 'events') {
+        for (const event of sync.events) deliver({ type: 'event', event })
+      } else {
+        deliver({
+          type: 'snapshot',
+          page: sync.page,
+          generation: sync.generation,
+          ...(input.afterSeq !== undefined ? { reset: true as const } : {}),
+        })
+      }
+      seen = sync.head
+      deliver({ type: 'synchronized', seq: seen, generation: sync.generation })
       joining = false
       for (const event of queued.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) live(event)
       queued.length = 0
@@ -101,15 +108,7 @@ export class ConversationSessionApi {
 
   async loadEarlier(input: ConversationLoadEarlierInput): Promise<ConversationPageResult> {
     await this.runtime.recoverTranscript(input.key)
-    const transcript = await this.runtime.readTranscript(input.key, { all: true, closeOpenTurns: false })
-    if (!transcript.ok) return transcript
-    return {
-      ok: true,
-      page: pageTurns(
-        transcript.events.filter((event) => (event.seq ?? 0) < input.beforeCursor),
-        input.turnLimit,
-      ),
-    }
+    return this.runtime.readConversationPage(input.key, input.beforeCursor, input.turnLimit)
   }
 
   send(input: ConversationSendTurnInput & { commandId: string; requireSafePermissions?: boolean }) {
@@ -127,13 +126,4 @@ export class ConversationSessionApi {
   setPermissionPreset(input: ConversationSetPermissionInput & { commandId: string }) {
     return this.runtime.setPermission(input)
   }
-}
-
-function pageTurns(events: ConversationEvent[], requested = 10): ConversationPage {
-  const limit = Math.max(1, Math.min(100, Math.floor(requested) || 10))
-  const starts: number[] = []
-  for (let index = 0; index < events.length; index++) if (events[index].type === 'user_message') starts.push(index)
-  const start = starts.length > limit ? starts[starts.length - limit] : 0
-  const page = events.slice(start)
-  return { events: page, hasMore: start > 0, beforeCursor: page[0]?.seq ?? null }
 }
