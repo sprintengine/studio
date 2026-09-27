@@ -64,9 +64,13 @@ export function createRemoteConversationCache(options: {
 
   return {
     async load(key) {
+      const file = remoteConversationCacheFile(key)
+      // A follow dropped and taken up again at once (a window reloading) reads
+      // the copy its last write left, not the one before it.
+      await writes.get(file)
       let text: string
       try {
-        text = await readFile(join(directory(), remoteConversationCacheFile(key)), 'utf8')
+        text = await readFile(join(directory(), file), 'utf8')
       } catch {
         return null
       }

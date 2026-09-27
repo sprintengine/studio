@@ -16,7 +16,10 @@ import { createTailnetFleetService, type TailnetFleetService } from './tailnet/t
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { createRemoteConversations } from './tailnet/tailnet-remote-conversations'
-import type { RemoteConversationCache } from './tailnet/tailnet-remote-conversation-cache'
+import {
+  createRemoteConversationCache,
+  type RemoteConversationCache,
+} from './tailnet/tailnet-remote-conversation-cache'
 import type { RemoteTerminalSocketHandlers } from './tailnet/tailnet-remote-client'
 import { pairingUrl } from './tailnet/tailnet-service'
 
@@ -561,4 +564,41 @@ test('a snapshot sent in parts and chunks is applied once whole, and a busy comm
   handlers[0].onFrame({ type: 'result', requestId: read.requestId, ok: false, code: 'too_large', message: 'Too big.' })
   assert.deepEqual(await detail, { ok: false, code: 'unavailable', message: 'Too big.' })
   client.shutdown()
+})
+
+test('a kept copy read back while its write is in flight is the copy that write leaves', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'remote-conversation-cache-'))
+  try {
+    const cache = createRemoteConversationCache({ resolveUserDataDir: () => dir })
+    const cacheKey = { connectionId: 'c', workspaceId, agentId }
+    const page = (text: string) => ({
+      events: [
+        {
+          id: 'e1',
+          seq: 7,
+          sessionId: 's',
+          workspaceId,
+          agentId,
+          providerId: 'p',
+          modelId: 'm',
+          type: 'content_delta' as const,
+          createdAt: 1,
+          payload: { text },
+        },
+      ],
+      hasMore: false,
+      beforeCursor: null,
+    })
+    await cache.save(cacheKey, { generation: 'g', lastSeq: 7, page: page('old') })
+    void cache.save(cacheKey, { generation: 'g', lastSeq: 9, page: page('new') })
+    const loaded = await cache.load(cacheKey)
+    assert.equal(loaded?.lastSeq, 9)
+    assert.equal(loaded?.page.events[0].payload?.text, 'new')
+    // A copy for another conversation is never read as this one's.
+    assert.equal(await cache.load({ ...cacheKey, agentId: 'other' }), null)
+    await cache.forgetConnection('c')
+    assert.equal(await cache.load(cacheKey), null, 'forgetting the machine deletes what was kept of it')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
