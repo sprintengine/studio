@@ -223,6 +223,21 @@ export function popoverOpenWithin(host: Node | null): boolean {
   return openPopoversWithin(host).length > 0
 }
 
+/**
+ * Whether a popover's trigger is off screen: detached, inside an inert or
+ * aria-hidden subtree (a background workspace layer, a view under a door), or
+ * not rendered (display/visibility/content-visibility), where the engine can
+ * tell us.
+ */
+function anchorHidden(anchor: Element): boolean {
+  if (!anchor.isConnected) return true
+  if (anchor.closest('[inert], [aria-hidden="true"], [hidden]')) return true
+  const visible = (anchor as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility
+  return typeof visible === 'function'
+    ? !visible.call(anchor, { visibilityProperty: true, contentVisibilityAuto: true })
+    : false
+}
+
 export function Popover({
   open,
   onOpenChange,
@@ -332,6 +347,33 @@ export function Popover({
       document.removeEventListener('keydown', onKey)
     }
   }, [open, closePopover, onOpenChange, popoverId])
+
+  // Close when the trigger stops being on screen. The surface is portaled to
+  // <body>, so hiding the trigger's layer — switching workspace (its layer goes
+  // `invisible` and aria-hidden), switching tab, a door painting over it inert —
+  // hid the anchor and left the menu floating over whatever came next, still
+  // answering clicks for a view nobody could see. Watched only while open.
+  useEffect(() => {
+    if (!open || typeof MutationObserver === 'undefined') return
+    let frame: number | null = null
+    const check = () => {
+      frame = null
+      const anchor = triggerRef.current ?? containerRef.current
+      if (anchor && anchorHidden(anchor)) onOpenChange(false)
+    }
+    const observer = new MutationObserver(() => {
+      if (frame === null) frame = requestAnimationFrame(check)
+    })
+    observer.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'],
+    })
+    return () => {
+      observer.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [open, onOpenChange])
 
   const Surface = surfaceAs
 

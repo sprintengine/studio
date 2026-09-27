@@ -39,7 +39,6 @@ import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
   CardButton,
   ChipButton,
-  CliModelPopoverSurface,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
@@ -52,22 +51,20 @@ import {
   MenuOption,
   Popover,
   PrimaryButton,
-  SegmentedControl,
   Textarea,
   StarGlyph,
   Tooltip,
-  TruncatedText,
   useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
-import CliIcon from '../../CliIcon'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import { menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
+import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
 import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
@@ -76,7 +73,7 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
-import type { ConversationSpawnOption } from '../conversationSpawnOptions'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../../../../../shared/conversation-harness'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -101,21 +98,11 @@ export type NewAgentProjectOption = { path: string; label: string }
 
 export type NewAgentPanelProps = {
   workspaceId: string
-  /** Development gate for the unfinished conversation runtime. */
+  /** Development gate for the chat agent runtime. */
   conversationModeEnabled?: boolean
-  conversationAvailable: boolean
-  conversationCatalogLoading?: boolean
+  /** False where the workspace cannot host a chat agent (a module's workspace type). */
   conversationWorkspaceSupported?: boolean
-  conversationOptions?: ConversationSpawnOption[]
-  conversationDefaultOption?: ConversationSpawnOption | null
   forceSelection?: AgentComposerSelection | null
-  /**
-   * Ask the host to load the conversation provider catalog. `conversationAvailable`
-   * stays false until it has, so a surface that never asks can never offer the
-   * row — which is exactly what happened while the catalog was loaded by the top
-   * bar's menu alone.
-   */
-  onRequestConversationCatalog?: () => void
   /**
    * Where this launch lands when it is NOT the active workspace's own folder —
    * the New chat door, which creates a solo workspace in a project you pick. The
@@ -375,13 +362,8 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
 export default function NewAgentPanel({
   workspaceId,
   conversationModeEnabled = true,
-  conversationAvailable,
-  conversationCatalogLoading = false,
   conversationWorkspaceSupported = true,
-  conversationOptions = [],
-  conversationDefaultOption = null,
   forceSelection,
-  onRequestConversationCatalog,
   folderPath,
   projectOptions,
   onSelectProject,
@@ -480,21 +462,7 @@ export default function NewAgentPanel({
   })
   const { selection } = composer
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
-  const [selectedConversation, setSelectedConversation] = React.useState<ConversationSpawnOption | null>(null)
-  const conversationChoice =
-    selectedConversation ??
-    conversationDefaultOption ??
-    conversationOptions.find((option) => !option.unavailable) ??
-    null
-  const visibleConversationOptions =
-    conversationDefaultOption &&
-    !conversationOptions.some(
-      (option) =>
-        option.providerId === conversationDefaultOption.providerId &&
-        option.modelId === conversationDefaultOption.modelId,
-    )
-      ? [conversationDefaultOption, ...conversationOptions]
-      : conversationOptions
+  const isChatLaunch = selection.kind === 'conversation'
 
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
@@ -802,7 +770,6 @@ export default function NewAgentPanel({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const displayName = useWorkspaceStore((s) => s.authState.user?.displayName ?? null)
-  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
 
   const [prompt, setPrompt] = React.useState(() => draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
@@ -898,10 +865,17 @@ export default function NewAgentPanel({
   const [greetingIndex] = React.useState(() => Math.floor(Math.random() * GREETINGS.length))
   const greeting = GREETINGS[greetingIndex % GREETINGS.length](firstName)
 
-  // Neither a plain shell nor a conversation agent launches a CLI, so neither
-  // may wear a CLI's chip, its flags, or its command line.
-  const launchCli: AgentCli | null =
-    selection.kind === 'terminal' || selection.kind === 'conversation' ? null : composer.selectionCli
+  // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
+  // CLI too — the same one, driven as a chat — so it wears the same chip and
+  // opens the same picker, with the rail narrowed to the CLIs that have a chat
+  // runtime (`composer.optionsFor`).
+  const launchCli: AgentCli | null = selection.kind === 'terminal' ? null : composer.selectionCli
+  const pickerOptions = composer.optionsFor(selection)
+  // No installed CLI can run as a chat: the Chat agent choice has nothing to
+  // start, and says so with the install route rather than a dead chip.
+  const chatUnavailable = isChatLaunch && composer.catalogStatus === 'ready' && pickerOptions.length === 0
+  // Only a terminal launch runs a command line, so only it has one to preview.
+  const commandCli: AgentCli | null = selection.kind === 'general' ? launchCli : null
   const engineNames = composer.engineNamesFor(selection)
   const model = launchCli ? composer.modelForSelection(selection, launchCli) : undefined
   const reasoning = launchCli ? composer.reasoningForSelection(selection, launchCli) : undefined
@@ -920,10 +894,12 @@ export default function NewAgentPanel({
   const effectivePreset = useCliPermissionPreset(launchCli, permissionPreset)
 
   // ── The skill trigger ────────────────────────────────────────────────────
+  // A chat carries skills as attachments rather than a typed invocation, so the
+  // CLI's mention syntax is a terminal launch's alone.
   const skillIntegration = React.useMemo(() => {
-    if (!launchCli) return undefined
-    return pluginCatalogEntries.find((entry) => entry.id === launchCli)?.skillIntegration
-  }, [launchCli, pluginCatalogEntries])
+    if (!commandCli) return undefined
+    return pluginCatalogEntries.find((entry) => entry.id === commandCli)?.skillIntegration
+  }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
 
   const [mentionDismissed, setMentionDismissed] = React.useState(false)
@@ -977,17 +953,17 @@ export default function NewAgentPanel({
   const [commandLine, setCommandLine] = React.useState<LaunchCommandLineState>({ status: 'idle' })
   const previewInput = React.useMemo(
     () => ({
-      cli: launchCli,
+      cli: commandCli,
       model,
       reasoning,
       permissionPreset: effectivePreset,
-      runtime: launchCli
+      runtime: commandCli
         ? isWslHostId(hostId)
-          ? { command: hostSettings?.[hostId]?.cliCommands[launchCli] ?? '', hostId }
-          : cliRuntimes?.[launchCli]
+          ? { command: hostSettings?.[hostId]?.cliCommands[commandCli] ?? '', hostId }
+          : cliRuntimes?.[commandCli]
         : undefined,
     }),
-    [cliRuntimes, effectivePreset, hostId, hostSettings, launchCli, model, reasoning],
+    [cliRuntimes, commandCli, effectivePreset, hostId, hostSettings, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {
@@ -1021,7 +997,7 @@ export default function NewAgentPanel({
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
   const canLaunch =
     composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
-    (selection.kind !== 'conversation' || (conversationWorkspaceSupported && conversationAvailable))
+    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0))
 
   const launch = (text: string) => {
     if (!canLaunch) return
@@ -1097,28 +1073,25 @@ export default function NewAgentPanel({
     // A conversation runs in this app's process, which is this machine.
     const launchHostId = selection.kind === 'conversation' ? LOCAL_HOST_ID : hostId
     const confirm = composer.buildConfirm(selection)
-    if (confirm.kind === 'conversation' && conversationChoice) {
+    if (confirm.kind === 'conversation') {
+      // The picker's CLI and model, mapped onto the conversation provider that
+      // drives that CLI as a chat. The CLI's own default row asks for no model.
+      const providerId = confirm.cli ? conversationProviderForCli(confirm.cli) : null
+      if (!providerId) return
       confirm.provider = {
-        providerId: conversationChoice.providerId,
-        modelId: conversationChoice.modelId,
-        modelLabel: conversationChoice.modelLabel,
+        providerId,
+        modelId: confirm.model ?? CONVERSATION_DEFAULT_MODEL_ID,
+        modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
       }
     }
     onLaunch({ ...confirm, prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
   }
 
   React.useEffect(() => {
-    if (!canLaunch || (composer.noAgentCliInstalled && localHosts.length <= 1 && selection.kind !== 'conversation'))
-      return
+    if (!canLaunch || (composer.noAgentCliInstalled && localHosts.length <= 1)) return
     const id = requestAnimationFrame(() => promptRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [canLaunch, composer.noAgentCliInstalled, localHosts.length, selection.kind])
-
-  // Ask once per open, so a provider configured since last time shows up.
-  React.useEffect(() => {
-    if (!conversationModeEnabled) return
-    onRequestConversationCatalog?.()
-  }, [conversationModeEnabled, onRequestConversationCatalog])
+  }, [canLaunch, composer.noAgentCliInstalled, localHosts.length])
 
   // Escape cancels from anywhere on the surface — the prompt is where focus
   // starts, but a person who has tabbed to a chip must not be trapped. The
@@ -1175,8 +1148,10 @@ export default function NewAgentPanel({
   // The Skills & MCPs trigger on the row is where skills are offered now; the
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
   const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
-  const terminalUnavailable =
-    composer.noAgentCliInstalled && localHosts.length <= 1 && selection.kind !== 'conversation'
+  // No agent CLI at all, or (for a chat agent) none with a chat runtime: the
+  // same install route either way, because installing a CLI is the answer to
+  // both.
+  const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
 
   return (
     <div
@@ -1189,28 +1164,6 @@ export default function NewAgentPanel({
         </div>
       ) : null}
       <div className="@container mx-auto w-full max-w-[620px]">
-        <div className="mb-5 flex flex-col items-center gap-2">
-          <SegmentedControl
-            ariaLabel="Agent interface"
-            ariaDescribedBy="new-agent-interface-description"
-            items={[
-              { value: 'conversation', label: 'Chat' },
-              { value: 'terminal', label: 'Terminal' },
-            ]}
-            value={selection.kind === 'conversation' ? 'conversation' : 'terminal'}
-            onChange={(value) => {
-              const next: AgentComposerSelection =
-                value === 'conversation' ? { kind: 'conversation' } : { kind: 'general' }
-              composer.setSelection(next)
-              setLastNewChatAgent(next)
-            }}
-          />
-          <p id="new-agent-interface-description" className="text-meta text-[color:var(--text-muted)]">
-            {selection.kind === 'conversation'
-              ? 'Structured chat — markdown, diffs, approvals'
-              : "The CLI's own interface in a terminal"}
-          </p>
-        </div>
         <div className="text-center">
           {/* icon-lg is the top of the icon scale and the step the system names for
             empty-state glyphs. There is no larger token, and an off-scale hero
@@ -1329,65 +1282,21 @@ export default function NewAgentPanel({
           </div>
         </div>
 
-        {selection.kind === 'conversation' && (!conversationWorkspaceSupported || !conversationAvailable) ? (
-          <EmptyState
-            density="list"
-            title={
-              conversationCatalogLoading
-                ? 'Loading chat providers…'
-                : conversationWorkspaceSupported
-                  ? 'No chat provider is connected.'
-                  : 'Chat is unavailable in this workspace.'
-            }
-            body={
-              conversationCatalogLoading
-                ? 'Checking available chat models.'
-                : conversationWorkspaceSupported
-                  ? 'Connect a provider to start a structured chat.'
-                  : 'This workspace mode does not support conversation agents.'
-            }
-            action={
-              conversationWorkspaceSupported && !conversationCatalogLoading ? (
-                <PrimaryButton onClick={() => openSettingsOverlay({ initialTab: 'providers' })}>
-                  Connect a provider
-                </PrimaryButton>
-              ) : undefined
-            }
-          />
-        ) : null}
         {terminalUnavailable ? (
           <EmptyState
             density="list"
-            title="No agent CLI is installed on this machine."
-            body="Install one to start an agent here."
+            title={
+              chatUnavailable
+                ? 'No agent CLI on this machine can run as a chat.'
+                : 'No agent CLI is installed on this machine.'
+            }
+            body={
+              chatUnavailable
+                ? 'Install one with a chat runtime to start a chat agent here.'
+                : 'Install one to start an agent here.'
+            }
             action={<CliInstallCta />}
           />
-        ) : null}
-        {selection.kind === 'conversation' &&
-        conversationWorkspaceSupported &&
-        conversationAvailable &&
-        visibleConversationOptions.length > 0 ? (
-          <div className="mt-4" role="group" aria-label="Chat models">
-            {visibleConversationOptions.map((option) => (
-              <MenuOption
-                key={`${option.providerId}:${option.modelId}`}
-                role="menuitemradio"
-                selected={
-                  conversationChoice?.providerId === option.providerId && conversationChoice.modelId === option.modelId
-                }
-                disabled={Boolean(option.unavailable)}
-                stacked
-                onClick={() => setSelectedConversation(option)}
-              >
-                <span>
-                  {option.providerLabel} · {option.modelLabel}
-                </span>
-                {option.unavailable ? (
-                  <span className="text-micro text-[color:var(--text-subtle)]">{option.unavailable}</span>
-                ) : null}
-              </MenuOption>
-            ))}
-          </div>
         ) : null}
         <div
           // The box owns the visible border while the textarea inside it is the
@@ -1395,7 +1304,7 @@ export default function NewAgentPanel({
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // footer's buttons too and was a second focus idiom.
-          className={`relative mt-5 px-3 pb-2 pt-2.5 ${terminalUnavailable || (selection.kind === 'conversation' && !canLaunch) ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative mt-5 px-3 pb-2 pt-2.5 ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -1509,64 +1418,24 @@ export default function NewAgentPanel({
                 identity — the word "claude" beside a Claude asterisk was saying
                 it twice. */}
             {launchCli ? (
-              <Popover
+              <EnginePickerChip
+                cli={launchCli}
+                options={pickerOptions}
+                model={model}
+                reasoning={reasoning}
                 open={enginePopoverOpen}
                 onOpenChange={setEnginePopoverOpen}
-                ariaLabel={`Engine: ${engineNames.cliLabel}`}
-                popupRole="menu"
-                placement="bottom-start"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  // The kit's chip. `outline` is the variant that stays findable
-                  // on a busy strip; the accent-soft ground it used to wear is
-                  // gone, because a solid-ish accent on a standing chip is the
-                  // budget spent on a state display rather than on the view's
-                  // one primary action (principles.md → The accent budget).
-                  <ChipButton
-                    ref={ref}
-                    variant="outline"
-                    tone="neutral"
-                    onClick={togglePopover}
-                    // Named, not left to its contents: the chip is a mark plus a
-                    // truncated label, and it is the only way to the model,
-                    // effort and permissions the picker holds.
-                    aria-label={`Engine: ${engineNames.modelLabel ?? engineNames.cliLabel}`}
-                    {...triggerProps}
-                  >
-                    <CliIcon cli={launchCli} className="icon-xs" />
-                    <TruncatedText
-                      as="span"
-                      text={engineNames.modelLabel ?? engineNames.cliLabel}
-                      className="max-w-[150px]"
-                    />
-                    {reasoning ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
-                    <ChevronGlyph />
-                  </ChipButton>
-                )}
-              >
-                {/* Reasoning effort is a property OF the model, so it lives in
-                    the model's own picker (attached to the selected row, which
-                    is where this surface already draws it) rather than as a
-                    second control the row has to carry. */}
-                <CliModelPopoverSurface
-                  ariaLabel="Agent runtime"
-                  options={composer.agentCliOptions}
-                  currentCli={launchCli}
-                  effectiveModelFor={(cli) => composer.modelForSelection(selection, cli)}
-                  effectiveReasoningFor={(cli) => composer.reasoningForSelection(selection, cli)}
-                  onSelectReasoning={(cli, next) => composer.setEngineReasoning(selection, cli, next)}
-                  showReasoning
-                  reasoningAriaLabel="Reasoning effort"
-                  onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
-                  onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
-                  // Permissions live in the picker rather than on a chip beside
-                  // it (owner, 2026-09-05). A preset is a property of the runtime
-                  // the row names — each CLI spells bypass its own way — so it
-                  // is chosen where the runtime is, remembered
-                  // once per CLI for all of its models, and sits on the picker's
-                  // one trailing row beside the effort control.
-                  permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionPreset} />}
-                />
-              </Popover>
+                onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
+                onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
+                onSelectReasoning={(cli, next) => composer.setEngineReasoning(selection, cli, next)}
+                // Permissions live in the picker rather than on a chip beside
+                // it (owner, 2026-09-05). A preset is a property of the runtime
+                // the row names — each CLI spells bypass its own way — so it is
+                // chosen where the runtime is, remembered once per CLI for all
+                // of its models, and sits on the picker's one trailing row
+                // beside the effort control.
+                permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionPreset} />}
+              />
             ) : null}
 
             {/* Every pick is a chip; the one trigger opens the picker for more.
@@ -1597,9 +1466,9 @@ export default function NewAgentPanel({
                 ))}
                 <SkillsAndMcpsPicker
                   workspaceRoot={workspaceRoot}
-                  // A conversation agent is not a CLI: the workspace-wide inventory
-                  // is the honest list for it.
-                  pluginId={selection.kind === 'conversation' ? null : launchCli}
+                  // A chat stages skills itself rather than through the CLI's own
+                  // skill directory, so the workspace-wide inventory is its list.
+                  pluginId={commandCli}
                   skills={composer.skills}
                   onSkillsChange={composer.setSkills}
                   mcpServers={composer.mcpServers}
@@ -1669,6 +1538,9 @@ export default function NewAgentPanel({
               >
                 <MoreMenu
                   selection={selection}
+                  chatAvailable={
+                    conversationWorkspaceSupported && composer.visibleRows.some((row) => row.kind === 'conversation')
+                  }
                   onSelectKind={(next) => {
                     composer.setSelection(next)
                     setLastNewChatAgent(next)
@@ -1699,8 +1571,8 @@ export default function NewAgentPanel({
               content={
                 selection.kind === 'terminal'
                   ? 'Opens a shell in this folder'
-                  : selection.kind === 'conversation'
-                    ? 'Starts a conversation agent — pick its model in the chat'
+                  : isChatLaunch
+                    ? `Starts ${engineNames.cliLabel} as a chat`
                     : commandLine.status === 'ready'
                       ? commandLine.preview.display
                       : commandLine.status === 'error'
@@ -1739,7 +1611,7 @@ export default function NewAgentPanel({
           </p>
         ) : null}
 
-        {terminalUnavailable || isTerminalLaunch || (selection.kind === 'conversation' && !canLaunch) ? null : (
+        {terminalUnavailable || isTerminalLaunch ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -2139,6 +2011,7 @@ function RemoteProjectPicker({
  */
 function MoreMenu({
   selection,
+  chatAvailable,
   onSelectKind,
   worktreeName,
   onToggleWorktree,
@@ -2149,6 +2022,8 @@ function MoreMenu({
   onToggleDebug,
 }: {
   selection: AgentComposerSelection
+  /** Whether the Chat agent row is offered (the roster has it). */
+  chatAvailable: boolean
   onSelectKind: (next: AgentComposerSelection) => void
   worktreeName: string | null
   onToggleWorktree: () => void
@@ -2171,13 +2046,24 @@ function MoreMenu({
   // content, not a second menu.
   return (
     <>
-      {/* The Terminal segment includes an agent CLI and a plain shell. */}
+      {/* The only place the kind of launch is chosen. The two agent rows are
+          the same CLI with the same picker; they differ only in the interface
+          it opens in. Chat agent is listed only where the workspace can host
+          one. */}
       <MenuRow
-        selected={selection.kind !== 'terminal' && selection.kind !== 'conversation'}
+        selected={selection.kind === 'general'}
         label="Agent"
         hint="A CLI agent, in a terminal"
         onClick={() => onSelectKind({ kind: 'general' })}
       />
+      {chatAvailable ? (
+        <MenuRow
+          selected={selection.kind === 'conversation'}
+          label="Chat agent"
+          hint="The same CLI agent, as a chat"
+          onClick={() => onSelectKind({ kind: 'conversation' })}
+        />
+      ) : null}
       <MenuRow
         selected={selection.kind === 'terminal'}
         label="Terminal"

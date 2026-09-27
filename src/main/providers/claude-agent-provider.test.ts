@@ -29,6 +29,7 @@ test('claude-agent-provider', async () => {
     await testImageAttachmentsBecomeMultimodalContent()
     await testNativeSkillSelectionReachesSdk()
     await testAskModeReadOnlyAndEffort()
+    await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
     await testDeniedToolResultReadsAsDeclined()
@@ -104,9 +105,11 @@ test('claude-agent-provider', async () => {
     loadQuery: () => Promise<never>
     capturedOptions: Record<string, unknown>[]
     permissionModes: string[]
+    models: Array<string | undefined>
   } {
     const capturedOptions: Record<string, unknown>[] = []
     const permissionModes: string[] = []
+    const models: Array<string | undefined> = []
     const queryFn = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
       capturedOptions.push(params.options)
       const output = new FakeMessageQueue()
@@ -132,12 +135,16 @@ test('claude-agent-provider', async () => {
           hooks.onSetPermissionMode?.(mode)
           permissionModes.push(mode)
         },
+        setModel: async (model?: string) => {
+          models.push(model)
+        },
       }
     }
     return {
       loadQuery: (() => Promise.resolve(queryFn)) as () => Promise<never>,
       capturedOptions,
       permissionModes,
+      models,
     }
   }
 
@@ -148,6 +155,7 @@ test('claude-agent-provider', async () => {
     adapter: ClaudeAgentProviderAdapter
     capturedOptions: Record<string, unknown>[]
     permissionModes: string[]
+    models: Array<string | undefined>
   } {
     const sdk = createFakeSdk(handler, hooks)
     const adapter = createClaudeAgentProvider({
@@ -156,7 +164,12 @@ test('claude-agent-provider', async () => {
       buildEnv: (input) => ({ [CLAUDE_AGENT_SESSION_ENV_KEY]: input.sessionId, PATH: '/usr/bin' }),
       now: () => 1000,
     })
-    return { adapter, capturedOptions: sdk.capturedOptions, permissionModes: sdk.permissionModes }
+    return {
+      adapter,
+      capturedOptions: sdk.capturedOptions,
+      permissionModes: sdk.permissionModes,
+      models: sdk.models,
+    }
   }
 
   async function testNativeSkillSelectionReachesSdk(): Promise<void> {
@@ -237,6 +250,28 @@ test('claude-agent-provider', async () => {
       /* drain */
     }
     assert.equal(capturedOptions[1]?.permissionMode, 'bypassPermissions')
+    adapter.disposeAll()
+  }
+
+  // A model switch reaches the live query through the SDK's setModel — no
+  // respawn — and the CLI's own default row clears the model rather than
+  // naming one. With no child yet, the next spawn simply starts on it.
+  async function testLiveModelSwitch(): Promise<void> {
+    const { adapter, capturedOptions, models } = createAdapter((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'switch' })
+    })
+    assert.equal(adapter.capabilities?.liveModelSwitch, true)
+    const input = turnInput()
+    await adapter.startSession(input)
+    assert.deepEqual(await adapter.setModel({ ...input, nextModelId: 'haiku' }), { ok: true })
+    for await (const _event of await adapter.sendTurn({ ...input, modelId: 'haiku' })) {
+      /* drain */
+    }
+    assert.equal(capturedOptions[0]?.model, 'haiku', 'a switch before the child exists starts it on the new model')
+    assert.deepEqual(await adapter.setModel({ ...input, nextModelId: 'opus' }), { ok: true })
+    assert.deepEqual(await adapter.setModel({ ...input, nextModelId: 'default' }), { ok: true })
+    assert.deepEqual(models, ['opus', undefined], 'the live query is switched in place, default clearing it')
+    assert.equal(capturedOptions.length, 1, 'no respawn')
     adapter.disposeAll()
   }
 

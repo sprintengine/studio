@@ -30,6 +30,7 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -63,6 +64,7 @@ import { getConversationProviderById, listConversationProviderRegistryEntries } 
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
 import { isRecord } from '../../shared/records'
+import { cliForConversationProvider } from '../../shared/conversation-harness'
 import { parseConversationMentions } from '../../shared/conversation/mentions'
 
 export type ConversationIpcHandlers = {
@@ -83,6 +85,7 @@ export type ConversationIpcHandlers = {
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
   setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
+  setModel?(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
@@ -99,16 +102,9 @@ export type ConversationIpcHandlers = {
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
-// Agent-harness conversation providers ride a local CLI; when that CLI is not
-// installed the provider is hidden from the picker instead of failing at
-// session start.
-const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, string> = {
-  'claude-agent': 'claude-code',
-  'codex-agent': 'codex',
-  'cursor-agent': 'cursor',
-  'opencode-agent': 'opencode',
-  'grok-agent': 'grok',
-}
+// Agent-harness conversation providers ride a local CLI (the shared table in
+// conversation-harness); when that CLI is not installed the provider is hidden
+// from the picker instead of failing at session start.
 
 const CLI_AVAILABLE_TTL_MS = 60_000
 // Negatives expire faster than positives so a just-installed CLI shows up
@@ -159,7 +155,7 @@ export function createConversationIpcHandlers(
         }))
         const listed: typeof providers = []
         for (const provider of providers) {
-          const harnessCli = AGENT_HARNESS_CLI_BY_PROVIDER[provider.id]
+          const harnessCli = cliForConversationProvider(provider.id)
           if (harnessCli && !(await isHarnessCliInstalled(harnessCli, input?.cliRuntimes))) {
             // Never hide the provider: an undetectable CLI is annotated so the
             // picker can say WHY it is unavailable (spawn defaults skip it).
@@ -208,6 +204,9 @@ export function createConversationIpcHandlers(
     },
     setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
       return runtime.setPermission(input)
+    },
+    setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
+      return runtime.setModel(input)
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
@@ -545,6 +544,20 @@ export function registerConversationIpc(
     },
   )
 
+  ipcMain.handle(
+    'conversation:sessions:set-model',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSetModelInput(input)
+      if (!parsed.ok) return parsed
+      if (!handlers.setModel) return { ok: false, message: 'Changing models mid-conversation is unavailable.' }
+      try {
+        return await handlers.setModel(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
   ipcMain.handle('conversation:sessions:stop', async (_, input: unknown): Promise<ConversationSessionActionResult> => {
     const parsed = parseSessionIdInput(input)
     if (!parsed.ok) return parsed
@@ -843,6 +856,16 @@ function parseSetPermissionInput(
   const permissionPreset = parseCliPermissionPreset(isRecord(input) ? input.permissionPreset : undefined)
   if (!permissionPreset) return { ok: false, message: PERMISSION_PRESET_ERROR }
   return { ok: true, input: { ...session.input, permissionPreset } }
+}
+
+function parseSetModelInput(
+  input: unknown,
+): { ok: true; input: ConversationSetModelInput } | { ok: false; message: string } {
+  const session = parseSessionIdInput(input)
+  if (!session.ok) return session
+  const modelId = isRecord(input) && typeof input.modelId === 'string' ? input.modelId.trim() : ''
+  if (!modelId || modelId.length > 200) return { ok: false, message: 'modelId is required.' }
+  return { ok: true, input: { ...session.input, modelId } }
 }
 
 function parseRespondToRequestInput(

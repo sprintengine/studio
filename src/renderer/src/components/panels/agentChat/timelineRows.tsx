@@ -11,7 +11,6 @@ import {
 import { type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
 import { Badge, TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton, Tooltip } from '../../ui'
-import { ChatGlyph } from './modelPicker'
 import {
   ConversationFileLink,
   ConversationMarkdown,
@@ -44,14 +43,10 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
 // name models, and where Retry routes.
 export type TimelineChrome = {
   checkpointsEnabled?: boolean
-  // The provider reports a real per-turn cost; otherwise a number in the
-  // payload is not one to show.
-  costEnabled?: boolean
   conversationRunning?: boolean
   checkpointSeqs?: ReadonlySet<number>
   latestTurnId?: string
   assistantName: string
-  modelLabelFor: (modelId?: string) => string
   // Only the latest failed turn is retryable (retry re-sends the last message).
   retryTurnId?: string
   onRetry: () => void
@@ -77,8 +72,12 @@ export const TimelineRow = React.memo(function TimelineRow({
   )
 })
 
-// User message: quiet right-aligned card, no chrome. Images sent with the turn
-// sit above the text; an image-only turn renders no empty text line. Live-only
+// User message: quiet right-aligned card that hugs what was sent. The clock,
+// Copy and Revert sit on a line under the card rather than inside it — inside,
+// their width and row height set the card's size, so "hi" sat in a tall wide
+// box. The card's right edge is the transcript column's right edge, the same
+// edge the composer and the assistant's text keep. Images sent with the turn sit
+// above the text; an image-only turn renders no empty text line. Live-only
 // (D3/1774) — a bubble restored from the replayed transcript has no images.
 export function UserTimelineRow({
   entry,
@@ -89,8 +88,8 @@ export function UserTimelineRow({
 }) {
   const attachments = entry.attachments ?? []
   return (
-    <div className="flex justify-end pb-6">
-      <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+    <div className="flex flex-col items-end pb-6">
+      <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5">
         {attachments.length > 0 ? (
           <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
@@ -115,6 +114,7 @@ export function UserTimelineRow({
                   key={`${mention.path}:${mention.line ?? ''}`}
                   token={`./${mention.path}${mention.line ? `:${mention.line}` : ''}`}
                   source="inlineCode"
+                  variant="chip"
                 />
               ),
             )}
@@ -125,28 +125,28 @@ export function UserTimelineRow({
             {conversationText(entry.text)}
           </p>
         ) : null}
-        <div className="flex items-center justify-end gap-2">
-          <MessageTimestamp at={entry.createdAt} />
-          <GhostButton
-            size="inline"
+      </div>
+      <div className="mt-1 flex items-center justify-end gap-2">
+        <MessageTimestamp at={entry.createdAt} />
+        <GhostButton
+          size="inline"
+          className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+          onClick={() => void copyToClipboardWithToast(entry.text)}
+        >
+          Copy
+        </GhostButton>
+        {chrome?.checkpointsEnabled &&
+        entry.seq &&
+        chrome.checkpointSeqs?.has(entry.seq) &&
+        (!entry.reverted || entry.undoRevertSeq !== undefined) ? (
+          <RevertTurnAction
+            turnSeq={entry.reverted ? (entry.undoRevertSeq ?? entry.seq) : entry.seq}
+            reverted={entry.reverted}
+            overwritesLaterWork={entry.undoOverwritesLaterWork}
+            running={chrome.conversationRunning ?? false}
             className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-            onClick={() => void copyToClipboardWithToast(entry.text)}
-          >
-            Copy
-          </GhostButton>
-          {chrome?.checkpointsEnabled &&
-          entry.seq &&
-          chrome.checkpointSeqs?.has(entry.seq) &&
-          (!entry.reverted || entry.undoRevertSeq !== undefined) ? (
-            <RevertTurnAction
-              turnSeq={entry.reverted ? (entry.undoRevertSeq ?? entry.seq) : entry.seq}
-              reverted={entry.reverted}
-              overwritesLaterWork={entry.undoOverwritesLaterWork}
-              running={chrome.conversationRunning ?? false}
-              className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-            />
-          ) : null}
-        </div>
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -166,7 +166,6 @@ export function AssistantTurnBlock({
   decisions: ConversationDecisionRow[]
   chrome: TimelineChrome
 }) {
-  const modelLabel = chrome.modelLabelFor(entry.modelId)
   const context = useConversationLinkContext()
   const fold = deriveTurnFold(entry, tools, !chrome.latestTurnId || chrome.latestTurnId === entry.turnId)
   const [workOpen, setWorkOpen] = useConversationDisclosure(
@@ -174,35 +173,11 @@ export function AssistantTurnBlock({
     `fold:${entry.turnId}`,
     !fold?.defaultFolded,
   )
-  // The model is attribution, not a timestamp fragment, so it gets its own chip
-  // instead of riding a `·`-joined meta string with the clock.
-  const turnModelLabel = modelLabel && modelLabel !== chrome.assistantName ? modelLabel : null
   return (
     <div className="pb-6">
-      {/* Centered, not baseline-aligned: the glyphs are boxes, and hanging them
-          off the text baseline is what made the star read as jammed. The star
-          stays neutral — the accent belongs to the live step dot and the send
-          button, and one accent star per turn would drown both out. */}
-      {/* Wraps rather than crushes: in a narrow panel the clock drops to a
-          second line instead of every part ellipsing down to "C… meta-llama…". */}
-      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-        {/* The name truncates too: on a non-harness provider `assistantName` IS
-            the model label, which can be a long `vendor/model-id`. */}
-        <span className="inline-flex min-w-0 items-center gap-1.5 text-meta font-semibold text-[color:var(--text-strong)]">
-          <SparkleGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-          <TruncatedText as="span" text={chrome.assistantName} className="max-w-[220px]" />
-        </span>
-        {turnModelLabel ? (
-          // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
-          // muted label, no affordance — the model for a finished turn is fixed
-          // exactly like the pill is once a conversation starts.
-          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-sm bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)]">
-            <ChatGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-            <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
-          </span>
-        ) : null}
-        <MessageTimestamp at={entry.startedAt} />
-      </div>
+      {/* No byline: the tab already says which agent this is, as it does for a
+          terminal agent, and the model is shown once — on the composer's
+          engine chip. The clock moved to the meta line under the reply. */}
       {fold ? (
         <GhostButton size="inline" tone="subtle" aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>
           {fold.label}
@@ -220,7 +195,10 @@ export function AssistantTurnBlock({
       ) : null}
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? (
-        <div className="max-w-[68ch]">
+        // The pane's full width, as the composer below it: the column's edges
+        // are the list's own padding, so prose, code blocks and tool rows all
+        // share them with the user's bubble.
+        <div className="min-w-0">
           <ConversationMarkdown text={entry.text} streaming={entry.status === 'streaming'} />
         </div>
       ) : null}
@@ -230,7 +208,7 @@ export function AssistantTurnBlock({
       {entry.status !== 'streaming' ? (
         <div className="flex items-center gap-2 text-meta text-[color:var(--sem-color-text-muted)]">
           {entry.durationMs !== undefined ? <span>{formatStepDuration(entry.durationMs)}</span> : null}
-          {chrome.costEnabled && entry.costUsd !== undefined ? <span>${entry.costUsd.toFixed(4)}</span> : null}
+          <MessageTimestamp at={entry.startedAt} />
           <GhostButton
             size="inline"
             className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
@@ -286,7 +264,7 @@ export function ThoughtRow({
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
       </GhostButton>
       {expanded ? (
-        <p className="mb-1 mt-1 max-w-[68ch] whitespace-pre-wrap pl-1 text-body italic leading-5 text-[color:var(--text-muted)]">
+        <p className="mb-1 mt-1 whitespace-pre-wrap pl-1 text-body italic leading-5 text-[color:var(--text-muted)]">
           {reasoning}
         </p>
       ) : null}
@@ -332,7 +310,7 @@ export function WorkTimeline({
       {partitionWorkTimeline(tools, intermediateText).map((part) => (
         <React.Fragment key={part.tools[0].id}>
           {part.text.map((text, index) => (
-            <div key={index} className="mb-2 max-w-[68ch]">
+            <div key={index} className="mb-2 min-w-0">
               <ConversationMarkdown text={text} />
             </div>
           ))}
@@ -681,14 +659,6 @@ function MessageTimestamp({ at }: { at?: number }) {
         {date.toDateString() === new Date().toDateString() ? formatClockTime(at) : date.toLocaleString()}
       </span>
     </Tooltip>
-  )
-}
-
-export function SparkleGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 1.5l1.7 4.1 4.3.4-3.2 2.9.9 4.3L8 11l-3.7 2.2.9-4.3L2 6l4.3-.4L8 1.5z" fill="currentColor" />
-    </svg>
   )
 }
 

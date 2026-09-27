@@ -159,6 +159,30 @@ export function SpawnPermissionFooter({
   fallback: CliPermissionPreset
 }): JSX.Element {
   const preset = useCliPermissionPreset(cli, fallback)
+  return <PermissionFooter cli={cli} preset={preset} onSelect={(next) => setCliPermissionPreset(cli, next)} />
+}
+
+/**
+ * The permission dropdown itself, over a value the host owns. The launcher's
+ * `SpawnPermissionFooter` binds it to the per-CLI memory; a running chat agent
+ * binds it to that agent's own preset, which a live session changes in place.
+ * Same chip, same rows, same place on the picker's trailing row either way.
+ */
+export function PermissionFooter({
+  cli,
+  preset,
+  onSelect,
+  disabled = false,
+  disabledReasons,
+}: {
+  cli: AgentCli
+  preset: CliPermissionPreset
+  onSelect: (next: CliPermissionPreset) => void
+  /** Locks the rows while a live change is in flight. */
+  disabled?: boolean
+  /** Presets this agent cannot run, each with the one-line reason its row shows. */
+  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
+}): JSX.Element {
   return (
     <FooterMenu
       ariaLabel={permissionAccessibleName(preset, cli)}
@@ -179,8 +203,10 @@ export function SpawnPermissionFooter({
         <PermissionPresetMenuRows
           cli={cli}
           value={preset}
+          disabled={disabled}
+          disabledReasons={disabledReasons}
           onSelect={(next) => {
-            setCliPermissionPreset(cli, next)
+            onSelect(next)
             close()
           }}
         />

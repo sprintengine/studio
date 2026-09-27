@@ -10,6 +10,7 @@ import {
   type AgentCliCatalogOption,
 } from '../newWorkspace/cliRuntimeOptions'
 import { normalizeSelectedCli } from '../../../store/slices/settingsSlice'
+import { conversationProviderForCli } from '../../../../../shared/conversation-harness'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 
 // The agent a composer surface picks. The engine (CLI/model) is bound to the
@@ -21,7 +22,15 @@ export type AgentComposerSelection = { kind: 'terminal' } | { kind: 'general' } 
 export type AgentComposerConfirm = (
   | { kind: 'terminal' }
   | { kind: 'general'; cli: AgentCli; model?: string | null }
-  | { kind: 'conversation'; provider?: { providerId: string; modelId: string; modelLabel: string } }
+  | {
+      kind: 'conversation'
+      // The CLI and model the shared picker stands on. A chat agent is that CLI
+      // driven as a chat, so the launch names the same pair a terminal launch
+      // would; `provider` is the conversation provider it maps onto.
+      cli?: AgentCli
+      model?: string | null
+      provider?: { providerId: string; modelId: string; modelLabel: string }
+    }
 ) & {
   // The Skills & MCPs picks (browser-pane epic, child 7). Skills were
   // installed on pick; the spawn prefills their invocations as the agent's
@@ -100,7 +109,15 @@ export type EngineNames = { cliLabel: string; modelLabel: string | null }
 // The engine's display names, from the catalog that produced the option. A
 // model id with no catalog row keeps its id rather than borrowing a neighbour's
 // label — an unlabelled model is shown as what it is, never renamed.
-export function engineNames(options: AgentCliCatalogOption[], cli: AgentCli, model: string | undefined): EngineNames {
+export function engineNames(
+  options: ReadonlyArray<{
+    value: AgentCli
+    label: string
+    modelSelection?: { options: ReadonlyArray<{ id: string; label?: string }> }
+  }>,
+  cli: AgentCli,
+  model: string | undefined,
+): EngineNames {
   const option = options.find((entry) => entry.value === cli)
   return {
     cliLabel: option?.label ?? cli,
@@ -139,6 +156,40 @@ type UseAgentComposerOptions = {
   availability?: { map: AgentCliAvailabilityMap; status: 'loading' | 'ready' | 'error' }
 }
 
+/**
+ * The agent CLIs this machine can launch, as every model picker lists them:
+ * the plugin catalog, filtered to what is installed, with each CLI's own model
+ * list merged over its manifest seed. One hook so the New agent launcher and a
+ * chat agent's composer read the same rows for the same CLI.
+ */
+export function useAgentCliCatalogOptions(availability?: {
+  map: AgentCliAvailabilityMap
+  status: 'loading' | 'ready' | 'error'
+}): AgentCliCatalogOption[] {
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const storeCliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const storeCliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const cliAvailability = availability?.map ?? storeCliAvailability
+  const cliAvailabilityStatus = availability?.status ?? storeCliAvailabilityStatus
+  // What each installed CLI reported about its models. Without it this surface
+  // would offer only the manifest seed while every other picker offers the
+  // CLI's own list.
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
+  return React.useMemo(
+    () =>
+      selectAgentCliCatalog(
+        pluginCatalogStatus,
+        pluginCatalogEntries,
+        cliRuntimes,
+        { map: cliAvailability, status: cliAvailabilityStatus },
+        cliModelCatalog,
+      ),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, cliModelCatalog],
+  )
+}
+
 // Shared state + store-derived data for every agent composer surface (the New
 // Chat panel and the popover picker). Owns roster building, selection, and
 // engine (CLI/model) resolution + persistence, so each
@@ -159,32 +210,20 @@ export function useAgentComposer({
   const lastSelectedAgentModel = useWorkspaceStore((s) => s.appSettings.lastSelectedAgentModel ?? null)
   const setLastSelectedAgentModel = useWorkspaceStore((s) => s.setLastSelectedAgentModel)
   const setLastSelectedAgentReasoning = useWorkspaceStore((s) => s.setLastSelectedAgentReasoning)
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
-  const storeCliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const storeCliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const cliAvailability = availability?.map ?? storeCliAvailability
-  const cliAvailabilityStatus = availability?.status ?? storeCliAvailabilityStatus
-  // What each installed CLI reported about its models. Without it this surface
-  // would offer only the manifest seed while every other picker offers the
-  // CLI's own list.
-  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
-
-  const agentCliOptions = React.useMemo(
-    () =>
-      selectAgentCliCatalog(
-        pluginCatalogStatus,
-        pluginCatalogEntries,
-        cliRuntimes,
-        {
-          map: cliAvailability,
-          status: cliAvailabilityStatus,
-        },
-        cliModelCatalog,
-      ),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, cliModelCatalog],
+  const agentCliOptions = useAgentCliCatalogOptions(availability)
+  // The CLIs a chat agent can run on: the installed ones with a conversation
+  // runtime. The picker's rail offers only these while Chat agent is chosen,
+  // because a chat on any other CLI would have nothing to drive it.
+  const chatCliOptions = React.useMemo(
+    () => agentCliOptions.filter((option) => conversationProviderForCli(option.value) !== null),
+    [agentCliOptions],
+  )
+  const optionsFor = React.useCallback(
+    (target: AgentComposerSelection): AgentCliCatalogOption[] =>
+      target.kind === 'conversation' ? chatCliOptions : agentCliOptions,
+    [agentCliOptions, chatCliOptions],
   )
   // This machine has no agent CLI. The catalog is availability-
   // filtered, so an empty one on a READY registry is the honest answer — a
@@ -218,25 +257,29 @@ export function useAgentComposer({
   const [openingEngine, setOpeningEngine] = React.useState(() => initialEngine ?? null)
 
   const resolvePickerCli = React.useCallback(
-    (cli: AgentCli): AgentCli => resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli),
+    (cli: AgentCli, options: AgentCliCatalogOption[] = agentCliOptions): AgentCli =>
+      resolveAvailableAgentCli(cli, options, options[0]?.value ?? cli),
     [agentCliOptions],
   )
 
   // The engine CLI bound to a selection: the app-wide remembered CLI, or the
   // engine this surface was opened on — a pick that happened somewhere else and
-  // was deliberately not stored.
+  // was deliberately not stored. A chat agent resolves within the CLIs that
+  // have a chat runtime, so a remembered CLI without one lands on the first
+  // that does rather than on a chat nothing can run.
   const cliForSelection = React.useCallback(
-    (_target: AgentComposerSelection): AgentCli => {
-      if (openingEngine) return resolvePickerCli(openingEngine.cli)
-      return resolvePickerCli(lastSelectedCli)
+    (target: AgentComposerSelection): AgentCli => {
+      const options = optionsFor(target)
+      if (openingEngine) return resolvePickerCli(openingEngine.cli, options)
+      return resolvePickerCli(lastSelectedCli, options)
     },
-    [resolvePickerCli, lastSelectedCli, openingEngine],
+    [resolvePickerCli, lastSelectedCli, openingEngine, optionsFor],
   )
   const selectionCli = cliForSelection(selection)
 
   const modelForSelection = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
-      if (target.kind !== 'general') return undefined
+      if (target.kind === 'terminal') return undefined
       // The opening engine answers for ITS OWN runtime only, exactly as a
       // stored pair does: a model chosen for one CLI must never surface on
       // another.
@@ -251,9 +294,9 @@ export function useAgentComposer({
   const engineNamesFor = React.useCallback(
     (target: AgentComposerSelection): EngineNames => {
       const cli = cliForSelection(target)
-      return engineNames(agentCliOptions, cli, modelForSelection(target, cli))
+      return engineNames(optionsFor(target), cli, modelForSelection(target, cli))
     },
-    [cliForSelection, agentCliOptions, modelForSelection],
+    [cliForSelection, optionsFor, modelForSelection],
   )
 
   // Keep the selection pointed at a row the roster still offers: a roster that
@@ -271,7 +314,7 @@ export function useAgentComposer({
   // on another.
   const reasoningForSelection = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
-      if (target.kind !== 'general') return undefined
+      if (target.kind === 'terminal') return undefined
       if (openingEngine && resolvePickerCli(openingEngine.cli) === cli) return openingEngine.reasoning ?? undefined
       return resolveCliReasoning(cli, lastSelectedAgentModel ?? undefined)
     },
@@ -295,10 +338,13 @@ export function useAgentComposer({
       // the General confirm carries the picks.
       const servers = mcpServers.length > 0 ? { mcpServers } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
-      if (target.kind === 'conversation') return { kind: 'conversation', ...picked }
       const cli = engine?.cli ?? cliForSelection(target)
       const model = engine ? engine.model : (modelForSelection(target, cli) ?? null)
       const reasoning = reasoningForSelection(target, cli) ?? null
+      // A chat carries the same engine a terminal launch would; it has no
+      // checkout of its own (no worktree) and reads MCP servers from the
+      // workspace config it runs in, as the CLI does.
+      if (target.kind === 'conversation') return { kind: 'conversation', cli, model, reasoning, ...picked }
       return { kind: 'general', cli, model, reasoning, ...picked, ...worktree, ...servers }
     },
     [cliForSelection, modelForSelection, reasoningForSelection, skills, worktreeName, mcpServers],
@@ -366,6 +412,10 @@ export function useAgentComposer({
     // host parking its state can park that too rather than lose it.
     openingEngine,
     agentCliOptions,
+    // The CLIs a chat agent can run on, for the picker's rail while Chat agent
+    // is chosen (see `optionsFor`).
+    chatCliOptions,
+    optionsFor,
     // True when this machine has no agent CLI installed: the surfaces render
     // the install route in place of the agent rows the hook withheld.
     noAgentCliInstalled,

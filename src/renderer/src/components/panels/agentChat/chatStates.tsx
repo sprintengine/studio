@@ -2,7 +2,7 @@
 // the readiness states.
 
 import React from 'react'
-import { ChatGlyph } from './modelPicker'
+import { ChatGlyph } from '../../AppIcons'
 import { CardButton, OutlineButton } from '../../ui'
 
 // ── Readiness gating ────────────────────────────────────────────────────────
@@ -31,8 +31,8 @@ export function readinessLabel(readiness: ChatReadiness): string {
   return READINESS_COPY[readiness.kind]
 }
 
-// First-run empty state: the contract in one sentence, three real starting
-// prompts, and the cost answer before anyone asks. No decorative hero.
+// First-run empty state: the contract in one sentence and three real starting
+// prompts. No decorative hero, and no backplate behind it.
 export function EmptyChatState({
   assistantName,
   onSuggestion,
@@ -61,8 +61,8 @@ export function EmptyChatState({
         Ask {assistantName} about this workspace
       </h2>
       <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
-        It reads your code, runs tools under the permission mode shown below, and remembers the conversation across
-        restarts.
+        It reads your code, runs tools under the permissions chosen in the model picker below, and remembers the
+        conversation across restarts.
       </p>
       <div className="flex w-full max-w-[420px] flex-col gap-1.5 text-left">
         {suggestions.map((suggestion) => (
@@ -85,9 +85,6 @@ export function EmptyChatState({
           </CardButton>
         ))}
       </div>
-      <p className="mt-5 text-micro text-[color:var(--text-subtle)]">
-        Uses the selected provider and the tool permissions shown below
-      </p>
     </div>
   )
 }

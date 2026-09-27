@@ -352,3 +352,11 @@ test('output fetched while the tool runs is not cached and can be fetched again 
     },
   )
 })
+
+test('a tool row whose subject is a folder shows the path as text, never a file chip', () => {
+  const html = renderToStaticMarkup(
+    <ToolRow tool={tool({ name: 'Read', toolKind: 'file_read', input: { path: '/Users/dev/project' } })} />,
+  )
+  expect(html).not.toContain('aria-label="Open /Users/dev/project"')
+  expect(html).toContain('/Users/dev/project')
+})

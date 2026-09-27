@@ -168,6 +168,7 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
   ConversationStartSessionInput,
@@ -980,6 +981,9 @@ export type ElectronApi = {
   // Live tool-permission switch on a running conversation session (takes effect
   // on the agent's next tool call).
   conversationSessionSetPermission: (input: ConversationSetPermissionInput) => Promise<ConversationSessionActionResult>
+  // Switch a running conversation to another model of its provider; applies
+  // from the next turn.
+  conversationSessionSetModel: (input: ConversationSetModelInput) => Promise<ConversationSessionActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>

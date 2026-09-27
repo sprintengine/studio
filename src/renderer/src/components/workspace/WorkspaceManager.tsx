@@ -26,7 +26,6 @@ import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFee
 import { startCliModelDiscovery } from '../../store/cliModelDiscovery'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import { discoveredModelAdditions, newModelsNotice, sourceUpdatesNotice } from '../../utils/feedNotifications'
-import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
@@ -167,7 +166,6 @@ import {
   buildSidebarWorkspaceOrder,
   getSessionItems,
   getWorkspaceActivity,
-  uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
@@ -180,12 +178,10 @@ import {
   type WorkspaceNavigationHistory,
 } from '../../utils/workspaceNavigationHistory'
 import {
-  buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   conversationLaunchDraftPatch,
+  conversationLaunchEnginePatch,
   conversationNewChatSeed,
-  resolveDefaultConversationOption,
-  type ConversationSpawnOption,
 } from './conversationSpawnOptions'
 import {
   computeRetainedWorkspaceLayoutIds,
@@ -195,7 +191,6 @@ import {
   WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
   type WorkspaceLayoutRetentionReason,
 } from './workspaceLayoutRetention'
-import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
@@ -456,8 +451,6 @@ export default function WorkspaceManager() {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
-  const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
-  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -589,13 +582,6 @@ export default function WorkspaceManager() {
   // sets it; every other way of opening the palette clears it.
   const [paletteTarget, setPaletteTarget] = useState<PaletteAgentTarget | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  // Installed conversation providers, loaded lazily when a spawn surface opens.
-  // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
-  // the conversation runtime, not the terminal CLI plugin catalog. `null` means
-  // "not loaded yet"; an `ok: false` result drives the unavailable row.
-  const [conversationProviderResult, setConversationProviderResult] = useState<ConversationProviderListResult | null>(
-    null,
-  )
   // The app-wide default preset, straight from settings. It used to be mirrored
   // into local state so a spawn surface could edit it; a preset is remembered
   // per CLI now (ui/cliPermissionPresets), so nothing on a spawn surface writes
@@ -1095,76 +1081,6 @@ export default function WorkspaceManager() {
   // Conversation spawn is offered only in standard workspaces; a module-owned
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
   const conversationSpawnEnabled = !activeWorkspace || activeWorkspace.mode === 'standard'
-  // Every surface that can spawn a conversation agent asks for the catalog by
-  // bumping this counter: the launch surface and the launcher's
-  // picker both offer the row. It used to be keyed on the top bar's spawn
-  // menu alone, which no longer exists, and while it was, the row
-  // could never appear elsewhere — the catalog stayed empty, so the option
-  // silently did not exist.
-  const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
-  const [conversationCatalogLoading, setConversationCatalogLoading] = useState(false)
-  const requestConversationCatalog = useCallback(() => {
-    setConversationCatalogRequests((count) => count + 1)
-  }, [])
-
-  // Load the conversation provider catalog when a surface that offers one opens
-  // in a standard workspace. Defensive: if the IPC is absent the feature is
-  // simply unavailable and no rows render. We refetch on each open so a provider
-  // just configured in Settings shows up without a restart.
-  React.useEffect(() => {
-    if (conversationCatalogRequests === 0 || !conversationSpawnEnabled) return
-    if (typeof window.api.conversationProvidersList !== 'function') {
-      setConversationProviderResult(null)
-      setConversationCatalogLoading(false)
-      return
-    }
-    let cancelled = false
-    setConversationCatalogLoading(true)
-    void window.api
-      .conversationProvidersList({ cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides })
-      .then((result) => {
-        if (!cancelled) {
-          setConversationProviderResult(result)
-          setConversationCatalogLoading(false)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setConversationProviderResult(null)
-          setConversationCatalogLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [conversationCatalogRequests, conversationSpawnEnabled, cliRuntimes])
-  const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
-    () => buildConversationSpawnOptions(conversationProviderResult),
-    [conversationProviderResult],
-  )
-  // Providers with a live catalog accept any model id, so a remembered live-only
-  // model is still a valid spawn default for them.
-  const conversationDynamicProviderIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (conversationProviderResult?.ok) {
-      for (const provider of conversationProviderResult.providers) {
-        if (provider.supportsDynamicModels) ids.add(provider.id)
-      }
-    }
-    return ids
-  }, [conversationProviderResult])
-  // Single spawn entry: the model is picked in the chat composer, so the menu
-  // only needs the default pair to open with (remembered → first available).
-  const conversationDefaultOption = useMemo(
-    () =>
-      resolveDefaultConversationOption(
-        conversationSpawnOptions,
-        rememberedConversationModel,
-        conversationDynamicProviderIds,
-      ),
-    [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
-  )
-  const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
   // Bring over an existing Claude Code / Codex setup, silently, at the first
   // workspace creation. This used to be a question on the wizard's essentials
   // step — "we found N, adopt them?" — whose answer was replayed here. There is
@@ -2494,19 +2410,20 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  // Spawn a conversation-backed general agent in the active standard workspace.
-  // AgentPanel routes the new tab to AgentChatView based on `runtimeKind` +
-  // `conversation`; no CLI session is created. The model is then switchable in
-  // the chat composer until the first message, so spawning just needs a default
-  // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
-  const addNewConversationAgent = (
-    providerId: string,
-    modelId: string,
-    modelLabel: string,
+  // Spawn a chat agent in the active standard workspace: the CLI the launcher's
+  // picker stood on, driven as a chat. AgentPanel routes the new tab to
+  // AgentChatView based on `runtimeKind` + `conversation`; no CLI session is
+  // created. It is named exactly as a terminal agent is — the name the
+  // new-agent tab already wears, else one from the shared pool — never after
+  // its model. Missing-key/unavailable states are handled downstream by
+  // AgentChatView.
+  const spawnConversationAgent = (
+    confirm: { provider?: { providerId: string; modelId: string }; cli?: AgentCli; reasoning?: string | null },
     skills?: WorkspaceSkill[],
     placement?: AgentSpawnPlacement,
   ) => {
-    if (!windowActiveWorkspaceId) return
+    const target = confirm.provider
+    if (!target || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -2515,42 +2432,31 @@ export default function WorkspaceManager() {
       .workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     if (!activeWorkspace || activeWorkspace.mode !== 'standard') return
 
-    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', activeWorkspace.agents)
-    const newId = `conversation-${providerId}-${nanoid(6)}`
+    const tabName =
+      placement?.agentName || pickRandomAgentName(Object.values(activeWorkspace.agents).map((agent) => agent.name))
+    const newId = `conversation-${target.providerId}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
     // Keep launch skills as agent state: the chat composer displays them as
-    // persistent chips, while a typed prompt remains its own text draft.
+    // persistent chips.
     if (activeWorkspace.folderPath) {
       for (const skill of skills ?? []) void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
     }
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
-      ...conversationAgentRuntimePatch(providerId, modelId),
-      // A conversation is not a model-picker row — it is a provider/model pair
-      // with no CLI — so there is no per-row preset stored against it and the
-      // app-wide default is what it starts on. AgentChatView reads this record
+      ...conversationAgentRuntimePatch(target.providerId, target.modelId),
+      // The preset the picker's footer showed for this CLI, the same one a
+      // terminal launch of it would run on. AgentChatView reads the record
       // field and lets the user change it mid-conversation.
-      cliPermissionPreset: agentSpawnPermissionPreset,
+      ...conversationLaunchEnginePatch({
+        permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+        reasoning: confirm.reasoning,
+      }),
+      // The typed prompt is the chat's first message, sent as soon as the chat
+      // is ready — the same promise a terminal agent's startup prompt makes.
       ...conversationLaunchDraftPatch(skills, placement?.prompt),
-      // A conversation has no CLI to hand a startup prompt to, so the launch
-      // surface's prompt lands in its composer, typed and unsent — the same
-      // place a skill invocation lands.
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
-    setLastSelectedConversationModel({ providerId, modelId })
-  }
-
-  // Single spawn-menu entry: open a conversation agent with the resolved default
-  // model. No-op when no provider/model is available (entry stays hidden).
-  const spawnConversationAgent = (
-    skills?: WorkspaceSkill[],
-    provider?: { providerId: string; modelId: string; modelLabel: string },
-    placement?: AgentSpawnPlacement,
-  ) => {
-    const target = provider ?? conversationDefaultOption
-    if (!target) return
-    addNewConversationAgent(target.providerId, target.modelId, target.modelLabel, skills, placement)
   }
 
   const addNewTerminal = (placement?: AgentSpawnPlacement) => {
@@ -2587,23 +2493,21 @@ export default function WorkspaceManager() {
     })
   }
 
-  // A conversation agent in a fresh chat: same seed mechanism as the CLI paths,
-  // with the conversation runtime patch instead of a CLI. The prompt lands in
-  // the chat composer, typed and unsent — a conversation has no startup prompt
-  // to hand a process, and auto-sending someone's first line is not the same
-  // action as starting a chat.
+  // A chat agent in a fresh chat: same seed mechanism as the CLI paths, with the
+  // conversation runtime patch instead of a CLI. The seed names no tab, so the
+  // solo workspace names the agent from the shared pool as it does a terminal
+  // agent's. The prompt rides the seed as the chat's first message.
   const openConversationInNewChat = (
     folderPath: string | null | undefined,
-    confirm: Parameters<typeof conversationNewChatSeed>[0],
+    confirm: Parameters<typeof conversationNewChatSeed>[0] & { cli?: AgentCli },
     startupPrompt?: string,
   ) => {
-    const seed = conversationNewChatSeed(confirm, conversationDefaultOption, {
+    const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
-      permissionPreset: agentSpawnPermissionPreset,
+      permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
     })
     if (!seed) return
-    createSoloChatWorkspace({ folderPath, seedAgent: { tabName: seed.tabName, agentPatch: seed.agentPatch } })
-    setLastSelectedConversationModel(seed.runtime)
+    createSoloChatWorkspace({ folderPath, seedAgent: { agentPatch: seed.agentPatch } })
   }
 
   // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
@@ -3970,7 +3874,7 @@ export default function WorkspaceManager() {
         })
         break
       case 'conversation':
-        spawnConversationAgent(confirm.skills, confirm.provider, placement)
+        spawnConversationAgent(confirm, confirm.skills, placement)
         break
     }
   }
@@ -4012,12 +3916,7 @@ export default function WorkspaceManager() {
       <React.Suspense fallback={null}>
         <NewAgentPanel
           workspaceId={windowActiveWorkspaceId ?? ''}
-          conversationAvailable={conversationSpawnAvailable}
-          conversationCatalogLoading={conversationCatalogLoading}
           conversationWorkspaceSupported={conversationSpawnEnabled}
-          conversationOptions={conversationSpawnOptions}
-          conversationDefaultOption={conversationDefaultOption}
-          onRequestConversationCatalog={requestConversationCatalog}
           initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
           debugMode={agentSpawnDebugMode}
@@ -4031,12 +3930,7 @@ export default function WorkspaceManager() {
     ),
     [
       windowActiveWorkspaceId,
-      conversationSpawnAvailable,
-      conversationCatalogLoading,
       conversationSpawnEnabled,
-      conversationSpawnOptions,
-      conversationDefaultOption,
-      requestConversationCatalog,
       agentSpawnPermissionPreset,
       agentSpawnDebugMode,
       lastNewChatAgent,
@@ -4546,12 +4440,7 @@ export default function WorkspaceManager() {
                               key={`${newChatPanelState.connector?.id ?? 'plain'}:${newChatPanelState.forcedSelection?.kind ?? 'remembered'}`}
                               initialMcpServers={newChatPanelState.connector ? [newChatPanelState.connector] : null}
                               workspaceId={windowActiveWorkspaceId ?? ''}
-                              conversationAvailable={conversationSpawnAvailable}
-                              conversationCatalogLoading={conversationCatalogLoading}
                               conversationWorkspaceSupported={conversationSpawnEnabled}
-                              conversationOptions={conversationSpawnOptions}
-                              conversationDefaultOption={conversationDefaultOption}
-                              onRequestConversationCatalog={requestConversationCatalog}
                               folderPath={newChatPanelState.folderPath}
                               projectOptions={newChatProjectOptions}
                               onSelectProject={selectNewChatProject}

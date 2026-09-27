@@ -349,7 +349,7 @@ export function SkillsAndMcpsPicker({
           // string to draw: the `triggerClassName` escape hatch is gone with
           // it, because a trigger the kit can draw does not need one.
           <ChipButton ref={ref} variant="outline" onClick={togglePopover} {...triggerProps}>
-            <StarGlyph filled={false} className="icon-xs" />
+            <StarGlyph filled={false} stroked className="icon-xs" />
             {includeMcps ? 'Skills & MCPs' : 'Skills'}
             {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}
           </ChipButton>
@@ -518,7 +518,7 @@ function PickerRowView({
         {checked ? (
           <CheckIcon className="icon-xs text-[color:var(--accent-primary)]" />
         ) : row.kind === 'skill' ? (
-          <StarGlyph filled={false} className="icon-xs text-[color:var(--text-subtle)]" />
+          <StarGlyph filled={false} stroked className="icon-xs text-[color:var(--text-subtle)]" />
         ) : (
           <ExtensionIcon slug={mcpIconSlug(row.id)} name={row.name} icon={row.icon} size={16} />
         )}

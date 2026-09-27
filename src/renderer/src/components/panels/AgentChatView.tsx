@@ -33,7 +33,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
-import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import {
@@ -44,6 +43,7 @@ import {
 } from './ComposerAttachmentStrip'
 import {
   COMPOSER_SURFACE_CLASS,
+  FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   IconButton,
   InlineNotice,
@@ -54,7 +54,13 @@ import {
   TruncatedText,
 } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import { CreationBackdrop } from '../backdrops/CreationBackdrop'
+import { CONVERSATION_DEFAULT_MODEL_ID, cliForConversationProvider } from '../../../../shared/conversation-harness'
+import { pickRandomAgentName } from '../../../../shared/agent-names'
+import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
+import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
+import type { CliRuntimeOption } from '../ui/CliModelPicker'
+import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
+import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
 import {
@@ -71,24 +77,17 @@ import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useCom
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
-import { ConversationCost } from './agentChat/conversationCost'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
 import { useComposerSkillReader } from './agentChat/composerSkillReader'
-import { ConversationHistoryTitle } from '../workspace/ConversationHistoryRows'
-import {
-  ConversationModeControls,
-  nextConversationEffort,
-  type ConversationMode,
-} from './agentChat/conversationModeControls'
+import { nextConversationEffort } from './agentChat/conversationEffort'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
   attachmentRejection,
   readImageAttachment,
 } from './agentChat/imageAttachments'
-import { ModelPickerPill, PermissionPresetPill, type ModelGroup } from './agentChat/modelPicker'
 import { ConversationPendingDock } from './agentChat/pendingDock'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
@@ -108,14 +107,6 @@ export {
 } from './agentChat/timelineRows'
 
 export { parseOptionLabel } from './agentChat/pendingDock'
-
-export {
-  PermissionPresetPill,
-  filterModelGroups,
-  permissionChangeScopeLabel,
-  permissionPresetLabel,
-} from './agentChat/modelPicker'
-export type { ModelGroup } from './agentChat/modelPicker'
 
 export {
   ATTACHABLE_IMAGE_TYPES,
@@ -290,7 +281,6 @@ export type MountedChatView = {
   workspaceId: string
   isFocused: () => boolean
   toggleModelPicker: () => void
-  togglePlanMode?: () => void
   cycleEffort?: () => void
 }
 const mountedChatViews: MountedChatView[] = []
@@ -318,14 +308,13 @@ export function respondToModelPickerToggle(): MountedChatView | null {
 function onModelPickerPanelCommand(event: Event): void {
   const detail = (event as CustomEvent<{ id?: string }>).detail
   if (detail?.id === MODEL_PICKER_TOGGLE_COMMAND) respondToModelPickerToggle()
-  if (detail?.id === 'chat.planMode.toggle' || detail?.id === 'chat.effort.cycle') {
+  if (detail?.id === 'chat.effort.cycle') {
     const responder =
       mountedChatViews.find((view) => view.isFocused()) ??
       [...mountedChatViews]
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
-    if (detail.id === 'chat.planMode.toggle') responder?.togglePlanMode?.()
-    else responder?.cycleEffort?.()
+    responder?.cycleEffort?.()
   }
 }
 
@@ -401,7 +390,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // current-model label, context length, and the tab self-heal below.
   const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
   // The live session as the runtime last reported it — adopted on start and
   // re-adopted from every result that can change its preset, so the pill moves
   // when the provider accepts a change, never on an optimistic guess. The pill
@@ -418,12 +406,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const supportsSkills =
     transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
-  const conversationMode: ConversationMode =
-    agent?.conversationMode === 'ask'
-      ? 'ask'
-      : agent?.conversationMode === 'plan' && capabilities?.planMode
-        ? 'plan'
-        : 'default'
+  // The chat has no plan toggle: a turn goes out in the mode the agent is on,
+  // which is the default unless a read-only ask was set for it.
+  const conversationMode: 'default' | 'ask' = agent?.conversationMode === 'ask' ? 'ask' : 'default'
   const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
     ? agent?.conversationReasoningEffort
     : undefined
@@ -435,12 +420,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     loadEarlier: fetchEarlier,
     error: historyError,
     replayThroughSeq,
-    completionRevision,
     announcement,
   } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId)
   const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
-  // Skill-at-spawn seeds the first draft (prefill only — the user submits).
   const {
     draft,
     setDraft,
@@ -451,7 +434,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     beginDraftSend,
     finishDraftSend,
     clearDraft,
-  } = useComposerDraft(workspaceId, agentId, agent?.chatComposerPrefill ?? '')
+  } = useComposerDraft(workspaceId, agentId, '')
   const draftMetadata = useMemo<ComposerDraftMetadata>(
     () => ({
       mentions: storedDraftMetadata.mentions,
@@ -488,23 +471,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const pendingCaretRef = useRef<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const skillReader = useComposerSkillReader(workspaceRoot)
-  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<LegendListRef | null>(null)
   const conversationKey = `${workspaceId}:${agentId}`
   const scrollMemoryRef = useRef(recalledConversationScroll(conversationKey))
   const firstVisibleRowRef = useRef<string | undefined>(scrollMemoryRef.current?.rowId)
   const pendingUserScrollIdRef = useRef<string | null>(null)
   const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
-  const modelLabelsRef = useRef<{ current: string; groups: ModelGroup[] }>({ current: '', groups: [] })
-  const modelLabelFor = useCallback((modelId?: string): string => {
-    const { current, groups } = modelLabelsRef.current
-    if (!modelId) return current
-    for (const group of groups) {
-      const model = group.models.find((entry) => entry.id === modelId)
-      if (model?.displayName) return model.displayName
-    }
-    return modelId
-  }, [])
   const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // Drag enter/leave fire for every child the pointer crosses; the depth
@@ -513,13 +485,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
-
-  // The prefill is one-shot: once the user has sent anything, clear it from the
-  // record so a later remount never re-seeds a stale invocation.
-  useEffect(() => {
-    if (!agent?.chatComposerPrefill || userTurns.length === 0) return
-    updateBinding({ chatComposerPrefill: undefined })
-  }, [agent?.chatComposerPrefill, userTurns.length, updateBinding])
 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
@@ -561,7 +526,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         }
         // Providers with a live catalog accept models not in the static seed, so
         // membership is only enforced for static-only providers.
-        if (!provider.supportsDynamicModels && !provider.models.some((model) => model.id === conversation.modelId)) {
+        // An agent-harness provider is a CLI and takes whatever model id that CLI
+        // takes (the picker offers the CLI's own list), exactly as the runtime's
+        // start check does.
+        if (
+          !provider.supportsDynamicModels &&
+          provider.providerType !== 'agent-harness' &&
+          !provider.models.some((model) => model.id === conversation.modelId)
+        ) {
           setReadiness({
             kind: 'model-unavailable',
             providerId: conversation.providerId,
@@ -812,16 +784,34 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     })
   }, [actionError, label, workspaceId, workspace?.name, agentId])
 
-  // Self-heal an ugly tab name: spawn may have named the tab with the raw model
-  // id (a remembered live-only model has no nice label until the catalog loads).
-  // Once live models arrive, rename to the model's display name.
+  // A chat agent is named as a terminal agent is — from the shared pool — and
+  // never after its model. A chat created before that rule wears its model's
+  // label as its name ("Opus 5.5"); once this machine's model labels are known,
+  // it is renamed the way an unnamed terminal agent is on load. A chat on
+  // another machine is named there.
+  const cliCatalogOptions = useAgentCliCatalogOptions()
+  const derivedNameLabels = useMemo(() => {
+    const labels = new Set<string>()
+    for (const provider of providers)
+      for (const model of provider.models) if (model.displayName) labels.add(model.displayName)
+    for (const model of liveModels) if (model.displayName) labels.add(model.displayName)
+    for (const option of cliCatalogOptions)
+      for (const model of option.modelSelection?.options ?? []) if (model.label) labels.add(model.label)
+    return labels
+  }, [providers, liveModels, cliCatalogOptions])
+  const renamedFromModelRef = useRef(false)
   useEffect(() => {
-    if (!conversation) return
-    const displayName = liveModels.find((model) => model.id === conversation.modelId)?.displayName
-    if (displayName && agent?.name === conversation.modelId && displayName !== conversation.modelId) {
-      updateBinding({ name: displayName })
-    }
-  }, [liveModels, conversation, agent?.name, updateBinding])
+    if (!conversation || !workspace || renamedFromModelRef.current || providers.length === 0) return
+    if (!isModelDerivedChatName(agent?.name, conversation.modelId, derivedNameLabels)) return
+    renamedFromModelRef.current = true
+    updateBinding({
+      name: pickRandomAgentName(
+        Object.entries(workspace.agents)
+          .filter(([id]) => id !== agentId)
+          .map(([, other]) => other.name),
+      ),
+    })
+  }, [conversation, workspace, providers.length, agent?.name, derivedNameLabels, agentId, updateBinding])
 
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId
@@ -1115,6 +1105,38 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     void sendTurn(text, queuedAttachments, metadata)
   }, [queuedTurn, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
 
+  // The launcher's prompt is this chat's first message: Enter there starts the
+  // agent on what was typed, as a terminal agent's startup prompt does, so it is
+  // sent here the moment the provider is ready and the history has loaded —
+  // never left in the composer for a second Enter. One-shot: the record is
+  // cleared before the send, so a remount cannot send it twice. A chat whose
+  // provider cannot start keeps the text as its draft instead of dropping it.
+  const startupPrompt = agent?.chatStartupPrompt
+  const startupHandledRef = useRef(false)
+  useEffect(() => {
+    if (!startupPrompt || startupHandledRef.current || !hydrated) return
+    if (readiness.kind === 'loading') return
+    startupHandledRef.current = true
+    updateBinding({ chatStartupPrompt: undefined })
+    const started = userTurns.length > 0 || projection.entries.some((entry) => entry.kind === 'user')
+    if (started) return
+    if (readiness.kind !== 'ready') {
+      setDraft((current) => current || startupPrompt)
+      return
+    }
+    void sendTurn(startupPrompt, [], draftMetadata)
+  }, [
+    startupPrompt,
+    hydrated,
+    readiness.kind,
+    userTurns.length,
+    projection.entries,
+    draftMetadata,
+    sendTurn,
+    setDraft,
+    updateBinding,
+  ])
+
   // Stage images for the next turn. Each file is read and resampled on its own
   // so one unreadable file never drops the rest of a multi-image paste; the
   // first refusal is what the composer reports, and the rest still attach.
@@ -1258,18 +1280,43 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // only until the conversation starts: once a turn is sent, a session exists,
   // or replayed history is present, the pill is read-only and the user opens a
   // new agent to change model.
+  // A provider that declares `liveModelSwitch` takes a new model mid-chat
+  // (from the next turn), so its picker never locks; any other provider binds
+  // a session to its model and the picker locks once the chat has started.
+  const liveModelSwitch = capabilities?.liveModelSwitch === true && typeof transport.setModel === 'function'
   const modelLocked =
     !modelSwitch ||
-    isConversationModelLocked(
-      userTurns.length,
-      sessionId,
-      projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
-    )
+    (!liveModelSwitch &&
+      isConversationModelLocked(
+        userTurns.length,
+        sessionId,
+        projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
+      ))
   const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
     ?.models.find((model) => model.id === conversation.modelId)
-  const currentModelLabel = currentModel?.displayName ?? conversation.modelId
+  // The engine chip: the terminal agent's picker, locked to this chat's CLI.
+  // The rail shows that CLI alone and the list is its own models (only the
+  // chat's model once it has started); effort and permissions sit on the
+  // picker's trailing row exactly as they do for a terminal launch.
+  const chatCli = cliForConversationProvider(conversation.providerId)
+  const chatModel = conversation.modelId === CONVERSATION_DEFAULT_MODEL_ID ? undefined : conversation.modelId
+  const chatCliOption: CliRuntimeOption | null = chatCli
+    ? (cliCatalogOptions.find((option) => option.value === chatCli) ?? {
+        value: chatCli,
+        label: providerEntry?.displayName ?? chatCli,
+      })
+    : null
+  const chatPickerOptions = chatCliOption
+    ? [modelLocked ? lockedChatEngineOption(chatCliOption, chatModel) : chatCliOption]
+    : []
+  const chatModelLabel = chatCliOption
+    ? (chatCliOption.modelSelection?.options.find((option) => option.id === chatModel)?.label ??
+      chatModel ??
+      chatCliOption.label)
+    : null
+  const currentModelLabel = chatModelLabel ?? currentModel?.displayName ?? conversation.modelId
   const contextLength = currentModel?.contextLength
   const usedTokens = projection.usage ? projection.usage.inputTokens + projection.usage.outputTokens : 0
   // ⌘⇧M toggles the model picker (registered as
@@ -1278,33 +1325,20 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // resolves the binding and `runCommand` routes the registry's panel-event to
   // the module-level responder above; this view only registers itself.
   const shellRef = useRef<HTMLDivElement | null>(null)
-  const [compactControls, setCompactControls] = useState(false)
-  useEffect(() => {
-    const shell = shellRef.current
-    if (!shell || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => setCompactControls(entry.contentRect.width < 620))
-    observer.observe(shell)
-    return () => observer.disconnect()
-  }, [])
-  const changeConversationMode = (mode: ConversationMode) => {
-    if (mode === 'plan' && !capabilities?.planMode) return
-    updateBinding({ conversationMode: mode })
-    setPermissionNotice('Conversation mode applies from the next turn.')
-  }
   const changeReasoningEffort = (effort: string | undefined) => {
     if (effort && !capabilities?.reasoningEfforts?.includes(effort)) return
     updateBinding({ conversationReasoningEffort: effort })
-    setPermissionNotice('Reasoning effort applies from the next turn.')
+    if (sessionId) setPermissionNotice('Reasoning effort applies from the next turn.')
   }
-  const modeActionsRef = useRef({ toggle: () => {}, cycle: () => {} })
-  modeActionsRef.current = {
-    toggle: () => changeConversationMode(conversationMode === 'plan' ? 'default' : 'plan'),
-    cycle: () => changeReasoningEffort(nextConversationEffort(capabilities?.reasoningEfforts ?? [], reasoningEffort)),
-  }
+  const cycleEffortRef = useRef(() => {})
+  cycleEffortRef.current = () =>
+    changeReasoningEffort(nextConversationEffort(capabilities?.reasoningEfforts ?? [], reasoningEffort))
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const toggleModelPickerRef = useRef<() => void>(() => {})
+  // The picker stays reachable once the chat has started: its model is fixed
+  // then, but effort and permissions are not.
   toggleModelPickerRef.current = () => {
-    if (modelLocked) return
+    if (!chatCli) return
     setModelMenuOpen((open) => !open)
   }
   useEffect(
@@ -1313,8 +1347,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         workspaceId,
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
-        togglePlanMode: () => modeActionsRef.current.toggle(),
-        cycleEffort: () => modeActionsRef.current.cycle(),
+        cycleEffort: () => cycleEffortRef.current(),
       }),
     [workspaceId],
   )
@@ -1324,34 +1357,40 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
     return renderKeybinding(keybinding, platform)
   }, [keybindingSettings])
+  const [modelChanging, setModelChanging] = useState(false)
   const selectModel = (providerId: string, modelId: string) => {
     setModelMenuOpen(false)
-    if (modelLocked || (providerId === conversation.providerId && modelId === conversation.modelId)) return
-    const nextLabel = modelGroups
-      .find((group) => group.providerId === providerId)
-      ?.models.find((model) => model.id === modelId)?.displayName
-    // The tab was named after the spawn-default model; once the user picks a
-    // different model before the conversation starts, keep the tab truthful.
-    // Only auto-created names are touched — a user-renamed tab (no model-label
-    // match, ignoring a uniqueness suffix) stays as the user wrote it — and
-    // the new name is re-uniqued against the workspace's other agents so two
-    // tabs never end up with the same label.
-    const baseName = (agent?.name ?? '').replace(/ \d+$/, '')
-    const renaming = Boolean(nextLabel && (baseName === currentModelLabel || agent?.name === conversation.modelId))
-    updateBinding({
-      conversation: { providerId, modelId },
-      conversationMode: 'default',
-      conversationReasoningEffort: undefined,
-      ...(renaming && nextLabel && workspace
-        ? {
-            name: uniqueAgentName(
-              nextLabel,
-              Object.fromEntries(Object.entries(workspace.agents).filter(([id]) => id !== agentId)),
-            ),
-          }
-        : {}),
-    })
-    binding.rememberModel?.({ providerId, modelId })
+    if (modelLocked || modelChanging || (providerId === conversation.providerId && modelId === conversation.modelId))
+      return
+    // The agent keeps its name: it is named from the pool, not after its model.
+    const record = () => {
+      updateBinding({ conversation: { providerId, modelId }, conversationMode: 'default' })
+      binding.rememberModel?.({ providerId, modelId })
+    }
+    // No live session: the record is what the next session starts on.
+    if (!sessionId || !transport.setModel) {
+      record()
+      return
+    }
+    // A live session takes the switch first; the record moves only once the
+    // provider accepted it, so the chip never names a model the session is not
+    // on. Mid-turn the provider says the reply finishes on its old model.
+    setActionError(null)
+    setPermissionNotice(null)
+    setModelChanging(true)
+    void transport
+      .setModel({ sessionId, modelId })
+      .then((result) => {
+        if (!result.ok) {
+          setActionError(result.message)
+          return
+        }
+        record()
+        if (result.session) setSession(result.session)
+        setPermissionNotice(result.notice ?? null)
+      })
+      .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not change the model.'))
+      .finally(() => setModelChanging(false))
   }
 
   // Capabilities are available from the provider catalog before the first turn,
@@ -1411,7 +1450,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       removeContextTrigger(range)
     },
   })
-  modelLabelsRef.current = { current: currentModelLabel, groups: modelGroups }
 
   const pendingApprovalEntries = projection.entries.filter(
     (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
@@ -1465,19 +1503,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     oldChrome.onRetry === retry &&
     oldChrome.retryDisabled === composerDisabled &&
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
-    oldChrome.costEnabled === (capabilities?.cost === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs
       ? oldChrome
       : {
           assistantName,
-          modelLabelFor,
           latestTurnId,
           retryTurnId: lastFailedTurnId,
           onRetry: retry,
           retryDisabled: composerDisabled,
           checkpointsEnabled: capabilities?.checkpoints === true,
-          costEnabled: capabilities?.cost === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,
         }
@@ -1501,6 +1536,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // turn_failed with no turnId while nothing was streaming). Without this the
   // chat would look idle/successful with the only trace in Notifications.
   const hasFailedTurnEntry = projection.entries.some((entry) => entry.kind === 'assistant' && entry.status === 'failed')
+  // Whether this chat's permission preset can be changed from its picker: the
+  // same gate the separate pill used to have. A preset the provider cannot run
+  // stays listed, dimmed, with the reason.
+  const permissionsEditable =
+    operate &&
+    (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
+    Boolean(capabilities?.approvals || capabilities?.permissionPresets?.length)
+  const allowedPresets = capabilities?.permissionPresets
+  const permissionDisabledReasons = allowedPresets?.length
+    ? Object.fromEntries(
+        (['bypass', 'none'] as const)
+          .filter((preset) => !allowedPresets.includes(preset))
+          .map((preset) => [preset, 'This agent cannot run with this preset.']),
+      )
+    : undefined
   const composerError =
     actionError ??
     persistenceError ??
@@ -1515,18 +1565,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       workspaceRoot={workspaceRoot ?? ''}
     >
       <ChatShell shellRef={shellRef}>
-        <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
-        {binding.header ??
-          (workspaceRoot && transport.capabilities.localHistory && timelineRows.length > 0 ? (
-            <div className="px-4 pt-2">
-              <ConversationHistoryTitle
-                workspaceRoot={workspaceRoot}
-                workspaceId={workspaceId}
-                agentId={agentId}
-                fallback={label}
-              />
-            </div>
-          ) : null)}
+        {/* No title row above the transcript: the tab names the agent, as it
+            does a terminal agent, and a thread title here repeated the first
+            message over its own bubble. A remote pane brings its own header. */}
+        {binding.header ?? null}
         {/* Loading is not a notice — it is the state the screen is in, so it reads
           as the quiet line it is; anything else here is a degraded session. */}
         {!ready && timelineRows.length > 0 ? (
@@ -1615,7 +1657,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               getItemType={(row) => row.kind}
               recycleItems
               estimatedItemSize={120}
-              className="h-full overflow-y-auto px-4 py-4"
+              // A tab stop so the transcript scrolls from the keyboard, ringed
+              // the way every focusable scroll container in the kit is: inset
+              // (an outward ring is clipped at the pane's edge) and on keyboard
+              // focus only — a click into the transcript to select text is not
+              // a focus change worth drawing, and the UA outline it used to get
+              // was neither the kit's colour nor its shape.
+              className={`h-full overflow-y-auto px-4 py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
               tabIndex={0}
               contentContainerClassName="space-y-1"
               ListHeaderComponent={
@@ -1870,17 +1918,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               disabled={composerInputDisabled}
               className={COMPOSER_CLASS}
             />
-            <div className="flex items-center justify-end gap-2 px-3 pb-1">
-              {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
-              <ConversationCost
-                completionRevision={completionRevision}
-                workspaceRoot={workspaceRoot}
-                workspaceId={workspaceId}
-                agentId={agentId}
-                enabled={capabilities?.cost === true && transport.capabilities.localHistory}
-                hydrated={hydrated}
-              />
-            </div>
+            {/* Tokens only, never money: a chat runs on the person's CLI
+                subscription, and the SDK's dollar figure is an API-price
+                estimate that reads as a bill. */}
+            {contextLength ? (
+              <div className="flex items-center justify-end gap-2 px-3 pb-1">
+                <ContextMeter used={usedTokens} total={contextLength} />
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
               <div className="flex min-w-0 items-center gap-1">
                 {imagesEnabled ? (
@@ -1912,52 +1957,52 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     onSkillsChange={setAttachedSkills}
                   />
                 ) : null}
-                <ModelPickerPill
-                  label={currentModelLabel}
-                  shortcutLabel={modelPickerShortcutLabel}
-                  locked={modelLocked}
-                  open={modelMenuOpen}
-                  onOpenChange={setModelMenuOpen}
-                  groups={modelGroups}
-                  selectedProviderId={conversation.providerId}
-                  selectedModelId={conversation.modelId}
-                  onSelect={selectModel}
-                  onBrowseProvider={fetchProviderCatalog}
-                  onAddKey={() => {
-                    setModelMenuOpen(false)
-                    openSettingsOverlay({ initialTab: 'providers' })
-                  }}
-                />
-                {operate &&
-                (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
-                (capabilities?.approvals || capabilities?.permissionPresets?.length) ? (
-                  <PermissionPresetPill
-                    cli={conversation.providerId}
-                    preset={permissionPreset}
-                    live={sessionId !== null}
-                    changing={permissionChanging}
-                    open={permissionMenuOpen}
-                    onOpenChange={setPermissionMenuOpen}
-                    mode={conversationMode}
-                    allowedPresets={capabilities.permissionPresets}
-                    onChange={(next) => {
-                      // Close on pick like every other picker here: a refusal
-                      // rolls the pill back and writes the reason to the composer
-                      // error line, which an open popover would sit on top of.
-                      setPermissionMenuOpen(false)
-                      void changePermissionPreset(next)
-                    }}
+                {chatCli ? (
+                  <EnginePickerChip
+                    cli={chatCli}
+                    options={chatPickerOptions}
+                    model={chatModel}
+                    reasoning={reasoningEffort}
+                    open={modelMenuOpen}
+                    onOpenChange={setModelMenuOpen}
+                    placement="top-start"
+                    shortcutLabel={modelPickerShortcutLabel}
+                    onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
+                    onSelectModel={(_cli, next) =>
+                      selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
+                    }
+                    onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
+                    {...(modelLocked && modelSwitch
+                      ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
+                      : {})}
+                    permissions={() =>
+                      permissionsEditable ? (
+                        <PermissionFooter
+                          cli={chatCli}
+                          preset={permissionPreset}
+                          disabled={permissionChanging}
+                          disabledReasons={permissionDisabledReasons}
+                          onSelect={(next) => {
+                            // Close on pick like every other picker here: a refusal
+                            // rolls the preset back and writes the reason to the
+                            // composer error line, which an open popover would
+                            // sit on top of.
+                            setModelMenuOpen(false)
+                            void changePermissionPreset(next)
+                          }}
+                        />
+                      ) : null
+                    }
                   />
-                ) : null}
-                <ConversationModeControls
-                  capabilities={capabilities}
-                  mode={conversationMode}
-                  effort={reasoningEffort}
-                  compact={compactControls}
-                  disabled={!ready}
-                  onMode={changeConversationMode}
-                  onEffort={changeReasoningEffort}
-                />
+                ) : (
+                  // A provider that is not a CLI (an API-key provider) has no
+                  // picker of this kind; its model is shown, not chosen.
+                  <TruncatedText
+                    as="span"
+                    text={currentModelLabel}
+                    className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
+                  />
+                )}
               </div>
               {projection.activeTurn && !operate ? null : projection.activeTurn ? (
                 <ComposerActionButton
@@ -2072,7 +2117,24 @@ function formatTokens(value: number): string {
   return String(value)
 }
 
-// Picker groups: one per provider, merging each provider's own live catalog
+// One provider's models as this view reads them for the current model's label
+// and context length.
+export type ModelGroup = {
+  providerId: string
+  providerLabel: string
+  // Native CLI credentials and app-managed API keys remain visibly distinct;
+  // neither native login nor a tool capability implies a subscription plan.
+  credentialSource?: 'native' | 'api-key' | 'none'
+  // Plain-language reason the provider cannot start sessions.
+  unavailable?: string
+  models: ConversationProviderModel[]
+  // Explicit empty state for a dynamic-catalog provider with no models to list:
+  // 'add-key' — no key configured; 'no-models' — key present but the live
+  // catalog came back empty.
+  emptyState?: 'add-key' | 'no-models'
+}
+
+// Model groups: one per provider, merging each provider's own live catalog
 // (fetched when the user browses to it) over its manifest seed. Native-login
 // providers sort first and identify their CLI-owned credentials, so app-managed
 // API keys are never mistaken for the user's existing native configuration. A

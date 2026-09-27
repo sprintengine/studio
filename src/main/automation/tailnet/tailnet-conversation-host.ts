@@ -1,4 +1,5 @@
 import type { ConversationClientFrame, ConversationWireThread } from '../../../../packages/conversation-protocol/src'
+import { isPlaceholderAgentName } from '../../../shared/agent-names'
 import type {
   ConversationKey,
   ConversationImageAttachment,
@@ -94,7 +95,10 @@ export type ConversationGatewayHost = {
  * Both IPC and the network wrap this one session API; only root resolution
  * differs. `defaultPermissionPreset` answers for a conversation this app has
  * not run since it started: the preset its agent record holds, else the app's
- * spawn default.
+ * spawn default. `agentName` is the name the conversation's agent record holds
+ * — the one this desktop's tab and sidebar show — and is what a phone or a
+ * second desktop lists the conversation as; the thread's own title (its first
+ * message, or a rename) answers only for a conversation with no named agent.
  */
 export function createConversationGatewayHost(
   runtime: ConversationRuntime,
@@ -102,7 +106,14 @@ export function createConversationGatewayHost(
   listWorkspaces: () => Array<{ workspaceId: string; workspaceRoot: string }>,
   defaultPermissionPreset: (key: { workspaceId: string; agentId: string }) => ConversationPermissionPreset = () =>
     DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  agentName: (key: { workspaceId: string; agentId: string }) => string | null | undefined = () => null,
 ): ConversationGatewayHost {
+  // A slot placeholder ("Agent 2", the record id) is not a name; the thread's
+  // title says more than it does.
+  const nameFor = (key: { workspaceId: string; agentId: string }): string | null => {
+    const name = agentName(key)?.trim()
+    return name && !isPlaceholderAgentName(name, key.agentId) ? name : null
+  }
   const api = new ConversationSessionApi(runtime)
   const uploads = new Map<
     string,
@@ -198,7 +209,7 @@ export function createConversationGatewayHost(
           byId.set(`${workspace.workspaceId}:${thread.agentId}`, {
             workspaceId: workspace.workspaceId,
             agentId: thread.agentId,
-            title: thread.title,
+            title: nameFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }) ?? thread.title,
             phase: summary?.phase ?? 'completed',
             updatedAt: thread.updatedAt,
             createdAt: thread.createdAt,
@@ -217,7 +228,7 @@ export function createConversationGatewayHost(
         byId.set(id, {
           workspaceId: summary.workspaceId,
           agentId: summary.agentId,
-          title: summary.displayName ?? summary.firstUserText ?? 'New conversation',
+          title: nameFor(summary) ?? summary.displayName ?? summary.firstUserText ?? 'New conversation',
           phase: summary.phase ?? 'idle',
           updatedAt: summary.updatedAt,
           createdAt: summary.createdAt,

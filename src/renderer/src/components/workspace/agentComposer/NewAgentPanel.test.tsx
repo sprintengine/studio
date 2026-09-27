@@ -293,7 +293,6 @@ test('NewAgentPanel', async () => {
         root.render(
           React.createElement(NewAgentPanel, {
             workspaceId: 'ws-1',
-            conversationAvailable: false,
             initialSelection: { kind: 'general' },
             permissionPreset: 'none',
             debugMode: false,
@@ -482,12 +481,12 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    // 2b. Picking Terminal or Conversation drops every CLI-shaped control: neither
-    //     launches one, so neither may show a model, a permission flag, or a
+    // 2b. Picking a plain Terminal drops every CLI-shaped control: a shell
+    //     launches no CLI, so it shows no model, no permission flag and no
     //     command line.
-    await check('a terminal or conversation launch shows no CLI chrome', async () => {
+    await check('a plain terminal launch shows no CLI chrome', async () => {
       seedStore()
-      const view = await render({ conversationAvailable: true })
+      const view = await render()
       const openMore = async () => {
         const more = [...view.container.querySelectorAll('button')].find(
           (button) => button.getAttribute('aria-label') === 'More launch options',
@@ -499,11 +498,6 @@ test('NewAgentPanel', async () => {
       }
 
       const menu = await openMore()
-      assert.ok(!(menu?.textContent ?? '').includes('Chat'), 'Chat has its own visible segment')
-      assert.ok(
-        view.container.querySelector('[role="radio"][aria-label="Chat"]') ||
-          [...view.container.querySelectorAll('[role="radio"]')].some((radio) => radio.textContent === 'Chat'),
-      )
       const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
         (button.textContent ?? '').startsWith('Terminal'),
       )
@@ -575,153 +569,155 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    // 2b-ii. A surface that offers a conversation agent must ASK for the provider
-    //        catalog — the row is gated on availability, and while the catalog was
-    //        loaded by the top bar's menu alone this option could never appear here.
-    // 2b-iii. Chat stays selectable when no provider is configured.
-    await check('the Chat segment explains an unavailable provider and offers Settings', async () => {
-      seedStore()
-      const view = await render({ conversationAvailable: false })
-      const chat = [...view.container.querySelectorAll<HTMLElement>('[role="radio"]')].find(
-        (radio) => radio.textContent === 'Chat',
-      )
-      assert.ok(chat, 'Chat remains visible')
-      await act(async () => {
-        chat!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      assert.ok(view.text().includes('No chat provider is connected.'), 'the body names the missing provider')
-      assert.ok(
-        [...view.container.querySelectorAll('button')].some((button) => button.textContent === 'Connect a provider'),
-      )
-      view.unmount()
-    })
-
-    await check('Chat names a workspace-mode limit without a provider action', async () => {
-      seedStore()
-      const view = await render({
-        initialSelection: { kind: 'conversation' },
-        conversationAvailable: false,
-        conversationWorkspaceSupported: false,
-      })
-      assert.ok(view.text().includes('Chat is unavailable in this workspace.'))
-      assert.ok(
-        ![...view.container.querySelectorAll('button')].some((button) => button.textContent === 'Connect a provider'),
-      )
-      view.unmount()
-    })
-
-    await check('Chat waits for the catalog before offering provider setup', async () => {
-      seedStore()
-      const view = await render({ initialSelection: { kind: 'conversation' }, conversationCatalogLoading: true })
-      assert.ok(view.text().includes('Loading chat providers…'))
-      assert.ok(!view.text().includes('Connect a provider'))
-      view.unmount()
-    })
-
-    await check('Chat model roster chooses the provider and switching keeps the draft', async () => {
-      seedStore()
-      const { writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
-      resetNewChatDraftsForTests()
-      writeNewChatDraft('win-1', {
-        prompt: 'Check the tests',
-        images: [{ id: 'shot', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }],
-      })
-      const view = await render({
-        draftKey: 'win-1',
-        conversationAvailable: true,
-        conversationOptions: [
-          {
-            providerId: 'harness',
-            providerLabel: 'Harness',
-            providerType: 'agent-harness',
-            modelId: 'first',
-            modelLabel: 'First',
-          },
-          {
-            providerId: 'harness',
-            providerLabel: 'Harness',
-            providerType: 'agent-harness',
-            modelId: 'second',
-            modelLabel: 'Second',
-          },
-        ],
-        conversationDefaultOption: {
-          providerId: 'harness',
-          providerLabel: 'Harness',
-          providerType: 'agent-harness',
-          modelId: 'second',
-          modelLabel: 'Second',
-        },
-      })
-      const segment = (name: string) =>
-        [...view.container.querySelectorAll<HTMLElement>('[role="radio"]')].find((radio) => radio.textContent === name)!
-      await act(async () => {
-        segment('Chat').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      assert.ok(
-        [...view.container.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
-          .find((row) => row.textContent?.includes('Second'))
-          ?.getAttribute('aria-checked') === 'true',
-      )
-      assert.equal(view.container.querySelector('textarea')?.value, 'Check the tests')
-      assert.ok(view.container.querySelector('img[src^="data:image/png"]'))
-      const second = [...view.container.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((row) =>
-        row.textContent?.includes('Second'),
-      )!
-      await act(async () => {
-        second.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      await act(async () => {
-        segment('Terminal').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      await act(async () => {
-        segment('Chat').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      assert.equal(view.container.querySelector('textarea')?.value, 'Check the tests')
-      assert.ok(view.container.querySelector('img[src^="data:image/png"]'))
-      const start = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Start agent',
-      )!
-      await act(async () => {
-        start.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      assert.deepEqual(view.launches[0]?.provider, { providerId: 'harness', modelId: 'second', modelLabel: 'Second' })
-      view.unmount()
-      resetNewChatDraftsForTests()
-    })
-
-    await check('the feature flag removes the chat launch and skips its catalog request', async () => {
-      seedStore()
-      let requests = 0
-      const view = await render({
-        conversationModeEnabled: false,
-        conversationAvailable: true,
-        onRequestConversationCatalog: () => {
-          requests += 1
-        },
-      })
+    // 2b-ii. The kind of launch is chosen in ⋯ and nowhere else (owner ruling
+    //        2026-09-27): no Chat | Terminal switch above the greeting, no
+    //        sentence under it, and the three kinds in one list.
+    const openMoreMenu = async (view: Harness): Promise<Element | null> => {
       const more = [...view.container.querySelectorAll('button')].find(
         (button) => button.getAttribute('aria-label') === 'More launch options',
       )
       await act(async () => {
         more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-      assert.ok(!(menu?.textContent ?? '').includes('Chat'), 'the unfinished conversation mode is absent')
-      assert.equal(requests, 0, 'a hidden feature does not load its provider catalog')
+      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    }
+    const pickKind = async (view: Harness, label: string): Promise<void> => {
+      const menu = await openMoreMenu(view)
+      const row = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find((item) =>
+        (item.textContent ?? '').startsWith(label),
+      )
+      assert.ok(row, `⋯ offers ${label}`)
+      await act(async () => {
+        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    }
+    const chatEngineChip = (view: Harness): HTMLElement | undefined =>
+      [...view.container.querySelectorAll<HTMLElement>('button')].find((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+      )
+
+    await check('the kind of launch lives in ⋯ alone: Agent, Chat agent, Terminal', async () => {
+      seedStore()
+      const view = await render()
+      assert.equal(
+        view.container.querySelector('[role="radiogroup"]'),
+        null,
+        'no segmented Chat | Terminal switch above the greeting',
+      )
+      assert.ok(!view.text().includes('Structured chat'), 'and no sentence describing it')
+      assert.ok(!view.text().includes("The CLI's own interface"), 'in either position')
+      const menu = await openMoreMenu(view)
+      const kinds = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
+        .map((row) => ['Chat agent', 'Agent', 'Terminal'].find((kind) => (row.textContent ?? '').startsWith(kind)))
+        .filter(Boolean)
+      assert.deepEqual(kinds, ['Agent', 'Chat agent', 'Terminal'], 'three kinds, in that order')
+      const menuText = menu?.textContent ?? ''
+      assert.ok(menuText.includes('A CLI agent, in a terminal'))
+      assert.ok(menuText.includes('The same CLI agent, as a chat'))
+      assert.ok(menuText.includes('A plain shell — no agent'))
       view.unmount()
     })
 
-    await check('the surface asks the host for the conversation catalog', async () => {
+    await check(
+      'Chat agent is the same launcher: the shared picker, narrowed to CLIs with a chat runtime',
+      async () => {
+        seedStore({
+          plugins: [
+            {
+              id: 'claude-code',
+              displayName: 'Claude Code',
+              source: 'bundled',
+              version: 1,
+              binary: 'claude',
+              modelSelection: {
+                args: ['--model', '{{model}}'],
+                options: [{ id: 'opus[1m]', label: 'Opus (latest, 1M context)' }],
+              },
+              reasoningSelection: { levels: [{ id: 'low' }, { id: 'high' }] },
+            },
+            { id: 'kimi-code', displayName: 'Kimi Code', source: 'bundled', version: 1, binary: 'kimi' },
+          ],
+        })
+        useWorkspaceStore.setState({
+          appSettings: {
+            ...useWorkspaceStore.getState().appSettings,
+            lastSelectedCli: 'claude-code',
+            lastSelectedAgentModel: { cli: 'claude-code', model: 'opus[1m]' },
+          },
+        } as never)
+        const view = await render()
+        await pickKind(view, 'Chat agent')
+        assert.equal(view.container.querySelector('[aria-label="Chat models"]'), null, 'no model roster list')
+        const chip = chatEngineChip(view)
+        assert.ok(chip, 'the same engine chip the terminal agent wears')
+        assert.equal(chip!.getAttribute('aria-label'), 'Engine: Opus (latest, 1M context)')
+        await act(async () => {
+          chip!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const rail = dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
+        const railLabels = [...(rail?.querySelectorAll('[role="radio"]') ?? [])].map((radio) =>
+          radio.getAttribute('aria-label'),
+        )
+        assert.deepEqual(railLabels, ['Claude Code'], 'a CLI with no chat runtime is not on the rail')
+        assert.ok(
+          dom.window.document.querySelector('[aria-label^="Permissions:"]'),
+          'the permission control sits in the picker, as for a terminal agent',
+        )
+        view.unmount()
+
+        // With the terminal Agent chosen, every installed CLI is on the rail.
+        const agentView = await render()
+        await act(async () => {
+          chatEngineChip(agentView)!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const agentRail = dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
+        assert.equal(agentRail?.querySelectorAll('[role="radio"]').length, 2)
+        agentView.unmount()
+      },
+    )
+
+    await check('Enter in the Chat agent launcher starts the chat on what was typed', async () => {
       seedStore()
-      let requests = 0
-      const view = await render({
-        onRequestConversationCatalog: () => {
-          requests += 1
-        },
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const field = view.container.querySelector('textarea')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
       })
-      assert.equal(requests, 1, 'asked once on open, so a provider added since last time shows up')
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      assert.equal(view.launches.length, 1, 'one Enter, one launch')
+      const launch = view.launches[0]!
+      assert.equal(launch.kind, 'conversation')
+      assert.equal(launch.prompt, 'hi', 'the typed text rides the launch as the first message')
+      assert.equal(launch.cli, 'claude-code')
+      assert.deepEqual(
+        launch.provider,
+        { providerId: 'claude-agent', modelId: 'default', modelLabel: 'Claude Code' },
+        'the picked CLI maps onto its conversation provider; its own default model asks for none',
+      )
       view.unmount()
+    })
+
+    await check('with no CLI that can run as a chat, Chat agent offers the install route', async () => {
+      seedStore({
+        plugins: [{ id: 'kimi-code', displayName: 'Kimi Code', source: 'bundled', version: 1, binary: 'kimi' }],
+      })
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      assert.ok(view.text().includes('No agent CLI on this machine can run as a chat.'))
+      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
+      view.unmount()
+    })
+
+    await check('the feature flag and a workspace that cannot host a chat both drop the Chat agent row', async () => {
+      for (const props of [{ conversationModeEnabled: false }, { conversationWorkspaceSupported: false }]) {
+        seedStore()
+        const view = await render(props)
+        const menu = await openMoreMenu(view)
+        assert.ok(!(menu?.textContent ?? '').includes('Chat agent'), JSON.stringify(props))
+        view.unmount()
+      }
     })
 
     // 2c. There is always a way out. The tab host has its tab's ×; the door host
@@ -1220,10 +1216,6 @@ test('NewAgentPanel', async () => {
       const text = view.text()
       assert.ok(text.includes('No agent CLI is installed'), 'it says so plainly')
       assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
-      assert.ok(
-        [...view.container.querySelectorAll('[role="radio"]')].some((radio) => radio.textContent === 'Chat'),
-        'the Chat choice remains available',
-      )
       view.unmount()
     })
 

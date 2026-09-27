@@ -31,7 +31,6 @@ import {
   composerSendAction,
   editingShortcut,
   dataTransferHasFiles,
-  filterModelGroups,
   deriveConversationTimelineRows,
   flattenToolEntries,
   formatAttachmentBytes,
@@ -46,9 +45,6 @@ import {
   MAX_ATTACHMENTS_PER_TURN,
   mergeQueuedTurn,
   parseOptionLabel,
-  permissionChangeScopeLabel,
-  permissionPresetLabel,
-  PermissionPresetPill,
   projectConversation,
   providerAcceptsImages,
   queuedTurnLabel,
@@ -1116,24 +1112,9 @@ test('AgentChatView', async () => {
   assert.ok(decisionsMarkup.includes('aria-expanded="false"'), 'a resolved batch mounts collapsed and is expandable')
   assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait behind the expander')
 
-  // ── Tool-permission pill (1771) ──────────────────────────────────────────────
-  // The preset used to be start-time-only and the footer only ever said "Asks
-  // before tools". The pill has to name the preset actually in force, and say
-  // truthfully when a change bites.
-  assert.equal(permissionPresetLabel('none'), 'CLI default')
-  assert.equal(permissionPresetLabel('bypass'), 'Bypass permissions')
-  assert.equal(permissionPresetLabel('bypass', 'codex'), 'YOLO', 'Codex keeps its own name for bypass')
-  assert.equal(
-    permissionChangeScopeLabel(true),
-    'Applies from the next tool call.',
-    'a live session keeps its running turn; the new preset lands on the next tool',
-  )
-  assert.equal(
-    permissionChangeScopeLabel(false),
-    'Applies when the conversation starts.',
-    'with no session yet the preset is simply what the session will start on',
-  )
-
+  // ── Tool permissions ─────────────────────────────────────────────────────────
+  // A chat's preset is chosen on its engine picker's trailing row — the same
+  // footer control a terminal launch uses — not on a separate pill.
   // Which preset the pill reports (1809). The store used to be the only source,
   // so a session running on a different preset than the agent record rendered a
   // pill that misstated what the child would do on its next tool call.
@@ -1164,34 +1145,22 @@ test('AgentChatView', async () => {
     'an agent record predating the field starts on the app’s spawn default',
   )
 
-  const pillMarkup = (preset: 'none' | 'bypass', cli?: string): string =>
-    renderToStaticMarkup(
-      createElement(PermissionPresetPill, {
-        preset,
-        cli,
-        live: true,
-        changing: false,
-        open: false,
-        onOpenChange: () => {},
-        onChange: () => {},
-      }),
-    )
+  const { PermissionFooter } = await import('../workspace/agentComposer/spawnFooter')
+  const footerMarkup = (preset: 'none' | 'bypass', cli = 'claude-code'): string =>
+    renderToStaticMarkup(createElement(PermissionFooter, { preset, cli, onSelect: () => {} }))
 
-  const defaultPill = pillMarkup('none')
-  assert.ok(defaultPill.includes('CLI default'), 'the pill names the current behavior at rest')
+  const defaultFooter = footerMarkup('none')
+  assert.ok(defaultFooter.includes('No flag'), 'the footer names the preset in force at rest')
   assert.ok(
-    // "menu", not "dialog", since remote-sessions-ux/selector-menus-premium:
-    // the surface is the spec's stacked menuitemradio rows now, and a popup of
-    // activatable items is announced as the menu it is.
-    defaultPill.includes('aria-haspopup="menu"') && defaultPill.includes('aria-expanded="false"'),
-    'the retired read-only chip is now a real disclosure control, announced as one',
+    defaultFooter.includes('aria-haspopup="menu"') && defaultFooter.includes('aria-expanded="false"'),
+    'it is a disclosure control over the preset rows, announced as one',
   )
-  assert.ok(!defaultPill.includes('--tone-warn'), 'the CLI’s own default is the quiet, unremarkable state')
+  assert.ok(!defaultFooter.includes('--tone-warn'), 'the CLI’s own default is the quiet, unremarkable state')
   assert.ok(
-    pillMarkup('bypass').includes('--tone-warn'),
-    'a conversation running without permission checks says so in the warn tone',
+    footerMarkup('bypass').includes('--tone-warn'),
+    'a chat running without permission checks says so in the warn tone',
   )
-  assert.ok(pillMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
+  assert.ok(footerMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
 
   // The pill's rows (remote-sessions-ux / selector-menus-premium): roving
   // tabIndex, one-line summaries, and the two glyphs drawn from AppIcons — not
@@ -1550,9 +1519,11 @@ test('AgentChatView', async () => {
     'no start path in the chat view pins the preset to a literal',
   )
   assert.match(
-    workspaceManagerSource.slice(workspaceManagerSource.indexOf('conversationAgentRuntimePatch(providerId, modelId)')),
-    /^[\s\S]{0,600}?cliPermissionPreset: agentSpawnPermissionPreset,/,
-    'the conversation spawn stamps the composer’s picked preset like every CLI spawn',
+    workspaceManagerSource.slice(
+      workspaceManagerSource.indexOf('conversationAgentRuntimePatch(target.providerId, target.modelId)'),
+    ),
+    /^[\s\S]{0,600}?permissionPreset: resolveCliPermissionPreset\(confirm\.cli, agentSpawnPermissionPreset\),/,
+    'the chat spawn stamps the preset the picker showed for its CLI, like every CLI spawn',
   )
   // A refused change must never leave the pill claiming a preset the session is
   // not on: every failure branch of changePermissionPreset (bridge missing,
@@ -1804,79 +1775,6 @@ test('AgentChatView', async () => {
       'the live catalog replaces the seed',
     )
     assert.equal(groups[1]?.emptyState, 'no-models', 'the other provider keeps its own (empty) state')
-  }
-
-  // --- picker filtering: browsing keeps empty groups, search never hides a hit --
-  {
-    // openrouter: key state not fetched yet, so its seed is listed; xai: key
-    // configured but catalog empty, so it is a listed group with no models — the
-    // exact group the old filter used to drop.
-    const groups = buildModelGroups([HARNESS, OPENROUTER, XAI], {}, { xai: true })
-
-    // Browsing with no query: every group survives, empty states included.
-    assert.deepEqual(
-      filterModelGroups(groups, '', 'all').map((group) => group.providerId),
-      ['claude-agent', 'openrouter', 'xai'],
-      'a zero-model key-configured group is still listed while browsing',
-    )
-    // The chip narrows to one provider — including one with no models to show.
-    assert.deepEqual(
-      filterModelGroups(groups, '', 'xai').map((group) => group.providerId),
-      ['xai'],
-      'the provider chip reaches a group that has only an empty state',
-    )
-    // A query searches across providers, so the chip cannot hide a hit.
-    assert.deepEqual(
-      filterModelGroups(groups, 'seed-a', 'claude-agent').map((group) => group.providerId),
-      ['openrouter'],
-      'search looks past the active chip',
-    )
-    assert.deepEqual(
-      filterModelGroups(groups, 'seed-a', 'claude-agent')[0]?.models.map((model) => model.id),
-      ['seed-a'],
-      'a model-name query narrows the group to the matching models',
-    )
-    // Matching the provider name keeps the whole group, models unfiltered — this
-    // is what stops "claude" from hiding the subscription behind metered clones.
-    assert.deepEqual(
-      filterModelGroups(groups, 'claude', 'all').map((group) => group.providerId),
-      ['claude-agent'],
-      'a provider-name query keeps that provider group',
-    )
-    assert.deepEqual(
-      filterModelGroups(groups, 'claude', 'all')[0]?.models.map((model) => model.id),
-      ['opus'],
-    )
-    // A query that matches nothing drops the groups rather than listing empties.
-    assert.deepEqual(filterModelGroups(groups, 'nothing-matches-this', 'all'), [])
-  }
-
-  // The model picker's provider headers are the menu spec's GROUP LABEL — never
-  // bolder than the rows they head (remote-sessions-ux / selector-menus-premium;
-  // the reasoning selector is the conforming reference). A source pin, in this
-  // repo's literal-reading style: the header line consumes the shared class and
-  // carries no weight of its own, so a font-semibold regression cannot pass.
-  {
-    // From the repo root (how every source-reading suite here runs), not from
-    // import.meta.url — the bundle lives in node_modules/.cache.
-    const source = readFileSync('src/renderer/src/components/panels/agentChat/modelPicker.tsx', 'utf8')
-    const headerLine = source.split('\n').find((line) => line.includes('{group.providerLabel}'))
-    assert.ok(headerLine, 'the provider header still renders providerLabel')
-    const mapStart = source.indexOf('filtered.map((group)')
-    assert.ok(mapStart !== -1, 'the provider group map still exists')
-    // The FIRST providerLabel after the map is the header line (an earlier
-    // occurrence lives in the filter menu's label template).
-    const headerAt = source.indexOf('{group.providerLabel}', mapStart)
-    assert.ok(headerAt !== -1, 'the header renders providerLabel inside the map')
-    const headerRegion = source.slice(mapStart, headerAt)
-    assert.ok(
-      headerRegion.includes('MENU_GROUP_LABEL_CLASS'),
-      'the provider header row consumes MENU_GROUP_LABEL_CLASS',
-    )
-    assert.ok(
-      !headerRegion.includes('font-semibold'),
-      'the provider header carries no weight of its own — group labels never out-weigh their rows',
-    )
   }
 
   // ⌘⇧M / the palette's "Toggle Model Picker" answer with ONE view: the focused

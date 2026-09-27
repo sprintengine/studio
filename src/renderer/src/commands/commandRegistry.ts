@@ -109,16 +109,6 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'panel-event', eventId: 'chat.modelPicker.toggle' },
   }),
   command({
-    id: 'chat.planMode.toggle',
-    title: 'Toggle plan mode',
-    category: 'panel',
-    scopes: ['workspace'],
-    defaultKeybindings: [],
-    availability: ['activeWorkspace'],
-    allowInEditableTarget: true,
-    handlerPath: { kind: 'panel-event', eventId: 'chat.planMode.toggle' },
-  }),
-  command({
     id: 'chat.effort.cycle',
     title: 'Cycle reasoning effort',
     category: 'panel',

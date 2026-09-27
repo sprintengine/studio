@@ -58,7 +58,7 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
   if (kind === 'file_read')
     return (
       <>
-        <ConversationFileLink token={path} source="inlineCode" />
+        <ConversationFileLink token={path} source="inlineCode" variant="chip" />
         <ReadOutput output={output} path={path} />
       </>
     )
@@ -108,7 +108,7 @@ function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefin
     <>
       {edits.map((edit, index) => (
         <div key={index}>
-          <ConversationFileLink token={edit.path} source="inlineCode" />
+          <ConversationFileLink token={edit.path} source="inlineCode" variant="chip" />
           <InlineDiff
             edit={edit}
             onOpen={

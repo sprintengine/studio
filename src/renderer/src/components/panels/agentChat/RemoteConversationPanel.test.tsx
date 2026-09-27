@@ -288,17 +288,23 @@ test('a pairing that may only follow sees the conversation with every action clo
   }
 })
 
-test('a chat whose machine names its preset offers the same two-preset switcher, and a pick goes over the fleet', async () => {
+test('a chat whose machine names its preset offers the same two presets on its engine picker, and a pick goes over the fleet', async () => {
   const chat = await mountRemote({ access: 'operate', permissionPreset: 'bypass' })
   try {
-    const pill = () =>
-      Array.from(chat.host.querySelectorAll('button')).find(
-        (item) =>
-          item.getAttribute('aria-haspopup') === 'menu' &&
-          /Bypass permissions|CLI default/.test(item.textContent ?? ''),
+    // One control for engine, effort and permissions: the chip opens the
+    // terminal agent's picker, whose trailing row holds the preset.
+    const chip = () =>
+      Array.from(chat.host.querySelectorAll('button')).find((item) =>
+        item.getAttribute('aria-label')?.startsWith('Engine:'),
       )
-    expect(pill()?.textContent).toContain('Bypass permissions')
-    await chat.act(async () => pill()!.click())
+    const permissions = () =>
+      Array.from(chat.document.querySelectorAll('button')).find((item) =>
+        item.getAttribute('aria-label')?.startsWith('Permissions:'),
+      )
+    expect(chip()).toBeDefined()
+    await chat.act(async () => chip()!.click())
+    expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
+    await chat.act(async () => permissions()!.click())
     const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
     expect(
       rows.map((row) => row.textContent?.startsWith('Bypass permissions') || row.textContent?.startsWith('No flag')),
@@ -306,7 +312,8 @@ test('a chat whose machine names its preset offers the same two-preset switcher,
     expect(rows.some((row) => row.disabled)).toBe(false)
     await chat.act(async () => rows[1]!.click())
     expect(chat.api.fleetConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
-    expect(pill()?.textContent).toContain('CLI default')
+    await chat.act(async () => chip()!.click())
+    expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: No flag')
   } finally {
     await chat.unmount()
   }

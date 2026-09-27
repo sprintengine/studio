@@ -20,6 +20,7 @@ async function fixture(
     defaultPreset?: Preset
     workspaceRoot?: string
     adapter?: ConversationProviderAdapter
+    agentName?: string | null
   } = {},
 ) {
   const workspaceRoot = options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), 'conversation-gateway-')))
@@ -36,14 +37,11 @@ async function fixture(
     runtime,
     (id) => (id === key.workspaceId ? workspaceRoot : null),
     () => [{ workspaceRoot, workspaceId: key.workspaceId }],
-    ...(options.defaultPreset
-      ? [
-          (asked: { workspaceId: string; agentId: string }) => {
-            defaults.push(asked)
-            return options.defaultPreset!
-          },
-        ]
-      : []),
+    (asked: { workspaceId: string; agentId: string }) => {
+      if (options.defaultPreset) defaults.push(asked)
+      return options.defaultPreset ?? 'bypass'
+    },
+    (asked) => (asked.agentId === key.agentId ? options.agentName : null),
   )
   const start = (permissionPreset: Preset = options.preset ?? 'bypass') =>
     runtime.startSession({
@@ -318,5 +316,25 @@ test('a remote preset switch on a conversation with no live session resumes it o
     assert.equal(live.permissionPreset, 'none')
   } finally {
     await f.cleanup()
+  }
+})
+
+test('a remote lists a conversation by its agent’s name, falling back to the thread title only without one', async () => {
+  for (const [agentName, expected] of [
+    ['Fionn', 'Fionn'],
+    [null, undefined],
+    ['Agent 2', undefined],
+  ] as const) {
+    const f = await fixture({ agentName })
+    try {
+      const started = await f.start()
+      assert.ok(started.ok)
+      await f.runtime.sendTurn({ sessionId: started.session.sessionId, message: 'Check the upload test' })
+      const listed = (await f.host.list())[0]
+      if (expected) assert.equal(listed.title, expected, 'the name this desktop’s tab shows')
+      else assert.notEqual(listed.title, agentName, 'no name, or a slot placeholder, falls back to the thread title')
+    } finally {
+      await f.cleanup()
+    }
   }
 })
