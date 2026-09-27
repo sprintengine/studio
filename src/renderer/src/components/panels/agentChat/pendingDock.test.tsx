@@ -205,7 +205,9 @@ test('queue navigation preserves question answers, resolves selected ids, and de
     await act(async () => button('Allow once').click())
     expect(onApprove).toHaveBeenLastCalledWith('first', true, undefined, 'once')
     await act(async () => button('Remember permission').click())
-    await act(async () => button('Always allow in this workspace').click())
+    // Each remember choice names the exact grant, not a generic "allow".
+    expect(document.body.textContent).toContain('Allow "git status …" for this conversation')
+    await act(async () => button('Always allow "git status …" in this workspace').click())
     expect(onApprove).toHaveBeenLastCalledWith('first', true, undefined, 'always')
   } finally {
     await act(async () => root.unmount())

@@ -21,6 +21,7 @@ import { asRecord } from '../../../../../shared/records'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
 import {
   approvalFilePath,
+  approvalRememberLabels,
   approvalRuleCandidate,
   isPathWithinApprovalRoot,
   type ConversationApprovalDecision,
@@ -268,6 +269,9 @@ export function ConversationPermissionCard({
         workspaceRoot,
       )
     : null
+  // The menu names exactly what a remembered rule grants ("git status …"),
+  // not a generic "allow", since the rule outlives this one request.
+  const rememberLabels = rememberable ? approvalRememberLabels(rememberable) : null
   const literalCommand = asRecord(entry.input)?.command
   const command =
     typeof literalCommand === 'string'
@@ -315,7 +319,7 @@ export function ConversationPermissionCard({
           >
             Deny
           </GhostButton>
-          {rememberable ? (
+          {rememberLabels ? (
             <SplitButton
               label="Allow once"
               primaryAriaLabel="Allow once"
@@ -326,12 +330,12 @@ export function ConversationPermissionCard({
               items={[
                 {
                   id: 'conversation',
-                  label: 'Allow for this conversation',
+                  label: rememberLabels.conversation,
                   onSelect: () => onApprove(entry.requestId, true, undefined, 'conversation'),
                 },
                 {
                   id: 'always',
-                  label: 'Always allow in this workspace',
+                  label: rememberLabels.always,
                   onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
                 },
               ]}
