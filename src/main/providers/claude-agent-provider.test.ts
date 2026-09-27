@@ -1589,10 +1589,13 @@ test('claude-agent-provider', async () => {
     events: ConversationEvent[],
     type: ConversationEvent['type'],
   ): Promise<string> {
-    for (let i = 0; i < 200; i += 1) {
+    // A wall-clock deadline, not a tick count: under full-suite load the fake
+    // query's first event can take longer than a few hundred turns of the loop.
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
       const match = events.find((event) => event.type === type)
       if (match) return typeof match.payload?.requestId === 'string' ? match.payload.requestId : ''
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 5))
     }
     throw new Error(`Timed out waiting for continuation ${type}`)
   }
