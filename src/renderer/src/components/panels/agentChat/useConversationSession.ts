@@ -19,6 +19,14 @@ type Session = {
   disposed: boolean
   earlier: Promise<void> | null
   seenSeq: Set<number>
+  // Where a resubscribe resumes: the last sequence this panel holds, valid only
+  // with the log generation it was read from.
+  cursor: { seq: number; generation?: string } | null
+  // True from a (re)subscribe until its synchronized fence.
+  joining: boolean
+  retries: number
+  retryTimer: ReturnType<typeof setTimeout> | null
+  unsubscribe: () => void
 }
 const emptyState = (): SessionState => ({
   events: [],
@@ -54,6 +62,14 @@ export function mergeConversationEvents(
   return [...current, ...added].sort((a, b) => a.seq! - b.seq!)
 }
 
+// A failed subscription is retried; the delay doubles up to a ceiling so a
+// transcript that cannot be read does not spin, and resets once one succeeds.
+const RETRY_BASE_MS = 500
+const RETRY_MAX_MS = 15_000
+function conversationRetryDelay(retries: number): number {
+  return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retries)
+}
+
 export function useConversationSession(workspaceRoot: string | null, workspaceId: string, agentId: string) {
   const [state, setState] = useState<SessionState>(emptyState)
   const sessionRef = useRef<Session | null>(null)
@@ -66,53 +82,90 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
       disposed: false,
       earlier: null,
       seenSeq: new Set(),
+      cursor: null,
+      joining: true,
+      retries: 0,
+      retryTimer: null,
+      unsubscribe: () => {},
     }
     sessionRef.current = session
     const publish = () => {
       if (!session.disposed) setState({ ...session.state })
     }
-    const unsubscribe = window.api.onConversationSession({ key: session.key, turnLimit: TURN_LIMIT }, (frame) => {
-      if (session.disposed) return
-      switch (frame.type) {
-        case 'snapshot':
-          session.seenSeq.clear()
-          session.state = {
-            ...session.state,
-            ...frame.page,
-            events: mergeConversationEvents([], frame.page.events, session.seenSeq),
-            completionRevision: frame.page.events.findLast((event) => event.type === 'turn_completed')?.seq ?? 0,
+    const subscribe = () => {
+      session.joining = true
+      // Resume from the cursor when the log can vouch for it: the runtime then
+      // sends only the events after it. Without a generation it sends a reset
+      // snapshot, which replaces what this panel holds.
+      const cursor = session.cursor?.generation
+        ? { afterSeq: session.cursor.seq, generation: session.cursor.generation }
+        : {}
+      let current = true
+      const unsubscribe = window.api.onConversationSession(
+        { key: session.key, turnLimit: TURN_LIMIT, ...cursor },
+        (frame) => {
+          if (session.disposed || !current) return
+          switch (frame.type) {
+            case 'snapshot':
+              session.seenSeq.clear()
+              session.state = {
+                ...session.state,
+                ...frame.page,
+                events: mergeConversationEvents([], frame.page.events, session.seenSeq),
+                completionRevision: frame.page.events.findLast((event) => event.type === 'turn_completed')?.seq ?? 0,
+              }
+              break
+            case 'event':
+              if (frame.event.seq === undefined || session.seenSeq.has(frame.event.seq)) return
+              session.state.events = mergeConversationEvents(session.state.events, [frame.event], session.seenSeq)
+              if (session.cursor && frame.event.seq > session.cursor.seq) session.cursor.seq = frame.event.seq
+              if (frame.event.type === 'turn_completed') session.state.completionRevision = frame.event.seq
+              // Tokens stay silent; announce message lifecycle once, independently
+              // from the virtualized transcript's aria-live=off subtree.
+              if (!session.joining) {
+                if (frame.event.type === 'turn_started') session.state.announcement = 'Assistant is replying.'
+                else if (frame.event.type === 'turn_completed') session.state.announcement = 'Assistant reply complete.'
+                else if (frame.event.type === 'turn_failed') session.state.announcement = 'Assistant reply stopped.'
+                else if (frame.event.type === 'user_message') session.state.announcement = 'Message sent.'
+              }
+              break
+            case 'synchronized':
+              if (!session.state.hydrated) session.state.replayThroughSeq = frame.seq
+              session.state.hydrated = true
+              session.state.error = null
+              session.cursor = { seq: frame.seq, generation: frame.generation }
+              session.joining = false
+              session.retries = 0
+              break
+            case 'error':
+              session.state.error = frame.message
+              // The runtime ends a subscription after an error, so a panel
+              // opened mid-stream would otherwise stay frozen. Subscribe again,
+              // resuming from what this panel already holds.
+              current = false
+              unsubscribe()
+              session.retryTimer = setTimeout(() => {
+                session.retryTimer = null
+                if (!session.disposed) subscribe()
+              }, conversationRetryDelay(session.retries++))
+              break
           }
-          break
-        case 'event':
-          if (frame.event.seq === undefined || session.seenSeq.has(frame.event.seq)) return
-          session.state.events = mergeConversationEvents(session.state.events, [frame.event], session.seenSeq)
-          if (frame.event.type === 'turn_completed') session.state.completionRevision = frame.event.seq
-          // Tokens stay silent; announce message lifecycle once, independently
-          // from the virtualized transcript's aria-live=off subtree.
-          if (session.state.hydrated) {
-            if (frame.event.type === 'turn_started') session.state.announcement = 'Assistant is replying.'
-            else if (frame.event.type === 'turn_completed') session.state.announcement = 'Assistant reply complete.'
-            else if (frame.event.type === 'turn_failed') session.state.announcement = 'Assistant reply stopped.'
-            else if (frame.event.type === 'user_message') session.state.announcement = 'Message sent.'
-          }
-          break
-        case 'synchronized':
-          if (!session.state.hydrated) session.state.replayThroughSeq = frame.seq
-          session.state.hydrated = true
-          session.state.error = null
-          break
-        case 'error':
-          session.state.error = frame.message
-          break
+          // Render a catch-up atomically at its synchronization fence, so a
+          // partial render cannot establish the virtual list's initial anchor.
+          if (!session.joining || frame.type === 'error') publish()
+        },
+      )
+      session.unsubscribe = () => {
+        current = false
+        unsubscribe()
       }
-      // Render catch-up atomically at the synchronization fence. Otherwise an
-      // early partial render can establish the virtual list's initial anchor.
-      if (session.state.hydrated || frame.type === 'error') publish()
-    })
+    }
+    subscribe()
     return () => {
       session.disposed = true
       if (sessionRef.current === session) sessionRef.current = null
-      unsubscribe()
+      if (session.retryTimer) clearTimeout(session.retryTimer)
+      session.unsubscribe()
     }
   }, [workspaceRoot, workspaceId, agentId])
 
