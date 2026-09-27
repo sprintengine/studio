@@ -15,7 +15,7 @@ import { runGitCommand } from '../git-utils'
 import type { PluginAgentStateSpec } from '../../shared/plugin-manifest'
 import { createIntegrationLedger, installIntegrationLedger, type IntegrationWrite } from './ledger'
 import { runRemovalCommand } from './remove-integrations-cli'
-import { planIntegrationRemoval, removeIntegrations, type IntegrationRemovalDeps } from './remove-integrations'
+import { removeIntegrations, SESSION_INTEGRATION_KINDS, type IntegrationRemovalDeps } from './remove-integrations'
 import { ensureStudioLauncher, launcherRefForHome } from './launcher'
 import { excludeFromWorktree } from './worktree-exclude'
 
@@ -130,13 +130,11 @@ function deps(
 test("removal takes out only what Studio wrote, leaving the person's content byte for byte", async () => {
   const { home, repo, ledger } = await world()
 
-  const plan = await planIntegrationRemoval(deps(ledger))
-  const groups = new Set(plan.items.map((item) => item.group))
-  assert.ok(groups.has('repositories') && groups.has('launcher'), [...groups].join(','))
-  assert.equal(plan.items.at(-1)?.group, 'launcher', 'the launcher goes last: everything above runs it')
-
   const report = await removeIntegrations(deps(ledger))
   assert.equal(report.failed, 0, JSON.stringify(report.outcomes.filter((outcome) => outcome.status === 'failed')))
+  const groups = new Set(report.outcomes.map((outcome) => outcome.group))
+  assert.ok(groups.has('repositories') && groups.has('launcher'), [...groups].join(','))
+  assert.equal(report.outcomes.at(-1)?.group, 'launcher', 'the launcher goes last: everything above runs it')
 
   assert.equal(await readFile(join(repo, '.codex', 'config.toml'), 'utf8'), PERSONS_CODEX)
   assert.equal(await readFile(join(home, '.kimi-code', 'config.toml'), 'utf8'), PERSONS_KIMI)
@@ -270,12 +268,6 @@ test('one distribution is cleaned on its own', async () => {
   const data = join(distroHome, '.local', 'share', 'sprintengine-studio')
   await write(join(data, '0.4.0', 'hooks', 'x.mjs'), '')
   await ledger.record([{ kind: 'wsl-data', path: data, marker: 'owned', hostId: 'wsl:Ubuntu', createdFile: true }])
-  const plan = await planIntegrationRemoval(deps(ledger), { hostId: 'wsl:Ubuntu' })
-  assert.deepEqual(
-    plan.items.map((item) => [item.group, item.hostId]),
-    [['wsl', 'wsl:Ubuntu']],
-  )
-  assert.deepEqual(plan.appDataPaths, [], 'app data is never offered for one machine')
   const report = await removeIntegrations(deps(ledger), { hostId: 'wsl:Ubuntu' })
   assert.equal(report.removed, 1)
   assert.equal(existsSync(data), false)
@@ -385,19 +377,115 @@ test('a copy the repository committed is left for the project', async () => {
   assert.match(report.outcomes.find((outcome) => outcome.path === skill)?.reason ?? '', /committed/u)
 })
 
-test('asked to, a clean locked worktree is removed and one with changes is kept, both unlocked', async () => {
+test('a locked worktree is unlocked and kept, whatever is in it', async () => {
   const { root, repo, ledger } = await world()
   setAgentWorktreeLockProfile(join(root, 'userData'))
-  const clean = join(root, 'wt-clean')
-  const dirty = join(root, 'wt-dirty')
-  await git(repo, 'worktree', 'add', '-q', '-b', 'clean', clean)
-  await git(repo, 'worktree', 'add', '-q', '-b', 'dirty', dirty)
-  await lockAgentWorktree(repo, clean, 'agent-1')
-  await lockAgentWorktree(repo, dirty, 'agent-2')
-  await write(join(dirty, 'notes.txt'), 'work in progress\n')
+  const wt = join(root, 'wt-locked')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'locked', wt)
+  await lockAgentWorktree(repo, wt, 'agent-1')
   await ledger.flush()
-  const report = await removeIntegrations(deps(ledger), { removeWorktrees: true })
-  assert.equal(existsSync(clean), false)
-  assert.equal(existsSync(join(dirty, 'notes.txt')), true)
-  assert.match(report.outcomes.find((outcome) => outcome.path === dirty)?.reason ?? '', /Unlocked, and kept/u)
+  const report = await removeIntegrations(deps(ledger))
+  assert.equal(report.outcomes.find((outcome) => outcome.path === wt)?.status, 'removed')
+  assert.equal(existsSync(wt), true)
+  assert.doesNotMatch(await git(repo, 'worktree', 'list', '--porcelain'), /^locked/mu)
+})
+
+test("the quit's removal takes out the session's entries and leaves what does its job while the app is closed", async () => {
+  const { root, home, repo, ledger } = await world()
+  setAgentWorktreeLockProfile(join(root, 'userData'))
+  const wt = join(root, 'wt-agent')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'agent', wt)
+  await lockAgentWorktree(repo, wt, 'agent-1')
+  const share = {
+    kind: 'tailnet-share',
+    path: 'tailscale-serve:https:8443',
+    marker: 'x',
+    hostId: 'local',
+    detail: { servePort: 8443, localPort: 5173 },
+  } as const
+  await ledger.record([share])
+  await ledger.flush()
+  let unshared = false
+  const report = await removeIntegrations(
+    deps(ledger, {
+      readServedPorts: async () => new Map([[8443, 5173]]),
+      unsharePort: async () => {
+        unshared = true
+        return { ok: true }
+      },
+    }),
+    { kinds: SESSION_INTEGRATION_KINDS, hostId: 'local' },
+  )
+  assert.equal(report.failed, 0, JSON.stringify(report.outcomes))
+  const mcp = JSON.parse(await readFile(join(repo, '.mcp.json'), 'utf8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(Object.keys(mcp.mcpServers), ['theirs'])
+  assert.equal(existsSync(join(home, '.sprintengine', 'bin')), false, 'nothing left runs the launcher')
+  assert.match(await git(repo, 'worktree', 'list', '--porcelain'), /^locked/mu, 'the lock stays')
+  assert.equal(unshared, false, 'the share stays')
+  assert.deepEqual(
+    (await ledger.list()).map((entry) => entry.kind).sort(),
+    ['tailnet-share', 'worktree-lock'],
+    'and both stay listed for the uninstaller',
+  )
+})
+
+test("the quit's removal keeps the launcher while an entry it leaves still runs it", async () => {
+  const { home, repo, ledger } = await world()
+  await ledger.record([
+    {
+      kind: 'knowledge-activity-hook',
+      path: join(repo, '.claude', 'settings.local.json'),
+      marker: 'sprintengine-knowledge-activity',
+      hostId: 'local',
+      repo,
+    },
+  ])
+  const report = await removeIntegrations(deps(ledger), { kinds: SESSION_INTEGRATION_KINDS })
+  assert.equal(report.failed, 0)
+  assert.equal(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')), true)
+  const kinds = (await ledger.list()).map((entry) => entry.kind).sort()
+  assert.deepEqual(kinds, ['knowledge-activity-hook', 'launcher'])
+})
+
+test('a removal past its deadline stops, and what it did not reach stays listed', async () => {
+  const { home, ledger } = await world()
+  const before = (await ledger.list()).length
+  const report = await removeIntegrations(deps(ledger), { deadline: Date.now() - 1 })
+  assert.equal(report.outcomes.length, 0)
+  assert.equal((await ledger.list()).length, before)
+  assert.equal(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')), true)
+})
+
+test('at quit, an entry the repository committed stays, and so does the launcher it runs', async () => {
+  const { home, repo, ledger } = await world()
+  await git(repo, 'add', '.mcp.json')
+  await git(repo, '-c', 'user.email=dev@example.com', '-c', 'user.name=dev', 'commit', '-q', '-m', 'mcp')
+  const report = await removeIntegrations(deps(ledger), { kinds: SESSION_INTEGRATION_KINDS, keepCommitted: true })
+  assert.equal(report.failed, 0)
+  assert.match(report.outcomes.find((outcome) => outcome.label.startsWith('Studio MCP'))?.reason ?? '', /committed/u)
+  assert.equal(await git(repo, 'status', '--porcelain', '--', '.mcp.json'), '', 'the checkout is left as committed')
+  assert.equal(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')), true)
+})
+
+test("the launcher stays when told another profile's entries still run it", async () => {
+  const { home, ledger } = await world()
+  const report = await removeIntegrations(deps(ledger), { kinds: SESSION_INTEGRATION_KINDS, keepLauncher: true })
+  assert.equal(report.failed, 0)
+  assert.equal(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')), true)
+  assert.deepEqual(
+    (await ledger.list()).map((entry) => entry.kind),
+    ['launcher'],
+  )
+})
+
+test('a removal told to stop leaves the kinds it has not reached listed', async () => {
+  const { home, repo, ledger } = await world()
+  let asked = 0
+  await removeIntegrations(deps(ledger), { stop: () => ++asked > 1 })
+  assert.equal(asked, 2, 'asked before each kind with entries, and stopped at the second')
+  const left = new Set((await ledger.list()).map((entry) => entry.kind))
+  assert.ok(!left.has('agent-state-hooks'), 'the first kind went')
+  assert.ok(left.has('mcp-gateway') && left.has('launcher'))
+  assert.ok(existsSync(join(home, '.sprintengine', 'bin', 'studio-run')))
+  assert.match(await readFile(join(repo, '.mcp.json'), 'utf8'), /sprintengine-studio/u)
 })

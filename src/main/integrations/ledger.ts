@@ -1,7 +1,7 @@
 // The integration ledger: every file, entry and piece of machine state this app
 // writes outside its own data directory, recorded as it is written.
 //
-// It exists so the app can take all of it back out — from Settings, or from
+// It exists so the app can take all of it back out — at every quit, and from
 // the Windows uninstaller — without guessing. Each entry says what was written
 // (`kind`), where (`path`, absolute as this process opens it), how our part of
 // it is recognised (`marker`), and for which CLI, machine and repository. The

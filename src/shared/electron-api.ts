@@ -359,7 +359,6 @@ import type {
   MemoryPreviewResult,
   MemoryRootStatus,
 } from './ipc/memory'
-import type { IntegrationRemovalOptions, IntegrationRemovalPlan, IntegrationRemovalReport } from './integration-removal'
 import type { WorkspaceBackupPayload, WorkspaceBackupReadResult } from './ipc/workspace-backup'
 import type {
   AgentSkillWriteInput,
@@ -926,12 +925,6 @@ export type ElectronApi = {
    * holds. Read-only — the built-in plugin has no Install and no Remove.
    */
   studioPluginStatus: (input: { workspaceRoot: string | null }) => Promise<StudioPluginStatus>
-  /** What Studio wrote outside its own data, grouped for the Remove integrations confirmation. */
-  integrationsPlan: (options: IntegrationRemovalOptions) => Promise<IntegrationRemovalPlan>
-  /** Take it back out, and say what happened to each entry. */
-  integrationsRemove: (options: IntegrationRemovalOptions) => Promise<IntegrationRemovalReport>
-  /** Quit Studio after a removal, so nothing writes an integration back before the uninstall. */
-  integrationsQuitApp: () => Promise<void>
   pluginsList: () => Promise<PluginRegistryListResult>
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>

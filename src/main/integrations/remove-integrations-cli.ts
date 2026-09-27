@@ -1,6 +1,6 @@
-// `SprintEngine Studio --remove-integrations`: the same removal Settings runs,
-// with no window, for the Windows uninstaller (and anyone scripting an
-// uninstall elsewhere). Prints one line per entry and a summary, appends the
+// `SprintEngine Studio --remove-integrations`: every integration the ledger
+// lists, taken out with no window, for the Windows uninstaller (and anyone
+// scripting an uninstall elsewhere). Prints one line per entry and a summary, appends the
 // same to `integration-removal.log` in the profile, and exits:
 //
 //   0  everything listed was removed, or was already gone

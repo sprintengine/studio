@@ -1,7 +1,7 @@
-// The shape of "remove Studio's integrations", shared by the Settings page that
-// confirms it and the main process that does it.
+// The shape of a report from "remove Studio's integrations": what the app
+// takes out when it quits, and what `--remove-integrations` prints.
 
-/** How the confirmation groups what will be removed. */
+/** Where a removed entry was. */
 export type IntegrationRemovalGroup =
   /** Hooks, MCP entries, settings keys, plugin and skill copies inside repositories. */
   | 'repositories'
@@ -18,28 +18,8 @@ export type IntegrationRemovalGroup =
   /** The Studio launcher every entry above runs, removed last. */
   | 'launcher'
 
-export const INTEGRATION_REMOVAL_GROUP_ORDER: readonly IntegrationRemovalGroup[] = [
-  'repositories',
-  'user-config',
-  'tailnet',
-  'worktree-locks',
-  'protocol',
-  'wsl',
-  'launcher',
-]
-
-export const INTEGRATION_REMOVAL_GROUP_LABEL: Record<IntegrationRemovalGroup, string> = {
-  repositories: 'CLI configs and hooks in your repositories',
-  'user-config': 'User-level CLI configuration',
-  tailnet: 'Ports shared on your tailnet',
-  'worktree-locks': 'Worktree locks',
-  protocol: 'The sprintengine:// link handler',
-  wsl: 'WSL distributions',
-  launcher: 'The Studio launcher',
-}
-
 export type IntegrationRemovalItem = {
-  /** Stable for one plan: the ledger key. */
+  /** The ledger key. */
   id: string
   group: IntegrationRemovalGroup
   /** What it is, in a sentence fragment ("Codex hooks", "MCP server entry"). */
@@ -48,23 +28,6 @@ export type IntegrationRemovalItem = {
   path: string
   hostId: string
   repo?: string
-}
-
-export type IntegrationRemovalPlan = {
-  items: IntegrationRemovalItem[]
-  /** Worktrees this profile locked, offered for removal too (never removed unless asked). */
-  lockedWorktrees: Array<{ path: string; repo: string }>
-  /** What "Also delete Studio's data" deletes. */
-  appDataPaths: string[]
-}
-
-export type IntegrationRemovalOptions = {
-  /** Also remove the locked worktrees (only ones with no uncommitted changes). */
-  removeWorktrees?: boolean
-  /** Also delete the app's own data once it quits. */
-  deleteAppData?: boolean
-  /** Only this machine's entries (`wsl:<distro>`), for removing one distribution. */
-  hostId?: string
 }
 
 export type IntegrationRemovalStatus = 'removed' | 'skipped' | 'failed'
@@ -84,30 +47,17 @@ export type IntegrationRemovalReport = {
   removed: number
   skipped: number
   failed: number
-  /** The app's data will be deleted once it quits. */
-  appDataScheduled: boolean
 }
 
 /** The command-line flag that runs the removal with no window (`remove-integrations-cli.ts`). */
 export const REMOVE_INTEGRATIONS_FLAG = '--remove-integrations'
 
-export const INTEGRATIONS_CHANNELS = {
-  plan: 'integrations:plan',
-  remove: 'integrations:remove',
-  /** Quit after a removal, so nothing writes an integration back before the uninstall. */
-  quit: 'integrations:quit',
-} as const
-
-export function summarizeRemoval(
-  outcomes: IntegrationRemovalOutcome[],
-  appDataScheduled: boolean,
-): IntegrationRemovalReport {
+export function summarizeRemoval(outcomes: IntegrationRemovalOutcome[]): IntegrationRemovalReport {
   return {
     outcomes,
     removed: outcomes.filter((outcome) => outcome.status === 'removed').length,
     skipped: outcomes.filter((outcome) => outcome.status === 'skipped').length,
     failed: outcomes.filter((outcome) => outcome.status === 'failed').length,
-    appDataScheduled,
   }
 }
 
