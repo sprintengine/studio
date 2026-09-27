@@ -46,11 +46,13 @@ const draftChars = (draft: ComposerDraft) =>
   draft.text.length + JSON.stringify(draft.skillIds).length + JSON.stringify(draft.mentions).length
 
 /**
- * Storage that coalesces writes, and when the quota refuses one gives up the
- * least recently used drafts until the rest fit. `failed` reports whether the
- * last write landed, for the composer's warning; `flush` writes now.
+ * Storage that coalesces writes, and when the quota refuses one keeps the most
+ * recently used drafts that fit. `evicted` hears which drafts had to go, so the
+ * store forgets them too: otherwise every later write would serialise them
+ * again and repeat the search. `failed` reports whether the last write landed,
+ * for the composer's warning; `flush` writes now.
  */
-function draftStorage(storage: StateStorage) {
+function draftStorage(storage: StateStorage, evicted: (keys: string[]) => void) {
   let pending: { name: string; value: string } | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let failed = false
@@ -60,26 +62,31 @@ function draftStorage(storage: StateStorage) {
     failed = next
     for (const listener of listeners) listener()
   }
-  const write = (name: string, value: string) => {
-    let blob = value
-    for (;;) {
-      try {
-        storage.setItem(name, blob)
-        report(false)
-        return
-      } catch {
-        const smaller = withoutOldestDraft(blob)
-        if (smaller === null) break
-        blob = smaller
-      }
+  const attempt = (name: string, value: string) => {
+    try {
+      storage.setItem(name, value)
+      return true
+    } catch {
+      return false
     }
-    report(true)
   }
-  const flush = () => {
+  const write = (name: string, value: string) => {
+    if (attempt(name, value)) return report(false)
+    const fitted = writeNewestThatFit(value, (blob) => attempt(name, blob))
+    if (!fitted) return report(true)
+    report(false)
+    evicted(fitted.dropped)
+    // Forgetting the evicted drafts re-persists exactly what was just written.
+    if (pending?.name === name) cancelPending()
+  }
+  const cancelPending = () => {
     if (timer !== null) clearTimeout(timer)
     timer = null
-    const next = pending
     pending = null
+  }
+  const flush = () => {
+    const next = pending
+    cancelPending()
     if (next) write(next.name, next.value)
   }
   const wrapped: StateStorage = {
@@ -104,20 +111,42 @@ function draftStorage(storage: StateStorage) {
   }
 }
 
-// The persisted envelope minus its least recently used draft; null when only
-// one is left (the one being edited) or the envelope is not ours.
-function withoutOldestDraft(blob: string): string | null {
+/**
+ * Writes the persisted envelope with only its most recently used drafts, as
+ * many as the quota takes. Fewer drafts is always a smaller blob, so the cut is
+ * binary-searched: a handful of attempts rather than one per draft. The newest
+ * draft (the one being edited) is never given up. Null when not even that one
+ * fits, or the envelope is not ours; the stored value is then left as it was,
+ * because a refused write changes nothing.
+ */
+function writeNewestThatFit(blob: string, tryWrite: (blob: string) => boolean): { dropped: string[] } | null {
+  let envelope: { state?: { drafts?: Record<string, ComposerDraft> } }
   try {
-    const envelope = JSON.parse(blob) as { state?: { drafts?: Record<string, ComposerDraft> } }
-    const drafts = envelope.state?.drafts
-    if (!drafts || Object.keys(drafts).length <= 1) return null
-    const oldest = Object.entries(drafts).sort((a, b) => a[1].updatedAt - b[1].updatedAt)[0][0]
-    const rest = { ...drafts }
-    delete rest[oldest]
-    return JSON.stringify({ ...envelope, state: { ...envelope.state, drafts: rest } })
+    envelope = JSON.parse(blob)
   } catch {
     return null
   }
+  const drafts = envelope.state?.drafts
+  if (!drafts) return null
+  const newestFirst = Object.entries(drafts).sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+  const withNewest = (count: number) =>
+    JSON.stringify({
+      ...envelope,
+      state: { ...envelope.state, drafts: Object.fromEntries(newestFirst.slice(0, count)) },
+    })
+  // Successes only ever raise `low`, so the last write that landed is the
+  // largest count that fits.
+  let fits = 0
+  let low = 1
+  let high = newestFirst.length - 1
+  while (low <= high) {
+    const count = (low + high) >> 1
+    if (tryWrite(withNewest(count))) {
+      fits = count
+      low = count + 1
+    } else high = count - 1
+  }
+  return fits ? { dropped: newestFirst.slice(fits).map(([key]) => key) } : null
 }
 
 type DraftState = {
@@ -133,7 +162,13 @@ export function createComposerDraftStore(storage: StateStorage, now = Date.now) 
   // millisecond, or the device clock moves backwards after a restart.
   const nextAccess = (records: Record<string, ComposerDraft>) =>
     Math.max(now(), ...Object.values(records).map((draft) => draft.updatedAt + 1))
-  const persisted = draftStorage(storage)
+  const persisted = draftStorage(storage, (keys) =>
+    store.setState((state) => {
+      const drafts = { ...state.drafts }
+      for (const key of keys) delete drafts[key]
+      return { drafts }
+    }),
+  )
   const store = createStore<DraftState>()(
     persist(
       (set, get) => ({

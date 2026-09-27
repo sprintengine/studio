@@ -120,3 +120,40 @@ test('a write the quota refuses gives up the oldest drafts and reports only if n
   // The in-memory draft is untouched by a failed write.
   expect(store.getState().read('workspace', 'new').text).toBe('still here')
 })
+
+test('after the quota evicts drafts the store forgets them, so the next write is a single attempt', () => {
+  const memory = storage()
+  let limit = Infinity
+  let attempts = 0
+  memory.setItem = (key: string, value: string) => {
+    attempts++
+    if (value.length > limit) throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    memory.data.set(key, value)
+  }
+  let now = 0
+  const store = createComposerDraftStore(memory, () => ++now)
+  const count = 150
+  for (let index = 0; index < count; index++)
+    store.getState().put('workspace', `agent-${index}`, { text: 'x'.repeat(5000), skillIds: [], mentions: [] })
+  store.flushDrafts()
+  limit = 20_000
+  attempts = 0
+  store.getState().put('workspace', 'agent-0', { text: 'edited', skillIds: [], mentions: [] })
+  store.flushDrafts()
+  expect(store.draftWriteFailed()).toBe(false)
+  // A binary search over the cut, not one attempt per evicted draft.
+  expect(attempts).toBeLessThanOrEqual(1 + Math.ceil(Math.log2(count)))
+  const kept = Object.keys(store.getState().drafts)
+  expect(kept.length).toBeGreaterThan(1)
+  expect(kept.length).toBeLessThan(count)
+  expect(store.getState().drafts[JSON.stringify(['workspace', 'agent-0'])]?.text).toBe('edited')
+  expect(Object.keys(JSON.parse(memory.data.get('sprintengine-conversation-drafts')!).state.drafts).sort()).toEqual(
+    kept.sort(),
+  )
+  for (let edit = 0; edit < 3; edit++) {
+    attempts = 0
+    store.getState().put('workspace', 'agent-0', { text: `edited ${edit}`, skillIds: [], mentions: [] })
+    store.flushDrafts()
+    expect(attempts).toBe(1)
+  }
+})
