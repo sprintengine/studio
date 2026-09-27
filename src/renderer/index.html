@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -21,7 +21,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: studio-module:; font-src 'self' data:; object-src 'none'; base-uri 'self'"
+      content="script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: studio-module: https: wss:; font-src 'self' data:; object-src 'none'; base-uri 'self'"
     />
     <title>SprintEngine</title>
     <link rel="icon" type="image/svg+xml" href="./src/assets/brand/sprintengine/mark-on-dark.svg" />
@@ -42,7 +42,7 @@
       // :root[data-theme="..."] block). A new LIGHT-surface theme adds a row to
       // LIGHT_SURFACES below, which drives both the canvas pre-paint and the
       // data-mode stamp.
-      (function () {
+      ;(function () {
         // The light-surface themes, mapped to the canvas colour to pre-paint.
         // Membership must match LIGHT_SURFACE_THEMES in types/appTheme.ts (this
         // script runs before any bundle exists, so it cannot import it).
@@ -71,9 +71,12 @@
           var KEY = 'sprintengine-app-settings'
           var raw = window.localStorage.getItem(KEY)
           var persisted = raw ? JSON.parse(raw) : null
-          var theme = persisted && persisted.state && persisted.state.appSettings
-            && persisted.state.appSettings.appearance
-            && persisted.state.appSettings.appearance.theme
+          var theme =
+            persisted &&
+            persisted.state &&
+            persisted.state.appSettings &&
+            persisted.state.appSettings.appearance &&
+            persisted.state.appSettings.appearance.theme
           if (!theme || theme === 'system') {
             var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
             theme = mql && mql.matches ? 'light' : 'dark'
@@ -84,16 +87,22 @@
           // opaque canvas (tinted, solid), so a late attribute would flash the
           // wrong canvas. Same no-allow-list stance as the theme — the store
           // normalizer owns validity.
-          var material = persisted && persisted.state && persisted.state.appSettings
-            && persisted.state.appSettings.appearance
-            && persisted.state.appSettings.appearance.windowMaterial
+          var material =
+            persisted &&
+            persisted.state &&
+            persisted.state.appSettings &&
+            persisted.state.appSettings.appearance &&
+            persisted.state.appSettings.appearance.windowMaterial
           // Mirrors effectiveWindowMaterial() in types/appTheme.ts: an explicit
           // solid or tinted is kept; anything else (glass, or nothing persisted
           // on a first launch) is the platform default — glass on macOS,
           // tinted where there is no vibrancy.
-          var effective = material === 'solid' || material === 'tinted'
-            ? material
-            : navigator.platform.indexOf('Mac') === 0 ? 'glass' : 'tinted'
+          var effective =
+            material === 'solid' || material === 'tinted'
+              ? material
+              : navigator.platform.indexOf('Mac') === 0
+                ? 'glass'
+                : 'tinted'
           var glass = effective === 'glass'
           if (effective !== 'solid') {
             document.documentElement.setAttribute('data-window-material', effective)
@@ -107,8 +116,7 @@
           // the canvas must stay unpainted — an opaque html background would
           // sit in front of the window vibrancy and block the frost.
           if (!glass) {
-            document.documentElement.style.backgroundColor =
-              isLightSurface(theme) ? LIGHT_SURFACES[theme] : '#08090b'
+            document.documentElement.style.backgroundColor = isLightSurface(theme) ? LIGHT_SURFACES[theme] : '#08090b'
           }
         } catch (e) {
           applyThemeAttributes('dark')
