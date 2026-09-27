@@ -463,3 +463,21 @@ test('expiry keeps every checkpoint of a conversation that is still active, howe
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('capture leaves app sidecar folders out whether or not the repository ignores them', async () => {
+  const f = await repository()
+  try {
+    await writeFile(join(f.root, '.gitignore'), '')
+    await mkdir(join(f.root, '.sprintengine'))
+    await writeFile(join(f.root, '.sprintengine', 'transcript.jsonl'), '{}\n')
+    await writeFile(join(f.root, 'existing.txt'), 'changed\n')
+    const checkpoints = new ConversationCheckpoints()
+    const captured = await checkpoints.capture(f.key, 1, 'pre')
+    assert.ok(captured.ok, JSON.stringify(captured))
+    const files = await git(f.root, ['ls-tree', '-r', '--name-only', captured.ref])
+    assert.deepEqual(files.trim().split('\n'), ['.gitignore', 'deleted.txt', 'existing.txt'])
+    assert.equal(await git(f.root, ['show', `${captured.ref}:existing.txt`]), 'changed\n')
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { lstat, mkdtemp, realpath, rm } from 'fs/promises'
+import { copyFile, lstat, mkdtemp, realpath, rm, stat, utimes } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, join, resolve, relative, isAbsolute } from 'path'
 import { runGitCommand } from './git-utils'
@@ -16,6 +16,10 @@ import type {
 export type ConversationCheckpointResult = { ok: true; ref: string } | { ok: false; message: string; skipped?: boolean }
 
 const PREFIX = 'refs/sprintengine/checkpoints/'
+const SIDECARS = ['.sprintengine', '.multi-code']
+// The copy must never write a split index into the repository's git
+// directory, and a filesystem monitor's answers belong to the real index.
+const SNAPSHOT_CONFIG = ['-c', 'core.splitIndex=false', '-c', 'core.fsmonitor=false']
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'SprintEngine Studio',
   GIT_AUTHOR_EMAIL: 'studio@example.com',
@@ -260,38 +264,75 @@ export class ConversationCheckpoints {
     return null
   }
 
-  /** `include` names extra paths to capture when present on disk, ignored or not. */
+  /**
+   * Snapshot the work tree into a tree object through a throwaway index.
+   * The index starts as a copy of the user's, so git's stat cache skips
+   * rehashing every unchanged tracked file; only the copy is ever written.
+   * `include` names extra paths to capture when present on disk, ignored or not.
+   */
   private async worktreeTree(root: string, include: string[] = []): Promise<string> {
     const temp = await mkdtemp(join(tmpdir(), 'conversation-index-'))
-    const env = { GIT_INDEX_FILE: join(temp, 'index'), GIT_OPTIONAL_LOCKS: '0' }
+    const index = join(temp, 'index')
+    const env = { GIT_INDEX_FILE: index, GIT_OPTIONAL_LOCKS: '0' }
     try {
+      if (await this.seedIndex(root, index)) {
+        try {
+          return await this.snapshot(root, env, include)
+        } catch {
+          // A copied index can carry state a throwaway one cannot use (a split
+          // or sparse index); rebuild from HEAD instead.
+          await rm(index, { force: true })
+        }
+      }
       const head = await runGitCommand(root, ['rev-parse', '--verify', 'HEAD'])
       await this.git(root, head.ok ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], env)
-      const files = (await this.git(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], env))
-        .split('\0')
-        .filter((path) => path && !isSidecar(path))
       // A force-added file can be tracked in the user's index while absent
-      // from HEAD and ignored by discovery through our temporary index.
-      const staged = (await this.git(root, ['ls-files', '--cached', '-z']))
-        .split('\0')
-        .filter((path) => path && !isSidecar(path))
-      const captured = new Set(files)
-      for (const path of staged)
-        if (!captured.has(path) && (await lstat(safePath(root, path)).catch(() => null))) captured.add(path)
-      for (const path of include)
-        if (!captured.has(path) && !isSidecar(path) && (await lstat(safePath(root, path)).catch(() => null))?.isFile())
-          captured.add(path)
-      if (captured.size)
-        await this.git(
-          root,
-          ['add', '-A', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'],
-          { ...env, GIT_LITERAL_PATHSPECS: '1' },
-          [...captured].join('\0') + '\0',
-        )
-      return (await this.git(root, ['write-tree'], env)).trim()
+      // from HEAD and ignored by discovery through the throwaway index.
+      const staged = (await runGitCommand(root, ['ls-files', '--cached', '-z'])).stdout.split('\0').filter(Boolean)
+      return await this.snapshot(root, env, [...include, ...staged])
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
+  }
+
+  private async seedIndex(root: string, target: string): Promise<boolean> {
+    const source = resolve(root, (await this.git(root, ['rev-parse', '--git-path', 'index'])).trim())
+    const info = await stat(source).catch(() => null)
+    if (!info?.isFile()) return false
+    await copyFile(source, target)
+    // Keep the original mtime: git treats entries as racily clean by comparing
+    // them with the index file's own mtime, and a fresh one would trust stale
+    // stat data for a file changed in the same second as the index was written.
+    await utimes(target, info.atime, info.mtime)
+    return true
+  }
+
+  private async snapshot(root: string, env: NodeJS.ProcessEnv, include: string[]): Promise<string> {
+    // An exclude pathspec naming an ignored path fails the whole add, so only
+    // sidecars that exist and are not already ignored are excluded by name.
+    const excludes: string[] = []
+    for (const sidecar of SIDECARS)
+      if (
+        (await lstat(join(root, sidecar)).catch(() => null)) &&
+        !(await runGitCommand(root, ['check-ignore', '-q', `${sidecar}/`], env)).ok
+      )
+        excludes.push(`:(exclude)${sidecar}`)
+    await this.git(root, [...SNAPSHOT_CONFIG, 'add', '-A', '--', '.', ...excludes], env)
+    if (include.length) {
+      const captured = new Set((await this.git(root, ['ls-files', '--cached', '-z'], env)).split('\0'))
+      const extra: string[] = []
+      for (const path of new Set(include))
+        if (!captured.has(path) && !isSidecar(path) && (await lstat(safePath(root, path)).catch(() => null))?.isFile())
+          extra.push(path)
+      if (extra.length)
+        await this.git(
+          root,
+          [...SNAPSHOT_CONFIG, 'add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'],
+          { ...env, GIT_LITERAL_PATHSPECS: '1' },
+          extra.join('\0') + '\0',
+        )
+    }
+    return (await this.git(root, ['write-tree'], env)).trim()
   }
 
   private async blobPaths(root: string, commit: string): Promise<string[]> {
@@ -366,12 +407,7 @@ function safePath(root: string, path: string): string {
   return absolute
 }
 function isSidecar(path: string): boolean {
-  return (
-    path === '.sprintengine' ||
-    path.startsWith('.sprintengine/') ||
-    path === '.multi-code' ||
-    path.startsWith('.multi-code/')
-  )
+  return SIDECARS.some((sidecar) => path === sidecar || path.startsWith(`${sidecar}/`))
 }
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Checkpoint operation failed.'
