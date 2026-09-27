@@ -4,6 +4,7 @@ import type { ConversationSessionSummary } from '../../../../shared/conversation
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { layoutHasConversation, openConversationHistory } from '../../utils/conversationHistoryNavigation'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { GhostButton, InlineNotice, Input, RowButton, useConfirmDialog } from '../ui'
@@ -162,6 +163,11 @@ function HistoryRowView({
     try {
       const result = await window.api.conversationDelete(key)
       if (!result.ok) throw new Error(result.message)
+      // The unsent draft belonged to the deleted conversation; left behind it
+      // would sit in storage for good, taking room from live drafts.
+      const drafts = composerDraftStore()
+      drafts.getState().remove(key.workspaceId, key.agentId)
+      drafts.flushDrafts()
       notifyConversationHistoryChanged()
       await onChanged()
     } catch (failure) {

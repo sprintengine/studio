@@ -50,6 +50,10 @@ test('closed history extends the chat stream and deletion requires confirmation'
   const { createRoot } = await import('react-dom/client')
   const { ConversationHistoryRows } = await import('./ConversationHistoryRows')
   const { ConfirmDialogProvider } = await import('../ui/ConfirmDialog')
+  const { composerDraftStore } = await import('../panels/agentChat/draftStore')
+  composerDraftStore().getState().put('workspace', 'closed-agent', { text: 'Unsent', skillIds: [], mentions: [] })
+  composerDraftStore().getState().put('workspace', 'open-agent', { text: 'Keep me', skillIds: [], mentions: [] })
+  composerDraftStore().flushDrafts()
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
@@ -83,6 +87,10 @@ test('closed history extends the chat stream and deletion requires confirmation'
       agentId: 'closed-agent',
     })
     expect(host.textContent).not.toContain('A saved conversation')
+    // The deleted conversation's unsent draft goes with it, from storage too.
+    const stored = dom.window.localStorage.getItem('sprintengine-conversation-drafts') ?? ''
+    expect(stored).not.toContain('Unsent')
+    expect(stored).toContain('Keep me')
   } finally {
     await act(async () => root.unmount())
     dom.window.close()
