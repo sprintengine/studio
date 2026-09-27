@@ -11,7 +11,6 @@ import {
   CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
   ModuleStorageToken,
-  EntitlementServiceToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
@@ -73,7 +72,6 @@ export function createAgentRuntimeModule(
       host.provideService(AgentLaunchSettingsToken, () => services.agentLaunchSettings)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
       host.provideService(SprintEngineAuthToken, () => services.sprintengineAuth)
-      host.provideService(EntitlementServiceToken, () => services.entitlements)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)
       // Programmatic workspace creation, minted in main's registry.

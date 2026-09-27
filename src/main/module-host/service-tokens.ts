@@ -30,12 +30,6 @@ export const GitHubTokenStoreToken = createServiceToken<AppServices['githubToken
 export const AgentLaunchSettingsToken =
   createServiceToken<AppServices['agentLaunchSettings']>('core.agent-launch-settings')
 export const SprintEngineAuthToken = createServiceToken<AppServices['sprintengineAuth']>('core.sprintengine-auth')
-// The provider-agnostic entitlement seam. A module that needs to gate
-// on a stable feature key resolves THIS and asks `hasFeature`/`refreshFeature`;
-// SprintEngineAuthToken above is the account-service adapter behind it, and resolving
-// that one to answer an entitlement question re-couples the module to whichever
-// provider is current.
-export const EntitlementServiceToken = createServiceToken<AppServices['entitlements']>('core.entitlements')
 export const WorkspaceSyncServiceToken =
   createServiceToken<AppServices['workspaceSyncService']>('core.workspace-sync-service')
 // The authoritative workspace registry. Modules that need to READ the

@@ -35,6 +35,7 @@ import { markStartup } from './startup-timeline'
 import { readStudioEnv } from '../shared/studio-env'
 import { allowsMultipleInstances } from './app-instance'
 import { writeDiagnosticLog } from './diagnostics-service'
+import { removeRetiredEntitlementCache } from './retired-entitlement-cache'
 import { removeRetiredRelayState } from './retired-relay-state'
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
@@ -205,6 +206,13 @@ void app.whenReady().then(() => {
             message: `The retired relay's state file is still in userData: ${result.message}`,
           },
     ).catch(() => {})
+  })
+  // The cached entitlement snapshot from when there was a paywall
+  // (retired-entitlement-cache.ts). Best effort; the sign-in is never touched.
+  void removeRetiredEntitlementCache(app.getPath('userData')).then((result) => {
+    if (result.outcome === 'failed') {
+      console.warn('[auth] retired-entitlement-cache-remove-failed', { message: result.message })
+    }
   })
   const shellUrl = process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(join(__dirname, '../renderer/index.html')).href
   session.defaultSession.webRequest.onBeforeRequest({ urls: [`${MODULE_ASSET_SCHEME}://*/*`] }, (details, callback) => {

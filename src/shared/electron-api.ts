@@ -872,8 +872,7 @@ export type ElectronApi = {
   authGetState: () => Promise<SprintEngineAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
-  authRefreshEntitlements: () => Promise<SprintEngineAuthState>
-  authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
+  authRefreshAccount: () => Promise<SprintEngineAuthState>
   onAuthStateChanged: (cb: (state: SprintEngineAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>

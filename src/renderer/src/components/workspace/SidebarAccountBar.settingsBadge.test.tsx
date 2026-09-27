@@ -15,12 +15,8 @@ const SIGNED_OUT: SprintEngineAuthState = {
   authenticated: false,
   user: null,
   selectedOrganization: null,
-  entitlements: null,
   status: 'signed_out',
-  entitlementStatus: 'missing',
   message: null,
-  lastRefreshAt: null,
-  graceExpiresAt: null,
 }
 
 let root: Root

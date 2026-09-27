@@ -3970,8 +3970,8 @@ export default function WorkspaceManager() {
   }
 
   const refreshAuthState = async () => {
-    setAuthMessage('Checking access.')
-    setAuthState(await window.api.authRefreshEntitlements())
+    setAuthMessage('Checking account.')
+    setAuthState(await window.api.authRefreshAccount())
   }
 
   const logout = async () => {

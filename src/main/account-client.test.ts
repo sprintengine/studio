@@ -75,7 +75,7 @@ test('account-client', async () => {
       schemaVersion: 1,
     }
     discoveryStatus = 200
-    entitlementOrg = 'org_primary'
+    defaultOrg = 'org_primary'
     serial = 0
 
     readonly fetch: typeof fetch = async (input, init) => {
@@ -118,27 +118,11 @@ test('account-client', async () => {
       if (url === `${BASE_URL}/api/auth/logout`) {
         return Response.json({ loggedOut: true })
       }
-      if (url.startsWith(`${BASE_URL}/api/entitlements`)) {
-        const organizationId = headers.get(ORGANIZATION_HEADER) ?? this.entitlementOrg
-        return Response.json({
-          userId: 'usr_1',
-          organizationId,
-          product: 'sprintengine',
-          roles: ['owner'],
-          features: {},
-          limits: {},
-          sources: {},
-          plan: { code: 'pro', status: 'active' },
-          issuedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
-          schemaVersion: 1,
-        })
-      }
       if (url === `${BASE_URL}/api/auth/me`) {
         return Response.json({
           user: { id: 'usr_1', email: 'a@b', displayName: 'A', avatarUrl: null },
           selectedOrganization: {
-            id: headers.get(ORGANIZATION_HEADER) ?? this.entitlementOrg,
+            id: headers.get(ORGANIZATION_HEADER) ?? this.defaultOrg,
             name: 'x',
             slug: 'x',
             type: 'team',
@@ -183,7 +167,6 @@ test('account-client', async () => {
     const account = new SprintEngineAccountClient({
       baseUrl: BASE_URL,
       clientId: 'sprintengine-desktop',
-      product: 'sprintengine',
       refreshTokenStores: stores,
       identityMarker: marker,
       env: input.env ?? {},
@@ -314,8 +297,6 @@ test('account-client', async () => {
     await account.resumeStoredSession()
     await account.selectOrganization('org_team')
 
-    const snapshot = await account.getEntitlements({ forceRefresh: true })
-    assert.equal(snapshot.organizationId, 'org_team')
     const profile = await account.getProfile()
     assert.equal(profile.selectedOrganization.id, 'org_team')
     for (const call of backend.calls.filter(
@@ -402,7 +383,6 @@ test('account-client', async () => {
     const account = new SprintEngineAccountClient({
       baseUrl: BASE_URL,
       clientId: 'sprintengine-desktop',
-      product: 'sprintengine',
       refreshTokenStores: stores,
       identityMarker: marker,
       env: {},
@@ -437,8 +417,8 @@ test('account-client', async () => {
     const second = client(backend, { clerk: first.stores.clerk.value, marker: first.marker.value })
     await second.account.resumeStoredSession()
     assert.equal(second.account.selectedOrganization(), 'org_team')
-    const snapshot = await second.account.getEntitlements({ forceRefresh: true })
-    assert.equal(snapshot.organizationId, 'org_team')
+    const profile = await second.account.getProfile()
+    assert.equal(profile.selectedOrganization.id, 'org_team')
   }
 
   async function aMarkerFromAnotherAccountServiceIsIgnored(): Promise<void> {

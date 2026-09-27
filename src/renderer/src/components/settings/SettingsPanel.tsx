@@ -82,7 +82,6 @@ import {
   FolderPlusIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
-import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
@@ -986,10 +985,10 @@ export default function SettingsPanel({
   }, [authState.selectedOrganization?.id])
 
   const onProfileRefresh = useCallback(async () => {
-    setProfileMessage('Checking access.')
+    setProfileMessage('Checking account.')
     setProfilePending(true)
     try {
-      setAuthState(await window.api.authRefreshEntitlements())
+      setAuthState(await window.api.authRefreshAccount())
       setProfileMessage(null)
     } catch (error) {
       setProfileMessage(error instanceof Error ? error.message : String(error))
@@ -1006,10 +1005,6 @@ export default function SettingsPanel({
     } finally {
       setProfilePending(false)
     }
-  }, [])
-
-  const onProfileUpgrade = useCallback(() => {
-    void window.api.authOpenUpgrade('sprintengine')
   }, [])
 
   useEffect(() => {
@@ -1334,7 +1329,6 @@ export default function SettingsPanel({
             onSignIn={() => void onProfileSignIn()}
             onSignOut={() => void onProfileSignOut()}
             onRefresh={() => void onProfileRefresh()}
-            onUpgrade={onProfileUpgrade}
           />
         </div>
       ) : null}
@@ -1708,19 +1702,6 @@ export default function SettingsPanel({
   )
 }
 
-// Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
-// non-active entitlement status). Presentation only: it reads the plan's name
-// to print it, and nothing may branch on what it returns.
-function profilePlanLabel(authState: SprintEngineAuthState): string {
-  const plan = authState.entitlements?.plan ?? null
-  if (!plan) return 'Free plan'
-  if (plan.status === 'active') {
-    const code = plan.code ? plan.code[0].toUpperCase() + plan.code.slice(1) : 'Pro'
-    return `${code} plan`
-  }
-  return plan.status ? plan.status[0].toUpperCase() + plan.status.slice(1) : 'Unknown'
-}
-
 // Profile tab body: a fuller account-management surface over the shared auth
 // projection. Drives the same auth IPC as the sidebar account popover; the two
 // coexist (quick glance vs. full management).
@@ -1731,7 +1712,6 @@ function ProfileSection({
   onSignIn,
   onSignOut,
   onRefresh,
-  onUpgrade,
 }: {
   authState: SprintEngineAuthState
   message: string | null
@@ -1739,12 +1719,11 @@ function ProfileSection({
   onSignIn: () => void
   onSignOut: () => void
   onRefresh: () => void
-  onUpgrade: () => void
 }) {
   if (!authState.authenticated) {
     return (
       <div className="space-y-2">
-        <SettingsRow label="Not signed in" help="Sign in to unlock Pro features.">
+        <SettingsRow label="Not signed in" help="Signing in is optional. Every feature works without an account.">
           <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
             Sign in
           </PrimaryButton>
@@ -1754,15 +1733,9 @@ function ProfileSection({
     )
   }
 
-  // Two questions, deliberately not one: the Plan cell's tone is presentation
-  // (it colours the plan's own name), and the upgrade button is an access
-  // decision, which is asked of feature keys rather than the plan's name.
-  const planTone = planDisplayTier(authState) === 'pro' ? 'positive' : undefined
-  const offerUpgrade = !hasPaidEntitlement(authState)
   const name = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const orgName = authState.selectedOrganization?.name ?? null
-  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
 
   return (
     <div className="space-y-5">
@@ -1778,21 +1751,17 @@ function ProfileSection({
         </div>
       </div>
 
-      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
-        <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={planTone} />
-        {orgName ? <MetaCell label="Organization" value={orgName} /> : null}
-      </div>
+      {orgName ? (
+        <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
+          <MetaCell label="Organization" value={orgName} />
+        </div>
+      ) : null}
 
       {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[color:var(--border-subtle)] pt-4">
-        {offerUpgrade ? (
-          <PrimaryButton size="md" onClick={onUpgrade} disabled={pending}>
-            Upgrade to Pro
-          </PrimaryButton>
-        ) : null}
         <OutlineButton size="md" onClick={onRefresh} disabled={pending}>
-          {accessStale ? 'Check access again' : 'Refresh access'}
+          Refresh account
         </OutlineButton>
         <GhostButton size="md" onClick={onSignOut} disabled={pending} className="ml-auto">
           Sign out
