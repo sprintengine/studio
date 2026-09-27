@@ -2,12 +2,7 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'vitest'
-import {
-  agentPermissionChipLabel,
-  agentPermissionOptions,
-  PermissionPresetMenuRows,
-  REMOTE_PRESET_DISABLED_REASONS,
-} from './agentSpawnShared'
+import { agentPermissionChipLabel, agentPermissionOptions, PermissionPresetMenuRows } from './agentSpawnShared'
 import { permissionPresetLabel } from '../../panels/agentChat/modelPicker'
 import { PermissionField } from '../../panels/AutomationsPanel/AgentFields'
 
@@ -40,19 +35,19 @@ test('Codex help names YOLO for what it is, and the no-flag row inherits configu
   assert.equal(agentPermissionChipLabel('none', 'codex'), 'No flag')
 })
 
-test('a remote restriction disables YOLO with a reason and leaves No flag', () => {
+test('a preset the provider cannot run stays listed, dimmed, with its reason', () => {
   const markup = renderToStaticMarkup(
     createElement(PermissionPresetMenuRows, {
       cli: 'codex',
       value: 'none',
       onSelect: () => {},
-      disabledReasons: REMOTE_PRESET_DISABLED_REASONS,
+      disabledReasons: { bypass: 'This provider does not support this permission preset.' },
     }),
   )
   assert.ok(markup.includes('>YOLO<'))
   assert.equal((markup.match(/role="menuitemradio"/g) ?? []).length, 2)
   assert.equal((markup.match(/ disabled=""/g) ?? []).length, 1)
-  assert.equal((markup.match(/Not available on a remote machine/g) ?? []).length, 1)
+  assert.equal((markup.match(/does not support this permission preset/g) ?? []).length, 1)
 })
 
 test('the automation editor names the selected agent’s permission policy', () => {

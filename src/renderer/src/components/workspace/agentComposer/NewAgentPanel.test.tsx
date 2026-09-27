@@ -1646,7 +1646,7 @@ test('NewAgentPanel', async () => {
     )
 
     await check(
-      'a remote target disables the presets its gateway refuses and moves the choice with a note',
+      'a remote target offers both presets and launches on the one the launcher shows, bypass included',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1662,50 +1662,55 @@ test('NewAgentPanel', async () => {
           terminals: [],
           gaps: [],
         })
-        const view = await remoteRender({ permissionPreset: 'bypass' })
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          permissionPreset: 'bypass',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
         await settle()
         await pickMachine(view, 'Air')
-        // The narrowing is what THIS launch runs on, not a rewrite of the stored
-        // choice: every local launch of Claude Code still reads Bypass.
-        assert.ok(
-          /Switched permissions from Bypass permissions to No flag/.test(view.text()),
-          'and says so under the box',
-        )
-        // Bypass shows as the one preset the remote accepts, No flag.
-        const menu = await openPermissionsMenu(view, 'No flag')
-        assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'and nothing is written for the CLI')
-        assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
+        // Picking a machine moves nothing: the chip still reads Bypass, and no
+        // row is dimmed for the remote.
+        assert.ok(!/Switched permissions/.test(view.text()), 'no narrowing note')
+        const menu = await openPermissionsMenu(view, 'Bypass permissions')
+        assert.ok(!/Not available/.test(menu.textContent ?? ''), 'no row carries a remote refusal')
         const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-        assert.equal(rows.length, 2, 'the switcher still lists exactly the two presets')
+        assert.equal(rows.length, 2, 'the switcher lists exactly the two presets')
         assert.deepEqual(
           rows.map((row) => row.disabled),
-          [true, false],
-          'Bypass is disabled for a remote, No flag is not',
+          [false, false],
+          'both presets are open on a remote machine',
         )
-        assert.equal(
-          (menu.textContent ?? '').match(/Not available on a remote machine/g)?.length,
-          1,
-          'with the one-line reason',
-        )
-        // Roving skips the disabled row: the only enabled row keeps focus.
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
-        assert.equal(checked, rows[1], 'No flag is the checked row')
-        assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
-        assert.equal(checked.tabIndex, 0, 'which is the one tab stop')
+        assert.equal(checked, rows[0], 'Bypass is the checked row')
         await act(async () => {
-          checked.dispatchEvent(
-            new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+          dom.window.document.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
           )
         })
-        assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown never lands on the disabled Bypass')
-        view.unmount()
-
-        const local = await remoteRender({ permissionPreset: 'none' })
         await settle()
-        await pickMachine(local, 'Air')
-        assert.ok(!/Switched permissions/.test(local.text()), 'a preset the remote accepts moves nowhere')
-        await openPermissionsMenu(local, 'No flag')
-        local.unmount()
+
+        const textarea = view.container.querySelector('textarea')!
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+          setter.call(textarea, 'fix the build')
+          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          textarea.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+        assert.equal(remoteLaunches.length, 1, 'the launch travels')
+        assert.equal(
+          remoteLaunches[0]?.permissionPreset,
+          'bypass',
+          'named explicitly, so the far end runs on what this launcher showed',
+        )
+        view.unmount()
       },
     )
 

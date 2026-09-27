@@ -75,26 +75,6 @@ function PresetGlyph({ preset }: { preset: CliPermissionPreset }) {
   return <PresetDialGlyph className={className} />
 }
 
-/**
- * What a remote gateway will actually take (remote-sessions-ux /
- * new-chat-on-a-remote-machine). The gateway's `terminal.create` accepts only
- * `none` (`LAUNCH_PERMISSION_PRESETS` in automation-tools.ts): `bypass` is
- * refused with its own code, and a value the gateway would refuse must never
- * be learned about after a network round-trip. `none` travels explicitly —
- * omitted, it would become the other machine's own spawn default.
- */
-export const REMOTE_PERMISSION_PRESETS: ReadonlySet<CliPermissionPreset> = new Set(['none'])
-
-/** The row reasons a remote target disables, keyed by preset. */
-export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<CliPermissionPreset, string>> = {
-  bypass: 'Not available on a remote machine',
-}
-
-/** Where a preset lands when a remote target cannot take it: `none`, the one it can. */
-export function nearestRemotePermissionPreset(preset: CliPermissionPreset): CliPermissionPreset {
-  return REMOTE_PERMISSION_PRESETS.has(preset) ? preset : 'none'
-}
-
 const PRESET_ROW_SELECTOR = '[data-preset-option="true"]'
 
 /**

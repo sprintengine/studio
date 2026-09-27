@@ -1212,20 +1212,20 @@ test('AgentChatView', async () => {
     'the no-flag row carries a one-line summary',
   )
   assert.ok(!rowsMarkup.includes('That can mean asking'), 'the paragraph stays in the tooltip, off the row')
-  const remoteRows = renderToStaticMarkup(
+  const unsupportedRows = renderToStaticMarkup(
     createElement(PermissionPresetMenuRows, {
       value: 'none',
       onSelect: () => {},
-      disabledReasons: { bypass: 'Not available on a remote machine' },
+      disabledReasons: { bypass: 'This provider does not support this permission preset.' },
     }),
   )
   assert.equal(
-    (remoteRows.match(/ disabled=""/g) ?? []).length,
+    (unsupportedRows.match(/ disabled=""/g) ?? []).length,
     1,
-    'a remote target dims exactly the preset its gateway refuses',
+    'a provider dims exactly the preset it cannot run',
   )
   assert.equal(
-    (remoteRows.match(/Not available on a remote machine/g) ?? []).length,
+    (unsupportedRows.match(/does not support this permission preset/g) ?? []).length,
     1,
     'with its reason as the meta line',
   )

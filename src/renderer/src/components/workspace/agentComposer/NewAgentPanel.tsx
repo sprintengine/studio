@@ -66,13 +66,7 @@ import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
-import {
-  agentPermissionOptions,
-  menuRadioRowKeyDown,
-  nearestRemotePermissionPreset,
-  REMOTE_PERMISSION_PRESETS,
-  REMOTE_PRESET_DISABLED_REASONS,
-} from './agentSpawnShared'
+import { menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
 import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
@@ -581,9 +575,6 @@ export default function NewAgentPanel({
   // another machine, and a second Enter during that window must read as
   // "starting", never as a second agent.
   const [remoteLaunching, setRemoteLaunching] = React.useState(false)
-  // A note the panel writes when it moves a choice on the person's behalf —
-  // a preset the remote cannot take, say. Shown under the box, not toasted.
-  const [remoteNote, setRemoteNote] = React.useState<string | null>(null)
   const remoteCapable = Boolean(onLaunchRemote)
   // The remembered machine is applied once, when the list first arrives.
   const rememberedApplied = React.useRef(false)
@@ -761,14 +752,6 @@ export default function NewAgentPanel({
   }
   const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
   pickRemoteMachineRef.current = pickRemoteMachine
-  // A remote target takes exactly what its gateway accepts (`none`). The
-  // moment one is picked, a preset it would refuse launches as `none` and says
-  // so; the unsupported row stays listed, dimmed, with the reason.
-  const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
-  const remoteMachineName = remoteTarget?.connection.machineName ?? null
-  React.useEffect(() => {
-    if (!remoteTarget) setRemoteNote(null)
-  }, [remoteTarget])
   // The picked project's checkout facts (checkout-and-branch-on-remote-create),
   // read over `workspace.checkout` the moment a project is chosen — keyed on
   // the machine and the project, so a re-pick re-reads and a browse settling
@@ -928,25 +911,13 @@ export default function NewAgentPanel({
   // app-wide default a CLI nobody has set still resolves to. A terminal or a
   // conversation has no CLI and no permission flag, so it simply reads the
   // fallback and shows no control.
-  const storedPreset = useCliPermissionPreset(launchCli, permissionPreset)
-  // A remote machine cannot take every preset, so a remote launch runs on the
-  // nearest one it accepts. The narrowing is derived, never written back: the
-  // stored value is what every local launch of this CLI reads, and picking a
-  // remote machine must not quietly take Bypass away from all of them.
-  // Everything the surface says about permissions — the chip, the command-line
-  // preview, what the launch carries — reads THIS, never the prop.
-  const effectivePreset = remoteMachineName ? nearestRemotePermissionPreset(storedPreset) : storedPreset
-  React.useEffect(() => {
-    // Keyed on the MACHINE, not the target object: the browse resolving
-    // replaces the object, and the note must be written once per pick.
-    if (!remoteMachineName) return
-    if (REMOTE_PERMISSION_PRESETS.has(storedPreset)) return
-    const next = nearestRemotePermissionPreset(storedPreset)
-    const from =
-      agentPermissionOptions(launchCli).find((option) => option.value === storedPreset)?.label ?? storedPreset
-    const to = agentPermissionOptions(launchCli).find((option) => option.value === next)?.label ?? next
-    setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
-  }, [storedPreset, launchCli, remoteMachineName])
+  //
+  // A remote machine takes the same preset (owner ruling 2026-09-27: every
+  // surface may spawn in bypass), and it travels explicitly, so the agent over
+  // there runs on the choice this launcher shows rather than on that machine's
+  // own default. Everything the surface says about permissions — the chip, the
+  // command-line preview, what the launch carries — reads THIS, never the prop.
+  const effectivePreset = useCliPermissionPreset(launchCli, permissionPreset)
 
   // ── The skill trigger ────────────────────────────────────────────────────
   const skillIntegration = React.useMemo(() => {
@@ -1083,10 +1054,6 @@ export default function NewAgentPanel({
         })
         return
       }
-      // Never a value the gateway will refuse after a round-trip: the remote
-      // narrowing above already moved the choice, and this is the belt to its
-      // braces.
-      if (!REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
       // A worktree the gate has since closed on (a scope read that came back
       // narrower, a project that turned out not to be a repo) never travels:
       // the pick falls back to the checkout it can have.
@@ -1597,16 +1564,7 @@ export default function NewAgentPanel({
                   // is chosen where the runtime is, remembered
                   // once per CLI for all of its models, and sits on the picker's
                   // one trailing row beside the effort control.
-                  permissions={(cli) => (
-                    <SpawnPermissionFooter
-                      cli={cli}
-                      fallback={permissionPreset}
-                      {...(remotePresetReasons
-                        ? { disabledReasons: remotePresetReasons, shown: nearestRemotePermissionPreset }
-                        : {})}
-                      onSelect={() => setRemoteNote(null)}
-                    />
-                  )}
+                  permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionPreset} />}
                 />
               </Popover>
             ) : null}
@@ -1778,11 +1736,6 @@ export default function NewAgentPanel({
         {attachNote ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
             {attachNote}
-          </p>
-        ) : null}
-        {remoteNote ? (
-          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
-            {remoteNote}
           </p>
         ) : null}
 
