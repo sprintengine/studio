@@ -307,6 +307,23 @@ test('a revert marks only the turns between its checkpoint and the revert itself
   assert.deepEqual(marks(undone).slice(2, 6), ['b:reverted/20', 'reply-b:reverted/20', 'c:live', 'reply-c:live'])
 })
 
+test('a failed turn settles the tool calls it left running', () => {
+  const events = [
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, { turnId: 'a', toolUseId: 'command', name: 'Bash' }),
+    event('tool_started', 3, { turnId: 'a', toolUseId: 'read', name: 'Read' }),
+    event('tool_output', 4, { turnId: 'a', toolUseId: 'read', output: 'text', status: 'ok' }),
+    event('turn_failed', 5, { turnId: 'a', reason: 'failed', message: 'Provider exited' }),
+  ]
+  const tools = projectConversation(events).entries.filter((entry) => entry.kind === 'tool')
+  assert.deepEqual(
+    tools.map((tool) => tool.kind === 'tool' && [tool.id, tool.status, tool.outputStatus, tool.completedAt]),
+    [
+      ['command', 'done', 'stopped', 50],
+      ['read', 'done', 'ok', 40],
+    ],
+  )
+})
 
 
 

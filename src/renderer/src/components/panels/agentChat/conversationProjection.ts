@@ -630,6 +630,14 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turn.checkpointTurnSeq = readNumber(event.payload, 'checkpointTurnSeq') ?? turn.checkpointTurnSeq
           turn.checkpointAvailable = readBoolean(event.payload, 'checkpointAvailable') ?? turn.checkpointAvailable
           turn.checkpointSummary = readCheckpointSummary(event.payload) ?? turn.checkpointSummary
+          // A call the provider never closed before the turn ended is not still
+          // running; left open its row would pulse forever.
+          for (const tool of turn.tools.values()) {
+            if (tool.status !== 'running') continue
+            tool.status = 'done'
+            tool.completedAt = event.createdAt
+            tool.outputStatus ??= 'stopped'
+          }
           // A resolved turn can't keep a pending approval blocking the composer.
           for (const requestId of turn.approvals) {
             const approval = approvals.get(requestId)
