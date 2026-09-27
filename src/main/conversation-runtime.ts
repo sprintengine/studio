@@ -1112,19 +1112,13 @@ export class ConversationRuntime {
     const key = `${path}:${commandId}`
     const pending = this.pendingCommands.get(key)
     if (pending) return pending
-    if (!this.receipts.has(path)) {
-      this.receipts.set(
-        path,
-        readConversationStorage(session.workspaceRoot, path, MAX_CONVERSATION_METADATA_BYTES)
-          .then((raw) => new Map<string, ConversationSessionActionResult>(JSON.parse(raw.toString('utf8'))))
-          .catch((error) => {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Map()
-            throw error
-          }),
-      )
-    }
-    const result = (async () => {
-      const receipts = await this.receipts.get(path)!
+    const result = (async (): Promise<ConversationSessionActionResult> => {
+      let receipts: Map<string, ConversationSessionActionResult>
+      try {
+        receipts = await this.loadReceipts(session.workspaceRoot, path)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Command receipts are unavailable.' }
+      }
       const prior = receipts.get(commandId)
       if (prior) return prior
       const persist = async () => {
@@ -1143,15 +1137,76 @@ export class ConversationRuntime {
         message:
           'This command started before the connection was interrupted. Check the conversation before sending a new command.',
       })
-      await persist()
-      const receipt = JSON.parse(JSON.stringify(await action())) as ConversationSessionActionResult
+      try {
+        await persist()
+      } catch (error) {
+        // Nothing ran: a retry may execute it.
+        receipts.delete(commandId)
+        return { ok: false, message: error instanceof Error ? error.message : 'Command could not be recorded.' }
+      }
+      // A command that throws has still finished, so its failure is its result:
+      // a retry is answered with it rather than with the crash-era uncertainty.
+      let receipt: ConversationSessionActionResult
+      try {
+        receipt = JSON.parse(JSON.stringify(await action())) as ConversationSessionActionResult
+      } catch (error) {
+        receipt = { ok: false, message: error instanceof Error ? error.message : 'Conversation command failed.' }
+      }
       receipts.set(commandId, receipt)
-      await persist()
+      await persist().catch(() => undefined)
       return receipt
     })()
     this.pendingCommands.set(key, result)
     void result.finally(() => this.pendingCommands.delete(key)).catch(() => undefined)
     return result
+  }
+
+  /**
+   * The receipts for one conversation, read once per run. A failed read is not
+   * remembered, so the next command tries again instead of every command
+   * failing until restart. A receipts file that does not parse is moved aside
+   * and replaced by an empty one: losing old receipts only means a very late
+   * retry could run again, while refusing every command locks the chat.
+   */
+  private loadReceipts(root: string, path: string): Promise<Map<string, ConversationSessionActionResult>> {
+    const cached = this.receipts.get(path)
+    if (cached) return cached
+    const loading = (async () => {
+      let raw: Buffer
+      try {
+        raw = await readConversationStorage(root, path, MAX_CONVERSATION_METADATA_BYTES)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return new Map<string, ConversationSessionActionResult>()
+        throw error
+      }
+      try {
+        const entries = JSON.parse(raw.toString('utf8')) as unknown
+        if (
+          Array.isArray(entries) &&
+          entries.every(
+            (entry) =>
+              Array.isArray(entry) &&
+              entry.length === 2 &&
+              typeof entry[0] === 'string' &&
+              entry[1] &&
+              typeof entry[1] === 'object' &&
+              typeof entry[1].ok === 'boolean',
+          )
+        )
+          return new Map<string, ConversationSessionActionResult>(entries)
+      } catch {
+        // Quarantined below.
+      }
+      console.warn(`[conversation-runtime] command receipts at ${path} are corrupt; moved aside`)
+      await writeConversationStorage(root, `${path}.corrupt`, raw.toString('utf8')).catch(() => undefined)
+      return new Map<string, ConversationSessionActionResult>()
+    })()
+    this.receipts.set(path, loading)
+    loading.catch(() => {
+      if (this.receipts.get(path) === loading) this.receipts.delete(path)
+    })
+    return loading
   }
 
   // Stateful adapters surface approvals mid-stream (the provider turn blocks
@@ -1432,6 +1487,7 @@ export class ConversationRuntime {
       const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
       await this.receiptWrites.get(receiptsPath)
       await removeConversationStorage(input.workspaceRoot, receiptsPath)
+      await removeConversationStorage(input.workspaceRoot, `${receiptsPath}.corrupt`)
       this.receipts.delete(receiptsPath)
       this.transcripts.forget(path)
       this.nonDurableLogs.delete(path)

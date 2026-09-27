@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -1278,6 +1278,66 @@ test('a full final output replaces what streamed', async () => {
       'cmd.output',
     )
     await assert.rejects(stat(streamed), { code: 'ENOENT' })
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a receipts read that fails once does not fail every later command', async () => {
+  const f = await fixture()
+  try {
+    const folder = workspaceSidecarPath(f.key.workspaceRoot, 'conversations', 'workspace')
+    const receipts = join(folder, 'agent.receipts.json')
+    await mkdir(join(folder, 'elsewhere'), { recursive: true })
+    await writeFile(join(folder, 'elsewhere', 'receipts.json'), '[]')
+    await symlink(join(folder, 'elsewhere', 'receipts.json'), receipts)
+    const refused = await f.runtime.sendTurn({ sessionId: f.sessionId, commandId: 'first', message: '/tools' })
+    assert.equal(refused.ok, false)
+    await rm(receipts)
+    const accepted = await f.runtime.sendTurn({ sessionId: f.sessionId, commandId: 'second', message: '/tools' })
+    assert.equal(accepted.ok, true, accepted.ok ? '' : accepted.message)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a corrupt receipts file is moved aside instead of refusing commands', async () => {
+  const f = await fixture()
+  try {
+    const folder = workspaceSidecarPath(f.key.workspaceRoot, 'conversations', 'workspace')
+    await writeFile(join(folder, 'agent.receipts.json'), '{broken')
+    const result = await f.runtime.sendTurn({
+      sessionId: f.sessionId,
+      commandId: 'after-corruption',
+      message: '/tools',
+    })
+    assert.equal(result.ok, true)
+    assert.equal(await readFile(join(folder, 'agent.receipts.json.corrupt'), 'utf8'), '{broken')
+    const receipts = JSON.parse(await readFile(join(folder, 'agent.receipts.json'), 'utf8')) as [string, unknown][]
+    assert.deepEqual(
+      receipts.map(([id]) => id),
+      ['after-corruption'],
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a command that throws records its failure, so a retry gets that result instead of an interrupted one', async () => {
+  let calls = 0
+  const f = await fixture({
+    ...createMockConversationProvider(),
+    setPermissionPreset: async () => {
+      calls++
+      throw new Error('provider refused the change')
+    },
+  })
+  try {
+    const first = await f.runtime.setPermission({ sessionId: f.sessionId, commandId: 'perm', permissionPreset: 'auto' })
+    assert.deepEqual(first, { ok: false, message: 'provider refused the change' })
+    const retry = await f.runtime.setPermission({ sessionId: f.sessionId, commandId: 'perm', permissionPreset: 'auto' })
+    assert.deepEqual(retry, first)
+    assert.equal(calls, 1, 'the retry is answered from its receipt, not executed again')
   } finally {
     await f.cleanup()
   }

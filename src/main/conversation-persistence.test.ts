@@ -82,9 +82,9 @@ test('receipt links refuse command execution and transcript links refuse replay'
     const outside = join(f.outside, 'receipt.json')
     await writeFile(outside, '[]')
     await symlink(outside, join(folder, 'agent.receipts.json'))
-    await expect(
-      runtime.sendTurn({ sessionId: started.session.sessionId, commandId: 'linked-command', message: 'unsafe' }),
-    ).rejects.toThrow('Symbolic links')
+    expect(
+      await runtime.sendTurn({ sessionId: started.session.sessionId, commandId: 'linked-command', message: 'unsafe' }),
+    ).toMatchObject({ ok: false, message: expect.stringContaining('Symbolic links') })
     expect(await readFile(outside, 'utf8')).toBe('[]')
     await runtime.shutdown()
     await rm(join(folder, 'agent.jsonl'))
