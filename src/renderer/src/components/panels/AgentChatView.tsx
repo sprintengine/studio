@@ -666,8 +666,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       })
     },
   })
+  // End-follow is paused for the one frame a disclosure resizes its row. That
+  // pause is not the reader leaving the end, so it must not show the pill.
+  const [followPaused, setFollowPaused] = useState(false)
+  const followPausedRef = useRef(false)
   const handleLogScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (followPausedRef.current) return
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
       const element = listRef.current?.getScrollableNode()
       observeScroll(
@@ -702,19 +707,24 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       // Disable native end-follow before the disclosure changes its height.
       // Otherwise the resize can yank the control away from the pointer.
       atBottomRef.current = false
-      flushSync(() => setAtBottom(false))
+      followPausedRef.current = true
+      flushSync(() => setFollowPaused(true))
       requestAnimationFrame(() => {
-        const scroller = listRef.current?.getScrollableNode()
-        if (!row.isConnected || !scroller) return
-        const shift = row.getBoundingClientRect().top - top
-        if (Math.abs(shift) > 0.5) scroller.scrollTop += shift
         // The disclosure suspends follow for its resize frame, not forever.
         // A user already reading scrollback remains there.
-        atBottomRef.current = wasFollowing
-        setAtBottom(wasFollowing)
+        const resume = () => {
+          atBottomRef.current = wasFollowing
+          followPausedRef.current = false
+          setFollowPaused(false)
+        }
+        const scroller = listRef.current?.getScrollableNode()
+        if (!row.isConnected || !scroller) return resume()
+        const shift = row.getBoundingClientRect().top - top
+        if (Math.abs(shift) > 0.5) scroller.scrollTop += shift
+        resume()
       })
     },
-    [atBottomRef, setAtBottom],
+    [atBottomRef],
   )
   const followedInitialSnapshot = useRef(false)
   useEffect(() => {
@@ -1592,7 +1602,9 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
               initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
               maintainVisibleContentPosition={{ data: true, size: true }}
               maintainScrollAtEnd={
-                atBottom ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches } : false
+                atBottom && !followPaused
+                  ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
+                  : false
               }
               anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
             />
