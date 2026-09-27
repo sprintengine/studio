@@ -125,6 +125,7 @@ export type TailnetRemoteService = {
   /** The change feed: this machine's terminal list, or workspace list, changed. No-ops with no listener. */
   notifyTerminalsChanged(): void
   notifyWorkspacesChanged(): void
+  notifyConversationsChanged(): void
   shutdown(): Promise<void>
 }
 
@@ -788,6 +789,10 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     notifyWorkspacesChanged(): void {
       server?.notifyWorkspacesChanged()
+    },
+
+    notifyConversationsChanged(): void {
+      server?.notifyConversationsChanged()
     },
 
     async shutdown(): Promise<void> {

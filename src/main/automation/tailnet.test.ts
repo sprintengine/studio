@@ -1406,7 +1406,7 @@ test('tailnet', async () => {
       )
       const hello = await feed.nextMessage()
       assert.equal(hello.type, 'hello')
-      assert.deepEqual(hello.revisions, { terminals: 0, workspaces: 0 })
+      assert.deepEqual(hello.revisions, { terminals: 0, workspaces: 0, conversations: 0 })
       assert.equal(harness.server.eventStreamCount(), 1)
       assert.equal(harness.server.streamCount(), 0, 'a watcher is not an RPC connection')
 
@@ -1419,6 +1419,9 @@ test('tailnet', async () => {
       harness.server.notifyWorkspacesChanged()
       const pushed = [await feed.nextMessage(), await feed.nextMessage()]
       assert.deepEqual(pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(), ['terminals:3', 'workspaces:1'])
+      // A conversation starting, finishing or waiting on a person is its own kind.
+      harness.server.notifyConversationsChanged()
+      assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'conversations', revision: 1 })
 
       assert.equal(harness.devices.revokeDevice(device.deviceId), true)
       assert.equal(await feed.closed, 4401, 'a revocation closes the feed with the revoked code')

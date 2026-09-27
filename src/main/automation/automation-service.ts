@@ -287,6 +287,10 @@ export function createAutomationService(options: AutomationServiceOptions) {
     tailnet?.notifyWorkspacesChanged()
   }
 
+  function notifyConversationsChanged(): void {
+    tailnet?.notifyConversationsChanged()
+  }
+
   /**
    * Settles once the socket gateway's first start has been attempted — never
    * rejects, since a gateway that failed to start reports that in its status
@@ -306,6 +310,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     notifyToolsListChanged,
     notifyTerminalsChanged,
     notifyWorkspacesChanged,
+    notifyConversationsChanged,
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
     getTailnetLiveState: (): TailnetLiveState => tailnetService().getLiveState(),
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),

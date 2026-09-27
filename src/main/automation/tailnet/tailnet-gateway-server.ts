@@ -198,6 +198,12 @@ export type TailnetGatewayServer = {
    */
   notifyTerminalsChanged(): void
   notifyWorkspacesChanged(): void
+  /**
+   * The conversation list changed: one started, ended, or moved phase (a turn
+   * began, finished, or waits on a person). A device re-reads through the
+   * conversation socket's `list`, which its own grant governs.
+   */
+  notifyConversationsChanged(): void
   /** Live WebSocket streams, by device — diagnostics and tests. */
   streamCount(): number
   /** Live attached terminals — diagnostics and tests. */
@@ -216,7 +222,7 @@ type StreamSession = {
 
 type EventStream = { socket: Duplex; deviceId: string }
 
-type ChangeKind = 'terminals' | 'workspaces'
+type ChangeKind = 'terminals' | 'workspaces' | 'conversations'
 
 /**
  * The floor between two pushes of one kind. A session broadcast already
@@ -246,10 +252,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   // A revision per kind, so a watcher that reconnects can see it missed
   // something and re-read; a throttle per kind, so a burst is one push.
   const changePushIntervalMs = Math.max(0, options.changePushIntervalMs ?? TAILNET_CHANGE_PUSH_INTERVAL_MS)
-  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0 }
+  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0, conversations: 0 }
   const changePush: Record<ChangeKind, { lastSentAt: number; timer: ReturnType<typeof setTimeout> | null }> = {
     terminals: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
     workspaces: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
+    conversations: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
   }
 
   function notifyChanged(what: ChangeKind): void {
@@ -306,7 +313,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       encodeTextFrame(
         JSON.stringify({
           type: 'hello',
-          revisions: { terminals: changeRevisions.terminals, workspaces: changeRevisions.workspaces },
+          revisions: { ...changeRevisions },
         }),
       ),
     )
@@ -1278,6 +1285,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     },
     notifyTerminalsChanged: () => notifyChanged('terminals'),
     notifyWorkspacesChanged: () => notifyChanged('workspaces'),
+    notifyConversationsChanged: () => notifyChanged('conversations'),
     eventStreamCount: () => eventStreams.size,
     streamCount: () => streams.size,
     terminalStreamCount: () => terminalStreams.size,

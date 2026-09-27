@@ -150,6 +150,7 @@ import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
+import type { ConversationEventType } from '../shared/conversation-runtime'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
 import { getSharedCredentialStore } from './secret-store'
@@ -182,6 +183,17 @@ import type { IntegrationRemovalOptions, IntegrationRemovalReport } from '../sha
 
 // Long enough for the dialog to show the result before Studio quits to delete its data.
 const APP_DATA_QUIT_DELAY_MS = 2_500
+/** The conversation events that change what a paired device's list says: a start, an end, a phase. */
+const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
+  'session_started',
+  'session_closed',
+  'user_message',
+  'turn_started',
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'approval_resolved',
+])
 import type { ExecutionHostId } from '../shared/execution-host'
 import {
   createIntegrationLedger,
@@ -1624,6 +1636,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // adopted, so a launch-time write that did not land is not the end of it.
   terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // A conversation's row on another machine shows its phase: running, waiting
+  // on a person, done. The events that move it (never a token of a reply)
+  // become the same throttled push.
+  conversationRuntime.onEvent((event) => {
+    if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
+  })
   // The app's own plugin goes into every workspace it opens, at the two moments
   // a workspace becomes real to main: the roots the registry already holds when
   // this process starts, and every accepted registry event after that. Not at
