@@ -404,10 +404,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
     ? agent?.conversationReasoningEffort
     : undefined
-  const acceptedControlsRef = useRef<{ mode: ConversationMode; effort?: string }>({
-    mode: conversationMode,
-    effort: reasoningEffort,
-  })
   const {
     events,
     hydrated,
@@ -933,12 +929,9 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
         })
         finishDraftSend(draftSend, result.ok)
-        if (result.ok) acceptedControlsRef.current = { mode: conversationMode, effort: reasoningEffort }
+        // A failed send keeps the mode and effort the user chose. Rolling them
+        // back would quietly turn a plan-mode resend into one that can write.
         if (!result.ok) {
-          updateAgent(workspaceId, agentId, {
-            conversationMode: acceptedControlsRef.current.mode,
-            conversationReasoningEffort: acceptedControlsRef.current.effort,
-          })
           setActionError(result.message)
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
@@ -953,10 +946,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       } catch (err) {
         finishDraftSend(draftSend, false)
         setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
-        updateAgent(workspaceId, agentId, {
-          conversationMode: acceptedControlsRef.current.mode,
-          conversationReasoningEffort: acceptedControlsRef.current.effort,
-        })
         if (!fromDraft) {
           setDraft((current) => current || text)
           setDraftMetadata((current) => ({
@@ -977,8 +966,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       recordWorkspaceUserMessage,
       userTurns.length,
       workspaceId,
-      agentId,
-      updateAgent,
       conversationMode,
       reasoningEffort,
       supportsSkills,
@@ -1162,7 +1149,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             (entry) => entry.kind === 'approval' && entry.requestId === requestId && entry.requestKind === 'plan',
           )
         ) {
-          acceptedControlsRef.current.mode = 'default'
           updateAgent(workspaceId, agentId, { conversationMode: 'default' })
         }
       } catch (err) {
