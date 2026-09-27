@@ -2422,6 +2422,16 @@ test('tailnet', async () => {
         token: operator.deviceToken,
       })
       assert.equal(tooLarge.status, 413)
+      // A staging directory that could not be created is tried again on the next upload.
+      const savedTmpdir = process.env.TMPDIR
+      process.env.TMPDIR = join(projectDir, 'missing', 'tmp')
+      try {
+        const unstaged = await callRaw(harness.port, route, { ...payload, token: operator.deviceToken })
+        assert.equal(unstaged.status, 500)
+      } finally {
+        if (savedTmpdir === undefined) delete process.env.TMPDIR
+        else process.env.TMPDIR = savedTmpdir
+      }
       const uploaded = await callRaw(harness.port, route, { ...payload, token: operator.deviceToken })
       assert.equal(uploaded.status, 200)
       assert.deepEqual(uploaded.body, { uploadId: 'opaque-upload', bytes: 5 })

@@ -20,6 +20,7 @@ import {
 const UPLOAD_TTL_MS = 60 * 60_000
 const MAX_UPLOAD_REFS = 256
 const MAX_DEVICE_UPLOAD_REFS = 32
+const MAX_SPENT_UPLOAD_REFS = 256
 const wireCapabilities = (session: ConversationSessionSummary) =>
   session.capabilities
     ? {
@@ -111,6 +112,10 @@ export function createConversationGatewayHost(
     uploads.get(id)?.dispose?.()
     uploads.delete(id)
   }
+  // Images an accepted send already carried, by upload id. Their files are
+  // gone; a retry of that same command is answered from the runtime's receipt
+  // and does not need them again.
+  const spent = new Map<string, { deviceId: string; commandId: string }>()
   const starting = new Map<string, ReturnType<ConversationRuntime['startSession']>>()
   const sending = new Map<
     string,
@@ -244,6 +249,17 @@ export function createConversationGatewayHost(
               }
             const ids = command.uploadIds ?? []
             if (ids.length > MAX_ATTACHMENTS_PER_TURN) return { ok: false, message: 'Too many image attachments.' }
+            const retry =
+              ids.length > 0 &&
+              ids.every((id) => spent.get(id)?.deviceId === deviceId && spent.get(id)?.commandId === commandId)
+            if (retry)
+              return api.send({
+                sessionId: session.sessionId,
+                commandId,
+                message: command.message,
+                attachments: [],
+                requireSafePermissions: true,
+              })
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
               const upload = uploads.get(id)
@@ -271,13 +287,24 @@ export function createConversationGatewayHost(
                 byteLength: bytes.length,
               })
             }
-            return api.send({
+            const sent = await api.send({
               sessionId: session.sessionId,
               commandId,
               message: command.message,
               attachments,
               requireSafePermissions: true,
             })
+            // Accepted: the images are in the turn now, so their staged files
+            // are removed rather than left for the hour-long expiry. A refused
+            // send keeps them for a retry.
+            if (sent.ok) {
+              for (const id of ids) {
+                discardUpload(id)
+                spent.set(id, { deviceId, commandId })
+              }
+              while (spent.size > MAX_SPENT_UPLOAD_REFS) spent.delete(spent.keys().next().value!)
+            }
+            return sent
           }
           case 'interrupt':
             return api.interrupt({ sessionId: session.sessionId, commandId })

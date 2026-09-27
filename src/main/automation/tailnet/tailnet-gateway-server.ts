@@ -547,7 +547,16 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     }
     try {
       if (conversationUpload) {
-        conversationUploadDirectory ??= mkdtemp(join(tmpdir(), 'studio-conversation-images-'))
+        // Created once and shared, but a failed creation is not remembered:
+        // the next upload tries again instead of every upload failing until
+        // the app restarts.
+        if (!conversationUploadDirectory) {
+          const creating = mkdtemp(join(tmpdir(), 'studio-conversation-images-'))
+          conversationUploadDirectory = creating
+          creating.catch(() => {
+            if (conversationUploadDirectory === creating) conversationUploadDirectory = null
+          })
+        }
         const directory = await conversationUploadDirectory
         destination = { ok: true, directory, path: join(directory, randomUUID()) }
       }
@@ -591,6 +600,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         return
       }
       options.log?.(`tailnet upload failed: ${message(error)}`)
+      // A staging directory removed underneath the app (a temp cleaner) is
+      // made again on the next upload.
+      if (conversationUpload && (error as NodeJS.ErrnoException | null)?.code === 'ENOENT')
+        conversationUploadDirectory = null
       writeJson(response, 500, { error: { code: 'internal_error', message: 'The file could not be written.' } })
     }
   }

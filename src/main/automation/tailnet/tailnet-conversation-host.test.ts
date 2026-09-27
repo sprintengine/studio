@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -123,6 +124,41 @@ test('upload references are device/session bound, bounded and invalidated by siz
       false,
     )
     assert.equal(send.mock.calls.length, 1)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('an accepted send removes its staged images, and a retry of that send does not need them', async () => {
+  const f = await fixture()
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const path = join(f.key.workspaceRoot, 'staged.png')
+    await writeFile(path, 'image')
+    const id = f.host.registerUpload!({
+      deviceId: 'phone',
+      sessionId: started.session.sessionId,
+      path,
+      name: 'staged.png',
+      mediaType: 'image/png',
+      bytes: 5,
+      dispose: () => void rm(path, { force: true }),
+    })
+    const send = vi
+      .spyOn(f.runtime, 'sendTurn')
+      .mockResolvedValueOnce({ ok: false, message: 'Busy.' })
+      .mockResolvedValue({ ok: true, session: started.session })
+    const command = { kind: 'send' as const, message: 'look', uploadIds: [id] }
+    assert.equal((await f.host.command(f.key, 'phone', 'refused', command)).ok, false)
+    assert.equal(existsSync(path), true, 'a refused send keeps its images for a retry')
+    assert.equal((await f.host.command(f.key, 'phone', 'accepted', command)).ok, true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(existsSync(path), false, 'an accepted send leaves no staged image behind')
+    // The acknowledgement was lost: the same command again is answered, not refused for a missing image.
+    assert.equal((await f.host.command(f.key, 'phone', 'accepted', command)).ok, true)
+    assert.equal(send.mock.calls.at(-1)![0].commandId, 'accepted')
+    assert.equal((await f.host.command(f.key, 'phone', 'another', command)).ok, false, 'a spent image is not reusable')
   } finally {
     await f.cleanup()
   }
