@@ -6,7 +6,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { hashSecret } from '../mobile/bridge/crypto'
+import { hashSecret } from './tailnet/secret-hash'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { TAILNET_PAIR_REQUEST_PATH } from './tailnet/tailnet-routes'

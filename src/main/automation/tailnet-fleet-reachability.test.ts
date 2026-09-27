@@ -474,7 +474,7 @@ test('tailnet-fleet-reachability', async () => {
 
         // A forged grant pointing somewhere else: the approval completes, the
         // grant does not land.
-        const { hashSecret } = await import('../mobile/bridge/crypto')
+        const { hashSecret } = await import('./tailnet/secret-hash')
         const { requestTailnetJson } = await import('./tailnet/tailnet-remote-client')
         const { TAILNET_PAIR_COLLECT_PATH, TAILNET_PAIR_REQUEST_PATH } = await import('./tailnet/tailnet-routes')
         const secret = 'forged-collect-secret'
