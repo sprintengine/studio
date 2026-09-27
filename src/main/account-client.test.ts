@@ -2,7 +2,7 @@
  * The account client's session lifecycle, with the account service
  * and Clerk played by an in-process fetch and the safeStorage files by maps.
  * These are the paths the desktop review said were untested: an offline
- * launch that later needs a relay token, the pinned-provider rollback, a
+ * launch that later needs an access token, the pinned-provider rollback, a
  * Clerk failure falling through to the retained Multiauth token, sign-out
  * with the server unreachable, and overlapping refreshes.
  */
@@ -243,7 +243,7 @@ test('account-client', async () => {
     assert.equal(events.find((entry) => entry.event === 'identity-resumed')?.data?.provider, 'multiauth')
   }
 
-  async function offlineLaunchThenRelayTokenOnceOnline(): Promise<void> {
+  async function offlineLaunchThenAccessTokenOnceOnline(): Promise<void> {
     const backend = new Backend()
     backend.offline.add(BASE_URL).add(CLERK.issuer)
     const { account } = client(backend, { multiauth: 'ma_rt_1', marker: { provider: 'multiauth' } })
@@ -252,7 +252,7 @@ test('account-client', async () => {
     assert.equal(account.currentIdentity(), null)
 
     backend.offline.clear()
-    // The relay module asks for a token later; the session must come back from disk.
+    // A caller asks for a token later; the session must come back from disk.
     const token = await account.getAccessToken()
     assert.match(token, /^ma_at_/u)
     assert.equal(account.currentIdentity()?.provider, 'multiauth')
@@ -467,7 +467,7 @@ test('account-client', async () => {
       pinnedProviderRollsBackToTheRetainedToken,
     ],
     ['a Clerk refresh failure falls through to the retained Multiauth token', clerkFailureFallsThroughToMultiauth],
-    ['an offline launch still yields a relay token once the network is back', offlineLaunchThenRelayTokenOnceOnline],
+    ['an offline launch still yields an access token once the network is back', offlineLaunchThenAccessTokenOnceOnline],
     ['overlapping refreshes share one round trip', overlappingRefreshesShareOneRoundTrip],
     [
       'logout clears both stores and the marker even when the server is gone',

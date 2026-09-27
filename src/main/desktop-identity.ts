@@ -3,8 +3,7 @@
 // `desktop-identity.test.ts` pins the contracts here without either.
 //
 // The account service (`MULTIAUTH_BASE_URL`) is no longer the identity
-// provider by definition. It is where entitlements and the relay
-// live, and it PUBLISHES which issuer a client should sign in against at
+// provider by definition. It is where entitlements live, and it PUBLISHES which issuer a client should sign in against at
 // `GET /api/auth/identity`: itself on a self-hosted deployment, Clerk on the hosted one. The desktop reads that document at
 // sign-in and keeps a refresh token per provider so that flipping the issuer
 // back — on the server or with `SPRINTENGINE_IDENTITY_PROVIDER` — signs in
