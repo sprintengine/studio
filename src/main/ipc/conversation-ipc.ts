@@ -63,6 +63,7 @@ import { getConversationProviderById, listConversationProviderRegistryEntries } 
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
 import { isRecord } from '../../shared/records'
+import { cliForConversationProvider } from '../../shared/conversation-harness'
 import { parseConversationMentions } from '../../shared/conversation/mentions'
 
 export type ConversationIpcHandlers = {
@@ -99,16 +100,9 @@ export type ConversationIpcHandlers = {
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
-// Agent-harness conversation providers ride a local CLI; when that CLI is not
-// installed the provider is hidden from the picker instead of failing at
-// session start.
-const AGENT_HARNESS_CLI_BY_PROVIDER: Record<string, string> = {
-  'claude-agent': 'claude-code',
-  'codex-agent': 'codex',
-  'cursor-agent': 'cursor',
-  'opencode-agent': 'opencode',
-  'grok-agent': 'grok',
-}
+// Agent-harness conversation providers ride a local CLI (the shared table in
+// conversation-harness); when that CLI is not installed the provider is hidden
+// from the picker instead of failing at session start.
 
 const CLI_AVAILABLE_TTL_MS = 60_000
 // Negatives expire faster than positives so a just-installed CLI shows up
@@ -159,7 +153,7 @@ export function createConversationIpcHandlers(
         }))
         const listed: typeof providers = []
         for (const provider of providers) {
-          const harnessCli = AGENT_HARNESS_CLI_BY_PROVIDER[provider.id]
+          const harnessCli = cliForConversationProvider(provider.id)
           if (harnessCli && !(await isHarnessCliInstalled(harnessCli, input?.cliRuntimes))) {
             // Never hide the provider: an undetectable CLI is annotated so the
             // picker can say WHY it is unavailable (spawn defaults skip it).

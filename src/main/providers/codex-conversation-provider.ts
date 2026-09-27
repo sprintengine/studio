@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import type {
   ConversationEvent,
   ConversationPermissionPreset,
@@ -365,7 +366,7 @@ export function createCodexConversationProvider(
         const policy = codexPermissionPolicy(state.input.permissionPreset)
         const threadParams = {
           cwd: state.input.workspaceRoot,
-          model: state.input.modelId,
+          ...(state.input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.input.modelId } : {}),
           ...(policy.approvalPolicy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
         }
         let resumeLost = false
@@ -488,7 +489,7 @@ export function createCodexConversationProvider(
           const result = record(
             await state.transport!.request('turn/start', {
               threadId: state.threadId,
-              model: input.modelId,
+              ...(input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: input.modelId } : {}),
               ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
               input: [
                 { type: 'text', text: withReplayedHistory(state, input.message), text_elements: [] },

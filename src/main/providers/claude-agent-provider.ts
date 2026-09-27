@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import { asRecord } from '../../shared/records'
+import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
@@ -407,7 +408,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     const queryOptions: Options = {
       cwd: state.workspaceRoot,
       pathToClaudeCodeExecutable: executablePath,
-      model: state.modelId,
+      // The CLI's own default row passes no model, as a terminal launch without
+      // `--model` does.
+      ...(state.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.modelId } : {}),
       ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
       permissionMode,

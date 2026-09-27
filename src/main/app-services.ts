@@ -1341,6 +1341,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           parseCliPermissionPreset(
             workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
           ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+        // The agent record's name — the same record, and the same field, this
+        // desktop's tab and sidebar read — so a remote lists the chat by the
+        // name it has here rather than by its first message.
+        (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
       ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
