@@ -101,12 +101,18 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
         ? { afterSeq: session.cursor.seq, generation: session.cursor.generation }
         : {}
       let current = true
+      // A snapshot replaces the transcript, so what it holds is replayed history
+      // however many joins came before: the fence of this join becomes the
+      // replay boundary, not the one from the first join (which may even be from
+      // another log generation).
+      let replaced = false
       const unsubscribe = window.api.onConversationSession(
         { key: session.key, turnLimit: TURN_LIMIT, ...cursor },
         (frame) => {
           if (session.disposed || !current) return
           switch (frame.type) {
             case 'snapshot':
+              replaced = true
               session.seenSeq.clear()
               session.state = {
                 ...session.state,
@@ -130,7 +136,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
               }
               break
             case 'synchronized':
-              if (!session.state.hydrated) session.state.replayThroughSeq = frame.seq
+              if (!session.state.hydrated || replaced) session.state.replayThroughSeq = frame.seq
               session.state.hydrated = true
               session.state.error = null
               session.cursor = { seq: frame.seq, generation: frame.generation }

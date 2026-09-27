@@ -248,6 +248,8 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
     })
     expect(hook.error).toBeNull()
     expect(hook.events.map((entry) => entry.seq)).toEqual([3, 5, 6, 9])
+    // Events caught up incrementally were live to this panel's user; only the first join was replay.
+    expect(hook.replayThroughSeq).toBe(5)
     expect(hook.events[2]).toBe(held[2])
     // A successful join resets the backoff.
     await act(async () => subscriptions[2].receive({ type: 'error', message: 'Transcript is busy' }))
@@ -265,6 +267,8 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
       subscriptions[3].receive({ type: 'synchronized', seq: 1, generation: 'log-2' })
     })
     expect(hook.events.map((entry) => entry.seq)).toEqual([1])
+    // The reset's own history is replay, even though it is numbered below the old boundary.
+    expect(hook.replayThroughSeq).toBe(1)
     await act(async () => root.unmount())
     await act(async () => vi.advanceTimersByTime(60_000))
     expect(subscriptions).toHaveLength(4)
