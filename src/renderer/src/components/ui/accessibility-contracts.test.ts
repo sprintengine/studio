@@ -202,11 +202,10 @@ test('accessibility-contracts', async () => {
     false,
     'the launch panel opens the preset rows through that dropdown, never its own copy',
   )
-  expectIncludes(
-    chatView,
-    'onOpenAutoFocus={focusActivePresetRow}',
-    'the chat pill lands focus on the checked preset on open',
-  )
+  // A chat agent's preset lives on the same picker dropdown, so it inherits
+  // that open-focus contract instead of restating it.
+  expectIncludes(chatView, '<PermissionFooter', 'the chat opens the preset rows through the picker’s own dropdown')
+  assert.equal(chatView.includes('<PermissionPresetMenuRows'), false, 'and never renders a second copy of the rows')
   assert.equal(
     (launchPanel.match(/ role="menu"/g) ?? []).length,
     0,

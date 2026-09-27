@@ -289,7 +289,7 @@ function SkillContextChip({
             onMouseEnter={() => setOpen(true)}
             onClick={togglePopover}
           >
-            <StarGlyph filled={false} className="icon-xs" />
+            <StarGlyph filled={false} stroked className="icon-xs" />
             {skill.name}
           </ChipButton>
         )}

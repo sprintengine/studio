@@ -81,3 +81,20 @@ test('a link whose label is inline code or a path is one control, not a chip ins
   expect(html).toContain('aria-label="Open src/app.ts:4"')
   expect(html).toMatch(/<code[^>]*>src\/app\.ts<\/code>/)
 })
+
+test('a folder path in inline code is the code itself: no chip, no file glyph, not shortened', () => {
+  const html = render('Working in `/Users/dev/project` on `main`.')
+  expect(html).not.toContain('aria-label="Open ')
+  expect(html).not.toContain('<svg')
+  expect(html).toMatch(/<code[^>]*>\/Users\/dev\/project<\/code>/)
+  // One inline-code treatment for a path and a branch name alike.
+  const codeClass = (value: string) => new RegExp(`<code class="([^"]*)">${value}</code>`).exec(html)?.[1]
+  expect(codeClass('\\/Users\\/dev\\/project')).toBe(codeClass('main'))
+})
+
+test('a file path is an inline link at the text’s own size, showing the whole path', () => {
+  const html = render('Edit `src/renderer/src/app/main.ts:12` next.')
+  expect(html).toContain('aria-label="Open src/renderer/src/app/main.ts:12"')
+  expect(html).toContain('>src/renderer/src/app/main.ts:12</button>')
+  expect(html).not.toContain('<svg')
+})

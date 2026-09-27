@@ -184,9 +184,10 @@ export type AgentState = {
   // successful launch — the skill invocation sits at the prompt with the caret
   // ready for arguments. Cleared by TerminalView once pasted; never auto-sent.
   cliPendingInput?: string
-  // Conversation-transport counterpart: seeds AgentChatView's draft on first
-  // mount (transcript empty). Prefill only — the user always submits.
-  chatComposerPrefill?: string
+  // Conversation-transport counterpart of `cliStartupPrompt`: what the launch
+  // surface typed, sent as the chat's first message once its provider is ready.
+  // One-shot — the chat clears it before sending, so a remount never resends.
+  chatStartupPrompt?: string
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

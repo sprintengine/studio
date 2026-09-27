@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ConversationThread, ConversationWorkspaceKey } from '../../../../shared/conversation-index'
+import type { ConversationThread } from '../../../../shared/conversation-index'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { Workspace } from '../../types/workspace'
-import { useWorkspaceStore } from '../../store/workspaceStore'
 import { composerDraftStore } from '../panels/agentChat/draftStore'
 import { layoutHasConversation, openConversationHistory } from '../../utils/conversationHistoryNavigation'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
@@ -244,110 +243,6 @@ function HistoryRowView({
               }}
             >
               Refresh
-            </GhostButton>
-          }
-        />
-      ) : null}
-    </div>
-  )
-}
-
-export function ConversationHistoryTitle({
-  workspaceRoot,
-  workspaceId,
-  agentId,
-  fallback,
-}: ConversationWorkspaceKey & { agentId: string; fallback: string }) {
-  const [title, setTitle] = useState(fallback),
-    [saved, setSaved] = useState(fallback),
-    [error, setError] = useState<string | null>(null)
-  const cancel = useRef(false)
-  const generation = useRef(0)
-  const editing = useRef(false)
-  const load = useCallback(async () => {
-    if (typeof window.api.conversationThreads !== 'function') return
-    const epoch = ++generation.current
-    const result = await window.api.conversationThreads({ workspaceRoot, workspaceId })
-    if (epoch === generation.current && !editing.current && result.ok) {
-      const value = result.threads.find((thread) => thread.agentId === agentId)?.title ?? fallback
-      setTitle(value)
-      setSaved(value)
-    }
-  }, [workspaceRoot, workspaceId, agentId, fallback])
-  useEffect(() => {
-    const update = () => {
-      void load().catch(() => undefined)
-    }
-    update()
-    window.addEventListener(HISTORY_CHANGED, update)
-    const dispose = window.api.onConversationEvent?.((event) => {
-      if (
-        event.workspaceId === workspaceId &&
-        event.agentId === agentId &&
-        ['user_message', 'turn_completed', 'session_updated'].includes(event.type)
-      )
-        update()
-    })
-    return () => {
-      generation.current++
-      dispose?.()
-      window.removeEventListener(HISTORY_CHANGED, update)
-    }
-  }, [load, workspaceId, agentId])
-  const save = async () => {
-    if (cancel.current) {
-      cancel.current = false
-      return
-    }
-    const value = title.trim()
-    if (!value || value === saved) {
-      setTitle(saved)
-      return
-    }
-    try {
-      const result = await window.api.conversationRename({ workspaceRoot, workspaceId, agentId, title: value })
-      if (!result.ok) throw new Error(result.message)
-      setSaved(value)
-      setError(null)
-      useWorkspaceStore.getState().updateAgent(workspaceId, agentId, { name: value })
-      notifyConversationHistoryChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Rename failed.')
-    }
-  }
-  return (
-    <div className="min-w-0">
-      <Input
-        variant="inline"
-        aria-label="Conversation title"
-        className="text-body font-medium"
-        value={title}
-        maxLength={200}
-        onFocus={() => {
-          editing.current = true
-        }}
-        onChange={(event) => setTitle(event.target.value)}
-        onBlur={() => {
-          editing.current = false
-          void save()
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur()
-          if (event.key === 'Escape') {
-            cancel.current = true
-            setTitle(saved)
-            event.currentTarget.blur()
-          }
-        }}
-      />
-      {error ? (
-        <InlineNotice
-          tone="error"
-          title="Conversation title could not be saved"
-          detail={error}
-          action={
-            <GhostButton size="inline" onClick={() => void save()}>
-              Retry
             </GhostButton>
           }
         />

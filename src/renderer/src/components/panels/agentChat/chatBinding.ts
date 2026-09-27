@@ -8,7 +8,7 @@ import type { Workspace } from '../../../types/workspace'
 import type { ChatReadiness } from './chatStates'
 
 // What a chat view is bound to besides its transport: the agent fields it reads
-// (name, model, preset, mode, skills, the one-shot prefill) and where it writes
+// (name, model, preset, mode, skills, the one-shot startup prompt) and where it writes
 // them back. A local chat is an agent record in the workspace store; a chat on
 // a paired machine has no record here, and keeps the same fields in the pane.
 
@@ -19,7 +19,7 @@ export type ChatAgentFields = Pick<
   | 'conversationMode'
   | 'conversationReasoningEffort'
   | 'conversationSkills'
-  | 'chatComposerPrefill'
+  | 'chatStartupPrompt'
 > & { conversation: NonNullable<AgentState['conversation']> }
 
 export type ChatBinding = {

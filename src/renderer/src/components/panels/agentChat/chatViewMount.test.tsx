@@ -46,7 +46,11 @@ vi.mock('@legendapp/list/react', () => ({
   }),
 }))
 
-type SendTurn = (input: { mode?: string; message?: string }) => Promise<{ ok: false; message: string }>
+type SendTurn = (input: {
+  mode?: string
+  message?: string
+  sessionId?: string
+}) => Promise<{ ok: boolean; message?: string }>
 
 // Mounts the whole chat view against a scripted conversation API, the way a
 // person meets it: a transcript arrives over the session subscription and the
@@ -54,12 +58,18 @@ type SendTurn = (input: { mode?: string; message?: string }) => Promise<{ ok: fa
 async function mountChat({
   events = [],
   capabilities = {},
-  conversationMode,
+  providerId = 'mock',
+  modelId = 'mock-model',
+  providerModels = [{ id: modelId }],
+  agent: agentPatch = {},
   sendTurn = async () => ({ ok: false, message: 'Not scripted.' }),
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
-  conversationMode?: 'plan'
+  providerId?: string
+  modelId?: string
+  providerModels?: { id: string; displayName?: string }[]
+  agent?: Record<string, unknown>
   sendTurn?: SendTurn
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -91,7 +101,15 @@ async function mountChat({
       },
       conversationProvidersList: async () => ({
         ok: true,
-        providers: [{ id: 'mock', displayName: 'Mock', models: [{ id: 'mock-model' }], capabilities }],
+        providers: [
+          {
+            id: providerId,
+            displayName: providerId === 'mock' ? 'Mock' : 'Claude Code',
+            providerType: providerId === 'mock' ? 'model-provider' : 'agent-harness',
+            models: providerModels,
+            capabilities,
+          },
+        ],
       }),
       conversationSecretStatus: async () => ({ ok: false, message: 'No secret' }),
       conversationSessionStart: async () => ({
@@ -100,8 +118,8 @@ async function mountChat({
           sessionId: 'session',
           workspaceId: 'workspace',
           agentId: 'agent',
-          providerId: 'mock',
-          modelId: 'mock-model',
+          providerId,
+          modelId,
           status: 'ready',
           createdAt: 1,
           updatedAt: 1,
@@ -129,8 +147,8 @@ async function mountChat({
             id: 'agent',
             name: 'Chat',
             runtimeKind: 'conversation',
-            conversation: { providerId: 'mock', modelId: 'mock-model' },
-            ...(conversationMode ? { conversationMode } : {}),
+            conversation: { providerId, modelId },
+            ...agentPatch,
           },
         },
       },
@@ -188,20 +206,118 @@ function event(type: ConversationEventType, payload: Record<string, unknown>): C
   }
 }
 
-test('a failed send keeps the plan mode the user chose', async () => {
+test('a turn goes out in the default mode: the chat has no plan toggle', async () => {
   const sendTurn = vi.fn<SendTurn>(async () => ({ ok: false, message: 'The provider is restarting.' }))
-  const chat = await mountChat({ capabilities: { planMode: true }, conversationMode: 'plan', sendTurn })
+  // Even an agent record left on plan mode by an older build sends a default
+  // turn: plan mode has no control here any more, so it cannot be a state.
+  const chat = await mountChat({ capabilities: { planMode: true }, agent: { conversationMode: 'plan' }, sendTurn })
   try {
+    expect(chat.button('Plan')).toBeUndefined()
     await chat.act(async () => chat.type('Plan the migration'))
     await chat.act(async () => chat.enter())
     expect(sendTurn).toHaveBeenCalledOnce()
-    expect(sendTurn.mock.calls[0][0]).toMatchObject({ mode: 'plan' })
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ mode: 'default', message: 'Plan the migration' })
     expect(chat.host.textContent).toContain('The provider is restarting.')
-    // The retry must still be a plan-mode turn, not one with write access.
-    expect(chat.agent().conversationMode).toBe('plan')
-    await chat.act(async () => chat.enter())
-    expect(sendTurn).toHaveBeenCalledTimes(2)
-    expect(sendTurn.mock.calls[1][0]).toMatchObject({ mode: 'plan', message: 'Plan the migration' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the launcher’s prompt is sent as the first message the moment the chat is ready', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ agent: { chatStartupPrompt: 'hi' }, sendTurn })
+  try {
+    await chat.act(async () => undefined)
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: 'hi' })
+    expect(chat.agent().chatStartupPrompt, 'one-shot: a remount never sends it twice').toBeUndefined()
+    expect(chat.host.querySelector('textarea')!.value, 'nothing is left in the composer for a second Enter').toBe('')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the composer offers one engine chip — no plan toggle, no separate permission or effort pill, no dollars', async () => {
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    capabilities: { approvals: true, permissionPresets: ['bypass', 'none'], reasoningEfforts: ['low', 'high'] },
+  })
+  try {
+    const buttons = () => Array.from(chat.dom.window.document.querySelectorAll('button'))
+    const chips = buttons().filter((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))
+    expect(chips).toHaveLength(1)
+    for (const retired of ['Plan', 'Bypass permissions', 'CLI default', 'Auto']) {
+      expect(
+        buttons().some((item) => item.textContent?.trim() === retired),
+        `no standalone “${retired}” control`,
+      ).toBe(false)
+    }
+    expect(chat.host.textContent).not.toMatch(/\$\d/)
+    // The chip opens the terminal agent's picker, locked to this chat's CLI.
+    await chat.act(async () => chips[0].click())
+    const rail = chat.dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
+    expect(rail?.querySelectorAll('[role="radio"]')).toHaveLength(1)
+    expect(chat.dom.window.document.querySelector('[role="listbox"][aria-label="Agent runtime"]')).not.toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat named after its model is renamed from the agent-name pool', async () => {
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+    providerModels: [{ id: 'claude-opus-5-5', displayName: 'Opus 5.5' }],
+    agent: { name: 'Opus 5.5 2' },
+  })
+  try {
+    await chat.act(async () => undefined)
+    const name = chat.agent().name
+    expect(name).not.toMatch(/Opus/)
+    expect(name?.trim()).toBeTruthy()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat the person named keeps its name', async () => {
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+    providerModels: [{ id: 'claude-opus-5-5', displayName: 'Opus 5.5' }],
+    agent: { name: 'Release checklist' },
+  })
+  try {
+    await chat.act(async () => undefined)
+    expect(chat.agent().name).toBe('Release checklist')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the first message renders once, as its bubble, with no title row repeating it', async () => {
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 'hello', text: 'Check the build' }),
+      event('turn_started', { turnId: 'hello' }),
+      event('content_delta', { turnId: 'hello', text: 'It builds.' }),
+      event('turn_completed', { turnId: 'hello' }),
+    ],
+  })
+  try {
+    expect(chat.host.textContent?.split('Check the build').length).toBe(2)
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('the transcript takes the kit’s focus ring on keyboard focus only', async () => {
+  const chat = await mountChat({ events: [event('user_message', { turnId: 'a', text: 'hello' })] })
+  try {
+    const scroller = chat.host.querySelector('[role="log"] > div')!
+    expect(scroller.className).toContain('focus-visible:focus-ring-inset')
+    expect(scroller.className).toContain('focus:outline-none')
   } finally {
     await chat.unmount()
   }
@@ -231,19 +347,19 @@ test('opening a folded turn does not flash the jump-to-latest pill', async () =>
   }
 })
 
-test('a turn shows its cost only when the provider reports cost', async () => {
+test('a turn never shows a dollar figure, even when the provider reports one', async () => {
   const events = [
     event('user_message', { turnId: 'priced', text: 'Summarize' }),
     event('turn_started', { turnId: 'priced' }),
     event('content_delta', { turnId: 'priced', text: 'Done.' }),
-    event('turn_completed', { turnId: 'priced', costUsd: 0.0123 }),
+    event('turn_completed', { turnId: 'priced', costUsd: 0.0123, durationMs: 1200 }),
   ]
-  for (const cost of [false, true]) {
-    const chat = await mountChat({ events, capabilities: { cost } })
-    try {
-      expect(chat.host.textContent?.includes('$0.0123')).toBe(cost)
-    } finally {
-      await chat.unmount()
-    }
+  const chat = await mountChat({ events, capabilities: { cost: true } })
+  try {
+    expect(chat.host.textContent).not.toContain('$')
+    // The elapsed time and Copy stay under the reply.
+    expect(chat.button('Copy')).toBeDefined()
+  } finally {
+    await chat.unmount()
   }
 })

@@ -2,24 +2,31 @@
 
 Per-theme editorial backplates for the app's _creation / empty / first-run_
 moments only — never behind live operational chrome (a backdrop behind working
-chrome reads as clutter; the chat plate fades out the moment the first message
-arrives). Each image is a framing composition with a deliberately quiet center,
+chrome reads as clutter). Each image is a framing composition with a deliberately quiet center,
 so a card or composer sits in the calm middle while the art lives at the edges.
 Pair with a soft center scrim so the foreground keeps WCAG AA contrast and
 remains the clear visual priority.
 
+**The chat plates are gone (owner ruling 2026-09-27).** A chat agent is the
+terminal agent's CLI driven as a chat, and its empty state now sits on the
+same plain ground a terminal does. The botanical chat plates, the
+`CreationBackdrop` component and its registry were removed with it. Only
+`backdrop-herbarium-dark-chat.jpg` stays, because the nightly splash
+(`src/renderer/splash.html`) paints it directly. The workspace plates have had
+no host since the New workspace hub was retired; they are kept for the next
+one, which brings its own loader.
+
 ## File convention
 
-Two plates per theme, keyed off the active `data-theme` on `<html>`:
+One plate per theme, keyed off the active `data-theme` on `<html>`:
 
     backdrop-<theme-id>-workspace.jpg   structured / paper-craft — behind NewWorkspacePanel
-    backdrop-<theme-id>-chat.jpg        organic / botanical      — behind AgentChatView empty state
     4k/backdrop-<theme-id>-*.jpg        matching 3840 × 2160 derivatives
 
 Theme ids come from `src/renderer/src/types/appTheme.ts`. Standard images are
 16:9 at 1600 × 900. The `4k/` set is 3840 × 2160, produced with Lanczos scaling,
-light luma sharpening, and JPEG q3. `CreationBackdrop` exposes both through
-`srcset`, allowing Chromium to choose a display-appropriate asset. The art's
+light luma sharpening, and JPEG q3; a host exposes both through `srcset`, so
+Chromium chooses a display-appropriate asset. The art's
 palette agrees with the theme's `--accent-primary` and surface ramp.
 
 ## Generation spec
@@ -51,12 +58,9 @@ point.
 
 ## Status
 
-Complete: all 19 concrete themes have both plates at standard and 4K resolution
-(76 JPEGs total). `system` does not have separate files because it resolves to
-the active light or dark theme before a backdrop is selected.
-
-The full set is mirrored for visual review in
-`sprintengine-website/public/art/sprintengine-theme-backdrops-2026-06/`.
+The workspace plates are on disk at standard and 4K resolution. The chat plates
+were removed on 2026-09-27 (see above); the table keeps their column so one can
+be regenerated to the same palette if it is ever wanted again.
 
 ## The nightly splash plate
 

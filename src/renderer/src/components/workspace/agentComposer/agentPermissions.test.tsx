@@ -3,7 +3,6 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'vitest'
 import { agentPermissionChipLabel, agentPermissionOptions, PermissionPresetMenuRows } from './agentSpawnShared'
-import { permissionPresetLabel } from '../../panels/agentChat/modelPicker'
 import { PermissionField } from '../../panels/AutomationsPanel/AgentFields'
 
 test('Codex and Claude use their own permission vocabulary without changing stored ids', () => {
@@ -16,7 +15,6 @@ test('Codex and Claude use their own permission vocabulary without changing stor
     )
     const label = cli === 'codex' ? 'YOLO' : 'Bypass permissions'
     assert.equal(options.find((option) => option.value === 'bypass')?.label, label)
-    assert.equal(permissionPresetLabel('bypass', cli), label)
     assert.equal(agentPermissionChipLabel('bypass', cli), cli === 'codex' ? 'YOLO' : 'Bypass')
     const markup = renderToStaticMarkup(
       createElement(PermissionPresetMenuRows, { cli, value: 'bypass', onSelect: () => {} }),

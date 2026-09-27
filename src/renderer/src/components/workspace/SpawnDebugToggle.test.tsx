@@ -172,13 +172,23 @@ test('SpawnDebugToggle', async () => {
       /cliPermissionPreset: resolveCliPermissionPreset\(templateAgentCli, agentSpawnPermissionPreset\)/,
       'including the new-chat seed, on the CLI that chat launches with',
     )
-    // A conversation is a provider/model pair, not a picker row: it has no stored
-    // preset and keeps the app-wide default, on the in-workspace spawn and on
-    // the New chat seed (built by conversationNewChatSeed).
-    assert.ok(
-      (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length === 1 &&
-        /conversationNewChatSeed\([^)]*permissionPreset: agentSpawnPermissionPreset/su.test(managerSource),
-      'only the two conversation spawns fall back to the app-wide preset',
+    // A chat agent is the same CLI driven as a chat, launched from the same
+    // picker, so it takes the preset stored for that CLI too — on the
+    // in-workspace spawn and on the New chat seed alike. No spawn path falls
+    // back to the app-wide value on its own.
+    assert.equal(
+      (
+        managerSource.match(
+          /permissionPreset: resolveCliPermissionPreset\(confirm\.cli, agentSpawnPermissionPreset\)/g,
+        ) ?? []
+      ).length,
+      2,
+      'both chat-agent spawns resolve the preset of the CLI the chat runs',
+    )
+    assert.equal(
+      (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset\b/g) ?? []).length,
+      0,
+      'no spawn path seeds the app-wide preset directly',
     )
   })
 
