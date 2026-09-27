@@ -207,7 +207,17 @@ test('redirections, runner options and package manager subcommands are not argum
     ['npm install -D vitest', 'Installed vitest'],
     ['pnpm add react react-dom', 'Installed 2 packages'],
     ['yarn remove lodash', 'Removed lodash'],
-    ['npm exec tsc', 'Ran npm'],
+    ['npm exec tsc', 'Ran tsc'],
+    ['npm exec vitest', 'Ran vitest'],
+    ['npm exec -- vitest run', 'Ran vitest'],
+    ['npm x --package=typescript tsc', 'Ran tsc'],
+    ['npm exec -p typescript tsc', 'Ran tsc'],
+    ['pnpm exec prettier --check .', 'Ran prettier'],
+    ['yarn exec eslint .', 'Ran eslint'],
+    ['bun x vitest', 'Ran vitest'],
+    ['yarn', 'Installed dependencies'],
+    ['yarn --frozen-lockfile', 'Installed dependencies'],
+    ['cd app && yarn', 'Installed dependencies'],
     ['npm run-script build', 'Ran npm script build'],
     ["rg $'foo' src", 'Searched for "foo"'],
     ["rg $'a\\tb' src", 'Searched for "a\tb"'],
@@ -216,4 +226,6 @@ test('redirections, runner options and package manager subcommands are not argum
     assert.equal(labelCommand(command).label, expected, command)
   assert.equal(labelCommand('cat a > b').kind, 'write')
   assert.equal(labelCommand('npm ci').kind, 'install')
+  assert.equal(labelCommand('yarn').kind, 'install')
+  assert.equal(labelCommand('npm exec vitest').kind, 'test')
 })

@@ -286,6 +286,13 @@ function classify(
   else if (lower === 'pipx' && args[1] === 'run') runnerArgs = afterLeadingOptions(args.slice(2), ['--spec'])
   else if (['pnpm', 'yarn'].includes(lower) && args[1] === 'dlx')
     runnerArgs = afterLeadingOptions(args.slice(2), ['-p', '--package'])
+  // A package manager's `exec` runs a tool the same way; the tool is what ran.
+  else if (
+    (lower === 'npm' && (args[1] === 'exec' || args[1] === 'x')) ||
+    (['pnpm', 'yarn'].includes(lower) && args[1] === 'exec') ||
+    (lower === 'bun' && args[1] === 'x')
+  )
+    runnerArgs = afterLeadingOptions(args.slice(2), ['-p', '--package', '-c', '--call', '-w', '--workspace'])
   if (runnerArgs?.length) {
     const tool = runnerArgs[0].replace(/@[^@/]+$/u, '')
     return classify([tool, ...runnerArgs.slice(1)], operators, depth + 1, shell)
@@ -297,7 +304,9 @@ function classify(
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(lower)) {
     const subcommand = args[1]
     const script = subcommand === 'run' || subcommand === 'run-script' ? args[2] : subcommand
-    if (subcommand && INSTALLS.has(subcommand)) {
+    // Bare `yarn`, options and all, is yarn's install.
+    const bareYarn = lower === 'yarn' && (!subcommand || subcommand.startsWith('-'))
+    if (bareYarn || (subcommand && INSTALLS.has(subcommand))) {
       const packages = targetAfterOptions(args.slice(2), ['--filter', '-F', '-w', '--workspace'])
       return labeled(
         packages.length > 1 ? `Installed ${packages.length} packages` : `Installed ${packages[0] ?? 'dependencies'}`,
