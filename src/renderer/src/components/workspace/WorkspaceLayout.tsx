@@ -122,6 +122,7 @@ const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
+const RemoteConversationPanel = React.lazy(() => import('../panels/agentChat/RemoteConversationPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
 // aside was retired (browser-pane epic). Store v73 strips their tabs from
@@ -647,6 +648,32 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
                 />,
               )
             : DISABLED_SURFACE
+        // A conversation on another machine, in the regular chat view. Core
+        // chrome for the same reason a remote terminal is.
+        case 'fleet-conversation': {
+          const remote = config as
+            | {
+                connectionId?: string
+                machineName?: string
+                remoteWorkspaceId?: string
+                remoteAgentId?: string
+                title?: string
+              }
+            | undefined
+          return remote?.connectionId && remote.remoteWorkspaceId && remote.remoteAgentId
+            ? timedPanel(
+                'RemoteConversationPanel',
+                <RemoteConversationPanel
+                  workspaceId={workspaceId}
+                  connectionId={remote.connectionId}
+                  machineName={remote.machineName ?? 'Remote machine'}
+                  remoteWorkspaceId={remote.remoteWorkspaceId}
+                  remoteAgentId={remote.remoteAgentId}
+                  title={remote.title}
+                />,
+              )
+            : DISABLED_SURFACE
+        }
         default: {
           // Host-registered panels: render the registered component gated by its
           // owning module's enablement. A disabled module (or an unknown/stale
@@ -1171,7 +1198,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             )
             return
           }
-        } else if (componentId === 'fleet-terminal') {
+        } else if (componentId === 'fleet-terminal' || componentId === 'fleet-conversation') {
           // A pane on another machine's terminal wears the shared remote glyph
           // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
           // the same keystroke means different things on two machines, and the

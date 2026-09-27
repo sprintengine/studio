@@ -12,6 +12,7 @@ import { CodeBlock } from '../../ui/CodeBlock'
 import { StreamingMarkdown } from './StreamingMarkdown'
 import { renderMarkdown } from '../../../utils/markdown'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { useConversationTransport } from './conversationTransport'
 
 export type ConversationLinkContext = { workspaceId: string; cwd: string; workspaceRoot: string; agentId?: string }
 const LinkContext = createContext<ConversationLinkContext | null>(null)
@@ -42,12 +43,15 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
 }) {
   const context = useContext(LinkContext)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // A path from a conversation on another machine names a file over there;
+  // resolving it here could open a same-named local file.
+  const localFiles = useConversationTransport().capabilities.localFiles
   const target = classifyLinkToken(token, {
     source,
     cwd: context?.cwd,
     platform: typeof window === 'undefined' ? 'darwin' : (window.api?.platform ?? 'darwin'),
   })
-  if (!target) return <>{givenLabel ?? token}</>
+  if (!target || (target.type === 'file' && !localFiles)) return <>{givenLabel ?? token}</>
   if (target.type === 'url') {
     const href = /^[a-z]+:/i.test(target.href) ? target.href : `https://${target.href}`
     return (

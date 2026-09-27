@@ -331,7 +331,7 @@ export type FleetEvent =
       revision: number
       connectionId: string
       machineName: string
-      what: 'terminals' | 'workspaces'
+      what: 'terminals' | 'workspaces' | 'conversations'
     }
 
 /**
@@ -458,6 +458,15 @@ export function fleetConversationPresence(phase: FleetConversation['phase']): 'r
   if (phase === 'starting' || phase === 'running') return 'running'
   if (phase === 'waiting_for_approval' || phase === 'waiting_for_input') return 'needs-input'
   return 'idle'
+}
+
+/**
+ * The id a remote conversation's row and pane are known by here, in the place
+ * a remote terminal's session id goes: one id space for "what this pane shows
+ * on that machine", so a row finds the window already showing it.
+ */
+export function fleetConversationSessionId(workspaceId: string, agentId: string): string {
+  return `conversation:${workspaceId}:${agentId}`
 }
 
 /** The channel one followed conversation's frames arrive on. The renderer picks the id and subscribes first. */

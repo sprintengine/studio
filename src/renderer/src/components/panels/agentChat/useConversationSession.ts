@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConversationEvent, ConversationKey, ConversationPage } from '../../../../../shared/conversation-runtime'
+import { useConversationTransport } from './conversationTransport'
 
 const TURN_LIMIT = 10
 type SessionState = {
@@ -73,6 +74,8 @@ function conversationRetryDelay(retries: number): number {
 export function useConversationSession(workspaceRoot: string | null, workspaceId: string, agentId: string) {
   const [state, setState] = useState<SessionState>(emptyState)
   const sessionRef = useRef<Session | null>(null)
+  // Local IPC or a paired machine's conversation: the frames are the same.
+  const conversationTransport = useConversationTransport()
   useEffect(() => {
     setState(emptyState())
     if (!workspaceRoot) return
@@ -106,7 +109,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
       // replay boundary, not the one from the first join (which may even be from
       // another log generation).
       let replaced = false
-      const unsubscribe = window.api.onConversationSession(
+      const unsubscribe = conversationTransport.subscribe(
         { key: session.key, turnLimit: TURN_LIMIT, ...cursor },
         (frame) => {
           if (session.disposed || !current) return
@@ -173,7 +176,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
       if (session.retryTimer) clearTimeout(session.retryTimer)
       session.unsubscribe()
     }
-  }, [workspaceRoot, workspaceId, agentId])
+  }, [workspaceRoot, workspaceId, agentId, conversationTransport])
 
   const loadEarlier = useCallback((): Promise<void> => {
     const session = sessionRef.current
@@ -193,7 +196,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
     }
     session.earlier = Promise.resolve()
       .then(async () => {
-        const result = await window.api.conversationLoadEarlier({
+        const result = await conversationTransport.loadEarlier({
           key: session.key,
           beforeCursor,
           turnLimit: TURN_LIMIT,
@@ -213,7 +216,7 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
         }
       })
     return session.earlier
-  }, [])
+  }, [conversationTransport])
 
   return { ...state, loadEarlier }
 }

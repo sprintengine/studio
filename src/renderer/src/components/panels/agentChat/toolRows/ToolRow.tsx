@@ -14,6 +14,7 @@ import { InlineDiff } from '../../../ui/InlineDiff'
 import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
 import { useLiveRowMotion } from '../liveVisibility'
 import { LiveElapsed } from '../liveElapsed'
+import { useConversationTransport } from '../conversationTransport'
 
 export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
   return {
@@ -100,6 +101,8 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
 
 function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefined; toolUseId: string }) {
   const context = useConversationLinkContext()
+  // The diff window reads this machine's checkpoints; a remote edit has none here.
+  const openable = useConversationTransport().capabilities.localFiles
   const edits = useMemo(() => deriveEditHunks(input), [input])
   return (
     <>
@@ -109,7 +112,7 @@ function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefin
           <InlineDiff
             edit={edit}
             onOpen={
-              context?.agentId
+              context?.agentId && openable
                 ? () =>
                     void openCheckpointDiffWindow({
                       key: {
@@ -181,8 +184,9 @@ function cacheDetail(key: string, detail: ConversationToolDetail): void {
 
 export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const context = useConversationLinkContext()
+  const transport = useConversationTransport()
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
-  const detailKey = `${key}:${tool.id}`
+  const detailKey = `${transport.kind === 'remote' ? `remote:${transport.machineName}:` : ''}${key}:${tool.id}`
   const [open, setOpen] = useConversationDisclosure(key, `tool:${tool.id}`, false)
   const [detail, setDetail] = useState<ConversationToolDetail | undefined>(() => cachedDetail(detailKey))
   // Output fetched while the tool was still running is a snapshot of a moving
@@ -204,7 +208,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
     setLoading(true)
     setError(undefined)
     try {
-      const result = await window.api.conversationToolDetail({
+      const result = await transport.toolDetail({
         workspaceRoot: context.workspaceRoot,
         workspaceId: context.workspaceId,
         agentId: context.agentId,

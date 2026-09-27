@@ -18,6 +18,7 @@ import { ConversationFileLink, ConversationMarkdown } from './conversationLinks'
 import { InlineDiff } from '../../ui/InlineDiff'
 import { deriveEditHunks } from '../../../../../shared/conversation/editHunks'
 import { asRecord } from '../../../../../shared/records'
+import { useConversationTransport } from './conversationTransport'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
 import {
   approvalFilePath,
@@ -254,6 +255,7 @@ export function ConversationPermissionCard({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const denyRef = useRef<HTMLButtonElement | null>(null)
+  const { permanentApprovals } = useConversationTransport().capabilities
   useEffect(() => {
     if (active) (entry.defaultToNo ? denyRef.current : containerRef.current)?.focus()
   }, [active, entry.defaultToNo])
@@ -333,11 +335,17 @@ export function ConversationPermissionCard({
                   label: rememberLabels.conversation,
                   onSelect: () => onApprove(entry.requestId, true, undefined, 'conversation'),
                 },
-                {
-                  id: 'always',
-                  label: rememberLabels.always,
-                  onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
-                },
+                // A rule that outlives the conversation is this machine's
+                // decision; a transport that cannot make it does not offer it.
+                ...(permanentApprovals
+                  ? [
+                      {
+                        id: 'always',
+                        label: rememberLabels.always,
+                        onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
+                      },
+                    ]
+                  : []),
               ]}
             />
           ) : (

@@ -63,6 +63,8 @@ import {
 import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
+import { useConversationTransport } from './agentChat/conversationTransport'
+import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
 import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
@@ -339,10 +341,8 @@ export function registerMountedChatView(entry: MountedChatView): () => void {
 }
 
 export default function AgentChatView({ workspaceId, agentId }: Props) {
-  const conversation = useWorkspaceStore(
-    (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents[agentId]?.conversation,
-  )
-  if (!conversation)
+  const binding = useLocalChatBinding(workspaceId, agentId)
+  if (!binding)
     return (
       <ChatShell>
         <InlineNotice tone="error" className="mx-3 my-2">
@@ -350,25 +350,44 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         </InlineNotice>
       </ChatShell>
     )
-  return <ConversationChatBody key={`${workspaceId}:${agentId}`} workspaceId={workspaceId} agentId={agentId} />
+  return (
+    <ConversationChatBody
+      key={`${workspaceId}:${agentId}`}
+      workspaceId={workspaceId}
+      agentId={agentId}
+      binding={binding}
+    />
+  )
 }
 
-function ConversationChatBody({ workspaceId, agentId }: Props) {
-  const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
-  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+/**
+ * The chat view itself, over whichever transport the tree provides: the
+ * conversation IPC here, or a paired machine's conversation over the Fleet.
+ * `binding` is the agent it is for — a record in the store, or the fields a
+ * remote pane keeps — and the transport's capabilities decide which controls
+ * it offers.
+ */
+export function ConversationChatBody({ workspaceId, agentId, binding }: Props & { binding: ChatBinding }) {
+  const transport = useConversationTransport()
+  const agent = binding.agent
+  const workspace = binding.workspace
+  const updateBinding = binding.update
   // A conversation-runtime chat has no pty, so no `UserPromptSubmit` frame
   // reaches the sidebar's ordering clock the way a CLI's does. Sending a turn
   // is the same event, so it stamps the same clock here — without this these
   // chats would sit at their creation time for ever while every CLI chat moved.
-  const recordWorkspaceUserMessage = useWorkspaceStore((s) => s.recordWorkspaceUserMessage)
-  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
+  const recordUserMessage = binding.recordUserMessage
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const conversation = agent!.conversation!
-  const label = agent?.name ?? agentId
-  const workspaceRoot = workspace?.folderPath ?? null
+  const conversation = agent.conversation
+  const label = agent.name ?? agentId
+  const workspaceRoot = binding.workspaceRoot
+  const { operate } = transport.capabilities
 
-  const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
+  const [localReadiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
+  // A transport that decides readiness itself (a remote link) replaces this
+  // machine's provider check, which says nothing about a provider over there.
+  const hostReadiness = binding.readiness
+  const readiness = hostReadiness ?? localReadiness
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
   // Live model catalogs keyed by providerId, fetched lazily as the user opens
   // the picker or filters to a provider — never a blanket prefetch. A non-empty
@@ -388,14 +407,19 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // when the provider accepts a change, never on an optimistic guess. The pill
   // reads the session's own preset first, then the agent record, then 'default'
   // (`resolvePermissionPreset`).
-  const [session, setSession] = useState<ConversationSessionSummary | null>(null)
+  const [session, setSession] = useState<ConversationSessionSummary | null>(binding.session ?? null)
+  const hostSession = binding.session
+  useEffect(() => {
+    if (hostSession !== undefined) setSession(hostSession)
+  }, [hostSession])
   const sessionId = session?.sessionId ?? null
   const providerEntry = providers.find((entry) => entry.id === conversation?.providerId)
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
   // A provider may refuse Manual; never silently turn that choice into a
   // CLI-managed policy which could inherit broader local permissions.
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
-  const supportsSkills = capabilities?.skills !== undefined && capabilities.skills !== 'none'
+  const supportsSkills =
+    transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   const conversationMode: ConversationMode =
     agent?.conversationMode === 'ask'
       ? 'ask'
@@ -415,7 +439,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     replayThroughSeq,
     completionRevision,
     announcement,
-  } = useConversationSession(workspaceRoot, workspaceId, agentId)
+  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId)
   const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
@@ -496,13 +520,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // record so a later remount never re-seeds a stale invocation.
   useEffect(() => {
     if (!agent?.chatComposerPrefill || userTurns.length === 0) return
-    updateAgent(workspaceId, agentId, { chatComposerPrefill: undefined })
-  }, [agent?.chatComposerPrefill, userTurns.length, updateAgent, workspaceId, agentId])
+    updateBinding({ chatComposerPrefill: undefined })
+  }, [agent?.chatComposerPrefill, userTurns.length, updateBinding])
 
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
     let cancelled = false
-    if (!conversation) return
+    if (!conversation || hostReadiness) return
     if (!workspaceRoot) {
       setReadiness({ kind: 'no-workspace-folder' })
       return
@@ -564,7 +588,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     return () => {
       cancelled = true
     }
-  }, [conversation, workspaceRoot, cliRuntimes])
+  }, [conversation, workspaceRoot, cliRuntimes, hostReadiness])
 
   // Fetch one provider's live catalog and key status on demand, caching both.
   // Called for the active provider on mount and for whichever provider the user
@@ -593,10 +617,12 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
 
   // Fetch the active provider up front so the current model's display label,
   // context length, and readiness resolve before the picker is ever opened.
+  // A model on another machine is that machine's catalog, not this one's.
+  const modelSwitch = transport.capabilities.modelSwitch
   useEffect(() => {
     const providerId = conversation?.providerId
-    if (providerId) fetchProviderCatalog(providerId)
-  }, [conversation?.providerId, fetchProviderCatalog])
+    if (providerId && modelSwitch) fetchProviderCatalog(providerId)
+  }, [conversation?.providerId, fetchProviderCatalog, modelSwitch])
 
   const projectionStateRef = useRef(createConversationProjectionState())
   const projection = useMemo(() => {
@@ -795,13 +821,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     if (!conversation) return
     const displayName = liveModels.find((model) => model.id === conversation.modelId)?.displayName
     if (displayName && agent?.name === conversation.modelId && displayName !== conversation.modelId) {
-      updateAgent(workspaceId, agentId, { name: displayName })
+      updateBinding({ name: displayName })
     }
-  }, [liveModels, conversation, agent?.name, updateAgent, workspaceId, agentId])
+  }, [liveModels, conversation, agent?.name, updateBinding])
 
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId
-    if (!conversation || !workspaceRoot) return null
+    if (!conversation || !workspaceRoot || !transport.capabilities.startSession) return null
     try {
       const result = await window.api.conversationSessionStart({
         workspaceRoot,
@@ -825,7 +851,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       setActionError(error instanceof Error ? error.message : 'Could not start the conversation.')
       return null
     }
-  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot])
+  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot, transport])
 
   // Change the tool-permission preset. The agent record is the durable seed (it
   // starts the next session and survives a remount), so it is written first; a
@@ -845,31 +871,36 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       setActionError(null)
       setPermissionNotice(null)
       const previous = agent?.cliPermissionPreset
-      updateAgent(workspaceId, agentId, { cliPermissionPreset: next })
+      updateBinding({ cliPermissionPreset: next })
       if (!sessionId) return
-      if (typeof window.api.conversationSessionSetPermission !== 'function') {
-        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+      if (transport.kind === 'local' && typeof window.api.conversationSessionSetPermission !== 'function') {
+        updateBinding({ cliPermissionPreset: previous })
         setActionError('Changing tool permissions mid-conversation needs an app restart.')
         return
       }
       setPermissionChanging(true)
       try {
-        const result = await window.api.conversationSessionSetPermission({ sessionId, permissionPreset: next })
+        const answered = await transport.setPermissionPreset({ sessionId, permissionPreset: next })
+        // A remote command answers without a session: the preset it accepted
+        // is the one now in force over there, on the session this pane holds.
+        const result = answered.ok
+          ? { ...answered, session: answered.session ?? { ...session!, permissionPreset: next } }
+          : answered
         if (result.ok) {
           setSession(result.session)
           setPermissionNotice(result.notice ?? null)
         } else {
-          updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+          updateBinding({ cliPermissionPreset: previous })
           setActionError(result.message)
         }
       } catch (err) {
-        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        updateBinding({ cliPermissionPreset: previous })
         setActionError(err instanceof Error ? err.message : 'Could not change tool permissions.')
       } finally {
         setPermissionChanging(false)
       }
     },
-    [agent?.cliPermissionPreset, agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
+    [agent?.cliPermissionPreset, permissionChanging, permissionPreset, session, sessionId, updateBinding, transport],
   )
 
   // Send one turn. A turn needs text or at least one image — the runtime accepts
@@ -913,23 +944,28 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         return
       }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
-      pendingUserScrollIdRef.current = `user:${localTurnId}`
-      setUserTurns((current) => [
-        ...current,
-        {
-          id: localTurnId,
-          text,
-          createdAt: Date.now(),
-          mentions: metadata.mentions,
-          skills: metadata.skillIds,
-          ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
-        },
-      ])
+      // An optimistic bubble only where the runtime echoes its id back on the
+      // `user_message` that replaces it. A remote send has no such id, so its
+      // bubble is the host's own event, a moment later.
+      if (transport.capabilities.optimisticTurns) {
+        pendingUserScrollIdRef.current = `user:${localTurnId}`
+        setUserTurns((current) => [
+          ...current,
+          {
+            id: localTurnId,
+            text,
+            createdAt: Date.now(),
+            mentions: metadata.mentions,
+            skills: metadata.skillIds,
+            ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
+          },
+        ])
+      }
       const draftSend = fromDraft ? beginDraftSend(message) : null
       setPending('sending')
-      recordWorkspaceUserMessage(workspaceId, Date.now())
+      recordUserMessage?.(Date.now())
       try {
-        const result = await window.api.conversationSessionSendTurn({
+        const result = await transport.send({
           sessionId: activeSession,
           message: text,
           localTurnId,
@@ -974,9 +1010,9 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     [
       ensureSession,
       pending,
-      recordWorkspaceUserMessage,
+      recordUserMessage,
       userTurns.length,
-      workspaceId,
+      transport,
       conversationMode,
       reasoningEffort,
       supportsSkills,
@@ -1146,7 +1182,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
       setActionError(null)
       setRespondingRequestId(requestId)
       try {
-        const result = await window.api.conversationSessionRespondToRequest({
+        const result = await transport.respond({
           sessionId,
           requestId,
           approved,
@@ -1160,7 +1196,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             (entry) => entry.kind === 'approval' && entry.requestId === requestId && entry.requestKind === 'plan',
           )
         ) {
-          updateAgent(workspaceId, agentId, { conversationMode: 'default' })
+          updateBinding({ conversationMode: 'default' })
         }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
@@ -1168,21 +1204,21 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId, projection.entries, workspaceId, agentId, updateAgent],
+    [sessionId, respondingRequestId, projection.entries, updateBinding, transport],
   )
 
   const interrupt = useCallback(async () => {
     if (!sessionId || pending === 'stopping') return
     setPending('stopping')
     try {
-      const result = await window.api.conversationSessionInterrupt({ sessionId })
+      const result = await transport.interrupt({ sessionId })
       if (!result.ok) setActionError(result.message)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not interrupt the turn.')
     } finally {
       setPending(null)
     }
-  }, [sessionId, pending])
+  }, [sessionId, pending, transport])
 
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
@@ -1224,11 +1260,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // only until the conversation starts: once a turn is sent, a session exists,
   // or replayed history is present, the pill is read-only and the user opens a
   // new agent to change model.
-  const modelLocked = isConversationModelLocked(
-    userTurns.length,
-    sessionId,
-    projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
-  )
+  const modelLocked =
+    !modelSwitch ||
+    isConversationModelLocked(
+      userTurns.length,
+      sessionId,
+      projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
+    )
   const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
@@ -1252,12 +1290,12 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   }, [])
   const changeConversationMode = (mode: ConversationMode) => {
     if (mode === 'plan' && !capabilities?.planMode) return
-    updateAgent(workspaceId, agentId, { conversationMode: mode })
+    updateBinding({ conversationMode: mode })
     setPermissionNotice('Conversation mode applies from the next turn.')
   }
   const changeReasoningEffort = (effort: string | undefined) => {
     if (effort && !capabilities?.reasoningEfforts?.includes(effort)) return
-    updateAgent(workspaceId, agentId, { conversationReasoningEffort: effort })
+    updateBinding({ conversationReasoningEffort: effort })
     setPermissionNotice('Reasoning effort applies from the next turn.')
   }
   const modeActionsRef = useRef({ toggle: () => {}, cycle: () => {} })
@@ -1302,7 +1340,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     // tabs never end up with the same label.
     const baseName = (agent?.name ?? '').replace(/ \d+$/, '')
     const renaming = Boolean(nextLabel && (baseName === currentModelLabel || agent?.name === conversation.modelId))
-    updateAgent(workspaceId, agentId, {
+    updateBinding({
       conversation: { providerId, modelId },
       conversationMode: 'default',
       conversationReasoningEffort: undefined,
@@ -1315,7 +1353,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           }
         : {}),
     })
-    setLastSelectedConversationModel({ providerId, modelId })
+    binding.rememberModel?.({ providerId, modelId })
   }
 
   // Capabilities are available from the provider catalog before the first turn,
@@ -1327,7 +1365,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   // Image attach (D3/1774) is offered only where a provider actually reads the
   // turn's attachments, and only once the session can take a turn — a control
   // that stages images no one will receive is worse than no control.
-  const imagesEnabled = ready && capabilities?.images === true
+  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.composerContext
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
   const attachedSkills = draftMetadata.skillIds.map(
@@ -1344,7 +1382,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
   const setAttachedSkills = (skills: WorkspaceSkill[]) => {
     const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
     setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
-    updateAgent(workspaceId, agentId, { conversationSkills: ids })
+    updateBinding({ conversationSkills: ids })
     setDraftMetadata((current) => ({ ...current, skillIds: ids }))
   }
   const removeContextTrigger = (range: { start: number; end: number }) => {
@@ -1358,6 +1396,8 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     draft,
     caret: composerCaret,
     skillsEnabled: supportsSkills,
+    // A file mention names a file on this machine's disk.
+    mentionsEnabled: transport.capabilities.composerContext,
     onPickSkill: (skill, range) => {
       setAttachedSkills([...attachedSkills, skill])
       removeContextTrigger(range)
@@ -1478,16 +1518,17 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     >
       <ChatShell shellRef={shellRef}>
         <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
-        {workspaceRoot && timelineRows.length > 0 ? (
-          <div className="px-4 pt-2">
-            <ConversationHistoryTitle
-              workspaceRoot={workspaceRoot}
-              workspaceId={workspaceId}
-              agentId={agentId}
-              fallback={label}
-            />
-          </div>
-        ) : null}
+        {binding.header ??
+          (workspaceRoot && transport.capabilities.localHistory && timelineRows.length > 0 ? (
+            <div className="px-4 pt-2">
+              <ConversationHistoryTitle
+                workspaceRoot={workspaceRoot}
+                workspaceId={workspaceId}
+                agentId={agentId}
+                fallback={label}
+              />
+            </div>
+          ) : null)}
         {/* Loading is not a notice — it is the state the screen is in, so it reads
           as the quiet line it is; anything else here is a degraded session. */}
         {!ready && timelineRows.length > 0 ? (
@@ -1631,7 +1672,8 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
             workspaceRoot={workspaceRoot ?? undefined}
             workspaceName={workspace?.name}
             onApprove={resolveApproval}
-            busy={respondingRequestId !== null}
+            // Read-only: the pending requests are shown, not answerable.
+            busy={respondingRequestId !== null || !operate}
           />
 
           {/*
@@ -1837,7 +1879,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                 workspaceRoot={workspaceRoot}
                 workspaceId={workspaceId}
                 agentId={agentId}
-                enabled={capabilities?.cost === true}
+                enabled={capabilities?.cost === true && transport.capabilities.localHistory}
                 hydrated={hydrated}
               />
             </div>
@@ -1888,7 +1930,9 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                     openSettingsOverlay({ initialTab: 'providers' })
                   }}
                 />
-                {capabilities?.approvals || capabilities?.permissionPresets?.length ? (
+                {operate &&
+                (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
+                (capabilities?.approvals || capabilities?.permissionPresets?.length) ? (
                   <PermissionPresetPill
                     cli={conversation.providerId}
                     preset={permissionPreset}
@@ -1897,7 +1941,13 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                     open={permissionMenuOpen}
                     onOpenChange={setPermissionMenuOpen}
                     mode={conversationMode}
-                    allowedPresets={capabilities.permissionPresets}
+                    allowedPresets={
+                      transport.capabilities.unsafePresets
+                        ? capabilities.permissionPresets
+                        : (capabilities.permissionPresets ?? ['manual', 'auto']).filter(
+                            (preset) => preset === 'manual' || preset === 'auto',
+                          )
+                    }
                     onChange={(next) => {
                       // Close on pick like every other picker here: a refusal
                       // rolls the pill back and writes the reason to the composer
@@ -1917,7 +1967,7 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
                   onEffort={changeReasoningEffort}
                 />
               </div>
-              {projection.activeTurn ? (
+              {projection.activeTurn && !operate ? null : projection.activeTurn ? (
                 <ComposerActionButton
                   tone="neutral"
                   ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}

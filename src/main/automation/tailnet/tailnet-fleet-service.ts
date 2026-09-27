@@ -993,7 +993,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function handleWatchFrame(watch: Watch, frame: Record<string, unknown>): void {
     if (frame.type !== 'changed') return
-    const what = frame.what === 'terminals' ? 'terminals' : frame.what === 'workspaces' ? 'workspaces' : null
+    const what =
+      frame.what === 'terminals' || frame.what === 'workspaces' || frame.what === 'conversations' ? frame.what : null
     if (!what) return
     const connection = store.find(watch.connectionId)
     if (!connection) return

@@ -47,6 +47,7 @@ import type {
 } from '../../types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
+import { fleetConversationSessionId } from '../../../../shared/tailnet-fleet'
 
 // How far the person's last-input clock may run ahead of main's copy before
 // the next report is sent as a field patch (recordWorkspaceTerminalActivity).
@@ -506,6 +507,17 @@ export type SoloChatSeed = {
    * later focuses this pane rather than attaching twice.
    */
   fleet?: { connectionId: string; machineName: string; remoteSessionId: string }
+  /**
+   * Swap it instead for a chat pane following a conversation on another
+   * machine. No local agent record either: the conversation lives over there.
+   */
+  fleetConversation?: {
+    connectionId: string
+    machineName: string
+    remoteWorkspaceId: string
+    remoteAgentId: string
+    title: string
+  }
 }
 
 // Transform the single-agent solo-chat layout for a seed: rename the lone agent
@@ -519,6 +531,22 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
     if (!node || done) return
     if (node.component === 'agent') {
       const target = node as { component?: unknown; id?: unknown; name?: unknown; config?: Record<string, unknown> }
+      if (seed.fleetConversation) {
+        const remote = seed.fleetConversation
+        target.component = 'fleet-conversation'
+        target.id = `fleet-conversation:${remote.connectionId}:${encodeURIComponent(remote.remoteWorkspaceId)}:${encodeURIComponent(remote.remoteAgentId)}`
+        target.name = seed.tabName ?? remote.title
+        target.config = {
+          connectionId: remote.connectionId,
+          machineName: remote.machineName,
+          remoteWorkspaceId: remote.remoteWorkspaceId,
+          remoteAgentId: remote.remoteAgentId,
+          remoteSessionId: fleetConversationSessionId(remote.remoteWorkspaceId, remote.remoteAgentId),
+          title: remote.title,
+        }
+        done = true
+        return
+      }
       if (seed.fleet) {
         target.component = 'fleet-terminal'
         target.id = `fleet-terminal:${seed.fleet.connectionId}:${encodeURIComponent(seed.fleet.remoteSessionId)}`
@@ -1222,7 +1250,7 @@ export function createWorkspacesSlice(
         // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
-        if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
+        if (options?.seedAgent?.terminal || options?.seedAgent?.fleet || options?.seedAgent?.fleetConversation) {
           // Terminal and fleet seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
@@ -1256,7 +1284,11 @@ export function createWorkspacesSlice(
         // renames the lone tab or swaps it for a terminal, apply that transform.
         const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
         const standardLayout =
-          options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.fleet)
+          options?.seedAgent &&
+          (options.seedAgent.tabName ||
+            options.seedAgent.terminal ||
+            options.seedAgent.fleet ||
+            options.seedAgent.fleetConversation)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
         const newWorkspace: Workspace = {

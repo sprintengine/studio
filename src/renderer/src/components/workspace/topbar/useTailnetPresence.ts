@@ -40,7 +40,7 @@ export type TailnetPresence = {
   fleetRemoteChanges: ReadonlyMap<string, FleetRemoteChange>
 }
 
-type FleetRemoteChange = { what: 'terminals' | 'workspaces'; revision: number; at: number }
+type FleetRemoteChange = { what: 'terminals' | 'workspaces' | 'conversations'; revision: number; at: number }
 
 const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 

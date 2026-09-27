@@ -67,6 +67,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
   // preloads) gets a band that draws what the rows already know and asks
   // nothing — never a throw inside an effect.
   const bridge = typeof window !== 'undefined' && typeof window.api?.fleetBrowse === 'function'
+  const conversationBridge = bridge && typeof window.api?.fleetConversationList === 'function'
 
   const browse = useCallback(
     (connectionId: string) => {
@@ -75,7 +76,14 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
       setBrowses((current) => withEntry(current, connectionId, (entry) => ({ ...entry, loading: true })))
       window.api
         .fleetBrowse(connectionId)
-        .then((result) => {
+        .then(async (result) => {
+          // Its chats too, once it has answered: the list is a short socket
+          // on the conversation lane. A pairing that may not read them, or a
+          // machine that does not serve them, lists none.
+          const listed =
+            result.reachable && conversationBridge
+              ? await window.api.fleetConversationList(connectionId).catch(() => null)
+              : null
           setBrowses((current) =>
             withEntry(current, connectionId, (entry) => ({
               // A machine that did not answer keeps its last rows; only an
@@ -84,6 +92,11 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
               loading: false,
               error: result.reachable ? null : (result.unreachableReason ?? 'Not answering.'),
               at: Date.now(),
+              ...(listed
+                ? { conversations: listed.ok ? listed.conversations : [] }
+                : entry.conversations
+                  ? { conversations: entry.conversations }
+                  : {}),
             })),
           )
         })
@@ -101,7 +114,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
           inFlight.current.delete(connectionId)
         })
     },
-    [bridge],
+    [bridge, conversationBridge],
   )
 
   const { fleet, fleetReachability, fleetAttachments, fleetRemoteChanges } = presence

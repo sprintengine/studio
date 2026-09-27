@@ -1585,7 +1585,7 @@ test('AgentChatView', async () => {
   // send IPC) and cannot be mounted here, so the ends that would silently drop a
   // staged image are pinned at the source.
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('conversationSessionSendTurn({')),
+    chatViewSource.slice(chatViewSource.indexOf('transport.send({')),
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )

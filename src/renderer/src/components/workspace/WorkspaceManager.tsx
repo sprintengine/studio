@@ -3378,14 +3378,27 @@ export default function WorkspaceManager() {
           checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
         },
         windowId: workspaceWindowId,
-        seedAgent: {
-          tabName: fleetTerminalTabName(spec.machineName, spec.title),
-          fleet: {
-            connectionId: spec.connectionId,
-            machineName: spec.machineName,
-            remoteSessionId: spec.sessionId,
-          },
-        },
+        // A chat opens in the chat view, following the conversation over
+        // there; a terminal agent attaches its pty, as it always has.
+        seedAgent: spec.conversation
+          ? {
+              tabName: fleetTerminalTabName(spec.machineName, spec.title),
+              fleetConversation: {
+                connectionId: spec.connectionId,
+                machineName: spec.machineName,
+                remoteWorkspaceId: spec.conversation.workspaceId,
+                remoteAgentId: spec.conversation.agentId,
+                title: spec.title,
+              },
+            }
+          : {
+              tabName: fleetTerminalTabName(spec.machineName, spec.title),
+              fleet: {
+                connectionId: spec.connectionId,
+                machineName: spec.machineName,
+                remoteSessionId: spec.sessionId,
+              },
+            },
       })
     },
     [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, workspaceWindowId],

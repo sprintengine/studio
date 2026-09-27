@@ -9,26 +9,35 @@ import { showToast } from '../../../store/toastStore'
 import { useConversationLinkContext } from './conversationLinks'
 import { useConversationDisclosure } from './conversationViewState'
 import { openCheckpointDiffWindow } from '../../auxWindows/openCheckpointDiffWindow'
+import { useConversationTransport } from './conversationTransport'
 
 export type TurnChangeSummary = { files: number; addedLines: number; removedLines: number }
 export function hasTurnChanges(available: boolean | undefined, summary: TurnChangeSummary | undefined): boolean {
   return available === true && Boolean(summary && summary.files > 0)
 }
 
-export function RevertTurnAction({
-  turnSeq,
-  running,
-  reverted = false,
-  overwritesLaterWork = false,
-  className,
-}: {
+type RevertTurnActionProps = {
   turnSeq: number
   running: boolean
   reverted?: boolean
   // Undoing this revert would replace changes made after it.
   overwritesLaterWork?: boolean
   className?: string
-}) {
+}
+
+export function RevertTurnAction(props: RevertTurnActionProps) {
+  // Reverting rewrites the files of the machine the checkpoint is on; a
+  // transport for a conversation on another machine does not offer it.
+  return useConversationTransport().capabilities.checkpointRevert ? <RevertTurnButton {...props} /> : null
+}
+
+function RevertTurnButton({
+  turnSeq,
+  running,
+  reverted = false,
+  overwritesLaterWork = false,
+  className,
+}: RevertTurnActionProps) {
   const context = useConversationLinkContext()
   const dialog = useConfirmDialog()
   const [pending, setPending] = useState(false)
@@ -246,6 +255,7 @@ export function ChangedFilesCard({
   undoOverwritesLaterWork?: boolean
 }) {
   const context = useConversationLinkContext()
+  const transport = useConversationTransport()
   const conversationKey = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
   const [open, setOpen] = useConversationDisclosure(conversationKey, `files:${turnSeq}`, false)
   const [files, setFiles] = useState<ConversationCheckpointFile[]>()
@@ -263,8 +273,8 @@ export function ChangedFilesCard({
     let cancelled = false
     setLoading(true)
     setError(undefined)
-    void window.api
-      .conversationTurnDiff({
+    void transport
+      .turnDiff({
         key: { workspaceRoot: context.workspaceRoot, workspaceId: context.workspaceId, agentId: context.agentId },
         turnSeq,
       })
@@ -283,7 +293,7 @@ export function ChangedFilesCard({
     return () => {
       cancelled = true
     }
-  }, [open, context, files, turnSeq, retry])
+  }, [open, context, files, turnSeq, retry, transport])
   async function select(path: string, file?: ConversationCheckpointFile) {
     setSelected(path)
     const generation = ++request.current
@@ -298,7 +308,7 @@ export function ChangedFilesCard({
     setLoading(true)
     setError(undefined)
     try {
-      const result = await window.api.conversationTurnDiff({
+      const result = await transport.turnDiff({
         key: { workspaceRoot: context.workspaceRoot, workspaceId: context.workspaceId, agentId: context.agentId },
         turnSeq,
         path,
@@ -401,7 +411,7 @@ export function ChangedFilesCard({
               key={edit.path}
               edit={edit}
               onOpen={
-                context?.agentId
+                context?.agentId && transport.capabilities.localFiles
                   ? () =>
                       void openCheckpointDiffWindow({
                         key: {

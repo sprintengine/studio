@@ -174,6 +174,7 @@ export function useComposerContextPicker({
   draft,
   caret,
   skillsEnabled,
+  mentionsEnabled = true,
   onPickSkill,
   onPickMention,
 }: {
@@ -181,6 +182,7 @@ export function useComposerContextPicker({
   draft: string
   caret: number
   skillsEnabled: boolean
+  mentionsEnabled?: boolean
   onPickSkill: (skill: WorkspaceSkill, range: TriggerRange) => void
   onPickMention: (mention: ConversationMentionRef, range: TriggerRange) => void
 }) {
@@ -191,7 +193,9 @@ export function useComposerContextPicker({
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   useEffect(() => setDismissedKey(null), [triggerKey])
   const trigger =
-    detected && triggerKey !== dismissedKey && (detected.kind === 'mention' || skillsEnabled) ? detected : null
+    detected && triggerKey !== dismissedKey && (detected.kind === 'mention' ? mentionsEnabled : skillsEnabled)
+      ? detected
+      : null
   const pickerRef = useRef<InlineSkillPickerHandle>(null)
   const dismiss = useCallback(() => setDismissedKey(triggerKey), [triggerKey])
   const handleKeyDown = useCallback(
