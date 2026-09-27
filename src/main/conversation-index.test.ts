@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, appendFile, rm, symlink, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, appendFile, rm, symlink, stat, link } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -219,4 +219,46 @@ test('coalesced delta sequence ranges survive index rebuild', async () =>
       ]),
     )
     expect((await new ConversationIndex().list(key))[0]?.lastSeq).toBe(4)
+  }))
+
+test('a transcript past the read limit is listed and searched from its opening and its end', async () =>
+  fixture(async (key, path) => {
+    const events = [event(1, 'user_message', { turnId: 't0', text: 'Opening question' })]
+    for (let seq = 2; seq < 400; seq++)
+      events.push(event(seq, 'content_delta', { turnId: 't0', text: `filler ${'x'.repeat(200)}` }))
+    events.push(event(400, 'user_message', { turnId: 't1', text: 'Closing needle question' }))
+    events.push(event(401, 'turn_completed', { turnId: 't1' }))
+    await writeFile(path, lines(events))
+    const size = (await stat(path)).size
+    // Below the file, and far enough below it that the middle is skipped.
+    const index = new ConversationIndex({ maxTranscriptBytes: Math.floor(size / 4) })
+    const [thread] = await index.list(key)
+    expect(thread).toMatchObject({ agentId: 'agent', title: 'Opening question', lastSeq: 401 })
+    expect(await index.search({ ...key, query: 'needle' })).toMatchObject([{ agentId: 'agent', seq: 400 }])
+  }))
+
+test('an unreadable transcript gets a row of its own instead of failing the whole list and search', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat' })]))
+    const folder = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId)
+    const other = join(folder, 'other.jsonl')
+    await writeFile(other, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat too' }, 'other')]))
+    // A hard link is refused by confined file access, like any other unsafe file.
+    const linked = join(tmpdir(), `conversation-index-link-${process.pid}-${Date.now()}`)
+    await link(other, linked)
+    try {
+      const threads = await new ConversationIndex().list(key)
+      expect(threads.map((thread) => [thread.agentId, thread.title]).sort()).toEqual([
+        ['agent', 'Readable chat'],
+        ['other', 'Unreadable conversation'],
+      ])
+    } finally {
+      await rm(linked, { force: true })
+    }
+    await link(other, linked)
+    try {
+      expect(await new ConversationIndex().search({ ...key, query: 'readable' })).toMatchObject([{ agentId: 'agent' }])
+    } finally {
+      await rm(linked, { force: true })
+    }
   }))

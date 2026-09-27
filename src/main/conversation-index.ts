@@ -33,12 +33,21 @@ const record = (value: unknown): Record<string, unknown> =>
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
+type IndexHooks = {
+  flush?: (path: string) => Promise<void>
+  close?: (path: string) => Promise<void>
+  // A transcript longer than this is indexed and searched from its first
+  // megabyte and its last `maxTranscriptBytes` only.
+  maxTranscriptBytes?: number
+}
+
 /** Cache only. Titles, including explicit renames, are recovered from transcript events. */
 export class ConversationIndex {
   private queues = new Map<string, Promise<unknown>>()
-  constructor(
-    private readonly hooks: { flush?: (path: string) => Promise<void>; close?: (path: string) => Promise<void> } = {},
-  ) {}
+  private readonly maxBytes: number
+  constructor(private readonly hooks: IndexHooks = {}) {
+    this.maxBytes = hooks.maxTranscriptBytes ?? MAX_CONVERSATION_TRANSCRIPT_BYTES
+  }
   private async serialized<T>(key: ConversationWorkspaceKey, work: () => Promise<T>): Promise<T> {
     const path = directory(key),
       previous = this.queues.get(path) ?? Promise.resolve()
@@ -58,7 +67,7 @@ export class ConversationIndex {
       if (cached && JSON.stringify(cached.files) === JSON.stringify(files)) return sorted(cached.threads)
       const threads: ConversationThread[] = []
       for (const file of files) {
-        const thread = await readThread(key.workspaceRoot, join(directory(key), file.file))
+        const thread = await this.thread(key.workspaceRoot, directory(key), file)
         if (thread) threads.push(thread)
       }
       await saveIndex(key.workspaceRoot, directory(key), { version: 2, threads, files })
@@ -72,10 +81,10 @@ export class ConversationIndex {
       if (!(await safeDirectory(key))) return null
       const path = conversationIndexTranscriptPath(key)
       await this.hooks.flush?.(path)
-      const thread = await readThread(key.workspaceRoot, path)
+      const current = await fingerprint(path, `${segment(key.agentId)}.jsonl`)
+      const thread = current ? await this.thread(key.workspaceRoot, directory(key), current) : null
       const cache = await readIndex(key.workspaceRoot, directory(key))
       if (cache) {
-        const current = await fingerprint(path, `${segment(key.agentId)}.jsonl`)
         const files = cache.files.filter((file) => file.file !== `${segment(key.agentId)}.jsonl`)
         if (current) files.push(current)
         files.sort((a, b) => a.file.localeCompare(b.file))
@@ -86,7 +95,7 @@ export class ConversationIndex {
         const files = await this.files(key)
         const threads: ConversationThread[] = []
         for (const file of files) {
-          const entry = await readThread(key.workspaceRoot, join(directory(key), file.file))
+          const entry = await this.thread(key.workspaceRoot, directory(key), file)
           if (entry) threads.push(entry)
         }
         await saveIndex(key.workspaceRoot, directory(key), { version: 2, threads, files })
@@ -110,7 +119,9 @@ export class ConversationIndex {
         tails = new Map<string, string>(),
         turnSeq = new Map<string, number>()
       let ordinal = 0
-      for await (const event of readEvents(input.workspaceRoot, path, options.signal)) {
+      // One unreadable transcript costs its own hits, not the whole search.
+      const events = guarded(readEvents(input.workspaceRoot, path, this.maxBytes, options.signal), options.signal)
+      for await (const event of events) {
         ordinal = event.seq ?? ordinal + 1
         const turnId = text(event.payload?.turnId)
         if (event.type === 'user_message') turnSeq.set(turnId, ordinal)
@@ -169,6 +180,33 @@ export class ConversationIndex {
         })
     })
   }
+  /**
+   * One transcript's row. A transcript that cannot be read still gets a row —
+   * named from its file, dated from its last write — so one damaged chat does
+   * not hide every other chat in the workspace.
+   */
+  private async thread(root: string, folder: string, file: Fingerprint): Promise<ConversationThread | null> {
+    try {
+      return await readThread(root, join(folder, file.file), this.maxBytes)
+    } catch (error) {
+      console.warn(
+        `[conversation-index] ${file.file} could not be indexed:`,
+        error instanceof Error ? error.message : error,
+      )
+      return {
+        agentId: decodeURIComponent(file.file.slice(0, -'.jsonl'.length)),
+        title: 'Unreadable conversation',
+        titleSource: 'first-message',
+        createdAt: file.mtime,
+        updatedAt: file.mtime,
+        turnCount: 0,
+        model: '',
+        providerId: '',
+        lastSeq: 0,
+        firstUserText: '',
+      }
+    }
+  }
   private async files(key: ConversationWorkspaceKey): Promise<Fingerprint[]> {
     const entries = await readdir(directory(key), { withFileTypes: true })
     const files: Fingerprint[] = []
@@ -209,44 +247,74 @@ async function fingerprint(path: string, file: string): Promise<Fingerprint | nu
     throw error
   }
 }
-async function* readEvents(root: string, path: string, signal?: AbortSignal): AsyncIterable<ConversationEvent> {
+/** Where to read an oversized transcript: its opening and its end. */
+const HEAD_BYTES = 1024 * 1024
+async function* readEvents(
+  root: string,
+  path: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): AsyncIterable<ConversationEvent> {
   const info = await fingerprint(path, '')
   if (!info) return
   const file = await openConfinedExistingFile(root, path)
-  if ((await file.stat()).size > MAX_CONVERSATION_TRANSCRIPT_BYTES) {
-    await file.close()
-    throw new Error('Conversation transcript exceeds the read limit.')
-  }
-  const stream = file.createReadStream({ encoding: 'utf8', signal })
-  let bytes = 0
-  stream.on('data', (chunk) => {
-    bytes += Buffer.byteLength(chunk)
-    if (bytes > MAX_CONVERSATION_TRANSCRIPT_BYTES)
-      stream.destroy(new Error('Conversation transcript exceeds the read limit.'))
-  })
-  const lines = createInterface({ input: stream, crlfDelay: Infinity })
   try {
-    for await (const line of lines) {
-      signal?.throwIfAborted()
+    const size = (await file.stat()).size
+    const ranges: Array<{ start: number; end: number }> =
+      size > maxBytes && size - maxBytes > HEAD_BYTES
+        ? [
+            { start: 0, end: HEAD_BYTES - 1 },
+            { start: size - maxBytes, end: size - 1 },
+          ]
+        : [{ start: 0, end: Math.max(0, size - 1) }]
+    for (const range of ranges) {
+      if (size === 0) break
+      const stream = file.createReadStream({
+        encoding: 'utf8',
+        signal,
+        start: range.start,
+        end: range.end,
+        autoClose: false,
+      })
+      const lines = createInterface({ input: stream, crlfDelay: Infinity })
       try {
-        const value = record(JSON.parse(line))
-        if (typeof value.type === 'string' && typeof value.agentId === 'string' && typeof value.createdAt === 'number')
-          yield value as ConversationEvent
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') throw error
+        for await (const line of lines) {
+          signal?.throwIfAborted()
+          try {
+            // A range cut mid-line leaves a fragment that does not parse; it is skipped.
+            const value = record(JSON.parse(line))
+            if (
+              typeof value.type === 'string' &&
+              typeof value.agentId === 'string' &&
+              typeof value.createdAt === 'number'
+            )
+              yield value as ConversationEvent
+          } catch (error) {
+            if ((error as Error).name === 'AbortError') throw error
+          }
+        }
+      } finally {
+        lines.close()
+        stream.destroy()
       }
     }
   } finally {
-    lines.close()
-    stream.destroy()
     await file.close()
   }
 }
-async function readThread(root: string, path: string): Promise<ConversationThread | null> {
+/** Rethrows cancellation; any other read failure ends that transcript's events. */
+async function* guarded(events: AsyncIterable<ConversationEvent>, signal?: AbortSignal) {
+  try {
+    yield* events
+  } catch (error) {
+    if ((error as Error).name === 'AbortError' || signal?.aborted) throw error
+  }
+}
+async function readThread(root: string, path: string, maxBytes: number): Promise<ConversationThread | null> {
   let thread: ConversationThread | null = null
   const turns = new Set<string>()
   const costs = new Map<string, number>()
-  for await (const event of readEvents(root, path)) {
+  for await (const event of readEvents(root, path, maxBytes)) {
     thread ??= {
       agentId: event.agentId,
       title: 'New conversation',

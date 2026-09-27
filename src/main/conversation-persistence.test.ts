@@ -201,9 +201,7 @@ test('oversized detail files fail before allocating their contents and oversized
     expect(
       await runtime.readTranscript({ workspaceRoot: f.root, workspaceId: 'workspace', agentId: 'agent' }),
     ).toMatchObject({ ok: true, events: [] })
-    await expect(new ConversationIndex().list({ workspaceRoot: f.root, workspaceId: 'workspace' })).rejects.toThrow(
-      'limit',
-    )
+    expect(await new ConversationIndex().list({ workspaceRoot: f.root, workspaceId: 'workspace' })).toEqual([])
     await runtime.shutdown()
   } finally {
     await f.cleanup()

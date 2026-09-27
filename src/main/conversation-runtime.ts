@@ -214,6 +214,7 @@ export class ConversationRuntime {
     this.threadIndex = new ConversationIndex({
       flush: (path) => this.eventLog.flush(path),
       close: (path) => this.eventLog.close(path),
+      maxTranscriptBytes: this.transcriptLimits.fullReadBytes,
     })
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
