@@ -32,7 +32,6 @@ import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
 import { skillsApi } from './api/skills'
-import { mobileBridgeApi } from './api/mobile-bridge'
 import { launchSettingsApi } from './api/launch-settings'
 import { hostsApi } from './api/hosts'
 import { integrationsApi } from './api/integrations'
@@ -80,7 +79,6 @@ const api = {
   ...hostedSourcesFeedApi,
   ...hostedCardFeedApi,
   ...cliVersionApi,
-  ...mobileBridgeApi,
   ...filesystemApi,
   ...launchSettingsApi,
   ...hostsApi,

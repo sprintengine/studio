@@ -230,12 +230,12 @@ test('command', async () => {
   }
 
   // ---------------------------------------------------------------------------
-  // automations.control (item 47)
+  // automations.control
   //
   // The whole point of these is that they run against the REAL automations stack:
   // a real AutomationsStore on disk, a real AutomationsEngine, and the real IPC
-  // front door — wired to the command service through the same production adapter
-  // (createMobileAutomationsController) that terminal-mobile-command-service uses.
+  // front door — wired to the command service through the production adapter
+  // (createMobileAutomationsController) a transport serving this command binds.
   // A stubbed controller would prove the mapping and nothing about the two engine
   // limits the phone actually has to respect, which is what this task is about.
   // ---------------------------------------------------------------------------

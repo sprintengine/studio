@@ -14,7 +14,6 @@ const SERIAL = [
   'src/main/capability-watcher.test.ts',
   'src/main/companion-agent-service.test.ts',
   'src/main/hosted-feed/card-feed-client.test.ts',
-  'src/main/mobile/bridge/index.test.ts',
   'src/main/skills/studio-plugin.test.ts',
   'src/main/studio-plugin-service.test.ts',
   'src/main/terminal-runtime.test.ts',

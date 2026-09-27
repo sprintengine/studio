@@ -44,7 +44,7 @@ test('dev-only-gate', async () => {
   // 3. selectModuleEnabled resolves a dev-only id as false in production, even
   //    with an override that explicitly tries to turn it on (an absent module is
   //    not in the universe, so it can never resolve enabled). This is what makes
-  //    the self-gating surfaces (top-bar mic, Voice/Mobile settings tabs) hide.
+  //    the self-gating surfaces (top-bar mic, the Voice settings section) hide.
   for (const id of DEV_ONLY_MODULE_IDS) {
     assert.equal(selectModuleEnabled({}, id), false, `${id} must be disabled with no overrides in production`)
     assert.equal(

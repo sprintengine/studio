@@ -622,15 +622,6 @@ export function ModulesSettingsIcon({ className }: IconProps) {
   )
 }
 
-export function MobileSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="7" y="3" width="10" height="18" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M11 17.5h2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 // A screen with a prompt in it: the Machines tab is about the machines on THIS
 // computer that run a workspace's shells (this PC, and its WSL distributions).
 export function MachinesSettingsIcon({ className }: IconProps) {

@@ -8,7 +8,7 @@ test('dev-only', async () => {
   // The dev-only ids are the surfaces gated out of production builds.
   assert.deepEqual(
     [...DEV_ONLY_MODULE_IDS].sort(),
-    ['mobile-relay', 'voice-dictation'],
+    ['voice-dictation'],
     'dev-only ids must be exactly the gated surfaces',
   )
 
@@ -23,7 +23,7 @@ test('dev-only', async () => {
   assert.equal(isDevOnlyModule('agent-runtime'), false)
 
   // activeForChannel over manifests-like records.
-  const manifests = [{ id: 'agent-runtime' }, { id: 'git' }, { id: 'mobile-relay' }, { id: 'voice-dictation' }]
+  const manifests = [{ id: 'agent-runtime' }, { id: 'git' }, { id: 'voice-dictation' }]
   const getId = (m: { id: string }) => m.id
 
   // Dev channel keeps everything.

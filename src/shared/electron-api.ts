@@ -359,15 +359,7 @@ import type {
   MemoryRootStatus,
 } from './ipc/memory'
 import type { IntegrationRemovalOptions, IntegrationRemovalPlan, IntegrationRemovalReport } from './integration-removal'
-import type {
-  MobileBridgeDiagnosticEntry,
-  MobileBridgePairingChallenge,
-  MobileBridgeSettingsUpdate,
-  MobileBridgeState,
-  MobileControlDevice,
-  WorkspaceBackupPayload,
-  WorkspaceBackupReadResult,
-} from './ipc/mobile'
+import type { WorkspaceBackupPayload, WorkspaceBackupReadResult } from './ipc/workspace-backup'
 import type {
   AgentSkillWriteInput,
   AgentSkillWriteResult,
@@ -459,7 +451,7 @@ export type * from './ipc/git'
 export type * from './ipc/diagnostics'
 export type * from './ipc/window'
 export type * from './ipc/account'
-export type * from './ipc/mobile'
+export type * from './ipc/workspace-backup'
 export type * from './ipc/app'
 export type * from './ipc/backlog'
 
@@ -883,12 +875,6 @@ export type ElectronApi = {
   authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
   onAuthStateChanged: (cb: (state: SprintEngineAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
-  mobileBridgeGetState: () => Promise<MobileBridgeState>
-  mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate) => Promise<MobileBridgeState>
-  mobileBridgeRequestPairingCode: () => Promise<MobileBridgePairingChallenge>
-  mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
-  mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
-  onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
   searchFiles: (
     rootPath: string,

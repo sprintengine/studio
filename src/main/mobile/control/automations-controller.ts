@@ -1,7 +1,7 @@
 import type { AutomationsAppFrontDoor } from '../../ipc/automations-ipc'
 import type { MobileAutomationControlResult, MobileAutomationsController } from './command'
 
-// Binds the phone's `automations.control` command (item 47) to the SAME front door
+// Binds the phone's `automations.control` command to the SAME front door
 // the desktop UI and the automation server write through (ipc/automations-ipc.ts):
 // enable/pause is a status patch through the write core, run-now is `engine.runNow`.
 //
@@ -13,8 +13,12 @@ import type { MobileAutomationControlResult, MobileAutomationsController } from 
 //
 // Only the fields the phone asked about come back. The engine's own result carries
 // the full definition, whose trigger/action config is provider-owned `unknown` and
-// can hold local paths and webhook secrets; the relay rejects any command result
-// containing a local path outright (multiauth result-summary.ts).
+// can hold local paths and webhook secrets, and a command result crosses to
+// another device, where neither belongs.
+//
+// No transport serves `automations.control` today: the tailnet gateway's
+// command allowlist is `backlog.update` alone (automation-tools.ts), and widening
+// it is a decision. This adapter is the seam that decision binds.
 export function createMobileAutomationsController(
   resolveFrontDoor: () => AutomationsAppFrontDoor | null,
 ): MobileAutomationsController {

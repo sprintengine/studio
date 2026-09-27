@@ -5,7 +5,6 @@ import { join, resolve } from 'path'
 import { deriveWorkspaceId, isWorkspaceIdToken, resolveWorkspaceIdToRoot } from './workspace-id'
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
-import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
 import {
   mobileControlProtocolVersion,
   validateMobileControlSnapshot,
@@ -23,7 +22,6 @@ test('workspace-id', async () => {
   async function main(): Promise<void> {
     assertTokenRoundTrips()
     assertSanitizerStripsLocalPaths()
-    await assertOnDemandSnapshotIsSanitized()
     await assertValidateResolvesToken()
     console.log('workspace-id regression: all assertions passed')
   }
@@ -81,25 +79,6 @@ test('workspace-id', async () => {
     assert.equal(isWorkspaceIdToken(backlogToken ?? ''), true)
     assert.equal(resolveWorkspaceIdToRoot(backlogToken ?? '', [root]), resolve(root))
     assert.equal(safe.backlog?.[0]?.workspaceName, 'projA', 'display name preserved')
-  }
-
-  // Guards the on-demand path (workspace open / backlog refresh -> snapshot.request
-  // command) which builds its result outside the publish emit() chokepoint. This is
-  // the exact path that surfaced "must not include local paths at
-  // summary.data.backlog[0].workspacePath".
-  async function assertOnDemandSnapshotIsSanitized(): Promise<void> {
-    const root = '/Users/example/workspace/projC'
-    const fixture = buildSnapshotFixture(root)
-    const result = await dispatchSnapshotRequest({
-      command: { type: 'snapshot.request', commandId: 'c1', deviceId: 'd1', payload: {} } as never,
-      snapshotService: { readSnapshot: async () => fixture } as never,
-      desktopSessionId: 'sess',
-    })
-    assert.equal(
-      localPathProbe.test(JSON.stringify(result)),
-      false,
-      'on-demand snapshot.request result must contain no local path',
-    )
   }
 
   async function assertValidateResolvesToken(): Promise<void> {

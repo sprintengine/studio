@@ -19,8 +19,6 @@ import { deepRedactLocalPaths } from './relay-path-safety'
 
 export type { MobileControlSnapshot }
 
-const defaultPublishThrottleMs = 1000
-
 /**
  * The commands this desktop will actually execute.
  *
@@ -60,8 +58,6 @@ export type MobileControlSnapshotRequest = {
 // The unscoped default: every collection the wire declares.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog', 'automations'])
 
-type MobileControlSnapshotListener = (snapshot: MobileControlSnapshot) => void
-
 // Make an outbound snapshot relay-safe: the relay rejects any summary containing
 // an absolute local path (multiauth src/relay/result-summary.ts). Round-trip
 // critical workspace roots become resolvable tokens (deriveWorkspaceId);
@@ -93,7 +89,6 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
 }
 
 type MobileControlSnapshotServiceOptions = {
-  publishThrottleMs?: number
   supportedCommands?: readonly MobileControlCommandType[]
   /**
    * Dev servers this desktop publishes on the tailnet, for the phone's web
@@ -105,25 +100,12 @@ type MobileControlSnapshotServiceOptions = {
 }
 
 export class MobileControlSnapshotService {
-  private readonly listeners = new Set<MobileControlSnapshotListener>()
-  private readonly publishThrottleMs: number
-  private lastPublishedAt = 0
-  private pendingRequest: MobileControlSnapshotRequest | null = null
-  private publishTimer: NodeJS.Timeout | null = null
   private readonly supportedCommands: MobileControlCommandType[]
   private readonly readWebTargets: () => Promise<MobileControlWebTargetSnapshot[]>
 
   constructor(options: MobileControlSnapshotServiceOptions = {}) {
-    this.publishThrottleMs = Math.max(0, options.publishThrottleMs ?? defaultPublishThrottleMs)
     this.supportedCommands = normalizeMobileControlCommands(options.supportedCommands ?? defaultMobileSnapshotCommands)
     this.readWebTargets = options.readWebTargets ?? (async () => [])
-  }
-
-  subscribe(listener: MobileControlSnapshotListener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
   }
 
   async readSnapshot(request: MobileControlSnapshotRequest): Promise<MobileControlSnapshot> {
@@ -165,60 +147,6 @@ export class MobileControlSnapshotService {
       ...(automations.length > 0 ? { automations } : {}),
       ...(webTargets.length > 0 ? { webTargets } : {}),
     }
-  }
-
-  async publishSnapshot(request: MobileControlSnapshotRequest): Promise<MobileControlSnapshot | null> {
-    const now = Date.now()
-    const elapsedMs = now - this.lastPublishedAt
-    if (elapsedMs >= this.publishThrottleMs) {
-      this.clearPublishTimer()
-      const snapshot = await this.readSnapshot(request)
-      this.emit(snapshot)
-      this.lastPublishedAt = Date.now()
-      return snapshot
-    }
-
-    this.pendingRequest = request
-    if (!this.publishTimer) {
-      this.publishTimer = setTimeout(() => {
-        void this.flushPendingSnapshot()
-      }, this.publishThrottleMs - elapsedMs)
-    }
-    return null
-  }
-
-  async flushPendingSnapshot(): Promise<MobileControlSnapshot | null> {
-    const request = this.pendingRequest
-    if (!request) {
-      this.clearPublishTimer()
-      return null
-    }
-
-    this.pendingRequest = null
-    this.clearPublishTimer()
-    const snapshot = await this.readSnapshot(request)
-    this.emit(snapshot)
-    this.lastPublishedAt = Date.now()
-    return snapshot
-  }
-
-  shutdown(): void {
-    this.clearPublishTimer()
-    this.pendingRequest = null
-    this.listeners.clear()
-  }
-
-  private emit(snapshot: MobileControlSnapshot): void {
-    const safe = sanitizeMobileSnapshotForRelay(snapshot)
-    for (const listener of this.listeners) {
-      listener(safe)
-    }
-  }
-
-  private clearPublishTimer(): void {
-    if (!this.publishTimer) return
-    clearTimeout(this.publishTimer)
-    this.publishTimer = null
   }
 }
 

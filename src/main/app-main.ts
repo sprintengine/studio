@@ -56,7 +56,7 @@ const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 const services = createAppServices(DIAGNOSTICS_ENABLED)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice, Mobile Relay) ship only in
+// Dev-only capability surfaces (Voice) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.

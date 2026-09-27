@@ -12,7 +12,6 @@ import { designRendererModule } from './design-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
-import { mobileRelayRendererModule } from './mobile-relay-module'
 import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
@@ -28,7 +27,6 @@ const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   memoryRendererModule,
   gitRendererModule,
   automationsRendererModule,
-  mobileRelayRendererModule,
   voiceDictationRendererModule,
 ]
 
@@ -49,10 +47,8 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 // "simplify" this back to `import.meta.env.DEV`.
 const IS_PRODUCTION_BUILD: boolean = import.meta.env.PROD === true
 
-// Active renderer modules for this build channel. Dev-only modules (Voice,
-// Mobile Relay) are dropped from a
-// packaged (production) renderer
-// bundle so they are absent everywhere downstream: host registration, the
+// Active renderer modules for this build channel. Dev-only modules (Voice)
+// are dropped from a packaged (production) renderer bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev
 // build the full set is active and the modules remain user-toggleable. See
 // src/shared/modules/dev-only.ts.
