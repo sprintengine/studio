@@ -48,6 +48,7 @@ import type {
   ConversationProviderPermissionResult,
   ConversationSessionEventSink,
   MockAdapterApprovalInput,
+  MockAdapterModelInput,
   MockAdapterPermissionInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
@@ -85,6 +86,7 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   disposeChildProcess(sessionId: string): boolean
   disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
+  setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
 }
 
 type PermissionDecision = {
@@ -587,7 +589,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       subagents: true,
       cost: true,
       contextMeter: false,
-      liveModelSwitch: false,
+      liveModelSwitch: true,
       atMentions: true,
     },
     sessions: 'stateful',
@@ -752,6 +754,29 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       disposeChild(state)
       return { ok: true }
+    },
+
+    // Live model switch. The model is recorded for every later turn and pushed
+    // into the running query (the SDK's `setModel`, which takes effect on the
+    // next message it reads). A query that refuses is replaced instead when no
+    // turn is running: the next turn respawns it with `resume` on the new
+    // model, so the conversation continues. Mid-turn the reply on screen
+    // finishes on the model it started with.
+    async setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult> {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      state.modelId = input.nextModelId
+      state.lastActivityAt = now()
+      const notice = state.turn
+        ? 'The new model starts with your next message — this reply finishes on the model it started with.'
+        : undefined
+      if (!state.query) return { ok: true, ...(notice ? { notice } : {}) }
+      try {
+        await state.query.setModel(input.nextModelId === CONVERSATION_DEFAULT_MODEL_ID ? undefined : input.nextModelId)
+      } catch {
+        if (!state.turn) disposeChild(state)
+      }
+      return { ok: true, ...(notice ? { notice } : {}) }
     },
 
     interrupt(input: MockAdapterSessionInput) {

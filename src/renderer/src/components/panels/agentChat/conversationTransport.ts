@@ -8,6 +8,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionFrame,
   ConversationSessionSummary,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationSubscribeInput,
   ConversationToolDetailInput,
@@ -42,7 +43,10 @@ export type ConversationTransportCapabilities = {
   permanentApprovals: boolean
   /** Revert a turn's files from its checkpoint. */
   checkpointRevert: boolean
-  /** Pick another model before the first turn. */
+  /**
+   * Pick another model of the chat's CLI: before the first turn, and — where
+   * the provider declares `liveModelSwitch` — mid-conversation too.
+   */
   modelSwitch: boolean
   /** Attach skills, mention files, and attach images from this machine. */
   composerContext: boolean
@@ -78,6 +82,8 @@ export type ConversationTransport = {
   interrupt(input: ConversationInterruptInput): Promise<ConversationTransportResult>
   respond(input: ConversationRespondToRequestInput): Promise<ConversationTransportResult>
   setPermissionPreset(input: ConversationSetPermissionInput): Promise<ConversationTransportResult>
+  /** Switch a running session's model; absent where the transport cannot. */
+  setModel?(input: ConversationSetModelInput): Promise<ConversationTransportResult>
 }
 
 const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
@@ -105,6 +111,7 @@ const localConversationTransport: ConversationTransport = {
   interrupt: (input) => window.api.conversationSessionInterrupt(input),
   respond: (input) => window.api.conversationSessionRespondToRequest(input),
   setPermissionPreset: (input) => window.api.conversationSessionSetPermission(input),
+  setModel: (input) => window.api.conversationSessionSetModel(input),
 }
 
 const ConversationTransportContext = createContext<ConversationTransport>(localConversationTransport)

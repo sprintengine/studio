@@ -63,6 +63,8 @@ async function mountChat({
   providerModels = [{ id: modelId }],
   agent: agentPatch = {},
   sendTurn = async () => ({ ok: false, message: 'Not scripted.' }),
+  setModel,
+  plugins,
 }: {
   events?: ConversationEvent[]
   capabilities?: Record<string, unknown>
@@ -71,6 +73,8 @@ async function mountChat({
   providerModels?: { id: string; displayName?: string }[]
   agent?: Record<string, unknown>
   sendTurn?: SendTurn
+  setModel?: (input: { sessionId: string; modelId: string }) => Promise<unknown>
+  plugins?: unknown[]
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -128,6 +132,7 @@ async function mountChat({
       }),
       conversationSessionSendTurn: sendTurn,
       conversationThreads: async () => ({ ok: true, threads: [] }),
+      ...(setModel ? { conversationSessionSetModel: setModel } : {}),
     },
   })
   const { act, createElement } = await import('react')
@@ -136,6 +141,8 @@ async function mountChat({
   const { default: AgentChatView } = await import('../AgentChatView')
   const { composerDraftStore } = await import('./draftStore')
   composerDraftStore().getState().remove('workspace', 'agent')
+  if (plugins)
+    useWorkspaceStore.setState({ pluginCatalogEntries: plugins as never, pluginCatalogStatus: 'ready' as never })
   useWorkspaceStore.setState({
     workspaces: [
       {
@@ -359,6 +366,72 @@ test('a turn never shows a dollar figure, even when the provider reports one', a
     expect(chat.host.textContent).not.toContain('$')
     // The elapsed time and Copy stay under the reply.
     expect(chat.button('Copy')).toBeDefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a started chat switches models within its CLI from the full catalog, applied through the live session', async () => {
+  const setModel = vi.fn(async (input: { sessionId: string; modelId: string }) => ({
+    ok: true,
+    session: {
+      sessionId: input.sessionId,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'claude-agent',
+      modelId: input.modelId,
+      status: 'ready',
+      createdAt: 1,
+      updatedAt: 2,
+      capabilities: { liveModelSwitch: true },
+    },
+    notice: 'The new model starts with your next message.',
+  }))
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'claude-opus-5-5',
+    capabilities: { liveModelSwitch: true },
+    sendTurn: async () => ({ ok: true }),
+    setModel,
+    plugins: [
+      {
+        id: 'claude-code',
+        displayName: 'Claude Code',
+        source: 'bundled',
+        version: 1,
+        binary: 'claude',
+        modelSelection: {
+          args: ['--model', '{{model}}'],
+          options: [
+            { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+            { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+          ],
+        },
+      },
+    ],
+  })
+  try {
+    // A first turn starts the live session.
+    await chat.act(async () => chat.type('hello'))
+    await chat.act(async () => chat.enter())
+    const doc = chat.dom.window.document
+    const chip = () =>
+      Array.from(doc.querySelectorAll('button')).find((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))!
+    expect(chip().getAttribute('aria-label')).toBe('Engine: Opus 5.5')
+    await chat.act(async () => chip().click())
+    const rows = Array.from(doc.querySelectorAll('[role="listbox"][aria-label="Agent runtime"] [role="option"]'))
+    const names = rows.map((row) => row.textContent ?? '')
+    expect(
+      names.some((name) => name.includes('Fable 5.1')),
+      'the full catalog, not only the current model',
+    ).toBe(true)
+    expect(doc.body.textContent).not.toContain('model is set once the chat starts')
+    const fable = rows.find((row) => row.textContent?.includes('Fable 5.1')) as HTMLElement
+    await chat.act(async () => fable.click())
+    expect(setModel).toHaveBeenCalledWith({ sessionId: 'session', modelId: 'claude-fable-5-1' })
+    expect(chat.agent().conversation?.modelId).toBe('claude-fable-5-1')
+    expect(chip().getAttribute('aria-label')).toBe('Engine: Fable 5.1')
+    expect(chat.host.textContent).toContain('The new model starts with your next message.')
   } finally {
     await chat.unmount()
   }

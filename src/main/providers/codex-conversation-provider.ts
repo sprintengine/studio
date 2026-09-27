@@ -428,7 +428,7 @@ export function createCodexConversationProvider(
       subagents: false,
       cost: false,
       contextMeter: false,
-      liveModelSwitch: false,
+      liveModelSwitch: true,
     },
     startSession(input) {
       const state: Session = {
@@ -568,6 +568,21 @@ export function createCodexConversationProvider(
         transport.close()
       }
       return { ok: true }
+    },
+    // Codex takes the model on every `turn/start`, and the runtime hands each
+    // turn the session's current model, so a switch needs no reconnect: it is
+    // recorded here for a thread resume and simply rides the next turn. The
+    // turn already running keeps the model it started with.
+    async setModel(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Codex conversation is not active.' }
+      state.input = { ...state.input, modelId: input.nextModelId }
+      return state.turn
+        ? {
+            ok: true,
+            notice: 'The new model starts with your next message — this reply finishes on the model it started with.',
+          }
+        : { ok: true }
     },
     listLiveSessions: () =>
       [...sessions.values()].map((state) => ({

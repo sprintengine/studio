@@ -51,6 +51,12 @@ export type ConversationProviderAdapter = {
   // permission surface, and the runtime refuses the change instead of recording
   // a preset the provider would never honor.
   setPermissionPreset?(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
+  // Live model switch on a running session, within the provider's own CLI. The
+  // adapter records the model so every later turn (and a respawn) runs on it,
+  // and pushes it into a live provider session where the provider has a way
+  // to. An adapter that implements this declares `capabilities.liveModelSwitch`
+  // so the renderer offers the switch; absent, the runtime refuses it.
+  setModel?(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
   // Optional lifecycle surface for adapters holding child processes: inventory
   // for diagnostics/status, idle disposal (keeps the session + resume cursor;
   // the next turn respawns), and dispose-everything for app shutdown, which
@@ -125,6 +131,10 @@ export type MockAdapterTurnInput = MockAdapterSessionInput & {
 export type MockAdapterPermissionInput = MockAdapterSessionInput & {
   permissionPreset: ConversationPermissionPreset
 }
+
+// The session context plus the model to switch to, for `setModel`. `modelId`
+// here is the NEW model; the CLI's own default row is `default`.
+export type MockAdapterModelInput = MockAdapterSessionInput & { nextModelId: string }
 
 // Whether the adapter actually applied the preset. A failure message is shown to
 // the user, so it must say what the provider refused rather than a generic error.

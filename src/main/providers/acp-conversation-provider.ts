@@ -114,7 +114,7 @@ const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   subagents: false,
   cost: false,
   contextMeter: false,
-  liveModelSwitch: false,
+  liveModelSwitch: true,
 })
 export const acpToolKind = (kind?: ToolKind | null): ConversationToolKind =>
   ({
@@ -176,6 +176,12 @@ type State = {
   modes: string[]
   defaultMode?: string
   modeConfigId?: string
+  // The agent's model config option, the value it started on (what the CLI's
+  // own default row maps back to), and the model the live session is on — a
+  // switch is applied at the start of the next turn when these disagree.
+  modelConfigId?: string
+  defaultModelValue?: string
+  appliedModelId?: string
   history: Array<{ user: string; assistant: string }>
   replayHistory: boolean
   // Set when a stored session could not be reopened; reported once, with the
@@ -582,6 +588,10 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         }
         state.capabilities.planMode = state.modes.includes('plan')
         const modelConfig = session.configOptions?.find((option) => option.category === 'model')
+        state.modelConfigId = modelConfig?.id
+        state.defaultModelValue =
+          modelConfig && 'currentValue' in modelConfig ? String(modelConfig.currentValue) : undefined
+        state.appliedModelId = state.input.modelId
         if (modelConfig && 'options' in modelConfig) {
           for (const option of modelConfig.options) {
             for (const id of 'value' in option ? [option.value] : option.options.map((entry) => entry.value))
@@ -691,6 +701,19 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             emit(state, 'session_updated', { providerSessionId: state.nativeId, ...(notice ? { notice } : {}) })
           }
           if (input.signal?.aborted || state.cancelled) throw new Error('interrupted')
+          // A model switched since the session last ran lands here, before the
+          // prompt, so this turn is the first on the new model.
+          if (state.input.modelId !== state.appliedModelId) {
+            const value = state.input.modelId === 'default' ? state.defaultModelValue : state.input.modelId
+            if (!state.modelConfigId || !value)
+              throw new Error('This ACP agent does not expose model selection. Choose the default model.')
+            await state.connection!.setSessionConfigOption({
+              sessionId: state.nativeId!,
+              configId: state.modelConfigId,
+              value,
+            })
+            state.appliedModelId = state.input.modelId
+          }
           if (input.mode || state.defaultMode) {
             const desired = !input.mode || input.mode === 'default' ? state.defaultMode : input.mode
             if (!desired || !state.modes.includes(desired))
@@ -769,6 +792,21 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           approved: input.approved && Boolean(selected),
         }),
       ]
+    },
+    // The model is the agent's session config option. It is recorded here and
+    // applied at the start of the next turn (sendTurn), so a turn already
+    // running keeps the model it started with and a respawn starts on the new
+    // one (initialize applies `input.modelId`).
+    async setModel(input) {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'ACP session is unavailable.' }
+      state.input = { ...state.input, modelId: input.nextModelId }
+      return state.turn
+        ? {
+            ok: true,
+            notice: 'The new model starts with your next message — this reply finishes on the model it started with.',
+          }
+        : { ok: true }
     },
     async setPermissionPreset(input) {
       const state = sessions.get(input.sessionId)

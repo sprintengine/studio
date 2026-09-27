@@ -248,6 +248,14 @@ export type ConversationSetPermissionInput = {
   permissionPreset: ConversationPermissionPreset
 }
 
+// Switch a running conversation to another model of the same provider. The
+// CLI's own default row is `default`. Applies from the next turn.
+export type ConversationSetModelInput = {
+  commandId?: string
+  sessionId: string
+  modelId: string
+}
+
 export type ConversationStopSessionInput = {
   sessionId: string
 }

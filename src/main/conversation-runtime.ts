@@ -18,6 +18,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -116,6 +117,7 @@ type RuntimeSession = ConversationSessionSummary & {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   permissionChangeTail?: Promise<ConversationSessionActionResult>
+  modelChangeTail?: Promise<ConversationSessionActionResult>
   allowedTools?: string[]
   // Detail files of tools still open in this session, closed when a turn ends.
   toolDetailPaths: Set<string>
@@ -753,6 +755,45 @@ export class ConversationRuntime {
     if (!applied.ok) return { ok: false, message: applied.message }
     session.permissionPreset = input.permissionPreset
     session.updatedAt = this.now()
+    return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
+  }
+
+  // Switch a running conversation to another model of the same provider. The
+  // adapter records it (and pushes it into a live provider session where it
+  // can); only then does the session take it, and a `session_updated` event
+  // carrying the new model is written so the transcript, the thread index, a
+  // resume and a remote list all name the model the conversation is now on.
+  // Gated on the adapter declaring `liveModelSwitch`, never on its id.
+  async setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () => this.setModel({ ...input, commandId: undefined }))
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    const pending = (session.modelChangeTail ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.applyModel(session, input))
+    session.modelChangeTail = pending
+    return pending
+  }
+
+  private async applyModel(
+    session: RuntimeSession,
+    input: ConversationSetModelInput,
+  ): Promise<ConversationSessionActionResult> {
+    const modelId = input.modelId.trim()
+    if (!modelId) return { ok: false, message: 'Conversation model is invalid.' }
+    if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
+    if (modelId === session.modelId) return { ok: true, session: this.toSummary(session) }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
+    if (!adapter.setModel || session.capabilities?.liveModelSwitch !== true) {
+      return { ok: false, message: 'This conversation provider cannot change models mid-conversation.' }
+    }
+    const applied = await adapter.setModel({ ...session, nextModelId: modelId })
+    if (!applied.ok) return { ok: false, message: applied.message }
+    session.modelId = modelId
+    session.updatedAt = this.now()
+    await this.emit(session, this.eventForSession(session, 'session_updated', { modelId }))
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
   }
 

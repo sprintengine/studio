@@ -48,6 +48,7 @@ test('conversation-runtime', async () => {
     await testMultiTurnHistoryAccumulates()
     await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
     await testSetPermissionAppliesThroughTheAdapterOrRefuses()
+    await testSetModelSwitchesALiveSessionOrRefuses()
     await testPermissionTransitionsAreSerialized()
     await testInterruptSuppressesLateAsyncProviderEvents()
     await testStopSessionSuppressesLateAsyncProviderEvents()
@@ -1600,6 +1601,72 @@ test('conversation-runtime', async () => {
       const userMessages = transcript.events.filter((event) => event.type === 'user_message')
       assert.equal(userMessages.length, 2)
       assert.equal(userMessages[0]?.payload?.text, 'describe')
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A model switch goes through the adapter, gated on its declared
+  // `liveModelSwitch`; once accepted the session is on the new model and the
+  // transcript records it, so the thread index, a resume and a remote list read
+  // the model the conversation is now on.
+  async function testSetModelSwitchesALiveSessionOrRefuses(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-model-'))
+    const switched: string[] = []
+    try {
+      const captured: ConversationMessage[][] = []
+      const capturing = createCapturingProvider(captured)
+      const runtime = new TrackedConversationRuntime({
+        adapters: [
+          {
+            ...capturing,
+            sessions: 'stateful',
+            capabilities: { ...capturing.capabilities!, liveModelSwitch: true },
+            async setModel(input) {
+              switched.push(input.nextModelId)
+              return { ok: true, notice: 'From the next turn.' }
+            },
+          },
+          { ...capturing, id: 'fixed-provider', listModels: () => ['capture-model'] },
+        ],
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+      })
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'w',
+        agentId: 'a',
+        providerId: 'capture-provider',
+        modelId: 'capture-model',
+      })
+      assert.equal(started.ok, true)
+      if (!started.ok) return
+      const result = await runtime.setModel({ sessionId: started.session.sessionId, modelId: 'other-model' })
+      assert.equal(result.ok, true)
+      if (!result.ok) return
+      assert.deepEqual(switched, ['other-model'])
+      assert.equal(result.session.modelId, 'other-model')
+      assert.equal(result.notice, 'From the next turn.')
+      const transcript = await runtime.readTranscript({ workspaceRoot, workspaceId: 'w', agentId: 'a' })
+      assert.ok(transcript.ok)
+      const recorded = transcript.ok ? transcript.events.at(-1) : undefined
+      assert.equal(recorded?.type, 'session_updated')
+      assert.equal(recorded?.modelId, 'other-model', 'the transcript names the model the chat is now on')
+
+      const fixed = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'w',
+        agentId: 'b',
+        providerId: 'fixed-provider',
+        modelId: 'capture-model',
+      })
+      assert.equal(fixed.ok, true)
+      if (!fixed.ok) return
+      assert.deepEqual(await runtime.setModel({ sessionId: fixed.session.sessionId, modelId: 'other-model' }), {
+        ok: false,
+        message: 'This conversation provider cannot change models mid-conversation.',
+      })
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })

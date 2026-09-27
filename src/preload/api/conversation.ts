@@ -28,6 +28,7 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -128,6 +129,10 @@ type ConversationIpcRenderer = {
     input: ConversationSetPermissionInput,
   ): Promise<ConversationSessionActionResult>
   invoke(
+    channel: 'conversation:sessions:set-model',
+    input: ConversationSetModelInput,
+  ): Promise<ConversationSessionActionResult>
+  invoke(
     channel: 'conversation:sessions:stop',
     input: ConversationStopSessionInput,
   ): Promise<ConversationSessionActionResult>
@@ -204,6 +209,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     conversationSessionSetPermission: (
       input: ConversationSetPermissionInput,
     ): Promise<ConversationSessionActionResult> => renderer.invoke('conversation:sessions:set-permission', input),
+    conversationSessionSetModel: (input: ConversationSetModelInput): Promise<ConversationSessionActionResult> =>
+      renderer.invoke('conversation:sessions:set-model', input),
     conversationSessionStop: (input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:stop', input),
     conversationSessionsList: (input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult> =>
@@ -286,6 +293,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionInterrupt'
     | 'conversationSessionRespondToRequest'
     | 'conversationSessionSetPermission'
+    | 'conversationSessionSetModel'
     | 'conversationSessionStop'
     | 'conversationSessionsList'
     | 'conversationTranscript'

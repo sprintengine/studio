@@ -1280,13 +1280,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // only until the conversation starts: once a turn is sent, a session exists,
   // or replayed history is present, the pill is read-only and the user opens a
   // new agent to change model.
+  // A provider that declares `liveModelSwitch` takes a new model mid-chat
+  // (from the next turn), so its picker never locks; any other provider binds
+  // a session to its model and the picker locks once the chat has started.
+  const liveModelSwitch = capabilities?.liveModelSwitch === true && typeof transport.setModel === 'function'
   const modelLocked =
     !modelSwitch ||
-    isConversationModelLocked(
-      userTurns.length,
-      sessionId,
-      projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
-    )
+    (!liveModelSwitch &&
+      isConversationModelLocked(
+        userTurns.length,
+        sessionId,
+        projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
+      ))
   const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
@@ -1352,12 +1357,40 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
     return renderKeybinding(keybinding, platform)
   }, [keybindingSettings])
+  const [modelChanging, setModelChanging] = useState(false)
   const selectModel = (providerId: string, modelId: string) => {
     setModelMenuOpen(false)
-    if (modelLocked || (providerId === conversation.providerId && modelId === conversation.modelId)) return
+    if (modelLocked || modelChanging || (providerId === conversation.providerId && modelId === conversation.modelId))
+      return
     // The agent keeps its name: it is named from the pool, not after its model.
-    updateBinding({ conversation: { providerId, modelId }, conversationMode: 'default' })
-    binding.rememberModel?.({ providerId, modelId })
+    const record = () => {
+      updateBinding({ conversation: { providerId, modelId }, conversationMode: 'default' })
+      binding.rememberModel?.({ providerId, modelId })
+    }
+    // No live session: the record is what the next session starts on.
+    if (!sessionId || !transport.setModel) {
+      record()
+      return
+    }
+    // A live session takes the switch first; the record moves only once the
+    // provider accepted it, so the chip never names a model the session is not
+    // on. Mid-turn the provider says the reply finishes on its old model.
+    setActionError(null)
+    setPermissionNotice(null)
+    setModelChanging(true)
+    void transport
+      .setModel({ sessionId, modelId })
+      .then((result) => {
+        if (!result.ok) {
+          setActionError(result.message)
+          return
+        }
+        record()
+        if (result.session) setSession(result.session)
+        setPermissionNotice(result.notice ?? null)
+      })
+      .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not change the model.'))
+      .finally(() => setModelChanging(false))
   }
 
   // Capabilities are available from the provider catalog before the first turn,

@@ -509,3 +509,39 @@ test('a resume that is never answered fails the turn instead of dropping the thr
   expect(f.calls.map((call) => call.method)).not.toContain('thread/start')
   expect(f.events.at(-1)).toMatchObject({ type: 'turn_failed' })
 })
+
+test('a model switch rides the next turn without a reconnect, and the running turn keeps its model', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  expect(f.adapter.capabilities?.liveModelSwitch).toBe(true)
+  const first = f.send()
+  await f.started
+  expect(await f.adapter.setModel?.({ ...f.input, nextModelId: 'gpt-6-luna' })).toMatchObject({
+    ok: true,
+    notice: expect.stringContaining('next message'),
+  })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await first
+
+  // The runtime hands every turn the session's current model.
+  f.input.modelId = 'gpt-6-luna'
+  f.calls.length = 0
+  f.nextTurn()
+  const second = f.send()
+  await f.started
+  expect(f.transports).toEqual({ created: 1, closed: 0 })
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({ model: 'gpt-6-luna' })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await second
+
+  // The CLI's own default row passes no model at all.
+  expect(await f.adapter.setModel?.({ ...f.input, nextModelId: 'default' })).toEqual({ ok: true })
+  f.input.modelId = 'default'
+  f.calls.length = 0
+  f.nextTurn()
+  const third = f.send()
+  await f.started
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).not.toHaveProperty('model')
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await third
+})

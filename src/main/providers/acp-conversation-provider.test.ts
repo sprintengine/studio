@@ -15,7 +15,7 @@ import type { ConversationEvent, ConversationPermissionPreset } from '../../shar
 // permission and file requests. No installed CLI or network is needed in CI.
 const agent = `
 const { createInterface } = require('node:readline');
-let prompt, opened, serial=100, pending=new Map();
+let prompt, opened, serial=100, pending=new Map(), model='model-one';
 const send=value=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
 const result=(id,result)=>send({id,result});
 const update=update=>send({method:'session/update',params:{sessionId:'native',update}});
@@ -33,11 +33,12 @@ createInterface({input:process.stdin}).on('line',async line=>{
    return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
  }
  if(m.method==='session/set_mode')return result(m.id,{});
+ if(m.method==='session/set_config_option'){if(p.configId==='model')model=p.value;return result(m.id,{configOptions:[]})}
  if(m.method==='session/cancel'){if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
  if(m.method!=='session/prompt')return result(m.id,{});
  prompt=m.id;const text=p.prompt[0].text;
  if(text.includes('inspect history')){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text}});result(m.id,{stopReason:'end_turn'});return}
- if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened,permission:process.env.OPENCODE_PERMISSION??null})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
+ if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened,model,permission:process.env.OPENCODE_PERMISSION??null})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text==='crash')process.exit(2);
  update({sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Thinking'}});
  if(text==='hang'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'waiting'}});return}
@@ -147,7 +148,7 @@ async function launched(f: { provider: ReturnType<typeof createAcpConversationPr
     .filter((event) => event.type === 'content_delta')
     .map((event) => event.payload?.text)
     .join('')
-  return JSON.parse(text) as { argv: string[]; opened: string; permission: string | null }
+  return JSON.parse(text) as { argv: string[]; opened: string; model: string; permission: string | null }
 }
 async function turn(f: Awaited<ReturnType<typeof fixture>>, message: string) {
   const events: ConversationEvent[] = []
@@ -545,5 +546,19 @@ test('ACP starts a session under either preset without a notice of its own', asy
     } finally {
       await f.cleanup()
     }
+  }
+})
+
+test('a model switch lands on the ACP session config before the next prompt, and default returns to its start value', async () => {
+  const f = await fixture()
+  try {
+    expect(f.provider.capabilities?.liveModelSwitch).toBe(true)
+    expect((await launched(f)).model).toBe('model-one')
+    expect(await f.provider.setModel?.({ ...f.input, nextModelId: 'model-two' })).toEqual({ ok: true })
+    expect((await launched(f)).model, 'the next turn runs on the new model').toBe('model-two')
+    expect(await f.provider.setModel?.({ ...f.input, nextModelId: 'default' })).toEqual({ ok: true })
+    expect((await launched(f)).model, 'the CLI default row maps back to the model it started on').toBe('model-one')
+  } finally {
+    await f.cleanup()
   }
 })

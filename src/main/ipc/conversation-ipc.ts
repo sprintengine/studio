@@ -30,6 +30,7 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
@@ -84,6 +85,7 @@ export type ConversationIpcHandlers = {
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
   setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
+  setModel?(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
@@ -202,6 +204,9 @@ export function createConversationIpcHandlers(
     },
     setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
       return runtime.setPermission(input)
+    },
+    setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
+      return runtime.setModel(input)
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
@@ -539,6 +544,20 @@ export function registerConversationIpc(
     },
   )
 
+  ipcMain.handle(
+    'conversation:sessions:set-model',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSetModelInput(input)
+      if (!parsed.ok) return parsed
+      if (!handlers.setModel) return { ok: false, message: 'Changing models mid-conversation is unavailable.' }
+      try {
+        return await handlers.setModel(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
   ipcMain.handle('conversation:sessions:stop', async (_, input: unknown): Promise<ConversationSessionActionResult> => {
     const parsed = parseSessionIdInput(input)
     if (!parsed.ok) return parsed
@@ -837,6 +856,16 @@ function parseSetPermissionInput(
   const permissionPreset = parseCliPermissionPreset(isRecord(input) ? input.permissionPreset : undefined)
   if (!permissionPreset) return { ok: false, message: PERMISSION_PRESET_ERROR }
   return { ok: true, input: { ...session.input, permissionPreset } }
+}
+
+function parseSetModelInput(
+  input: unknown,
+): { ok: true; input: ConversationSetModelInput } | { ok: false; message: string } {
+  const session = parseSessionIdInput(input)
+  if (!session.ok) return session
+  const modelId = isRecord(input) && typeof input.modelId === 'string' ? input.modelId.trim() : ''
+  if (!modelId || modelId.length > 200) return { ok: false, message: 'modelId is required.' }
+  return { ok: true, input: { ...session.input, modelId } }
 }
 
 function parseRespondToRequestInput(
