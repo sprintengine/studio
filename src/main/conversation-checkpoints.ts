@@ -101,7 +101,9 @@ export class ConversationCheckpoints {
         ? await this.latestRecovery(root, input.key, input.turnSeq, 'undo')
         : this.ref(input.key, input.turnSeq, 'pre')
       if (!target) return { ok: false, message: 'There is no revert to undo for this turn.' }
-      const current = await this.worktreeTree(root)
+      // A file the target holds may be ignored now; capture it anyway so the
+      // diff shows it and the recovery ref can bring back what is replaced.
+      const current = await this.worktreeTree(root, await this.blobPaths(root, target))
       const { files } = await this.diff(root, target, current)
       if (!input.confirmed) return { ok: true, files, reverted: false }
       // Act only on what the dialog showed. A file that changed state since the
@@ -120,7 +122,13 @@ export class ConversationCheckpoints {
       const recovery = await this.storeRecovery(root, input.key, input.turnSeq, input.undo ? 'redo' : 'undo', current)
       const restores = files.filter((file) => file.status !== 'added').map((file) => file.path)
       if (restores.length) await this.checkoutFiles(root, target, restores)
-      for (const file of files.filter((file) => file.status === 'added')) {
+      // A file absent from the target that the target's own ignore rules
+      // ignore most likely existed, ignored, before the turn: keep it.
+      const kept = await this.ignoredPaths(
+        root,
+        files.filter((file) => file.status === 'added').map((file) => file.path),
+      )
+      for (const file of files.filter((file) => file.status === 'added' && !kept.has(file.path))) {
         const path = safePath(root, file.path)
         // Files absent from the target can be untracked, so a checkout cannot
         // remove them. Remove only the exact diff path, never a directory tree,
@@ -131,7 +139,7 @@ export class ConversationCheckpoints {
         safePath(await realpath(root), join(await realpath(dirname(path)), basename(path)))
         await rm(path, { force: true })
       }
-      return { ok: true, files, reverted: true, undoRef: recovery }
+      return { ok: true, files, reverted: true, undoRef: recovery, ...(kept.size ? { kept: [...kept] } : {}) }
     } catch (error) {
       return { ok: false, message: errorMessage(error) }
     }
@@ -228,7 +236,8 @@ export class ConversationCheckpoints {
     return null
   }
 
-  private async worktreeTree(root: string): Promise<string> {
+  /** `include` names extra paths to capture when present on disk, ignored or not. */
+  private async worktreeTree(root: string, include: string[] = []): Promise<string> {
     const temp = await mkdtemp(join(tmpdir(), 'conversation-index-'))
     const env = { GIT_INDEX_FILE: join(temp, 'index'), GIT_OPTIONAL_LOCKS: '0' }
     try {
@@ -245,6 +254,9 @@ export class ConversationCheckpoints {
       const captured = new Set(files)
       for (const path of staged)
         if (!captured.has(path) && (await lstat(safePath(root, path)).catch(() => null))) captured.add(path)
+      for (const path of include)
+        if (!captured.has(path) && !isSidecar(path) && (await lstat(safePath(root, path)).catch(() => null))?.isFile())
+          captured.add(path)
       if (captured.size)
         await this.git(
           root,
@@ -256,6 +268,22 @@ export class ConversationCheckpoints {
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
+  }
+
+  private async blobPaths(root: string, commit: string): Promise<string[]> {
+    return (await this.git(root, ['ls-tree', '-r', '-z', '--full-tree', commit]))
+      .split('\0')
+      .filter((line) => /^\d+ blob /u.test(line))
+      .map((line) => line.slice(line.indexOf('\t') + 1))
+  }
+
+  private async ignoredPaths(root: string, paths: string[]): Promise<Set<string>> {
+    if (!paths.length) return new Set()
+    // Exit status 1 means none are ignored; nothing is kept on any failure.
+    const result = await runGitCommand(root, ['check-ignore', '--no-index', '-z', '--stdin'], undefined, {
+      stdin: paths.join('\0') + '\0',
+    })
+    return new Set(result.stdout.split('\0').filter(Boolean))
   }
 
   /**

@@ -417,3 +417,29 @@ test('a confirmed revert acts only on the files the dialog showed', async () => 
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('revert never replaces or removes a file its recovery checkpoint cannot bring back', async () => {
+  const f = await repository()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    await writeFile(join(f.root, 'ignored.txt'), 'ignored before the turn\n')
+    await writeFile(join(f.root, 'notes.log'), 'untracked before the turn\n')
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    // The turn swaps which of the two files is ignored, then both change.
+    await writeFile(join(f.root, '.gitignore'), '*.log\n.sprintengine/\n')
+    await writeFile(join(f.root, 'notes.log'), 'edited after it became ignored\n')
+    await writeFile(join(f.root, 'ignored.txt'), 'edited after it stopped being ignored\n')
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1 })
+    assert.ok(reverted.ok && reverted.reverted)
+    assert.equal(await readFile(join(f.root, 'notes.log'), 'utf8'), 'untracked before the turn\n')
+    // Ignored again under the restored rules, so it predates the turn: kept.
+    assert.deepEqual(reverted.kept, ['ignored.txt'])
+    assert.equal(await readFile(join(f.root, 'ignored.txt'), 'utf8'), 'edited after it stopped being ignored\n')
+    const undo = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1, undo: true })
+    assert.ok(undo.ok && undo.reverted)
+    assert.equal(await readFile(join(f.root, 'notes.log'), 'utf8'), 'edited after it became ignored\n')
+    assert.equal(await readFile(join(f.root, 'ignored.txt'), 'utf8'), 'edited after it stopped being ignored\n')
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

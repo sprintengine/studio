@@ -342,7 +342,14 @@ export type ConversationRevertInput = {
   files?: string[]
 }
 export type ConversationRevertResult =
-  | { ok: true; files: ConversationCheckpointFile[]; reverted: boolean; undoRef?: string }
+  | {
+      ok: true
+      files: ConversationCheckpointFile[]
+      reverted: boolean
+      undoRef?: string
+      /** Listed as added but left in place: the checkpoint's ignore rules ignore them. */
+      kept?: string[]
+    }
   | { ok: false; message: string; changed?: true }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
 export type ConversationApprovalRulesResult =
