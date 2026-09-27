@@ -4,6 +4,7 @@ import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   conversationLaunchDraftPatch,
+  conversationNewChatSeed,
   resolveDefaultConversationOption,
 } from './conversationSpawnOptions'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
@@ -270,4 +271,30 @@ test('conversationSpawnOptions', async () => {
   )
 
   console.log('conversationSpawnOptions tests passed')
+})
+
+test('a New chat door opens the model picked in its Chat roster, not the default', () => {
+  const fallback = {
+    providerId: 'claude-agent',
+    providerLabel: 'Claude',
+    providerType: 'agent-harness' as const,
+    modelId: 'sonnet',
+    modelLabel: 'Sonnet',
+  }
+  const picked = conversationNewChatSeed(
+    { provider: { providerId: 'claude-agent', modelId: 'opus', modelLabel: 'Opus' }, skills: [{ id: 'review' }] },
+    fallback,
+    { prompt: 'Look at the tests', permissionPreset: 'manual' },
+  )
+  assert.deepEqual(picked?.runtime, { providerId: 'claude-agent', modelId: 'opus' })
+  assert.equal(picked?.tabName, 'Opus')
+  assert.deepEqual(picked?.agentPatch.conversation, { providerId: 'claude-agent', modelId: 'opus' })
+  assert.equal(picked?.agentPatch.chatComposerPrefill, 'Look at the tests')
+  assert.deepEqual(picked?.agentPatch.conversationSkills, ['review'])
+  assert.equal(picked?.agentPatch.cliPermissionPreset, 'manual')
+  assert.deepEqual(conversationNewChatSeed({}, fallback, { permissionPreset: 'manual' })?.runtime, {
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+  })
+  assert.equal(conversationNewChatSeed({}, null, { permissionPreset: 'manual' }), null)
 })

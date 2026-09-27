@@ -183,6 +183,7 @@ import {
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   conversationLaunchDraftPatch,
+  conversationNewChatSeed,
   resolveDefaultConversationOption,
   type ConversationSpawnOption,
 } from './conversationSpawnOptions'
@@ -2591,23 +2592,18 @@ export default function WorkspaceManager() {
   // the chat composer, typed and unsent — a conversation has no startup prompt
   // to hand a process, and auto-sending someone's first line is not the same
   // action as starting a chat.
-  const openConversationInNewChat = (folderPath?: string | null, startupPrompt?: string, skills?: WorkspaceSkill[]) => {
-    if (!conversationDefaultOption) return
-    const { providerId, modelId, modelLabel } = conversationDefaultOption
-    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', {})
-    createSoloChatWorkspace({
-      folderPath,
-      seedAgent: {
-        tabName,
-        agentPatch: {
-          name: tabName,
-          ...conversationAgentRuntimePatch(providerId, modelId),
-          cliPermissionPreset: agentSpawnPermissionPreset,
-          ...conversationLaunchDraftPatch(skills, startupPrompt),
-        },
-      },
+  const openConversationInNewChat = (
+    folderPath: string | null | undefined,
+    confirm: Parameters<typeof conversationNewChatSeed>[0],
+    startupPrompt?: string,
+  ) => {
+    const seed = conversationNewChatSeed(confirm, conversationDefaultOption, {
+      prompt: startupPrompt,
+      permissionPreset: agentSpawnPermissionPreset,
     })
-    setLastSelectedConversationModel({ providerId, modelId })
+    if (!seed) return
+    createSoloChatWorkspace({ folderPath, seedAgent: { tabName: seed.tabName, agentPatch: seed.agentPatch } })
+    setLastSelectedConversationModel(seed.runtime)
   }
 
   // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
@@ -3327,7 +3323,7 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, startupPrompt, confirm.skills)
+        openConversationInNewChat(folderPath, confirm, startupPrompt)
         break
     }
     closeNewChatPanel()

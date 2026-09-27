@@ -174,9 +174,11 @@ test('SpawnDebugToggle', async () => {
       'including the new-chat seed, on the CLI that chat launches with',
     )
     // A conversation is a provider/model pair, not a picker row: it has no stored
-    // preset and keeps the app-wide default.
+    // preset and keeps the app-wide default, on the in-workspace spawn and on
+    // the New chat seed (built by conversationNewChatSeed).
     assert.ok(
-      (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length === 2,
+      (managerSource.match(/cliPermissionPreset: agentSpawnPermissionPreset/g) ?? []).length === 1 &&
+        /conversationNewChatSeed\([^)]*permissionPreset: agentSpawnPermissionPreset/su.test(managerSource),
       'only the two conversation spawns fall back to the app-wide preset',
     )
   })
