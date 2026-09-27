@@ -149,6 +149,9 @@ type SessionState = {
   continuationSequence: number
   lastActivityAt: number
   stderrTail: string
+  // Tool calls this app refused, so their results read as declined rather
+  // than as tools that failed on their own.
+  declinedToolUseIds: Set<string>
 }
 
 // Event types that belong to a turn (carry a turnId and must be suppressed by
@@ -404,7 +407,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
                   if (
                     state.mode === 'ask' &&
                     !['file_read', 'search', 'list', 'web'].includes(inferConversationToolKind(input.tool_name))
-                  )
+                  ) {
+                    state.declinedToolUseIds.add(input.tool_use_id)
                     return {
                       hookSpecificOutput: {
                         hookEventName: 'PreToolUse' as const,
@@ -412,6 +416,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
                         permissionDecisionReason: 'Ask mode permits read-only tools only.',
                       },
                     }
+                  }
                   await state.onBeforeTool?.(input.tool_name)
                 }
                 return {}
@@ -439,7 +444,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     toolName: string,
     toolInput: Record<string, unknown>,
     signal?: AbortSignal,
-    permissionContext?: { agentID?: string; defaultToNo?: boolean; suppressAlwaysAllowRule?: boolean },
+    permissionContext?: {
+      agentID?: string
+      toolUseID?: string
+      defaultToNo?: boolean
+      suppressAlwaysAllowRule?: boolean
+    },
   ): Promise<PermissionResult> {
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
@@ -506,6 +516,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }),
     )
     if (!decision.approved) {
+      if (permissionContext?.toolUseID) state.declinedToolUseIds.add(permissionContext.toolUseID)
       return {
         behavior: 'deny',
         message:
@@ -573,6 +584,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         continuationSequence: 0,
         lastActivityAt: now(),
         stderrTail: '',
+        declinedToolUseIds: new Set(),
       }
       sessions.set(input.sessionId, state)
       return [
@@ -1039,6 +1051,7 @@ export function mapSdkMessage(
     modelId: string
     providerSessionId: string | null
     turn: { turnId: string } | null
+    declinedToolUseIds?: Set<string>
   },
   message: Record<string, unknown>,
 ): ConversationEvent[] {
@@ -1129,12 +1142,17 @@ export function mapSdkMessage(
           ? block.content.map(asRecord).find((entry) => entry?.type === 'image' || entry?.type === 'document')
           : undefined
         const source = asRecord(binary?.source)
+        const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined
+        const output = extractResultText(block.content)
+        const declined = toolUseId !== undefined && state.declinedToolUseIds?.delete(toolUseId) === true
+        const command = commandOutcome(message.tool_use_result, block.is_error === true, output)
         const payload: ConversationToolOutputPayload = {
           turnId,
-          toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-          toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-          output: extractResultText(block.content),
-          status: block.is_error === true ? 'error' : 'ok',
+          toolCallId: toolUseId,
+          toolUseId,
+          output,
+          status: declined ? 'declined' : command.stopped ? 'stopped' : block.is_error === true ? 'error' : 'ok',
+          ...(command.exitCode !== undefined && !declined ? { exitCode: command.exitCode } : {}),
           ...(typeof source?.media_type === 'string'
             ? {
                 mime: source.media_type,
@@ -1192,6 +1210,22 @@ export function mapSdkMessage(
       break
   }
   return events
+}
+
+// What a shell command's result says about how it ended. The structured
+// result of the Bash tool carries `interrupted` but no exit status; a command
+// that exited non-zero is reported as an error whose text starts with it.
+function commandOutcome(
+  structured: unknown,
+  isError: boolean,
+  output: string,
+): { stopped: boolean; exitCode?: number } {
+  const result = asRecord(structured)
+  const isCommand = typeof result?.interrupted === 'boolean' && typeof result.stdout === 'string'
+  const stopped = result?.interrupted === true
+  const reported = isError ? /^Exit code (-?\d+)\b/.exec(output) : null
+  if (reported) return { stopped, exitCode: Number(reported[1]) }
+  return isCommand && !isError && !stopped ? { stopped, exitCode: 0 } : { stopped }
 }
 
 // The SDK stamps every message produced inside a spawned agent with the id of

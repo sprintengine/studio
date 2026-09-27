@@ -30,6 +30,7 @@ test('claude-agent-provider', async () => {
     await testAskModeReadOnlyAndEffort()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
+    await testDeniedToolResultReadsAsDeclined()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
     await testExitPlanModeBecomesPlanCard()
     await testPermissionPresetMapsToSdkPermissionMode()
@@ -665,6 +666,42 @@ test('claude-agent-provider', async () => {
     assert.equal(capturedOptions[0]?.resume, 'previous-1')
     const updated = events.find((event) => event.type === 'session_updated')
     assert.equal(updated?.payload?.providerSessionId, 'resumed-2')
+  }
+
+  // A tool the person refused comes back from the CLI as an ordinary error
+  // result; it must read as declined, not as a command that failed.
+  async function testDeniedToolResultReadsAsDeclined(): Promise<void> {
+    const { adapter } = createAdapter(async (_message, context) => {
+      const canUseTool = context.options.canUseTool as (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: { signal?: AbortSignal; toolUseID: string },
+      ) => Promise<Record<string, unknown>>
+      await canUseTool('Bash', { command: 'rm -rf build' }, { signal: undefined, toolUseID: 'toolu_denied' })
+      context.emit({
+        type: 'user',
+        session_id: 'declined',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_denied', is_error: true, content: 'Denied.' }],
+        },
+      })
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'declined' })
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
+      if (event.type === 'approval_requested')
+        void collect(
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_1',
+            requestId: String(event.payload?.requestId),
+            approved: false,
+          }) as ConversationEvent[],
+        )
+    })
+    assert.equal(events.find((event) => event.type === 'tool_output')?.payload?.status, 'declined')
+    adapter.disposeAll()
   }
 
   async function testCanUseToolApprovalFlowApproveAndDeny(): Promise<void> {
@@ -1560,4 +1597,52 @@ test('claude-agent-provider', async () => {
   })
 
   await suiteRun
+})
+
+function mapperState() {
+  return {
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    providerSessionId: 'native' as string | null,
+    turn: { turnId: 'turn_1' } as { turnId: string } | null,
+    declinedToolUseIds: new Set<string>(),
+  }
+}
+
+test('Claude shell results say whether a command was declined, stopped or exited non-zero', () => {
+  const state = mapperState()
+  const output = (id: string, block: Record<string, unknown>, structured?: Record<string, unknown>) =>
+    mapSdkMessage(state, {
+      type: 'user',
+      session_id: 'native',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, ...block }] },
+      ...(structured ? { tool_use_result: structured } : {}),
+    }).find((event) => event.type === 'tool_output')?.payload
+
+  assert.deepEqual(
+    [output('ok', { content: 'done', is_error: false }, { stdout: 'done', stderr: '', interrupted: false })].map(
+      (payload) => [payload?.status, payload?.exitCode],
+    ),
+    [['ok', 0]],
+  )
+  const failed = output('failed', { content: 'Exit code 2\nnpm ERR! missing script', is_error: true })
+  assert.equal(failed?.status, 'error')
+  assert.equal(failed?.exitCode, 2)
+  const stopped = output(
+    'stopped',
+    { content: 'partial', is_error: false },
+    { stdout: 'partial', stderr: '', interrupted: true },
+  )
+  assert.equal(stopped?.status, 'stopped')
+  state.declinedToolUseIds.add('declined')
+  const declined = output('declined', { content: 'The user denied this tool use in SprintEngine.', is_error: true })
+  assert.equal(declined?.status, 'declined')
+  assert.equal(declined?.exitCode, undefined)
+  assert.equal(state.declinedToolUseIds.size, 0)
+  // Other tools keep their plain error status and carry no exit code.
+  const read = output('read', { content: 'File does not exist.', is_error: true })
+  assert.deepEqual([read?.status, read?.exitCode], ['error', undefined])
 })
