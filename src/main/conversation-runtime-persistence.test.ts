@@ -115,31 +115,101 @@ async function readLines(workspaceRoot: string): Promise<Record<string, unknown>
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
-test('streamed deltas reach listeners without a write per token', async () => {
+test('streamed deltas reach listeners only once written, and a batch of them is one record', async () => {
   await withRuntime(['Hel', 'lo ', 'there'], async ({ runtime, workspaceRoot, provider, delivered, start }) => {
     const sessionId = await start()
     const turn = runtime.sendTurn({ sessionId, message: 'hi' })
     await provider.atPark
-    const deltas = delivered.filter((event) => event.type === 'content_delta')
-    assert.equal(deltas.length, 3, 'every token is delivered live')
+    assert.equal(
+      delivered.some((event) => event.type === 'content_delta'),
+      false,
+      'a delta that is not on disk has not been published',
+    )
     const onDisk = await readLines(workspaceRoot)
     assert.equal(
       onDisk.some((line) => line.type === 'content_delta'),
       false,
-      'the message in flight has not been written token by token',
+      'the batch in flight has not been written token by token',
     )
+    await runtime.flushTranscripts()
+    const deltas = delivered.filter((event) => event.type === 'content_delta')
+    assert.equal(deltas.length, 3, 'every token is published once its batch lands')
+    const written = (await readLines(workspaceRoot)).filter((line) => line.type === 'content_delta')
+    assert.equal(written.length, 1, 'the batch is one record')
+    assert.equal((written[0].payload as { text: string }).text, 'Hello there')
     provider.release()
     await turn
     const after = await readLines(workspaceRoot)
-    const written = after.filter((line) => line.type === 'content_delta')
-    assert.equal(written.length, 1, 'the run is one record')
-    assert.equal((written[0].payload as { text: string }).text, 'Hello there')
-    assert.deepEqual(
-      after.map((line) => line.type).slice(-2),
-      ['content_delta', 'turn_completed'],
-      'the run lands before the boundary that ended it',
-    )
+    assert.deepEqual(after.map((line) => line.type).slice(-2), ['content_delta', 'turn_completed'])
   })
+})
+
+test('a crash with a batch still unwritten never leaves a published sequence number off disk', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-crash-'))
+  const base = streamingProvider([])
+  // Tokens a few milliseconds apart, so they span several write batches.
+  const provider = {
+    ...base,
+    adapter: {
+      ...base.adapter,
+      sendTurn: (input: Parameters<ConversationProviderAdapter['sendTurn']>[0]) =>
+        (async function* () {
+          yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+          for (let index = 0; index < 20; index++) {
+            yield runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: `t${index} ` })
+            await new Promise((resolve) => setTimeout(resolve, 3))
+          }
+          base.release()
+          yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+        })(),
+    } satisfies ConversationProviderAdapter,
+  }
+  const written: number[] = []
+  let deltaWrites = 0
+  const runtime = new ConversationRuntime({
+    adapters: [provider.adapter],
+    getProviderById: () => undefined,
+    eventLog: {
+      flushDelayMs: 1,
+      openStream: async () => ({
+        write: async (chunk) => {
+          // The second batch of deltas never lands: the process dies with it in flight.
+          if (chunk.includes('"content_delta"') && ++deltaWrites >= 2) return new Promise<void>(() => undefined)
+          for (const line of chunk.trim().split('\n')) {
+            const record = JSON.parse(line) as { seq: number; parts?: unknown[][] }
+            written.push(record.seq, ...(record.parts ?? []).map((part) => part[3] as number))
+          }
+        },
+        close: async () => undefined,
+      }),
+    },
+  })
+  const published: number[] = []
+  runtime.onEvent((event) => {
+    assert.ok(written.includes(event.seq!), `seq ${event.seq} was published before it was written`)
+    published.push(event.seq!)
+  })
+  try {
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'streaming-provider',
+      modelId: 'model',
+    })
+    assert.ok(started.ok)
+    void runtime.sendTurn({ sessionId: started.session.sessionId, message: 'hi' })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.ok(deltaWrites >= 2, 'a delta batch was in flight when the process died')
+    assert.ok(published.length > 0)
+    assert.ok(Math.max(...published) <= Math.max(...written))
+    assert.equal(
+      published.some((seq) => !written.includes(seq)),
+      false,
+    )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 })
 
 test('a reload mid-stream replays exactly the events delivered live', async () => {

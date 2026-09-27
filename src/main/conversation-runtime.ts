@@ -63,7 +63,12 @@ import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers
 import { createCodexConversationProvider } from './providers/codex-conversation-provider'
 import { ACP_PROFILES, createAcpConversationProvider } from './providers/acp-conversation-provider'
 import { workspaceSidecarPath } from './workspace-sidecar'
-import { ConversationEventLog, expandCoalescedDeltas, type ConversationEventLogOptions } from './conversation-event-log'
+import {
+  ConversationEventLog,
+  expandCoalescedDeltas,
+  type ConversationAppendOutcome,
+  type ConversationEventLogOptions,
+} from './conversation-event-log'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -161,6 +166,9 @@ export class ConversationRuntime {
   private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
   private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
   private readonly receiptWrites = new Map<string, Promise<void>>()
+  // Transcripts with a write that failed this run: a sequence number was
+  // published that is not on disk, so they never serve incremental catch-up.
+  private readonly nonDurableLogs = new Set<string>()
   private eventSequence = 0
   // Event ids must stay unique across app restarts: the persisted transcript
   // is replayed into the renderer, which dedupes live pushes against it by id.
@@ -508,6 +516,19 @@ export class ConversationRuntime {
       this.notify(event)
     }
     return { ok: false, message, event }
+  }
+
+  /**
+   * Hand a persisted event to listeners. A superseded tool preview is not
+   * published at all; the one that replaced it follows. A failed write is
+   * still published — the live chat must not stall on a broken disk — but the
+   * log can no longer vouch for its sequence numbers, so catch-up on it falls
+   * back to a full snapshot until the process restarts.
+   */
+  private publish(path: string, event: ConversationEvent, outcome: ConversationAppendOutcome): void {
+    if (outcome === 'superseded') return
+    if (outcome === 'failed') this.nonDurableLogs.add(path)
+    this.notify(event)
   }
 
   private notify(event: ConversationEvent): void {
@@ -972,13 +993,19 @@ export class ConversationRuntime {
       session.automaticApprovals.delete(requestId)
     }
     this.updateExcerpts(session, stamped)
-    // A streamed delta goes to listeners immediately; persistence coalesces text.
-    if (isStreamedDelta(stamped)) {
-      this.notify(stamped)
-      await this.persistEvent(session, stamped)
+    // Streamed events join the transcript's write batch and are published when
+    // it lands, without holding the emission queue for the disk: the next token
+    // is stamped while this one waits. Batches resolve in order and each
+    // publication is registered before the next event is stamped, so listeners
+    // still see sequence order.
+    if (isStreamedEvent(stamped)) {
+      this.persistEvent(session, stamped).then(
+        (outcome) => this.publish(path, stamped, outcome),
+        () => undefined,
+      )
       return stamped
     }
-    await this.persistEvent(session, stamped)
+    const outcome = await this.persistEvent(session, stamped)
     if (stamped.type === 'turn_completed' && session.status !== 'stopped')
       await this.threadIndex.refresh(session).catch(() => undefined)
     // Publish status at the same boundary as the terminal notification, after
@@ -988,7 +1015,7 @@ export class ConversationRuntime {
       session.status = stamped.type === 'turn_completed' ? 'ready' : 'failed'
       session.updatedAt = this.now()
     }
-    this.notify(stamped)
+    this.publish(path, stamped, outcome)
     if (automaticRequestId)
       void this.respondToRequest({
         sessionId: session.sessionId,
@@ -1236,7 +1263,7 @@ export class ConversationRuntime {
     session.updatedAt = this.now()
   }
 
-  private persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
+  private persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationAppendOutcome> {
     return this.eventLog.append(
       this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId),
       redactEvent(event),
@@ -1318,8 +1345,7 @@ export class ConversationRuntime {
             payload: { conversationTitle: title, titleSource },
           }
           this.sequences.set(path, event.seq!)
-          await this.eventLog.append(path, event, input.workspaceRoot)
-          this.notify(event)
+          this.publish(path, event, await this.eventLog.append(path, event, input.workspaceRoot))
         })
       this.emissionTails.set(path, pending)
       await pending
@@ -1594,12 +1620,12 @@ export class ConversationRuntime {
               payload: { revertedAfterSeq: input.turnSeq, undo: input.undo === true },
             }
             this.sequences.set(path, event.seq!)
-            await this.eventLog.append(path, event, input.key.workspaceRoot)
+            const outcome = await this.eventLog.append(path, event, input.key.workspaceRoot)
             for (const session of sharingFiles) {
               if (session.workspaceId === input.key.workspaceId && session.agentId === input.key.agentId)
                 this.updateExcerpts(session, event)
             }
-            this.notify(event)
+            this.publish(path, event, outcome)
           })
         this.emissionTails.set(path, pending)
         await pending
@@ -1730,6 +1756,11 @@ function redactEvent(event: ConversationEvent): ConversationEvent {
   return redactConversationValue(event)
 }
 
-function isStreamedDelta(event: ConversationEvent): boolean {
-  return event.type === 'content_delta' || event.type === 'reasoning_delta'
+/** Events that ride the log's short batch instead of forcing a write. */
+function isStreamedEvent(event: ConversationEvent): boolean {
+  return (
+    event.type === 'content_delta' ||
+    event.type === 'reasoning_delta' ||
+    (event.type === 'tool_output' && event.payload?.partial === true)
+  )
 }
