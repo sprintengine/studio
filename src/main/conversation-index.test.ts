@@ -262,3 +262,22 @@ test('an unreadable transcript gets a row of its own instead of failing the whol
       await rm(linked, { force: true })
     }
   }))
+
+test('an unreadable transcript whose file name is not valid percent-encoding still gets its row', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 't', text: 'Readable chat' })]))
+    const folder = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId)
+    const odd = join(folder, '50%.jsonl')
+    await writeFile(odd, lines([event(1, 'user_message', { turnId: 't', text: 'Hidden' }, '50%')]))
+    const linked = join(tmpdir(), `conversation-index-link-${process.pid}-${Date.now()}`)
+    await link(odd, linked)
+    try {
+      const threads = await new ConversationIndex().list(key)
+      expect(threads.map((thread) => [thread.agentId, thread.title]).sort()).toEqual([
+        ['50%', 'Unreadable conversation'],
+        ['agent', 'Readable chat'],
+      ])
+    } finally {
+      await rm(linked, { force: true })
+    }
+  }))

@@ -194,7 +194,7 @@ export class ConversationIndex {
         error instanceof Error ? error.message : error,
       )
       return {
-        agentId: decodeURIComponent(file.file.slice(0, -'.jsonl'.length)),
+        agentId: fileAgentId(file.file),
         title: 'Unreadable conversation',
         titleSource: 'first-message',
         createdAt: file.mtime,
@@ -218,6 +218,16 @@ export class ConversationIndex {
       if (value) files.push(value)
     }
     return files.sort((a, b) => a.file.localeCompare(b.file))
+  }
+}
+
+/** The agent a transcript file is named for. A name this app did not encode (`50%.jsonl`) is used as it is. */
+function fileAgentId(file: string): string {
+  const name = file.slice(0, -'.jsonl'.length)
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
   }
 }
 
