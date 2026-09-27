@@ -14,10 +14,8 @@ import { runTailscale, runTailscaleResult, type TailscaleRun } from './tailscale
 // at `https://<node>.<tailnet>.ts.net`. Loopback stays loopback, and the only
 // audience is the tailnet.
 //
-// It also answers a question the mobile transport left open
-// (`backlog/self-hosted-relay/2026-08-31-tailnet-mobile-transport.md`, still
-// `needs_input`): whether iOS ATS refuses a cleartext `http://100.x:8471` fetch
-// from a release build. Serve terminates real TLS with a real WebPKI cert for
+// It also answers a question the phone's tailnet transport raised: whether iOS
+// ATS refuses a cleartext `http://100.x:8471` fetch from a release build. Serve terminates real TLS with a real WebPKI cert for
 // the `.ts.net` name, so ATS has nothing to object to and the app's plist is
 // never touched.
 //

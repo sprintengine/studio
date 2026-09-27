@@ -20,9 +20,10 @@ import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 // mobile app. No capability in the app is paid — the
 // `sprintengine.frontier_models` key that used to sit here was retired from the
 // Multiauth catalogue in the same change, because nothing in the product ever
-// consumed it. Enforcement lives on the server: every relay entry point in
-// `../multiauth/src/relay/service.ts` refuses without this key, so what the
-// desktop reads here only decides what to render, never what the account can do.
+// consumed it. What the desktop reads here only decides what to render, never
+// what the account can do. The server-side check on this key sat in the hosted
+// relay; since the phone moved to the tailnet (owner ruling 2026-09-27) no
+// service is in the phone's path, and pairing is approved on this machine.
 const PAID_FEATURE_KEYS: readonly string[] = ['sprintengine.mobile_companion']
 
 // True when the account holds any paid capability. ANY rather than ALL, so a

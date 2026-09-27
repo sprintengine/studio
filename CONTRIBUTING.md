@@ -241,7 +241,7 @@ update channel, and repository enforcement settings.
 ## Licence and contribution terms
 
 The repository is licensed under the MIT License. See [LICENSE](LICENSE).
-`packages/module-sdk` and `packages/mobile-control-protocol` each carry their
+`packages/module-sdk` and `packages/conversation-protocol` each carry their
 own MIT licence file as well.
 
 When you contribute, you licence your contribution under MIT. You keep the

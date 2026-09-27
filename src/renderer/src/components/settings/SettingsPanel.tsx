@@ -31,7 +31,6 @@ import {
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
-import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
@@ -78,7 +77,6 @@ import {
   KnowledgeGraphSettingsIcon,
   DesignSystemSettingsIcon,
   ModulesSettingsIcon,
-  MobileSettingsIcon,
   RemoteSettingsIcon,
   MachinesSettingsIcon,
   FolderPlusIcon,
@@ -137,7 +135,6 @@ type SettingsTabId =
   | 'machines'
   | 'knowledge-graph'
   | 'design-system'
-  | 'mobile'
   | 'remote'
 
 // Line-weight rail glyph. Built-in tabs carry one from AppIcons; module sections
@@ -168,7 +165,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
-  { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
   { id: 'remote', label: 'Remote', icon: RemoteSettingsIcon },
 ]
 
@@ -180,7 +176,7 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers', 'machines'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
-  { label: 'companion', ids: ['mobile', 'remote'] },
+  { label: 'companion', ids: ['remote'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -218,7 +214,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'machines' ||
     value === 'knowledge-graph' ||
     value === 'design-system' ||
-    value === 'mobile' ||
     value === 'remote'
   )
 }
@@ -232,6 +227,9 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 // anywhere in the tree — so it aliased nothing to nothing.
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
   if (initialTab === 'updates') return 'general'
+  // The Mobile tab paired a phone through the hosted relay, which was removed
+  // (owner ruling 2026-09-27). A phone pairs over the tailnet now, from Remote.
+  if (initialTab === 'mobile') return 'remote'
   // Voice dictation moved onto the module-contributed section path;
   // legacy deep-links (persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
@@ -666,8 +664,6 @@ export default function SettingsPanel({
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const [profileMessage, setProfileMessage] = useState<string | null>(null)
   const [profilePending, setProfilePending] = useState(false)
-  // The Mobile tab gates on the mobile-relay module; hide it when disabled.
-  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   // Module-contributed sections render after every built-in tab, in the
   // registry's stable order (order hint, then id). Disabling a module drops
@@ -678,10 +674,7 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter(
-        (tab) =>
-          (tab.id !== 'mobile' || mobileRelayEnabled) && (tab.id !== 'machines' || window.api.platform === 'win32'),
-      ),
+      ...settingsTabs.filter((tab) => tab.id !== 'machines' || window.api.platform === 'win32'),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -689,7 +682,7 @@ export default function SettingsPanel({
         moduleSection: section,
       })),
     ],
-    [mobileRelayEnabled, moduleSections],
+    [moduleSections],
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
@@ -1646,8 +1639,6 @@ export default function SettingsPanel({
       {activeSettingsTab === 'shortcuts' ? <KeyboardShortcutsTab /> : null}
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
-
-      {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
 
       {activeSettingsTab === 'remote' ? <RemoteTailnetSettingsTab /> : null}
 

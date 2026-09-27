@@ -36,6 +36,8 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'sprint-engine',
   'review',
   'automations',
+  // RETIRED, still reserved: the hosted mobile relay was removed 2026-09-27,
+  // when the phone moved to pairing over the tailnet. Same rule as 'switchboard'.
   'mobile-relay',
   'voice-dictation',
 ]

@@ -17,9 +17,10 @@ test('bundled-ids', async () => {
   // decision keys on (`isFirstPartyAutomationProviderModule`), so releasing it
   // back into the third-party namespace would let an impostor inherit that trust.
   // `review` is the extracted Reviews module and `sprint-engine` the extracted
-  // Sprint Engine (both publisher-locked reservations); the others are retired.
+  // Sprint Engine (both publisher-locked reservations); the others are retired —
+  // `mobile-relay` with the hosted relay, when the phone moved to the tailnet.
   // They are listed here, not silently tolerated, so the set stays deliberate.
-  const RETIRED_RESERVED_IDS = ['switchboard', 'design-wizard', 'review', 'sprint-engine']
+  const RETIRED_RESERVED_IDS = ['switchboard', 'design-wizard', 'review', 'sprint-engine', 'mobile-relay']
 
   const bundled = [...BUNDLED_RENDERER_MODULE_MANIFESTS.map((m) => m.id)].sort()
   const reserved = [...BUNDLED_MODULE_IDS].sort()

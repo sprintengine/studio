@@ -26,7 +26,7 @@ import { isEntitlementSnapshotFresh } from './entitlement-service'
 // Everything Electron (safeStorage files, the marker file, the browser
 // window) is injected, so `account-client.test.ts` drives every path below
 // with an in-process fetch: offline resume, the pinned-provider rollback,
-// sign-out with the server unreachable, and a relay token after a failed
+// sign-out with the server unreachable, and an access token after a failed
 // launch.
 
 export type SecureRefreshTokenStore = {
@@ -490,7 +490,7 @@ export class SprintEngineAccountClient {
   // Every account-service call. The bearer is whichever provider's access
   // token the session holds — the service accepts both while the dual-accept
   // window is open — and the selected organisation rides along on
-  // every bearer call, so profile, entitlements and relay agree on it.
+  // every bearer call, so profile and entitlements agree on it.
   private async request<T>(path: string, init: RequestInit, options: { bearer?: boolean } = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('accept', 'application/json')

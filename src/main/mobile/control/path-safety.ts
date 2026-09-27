@@ -1,8 +1,8 @@
-// Relay-path safety: the relay rejects any command-result summary that contains
-// an absolute local filesystem path (multiauth src/relay/result-summary.ts ->
-// containsLocalPath). These helpers mirror that guard so the desktop can redact
-// paths from anything it sends the phone instead of having the whole payload
-// rejected. Leaf module (no imports from snapshot/bridge) to stay cycle-free.
+// Local-path safety for anything that leaves this desktop: a snapshot or a
+// command result bound for a paired phone, and telemetry. An absolute path names
+// the owner's machine layout (their username, their volumes) and is of no use on
+// another device, so these helpers find and redact one wherever it sits in a
+// payload. Leaf module (no imports from snapshot or command) to stay cycle-free.
 
 const localPathPatterns = [
   /\/(?:Users|home|private|var\/folders|Volumes|Applications|Library|opt|srv|mnt|tmp)\/[^\s"'=:()]*/gu,

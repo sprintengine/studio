@@ -1,9 +1,8 @@
 import { createHash } from 'crypto'
 import { resolve } from 'path'
-import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
-// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
-// snapshot type tree from there (aliased to this module's established local
-// names) and re-export it, rather than re-declaring it and risking drift from
+import { mobileControlProtocolVersion } from './protocol'
+// The wire schema is owned by ./protocol. Import the snapshot type tree from
+// there and re-export it, rather than re-declaring it and risking drift from
 // the validator (validateMobileControlSnapshot) that consumes the same schema.
 import type {
   MobileControlBacklogWorkspaceSnapshot,
@@ -11,29 +10,25 @@ import type {
   MobileControlSnapshot,
   MobileControlWebTargetSnapshot,
   MobileSnapshotCollection,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
-import { deepRedactLocalPaths } from './relay-path-safety'
+import { deepRedactLocalPaths } from './path-safety'
 
 export type { MobileControlSnapshot }
 
-const defaultPublishThrottleMs = 1000
-
 /**
- * The commands this desktop will actually execute.
- *
- * The Sprint Engine's removal stopped advertising the nine sprint commands while leaving them in the
- * protocol's union; protocol v3 deleted them, so this list and that union are now
- * the same five members and the `satisfies` below is what keeps them so.
+ * Every command the command service knows, advertised when a caller names no
+ * narrower set. A transport that serves fewer — the tailnet gateway serves
+ * `snapshot.request` and `backlog.update` — passes its own list, so the phone
+ * draws only the controls that will work over it.
  *
  * `snapshot.commands` is `string[]` on the wire by design, so a phone reads this
  * list to decide which controls to draw rather than inferring them from a version.
  */
 const mobileSnapshotCommandTypes = [
   'snapshot.request',
-  'device.revoke',
   'backlog.update',
   'backlog.create',
   'automations.control',
@@ -51,25 +46,23 @@ export type MobileControlSnapshotRequest = {
   workspaceRoots?: string[]
   commands?: MobileControlCommandType[]
   generatedAt?: string
-  // Collection scoping (item 1600). Absent = the default set below; a caller that
-  // names collections gets exactly those. Scoped to the read composition, not the
-  // wire — `dispatchSnapshotRequest` maps the request `include` field to this.
+  // Collection scoping. Absent = the default set below; a caller that names
+  // collections gets exactly those. `workspace.snapshot` maps its `include`
+  // argument to this.
   include?: MobileSnapshotCollection[]
 }
 
 // The unscoped default: every collection the wire declares.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog', 'automations'])
 
-type MobileControlSnapshotListener = (snapshot: MobileControlSnapshot) => void
-
-// Make an outbound snapshot relay-safe: the relay rejects any summary containing
-// an absolute local path (multiauth src/relay/result-summary.ts). Round-trip
-// critical workspace roots become resolvable tokens (deriveWorkspaceId);
+// Make an outbound snapshot safe to hand another device: no absolute local path
+// leaves the desktop (see path-safety.ts). Round-trip critical workspace roots
+// become resolvable tokens (deriveWorkspaceId);
 // display-only path fields become the folder name or are dropped; any remaining
 // absolute path anywhere in the payload is redacted as a defensive backstop.
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution.
-export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+export function sanitizeMobileSnapshotForTransport(snapshot: MobileControlSnapshot): MobileControlSnapshot {
   // `projectKey` is the phone's join key across collections: the same
   // token for the same repo root in every collection, which automations are
   // stamped with by their producer.
@@ -93,7 +86,6 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
 }
 
 type MobileControlSnapshotServiceOptions = {
-  publishThrottleMs?: number
   supportedCommands?: readonly MobileControlCommandType[]
   /**
    * Dev servers this desktop publishes on the tailnet, for the phone's web
@@ -105,25 +97,12 @@ type MobileControlSnapshotServiceOptions = {
 }
 
 export class MobileControlSnapshotService {
-  private readonly listeners = new Set<MobileControlSnapshotListener>()
-  private readonly publishThrottleMs: number
-  private lastPublishedAt = 0
-  private pendingRequest: MobileControlSnapshotRequest | null = null
-  private publishTimer: NodeJS.Timeout | null = null
   private readonly supportedCommands: MobileControlCommandType[]
   private readonly readWebTargets: () => Promise<MobileControlWebTargetSnapshot[]>
 
   constructor(options: MobileControlSnapshotServiceOptions = {}) {
-    this.publishThrottleMs = Math.max(0, options.publishThrottleMs ?? defaultPublishThrottleMs)
     this.supportedCommands = normalizeMobileControlCommands(options.supportedCommands ?? defaultMobileSnapshotCommands)
     this.readWebTargets = options.readWebTargets ?? (async () => [])
-  }
-
-  subscribe(listener: MobileControlSnapshotListener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
   }
 
   async readSnapshot(request: MobileControlSnapshotRequest): Promise<MobileControlSnapshot> {
@@ -131,7 +110,7 @@ export class MobileControlSnapshotService {
     const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
     const backlog = collections.has('backlog') ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt) : []
-    // Item 47: the automations monitor. One projection per workspace root, joined to
+    // The automations monitor. One projection per workspace root, joined to
     // the other collections on `projectKey` (stamped by the producer, from the same
     // deriveWorkspaceId the sanitize pass stamps backlog workspaces with).
     const automations = collections.has('automations')
@@ -149,7 +128,7 @@ export class MobileControlSnapshotService {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
       desktopSessionId: request.desktopSessionId,
-      // Content-derived so the phone's If-None-Match (item 1599) matches on an
+      // Content-derived so the phone's `knownSnapshotVersion` matches on an
       // idle read. It folds NO per-read wall-clock: the top level dropped
       // `generatedAt`, and each backlog `updatedAt` — which falls back to
       // `generatedAt` for an empty workspace — is stripped before hashing.
@@ -165,60 +144,6 @@ export class MobileControlSnapshotService {
       ...(automations.length > 0 ? { automations } : {}),
       ...(webTargets.length > 0 ? { webTargets } : {}),
     }
-  }
-
-  async publishSnapshot(request: MobileControlSnapshotRequest): Promise<MobileControlSnapshot | null> {
-    const now = Date.now()
-    const elapsedMs = now - this.lastPublishedAt
-    if (elapsedMs >= this.publishThrottleMs) {
-      this.clearPublishTimer()
-      const snapshot = await this.readSnapshot(request)
-      this.emit(snapshot)
-      this.lastPublishedAt = Date.now()
-      return snapshot
-    }
-
-    this.pendingRequest = request
-    if (!this.publishTimer) {
-      this.publishTimer = setTimeout(() => {
-        void this.flushPendingSnapshot()
-      }, this.publishThrottleMs - elapsedMs)
-    }
-    return null
-  }
-
-  async flushPendingSnapshot(): Promise<MobileControlSnapshot | null> {
-    const request = this.pendingRequest
-    if (!request) {
-      this.clearPublishTimer()
-      return null
-    }
-
-    this.pendingRequest = null
-    this.clearPublishTimer()
-    const snapshot = await this.readSnapshot(request)
-    this.emit(snapshot)
-    this.lastPublishedAt = Date.now()
-    return snapshot
-  }
-
-  shutdown(): void {
-    this.clearPublishTimer()
-    this.pendingRequest = null
-    this.listeners.clear()
-  }
-
-  private emit(snapshot: MobileControlSnapshot): void {
-    const safe = sanitizeMobileSnapshotForRelay(snapshot)
-    for (const listener of this.listeners) {
-      listener(safe)
-    }
-  }
-
-  private clearPublishTimer(): void {
-    if (!this.publishTimer) return
-    clearTimeout(this.publishTimer)
-    this.publishTimer = null
   }
 }
 

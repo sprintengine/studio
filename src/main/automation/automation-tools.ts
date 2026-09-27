@@ -7,7 +7,7 @@ import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { resolvePermissionArgs } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
-import { mobileSnapshotCollections } from '../../../packages/mobile-control-protocol/src/index'
+import { mobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
@@ -197,13 +197,11 @@ export type AutomationBackends = {
    */
   readMarketplaceRegistry(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
   /**
-   * The mobile companion's read model and command lane, served over the
-   * gateway so a tailnet-paired phone works without the relay
-   * (tailnet-mobile-transport, self-hosted-relay epic). Snapshots come back
-   * in the same path-token form the relay serves — the phone round-trips
-   * `ws_` tokens, never local paths — and commands run through the same
-   * MobileControlCommandService the relay bridge dispatches to, so the
-   * two transports cannot drift in behaviour.
+   * The mobile companion's read model and command lane. The phone pairs with
+   * and talks to this desktop only over the tailnet gateway, so this is the
+   * whole of its connection: snapshots come back in path-token form — the
+   * phone round-trips `ws_` tokens, never local paths — and commands run
+   * through the MobileControlCommandService.
    */
   mobileControl: {
     readSnapshot(input: {
@@ -584,17 +582,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // ── Mobile companion over the gateway ────────────────────────────────────
-  // tailnet-mobile-transport (self-hosted-relay epic): the phone's snapshot
-  // and command lane without the relay. v1 deliberately serves the epic's
-  // acceptance set and nothing more; widening the command allowlist is a
-  // decision, not a default.
+  // The phone's snapshot and command lane, and its only one: the companion
+  // pairs over the tailnet and reaches the desktop through these two tools. The
+  // command allowlist is deliberately narrow; widening it is a decision, not a
+  // default.
   const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update'] as const
 
   const workspaceSnapshot: McpToolRegistration = {
     name: 'workspace.snapshot',
     description:
       'The mobile companion snapshot: backlog, automations and the dev servers published on the tailnet as one ' +
-      'versioned document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave ' +
+      'versioned document, in path-token form (ws_ tokens round-trip; local paths never leave ' +
       'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker ' +
       'instead of the full document when nothing moved.',
     inputSchema: {
@@ -637,8 +635,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceMobileCommand: McpToolRegistration = {
     name: 'workspace.mobile_command',
     description:
-      'Dispatch one mobile-control command envelope from a paired companion device — the same commands the phone ' +
-      `sends over the relay, over this transport instead. Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. ` +
+      'Dispatch one mobile-control command envelope from a paired companion device. ' +
+      `Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. ` +
       'The device identity comes from the transport, never from the arguments.',
     inputSchema: {
       type: 'object',

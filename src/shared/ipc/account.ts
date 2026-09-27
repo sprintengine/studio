@@ -72,17 +72,3 @@ export type SessionSnapshot =
       user: null
       selectedOrganization: null
     }
-
-// The phone's wire vocabulary, the twin of the one in
-// `src/main/mobile/bridge/index.ts` (protocol v4, unchanged since v3). The two lists change
-// together, and only together with the phone.
-export type MobileControlCommandType =
-  'snapshot.request' | 'device.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
-
-export type MobileControlCapability =
-  | 'snapshots.read'
-  | 'devices.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  // Controls the desktop's automations (src/main/automations).
-  | 'automations.control'

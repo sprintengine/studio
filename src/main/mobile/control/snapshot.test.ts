@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { defaultMobileSnapshotCommands, MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './snapshot'
-import { deriveWorkspaceId } from './workspace-id'
-import { relayResultSummaryMaxBytes, relaySummaryByteLength, summarizeCommandResult } from '../bridge/command-results'
-import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
+import {
+  defaultMobileSnapshotCommands,
+  MobileControlSnapshotService,
+  sanitizeMobileSnapshotForTransport,
+} from './snapshot'
 import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
@@ -18,9 +17,7 @@ import {
   mobileControlProtocolVersion,
   mobileSnapshotCollections,
   validateMobileControlSnapshot,
-  type MobileControlAutomationSnapshot,
-  type MobileControlSnapshot,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { test } from 'vitest'
 
 test('snapshot', async () => {
@@ -52,53 +49,13 @@ test('snapshot', async () => {
     await assertTopLevelSnapshotVersionIsContentStableAcrossReads()
     await assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion()
     await assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion()
-    await assertCappedAutomationsFitTheRelayResultBudget()
-    await assertShedDropsRecentRunsWhenTheSnapshotIsOversized()
+    await assertProducerCapsAutomations()
     await assertSnapshotSurfacesCreatedSpikeBacklogItem()
     await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
     await assertSnapshotCarriesNoWorkspacesCollection()
-    await assertUnscopedDefaultSnapshotIsValidForOldClients()
-    await assertWorkspacePathScopingReturnsOnlyThatRoot()
-    await assertScopedRequestSkipsSheddingLadder()
+    await assertUnscopedDefaultSnapshotIsValidOnceSanitized()
     await assertIncludeScopingOmitsUnrequestedCollections()
-    await assertPublishingIsThrottled()
-    assertMobileProtocolCopyHasNotDrifted()
     console.log('mobile/control/snapshot.test.ts: ok')
-  }
-
-  // Drift guard (T10). The wire schema now lives in
-  // packages/mobile-control-protocol, which this repo compiles from source and
-  // publishes as @sprintengine/mobile-control-protocol — so this desktop no
-  // longer keeps a copy of it. The phone still does: its build reaches a store
-  // review this repository does not control, so until a released phone build
-  // depends on the package there is exactly one hand-maintained copy left, over
-  // there, and this pin is still the only thing that catches it drifting.
-  //
-  // Protocol v3 (2026-09-16) changed this file for the first time since the
-  // extraction: `sprintEngines`, `roleCatalogs`, the sprint commands, capabilities,
-  // relay scopes and the `sprintengine` workspace kind are gone, and the wire
-  // version moved 2 -> 3. Both repositories were edited together and both pins were
-  // set to the hash below in the same change, which is the procedure in
-  // docs/compatibility.md step 5.
-  //
-  // Protocol v4 (2026-09-16) changed it again, the same way: the `workspaces`
-  // collection, `desktopWorkspaces`, the `roadmaps` rider and `python_tool_failed`
-  // are gone, and the wire version moved 3 -> 4.
-  //
-  // Retire this once the phone ships against the package: at that point there is
-  // no second copy to compare and the phone's own pin becomes an assertion about
-  // which package version it resolved. docs/mobile-protocol-package.md has the
-  // order of operations.
-  const mobileProtocolSourceSha256 = 'ca7db9da218ca3cfa91d74a009808a24c6d5d573808e9c9d0e6db340bfdcf543'
-
-  function assertMobileProtocolCopyHasNotDrifted(): void {
-    const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
-    const digest = createHash('sha256').update(source).digest('hex')
-    assert.equal(
-      digest,
-      mobileProtocolSourceSha256,
-      'the protocol package source changed — mirror the edit into the sprintengine-mobile copy and update both pinned hashes to the new shared value',
-    )
   }
 
   // INVERTED at protocol v3, and this is the assertion the whole change turns on.
@@ -131,9 +88,8 @@ test('snapshot', async () => {
     // The rest of the snapshot is untouched by the cut.
     assert.equal(snapshot.backlog?.length, 1)
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-    // And the relay-safe copy the phone actually receives is valid too.
-    assert.equal(validateMobileControlSnapshot(sanitizeMobileSnapshotForRelay(snapshot)).ok, true)
-    service.shutdown()
+    // And the sanitized copy the phone actually receives is valid too.
+    assert.equal(validateMobileControlSnapshot(sanitizeMobileSnapshotForTransport(snapshot)).ok, true)
   }
 
   async function assertSnapshotAdvertisesNoSprintCommand(): Promise<void> {
@@ -158,7 +114,6 @@ test('snapshot', async () => {
     assert.equal(snapshot.commands?.includes('backlog.update'), true)
     assert.equal(snapshot.commands?.includes('backlog.create'), true)
     assert.equal(snapshot.commands?.includes('automations.control'), true)
-    service.shutdown()
   }
 
   async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
@@ -225,7 +180,6 @@ test('snapshot', async () => {
     assert.equal(item?.excerpt?.includes('Users need the widget'), true)
     assert.equal(item?.excerpt?.includes('type: feature'), false)
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-    service.shutdown()
   }
 
   // The workspace's role registry once rode on its backlog workspace so the
@@ -265,7 +219,6 @@ test('snapshot', async () => {
     assert.equal('roles' in (backlogWorkspace ?? {}), false, 'roles is omitted, never an empty catalogue')
     assert.equal('rolesUnavailable' in (backlogWorkspace ?? {}), false)
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-    service.shutdown()
   }
 
   async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promise<void> {
@@ -301,7 +254,6 @@ test('snapshot', async () => {
       first.snapshotVersion,
       'the top-level snapshotVersion is content-derived and stable across idle reads',
     )
-    service.shutdown()
   }
 
   // A backlog-only change must move the top-level version, or the fast path would
@@ -347,7 +299,6 @@ test('snapshot', async () => {
       before.snapshotVersion,
       'a backlog-only change produces a new top-level snapshotVersion',
     )
-    service.shutdown()
   }
 
   // An automations-only change must move the top-level version for the same reason.
@@ -403,15 +354,13 @@ test('snapshot', async () => {
       before.snapshotVersion,
       'an automations-only change produces a new top-level snapshotVersion',
     )
-    service.shutdown()
   }
 
-  // One project's automations, seeded PAST every cap, must still ride the on-demand
-  // snapshot.request path inside the relay's 256 KB result-summary budget — and must
-  // still be there at the far end, unshed. This drives the real producer through the
-  // real bridge path, so it is the caps and the size budget measured together rather
-  // than either one asserted in isolation.
-  async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
+  // One project's automations, seeded PAST every cap, must come out of the
+  // producer capped: no more automations than the per-project cap, no more runs
+  // than the recent-runs cap, and run text truncated. This drives the real store
+  // through the real producer, so it is the caps measured on what the phone reads.
+  async function assertProducerCapsAutomations(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('capped-automations')
     const store = new AutomationsStore(workspaceRoot)
     // Every automation is seeded at worst case: past both caps, and with run text
@@ -452,14 +401,9 @@ test('snapshot', async () => {
     }
 
     const service = new MobileControlSnapshotService()
-    const result = await dispatchSnapshotRequest({
-      command: { type: 'snapshot.request', commandId: 'c1', deviceId: 'd1', payload: {} } as never,
-      snapshotService: service,
-      desktopSessionId: 'desktop_1',
-      workspaceRootsProvider: async () => [workspaceRoot],
-    })
-    assert.equal(result.ok, true)
-    const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+    const snapshot = sanitizeMobileSnapshotForTransport(
+      await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
+    )
 
     const automations = snapshot.automations ?? []
     assert.equal(automations.length, automationsPerProjectMax)
@@ -471,91 +415,7 @@ test('snapshot', async () => {
       assert.equal(latest.blockedReason?.length, automationRunTextMaxChars)
     }
 
-    // The whole point of the caps: a project at full cap fits, so the ladder never
-    // has to shed anything for one project's automations.
-    assert.equal(
-      relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
-      true,
-      'a project at full automations cap must fit the relay result-summary budget',
-    )
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-    service.shutdown()
-  }
-
-  // Four workspace roots at full automations cap exceed the budget on automations
-  // alone (~110% of 256 KB, measured), which is exactly the case the per-project
-  // caps cannot prevent. Run history is monitor detail on an automation the phone
-  // can still see, so it is what the ladder drops. Since the Sprint Engine left it is the only
-  // rung: the role catalogues above it and the sprint engines below it are gone.
-  async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<void> {
-    const workspaceRoot = await makeWorkspaceRoot('crowded')
-    const service = new MobileControlSnapshotService()
-    const base = sanitizeMobileSnapshotForRelay(
-      await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
-    )
-    const oversized: MobileControlSnapshot = {
-      ...base,
-      automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
-    }
-    assert.equal(
-      relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes,
-      true,
-      'fixture must actually exceed the budget, or the ladder is never exercised',
-    )
-
-    const result = await dispatchSnapshotRequest({
-      command: { type: 'snapshot.request', commandId: 'c2', deviceId: 'd1', payload: {} } as never,
-      snapshotService: { readSnapshot: async () => oversized } as never,
-      desktopSessionId: 'desktop_1',
-    })
-    assert.equal(result.ok, true)
-    const shed = (result.ok ? result.data : null) as MobileControlSnapshot
-
-    // Every automation is still on the wire — only its run history went.
-    assert.equal(shed.automations?.length, oversized.automations?.length)
-    assert.equal(
-      shed.automations?.some((automation) => automation.recentRuns !== undefined),
-      false,
-    )
-    // Shedding is omission, not an empty array: the wire field is optional and the
-    // validator would reject a nulled one.
-    assert.equal(
-      shed.automations?.every((automation) => !('recentRuns' in automation)),
-      true,
-    )
-    assert.equal(shed.automations?.[0]?.name, oversized.automations?.[0]?.name)
-
-    assert.equal(
-      relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
-      true,
-      'dropping recentRuns must be enough to bring four capped projects back inside the budget',
-    )
-    assert.equal(validateMobileControlSnapshot(shed).ok, true)
-    service.shutdown()
-  }
-
-  // One project's automations exactly as the producer emits them at full cap: capped
-  // count, capped runs, run text at the truncation limit.
-  function automationsAtFullCap(projectKey: string): MobileControlAutomationSnapshot[] {
-    return Array.from({ length: automationsPerProjectMax }, (_automation, index) => ({
-      automationId: `${projectKey}-automation-${index}`,
-      projectKey,
-      name: `Automation ${index}`,
-      status: 'enabled' as const,
-      triggerKind: 'schedule',
-      cadence: 'Every 30 min',
-      nextRunAt: generatedAt,
-      lastRunAt: generatedAt,
-      lastRunStatus: 'blocked' as const,
-      recentRuns: Array.from({ length: automationRecentRunsMax }, (_run, runIndex) => ({
-        runId: `${projectKey}-automation-${index}-run-${runIndex}`,
-        status: 'blocked' as const,
-        startedAt: generatedAt,
-        completedAt: generatedAt,
-        blockedReason: 'b'.repeat(automationRunTextMaxChars),
-        summary: 's'.repeat(automationRunTextMaxChars),
-      })),
-    }))
   }
 
   async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
@@ -585,7 +445,6 @@ test('snapshot', async () => {
     assert.equal(item?.status, 'idea')
     assert.equal(item?.type, 'spike')
     assert.equal(item?.excerpt?.includes('30s stall'), true)
-    service.shutdown()
   }
 
   async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
@@ -599,7 +458,6 @@ test('snapshot', async () => {
     })
 
     assert.equal(snapshot.backlog, undefined)
-    service.shutdown()
   }
 
   // Protocol v4. Until then this desktop emitted `workspaces: []` on every
@@ -623,92 +481,24 @@ test('snapshot', async () => {
     }
     assert.deepEqual([...mobileSnapshotCollections].sort(), ['automations', 'backlog'])
     assert.equal(snapshot.backlog?.length, 1)
-    const relaySafe = sanitizeMobileSnapshotForRelay(snapshot)
-    assert.equal(Object.hasOwn(relaySafe, 'workspaces'), false)
-    assert.equal(validateMobileControlSnapshot(relaySafe).ok, true)
-    service.shutdown()
+    const phoneCopy = sanitizeMobileSnapshotForTransport(snapshot)
+    assert.equal(Object.hasOwn(phoneCopy, 'workspaces'), false)
+    assert.equal(validateMobileControlSnapshot(phoneCopy).ok, true)
   }
 
-  async function assertUnscopedDefaultSnapshotIsValidForOldClients(): Promise<void> {
+  async function assertUnscopedDefaultSnapshotIsValidOnceSanitized(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('unscoped-default')
     await writeBacklogFixture(workspaceRoot, 'backlog_default', 'Default snapshot item')
     const service = new MobileControlSnapshotService()
-    const result = await dispatchSnapshotRequest({
-      command: { type: 'snapshot.request', commandId: 'c-default', deviceId: 'd1', payload: {} } as never,
-      snapshotService: service,
-      desktopSessionId: 'desktop_1',
-      workspaceRootsProvider: async () => [workspaceRoot],
-    })
-    assert.equal(result.ok, true)
-    const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+    const snapshot = sanitizeMobileSnapshotForTransport(
+      await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
+    )
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
     assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false)
     assert.equal(snapshot.backlog?.length, 1)
-    service.shutdown()
   }
 
-  // Item 1600 acceptance: a scoped request keeps skipping the size-shedding ladder,
-  // so an oversized scoped result is returned whole rather than shed.
-  async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
-    const workspaceRoot = await makeWorkspaceRoot('scoped-shed')
-    const oversized: MobileControlSnapshot = {
-      protocolVersion: mobileControlProtocolVersion,
-      generatedAt,
-      desktopSessionId: 'desktop_1',
-      snapshotVersion: 'snap_scoped',
-      commands: [],
-      automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
-    }
-    assert.equal(relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes, true, 'fixture must exceed the budget')
-
-    const result = await dispatchSnapshotRequest({
-      command: {
-        type: 'snapshot.request',
-        commandId: 'c-scoped',
-        deviceId: 'd1',
-        payload: { workspacePath: deriveWorkspaceId(workspaceRoot) },
-      } as never,
-      snapshotService: { readSnapshot: async () => oversized } as never,
-      desktopSessionId: 'desktop_1',
-      workspaceRootsProvider: async () => [workspaceRoot],
-    })
-    assert.equal(result.ok, true)
-    const returned = (result.ok ? result.data : null) as MobileControlSnapshot
-    // No shedding: every automation keeps its run history despite the over-budget size.
-    assert.equal(returned.automations?.length, oversized.automations?.length)
-    assert.equal(
-      returned.automations?.every((automation) => automation.recentRuns !== undefined),
-      true,
-    )
-  }
-
-  // Item 1600 part 2: a `workspacePath`-scoped request (the phone sends the relay-safe
-  // projectKey token) narrows the snapshot to that one root.
-  async function assertWorkspacePathScopingReturnsOnlyThatRoot(): Promise<void> {
-    const rootA = await makeWorkspaceRoot('scope-a')
-    const rootB = await makeWorkspaceRoot('scope-b')
-    await writeBacklogFixture(rootB, 'backlog_root_b', 'Only in root B')
-
-    const service = new MobileControlSnapshotService()
-    const result = await dispatchSnapshotRequest({
-      command: {
-        type: 'snapshot.request',
-        commandId: 'c-ws',
-        deviceId: 'd1',
-        payload: { workspacePath: deriveWorkspaceId(rootA) },
-      } as never,
-      snapshotService: service,
-      desktopSessionId: 'desktop_1',
-      workspaceRootsProvider: async () => [rootA, rootB],
-    })
-    assert.equal(result.ok, true)
-    const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
-    // None of root B's backlog.
-    assert.equal(snapshot.backlog, undefined)
-    service.shutdown()
-  }
-
-  // Item 1600 part 3: `include` restricts the payload to the named collections.
+  // `include` restricts the payload to the named collections.
   async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('include-scoping')
     await writeBacklogFixture(workspaceRoot, 'backlog_inc', 'Include-scoped item')
@@ -747,34 +537,6 @@ test('snapshot', async () => {
     })
     assert.equal(onlyAutomations.automations?.length, 1)
     assert.equal(onlyAutomations.backlog, undefined)
-    service.shutdown()
-  }
-
-  async function assertPublishingIsThrottled(): Promise<void> {
-    const workspaceRoot = await makeWorkspaceRoot('throttle')
-    const service = new MobileControlSnapshotService({ publishThrottleMs: 60 })
-    const published: string[] = []
-    service.subscribe((snapshot) => {
-      published.push(snapshot.generatedAt)
-    })
-
-    const first = await service.publishSnapshot({
-      desktopSessionId: 'desktop_1',
-      workspaceRoots: [workspaceRoot],
-      generatedAt,
-    })
-    const second = await service.publishSnapshot({
-      desktopSessionId: 'desktop_1',
-      workspaceRoots: [workspaceRoot],
-      generatedAt: '2026-04-28T19:30:01.000Z',
-    })
-    const flushed = await service.flushPendingSnapshot()
-
-    assert.equal(first?.generatedAt, generatedAt)
-    assert.equal(second, null)
-    assert.equal(flushed?.generatedAt, '2026-04-28T19:30:01.000Z')
-    assert.deepEqual(published, [generatedAt, '2026-04-28T19:30:01.000Z'])
-    service.shutdown()
   }
 
   async function makeWorkspaceRoot(label: string): Promise<string> {

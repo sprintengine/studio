@@ -2,7 +2,7 @@ import { randomBytes, randomInt, timingSafeEqual } from 'crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { hashSecret } from '../../mobile/bridge/crypto'
+import { hashSecret } from './secret-hash'
 import {
   normalizeTailnetScopes,
   PAIR_REQUEST_CODE_ATTEMPTS,

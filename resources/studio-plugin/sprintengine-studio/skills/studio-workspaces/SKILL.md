@@ -113,17 +113,19 @@ loop.
 
 ## The mobile companion and the tailnet
 
-`workspace_snapshot` is the companion document: backlog, automations and
-workspaces as one versioned read, in the same path-token form
-the relay serves — `ws_` tokens round-trip and local paths never leave the
-desktop. Pass `knownSnapshotVersion` from your previous read to get an
-`{unchanged: true}` marker instead of the whole document when nothing moved; a
-polling loop that ignores this is re-sending the same document every time.
+The phone companion pairs with and talks to this desktop only over the tailnet;
+there is no hosted relay. These two tools are its whole connection.
 
-`workspace_mobile_command` dispatches one mobile-control command envelope over
-this transport instead of the relay. The device identity comes from the
-transport, never from the arguments — do not try to name a device in the
-payload.
+`workspace_snapshot` is the companion document: backlog, automations and the
+dev servers published on the tailnet as one versioned read, in path-token form
+— `ws_` tokens round-trip and local paths never leave the desktop. Pass
+`knownSnapshotVersion` from your previous read to get an `{unchanged: true}`
+marker instead of the whole document when nothing moved; a polling loop that
+ignores this is re-sending the same document every time.
+
+`workspace_mobile_command` dispatches one mobile-control command envelope from a
+paired device. The device identity comes from the transport, never from the
+arguments — do not try to name a device in the payload.
 
 The `tailnet_*` tools are served **only over the local socket** and are
 unreachable from a remote client, by design. `tailnet_status` and

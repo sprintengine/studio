@@ -23,26 +23,20 @@ import type {
 
 export { MobileControlCommandError } from './command-error'
 
-// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
-// command types from there and re-export them so this module stays the public
-// surface for consumers, without re-declaring (and risking drift from) the
-// protocol. Adding a new command type is an edit to protocol.ts alone.
-export { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
+// The wire schema is owned by ./protocol. Import the command types from there
+// and re-export them so this module stays the public surface for consumers,
+// without re-declaring (and risking drift from) the protocol.
+export { mobileControlProtocolVersion } from './protocol'
 
-import type {
-  MobileControlCommand,
-  MobileControlCommandType,
-  MobileControlError,
-} from '../../../../packages/mobile-control-protocol/src/index'
+import type { MobileControlCommand, MobileControlCommandType, MobileControlError } from './protocol'
 
 export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 
-// The desktop's automations seam for `automations.control` (item 47). Narrow on
-// purpose: the engine's own types carry trigger/action config — provider-owned
-// `unknown` that can hold local paths and webhook secrets — and NONE of that may
-// reach a command result, which the relay rejects outright if it contains a local
-// path (multiauth result-summary.ts). So the adapter hands back only what the
-// phone asked about.
+// The desktop's automations seam for `automations.control`. Narrow on purpose:
+// the engine's own types carry trigger/action config — provider-owned `unknown`
+// that can hold local paths and webhook secrets — and NONE of that may reach a
+// command result, which crosses to another device. So the adapter hands back
+// only what the phone asked about.
 type MobileAutomationControlRequest = {
   workspaceRoot: string
   automationId: string
@@ -290,14 +284,11 @@ export class MobileControlCommandService {
         return this.executeBacklogCreateCommand(command, scope)
       case 'automations.control':
         return this.executeAutomationsControlCommand(command, scope)
-      // Everything `allowedCommandTypes` already refused, restated so the switch
-      // stays exhaustive over the protocol's union — the compiler, not a reader,
-      // is what keeps a new command type from falling through here silently.
-      // Both are read elsewhere: `snapshot.request` is answered by the bridge's
-      // snapshot dispatcher and `device.revoke` by its revoke path, before either
-      // reaches the command service.
+      // Already refused by `allowedCommandTypes`, restated so the switch stays
+      // exhaustive over the protocol's union — the compiler, not a reader, is
+      // what keeps a new command type from falling through here silently. A
+      // snapshot is read through `workspace.snapshot`, never dispatched.
       case 'snapshot.request':
-      case 'device.revoke':
         return this.resultRecorder.reject(
           command,
           'command_not_supported',
@@ -321,7 +312,7 @@ export class MobileControlCommandService {
     }
 
     // The phone sends the `ws_…` token it read off the automation's projectKey —
-    // absolute paths never cross the relay — so resolve it back to a root this
+    // absolute paths never leave the desktop — so resolve it back to a root this
     // desktop already knows, and fail closed with path_not_allowed otherwise.
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,

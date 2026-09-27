@@ -47,8 +47,7 @@ const APP_MUTATION_TOOLS = new Set([
   // on the owner's behalf. `tour.status` only reads.
   ...TOUR_MUTATION_TOOL_NAMES,
   'workspace.create',
-  // The mobile companion's command envelope over the gateway
-  // (tailnet-mobile-transport). A mutation for both of its consequences: a
+  // The mobile companion's command envelope over the gateway. A mutation for both of its consequences: a
   // paired phone needs `workspace:operate` to drive it, and every dispatch —
   // including a refused one — lands in the audit with the device identity.
   // `workspace.snapshot` deliberately is NOT here: it is the phone's read

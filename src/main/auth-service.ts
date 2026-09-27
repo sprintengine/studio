@@ -40,7 +40,7 @@ import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
 import { readStudioEnv } from '../shared/studio-env'
 
 // `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where entitlement
-// snapshots come from and where the mobile relay lives. It is no longer, by
+// snapshots come from. It is no longer, by
 // definition, the identity provider: the service publishes which
 // issuer a sign-in should go to at `/api/auth/identity` — itself on a
 // self-hosted deployment, Clerk on the hosted one — and this bridge follows.
@@ -74,6 +74,11 @@ const AUTH_REDIRECT_MODE =
 const REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LOOPBACK_REDIRECT_URI =
   AUTH_REDIRECT_MODE === 'loopback' ? LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
 const PRODUCT_KEY = 'sprintengine' as const
+// `relay:desktop` is still requested although nothing in the app talks to the
+// hosted relay any more: the phone pairs over the tailnet (owner ruling
+// 2026-09-27). The account service's relay authorization is kept for later
+// use, and dropping the scope would change what every sign-in grants — a
+// decision about that service, not a side effect of this app's cleanup.
 const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 const ACCOUNT_SERVICE_LABEL = 'The SprintEngine account service'
@@ -472,16 +477,6 @@ export class SprintEngineAuthBridge {
         id: 'desktop',
         expiresAt: this.state.entitlements?.expiresAt ?? new Date(0).toISOString(),
       },
-    }
-  }
-
-  // The relay is part of the account service and accepts whichever issuer's
-  // token the session holds, so this stays provider-blind.
-  async getRelayAccessToken(): Promise<string | null> {
-    try {
-      return await this.client.getAccessToken()
-    } catch {
-      return null
     }
   }
 

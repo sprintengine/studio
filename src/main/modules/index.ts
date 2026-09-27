@@ -1,6 +1,5 @@
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
-import { mobileRelayModule } from './mobile-relay-module'
 
 export type BundledMainModuleOptions = {
   automations: AutomationsModuleOptions
@@ -14,5 +13,5 @@ export type BundledMainModuleOptions = {
 // (knowledge graph, filesystem) are foundational, always registered in
 // register-core-ipc; only their renderer panels are capability modules.
 export function createBundledMainModules(options: BundledMainModuleOptions): CapabilityModule[] {
-  return [createAutomationsModule(options.automations), mobileRelayModule]
+  return [createAutomationsModule(options.automations)]
 }

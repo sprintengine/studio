@@ -64,16 +64,16 @@ import {
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/control/snapshot'
+import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from './mobile/control/snapshot'
 import { MobileControlCommandService } from './mobile/control/command'
-import { deepRedactLocalPaths } from './mobile/control/relay-path-safety'
+import { deepRedactLocalPaths } from './mobile/control/path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
 import {
   mobileControlProtocolVersion,
   mobileSnapshotCollections,
   type MobileControlCommandType,
   type MobileSnapshotCollection,
-} from '../../packages/mobile-control-protocol/src/index'
+} from './mobile/control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
@@ -652,10 +652,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   // The Automations module (and its app front door) registers on the module
   // kernel AFTER app services are constructed; index.ts injects the resolver once
-  // the kernel is up. Declared here because both the automation tools and the
-  // terminal runtime's mobile command service (the phone's `automations.control`)
-  // resolve it lazily, at call time. Until the module is up, both report the
-  // module as unavailable rather than buffering.
+  // the kernel is up. Declared here because the automation tools resolve it
+  // lazily, at call time. Until the module is up, they report the module as
+  // unavailable rather than buffering.
   let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
   // Live main-process module enablement, injected by index.ts once the manifest
   // universe exists; it recomputes on every override the renderer pushes, so a
@@ -746,9 +745,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // closure only runs once a frame arrives, long after — and it is what files
     // the pull request under the URL's own repository.
     onPullRequestCaptured: (input) => pullRequestRecord.noteCaptured(input),
-    // Item 47: the phone enables, pauses and fires automations through the same
-    // front door the desktop UI writes through.
-    resolveAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({
@@ -930,13 +926,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   const githubTokenStore = new GitHubTokenStore()
 
-  // The mobile relay bridge (construction + IPC + shutdown) moved to its
-  // capability module (src/main/modules/), registered through the host kernel.
-  // The terminal runtime now exposes only generic agent-session seams
-  // (spawn/kill/inventory + a session-exit listener); modules layer their own
-  // system-specific behavior on top. sprintengineAuth and terminalRuntime are
-  // seeded into the kernel so those modules can build on them via the service
-  // bridge.
+  // The terminal runtime exposes only generic agent-session seams
+  // (spawn/kill/inventory + a session-exit listener); capability modules layer
+  // their own system-specific behavior on top. sprintengineAuth and
+  // terminalRuntime are seeded into the kernel so those modules can build on
+  // them via the service bridge.
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
@@ -1416,11 +1410,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             repairIntegrity: repairBacklogIntegrity,
           },
           getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
-          // The mobile companion over the gateway (tailnet-mobile-transport):
-          // the SAME snapshot builder and command service the relay bridge uses,
-          // wired to the same root/state-path discovery, so the two transports
-          // serve one behaviour. Both services are stateless enough to own here;
-          // the relay bridge keeps its own instances (it also publishes pushes).
+          // The mobile companion, which reaches this desktop only over the
+          // tailnet gateway: the snapshot builder and the command service behind
+          // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
+          // workspaces main already knows. Both are stateless enough to own here,
+          // and nothing else holds an instance: this desktop publishes nothing
+          // to a phone, it only answers what a paired device asks.
           mobileControl: (() => {
             // Dev servers this machine publishes on the tailnet ride the snapshot
             // so the phone has a door to them. Stateless; the daemon is the truth.
@@ -1450,7 +1445,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                   commands: gatewayCommands,
                   ...(include && include.length > 0 ? { include } : {}),
                 })
-                const safe = sanitizeMobileSnapshotForRelay(snapshot)
+                const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
                   return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
                 }

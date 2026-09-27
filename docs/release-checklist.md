@@ -33,6 +33,18 @@ commit or squash, never rebase, with Conventional Commit titles; see
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Hosted mobile relay, 2026-09-27 (owner ruling): the phone companion pairs
+  with and talks to the desktop over Tailscale only. The relay bridge, its
+  pairing links, its push notifications and Settings > Mobile are gone, and
+  nothing in the app connects or publishes to the relay. The relay module only
+  ever loaded in from-source builds, so no installed build loses a surface. On
+  first start a build deletes `mobile-bridge.json` from its user-data folder —
+  the relay's own pairings and push tokens — and records how many it held in
+  the diagnostics log; tailnet pairings are untouched. The
+  `@sprintengine/mobile-control-protocol` package is no longer built or
+  published from this repository: the snapshot and command shapes the tailnet
+  gateway still serves live in `src/main/mobile/control/protocol.ts`, on the
+  same wire version 4.
 - Automation review-only mode (item 2032): `autonomyDefault: 'review_only' |
 'allow_changes'` is retired. An existing automation on disk still loads — the
   key is dropped on read and never written back — and one whose author chose

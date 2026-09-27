@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 
-import { hashSecret } from '../../mobile/bridge/crypto'
+import { hashSecret } from './secret-hash'
 import { hostname } from 'os'
 
 import { backoffDelayMs } from '../../../shared/exponentialBackoff'

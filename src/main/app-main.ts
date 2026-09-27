@@ -34,6 +34,8 @@ import { registerCoreIpc } from './register-core-ipc'
 import { markStartup } from './startup-timeline'
 import { readStudioEnv } from '../shared/studio-env'
 import { allowsMultipleInstances } from './app-instance'
+import { writeDiagnosticLog } from './diagnostics-service'
+import { removeRetiredRelayState } from './retired-relay-state'
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
 // the single-instance lock. By the time this runs the startup timeline is
@@ -56,7 +58,7 @@ const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 const services = createAppServices(DIAGNOSTICS_ENABLED)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice, Mobile Relay) ship only in
+// Dev-only capability surfaces (Voice) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
@@ -184,6 +186,26 @@ registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
   assetOrigin: moduleAssetOrigin,
 })
 void app.whenReady().then(() => {
+  // The hosted relay's leftover pairings and push tokens (retired-relay-state.ts).
+  // Best effort and off the startup path; tailnet pairings are never touched.
+  void removeRetiredRelayState(app.getPath('userData')).then((result) => {
+    if (result.outcome === 'absent') return
+    void writeDiagnosticLog(
+      result.outcome === 'removed'
+        ? {
+            level: 'info',
+            source: 'auth',
+            title: 'Removed the hosted relay pairings',
+            message: `The phone now pairs over Tailscale only. Deleted the relay's stored state: ${result.relayPairings} relay pairing(s) and ${result.pushRegistrations} push registration(s). Tailnet pairings were not touched.`,
+          }
+        : {
+            level: 'warning',
+            source: 'auth',
+            title: 'Could not remove the hosted relay pairings',
+            message: `The retired relay's state file is still in userData: ${result.message}`,
+          },
+    ).catch(() => {})
+  })
   const shellUrl = process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(join(__dirname, '../renderer/index.html')).href
   session.defaultSession.webRequest.onBeforeRequest({ urls: [`${MODULE_ASSET_SCHEME}://*/*`] }, (details, callback) => {
     callback({ cancel: !isAllowedModuleAssetRequest(details, shellUrl) })

@@ -4,7 +4,7 @@ import {
   isSupportedMobileControlProtocolVersion,
   mobileControlProtocolVersion,
   unsupportedMobileControlProtocolVersion,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import type { MobileControlCommand, MobileControlCommandType, MobileControlError } from './command'
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileControlError }
@@ -17,7 +17,6 @@ type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileCo
 // instead — which is where a version mismatch belongs.
 const commandTypes = new Set<MobileControlCommandType>([
   'snapshot.request',
-  'device.revoke',
   'backlog.update',
   'backlog.create',
   'automations.control',
@@ -91,8 +90,6 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
     // the allowed roots). There is nothing to require here.
     case 'snapshot.request':
       return optionalString(payload, 'workspacePath')
-    case 'device.revoke':
-      return requireString(payload, 'deviceId') ?? optionalString(payload, 'reason')
     case 'backlog.update':
       return (
         requireString(payload, 'workspacePath') ??

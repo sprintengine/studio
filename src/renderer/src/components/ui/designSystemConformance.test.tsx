@@ -1882,7 +1882,6 @@ test('designSystemConformance', async () => {
       'components/panels/BacklogCreateDialog.tsx',
       'components/panels/ConnectorsPanel/CustomMcpServerForm.tsx',
       'components/panels/FileExplorer.tsx',
-      'components/settings/MobileSettingsTab.tsx',
       'components/settings/ProjectKnowledgeList.tsx',
       'components/settings/ProviderSettingsTab.tsx',
       'components/settings/SettingsPanel.tsx',

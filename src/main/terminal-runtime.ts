@@ -65,8 +65,6 @@ import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
-import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
-import { MobileControlCommandService } from './mobile/control/command'
 import { getPluginById } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import {
@@ -133,7 +131,6 @@ import {
   type TerminalOutputExtent,
   type TerminalOutputSink,
 } from './terminal-output-buffer'
-import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import {
   explainSessionReapDecision,
   selectReapableSessions,
@@ -230,11 +227,6 @@ type TerminalRuntimeOptions = {
     agentId?: string
     sessionId?: string
   }): void
-  // Item 47: the phone's `automations.control` command enables, pauses and fires
-  // automations through the Automations module's app front door — the same write
-  // path as the desktop UI. Resolved lazily (the module registers it on the kernel
-  // after app services are built). Absent in tests: the command rejects cleanly.
-  resolveAutomationsFrontDoor?: () => AutomationsAppFrontDoor | null
   // --- Agent changelists (agent-changelist-feed.ts) -------------------------
   //
   // Three seams, one feed. They are OPTIONAL and must never be able to fail a
@@ -289,7 +281,6 @@ type TerminalIpcHandlers = {
 }
 
 type TerminalRuntime = {
-  commandService: MobileControlCommandService
   ipcHandlers: TerminalIpcHandlers
   // The conversation peek's read of a session: whether its runtime reports
   // prompts, and the prompts captured for it. Exposed as a plain reader rather
@@ -346,7 +337,6 @@ let resolveWorkspaceHostId: TerminalRuntimeOptions['resolveWorkspaceHostId']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
-let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
 let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
 let onPullRequestCaptured: TerminalRuntimeOptions['onPullRequestCaptured']
@@ -407,7 +397,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   snapshotSidecars = options.snapshotSidecars
   agentPrompts = options.agentPrompts
   logReapDiagnostic = options.logDiagnostic
-  resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
   onPullRequestCaptured = options.onPullRequestCaptured
@@ -423,7 +412,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   startStaleTerminalSweep()
 
   return {
-    commandService: createMobileCommandService(),
     readConversationPeekSessionState,
     shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
@@ -3376,14 +3364,6 @@ function attachTerminalSession(
     recordTerminalInput(terminalSession)
     terminalSession.process.write(initialInput)
   }
-}
-
-function createMobileCommandService(): MobileControlCommandService {
-  return createTerminalMobileCommandService({
-    // Re-read on every command: the adapter is registered once the Automations
-    // module is up, which is after the runtime (and this service) exist.
-    resolveAutomationsFrontDoor: () => resolveAutomationsFrontDoorAdapter?.() ?? null,
-  })
 }
 
 async function spawnTerminalFromIpc(

@@ -84,6 +84,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'sprint-engine',
   'review',
   'automations',
+  // Retired but still reserved (the hosted mobile relay, removed 2026-09-27).
   'mobile-relay',
   'voice-dictation',
 ]
