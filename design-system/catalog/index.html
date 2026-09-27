@@ -6771,7 +6771,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-primary);
 }
 
-/* A muted suffix naming an unmet prerequisite — "· Needs the mobile relay". It
+/* A muted suffix naming an unmet prerequisite — "· Needs Tailscale". It
  * sits on the label line because it is a fact about the control, not about the
  * setting, and the help line below is already spoken for. */
 .ds-setting-row-requirement {
@@ -35132,11 +35132,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         <div class="ds-setting-row ds-setting-row--disabled">
           <div class="ds-setting-row-text">
             <span class="ds-setting-row-label" id="l-publish">
-              Publish agent activity
-              <span class="ds-setting-row-requirement">· Needs the mobile relay</span>
+              Share dev servers with your phone
+              <span class="ds-setting-row-requirement">· Needs Tailscale</span>
             </span>
             <div class="ds-setting-row-help" id="l-publish-help">
-              Send activity to mobile notifications without a paired device.
+              Publish a local dev server on your tailnet so a paired phone can open it.
             </div>
           </div>
           <div class="ds-setting-row-control">
@@ -35284,11 +35284,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         <div class="ds-setting-row ds-setting-row--disabled">
           <div class="ds-setting-row-text">
             <span class="ds-setting-row-label" id="d-publish">
-              Publish agent activity
-              <span class="ds-setting-row-requirement">· Needs the mobile relay</span>
+              Share dev servers with your phone
+              <span class="ds-setting-row-requirement">· Needs Tailscale</span>
             </span>
             <div class="ds-setting-row-help" id="d-publish-help">
-              Send activity to mobile notifications without a paired device.
+              Publish a local dev server on your tailnet so a paired phone can open it.
             </div>
           </div>
           <div class="ds-setting-row-control">
@@ -35388,7 +35388,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <h4>Usage</h4>
 <ul><li><strong>One setting per row.</strong> Two switches on one row is two settings sharing one label, and the help line can only describe one of them.</li><li><strong>Help is one or two lines, and it says what the setting does</strong> — not what the control is. &quot;Settle a thread when its pull request merges&quot; earns its line; &quot;Toggle this on or off&quot; does not. A row whose help would only restate its label ships without help.</li><li><strong>The control stays sized to its content.</strong> A 240px input, an intrinsic select, a switch. A full-width control in the default variant is the <code>--stacked</code> variant asking to be used.</li><li><strong>Group by what a person would change together</strong>, and keep a card to a readable run — past roughly eight rows the card stops being a group and goes back to being a scroll, and the group wants splitting.</li><li><strong>A card is a group, so a card of one row is not a group.</strong> One row alone under its own label belongs in the neighbouring card, or the label goes and the row joins the page's first card.</li><li>Do not nest a card in a card. A setting that opens onto more settings is a row with a disclosure, or a page of its own.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The row is a <code>&lt;div&gt;</code> and takes no focus. The control is the only tab stop.</li><li>When one control owns the row, the label is a real <code>&lt;label&gt;</code> with <code>for</code> pointing at it, so the label text is clickable and is read as the control's name.</li><li>When the control cannot take a <code>for</code> (a switch rendered as a <code>&lt;button&gt;</code>, an action pair), point the control at the text instead: <code>aria-labelledby</code> on the label and <code>aria-describedby</code> on the help. Never both a <code>&lt;label for&gt;</code> and an <code>aria-labelledby</code> — that is two names for one control.</li><li>The requirement suffix is inside the labelled element, so &quot;Needs the mobile relay&quot; is read as part of the control's name rather than being lost.</li><li>A disabled control uses the <code>disabled</code> attribute, or <code>aria-disabled=&quot;true&quot;</code> when it must stay focusable to explain why.</li><li>The card is a plain container with no role. When the rows are genuinely a list of like things the card may be a <code>&lt;ul&gt;</code> with <code>&lt;li&gt;</code> rows; a card of unrelated settings is not a list and must not claim to be one.</li><li>Help text is never the only place a constraint appears. A numeric field with a floor states it on the control (<code>min</code>), not only in prose.</li></ul>
+<ul><li>The row is a <code>&lt;div&gt;</code> and takes no focus. The control is the only tab stop.</li><li>When one control owns the row, the label is a real <code>&lt;label&gt;</code> with <code>for</code> pointing at it, so the label text is clickable and is read as the control's name.</li><li>When the control cannot take a <code>for</code> (a switch rendered as a <code>&lt;button&gt;</code>, an action pair), point the control at the text instead: <code>aria-labelledby</code> on the label and <code>aria-describedby</code> on the help. Never both a <code>&lt;label for&gt;</code> and an <code>aria-labelledby</code> — that is two names for one control.</li><li>The requirement suffix is inside the labelled element, so &quot;Needs Tailscale&quot; is read as part of the control's name rather than being lost.</li><li>A disabled control uses the <code>disabled</code> attribute, or <code>aria-disabled=&quot;true&quot;</code> when it must stay focusable to explain why.</li><li>The card is a plain container with no role. When the rows are genuinely a list of like things the card may be a <code>&lt;ul&gt;</code> with <code>&lt;li&gt;</code> rows; a card of unrelated settings is not a list and must not claim to be one.</li><li>Help text is never the only place a constraint appears. A numeric field with a floor states it on the control (<code>min</code>), not only in prose.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/setting-row/component.css</summary><pre><code>/* Setting row — the state-a-value-and-change-it row of a settings surface.
@@ -35470,7 +35470,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   color: var(--sem-color-text-primary);
 }
 
-/* A muted suffix naming an unmet prerequisite — &quot;· Needs the mobile relay&quot;. It
+/* A muted suffix naming an unmet prerequisite — &quot;· Needs Tailscale&quot;. It
  * sits on the label line because it is a fact about the control, not about the
  * setting, and the help line below is already spoken for. */
 .ds-setting-row-requirement {
@@ -35641,11 +35641,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;div class=&quot;ds-setting-row ds-setting-row--disabled&quot;&gt;
           &lt;div class=&quot;ds-setting-row-text&quot;&gt;
             &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;l-publish&quot;&gt;
-              Publish agent activity
-              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs the mobile relay&lt;/span&gt;
+              Share dev servers with your phone
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Tailscale&lt;/span&gt;
             &lt;/span&gt;
             &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-publish-help&quot;&gt;
-              Send activity to mobile notifications without a paired device.
+              Publish a local dev server on your tailnet so a paired phone can open it.
             &lt;/div&gt;
           &lt;/div&gt;
           &lt;div class=&quot;ds-setting-row-control&quot;&gt;
@@ -35793,11 +35793,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;div class=&quot;ds-setting-row ds-setting-row--disabled&quot;&gt;
           &lt;div class=&quot;ds-setting-row-text&quot;&gt;
             &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;d-publish&quot;&gt;
-              Publish agent activity
-              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs the mobile relay&lt;/span&gt;
+              Share dev servers with your phone
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Tailscale&lt;/span&gt;
             &lt;/span&gt;
             &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-publish-help&quot;&gt;
-              Send activity to mobile notifications without a paired device.
+              Publish a local dev server on your tailnet so a paired phone can open it.
             &lt;/div&gt;
           &lt;/div&gt;
           &lt;div class=&quot;ds-setting-row-control&quot;&gt;
