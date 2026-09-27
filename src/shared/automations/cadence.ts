@@ -3,7 +3,7 @@ import type { ScheduleTriggerConfig } from './contracts'
 // Cadence copy lives in shared, not in the Automations panel, because two very
 // different readers render the same schedule: the desktop panel (AutomationsPanel/
 // automationsFormat.ts) and the mobile snapshot projection (src/main/mobile/
-// sprintengine/automations.ts). The phone must never parse a raw cadence — trigger
+// control/automations.ts). The phone must never parse a raw cadence — trigger
 // `config` is provider-owned `unknown` — so the desktop pre-renders the string and
 // puts only that on the wire. One rule, one place, so the two cannot drift.
 

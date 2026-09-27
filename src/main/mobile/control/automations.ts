@@ -8,20 +8,15 @@ import { AutomationsStore } from '../../automations/store'
 import { deriveWorkspaceId } from './workspace-id'
 
 // Projects one workspace root's automations for the mobile snapshot: a read-only
-// monitor view (item 47). Nothing about the action, condition, prompt, worktree or
+// monitor view. Nothing about the action, condition, prompt, worktree or
 // connector is projected — the phone watches automations, the desktop authors them.
 //
-// SIZE IS THE CONSTRAINT. The snapshot rides the relay's 256 KB result-summary
-// budget (bridge/command-results.ts), so the collection is bounded BY CONSTRUCTION,
-// in the same style as the role-catalog caps: at most `automationsPerProjectMax`
-// automations per root, each with at most `automationRecentRunsMax` runs, each run's
-// free text truncated to `automationRunTextMaxChars`.
-//
-// The caps bound a PROJECT, not a snapshot, so they are a floor on the damage and
-// not a proof of fit — enough roots at full cap still crowd the budget out. The
-// shedding ladder (bridge/snapshot-request.ts) therefore drops `recentRuns` above
-// the sprint engines: losing run history costs the phone monitor detail, whereas
-// losing a sprint engine costs it a run it can no longer see or drive.
+// SIZE IS THE CONSTRAINT. The phone reads the whole snapshot in one response
+// over the tailnet, so the collection is bounded BY CONSTRUCTION: at most
+// `automationsPerProjectMax` automations per root, each with at most
+// `automationRecentRunsMax` runs, each run's free text truncated to
+// `automationRunTextMaxChars`. The caps bound a PROJECT, not a snapshot; a phone
+// that only needs one collection asks for it with `include`.
 //
 // Returns [] for a workspace with no automations store, and for one whose store
 // cannot be read: an unreadable store is an absence of knowledge, not an empty

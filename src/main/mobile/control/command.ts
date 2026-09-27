@@ -32,12 +32,11 @@ import type { MobileControlCommand, MobileControlCommandType, MobileControlError
 
 export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 
-// The desktop's automations seam for `automations.control` (item 47). Narrow on
-// purpose: the engine's own types carry trigger/action config — provider-owned
-// `unknown` that can hold local paths and webhook secrets — and NONE of that may
-// reach a command result, which the relay rejects outright if it contains a local
-// path (multiauth result-summary.ts). So the adapter hands back only what the
-// phone asked about.
+// The desktop's automations seam for `automations.control`. Narrow on purpose:
+// the engine's own types carry trigger/action config — provider-owned `unknown`
+// that can hold local paths and webhook secrets — and NONE of that may reach a
+// command result, which crosses to another device. So the adapter hands back
+// only what the phone asked about.
 type MobileAutomationControlRequest = {
   workspaceRoot: string
   automationId: string
@@ -313,7 +312,7 @@ export class MobileControlCommandService {
     }
 
     // The phone sends the `ws_…` token it read off the automation's projectKey —
-    // absolute paths never cross the relay — so resolve it back to a root this
+    // absolute paths never leave the desktop — so resolve it back to a root this
     // desktop already knows, and fail closed with path_not_allowed otherwise.
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,

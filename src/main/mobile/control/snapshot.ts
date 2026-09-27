@@ -14,7 +14,7 @@ import type {
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
-import { deepRedactLocalPaths } from './relay-path-safety'
+import { deepRedactLocalPaths } from './path-safety'
 
 export type { MobileControlSnapshot }
 
@@ -46,23 +46,23 @@ export type MobileControlSnapshotRequest = {
   workspaceRoots?: string[]
   commands?: MobileControlCommandType[]
   generatedAt?: string
-  // Collection scoping (item 1600). Absent = the default set below; a caller that
-  // names collections gets exactly those. Scoped to the read composition, not the
-  // wire — `dispatchSnapshotRequest` maps the request `include` field to this.
+  // Collection scoping. Absent = the default set below; a caller that names
+  // collections gets exactly those. `workspace.snapshot` maps its `include`
+  // argument to this.
   include?: MobileSnapshotCollection[]
 }
 
 // The unscoped default: every collection the wire declares.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog', 'automations'])
 
-// Make an outbound snapshot relay-safe: the relay rejects any summary containing
-// an absolute local path (multiauth src/relay/result-summary.ts). Round-trip
-// critical workspace roots become resolvable tokens (deriveWorkspaceId);
+// Make an outbound snapshot safe to hand another device: no absolute local path
+// leaves the desktop (see path-safety.ts). Round-trip critical workspace roots
+// become resolvable tokens (deriveWorkspaceId);
 // display-only path fields become the folder name or are dropped; any remaining
 // absolute path anywhere in the payload is redacted as a defensive backstop.
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution.
-export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
+export function sanitizeMobileSnapshotForTransport(snapshot: MobileControlSnapshot): MobileControlSnapshot {
   // `projectKey` is the phone's join key across collections: the same
   // token for the same repo root in every collection, which automations are
   // stamped with by their producer.
@@ -110,7 +110,7 @@ export class MobileControlSnapshotService {
     const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
     const backlog = collections.has('backlog') ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt) : []
-    // Item 47: the automations monitor. One projection per workspace root, joined to
+    // The automations monitor. One projection per workspace root, joined to
     // the other collections on `projectKey` (stamped by the producer, from the same
     // deriveWorkspaceId the sanitize pass stamps backlog workspaces with).
     const automations = collections.has('automations')
@@ -128,7 +128,7 @@ export class MobileControlSnapshotService {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
       desktopSessionId: request.desktopSessionId,
-      // Content-derived so the phone's If-None-Match (item 1599) matches on an
+      // Content-derived so the phone's `knownSnapshotVersion` matches on an
       // idle read. It folds NO per-read wall-clock: the top level dropped
       // `generatedAt`, and each backlog `updatedAt` — which falls back to
       // `generatedAt` for an empty workspace — is stripped before hashing.

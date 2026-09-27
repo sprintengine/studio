@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { defaultMobileSnapshotCommands, MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './snapshot'
+import {
+  defaultMobileSnapshotCommands,
+  MobileControlSnapshotService,
+  sanitizeMobileSnapshotForTransport,
+} from './snapshot'
 import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
@@ -84,8 +88,8 @@ test('snapshot', async () => {
     // The rest of the snapshot is untouched by the cut.
     assert.equal(snapshot.backlog?.length, 1)
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-    // And the relay-safe copy the phone actually receives is valid too.
-    assert.equal(validateMobileControlSnapshot(sanitizeMobileSnapshotForRelay(snapshot)).ok, true)
+    // And the sanitized copy the phone actually receives is valid too.
+    assert.equal(validateMobileControlSnapshot(sanitizeMobileSnapshotForTransport(snapshot)).ok, true)
   }
 
   async function assertSnapshotAdvertisesNoSprintCommand(): Promise<void> {
@@ -397,7 +401,7 @@ test('snapshot', async () => {
     }
 
     const service = new MobileControlSnapshotService()
-    const snapshot = sanitizeMobileSnapshotForRelay(
+    const snapshot = sanitizeMobileSnapshotForTransport(
       await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
     )
 
@@ -477,16 +481,16 @@ test('snapshot', async () => {
     }
     assert.deepEqual([...mobileSnapshotCollections].sort(), ['automations', 'backlog'])
     assert.equal(snapshot.backlog?.length, 1)
-    const relaySafe = sanitizeMobileSnapshotForRelay(snapshot)
-    assert.equal(Object.hasOwn(relaySafe, 'workspaces'), false)
-    assert.equal(validateMobileControlSnapshot(relaySafe).ok, true)
+    const phoneCopy = sanitizeMobileSnapshotForTransport(snapshot)
+    assert.equal(Object.hasOwn(phoneCopy, 'workspaces'), false)
+    assert.equal(validateMobileControlSnapshot(phoneCopy).ok, true)
   }
 
   async function assertUnscopedDefaultSnapshotIsValidOnceSanitized(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('unscoped-default')
     await writeBacklogFixture(workspaceRoot, 'backlog_default', 'Default snapshot item')
     const service = new MobileControlSnapshotService()
-    const snapshot = sanitizeMobileSnapshotForRelay(
+    const snapshot = sanitizeMobileSnapshotForTransport(
       await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
     )
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)

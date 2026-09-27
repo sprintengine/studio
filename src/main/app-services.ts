@@ -64,9 +64,9 @@ import {
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/control/snapshot'
+import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from './mobile/control/snapshot'
 import { MobileControlCommandService } from './mobile/control/command'
-import { deepRedactLocalPaths } from './mobile/control/relay-path-safety'
+import { deepRedactLocalPaths } from './mobile/control/path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
 import {
   mobileControlProtocolVersion,
@@ -1445,7 +1445,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                   commands: gatewayCommands,
                   ...(include && include.length > 0 ? { include } : {}),
                 })
-                const safe = sanitizeMobileSnapshotForRelay(snapshot)
+                const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
                   return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
                 }

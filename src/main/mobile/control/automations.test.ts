@@ -301,7 +301,7 @@ test('automations', async () => {
     )
   })
 
-  // The run-now gate (item 47). `engine.runNow` rejects a second run with `in_flight`,
+  // The run-now gate. `engine.runNow` rejects a second run with `in_flight`,
   // so the phone must be able to see that a run is already going and not draw a button
   // guaranteed to fail. This is why in-flight is a FIELD and not something the phone
   // infers from `recentRuns`: recentRuns is the first automations field the shedding

@@ -302,7 +302,7 @@ test('command', async () => {
     assert.equal(data?.status, 'enabled')
     assert.ok(data?.runId, 'the phone gets the run id it just started')
 
-    // The result rides the relay, which rejects any summary containing a local path.
+    // The result crosses to the phone, and a local path never does.
     // The engine's own result carries the full definition (provider-owned trigger and
     // action config, which can hold paths and webhook secrets); only the narrow view
     // may cross the wire.

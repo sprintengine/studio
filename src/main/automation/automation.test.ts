@@ -3252,7 +3252,7 @@ test('automation', async () => {
     )
   }
 
-  // ── Mobile companion over the gateway (tailnet-mobile-transport) ───────────
+  // ── Mobile companion over the gateway ──────────────────────────────────────
 
   async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void> {
     const reads: Array<{ include?: string[]; knownSnapshotVersion?: string }> = []
