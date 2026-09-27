@@ -178,6 +178,8 @@ export class ConversationRuntime {
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
+  // Housekeeping that must not delay the caller but must finish before shutdown.
+  private readonly background = new Set<Promise<unknown>>()
   private readonly emissionTails = new Map<string, Promise<unknown>>()
   private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
   private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
@@ -861,7 +863,13 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       adapter.disposeAll?.()
     }
+    await Promise.allSettled(this.background)
     await this.eventLog.closeAll()
+  }
+
+  private runInBackground(task: Promise<unknown>): void {
+    const tracked = task.catch(() => undefined).finally(() => this.background.delete(tracked))
+    this.background.add(tracked)
   }
 
   private async validateStartInput(
@@ -1793,16 +1801,17 @@ export class ConversationRuntime {
     for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
     this.sequences.set(path, closures.at(-1)?.seq ?? sync.head)
     // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
-    void this.threadIndex
-      .list(input)
-      .catch(() => [])
-      .then((threads) =>
-        this.checkpoints.collectExpired(input.workspaceRoot, this.now(), [
-          { key: input, updatedAt: this.now() },
-          ...threads.map((thread) => ({ key: { ...input, agentId: thread.agentId }, updatedAt: thread.updatedAt })),
-        ]),
-      )
-      .catch(() => undefined)
+    this.runInBackground(
+      this.threadIndex
+        .list(input)
+        .catch(() => [])
+        .then((threads) =>
+          this.checkpoints.collectExpired(input.workspaceRoot, this.now(), [
+            { key: input, updatedAt: this.now() },
+            ...threads.map((thread) => ({ key: { ...input, agentId: thread.agentId }, updatedAt: thread.updatedAt })),
+          ]),
+        ),
+    )
   }
 
   private async captureBeforeTool(session: RuntimeSession, name: string): Promise<void> {
