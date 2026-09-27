@@ -153,14 +153,38 @@ export class ConversationCheckpoints {
       await this.git(key.workspaceRoot, ['update-ref', '-d', ref])
   }
 
-  async collectExpired(cwd: string, now = Date.now()): Promise<void> {
+  /**
+   * Expire a conversation's refs once the conversation itself has been idle
+   * for 30 days, never ref by ref: a live conversation keeps every turn's
+   * checkpoint however old that turn is. Activity is the newest of its refs
+   * and, for conversations the caller knows, the thread's last update. Refs of
+   * conversations the caller does not know (another worktree of the same
+   * repository shares this ref namespace) expire on their refs alone.
+   */
+  async collectExpired(
+    cwd: string,
+    now = Date.now(),
+    live: Array<{ key: ConversationKey; updatedAt: number }> = [],
+  ): Promise<void> {
     if (!(await this.available(cwd))) return
     const refs = await this.git(cwd, ['for-each-ref', '--format=%(refname) %(committerdate:unix)', PREFIX])
-    const cutoff = now / 1000 - 30 * 24 * 60 * 60
+    const groups = new Map<string, { refs: string[]; activity: number }>()
     for (const line of refs.trim().split('\n')) {
       const [ref, timestamp] = line.split(' ')
-      if (ref?.startsWith(PREFIX) && Number(timestamp) < cutoff) await this.git(cwd, ['update-ref', '-d', ref])
+      const identity = ref?.startsWith(PREFIX) ? ref.slice(PREFIX.length).split('/')[0] : ''
+      if (!identity) continue
+      const group = groups.get(identity) ?? { refs: [], activity: 0 }
+      group.refs.push(ref)
+      group.activity = Math.max(group.activity, Number(timestamp) * 1000 || 0)
+      groups.set(identity, group)
     }
+    for (const thread of live) {
+      const group = groups.get(this.identity(thread.key))
+      if (group) group.activity = Math.max(group.activity, thread.updatedAt)
+    }
+    const cutoff = now - 30 * 24 * 60 * 60 * 1000
+    for (const group of groups.values())
+      if (group.activity < cutoff) for (const ref of group.refs) await this.git(cwd, ['update-ref', '-d', ref])
   }
 
   private async commit(root: string, tree: string, turnSeq: number, point: string): Promise<string> {

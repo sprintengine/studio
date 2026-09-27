@@ -443,3 +443,23 @@ test('revert never replaces or removes a file its recovery checkpoint cannot bri
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('expiry keeps every checkpoint of a conversation that is still active, however old its turns', async () => {
+  const f = await repository()
+  const day = 24 * 60 * 60 * 1000
+  const refs = async () =>
+    (await git(f.root, ['for-each-ref', '--format=%(refname:lstrip=4)', 'refs/sprintengine/checkpoints/'])).trim()
+  try {
+    const checkpoints = new ConversationCheckpoints()
+    const other = { ...f.key, agentId: 'other' }
+    assert.ok((await checkpoints.capture(f.key, 1, 'pre')).ok)
+    assert.ok((await checkpoints.capture(other, 1, 'pre')).ok)
+    const later = Date.now() + 40 * day
+    await checkpoints.collectExpired(f.root, later, [{ key: f.key, updatedAt: later - day }])
+    assert.equal(await refs(), '1-pre')
+    await checkpoints.collectExpired(f.root, later, [{ key: f.key, updatedAt: later - 31 * day }])
+    assert.equal(await refs(), '')
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

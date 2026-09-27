@@ -1792,7 +1792,17 @@ export class ConversationRuntime {
     const closures = sync.kind === 'snapshot' && !live ? syntheticTurnClosures(sync.page.events) : []
     for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
     this.sequences.set(path, closures.at(-1)?.seq ?? sync.head)
-    await this.checkpoints.collectExpired(input.workspaceRoot)
+    // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
+    void this.threadIndex
+      .list(input)
+      .catch(() => [])
+      .then((threads) =>
+        this.checkpoints.collectExpired(input.workspaceRoot, this.now(), [
+          { key: input, updatedAt: this.now() },
+          ...threads.map((thread) => ({ key: { ...input, agentId: thread.agentId }, updatedAt: thread.updatedAt })),
+        ]),
+      )
+      .catch(() => undefined)
   }
 
   private async captureBeforeTool(session: RuntimeSession, name: string): Promise<void> {
