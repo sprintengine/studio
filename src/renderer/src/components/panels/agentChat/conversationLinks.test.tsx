@@ -50,3 +50,8 @@ test('markdown links keep their label', () => {
   expect(html).toContain('aria-label="Open src/app.ts:4"')
   expect(render('[plain words](not a link)')).toContain('plain words')
 })
+
+test('a host and port in inline code is not a file reference', () => {
+  expect(render('Serve on `localhost:3000`, `127.0.0.1:8080` or `example.com:443`.')).not.toContain('aria-label="Open ')
+  expect(render('`server.ts:3000`')).toContain('aria-label="Open server.ts:3000"')
+})

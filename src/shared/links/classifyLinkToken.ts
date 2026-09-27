@@ -220,6 +220,12 @@ function hostLookalike(value: string): boolean {
   return !!match && HOST_TLDS.has(match[1].toLowerCase())
 }
 
+function hostWithPort(value: string): boolean {
+  if (/^localhost$/iu.test(value) || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(value)) return true
+  const match = /^(?:[a-z0-9-]+\.)+([a-z]{2,})$/iu.exec(value)
+  return !!match && HOST_TLDS.has(match[1].toLowerCase())
+}
+
 /** Classify one already-delimited token without looking at the filesystem. */
 export function classifyLinkToken(token: string, ctx: LinkTokenContext): LinkToken | null {
   try {
@@ -266,6 +272,9 @@ export function classifyLinkToken(token: string, ctx: LinkTokenContext): LinkTok
       return hostLookalike(value) ? { type: 'url', href: cleaned } : null
     }
     if (ctx.source === 'text') return null
+    // `localhost:3000` and `127.0.0.1:8080` are a host and a port, not a file
+    // and a line, even though they share the shape.
+    if (position.line !== undefined && !knownFileName(value) && hostWithPort(value)) return null
     return (knownFileName(value) && (value.includes('.') || position.line !== undefined)) || position.line !== undefined
       ? file()
       : null
