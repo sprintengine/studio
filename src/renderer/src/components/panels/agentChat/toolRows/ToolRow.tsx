@@ -36,6 +36,9 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
   const input = object(detail?.input ?? tool.input)
   const output = pretty(detail?.output ?? tool.output)
   const kind = presentToolItem(toolPresentationInput(tool)).icon
+  // Parsing megabytes of fetched output on every render (each streamed token
+  // re-renders the turn) stalls the chat; it only changes with the output.
+  const ansi = useMemo(() => (kind === 'command' ? parseAnsi(output) : null), [kind, output])
   const path = String(input.path ?? input.file_path ?? '')
   const status = detail?.status ?? tool.outputStatus
   if (status === 'declined' || status === 'stopped')
@@ -46,7 +49,7 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
         <pre className="whitespace-pre-wrap font-mono">
           $ {String(input.command ?? input.cmd ?? tool.summary ?? '')}
         </pre>
-        <AnsiOutput lines={parseAnsi(output)} />
+        <AnsiOutput lines={ansi ?? []} />
         {(detail?.exitCode ?? tool.exitCode) !== undefined ? <p>exit {detail?.exitCode ?? tool.exitCode}</p> : null}
       </>
     )
@@ -141,14 +144,33 @@ function ReadOutput({ output, path }: { output: string; path: string }) {
   )
 }
 
+// Fetched full output, kept by call id: the virtualized timeline unmounts a row
+// scrolled out of view, and scrolling back must not lose (or refetch) it.
+const MAX_CACHED_DETAILS = 20
+const detailCache = new Map<string, ConversationToolDetail>()
+function cachedDetail(key: string): ConversationToolDetail | undefined {
+  const detail = detailCache.get(key)
+  if (detail) {
+    detailCache.delete(key)
+    detailCache.set(key, detail)
+  }
+  return detail
+}
+function cacheDetail(key: string, detail: ConversationToolDetail): void {
+  detailCache.delete(key)
+  detailCache.set(key, detail)
+  if (detailCache.size > MAX_CACHED_DETAILS) detailCache.delete(detailCache.keys().next().value!)
+}
+
 export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const context = useConversationLinkContext()
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
+  const detailKey = `${key}:${tool.id}`
   const [open, setOpen] = useConversationDisclosure(key, `tool:${tool.id}`, false)
-  const [detail, setDetail] = useState<ConversationToolDetail>()
+  const [detail, setDetail] = useState<ConversationToolDetail | undefined>(() => cachedDetail(detailKey))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
-  const [fullHeight, setFullHeight] = useState(false)
+  const [fullHeight, setFullHeight] = useState(() => detail !== undefined)
   const presentation = presentToolItem(toolPresentationInput(tool), (command) => labelCommand(command).label)
   const running = tool.status === 'running'
   const rowRef = useRef<HTMLDivElement>(null)
@@ -168,6 +190,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
         toolUseId: tool.id,
       })
       if (result.ok) {
+        cacheDetail(detailKey, result.detail)
         setDetail(result.detail)
         setFullHeight(true)
       } else setError(result.message)

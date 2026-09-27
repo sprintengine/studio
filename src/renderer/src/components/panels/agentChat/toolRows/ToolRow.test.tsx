@@ -169,6 +169,31 @@ test('truncated output is fetched only on request and failures can be retried', 
     expect(calls).toBe(2)
     expect(host.textContent).not.toContain('snippet')
     expect(host.textContent!.length).toBeGreaterThan(50_000)
+    // The virtualized timeline unmounts a row scrolled out of view; coming back
+    // keeps the fetched output without asking for it again.
+    const row = (
+      <ConversationLinkProvider
+        workspaceId="tool-detail-test"
+        workspaceRoot="/workspace/app"
+        cwd="/workspace/app"
+        agentId="agent"
+      >
+        <ToolRow
+          tool={tool({
+            id: 'large-tool',
+            toolKind: 'command',
+            input: { command: 'printf output' },
+            output: 'snippet',
+            truncated: true,
+          })}
+        />
+      </ConversationLinkProvider>
+    )
+    await act(async () => root.render(<div />))
+    await act(async () => root.render(row))
+    expect(calls).toBe(2)
+    expect(host.textContent).not.toContain('snippet')
+    expect(host.textContent!.length).toBeGreaterThan(50_000)
   } finally {
     await act(async () => root.unmount())
     dom.window.close()
