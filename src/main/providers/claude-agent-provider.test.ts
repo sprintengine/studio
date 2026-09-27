@@ -1614,6 +1614,24 @@ function mapperState() {
   }
 }
 
+test('a Claude result that reports no cost does not make the next turn report the whole session', () => {
+  const state = mapperState()
+  const result = (total: number, crashed = false) =>
+    mapSdkMessage(state, {
+      type: 'result',
+      subtype: crashed ? 'error_during_execution' : 'success',
+      is_error: crashed,
+      session_id: 'native',
+      total_cost_usd: total,
+    }).find((event) => event.type === 'turn_completed')?.payload?.costUsd
+  assert.equal(result(0.25), 0.25)
+  // A crash reports a zero total; it is not a restarted count.
+  state.turn = { turnId: 'turn_2' }
+  result(0, true)
+  state.turn = { turnId: 'turn_3' }
+  assert.equal(Number((result(0.3) as number).toFixed(6)), 0.05)
+})
+
 test('each Claude turn reports the cost it added, not the running total of the live query', () => {
   const state = mapperState()
   const result = (total: number) =>

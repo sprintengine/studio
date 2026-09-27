@@ -1259,12 +1259,18 @@ export function mapSdkMessage(
         )
       }
       // A running total for the live query(); each turn reports what it added.
-      // A total below the last one means the SDK started counting again.
+      // A lower, non-zero total means the SDK started counting again (/clear).
+      // A zero total below the last one is a result that carries no cost at
+      // all (a crash): taking it as a restart would make the next turn report
+      // the whole session again, so the total stays until a new child starts.
       let costUsd: number | undefined
       if (typeof message.total_cost_usd === 'number' && Number.isFinite(message.total_cost_usd)) {
         const seen = state.queryCostUsd ?? 0
-        costUsd = message.total_cost_usd >= seen ? message.total_cost_usd - seen : message.total_cost_usd
-        state.queryCostUsd = message.total_cost_usd
+        const total = message.total_cost_usd
+        if (total >= seen || total > 0) {
+          costUsd = total >= seen ? total - seen : total
+          state.queryCostUsd = total
+        }
       }
       const isError = message.is_error === true || message.subtype !== 'success'
       if (isError) {
