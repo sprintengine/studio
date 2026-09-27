@@ -170,6 +170,9 @@ type EmitOptions = { turnId?: string; allowCanceledTurnId?: string | null; prepa
  */
 const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
 
+const UNSAVED_NOTICE =
+  'This conversation could not be saved to disk. It carries on here, but messages from now on may be missing after the app restarts.'
+
 // Cap on how many persisted events a transcript replay returns to the
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
@@ -606,7 +609,12 @@ export class ConversationRuntime {
    */
   private publish(root: string, path: string, event: ConversationEvent, outcome: ConversationAppendOutcome): void {
     if (outcome === 'superseded') return
-    if (outcome === 'failed') this.markNonDurable(root, path, event.seq ?? 0)
+    if (outcome === 'failed') {
+      // The first loss of the run is said once, on the event that was lost, so
+      // the person knows before a restart shows a gap.
+      if (!this.nonDurableLogs.has(path)) event = { ...event, payload: { ...event.payload, notice: UNSAVED_NOTICE } }
+      this.markNonDurable(root, path, event.seq ?? 0)
+    }
     // The disk took a write again: record a lost number the first attempt could not.
     else if (this.nonDurableLogs.has(path)) this.recordLostSequence(path)
     this.notify(event)

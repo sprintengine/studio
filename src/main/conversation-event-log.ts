@@ -42,6 +42,13 @@ export const DEFAULT_DELTA_FLUSH_MS = 40
 const DEFAULT_TOOL_OUTPUT_FLUSH_MS = 500
 
 /**
+ * How long one write may take before it counts as failed. Events are published
+ * only once their write settles, so a write that never does (a hung network
+ * volume, a wedged disk) would otherwise stall the chat without a word.
+ */
+const DEFAULT_WRITE_TIMEOUT_MS = 30_000
+
+/**
  * How an append ended. `superseded`: a later event for the same tool replaced
  * this one before it was written. `failed`: the write failed and was reported
  * through `onError`; the event is not on disk.
@@ -73,6 +80,7 @@ export type AppendStream = {
 export type ConversationEventLogOptions = {
   flushDelayMs?: number
   toolOutputFlushDelayMs?: number
+  writeTimeoutMs?: number
   openStream?: (filePath: string, storageRoot?: string) => Promise<AppendStream>
   onError?: (filePath: string, error: unknown) => void
 }
@@ -95,6 +103,7 @@ export class ConversationEventLog {
   private readonly closing = new Map<string, Promise<void>>()
   private readonly flushDelayMs: number
   private readonly toolOutputFlushDelayMs: number
+  private readonly writeTimeoutMs: number
   private readonly openStream: (filePath: string, storageRoot?: string) => Promise<AppendStream>
   private readonly onError: (filePath: string, error: unknown) => void
 
@@ -104,6 +113,7 @@ export class ConversationEventLog {
       this.flushDelayMs,
       options.toolOutputFlushDelayMs ?? Math.max(DEFAULT_TOOL_OUTPUT_FLUSH_MS, this.flushDelayMs),
     )
+    this.writeTimeoutMs = options.writeTimeoutMs ?? DEFAULT_WRITE_TIMEOUT_MS
     this.openStream = options.openStream ?? openAppendStream
     this.onError = options.onError ?? (() => undefined)
   }
@@ -256,18 +266,32 @@ export class ConversationEventLog {
       entry.kind === 'event' && entry.superseded ? 'superseded' : ok ? 'written' : 'failed'
     log.tail = log.tail.then(async () => {
       let ok = true
+      let timedOut = false
+      let timer: NodeJS.Timeout | undefined
       try {
         if (chunk) {
           if (!log.stream) log.stream = this.openStream(filePath, log.storageRoot)
-          await (await log.stream).write(chunk)
+          const stream = log.stream
+          await Promise.race([
+            stream.then((open) => open.write(chunk)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                timedOut = true
+                reject(new Error(`Writing the conversation transcript took longer than ${this.writeTimeoutMs} ms.`))
+              }, this.writeTimeoutMs)
+              timer.unref?.()
+            }),
+          ]).finally(() => clearTimeout(timer))
         }
       } catch (error) {
         ok = false
         // Drop the broken stream so the next write reopens rather than failing
-        // forever on a handle that is gone.
+        // forever on a handle that is gone. A stream whose write never settled
+        // may never close either, so that close is not waited for.
         const broken = log.stream
         log.stream = null
-        if (broken) await broken.then((stream) => stream.close()).catch(() => undefined)
+        const closing = broken?.then((stream) => stream.close()).catch(() => undefined)
+        if (!timedOut) await closing
         try {
           this.onError(filePath, error)
         } catch (reported) {

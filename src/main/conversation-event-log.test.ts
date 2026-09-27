@@ -229,6 +229,28 @@ test('a failed write is reported, never thrown, and the next write reopens', asy
   assert.equal(attempt, 2)
 })
 
+test('a write that never settles fails after the timeout instead of stalling every later event', async () => {
+  const errors: unknown[] = []
+  let opened = 0
+  const log = new ConversationEventLog({
+    writeTimeoutMs: 30,
+    onError: (_path, error) => errors.push(error),
+    openStream: async () => {
+      const first = ++opened === 1
+      return {
+        write: (chunk) => (first ? new Promise<void>(() => undefined) : Promise.resolve(void chunk)),
+        close: async () => undefined,
+      }
+    },
+  })
+  assert.equal(await log.append('/t.jsonl', event('turn_started', { turnId: 't1' })), 'failed')
+  assert.equal(errors.length, 1)
+  assert.match(String((errors[0] as Error).message), /took longer than 30 ms/)
+  assert.equal(await log.append('/t.jsonl', event('turn_completed', { turnId: 't1' })), 'written')
+  assert.equal(opened, 2, 'the stuck stream is abandoned and a fresh one takes the next write')
+  await log.closeAll()
+})
+
 test('the default stream appends to a real file, creating its directory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-event-log-'))
   try {

@@ -324,3 +324,51 @@ test('numbers published but lost to a failed write are never reissued after a re
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 })
+
+test('a transcript write that never settles fails in time, says so, and the turn still ends', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-persistence-'))
+  const provider = streamingProvider(['stuck ', 'disk'])
+  provider.release()
+  const runtime = new ConversationRuntime({
+    adapters: [provider.adapter],
+    getProviderById: () => undefined,
+    eventLog: {
+      flushDelayMs: 1,
+      writeTimeoutMs: 50,
+      openStream: async () => ({
+        // A wedged volume: the delta batch is never acknowledged.
+        write: (chunk) => (chunk.includes('"content_delta"') ? new Promise<void>(() => undefined) : Promise.resolve()),
+        close: async () => undefined,
+      }),
+    },
+  })
+  const published: ConversationEvent[] = []
+  runtime.onEvent((event) => published.push(event))
+  try {
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'streaming-provider',
+      modelId: 'model',
+    })
+    assert.ok(started.ok)
+    const result = await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'hi' })
+    assert.ok(result.ok)
+    assert.equal(
+      published
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.payload?.text)
+        .join(''),
+      'stuck disk',
+      'the live chat still shows what could not be saved',
+    )
+    const notices = published.filter((event) => typeof event.payload?.notice === 'string')
+    assert.equal(notices.length, 1)
+    assert.match(String(notices[0].payload?.notice), /could not be saved/)
+    assert.equal(published.at(-1)?.type, 'turn_completed')
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
