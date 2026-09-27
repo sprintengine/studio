@@ -44,7 +44,6 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
 export type TimelineChrome = {
   checkpointsEnabled?: boolean
   conversationRunning?: boolean
-  revertedAfterSeq?: number | null
   checkpointSeqs?: ReadonlySet<number>
   latestTurnId?: string
   assistantName: string
@@ -131,9 +130,12 @@ export function UserTimelineRow({
           >
             Copy
           </GhostButton>
-          {chrome?.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq) ? (
+          {chrome?.checkpointsEnabled &&
+          entry.seq &&
+          chrome.checkpointSeqs?.has(entry.seq) &&
+          (!entry.reverted || entry.undoRevertSeq !== undefined) ? (
             <RevertTurnAction
-              turnSeq={entry.reverted ? (chrome.revertedAfterSeq ?? entry.seq) : entry.seq}
+              turnSeq={entry.reverted ? (entry.undoRevertSeq ?? entry.seq) : entry.seq}
               reverted={entry.reverted}
               running={chrome.conversationRunning ?? false}
               className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
@@ -248,7 +250,7 @@ export function AssistantTurnBlock({
           summary={entry.checkpointSummary}
           running={chrome.conversationRunning ?? false}
           reverted={entry.reverted}
-          undoTurnSeq={chrome.revertedAfterSeq ?? undefined}
+          undoTurnSeq={entry.undoRevertSeq}
         />
       ) : null}
     </div>

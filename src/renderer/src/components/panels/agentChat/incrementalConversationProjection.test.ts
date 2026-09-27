@@ -251,6 +251,65 @@ test('checkpoint metadata and revert marks survive replay and undo', () => {
   )
 })
 
+test('a revert marks only the turns between its checkpoint and the revert itself', () => {
+  const turn = (id: string, seq: number, at: number): ConversationEvent[] => [
+    { ...event('user_message', at, { turnId: id, text: id }), seq },
+    { ...event('turn_started', at + 1, { turnId: id }), seq: seq + 1 },
+    {
+      ...event('turn_completed', at + 2, {
+        turnId: id,
+        checkpointTurnSeq: seq,
+        checkpointAvailable: true,
+        checkpointSummary: { files: 1, addedLines: 1, removedLines: 0 },
+      }),
+      seq: seq + 2,
+    },
+  ]
+  const revertOf = (afterSeq: number, seq: number, undo = false) => ({
+    ...event('session_updated', seq, { revertedAfterSeq: afterSeq, undo }),
+    seq,
+  })
+  const marks = (events: ConversationEvent[]) =>
+    projectConversation(events).entries.flatMap((entry) => {
+      if (entry.kind !== 'user' && entry.kind !== 'assistant') return []
+      const name = entry.kind === 'user' ? entry.text : `reply-${entry.turnId}`
+      return [`${name}:${entry.reverted ? `reverted/${entry.undoRevertSeq ?? 'kept'}` : 'live'}`]
+    })
+  const history = [...turn('a', 10, 1), ...turn('b', 20, 5), revertOf(20, 30), ...turn('c', 40, 10)]
+  // The turn sent after the revert keeps its own revert action.
+  assert.deepEqual(marks(history), [
+    'a:live',
+    'reply-a:live',
+    'b:reverted/20',
+    'reply-b:reverted/20',
+    'c:live',
+    'reply-c:live',
+  ])
+  let state = createConversationProjectionState()
+  for (const item of history) state = applyEvent(state, item)
+  assert.deepEqual(state.projection, projectConversation(history))
+
+  // A second revert stacks: only the latest one offers an undo, and undoing
+  // it leaves the first one in effect.
+  const stacked = [...history, revertOf(40, 50), ...turn('d', 60, 20)]
+  assert.deepEqual(marks(stacked), [
+    'a:live',
+    'reply-a:live',
+    'b:reverted/kept',
+    'reply-b:reverted/kept',
+    'c:reverted/40',
+    'reply-c:reverted/40',
+    'd:live',
+    'reply-d:live',
+  ])
+  const undone = [...stacked, revertOf(40, 70, true)]
+  assert.equal(projectConversation(undone).revertedAfterSeq, 20)
+  assert.deepEqual(marks(undone).slice(2, 6), ['b:reverted/20', 'reply-b:reverted/20', 'c:live', 'reply-c:live'])
+})
+
+
+
+
 test('incremental deltas are substantially cheaper than full refolds', () => {
   const seed: ConversationEvent[] = [event('turn_started', 0, { turnId: 'a' })]
   for (let i = 1; i <= 5000; i++) seed.push(event('content_delta', i, { turnId: 'a', text: 'x' }))

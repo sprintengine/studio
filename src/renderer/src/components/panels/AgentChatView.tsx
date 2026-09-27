@@ -1431,7 +1431,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
     oldChrome.retryDisabled === composerDisabled &&
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
-    oldChrome.revertedAfterSeq === projection.revertedAfterSeq &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs
       ? oldChrome
       : {
@@ -1443,7 +1442,6 @@ function ConversationChatBody({ workspaceId, agentId }: Props) {
           retryDisabled: composerDisabled,
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
-          revertedAfterSeq: projection.revertedAfterSeq,
           checkpointSeqs: stableCheckpointSeqs,
         }
   chromeRef.current = chrome

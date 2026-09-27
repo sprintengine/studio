@@ -62,6 +62,9 @@ export type TranscriptEntry =
       createdAt?: number
       seq?: number
       reverted?: boolean
+      // The turnSeq that undoes the revert covering this turn; set only on the
+      // turns of the most recent revert, the one an undo can still restore.
+      undoRevertSeq?: number
       text: string
       // Images the user attached to this turn (D3/1774). Live-only: they come
       // from the local send, never from the replayed transcript, so a bubble
@@ -94,6 +97,7 @@ export type TranscriptEntry =
       checkpointAvailable?: boolean
       checkpointSummary?: { files: number; addedLines: number; removedLines: number }
       reverted?: boolean
+      undoRevertSeq?: number
     }
   | TranscriptToolEntry
   | {
@@ -149,6 +153,7 @@ export type ConversationProjection = {
   // A provider's note about the live session the person should know, such as
   // a stored session that could not be reopened and was replaced.
   sessionNotice: string | null
+  // The checkpoint the most recent revert still in effect went back to.
   revertedAfterSeq: number | null
 }
 
@@ -376,7 +381,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let lastError: string | null = null
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
-  let revertedAfterSeq: number | null = null
+  // Reverts still in effect, oldest first. Each covers the turns from its
+  // checkpoint up to the revert itself: a turn sent after a revert started from
+  // the reverted files and is not undone by it. An undo removes its revert.
+  const reverts: Array<{ afterSeq: number; beforeSeq: number }> = []
+  let highestSeq = 0
 
   const ensureTurn = (turnId: string): TurnAccumulator => {
     let turn = turns.get(turnId)
@@ -408,6 +417,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   for (const event of events) {
     const sessionMapped = SESSION_STATUS_BY_EVENT[event.type]
     if (sessionMapped) sessionStatus = sessionMapped
+    if (event.seq !== undefined && event.seq > highestSeq) highestSeq = event.seq
 
     const turnId = readString(event.payload, 'turnId')
     switch (event.type) {
@@ -425,7 +435,15 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         const notice = readString(event.payload, 'notice')
         if (notice) sessionNotice = notice
         const reverted = readNumber(event.payload, 'revertedAfterSeq')
-        if (reverted !== undefined) revertedAfterSeq = event.payload?.undo === true ? null : reverted
+        if (reverted !== undefined) {
+          if (event.payload?.undo === true) {
+            const undone = reverts.findLastIndex((range) => range.afterSeq === reverted)
+            if (undone !== -1) reverts.splice(undone, 1)
+          } else {
+            // A revert event read without a seq still bounds what came before it.
+            reverts.push({ afterSeq: reverted, beforeSeq: event.seq ?? highestSeq + 1 })
+          }
+        }
         break
       }
       case 'user_message': {
@@ -709,18 +727,18 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     if (approval && !approval.turnId) entries.push({ kind: 'approval', ...approval })
   }
 
-  if (revertedAfterSeq !== null) {
+  if (reverts.length > 0) {
+    const latest = reverts.at(-1)!
+    const covering = (seq: number | undefined) =>
+      seq === undefined ? undefined : reverts.findLast((range) => seq >= range.afterSeq && seq < range.beforeSeq)
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index]
-      if (entry.kind === 'user' && entry.seq !== undefined && entry.seq >= revertedAfterSeq) {
-        entries[index] = { ...entry, reverted: true }
-      } else if (
-        entry.kind === 'assistant' &&
-        (entry.checkpointTurnSeq ?? turns.get(entry.turnId)?.seq) !== undefined &&
-        (entry.checkpointTurnSeq ?? turns.get(entry.turnId)!.seq!) >= revertedAfterSeq
-      ) {
-        entries[index] = { ...entry, reverted: true }
-      }
+      if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+      const range = covering(
+        entry.kind === 'user' ? entry.seq : (entry.checkpointTurnSeq ?? turns.get(entry.turnId)?.seq),
+      )
+      if (range)
+        entries[index] = { ...entry, reverted: true, ...(range === latest ? { undoRevertSeq: range.afterSeq } : {}) }
     }
   }
   return {
@@ -732,7 +750,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     lastError,
     apiKeySource,
     sessionNotice,
-    revertedAfterSeq,
+    revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
   }
 }
 

@@ -372,11 +372,14 @@ export function ChangedFilesCard({
           {detail?.diff.files.find((file) => file.path === selected)?.binary ? (
             <p>Binary file changed; no text preview is available.</p>
           ) : null}
-          <RevertTurnAction
-            turnSeq={reverted ? (undoTurnSeq ?? turnSeq) : turnSeq}
-            running={running}
-            reverted={reverted}
-          />
+          {/* Only the most recent revert can be undone; an older one stays marked. */}
+          {!reverted || undoTurnSeq !== undefined ? (
+            <RevertTurnAction
+              turnSeq={reverted ? (undoTurnSeq ?? turnSeq) : turnSeq}
+              running={running}
+              reverted={reverted}
+            />
+          ) : null}
         </>
       ) : null}
     </section>
