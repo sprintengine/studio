@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { planBody, planIsLong, planTitle } from './planCard'
 import { ResolvedDecisionRow } from './timelineRows'
 import type { TranscriptEntry } from './conversationProjection'
+import { ConversationLinkProvider } from './conversationLinks'
 
 type Approval = Extract<TranscriptEntry, { kind: 'approval' }>
 const plan = (text: string, extra: Partial<Approval> = {}): Approval => ({
@@ -37,16 +38,37 @@ test('an answered plan stays readable in the transcript with its outcome', () =>
   expect(approved).toContain('Read the config')
   expect(approved).toContain('Plan approved')
   expect(approved).toContain('aria-label="Copy plan"')
-  expect(approved).not.toContain('Show full plan')
+  // The card spans the conversation column; the reading measure is the
+  // one-line records'.
+  expect(approved).not.toContain('max-w-[68ch]')
   const long = renderToStaticMarkup(
     <ResolvedDecisionRow
       entry={plan(Array.from({ length: 30 }, (_, index) => `- step ${index}`).join('\n'), { status: 'denied' })}
     />,
   )
-  expect(long).toContain('Show full plan')
-  expect(long).toContain('mask-image')
   expect(long).toContain('Proposed plan')
   expect(long).toContain('Sent back for more planning')
+  // With no conversation to open it from, the card is the only place to
+  // read the plan, so nothing is held back.
+  expect(long).toContain('step 29')
+  expect(long).not.toContain('mask-image')
+  expect(long).not.toContain('Open plan')
+})
+
+test('inside a conversation a long plan rests as a preview that opens in the pane', () => {
+  const inConversation = (entry: Approval) =>
+    renderToStaticMarkup(
+      <ConversationLinkProvider workspaceId="ws" agentId="agent" cwd="/repo" workspaceRoot="/repo">
+        <ResolvedDecisionRow entry={entry} />
+      </ConversationLinkProvider>,
+    )
+  const long = inConversation(plan(Array.from({ length: 30 }, (_, index) => `- step ${index}`).join('\n')))
+  expect(long).toContain('mask-image')
+  expect(long).toContain('Open plan')
+  expect(long).not.toContain('Show full plan')
+  const short = inConversation(plan('# Move the cache\n\n1. Read the config'))
+  expect(short).toContain('Open plan')
+  expect(short).not.toContain('mask-image')
 })
 
 test('a plan request with no text keeps the one-line record', () => {

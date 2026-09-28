@@ -34,6 +34,9 @@ const BrowserTab = React.lazy(() => import('./browser/BrowserTab').then((module)
 // board it is on — and whether it is the one on screen, and a host panel is
 // handed neither; the same split dev-tools makes for its explorer.
 const CanvasTab = React.lazy(() => import('./canvas/CanvasTab').then((module) => ({ default: module.CanvasTab })))
+const DocumentTab = React.lazy(() =>
+  import('./document/DocumentTab').then((module) => ({ default: module.DocumentTab })),
+)
 
 // An inactive layer is normally `invisible`; a browser layer is parked
 // offscreen instead. Electron blanks a `visibility:hidden` guest for good on
@@ -236,6 +239,8 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
       ) : (
         <PaneUnavailable />
       )
+    case 'document':
+      return <DocumentTab tab={tab} active={active} />
     case 'diff': {
       // The opener's repository wins: the Git panel can be showing a worktree
       // scope that is not the workspace's own checkout, and re-deriving one

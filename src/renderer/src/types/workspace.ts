@@ -616,7 +616,7 @@ export type WorkspaceGitPanelState = {
 // Backlog. Tabs are a plain per-workspace record rather than a FlexLayout
 // tabset because the pane mixes kinds FlexLayout used to scatter across two
 // exclusive rails.
-export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas'
+export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas' | 'document'
 
 export type WorkspacePaneTab = {
   id: string
@@ -668,6 +668,10 @@ export type WorkspacePaneTab = {
   // one — that tab shows the board picker. A workspace holds at most one tab
   // per board, so this doubles as the tab's identity for the opener.
   canvas?: { path: string }
+  // Document only: the markdown file the tab reads, absolute. Required — a
+  // document tab is always opened ON something (a plan an agent proposed), so
+  // the normalizer drops one without it. One tab per file, like Canvas.
+  document?: { path: string }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
   // Browser only: where the floating player sits, in viewport pixels. Persisted

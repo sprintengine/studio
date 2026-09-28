@@ -997,7 +997,14 @@ test('claude-agent-provider', async () => {
         input: Record<string, unknown>,
         options: { signal?: AbortSignal },
       ) => Promise<Record<string, unknown>>
-      decisions.push(await canUseTool('ExitPlanMode', { plan: '## Plan\n1. Do the thing' }, {}))
+      // Claude Code injects the plan and the file it keeps it in.
+      decisions.push(
+        await canUseTool(
+          'ExitPlanMode',
+          { plan: '## Plan\n1. Do the thing', planFilePath: '/Users/dev/.claude/plans/quiet-otter.md' },
+          {},
+        ),
+      )
       context.emit({
         type: 'result',
         subtype: 'success',
@@ -1013,6 +1020,7 @@ test('claude-agent-provider', async () => {
         if (event.type === 'approval_requested') {
           assert.equal(event.payload?.kind, 'plan')
           assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
+          assert.equal(event.payload?.planFilePath, '/Users/dev/.claude/plans/quiet-otter.md')
           void collect(
             adapter.resolveApproval({
               ...SESSION_INPUT,
