@@ -57,6 +57,20 @@ export type ConversationProviderAdapter = {
   // to. An adapter that implements this declares `capabilities.liveModelSwitch`
   // so the renderer offers the switch; absent, the runtime refuses it.
   setModel?(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
+  // Take an idle session back to a point the adapter itself recorded: the
+  // `providerCursor` it put on an earlier turn's end, or null for before the
+  // first turn. The adapter drops its live child and continues from there on
+  // the next turn, so the turns after the point leave the provider's context.
+  // An adapter that implements this declares `capabilities.rewind`.
+  rewind?(input: MockAdapterRewindInput): Promise<ConversationProviderPermissionResult>
+  // Hand a user message to the turn that is running (`turnId`, the id its
+  // `sendTurn` was given), which takes it in without a turn of its own: the
+  // running turn's stream goes on carrying every event, and ends only once
+  // the provider has answered this message too. It never starts new work or
+  // respawns anything; a turn that has not reached the provider yet, or has
+  // already ended, refuses. An adapter that implements this declares
+  // `capabilities.steer`; without it, sending mid-turn means stopping first.
+  steer?(input: MockAdapterSteerInput): Promise<ConversationProviderSteerResult>
   // Optional lifecycle surface for adapters holding child processes: inventory
   // for diagnostics/status, idle disposal (keeps the session + resume cursor;
   // the next turn respawns), and dispose-everything for app shutdown, which
@@ -76,6 +90,10 @@ export type MockAdapterSessionInput = {
   // live session; they are optional so stateless adapters/tests stay minimal.
   workspaceRoot?: string
   resumeSessionId?: string
+  // With `resumeSessionId`: resume only up to this point of that provider
+  // session, as a fork, because the conversation was rewound to it and no
+  // turn has been sent since.
+  resumeSessionAt?: string
   fallbackHistory?: ConversationMessage[]
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
@@ -117,8 +135,9 @@ export type MockAdapterTurnInput = MockAdapterSessionInput & {
   requestId: string
   message: string
   skills?: string[]
-  // Images attached to this turn (D3). Live-only; vision-capable adapters
-  // compose them into the provider request, others ignore them.
+  // Images attached to this turn, on this turn only: later turns' history does
+  // not repeat them. Vision-capable adapters compose them into the provider
+  // request, others ignore them.
   attachments?: ConversationImageAttachment[]
   // Full chat history including the current user turn, in send order. Providers
   // that support multi-turn context send this; absent for legacy/mock callers,
@@ -126,6 +145,18 @@ export type MockAdapterTurnInput = MockAdapterSessionInput & {
   messages?: ConversationMessage[]
   signal?: AbortSignal
 }
+
+// The session context, the running turn, and the message to hand it.
+export type MockAdapterSteerInput = MockAdapterSessionInput & {
+  turnId: string
+  message: string
+  attachments?: ConversationImageAttachment[]
+}
+
+// Whether the message went in. `providerCursor` is where the provider's own
+// session stood as it did: what going back to before this message returns to.
+export type ConversationProviderSteerResult =
+  { ok: true; providerCursor?: ConversationProviderCursor } | { ok: false; message: string }
 
 // The session context plus the preset to switch to, for `setPermissionPreset`.
 export type MockAdapterPermissionInput = MockAdapterSessionInput & {
@@ -135,6 +166,16 @@ export type MockAdapterPermissionInput = MockAdapterSessionInput & {
 // The session context plus the model to switch to, for `setModel`. `modelId`
 // here is the NEW model; the CLI's own default row is `default`.
 export type MockAdapterModelInput = MockAdapterSessionInput & { nextModelId: string }
+
+// Where a stateful provider's own session stood at the end of a turn: which
+// provider session, and the last entry of its history the turn left. Adapters
+// that rewind put one on each turn end they emit (`providerCursor` in the
+// payload); `at` is null when the adapter could not tell.
+export type ConversationProviderCursor = { sessionId: string; at: string | null }
+
+// The session context plus where to take it back to; null is before the
+// conversation's first turn.
+export type MockAdapterRewindInput = MockAdapterSessionInput & { cursor: ConversationProviderCursor | null }
 
 // Whether the adapter actually applied the preset. A failure message is shown to
 // the user, so it must say what the provider refused rather than a generic error.

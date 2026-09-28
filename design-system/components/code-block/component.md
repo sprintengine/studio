@@ -3,7 +3,9 @@
 ## Anatomy
 
 A neutral bordered code surface with a header for language, optional filename,
-wrap toggle and copy action. Source uses the mono family and body size.
+wrap toggle and copy action. Source uses the mono family and body size. A
+surface may add its own header actions before Wrap — a conversation offers Run
+on a shell block — as ghost buttons of the same size.
 
 ## Variants
 

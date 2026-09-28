@@ -3,6 +3,7 @@
 
 import type {
   ConversationImageAttachment,
+  ConversationStoredImageAttachment,
   ConversationApprovalKind,
   ConversationQuestion,
   ConversationSessionStatus,
@@ -12,6 +13,7 @@ import type {
   ConversationToolStatus,
 } from '../../../../../shared/conversation-runtime'
 import { parseConversationMentions, type ConversationMentionRef } from '../../../../../shared/conversation/mentions'
+import { normalizeApiKeySource } from '../../../../../shared/conversation/apiKeySource'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -55,6 +57,11 @@ export type TranscriptToolEntry = {
   children?: TranscriptToolEntry[]
 }
 
+// Reasoning the model did before a tool call, kept at that point in the turn
+// rather than merged into one block: thinking between steps explains the step
+// after it. `durationMs` sums the windows in which it streamed.
+export type ReasoningSegment = { text: string; beforeToolUseId: string; durationMs?: number }
+
 export type TranscriptEntry =
   | {
       kind: 'user'
@@ -69,10 +76,12 @@ export type TranscriptEntry =
       // so undoing it would replace that later work.
       undoOverwritesLaterWork?: boolean
       text: string
-      // Images the user attached to this turn (D3/1774). Live-only: they come
-      // from the local send, never from the replayed transcript, so a bubble
-      // restored after a restart is text-only by design.
+      // Images the user attached to this turn, as the local send carried them.
       attachments?: ConversationImageAttachment[]
+      // The same images as the transcript remembers them, for a bubble with no
+      // live send behind it (replayed after a restart): references into the
+      // attachment store, read back when the bubble is drawn.
+      storedAttachments?: ConversationStoredImageAttachment[]
       mentions?: ConversationMentionRef[]
       skills?: string[]
     }
@@ -81,6 +90,9 @@ export type TranscriptEntry =
       turnId: string
       text: string
       intermediateText?: { text: string; beforeToolUseId: string }[]
+      reasoningSegments?: ReasoningSegment[]
+      // Reasoning since the last top-level tool call: the whole turn's when it
+      // ran no tools, otherwise the thinking before the final reply.
       reasoning: string
       status: 'streaming' | 'complete' | 'failed' | 'interrupted'
       failureReason?: string
@@ -91,11 +103,23 @@ export type TranscriptEntry =
       completedAt?: number
       // Model the turn actually ran on (from the turn's events), for the byline.
       modelId?: string
-      // First reasoning_delta → first non-reasoning event; feeds "Thought for Ns".
+      // How long `reasoning` streamed: each reasoning_delta run until the next
+      // non-reasoning event, summed; feeds "Thought for Ns". Absent while the
+      // first run is still open.
       reasoningDurationMs?: number
+      // A run of `reasoning` is streaming now. A second stretch of thinking
+      // after prose already has a duration from the first, so that alone
+      // cannot tell "Thinking" from "Thought for Ns".
+      reasoningLive?: boolean
       costUsd?: number
       durationMs?: number
       numTurns?: number
+      // Tokens the provider reported for this turn alone.
+      inputTokens?: number
+      outputTokens?: number
+      // Credential source in force when the turn ended, so a cost is shown only
+      // for a turn that billed API usage — replayed history included.
+      apiKeySource?: string
       checkpointTurnSeq?: number
       checkpointAvailable?: boolean
       checkpointSummary?: { files: number; addedLines: number; removedLines: number }
@@ -130,6 +154,20 @@ export type TranscriptEntry =
       // the resolved card keeps showing what was picked — including on replay.
       answers?: Record<string, string>
     }
+  | CompactionEntry
+
+// The provider summarised the conversation to free context. It sits between
+// the message of the turn it happened in and that turn's reply, or after the
+// last turn when it came between turns.
+type CompactionEntry = {
+  kind: 'compaction'
+  id: string
+  turnId?: string
+  trigger?: 'manual' | 'auto'
+  preTokens?: number
+  postTokens?: number
+  createdAt: number
+}
 
 export type UserTurn = {
   id: string
@@ -162,6 +200,28 @@ export type ConversationProjection = {
   checkpointNotice: string | null
   // The checkpoint the most recent revert still in effect went back to.
   revertedAfterSeq: number | null
+}
+
+// The image references a `user_message` recorded. Anything malformed is left
+// out rather than failing the bubble: a transcript outlives the build that
+// wrote it, and one bad entry should cost one thumbnail.
+function parseStoredAttachments(value: unknown): ConversationStoredImageAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const stored = value.flatMap((entry): ConversationStoredImageAttachment[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const { id, mediaType, name, byteLength, ref } = entry as Record<string, unknown>
+    if (typeof id !== 'string' || typeof mediaType !== 'string' || typeof ref !== 'string') return []
+    return [
+      {
+        id,
+        mediaType,
+        ref,
+        byteLength: typeof byteLength === 'number' ? byteLength : 0,
+        ...(typeof name === 'string' ? { name } : {}),
+      },
+    ]
+  })
+  return stored.length ? stored : undefined
 }
 
 export function readString(payload: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
@@ -290,10 +350,18 @@ export function readAnswers(payload: Record<string, unknown> | undefined): Recor
   return Object.keys(answers).length > 0 ? answers : undefined
 }
 
+// A new stretch of thinking joins the text of the one before it as its own
+// paragraph: the provider streams each thinking block's words with nothing
+// between blocks, so two runs would otherwise read as one run-on sentence.
+export function openReasoningRun(previous: string, delta: string): string {
+  return previous.trim() ? `${previous.trimEnd()}\n\n${delta.trimStart()}` : previous + delta
+}
+
 export type TurnAccumulator = {
   turnId: string
   text: string
   intermediateText?: { text: string; beforeToolUseId: string }[]
+  reasoningSegments?: ReasoningSegment[]
   reasoning: string
   status: 'streaming' | 'complete' | 'failed' | 'interrupted'
   failureReason?: string
@@ -301,11 +369,15 @@ export type TurnAccumulator = {
   startedAt?: number
   completedAt?: number
   modelId?: string
-  reasoningStartedAt?: number
-  reasoningEndedAt?: number
+  // The reasoning run streaming now, and the closed runs of `reasoning` summed.
+  reasoningOpenedAt?: number
+  reasoningMs?: number
   costUsd?: number
   durationMs?: number
   numTurns?: number
+  inputTokens?: number
+  outputTokens?: number
+  apiKeySource?: string
   checkpointTurnSeq?: number
   checkpointAvailable?: boolean
   checkpointSummary?: { files: number; addedLines: number; removedLines: number }
@@ -366,12 +438,15 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // User bubbles recorded in the event stream itself (persisted transcript);
   // when present these are authoritative and the locally tracked userTurns
   // only fill the optimistic gap between a send and its first event.
-  const eventUserTurns = new Map<string, UserTurn & { seq?: number; localTurnId?: string }>()
+  const eventUserTurns = new Map<
+    string,
+    UserTurn & { seq?: number; localTurnId?: string; storedAttachments?: ConversationStoredImageAttachment[] }
+  >()
   const representedLocalTurnIds = new Set<string>()
-  // Attachments are live-only (D3/1774): the persisted `user_message` event
-  // carries text alone, so the images a bubble shows are looked up from the
-  // local send that produced it. After a restart there is no local send and the
-  // replayed bubble is text-only — the documented v1 scope, not a silent drop.
+  // The persisted `user_message` event names its images by store reference,
+  // not by their bytes. While the local send that produced a bubble is still
+  // here its in-memory images are used, so a live bubble never waits on a
+  // read; after a restart the bubble reads the references back instead.
   const localAttachments = new Map<string, ConversationImageAttachment[]>()
   for (const userTurn of userTurns) {
     if (userTurn.attachments?.length) localAttachments.set(userTurn.id, userTurn.attachments)
@@ -396,6 +471,15 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // The last event that could have changed files: a turn sent, a revert, an undo.
   let lastFileChangeSeq = 0
   let highestSeq = 0
+  // Compactions by the turn they happened in, and those between turns by the
+  // turn they followed ('' before the first).
+  const compactionsInTurn = new Map<string, CompactionEntry[]>()
+  const compactionsAfterTurn = new Map<string, CompactionEntry[]>()
+  // "Edit from here": each rewind takes the turns from its message up to the
+  // rewind itself out of view. The log keeps them; the provider dropped them.
+  const rewinds: Array<{ fromSeq: number; beforeSeq: number }> = []
+  // Where each turn begins in the log, which is what a rewind's range covers.
+  const turnStartSeq = new Map<string, number>()
 
   const ensureTurn = (turnId: string): TurnAccumulator => {
     let turn = turns.get(turnId)
@@ -417,11 +501,13 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     return undefined
   }
 
-  // The reasoning window closes at the first non-reasoning signal of the turn.
+  // A reasoning run closes at the next non-reasoning signal of the turn; the
+  // model can think again later, and that run adds to the same segment until a
+  // tool call starts a new one.
   const closeReasoning = (turn: TurnAccumulator, at: number): void => {
-    if (turn.reasoningStartedAt !== undefined && turn.reasoningEndedAt === undefined) {
-      turn.reasoningEndedAt = at
-    }
+    if (turn.reasoningOpenedAt === undefined) return
+    turn.reasoningMs = (turn.reasoningMs ?? 0) + Math.max(0, at - turn.reasoningOpenedAt)
+    turn.reasoningOpenedAt = undefined
   }
 
   for (const event of events) {
@@ -436,6 +522,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     }
 
     const turnId = readString(event.payload, 'turnId')
+    if (turnId && event.seq !== undefined && !turnStartSeq.has(turnId)) turnStartSeq.set(turnId, event.seq)
     switch (event.type) {
       case 'session_started': {
         // Each session binds credentials afresh; a previous session's reported
@@ -447,10 +534,18 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         break
       }
       case 'session_updated': {
-        const source = readString(event.payload, 'apiKeySource')
+        // Transcripts written before the field was kept unredacted carry
+        // `[redacted]` here, which says nothing about the session's billing.
+        const source = normalizeApiKeySource(readString(event.payload, 'apiKeySource'))
         if (source) apiKeySource = source
         const notice = readString(event.payload, 'notice')
         if (notice) sessionNotice = notice
+        const rewoundFrom = readNumber(event.payload, 'rewoundFromSeq')
+        if (rewoundFrom !== undefined) {
+          rewinds.push({ fromSeq: rewoundFrom, beforeSeq: event.seq ?? highestSeq + 1 })
+          // A failure is only ever the latest turn's, and that turn is gone.
+          lastError = null
+        }
         const reverted = readNumber(event.payload, 'revertedAfterSeq')
         if (reverted !== undefined) {
           lastFileChangeSeq = event.seq ?? highestSeq + 1
@@ -477,6 +572,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
             createdAt: event.createdAt,
             ...(event.seq !== undefined ? { seq: event.seq } : {}),
             ...(localTurnId ? { localTurnId } : {}),
+            storedAttachments: parseStoredAttachments(event.payload?.attachments),
             mentions: parseConversationMentions(event.payload?.mentions) ?? undefined,
             skills: Array.isArray(event.payload?.skills)
               ? event.payload.skills.filter((id): id is string => typeof id === 'string')
@@ -507,8 +603,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       case 'reasoning_delta': {
         if (turnId) {
           const turn = ensureTurn(turnId)
-          if (turn.reasoningStartedAt === undefined) turn.reasoningStartedAt = event.createdAt
-          turn.reasoning += readString(event.payload, 'text', 'delta') ?? ''
+          const delta = readString(event.payload, 'text', 'delta') ?? ''
+          if (turn.reasoningOpenedAt === undefined) {
+            turn.reasoningOpenedAt = event.createdAt
+            turn.reasoning = openReasoningRun(turn.reasoning, delta)
+          } else turn.reasoning += delta
         }
         break
       }
@@ -525,6 +624,17 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turn.intermediateText ??= []
           turn.intermediateText.push({ text: turn.text, beforeToolUseId: id })
           turn.text = ''
+        }
+        // Thinking before a tool stays at that point in the turn, like prose.
+        if (!turn.tools.has(id) && !readString(event.payload, 'parentToolUseId') && turn.reasoning) {
+          turn.reasoningSegments ??= []
+          turn.reasoningSegments.push({
+            text: turn.reasoning,
+            beforeToolUseId: id,
+            ...(turn.reasoningMs !== undefined ? { durationMs: turn.reasoningMs } : {}),
+          })
+          turn.reasoning = ''
+          turn.reasoningMs = undefined
         }
         const tool: ToolAccumulator = {
           id,
@@ -615,6 +725,37 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           inputTokens: readNumber(event.payload, 'inputTokens') ?? previous.inputTokens,
           outputTokens: readNumber(event.payload, 'outputTokens') ?? previous.outputTokens,
         }
+        // A report stamped with its turn is that turn's own count.
+        if (turnId) {
+          const turn = ensureTurn(turnId)
+          turn.inputTokens = readNumber(event.payload, 'inputTokens') ?? turn.inputTokens
+          turn.outputTokens = readNumber(event.payload, 'outputTokens') ?? turn.outputTokens
+        }
+        break
+      }
+      case 'context_compacted': {
+        const trigger = event.payload?.trigger
+        const compaction: CompactionEntry = {
+          kind: 'compaction',
+          id: event.id,
+          createdAt: event.createdAt,
+          ...(turnId ? { turnId } : {}),
+          ...(trigger === 'manual' || trigger === 'auto' ? { trigger } : {}),
+          ...(readNumber(event.payload, 'preTokens') !== undefined
+            ? { preTokens: readNumber(event.payload, 'preTokens') }
+            : {}),
+          ...(readNumber(event.payload, 'postTokens') !== undefined
+            ? { postTokens: readNumber(event.payload, 'postTokens') }
+            : {}),
+        }
+        if (turnId) {
+          ensureTurn(turnId)
+          const list = compactionsInTurn.get(turnId) ?? []
+          compactionsInTurn.set(turnId, [...list, compaction])
+        } else {
+          const after = turnOrder.at(-1) ?? ''
+          compactionsAfterTurn.set(after, [...(compactionsAfterTurn.get(after) ?? []), compaction])
+        }
         break
       }
       case 'turn_completed': {
@@ -626,6 +767,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           turn.costUsd = readNumber(event.payload, 'costUsd') ?? turn.costUsd
           turn.durationMs = readNumber(event.payload, 'durationMs') ?? turn.durationMs
           turn.numTurns = readNumber(event.payload, 'numTurns') ?? turn.numTurns
+          if (apiKeySource) turn.apiKeySource = apiKeySource
           turn.checkpointTurnSeq = readNumber(event.payload, 'checkpointTurnSeq') ?? turn.checkpointTurnSeq
           turn.checkpointAvailable = readBoolean(event.payload, 'checkpointAvailable') ?? turn.checkpointAvailable
           turn.checkpointSummary = readCheckpointSummary(event.payload) ?? turn.checkpointSummary
@@ -687,8 +829,14 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   )
   const useEventUserTurns = eventUserTurns.size > 0
   const blockCount = useEventUserTurns ? turnOrder.length : Math.max(turnOrder.length, userTurns.length)
+  entries.push(...(compactionsAfterTurn.get('') ?? []))
+  const rewound = (turnId: string | undefined): boolean => {
+    const start = turnId === undefined ? undefined : turnStartSeq.get(turnId)
+    return start !== undefined && rewinds.some((range) => start >= range.fromSeq && start < range.beforeSeq)
+  }
   for (let i = 0; i < blockCount; i += 1) {
     const turnId = turnOrder[i]
+    if (rewound(turnId)) continue
     const eventUserTurn = turnId ? eventUserTurns.get(turnId) : undefined
     if (useEventUserTurns) {
       if (eventUserTurn) {
@@ -701,7 +849,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           createdAt: eventUserTurn.createdAt,
           mentions: eventUserTurn.mentions,
           skills: eventUserTurn.skills,
-          ...(attachments ? { attachments } : {}),
+          ...(attachments
+            ? { attachments }
+            : eventUserTurn.storedAttachments
+              ? { storedAttachments: eventUserTurn.storedAttachments }
+              : {}),
         })
       }
     } else {
@@ -711,11 +863,13 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     if (!turnId) continue
     const turn = turns.get(turnId)
     if (!turn) continue
+    entries.push(...(compactionsInTurn.get(turnId) ?? []))
     entries.push({
       kind: 'assistant',
       turnId: turn.turnId,
       text: turn.text,
       intermediateText: turn.intermediateText,
+      reasoningSegments: turn.reasoningSegments,
       reasoning: turn.reasoning,
       status: turn.status,
       failureReason: turn.failureReason,
@@ -723,13 +877,14 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       startedAt: turn.startedAt,
       completedAt: turn.completedAt,
       modelId: turn.modelId,
-      reasoningDurationMs:
-        turn.reasoningStartedAt !== undefined && turn.reasoningEndedAt !== undefined
-          ? Math.max(0, turn.reasoningEndedAt - turn.reasoningStartedAt)
-          : undefined,
+      reasoningDurationMs: turn.reasoningMs,
+      reasoningLive: turn.reasoningOpenedAt !== undefined ? true : undefined,
       costUsd: turn.costUsd,
       durationMs: turn.durationMs,
       numTurns: turn.numTurns,
+      inputTokens: turn.inputTokens,
+      outputTokens: turn.outputTokens,
+      apiKeySource: turn.apiKeySource,
       checkpointTurnSeq: turn.checkpointTurnSeq,
       checkpointAvailable: turn.checkpointAvailable,
       checkpointSummary: turn.checkpointSummary,
@@ -739,6 +894,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       const approval = approvals.get(requestId)
       if (approval) entries.push({ kind: 'approval', ...approval })
     }
+    entries.push(...(compactionsAfterTurn.get(turnId) ?? []))
   }
   // Optimistic tail: local sends not yet represented by user_message events.
   if (useEventUserTurns) {

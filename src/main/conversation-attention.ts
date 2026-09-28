@@ -18,6 +18,9 @@ export function createConversationAttentionListener(attention: Pick<AgentAttenti
         break
       case 'user_message':
       case 'turn_started':
+        // A message steered in while a card was being raised: the card is
+        // still what the agent waits on.
+        if (state.pending.size) return
         phase = 'thinking'
         break
       case 'tool_started':
@@ -39,6 +42,8 @@ export function createConversationAttentionListener(attention: Pick<AgentAttenti
         break
       case 'turn_completed':
       case 'turn_failed':
+        // A turn a steered message ended: the agent carries straight on.
+        if (event.payload?.steered === true) return
         state.pending.clear()
         phase = 'idle'
         turnEnd = true

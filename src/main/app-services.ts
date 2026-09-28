@@ -153,6 +153,7 @@ import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from '
 import { ConversationRuntime } from './conversation-runtime'
 import type { ConversationEventType } from '../shared/conversation-runtime'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
 import { createConversationModelCatalog } from './conversation-model-catalog'
 import { readDiscoveredCliModelCatalogs } from './model-discovery/service'
@@ -537,6 +538,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
     approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
+    attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
     prepareStudioMcp: async ({ workspaceRoot }) => {
       await whenAgentLaunchReady()
       const result = await syncStudioMcpConfig(

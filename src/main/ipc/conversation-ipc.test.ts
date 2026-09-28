@@ -35,6 +35,7 @@ test('conversation-ipc', async () => {
     await testRegistersSessionChannelsAndEventSubscription()
     await testSendTurnValidatesImageAttachments()
     await testAttachmentLimitsAreTheSharedOnes()
+    await testSendTurnCarriesASteer()
     await testSetPermissionValidatesThePreset()
     await testFailureIsExplicit()
 
@@ -415,6 +416,32 @@ test('conversation-ipc', async () => {
       false,
       'one byte past the shared ceiling is refused',
     )
+  }
+
+  // A steer crosses the boundary as a strict boolean; anything else is refused
+  // rather than read as truthy, and an ordinary send carries no flag at all.
+  async function testSendTurnCarriesASteer(): Promise<void> {
+    const captured: ConversationSendTurnInput[] = []
+    const ipcMain = createIpcMain()
+    registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
+      listProviders: async () => ({ ok: true, providers: [] }),
+      getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+      setSecret: async () => ({ ok: false, message: 'unused' }),
+      clearSecret: async () => ({ ok: false, message: 'unused' }),
+      ...runtimeHandlerStubs(),
+      sendTurn: async (input) => {
+        captured.push(input)
+        return { ok: true, session: SENT_SESSION }
+      },
+    })
+    const sendTurn = ipcMain.handlers.get('conversation:sessions:send-turn')
+    await sendTurn?.(null, { sessionId: 'conv_1', message: 'use the other file', steer: true })
+    await sendTurn?.(null, { sessionId: 'conv_1', message: 'plain' })
+    assert.equal(captured[0]?.steer, true)
+    assert.equal('steer' in (captured[1] ?? {}), false)
+    const refused = (await sendTurn?.(null, { sessionId: 'conv_1', message: 'x', steer: 'yes' })) as { ok: boolean }
+    assert.equal(refused.ok, false)
+    assert.equal(captured.length, 2)
   }
 
   // Well-formed base64 that decodes to exactly `bytes`: 4 chars per 3 bytes, with

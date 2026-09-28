@@ -1,5 +1,10 @@
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
-export type TurnFold = { kind: 'turn-fold'; id: string; label: string; defaultFolded: boolean }
+import { flattenToolEntries } from './conversationTimeline'
+import { stepWentWrong } from './toolRows/ToolRow'
+
+// `failed` counts the steps that went wrong, a lane's own included: an older
+// turn rests folded, and a failure inside it must still show on the fold.
+export type TurnFold = { kind: 'turn-fold'; id: string; label: string; defaultFolded: boolean; failed: number }
 
 export function deriveTurnFold(
   entry: Extract<TranscriptEntry, { kind: 'assistant' }>,
@@ -8,7 +13,11 @@ export function deriveTurnFold(
 ): TurnFold | null {
   if (entry.status === 'streaming') return null
   const settled = tools.filter((tool) => tool.status !== 'running')
-  const rows = settled.length + (entry.reasoning.trim() ? 1 : 0) + (entry.intermediateText?.length ?? 0)
+  const rows =
+    settled.length +
+    (entry.reasoning.trim() ? 1 : 0) +
+    (entry.reasoningSegments?.length ?? 0) +
+    (entry.intermediateText?.length ?? 0)
   if (rows <= 1) return null
   // An entry without both ends has no honest duration; a missing start read as
   // 0 would claim the turn ran since 1970.
@@ -36,6 +45,7 @@ export function deriveTurnFold(
     id: `fold:${entry.turnId}`,
     label: `${label}${settled.length ? ` · ${settled.length} ${settled.length === 1 ? 'step' : 'steps'}` : ''}`,
     defaultFolded: !isLatest,
+    failed: flattenToolEntries(settled).filter(stepWentWrong).length,
   }
 }
 

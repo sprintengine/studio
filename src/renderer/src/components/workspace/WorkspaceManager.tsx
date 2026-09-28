@@ -164,6 +164,7 @@ import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import {
   buildSidebarWorkspaceOrder,
+  conversationTitleOffers,
   getSessionItems,
   getWorkspaceActivity,
   type WorkspaceActivity,
@@ -618,6 +619,9 @@ export default function WorkspaceManager() {
   // action is idempotent, but calling it on every broadcast would run an immer
   // `set` per snapshot and churn subscribers for nothing.
   const titledPromptAtRef = useRef<Map<string, number>>(new Map())
+  // The same, for chat agents: the last user text each conversation session
+  // offered. Their summaries carry the text but no per-prompt timestamp.
+  const titledConversationTextRef = useRef<Map<string, string>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
@@ -2037,6 +2041,16 @@ export default function WorkspaceManager() {
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
   ])
+
+  // Chat agents are named after their first real prompt through the same
+  // requester as terminals, so the heuristic, the model-written upgrade and
+  // the hand-rename lock all behave identically. A chat has no prompt hook;
+  // its runtime summary carries what the person sent instead.
+  useEffect(() => {
+    for (const offer of conversationTitleOffers(conversationSessions, titledConversationTextRef.current)) {
+      generatedWorkspaceTitleRequester().titleFromPrompt(offer.workspaceId, offer.prompt)
+    }
+  }, [conversationSessions])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return

@@ -118,6 +118,29 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'chat.effort.cycle' },
   }),
+  // Step through a conversation one prompt at a time — the chat's reading of
+  // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it
+  // takes the same chords. The terminal's pair sits on the more specific
+  // `terminal` scope and wins inside a terminal; here, in an editable target
+  // (the composer), ⌘⇧↑/↓ stays the text field's select-to-start/end.
+  command({
+    id: 'chat.turn.previous',
+    title: 'Jump to Previous Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowUp'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.previous' },
+  }),
+  command({
+    id: 'chat.turn.next',
+    title: 'Jump to Next Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowDown'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.next' },
+  }),
   command({
     id: 'workspace.close',
     title: 'Close Workspace',

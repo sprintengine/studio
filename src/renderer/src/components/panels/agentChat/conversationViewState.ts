@@ -35,13 +35,17 @@ export function useConversationDisclosure(
   )
   const open = useSyncExternalStore(subscribe, snapshot, snapshot)
   const change = useCallback(
-    (next: boolean) => {
-      touch(disclosureByConversation, conversationKey, () => new Map()).set(id, next)
-      for (const notify of disclosureListeners.get(conversationKey) ?? []) notify()
-    },
+    (next: boolean) => setConversationDisclosures(conversationKey, [id], next),
     [conversationKey, id],
   )
   return [open, change]
+}
+
+/** Sets several disclosures at once — an "expand all" over rows that each own one. */
+export function setConversationDisclosures(conversationKey: string, ids: readonly string[], next: boolean): void {
+  const disclosures = touch(disclosureByConversation, conversationKey, () => new Map())
+  for (const id of ids) disclosures.set(id, next)
+  for (const notify of disclosureListeners.get(conversationKey) ?? []) notify()
 }
 
 export function rememberConversationScroll(conversationKey: string, memory: ConversationScrollMemory): void {

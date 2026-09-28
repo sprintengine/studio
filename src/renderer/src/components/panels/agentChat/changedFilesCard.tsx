@@ -1,13 +1,25 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { ConversationCheckpointFile, ConversationTurnDiffResult } from '../../../../../shared/conversation-runtime'
-import { GhostButton, InlineNotice, Spinner, Tooltip } from '../../ui'
+import {
+  CollapseAllGlyph,
+  ExpandAllGlyph,
+  GhostButton,
+  IconButton,
+  InlineNotice,
+  OpenInEditorGlyph,
+  ShowDiffGlyph,
+  Spinner,
+  Tooltip,
+} from '../../ui'
 import { FileTreeRow } from '../../ui/FileTree'
 import { useConfirmDialog } from '../../ui/ConfirmDialog'
 import { InlineDiff } from '../../ui/InlineDiff'
 import { deriveEditHunks } from '../../../../../shared/conversation/editHunks'
 import { showToast } from '../../../store/toastStore'
-import { useConversationLinkContext } from './conversationLinks'
-import { useConversationDisclosure } from './conversationViewState'
+import { useConversationLinkContext, type ConversationLinkContext } from './conversationLinks'
+import { setConversationDisclosures, useConversationDisclosure } from './conversationViewState'
+import { joinTreePath } from '../../../utils/fileTreeEntries'
+import { openFileSurface } from '../../../utils/openFileSurface'
 import { openCheckpointDiffWindow } from '../../auxWindows/openCheckpointDiffWindow'
 import { useConversationTransport } from './conversationTransport'
 
@@ -145,29 +157,87 @@ function RevertTurnButton({
   )
 }
 
-type ChangeNode = { path: string; name: string; children: ChangeNode[]; file?: ConversationCheckpointFile }
+/** A folder's figures are the sum of every file under it, so a collapsed folder still says how much it holds. */
+type ChangeNode = {
+  path: string
+  name: string
+  children: ChangeNode[]
+  file?: ConversationCheckpointFile
+  addedLines: number
+  removedLines: number
+}
 export function changeTree(files: ConversationCheckpointFile[]): ChangeNode[] {
   const roots: ChangeNode[] = []
   for (const file of files) {
     let level = roots
     let path = ''
-    for (const [index, name] of file.path.split('/').entries()) {
+    const names = file.path.split('/')
+    for (const [index, name] of names.entries()) {
       path = path ? `${path}/${name}` : name
       let node = level.find((item) => item.path === path)
       if (!node) {
-        node = { path, name, children: [] }
+        node = { path, name, children: [], addedLines: 0, removedLines: 0 }
         level.push(node)
       }
-      if (index === file.path.split('/').length - 1) node.file = file
+      node.addedLines += file.addedLines
+      node.removedLines += file.removedLines
+      if (index === names.length - 1) node.file = file
       level = node.children
     }
+  }
+  // A folder whose only entry is another folder is one step of a path, not a
+  // level anyone chose: `src/main/ipc` reads as one row rather than three
+  // nested ones that each hold nothing but the next.
+  const compact = (node: ChangeNode): ChangeNode => {
+    let merged = node
+    while (!merged.file && merged.children.length === 1 && !merged.children[0].file) {
+      const only = merged.children[0]
+      merged = { ...only, name: `${merged.name}/${only.name}` }
+    }
+    return { ...merged, children: merged.children.map(compact) }
   }
   const sort = (nodes: ChangeNode[]) => {
     nodes.sort((a, b) => Number(Boolean(a.file)) - Number(Boolean(b.file)) || a.name.localeCompare(b.name))
     for (const node of nodes) sort(node.children)
   }
-  sort(roots)
-  return roots
+  const compacted = roots.map(compact)
+  sort(compacted)
+  return compacted
+}
+
+/** Every folder's path, outermost first — what "expand all" has to open. */
+export function changeTreeFolders(nodes: ChangeNode[]): string[] {
+  return nodes.flatMap((node) => (node.file ? [] : [node.path, ...changeTreeFolders(node.children)]))
+}
+
+/** The first file in display order: where the turn's diff opens. */
+function firstChangedFile(nodes: ChangeNode[]): ConversationCheckpointFile | undefined {
+  for (const node of nodes) {
+    const file = node.file ?? firstChangedFile(node.children)
+    if (file) return file
+  }
+  return undefined
+}
+
+// Added and removed lines in the diff channel's own inks — the tokens the
+// diff viewer's body and gutter read — so a count here and the lines it counts
+// are one green and one red. A reverted turn's figures drop to the card's muted
+// ink with the rest of it: they describe changes no longer on disk.
+function DiffStat({
+  addedLines,
+  removedLines,
+  muted = false,
+}: {
+  addedLines: number
+  removedLines: number
+  muted?: boolean
+}) {
+  return (
+    <span className="inline-flex shrink-0 gap-1 font-mono tabular-nums" aria-hidden="true">
+      <span className={muted ? '' : 'text-[color:var(--sem-color-diff-added)]'}>+{addedLines}</span>
+      <span className={muted ? '' : 'text-[color:var(--sem-color-diff-removed)]'}>−{removedLines}</span>
+    </span>
+  )
 }
 
 function ChangeTreeNode({
@@ -179,6 +249,9 @@ function ChangeTreeNode({
   selected,
   select,
   prefix,
+  muted,
+  openDiff,
+  openFile,
 }: {
   node: ChangeNode
   depth: number
@@ -188,8 +261,19 @@ function ChangeTreeNode({
   selected: string
   select: (path: string, file?: ConversationCheckpointFile) => void
   prefix: string
+  muted: boolean
+  openDiff?: (path: string) => void
+  openFile?: (path: string) => void
 }) {
   const [open, setOpen] = useConversationDisclosure(conversationKey, `files:${turnSeq}:${node.path}`, true)
+  const file = node.file
+  // The row's actions wait for a pointer or the keyboard's cursor: on every row
+  // at rest they would be a column of identical marks beside the figures the
+  // card is there to show.
+  const reveal =
+    selected === node.path
+      ? ''
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
   return (
     <>
       <FileTreeRow
@@ -197,28 +281,72 @@ function ChangeTreeNode({
         data-change-path={node.path}
         data-change-parent={parent}
         name={node.name}
-        isDir={!node.file}
+        isDir={!file}
         depth={depth}
         indentSteps={0}
         expanded={open}
         selection={selected === node.path ? 'cursor' : null}
         onToggleExpanded={() => setOpen(!open)}
         onClick={() => {
-          select(node.path, node.file)
-          if (!node.file) setOpen(!open)
+          select(node.path, file)
+          if (!file) setOpen(!open)
         }}
-        badge={
-          node.file
-            ? `${node.file.status[0].toUpperCase()} +${node.file.addedLines} −${node.file.removedLines}`
-            : undefined
+        // The name slot carries the figures and actions too: the kit's badge is
+        // a display-only status letter, and these need two inks and buttons.
+        nameSlot={
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className={`truncate ${file ? '' : 'font-medium'}`}>{node.name}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-2 text-micro">
+              {file ? (
+                <span className="font-mono font-semibold opacity-80" aria-hidden="true">
+                  {file.status[0].toUpperCase()}
+                </span>
+              ) : null}
+              <DiffStat addedLines={node.addedLines} removedLines={node.removedLines} muted={muted} />
+              {file && openDiff && !file.binary ? (
+                <Tooltip content="Open in diff viewer">
+                  <IconButton
+                    size="3xs"
+                    tone="ink"
+                    tabIndex={-1}
+                    className={reveal}
+                    aria-label={`Open ${node.path} in diff viewer`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openDiff(node.path)
+                    }}
+                  >
+                    <ShowDiffGlyph className="icon-xs" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+              {file && openFile && file.status !== 'deleted' ? (
+                <Tooltip content="Open file">
+                  <IconButton
+                    size="3xs"
+                    tone="ink"
+                    tabIndex={-1}
+                    className={reveal}
+                    aria-label={`Open ${node.path}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openFile(node.path)
+                    }}
+                  >
+                    <OpenInEditorGlyph className="icon-xs" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+            </span>
+          </span>
         }
         aria-label={
-          node.file
-            ? `${node.path}, ${node.file.status}, ${node.file.addedLines} added, ${node.file.removedLines} removed`
-            : node.path
+          file
+            ? `${node.path}, ${file.status}, ${file.addedLines} added, ${file.removedLines} removed`
+            : `${node.path}, ${node.addedLines} added, ${node.removedLines} removed`
         }
       />
-      {!node.file && open ? (
+      {!file && open ? (
         <div role="group">
           {node.children.map((child) => (
             <ChangeTreeNode
@@ -231,12 +359,53 @@ function ChangeTreeNode({
               selected={selected}
               select={select}
               prefix={prefix}
+              muted={muted}
+              openDiff={openDiff}
+              openFile={openFile}
             />
           ))}
         </div>
       ) : null}
     </>
   )
+}
+
+/** Up to this many files, a turn's card opens on its tree rather than on its summary line. */
+const GLANCEABLE_CHANGED_FILES = 8
+
+/**
+ * Where a checkpoint path is on disk. Checkpoint paths are relative to the
+ * repository's top level, which is the workspace root only for a workspace
+ * opened on its repository; one opened on a folder inside it would put every
+ * path under that folder a second time. A workspace git cannot answer for
+ * falls back to its own root.
+ */
+export async function changedFileLocation(
+  workspaceRoot: string,
+  path: string,
+  repoRoot: (folder: string) => Promise<string | null>,
+): Promise<string> {
+  const root = await repoRoot(workspaceRoot).catch(() => null)
+  return joinTreePath(root || workspaceRoot, path)
+}
+
+// A path that is not a file any more — deleted or moved since the turn — says
+// so rather than opening an empty tab.
+async function openChangedFile(context: ConversationLinkContext, path: string) {
+  try {
+    const resolved = await changedFileLocation(context.workspaceRoot, path, (folder) =>
+      window.api.getGitRepoRoot(folder),
+    )
+    if (!(await window.api.statPath(resolved)).isFile) throw new Error('not a file')
+    openFileSurface({
+      workspaceId: context.workspaceId,
+      path: resolved,
+      name: path.split('/').at(-1) ?? path,
+      rootPath: context.cwd,
+    })
+  } catch {
+    showToast({ tone: 'error', title: `File not found: ${path}` })
+  }
 }
 
 export function ChangedFilesCard({
@@ -257,7 +426,14 @@ export function ChangedFilesCard({
   const context = useConversationLinkContext()
   const transport = useConversationTransport()
   const conversationKey = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
-  const [open, setOpen] = useConversationDisclosure(conversationKey, `files:${turnSeq}`, false)
+  // A handful of files is shown as it stands, so the turn's footprint reads at
+  // a glance; past that the card starts as its one-line summary.
+  const [open, setOpen] = useConversationDisclosure(
+    conversationKey,
+    `files:${turnSeq}`,
+    summary.files <= GLANCEABLE_CHANGED_FILES,
+  )
+  const [foldersOpen, setFoldersOpen] = useConversationDisclosure(conversationKey, `files-all:${turnSeq}`, true)
   const [files, setFiles] = useState<ConversationCheckpointFile[]>()
   const [selected, setSelected] = useState('')
   const [detail, setDetail] = useState<Extract<ConversationTurnDiffResult, { ok: true }>>()
@@ -268,6 +444,36 @@ export function ChangedFilesCard({
   const request = useRef(0)
   const prefix = useId()
   const nodes = useMemo(() => changeTree(files ?? []), [files])
+  const folders = useMemo(() => changeTreeFolders(nodes), [nodes])
+  const key = context?.agentId
+    ? { workspaceRoot: context.workspaceRoot, workspaceId: context.workspaceId, agentId: context.agentId }
+    : undefined
+  // Both open this machine's files, so a conversation on another one offers neither.
+  const localKey = transport.capabilities.localFiles ? key : undefined
+  const openDiff = localKey
+    ? (path: string) => void openCheckpointDiffWindow({ key: localKey, turnSeq, path })
+    : undefined
+  const openFile = localKey && context ? (path: string) => void openChangedFile(context, path) : undefined
+  async function openTurnDiff() {
+    if (!localKey) return
+    try {
+      let list = files
+      if (!list) {
+        const result = await transport.turnDiff({ key: localKey, turnSeq })
+        if (!result.ok) throw new Error(result.message)
+        list = result.diff.files
+        setFiles(list)
+      }
+      const first = firstChangedFile(changeTree(list.filter((file) => !file.binary)))
+      if (first) openDiff?.(first.path)
+      else showToast({ tone: 'warn', title: 'This turn changed only binary files; there is no text diff to show' })
+    } catch (failure) {
+      showToast({
+        tone: 'error',
+        title: `Could not open the diff: ${failure instanceof Error ? failure.message : String(failure)}`,
+      })
+    }
+  }
   useEffect(() => {
     if (!open || !context?.agentId || files) return
     let cancelled = false
@@ -355,10 +561,43 @@ export function ChangedFilesCard({
       className={`mt-3 ${reverted ? 'text-[color:var(--sem-color-text-muted)]' : ''}`}
       aria-label="Turn file changes"
     >
-      <GhostButton size="inline" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {summary.files} {summary.files === 1 ? 'file' : 'files'} changed · +{summary.addedLines} −{summary.removedLines}
-        {reverted ? ' · Reverted' : ''}
-      </GhostButton>
+      <div className="flex items-center gap-1">
+        <GhostButton
+          size="inline"
+          aria-expanded={open}
+          aria-label={`${summary.files} ${summary.files === 1 ? 'file' : 'files'} changed, ${summary.addedLines} added, ${summary.removedLines} removed${reverted ? ', reverted' : ''}`}
+          onClick={() => setOpen(!open)}
+        >
+          {summary.files} {summary.files === 1 ? 'file' : 'files'} changed ·{' '}
+          <DiffStat addedLines={summary.addedLines} removedLines={summary.removedLines} muted={reverted} />
+          {reverted ? ' · Reverted' : ''}
+        </GhostButton>
+        {open && folders.length ? (
+          <Tooltip content={foldersOpen ? 'Collapse all folders' : 'Expand all folders'}>
+            <IconButton
+              size="xs"
+              aria-label={foldersOpen ? 'Collapse all folders' : 'Expand all folders'}
+              onClick={() => {
+                setConversationDisclosures(
+                  conversationKey,
+                  folders.map((path) => `files:${turnSeq}:${path}`),
+                  !foldersOpen,
+                )
+                setFoldersOpen(!foldersOpen)
+              }}
+            >
+              {foldersOpen ? <CollapseAllGlyph /> : <ExpandAllGlyph />}
+            </IconButton>
+          </Tooltip>
+        ) : null}
+        {localKey ? (
+          <Tooltip content="Open this turn's changes in the diff viewer">
+            <IconButton size="xs" aria-label="Open diff" onClick={() => void openTurnDiff()}>
+              <ShowDiffGlyph />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </div>
       {open ? (
         <>
           <div
@@ -380,6 +619,9 @@ export function ChangedFilesCard({
                 selected={selected}
                 select={(path, file) => void select(path, file)}
                 prefix={prefix}
+                muted={reverted}
+                openDiff={openDiff}
+                openFile={openFile}
               />
             ))}
           </div>
@@ -407,24 +649,7 @@ export function ChangedFilesCard({
             </InlineNotice>
           ) : null}
           {edits.map((edit) => (
-            <InlineDiff
-              key={edit.path}
-              edit={edit}
-              onOpen={
-                context?.agentId && transport.capabilities.localFiles
-                  ? () =>
-                      void openCheckpointDiffWindow({
-                        key: {
-                          workspaceRoot: context.workspaceRoot,
-                          workspaceId: context.workspaceId,
-                          agentId: context.agentId!,
-                        },
-                        turnSeq,
-                        path: edit.path,
-                      })
-                  : undefined
-              }
-            />
+            <InlineDiff key={edit.path} edit={edit} onOpen={openDiff ? () => openDiff(edit.path) : undefined} />
           ))}
           {detail?.diff.files.find((file) => file.path === selected)?.binary ? (
             <p>Binary file changed; no text preview is available.</p>

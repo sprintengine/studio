@@ -45,6 +45,7 @@ import {
   MAX_ATTACHMENTS_PER_TURN,
   mergeQueuedTurn,
   parseOptionLabel,
+  queueComposerDraft,
   projectConversation,
   providerAcceptsImages,
   queuedTurnLabel,
@@ -735,6 +736,14 @@ test('AgentChatView', async () => {
   ])
   assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
 
+  // Transcripts written while the field was redacted replay `[redacted]`: that
+  // is no source at all, not an API key.
+  const redactedAuth = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'cli-1', apiKeySource: '[redacted]' }),
+  ])
+  assert.equal(redactedAuth.apiKeySource, null, 'a redacted source replayed from disk reports nothing')
+
   // --- a provider's session notice rides session_updated until the next session ---
 
   assert.equal(empty.sessionNotice, null)
@@ -958,8 +967,8 @@ test('AgentChatView', async () => {
   assert.ok(laneMarkup.includes('aria-busy="true"'), 'the timeline stays live while lanes run')
   assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
 
-  // The same fan-out, finished: the turn counts every step including the ones
-  // that ran inside the lanes, and replayed lanes mount collapsed.
+  // The same fan-out, finished: the settled work folds behind one closed
+  // summary line, with no step count, and nothing inside it is on screen.
   const finishedFanOut = projectConversation([
     ...fanOutEvents,
     ev('tool_output', { turnId: LANE_TURN, toolCallId: 'b1', output: 'hits', parentToolUseId: 'lane-b' }),
@@ -974,8 +983,9 @@ test('AgentChatView', async () => {
       live: false,
     }),
   )
-  assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane children as real steps')
-  assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
+  assert.ok(doneLaneMarkup.includes('Ran 2 agents'), 'the settled fan-out is summarised in one line')
+  assert.ok(!doneLaneMarkup.includes(' steps'), 'the summary does not count steps')
+  assert.ok(!doneLaneMarkup.includes('general-purpose agent'), 'settled lanes fold behind the closed summary')
   assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
   assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
 
@@ -1451,10 +1461,10 @@ test('AgentChatView', async () => {
     ;(dom.window as unknown as Record<string, unknown>).api = priorApi
   }
 
-  // Attachments are live-only: the persisted user_message event carries text
-  // alone, so the bubble looks its images up from the local send that produced
-  // it. Without the localTurnId hand-off the thumbnails would blink out the
-  // instant the authoritative event replaced the optimistic entry.
+  // The persisted user_message event names its images by store reference, so
+  // while the local send is here the bubble keeps the images it staged. Without
+  // the localTurnId hand-off the thumbnails would blink out the instant the
+  // authoritative event replaced the optimistic entry.
   const IMG_TURN = 'turn-img'
   const withImages = projectConversation(
     [
@@ -1476,15 +1486,42 @@ test('AgentChatView', async () => {
     1,
     'the optimistic entry is still replaced, not duplicated',
   )
-  // A replayed transcript has no local send behind it, so it is text-only — the
-  // documented v1 scope, and it must not invent an empty attachments array.
+  // A replayed transcript has no local send behind it: a turn that recorded no
+  // images must not invent an empty attachments array, and one that did reads
+  // them back by reference.
   const replayed = projectConversation([
     ev('turn_started', { turnId: IMG_TURN }),
     ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
   ])
   const replayedUser = replayed.entries.find((entry) => entry.kind === 'user')
   assert.ok(replayedUser && replayedUser.kind === 'user')
-  assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no attachments')
+  assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no live attachments')
+  assert.equal(replayedUser.storedAttachments, undefined, 'nor stored ones it never recorded')
+  const storedRef = {
+    id: 'img-1',
+    mediaType: 'image/png',
+    name: 'cat.png',
+    byteLength: 3,
+    ref: `${'a'.repeat(32)}/x.png`,
+  }
+  const recordedEvents = [
+    ev('turn_started', { turnId: IMG_TURN }),
+    ev('user_message', {
+      turnId: IMG_TURN,
+      text: 'what is this?',
+      localTurnId: 'local-1',
+      attachments: [storedRef, { id: 'broken' }],
+    }),
+  ]
+  const restored = projectConversation(recordedEvents).entries.find((entry) => entry.kind === 'user')
+  assert.ok(restored && restored.kind === 'user')
+  assert.deepEqual(restored.storedAttachments, [storedRef], 'a replayed bubble keeps its well-formed references')
+  const live = projectConversation(recordedEvents, [
+    { id: 'local-1', text: 'what is this?', attachments: staged },
+  ]).entries.find((entry) => entry.kind === 'user')
+  assert.ok(live && live.kind === 'user')
+  assert.deepEqual(live.attachments, staged, 'a live send still shows the images it has in memory')
+  assert.equal(live.storedAttachments, undefined, 'and does not read them back as well')
 
   // The spawn→session wiring lives inside store/window-bound code this DOM-less
   // test cannot mount, so it is pinned at the source. Both ends matter: a spawn
@@ -1564,9 +1601,13 @@ test('AgentChatView', async () => {
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )
-  for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
+  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', 'type="file"']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
+  assert.ok(
+    chatViewSource.includes('dropHandlers={imageDropHandlers}'),
+    'an image dropped anywhere on the chat attaches, not only on the composer',
+  )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf("event.key === 'Backspace'")),
     /selectionStart === 0[\s\S]*?selectionEnd === 0[\s\S]*?if \(attachments.length\) \{\s+event.preventDefault\(\)\s+setAttachments\(\(current\) => current.slice\(0, -1\)\)/,
@@ -1578,8 +1619,8 @@ test('AgentChatView', async () => {
     'every attach entry point (paste, drag, drop, picker) is gated on provider support',
   )
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('mergeQueuedTurn(queuedTurn')),
-    /^[\s\S]{0,600}?dropped > 0\n/,
+    chatViewSource.slice(chatViewSource.indexOf('queueComposerDraft(queuedTurn')),
+    /^[\s\S]{0,300}?setActionError\(queuedDropNotice\(dropped\)\)/,
     'a queue merge that hit the cap tells the user, instead of trimming in silence',
   )
 
@@ -1814,5 +1855,45 @@ test('AgentChatView', async () => {
     void offActiveNewer
   }
 
+  // The previous/next-turn shortcuts reach one view through the same responder.
+  {
+    const steps: number[] = []
+    const off = registerMountedChatView({
+      workspaceId: 'ws-active',
+      isFocused: () => true,
+      toggleModelPicker: () => undefined,
+      stepTurn: (direction) => steps.push(direction),
+    })
+    dispatchPanelCommandEvent('chat.turn.previous')
+    dispatchPanelCommandEvent('chat.turn.next')
+    assert.deepEqual(steps, [-1, 1], 'each chord steps the responding view once, in its direction')
+    off()
+  }
+
   console.log('AgentChatView.test.ts (model picker 1772): ok')
+})
+
+test('a draft folded into the queue keeps the queued message first and every attached context', () => {
+  const image = (id: string): ConversationImageAttachment => ({
+    id,
+    mediaType: 'image/png',
+    dataBase64: 'Zm9v',
+    byteLength: 3,
+  })
+  const first = queueComposerDraft(null, 'check the logs', [image('a')], { skillIds: ['review'], mentions: [] })
+  assert.deepEqual(first, {
+    turn: { text: 'check the logs', attachments: [image('a')], metadata: { skillIds: ['review'], mentions: [] } },
+    dropped: 0,
+  })
+  const mention = { kind: 'file' as const, path: 'src/app.ts' }
+  const second = queueComposerDraft(first.turn, 'then fix it', [image('b')], {
+    skillIds: ['review', 'tests'],
+    mentions: [mention],
+  })
+  assert.equal(second.turn.text, 'check the logs\nthen fix it')
+  assert.deepEqual(
+    second.turn.attachments.map((entry) => entry.id),
+    ['a', 'b'],
+  )
+  assert.deepEqual(second.turn.metadata, { skillIds: ['review', 'tests'], mentions: [mention] })
 })

@@ -81,6 +81,37 @@ payloads). On `startSession`, the runtime reads the tail of the existing
 JSONL (if any) for the latest `providerSessionId` and passes it to the adapter
 as `input.resumeSessionId`. No new store, no settings-store setter.
 
+"Edit from here" rewinds ride the same cursor. An adapter declaring
+`capabilities.rewind` puts a `providerCursor` (`{ sessionId, at }`, `at` being
+the newest entry of the provider session's main chain) on each turn end it
+emits. `rewindToTurn` walks the transcript back from the chosen user message,
+past turns an earlier rewind hid, to the newest turn end carrying one, hands it
+to the adapter's `rewind` (null when the message was the first), and writes a
+`session_updated` with `rewoundFromSeq` — which hides that message and every
+turn after it from the projection — plus `providerSessionId` and
+`providerResumeAt`. That event is a resume cursor too: a session started
+before the next turn passes `resumeSessionAt`, and the Claude adapter forks the
+session there (`resumeSessionAt` with `forkSession`) once, then records the
+fork's own id so a later restart does not fork again. Only the child's `init`
+names its session: a fork whose point is missing fails with a fresh
+`session_id` nobody wrote under, which is ignored; the adapter drops the fork
+point and records the session as it was, so the next send resumes it whole.
+
+A steer (`send` with `steer: true`, for an adapter declaring
+`capabilities.steer` and implementing `steer`) hands a message to the running
+turn without a provider turn of its own. The Claude adapter pushes it into the
+child's input stamped with its own uuid; the CLI folds it in at the next tool
+round (one `result` naming both uuids) or, with no round left, answers it in an
+exchange of its own after the first `result`. The provider's turn ends only on
+a `result` once every uuid it sent has been named. The runtime, in its
+serialized emission order, writes the running turn's end (`steered: true`,
+with the cursor where the message went in when the adapter knows one), the
+message, and the next turn's start, and from then on counts every event of the
+same stream toward that turn — approvals, tool results, cost and the stream's
+own end. Tool streams, checkpoints and idle attention are settled once, at
+that real end. "Edit from here" on a steered message without a cursor goes
+back before the turn it joined, taking that turn's message out of view too.
+
 ### Provider identity & listing
 
 - Adapter id: `claude-agent`. Registered as a **bundled adapter** in the
@@ -112,6 +143,7 @@ as `input.resumeSessionId`. No new store, no settings-store setter.
 | `stream_event: content_block_delta thinking_delta` | `reasoning_delta`                                        |
 | `assistant` message `tool_use` blocks              | `tool_started` (name + input summary)                    |
 | `user` message `tool_result` blocks                | `tool_output`                                            |
+| `system/compact_boundary`                          | `context_compacted` payload `{ trigger, preTokens }`     |
 | `result success`                                   | `usage_updated` + `turn_completed`                       |
 | `result error*`                                    | `turn_failed`                                            |
 | `canUseTool` callback                              | `approval_requested` … `approval_resolved`               |

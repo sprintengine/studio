@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConversationTimelineRow } from './conversationTimeline'
 import { clearConversationJump, usePendingConversationJump } from '../../../utils/conversationHistoryNavigation'
 
@@ -69,5 +69,12 @@ export function useConversationSearchJump(input: {
     input.loadEarlier,
     input.reportError,
   ])
-  return { flashRowId, clearFlash: () => setFlashRowId(null), searching: pending !== null }
+  // The same landing for a row already in the list — the turn minimap and the
+  // previous/next-turn shortcuts — without a pending search to resolve.
+  const jumpToRow = useCallback((index: number, id: string) => {
+    latest.current.pauseFollowing()
+    latest.current.scrollToRow(index, id)
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) setFlashRowId(id)
+  }, [])
+  return { flashRowId, clearFlash: () => setFlashRowId(null), searching: pending !== null, jumpToRow }
 }

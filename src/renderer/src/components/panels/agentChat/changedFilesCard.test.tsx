@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { JSDOM } from 'jsdom'
-import { changeTree, hasTurnChanges } from './changedFilesCard'
+import { changeTree, changeTreeFolders, hasTurnChanges } from './changedFilesCard'
 
 test('only available nonempty checkpoints create a card and new files stay added', () => {
   expect(hasTurnChanges(false, { files: 1, addedLines: 2, removedLines: 0 })).toBe(false)
@@ -13,6 +13,33 @@ test('only available nonempty checkpoints create a card and new files stay added
   ])
   expect(tree.map((node) => node.name)).toEqual(['src', 'README.md'])
   expect(tree[0].children[0].file?.status).toBe('added')
+})
+
+test('folders total the files under them and a chain of lone folders is one row', () => {
+  const file = (path: string, addedLines: number, removedLines: number) => ({
+    path,
+    status: 'modified' as const,
+    addedLines,
+    removedLines,
+    binary: false,
+  })
+  const tree = changeTree([
+    file('src/main/ipc/a.ts', 3, 1),
+    file('src/main/ipc/b.ts', 2, 0),
+    file('src/main/c.ts', 1, 4),
+    file('docs/deep/nested/readme.md', 5, 5),
+  ])
+  expect(tree.map((node) => [node.name, node.addedLines, node.removedLines])).toEqual([
+    ['docs/deep/nested', 5, 5],
+    ['src/main', 6, 5],
+  ])
+  const main = tree[1]
+  expect(main.path).toBe('src/main')
+  expect(main.children.map((node) => [node.name, node.addedLines, node.removedLines])).toEqual([
+    ['ipc', 5, 1],
+    ['c.ts', 1, 4],
+  ])
+  expect(changeTreeFolders(tree)).toEqual(['docs/deep/nested', 'src/main', 'src/main/ipc'])
 })
 
 test('changed files load on disclosure and the tree supports one-tab-stop navigation', async () => {
@@ -60,7 +87,8 @@ test('changed files load on disclosure and the tree supports one-tab-stop naviga
             cwd="/workspace/app"
             agentId="agent"
           >
-            <ChangedFilesCard turnSeq={1} summary={{ files: 1, addedLines: 1, removedLines: 1 }} running={false} />
+            {/* Past the glanceable count the card starts as its summary line. */}
+            <ChangedFilesCard turnSeq={1} summary={{ files: 9, addedLines: 1, removedLines: 1 }} running={false} />
           </ConversationLinkProvider>
         </ConfirmDialogProvider>,
       )
@@ -85,6 +113,90 @@ test('changed files load on disclosure and the tree supports one-tab-stop naviga
       tree.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
     expect(tree.querySelectorAll('[role="treeitem"]')).toHaveLength(2)
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
+
+test('a small change set shows its tree at once, with figures, folder totals and diff actions', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const opened: Array<{ params: { checkpoint: string } }> = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      conversationTurnDiff: async () => ({
+        ok: true,
+        diff: {
+          files: [
+            { path: 'src/main/a.ts', status: 'modified', addedLines: 3, removedLines: 1, binary: false },
+            { path: 'src/main/b.ts', status: 'added', addedLines: 4, removedLines: 0, binary: false },
+            { path: 'README.md', status: 'modified', addedLines: 1, removedLines: 2, binary: false },
+          ],
+          submodulesExcluded: true,
+        },
+      }),
+      openAuxWindow: async (input: { params: { checkpoint: string } }) => {
+        opened.push(input)
+      },
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { ChangedFilesCard } = await import('./changedFilesCard')
+  const { ConversationLinkProvider } = await import('./conversationLinks')
+  const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    Array.from(host.querySelectorAll('button')).find((item) => item.getAttribute('aria-label') === label)
+  const rows = () => Array.from(host.querySelectorAll('[role="treeitem"]')).map((row) => row.getAttribute('aria-label'))
+  try {
+    await act(async () => {
+      root.render(
+        <ConfirmDialogProvider>
+          <ConversationLinkProvider
+            workspaceId="glance-test"
+            workspaceRoot="/workspace/app"
+            cwd="/workspace/app"
+            agentId="agent"
+          >
+            <ChangedFilesCard turnSeq={2} summary={{ files: 3, addedLines: 8, removedLines: 3 }} running={false} />
+          </ConversationLinkProvider>
+        </ConfirmDialogProvider>,
+      )
+    })
+    // No click: three files are shown as they stand, each folder with its total.
+    expect(rows()).toEqual([
+      'src/main, 7 added, 1 removed',
+      'src/main/a.ts, modified, 3 added, 1 removed',
+      'src/main/b.ts, added, 4 added, 0 removed',
+      'README.md, modified, 1 added, 2 removed',
+    ])
+    expect(host.querySelector('[role="treeitem"]')?.textContent).toContain('+7−1')
+    await act(async () => button('Collapse all folders')!.click())
+    expect(rows()).toEqual(['src/main, 7 added, 1 removed', 'README.md, modified, 1 added, 2 removed'])
+    await act(async () => button('Expand all folders')!.click())
+    expect(rows()).toHaveLength(4)
+    await act(async () => button('Open README.md in diff viewer')!.click())
+    // The turn's diff opens on the first file in the order the tree shows.
+    await act(async () => button('Open diff')!.click())
+    expect(opened.map((input) => JSON.parse(input.params.checkpoint).path)).toEqual(['README.md', 'src/main/a.ts'])
+    expect(JSON.parse(opened[0].params.checkpoint).turnSeq).toBe(2)
   } finally {
     await act(async () => root.unmount())
     dom.window.close()
@@ -238,4 +350,24 @@ test('undoing a revert that later work followed says it replaces that work, and 
       else Reflect.deleteProperty(globalThis, key)
     }
   }
+})
+
+test('a changed file opens from the repository top level, not from a workspace inside it', async () => {
+  const { changedFileLocation } = await import('./changedFilesCard')
+  const asked: string[] = []
+  const repoRoot = async (folder: string) => {
+    asked.push(folder)
+    return '/Users/dev/monorepo'
+  }
+  expect(await changedFileLocation('/Users/dev/monorepo/apps/web', 'apps/web/src/app.ts', repoRoot)).toBe(
+    '/Users/dev/monorepo/apps/web/src/app.ts',
+  )
+  expect(asked).toEqual(['/Users/dev/monorepo/apps/web'])
+  // Without an answer from git, the workspace root is the best guess.
+  expect(await changedFileLocation('/Users/dev/app', 'src/app.ts', async () => null)).toBe('/Users/dev/app/src/app.ts')
+  expect(
+    await changedFileLocation('/Users/dev/app', 'src/app.ts', async () => {
+      throw new Error('git is not installed')
+    }),
+  ).toBe('/Users/dev/app/src/app.ts')
 })

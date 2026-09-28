@@ -39,6 +39,7 @@ import type {
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
+  ConversationAttachmentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -47,6 +48,8 @@ import type {
   ConversationTurnDiffResult,
   ConversationRevertInput,
   ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
@@ -90,6 +93,7 @@ export type ConversationIpcHandlers = {
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
+  readAttachment?(ref: string): Promise<ConversationAttachmentResult>
   subscribe?(
     input: ConversationSubscribeInput,
     listener: (frame: ConversationSessionFrame) => void,
@@ -97,6 +101,7 @@ export type ConversationIpcHandlers = {
   loadEarlier?(input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
   getTurnDiff?(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
   revertToTurn?(input: ConversationRevertInput): Promise<ConversationRevertResult>
+  rewindToTurn?(input: ConversationRewindInput): Promise<ConversationRewindResult>
   listApprovalRules?(): Promise<ConversationApprovalRulesResult>
   revokeApprovalRule?(ruleId: string): Promise<ConversationApprovalRuleRevokeResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
@@ -217,6 +222,9 @@ export function createConversationIpcHandlers(
     readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
       return runtime.readTranscript(input)
     },
+    readAttachment(ref) {
+      return runtime.readAttachment(ref)
+    },
     getToolDetail(input) {
       return runtime.getToolDetail(input)
     },
@@ -237,6 +245,9 @@ export function createConversationIpcHandlers(
     },
     revertToTurn(input) {
       return sessions.revertToTurn(input)
+    },
+    rewindToTurn(input) {
+      return sessions.rewindToTurn(input)
     },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
@@ -367,6 +378,18 @@ export function registerConversationIpc(
         undo: input.undo === true,
         ...(Array.isArray(input.files) ? { files: input.files as string[] } : {}),
       }) ?? { ok: false, message: 'Checkpoints are unavailable.' }
+    )
+  })
+  ipcMain.handle('conversation:turn:rewind', async (_, input: unknown): Promise<ConversationRewindResult> => {
+    if (!isRecord(input) || !Number.isSafeInteger(input.turnSeq) || Number(input.turnSeq) < 1)
+      return { ok: false, message: 'The message to edit is required.' }
+    const key = parseTranscriptInput(input.key)
+    if (!key.ok) return key
+    return (
+      handlers.rewindToTurn?.({ key: key.input, turnSeq: Number(input.turnSeq) }) ?? {
+        ok: false,
+        message: 'Editing an earlier message is unavailable.',
+      }
     )
   })
   ipcMain.handle('conversation:session:subscribe', (event, input: unknown) => {
@@ -590,6 +613,13 @@ export function registerConversationIpc(
     )
   })
 
+  // A sent image, read back for a replayed bubble. The reference is resolved
+  // inside the attachment store only; this is not a general file read.
+  ipcMain.handle('conversation:attachment', async (_, input: unknown): Promise<ConversationAttachmentResult> => {
+    if (!isRecord(input) || typeof input.ref !== 'string') return { ok: false, message: 'ref is required.' }
+    return handlers.readAttachment?.(input.ref) ?? { ok: false, message: 'Attachments are unavailable.' }
+  })
+
   ipcMain.handle('conversation:transcript', async (_, input: unknown): Promise<ConversationTranscriptResult> => {
     const parsed = parseTranscriptInput(input)
     if (!parsed.ok) return parsed
@@ -790,6 +820,8 @@ function parseSendTurnInput(
     return { ok: false, message: 'Invalid reasoning effort.' }
   if (input.mode !== undefined && !['default', 'plan', 'ask'].includes(String(input.mode)))
     return { ok: false, message: 'Invalid conversation mode.' }
+  if (input.steer !== undefined && typeof input.steer !== 'boolean')
+    return { ok: false, message: 'steer must be a boolean when present.' }
   let attachments: ConversationImageAttachment[] | undefined
   const mentions = input.mentions === undefined ? undefined : parseConversationMentions(input.mentions)
   if (mentions === null) return { ok: false, message: 'Mention references are invalid.' }
@@ -821,6 +853,7 @@ function parseSendTurnInput(
       ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
       ...(typeof input.reasoningEffort === 'string' ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.mode ? { mode: input.mode as ConversationSendTurnInput['mode'] } : {}),
+      ...(input.steer === true ? { steer: true } : {}),
     },
   }
 }

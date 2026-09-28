@@ -31,7 +31,9 @@ import {
   dataTransferHasFiles,
   filesFromDataTransfer,
   imageFilesFromDataTransfer,
+  pastedImagePaths,
   readFileAsBase64,
+  readPastedImagePaths,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
@@ -853,6 +855,29 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
+  // A paste that is only paths to images outside the project attaches those
+  // images, read now: the file may be a screenshot's temporary copy the system
+  // clears minutes later, and the copy saved here is the one the prompt names
+  // at launch. One that cannot be read goes back in as the text it was, with
+  // the reason.
+  const attachPastedPaths = async (paths: string[], text: string, selectionStart: number, selectionEnd: number) => {
+    setAttachNote(null)
+    setAttachingCount((count) => count + paths.length)
+    let read: Awaited<ReturnType<typeof readPastedImagePaths>>
+    try {
+      read = await readPastedImagePaths(paths)
+    } finally {
+      setAttachingCount((count) => count - paths.length)
+    }
+    if (read.ok) {
+      await attachDroppedFiles(read.files)
+      return
+    }
+    setPrompt((current) => current.slice(0, selectionStart) + text + current.slice(selectionEnd))
+    setAttachNote(read.message)
+    promptRef.current?.focus()
+  }
+
   const removeImage = (id: string) => setImages((current) => current.filter((image) => image.id !== id))
 
   // The name is a greeting, not an identity claim: an email local-part reads
@@ -1395,11 +1420,22 @@ export default function NewAgentPanel({
               rows={2}
               onPaste={(event) => {
                 // A pasted screenshot only exists as a clipboard item; a text
-                // paste reports no image and falls through to the default.
+                // paste reports no image and falls through to the default —
+                // unless the text is only paths to images outside the project,
+                // which attach instead. A chat starting on another machine
+                // cannot open this one's project, so there every path attaches.
                 const files = imageFilesFromDataTransfer(event.clipboardData)
-                if (files.length === 0) return
+                if (files.length > 0) {
+                  event.preventDefault()
+                  void attachDroppedFiles(files)
+                  return
+                }
+                const text = event.clipboardData.getData('text/plain')
+                const paths = pastedImagePaths(text, !remoteTarget && workspaceRoot ? [workspaceRoot] : [])
+                if (!paths) return
                 event.preventDefault()
-                void attachDroppedFiles(files)
+                const field = event.currentTarget
+                void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
               onChange={(event) => {
                 setPrompt(event.currentTarget.value)

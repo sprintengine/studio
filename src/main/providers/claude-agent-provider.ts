@@ -13,6 +13,7 @@
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
 import { spawn } from 'child_process'
+import { randomUUID } from 'node:crypto'
 import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,6 +23,7 @@ import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness
 import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
+import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
@@ -50,8 +52,11 @@ import type {
   MockAdapterApprovalInput,
   MockAdapterModelInput,
   MockAdapterPermissionInput,
+  MockAdapterRewindInput,
   MockAdapterSessionInput,
+  MockAdapterSteerInput,
   MockAdapterTurnInput,
+  ConversationProviderSteerResult,
 } from './conversation-provider-adapter'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
@@ -87,6 +92,8 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
+  rewind(input: MockAdapterRewindInput): Promise<ConversationProviderPermissionResult>
+  steer(input: MockAdapterSteerInput): Promise<ConversationProviderSteerResult>
 }
 
 type PermissionDecision = {
@@ -129,6 +136,17 @@ type SessionState = {
   reasoningEffort?: string
   onBeforeTool?: (name: string) => Promise<void>
   providerSessionId: string | null
+  // The newest entry of the provider session's main chain this process has
+  // seen; each turn end carries it as the point a rewind can go back to.
+  lastChainUuid: string | null
+  // The newest main-chain entry that leaves no tool call waiting for its
+  // result, and the calls still waiting. Mid-turn this is the point a rewind
+  // can fork at: one taken at a tool call would resume a call with no answer.
+  settledChainUuid: string | null
+  openToolUseIds: Set<string>
+  // Set by a rewind: the next child resumes `providerSessionId` only up to
+  // this entry, as a fork. Cleared once a child has started from it.
+  resumeAt: string | null
   query: Query | null
   inputQueue: PushStream<SDKUserMessage> | null
   abort: AbortController | null
@@ -160,6 +178,21 @@ type SessionState = {
   queryCostUsd: number
   // The child being spawned, while it is; see ensureQuery.
   spawning: Promise<void> | null
+  // Ids of the user messages handed to the child that no `result` has
+  // answered yet. A turn is over only once every one has been: a message
+  // steered in after the CLI's last tool round is answered by a result of
+  // its own, after the one for the message the turn started with.
+  pendingSendUuids: Set<string>
+  // Ids of the messages a Stop cut off. The CLI still plays out the tail of
+  // that exchange after the interrupt — partial text, its own "interrupted"
+  // note, and a failed result naming these ids — and none of it belongs to a
+  // turn any more: the one it was for has already ended as stopped, and the
+  // next one must not end on that result.
+  interruptedSendUuids: Set<string>
+  // A result answered part of what the child was sent and the next exchange
+  // answers the rest in the same turn: its first text starts a paragraph of
+  // its own instead of running on from the last sentence of the reply before.
+  textSeam: boolean
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
@@ -187,6 +220,10 @@ class PushStream<T> implements AsyncIterable<T> {
     const resolve = this.resolvers.shift()
     if (resolve) resolve({ value, done: false })
     else this.queue.push(value)
+  }
+
+  get closed(): boolean {
+    return this.ended
   }
 
   end(): void {
@@ -233,18 +270,25 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     removals.add(removal)
   }
 
+  // The turn still taking events. One whose stream has closed (its result
+  // arrived, or its reader stopped) takes none: pushed there, they are lost.
+  function openTurn(state: SessionState): ActiveTurn | null {
+    return state.turn && !state.turn.queue.closed ? state.turn : null
+  }
+
   function deliver(state: SessionState, events: ConversationEvent[]): void {
     for (const event of events) {
       // Post-`result` turn-scoped activity with no open `sendTurn`: open a
       // continuation turn so the event (and any approval it raises) reaches the
       // runtime instead of being dropped. Requires the session channel.
-      if (!state.turn && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
+      if (!openTurn(state) && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
         ensureContinuationTurn(state)
       }
-      if (state.turn) {
+      const turn = openTurn(state)
+      if (turn) {
         // Events mapped before the continuation turn existed carry no turnId;
         // stamp the continuation id so the runtime attaches them to its mirror.
-        state.turn.queue.push(withContinuationTurnId(event, state.turn.turnId))
+        turn.queue.push(withContinuationTurnId(event, turn.turnId))
       } else if (event.type === 'session_updated') {
         // A resume-cursor update between turns: ride the session channel if it
         // is open, else buffer for the next turn start.
@@ -261,7 +305,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // deliver are unchanged; a background drain forwards the queue to the session
   // channel. Returns null when no session channel is available.
   function ensureContinuationTurn(state: SessionState): ActiveTurn | null {
-    if (state.turn) return state.turn
+    const open = openTurn(state)
+    if (open) return open
     if (!state.onSessionEvent) return null
     state.continuationSequence += 1
     const turnId = `${state.sessionId}_cont_${state.continuationSequence}`
@@ -293,9 +338,41 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
   }
 
+  // The turn is over once its stream ends, so nothing more is pushed there:
+  // activity after it opens a continuation turn instead.
   function endTurn(state: SessionState): void {
     state.turn?.queue.end()
+    state.turn = null
     state.lastActivityAt = now()
+  }
+
+  // Hand the child a user message, stamped with an id of our own so the
+  // results can say which messages they answered.
+  function pushUserMessage(state: SessionState, content: SDKUserMessage['message']['content']): void {
+    const uuid = randomUUID()
+    state.pendingSendUuids.add(uuid)
+    state.inputQueue?.push({
+      type: 'user',
+      message: { role: 'user', content },
+      parent_tool_use_id: null,
+      session_id: state.providerSessionId ?? '',
+      uuid,
+    })
+  }
+
+  // Stop the child's turn, and with it any message steered in that the CLI
+  // had not folded in yet: without `cancelQueued` such a message survives the
+  // interrupt and runs by itself afterwards. The option is honored from the
+  // CLI that advertises `interrupt_cancel_queued_v1`; the SDK passes it
+  // through although its typed signature does not declare it yet. An older
+  // CLI ignores it, and the message it still runs arrives as a continuation
+  // turn rather than being lost.
+  function interruptChild(state: SessionState): void {
+    for (const uuid of state.pendingSendUuids) state.interruptedSendUuids.add(uuid)
+    state.pendingSendUuids.clear()
+    state.textSeam = false
+    const interrupt = state.query?.interrupt as ((options?: { cancelQueued?: boolean }) => Promise<unknown>) | undefined
+    void interrupt?.call(state.query, { cancelQueued: true }).catch(() => undefined)
   }
 
   function resolveAllPendingPermissions(state: SessionState, decision: PermissionDecision): void {
@@ -316,7 +393,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     const hadChild = state.query !== null
     resolveAllPendingPermissions(state, { approved: false })
     endTurn(state)
-    state.turn = null
+    state.pendingSendUuids.clear()
+    state.interruptedSendUuids.clear()
+    state.textSeam = false
+    state.openToolUseIds.clear()
     state.inputQueue?.end()
     state.inputQueue = null
     state.abort?.abort()
@@ -339,8 +419,36 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     try {
       for await (const message of q as AsyncIterable<Record<string, unknown>>) {
         if (state.query !== q) return
-        deliver(state, mapSdkMessage(state, message))
-        if (message.type === 'result') endTurn(state)
+        if (state.interruptedSendUuids.size > 0) {
+          // A new child exchange has begun, so whatever the stopped one left
+          // unsaid will not come any more: an older CLI that ends an
+          // interrupted exchange without a result cannot hold the next one up.
+          if (message.type === 'system' && message.subtype === 'init') state.interruptedSendUuids.clear()
+          else if (message.type !== 'system') {
+            if (message.type !== 'result' || answersOnlyInterrupted(state.interruptedSendUuids, message)) {
+              // Still read for where the session stands and what it cost —
+              // the cost stays in the running total, so the next result
+              // carries it — but shown nowhere.
+              mapSdkMessage(state, message, { interrupted: true })
+              if (message.type === 'result') state.interruptedSendUuids.clear()
+              continue
+            }
+            // A result that also answers a message sent since: the stopped
+            // exchange and the new one ended as one, and it is the new turn's.
+            state.interruptedSendUuids.clear()
+          }
+        }
+        const forking = state.resumeAt !== null
+        const ends = message.type === 'result' && resultEndsExchange(state.pendingSendUuids, message)
+        deliver(state, mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends }))
+        if (ends) endTurn(state)
+        // The fork point a rewind asked for is not in the session: this child
+        // runs a session of its own nobody recorded. The next send starts a
+        // child on the session as it was.
+        if (forking && message.type === 'result' && state.resumeAt === null) {
+          disposeChild(state)
+          return
+        }
       }
     } catch (error) {
       if (state.query !== q) return
@@ -350,6 +458,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
             turnId: state.turn.turnId,
             reason: 'provider',
             message: describeSpawnFailure(error, state.stderrTail),
+            ...providerCursorPayload(state),
           }),
         ])
       }
@@ -363,6 +472,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
               turnId: state.turn.turnId,
               reason: 'provider',
               message: describeSpawnFailure(null, state.stderrTail),
+              ...providerCursorPayload(state),
             }),
           ])
         }
@@ -466,6 +576,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // this session, and the SDK exposes no PID of its own.
       spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess => spawnTrackedChild(state, spawnInput, now),
       ...(state.providerSessionId ? { resume: state.providerSessionId } : {}),
+      // After a rewind the child forks the session at the kept turn's last
+      // entry, so the turns after it leave the context and the session they
+      // were in stays as it was.
+      ...(state.providerSessionId && state.resumeAt ? { resumeSessionAt: state.resumeAt, forkSession: true } : {}),
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
@@ -492,7 +606,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being
     // auto-denied; deny only when there is no session channel to carry it.
-    const turn = state.turn ?? ensureContinuationTurn(state)
+    const turn = openTurn(state) ?? ensureContinuationTurn(state)
     if (!turn) return { behavior: 'deny', message: 'Conversation turn is not active.' }
     turn.approvalSequence += 1
     const requestId = turn.approvalSequence === 1 ? turn.requestId : `${turn.requestId}_${turn.approvalSequence}`
@@ -591,6 +705,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       contextMeter: false,
       liveModelSwitch: true,
       atMentions: true,
+      steer: true,
+      rewind: true,
     },
     sessions: 'stateful',
     listModels: () => [...CLAUDE_AGENT_MODELS],
@@ -609,6 +725,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         skillPluginDir: null,
         onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
+        lastChainUuid: null,
+        settledChainUuid: null,
+        openToolUseIds: new Set(),
+        resumeAt: (input.resumeSessionId?.trim() && input.resumeSessionAt?.trim()) || null,
         query: null,
         inputQueue: null,
         abort: null,
@@ -624,12 +744,18 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         stderrTail: '',
         queryCostUsd: 0,
         spawning: null,
+        pendingSendUuids: new Set(),
+        interruptedSendUuids: new Set(),
+        textSeam: false,
         declinedToolUseIds: new Set(),
       }
       sessions.set(input.sessionId, state)
       return [
         eventFor(state, 'session_started', {
           providerSessionId: state.providerSessionId,
+          // A rewind no turn has been sent after still applies on the next
+          // restart, so the cursor this event records keeps it.
+          ...(state.resumeAt ? { providerResumeAt: state.resumeAt } : {}),
           resumed: state.providerSessionId !== null,
         }),
         eventFor(state, 'session_ready'),
@@ -679,7 +805,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       for (const pendingEvent of state.pendingSessionEvents.splice(0)) turn.queue.push(pendingEvent)
 
       const onAbort = (): void => {
-        void state.query?.interrupt().catch(() => undefined)
+        interruptChild(state)
         resolveAllPendingPermissions(state, { approved: false })
         turn.queue.end()
       }
@@ -689,20 +815,19 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         input.signal?.addEventListener('abort', onAbort, { once: true })
       }
 
-      state.inputQueue?.push({
-        type: 'user',
-        message: {
-          role: 'user',
-          content: buildUserMessageContent(
+      // The turn is the session's before its message reaches the child, and
+      // nothing between the two yields: a steer finds this turn only once the
+      // child has what it joins.
+      if (!turn.queue.closed)
+        pushUserMessage(
+          state,
+          buildUserMessageContent(
             input.skills?.length
               ? `Use the attached skills: ${input.skills.map(attachedSkillName).join(', ')}.\n\n${input.message}`
               : input.message,
             input.attachments,
           ),
-        },
-        parent_tool_use_id: null,
-        session_id: state.providerSessionId ?? '',
-      })
+        )
 
       try {
         for await (const event of turn.queue) yield event
@@ -714,6 +839,29 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         resolvePendingPermissionsForTurn(state, turn.turnId, { approved: false })
         state.lastActivityAt = now()
       }
+    },
+
+    // A message for the turn that is running: it goes into the child's input
+    // and the CLI takes it in at its next tool round, or, when none is left,
+    // answers it by itself right after the reply it is writing. Either way the
+    // running turn stays the one carrying the events, and ends only once a
+    // result has answered this message too (pendingSendUuids). Nothing that
+    // would respawn the child — a mode, effort, skills or preset change — is
+    // applied here, since a respawn would drop the work the message is meant
+    // to redirect; the next ordinary send applies it.
+    async steer(input: MockAdapterSteerInput): Promise<ConversationProviderSteerResult> {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      const turn = openTurn(state)
+      if (!turn || turn.turnId !== input.turnId || !state.query || !state.inputQueue)
+        return { ok: false, message: 'The agent is not working on that turn any more.' }
+      // Where the session stands as the message goes in: what "Edit from
+      // here" on it goes back to.
+      const sessionId = state.providerSessionId
+      const at = state.settledChainUuid
+      pushUserMessage(state, buildUserMessageContent(input.message, input.attachments))
+      state.lastActivityAt = now()
+      return { ok: true, ...(sessionId && at ? { providerCursor: { sessionId, at } } : {}) }
     },
 
     resolveApproval(input: MockAdapterApprovalInput) {
@@ -783,11 +931,37 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       const state = sessions.get(input.sessionId)
       if (!state) return []
       const turnId = state.turn?.turnId
-      void state.query?.interrupt().catch(() => undefined)
+      interruptChild(state)
       resolveAllPendingPermissions(state, { approved: false })
       endTurn(state)
-      state.turn = null
-      return [eventFor(state, 'turn_failed', { ...(turnId ? { turnId } : {}), reason: 'interrupted' })]
+      return [
+        eventFor(state, 'turn_failed', {
+          ...(turnId ? { turnId } : {}),
+          reason: 'interrupted',
+          ...providerCursorPayload(state),
+        }),
+      ]
+    },
+
+    // Take an idle session back to the end of an earlier turn (or before the
+    // first). The live child is dropped rather than asked: the next turn
+    // spawns one that forks the provider session at that turn's last entry,
+    // so what came after it is out of the model's context while the session
+    // it came from stays untouched on disk.
+    async rewind(input: MockAdapterRewindInput): Promise<ConversationProviderPermissionResult> {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (state.turn) return { ok: false, message: 'Stop the running turn before editing an earlier message.' }
+      if (input.cursor && !input.cursor.at)
+        return { ok: false, message: 'Claude Code did not record where this conversation stood before that message.' }
+      disposeChild(state)
+      state.providerSessionId = input.cursor?.sessionId ?? null
+      state.resumeAt = input.cursor?.at ?? null
+      state.lastChainUuid = input.cursor?.at ?? null
+      state.settledChainUuid = input.cursor?.at ?? null
+      state.pendingSessionEvents = []
+      state.lastActivityAt = now()
+      return { ok: true }
     },
 
     stopSession(input: MockAdapterSessionInput) {
@@ -999,6 +1173,52 @@ export function buildUserMessageContent(
   return blocks
 }
 
+// Whether a `result` ends the exchange: every message handed to the child has
+// been answered and the CLI holds none queued. A message steered in while a
+// tool ran is folded into that same exchange and named by its one result; one
+// steered in while the final reply was being written is answered by a second
+// result of its own, which is the one that ends the turn. The `result` names
+// the messages it answered by the ids they were sent with; a CLI that names
+// none has answered everything sent. A failed result ends the exchange
+// regardless, so its error is shown rather than waited past — unless it names
+// only messages nothing is waiting on, which makes it the late end of an
+// exchange that is already over (one a Stop cut off) and none of this turn's.
+function resultEndsExchange(pendingSendUuids: Set<string>, message: Record<string, unknown>): boolean {
+  const answered = answeredSendUuids(message)
+  if (pendingSendUuids.size > 0 && answered?.length && !answered.some((uuid) => pendingSendUuids.has(uuid)))
+    return false
+  if (message.subtype !== 'success' || message.is_error === true) {
+    pendingSendUuids.clear()
+    return true
+  }
+  // The child takes messages in the order they were sent, so one answered
+  // answers every one sent before it too, whether or not the result lists
+  // them all (merged sends name only their last before the list existed).
+  const sent = Array.from(pendingSendUuids)
+  const through = answered === null ? sent.length - 1 : Math.max(-1, ...answered.map((uuid) => sent.indexOf(uuid)))
+  for (const uuid of sent.slice(0, through + 1)) pendingSendUuids.delete(uuid)
+  const queued = typeof message.queued_turn_count === 'number' && message.queued_turn_count > 0
+  return pendingSendUuids.size === 0 && !queued
+}
+
+// The ids of the messages a `result` says it answered; null from a CLI that
+// names none.
+function answeredSendUuids(message: Record<string, unknown>): string[] | null {
+  return Array.isArray(message.user_message_uuids)
+    ? message.user_message_uuids.filter((uuid): uuid is string => typeof uuid === 'string')
+    : typeof message.user_message_uuid === 'string'
+      ? [message.user_message_uuid]
+      : null
+}
+
+// Whether a `result` is the end of the exchange a Stop cut off: it names only
+// messages sent before the Stop, or names none at all, from a CLI whose
+// results never do.
+function answersOnlyInterrupted(interruptedSendUuids: Set<string>, message: Record<string, unknown>): boolean {
+  const answered = answeredSendUuids(message)
+  return !answered?.length || answered.every((uuid) => interruptedSendUuids.has(uuid))
+}
+
 // Stamp a continuation turn id onto a turn-scoped event that was mapped before
 // the continuation turn existed (its payload.turnId is absent). Session-scoped
 // events and events that already carry a turnId are returned unchanged, so the
@@ -1067,10 +1287,13 @@ async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOver
 // silently and bills API usage with no visible banner (headless chat shows no
 // CLI chrome). AUTH_TOKEN/BASE_URL redirect the CLI to third-party endpoints;
 // they belong to the terminal zai/GLM launch path, never to this provider.
+// CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR hands the CLI an API key through a pipe,
+// which it binds ahead of the login just as it would the variable.
 export const STRIPPED_ANTHROPIC_AUTH_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
 ] as const
 
 export function stripAnthropicAuthEnv(env: Record<string, string>): Record<string, string> {
@@ -1111,21 +1334,56 @@ export function mapSdkMessage(
     turn: { turnId: string } | null
     queryCostUsd?: number
     declinedToolUseIds?: Set<string>
+    lastChainUuid?: string | null
+    settledChainUuid?: string | null
+    openToolUseIds?: Set<string>
+    resumeAt?: string | null
+    textSeam?: boolean
   },
   message: Record<string, unknown>,
+  // exchangeContinues: a `result` that answers only part of what the child was
+  // sent: the turn goes on, so it reports usage but neither ends the turn nor
+  // counts its cost. interrupted: the tail of an exchange a Stop cut off, read
+  // only for where the session stands; its result settles the chain and leaves
+  // its cost in the running total for the next result to report.
+  options: { exchangeContinues?: boolean; interrupted?: boolean } = {},
 ): ConversationEvent[] {
   const turnId = state.turn?.turnId
   const events: ConversationEvent[] = []
-  const messageSessionId = typeof message.session_id === 'string' ? message.session_id : null
+  const init = message.type === 'system' && message.subtype === 'init'
+  // Only the child's init names the session it runs. Anything before it can
+  // carry an id no session was ever written under: a fork that failed to find
+  // its point reports its error under a fresh one.
+  const messageSessionId = init && typeof message.session_id === 'string' ? message.session_id : null
+  // The main chain's newest entry: what the turn's end records as the point a
+  // rewind can fork at. A subagent's messages live in a chain of their own.
+  if (
+    (message.type === 'assistant' || message.type === 'user') &&
+    !readParentToolUseId(message) &&
+    typeof message.uuid === 'string' &&
+    message.uuid
+  ) {
+    state.lastChainUuid = message.uuid
+    const blocks = asRecord(message.message)?.content
+    for (const block of Array.isArray(blocks) ? blocks.map(asRecord) : []) {
+      if (block?.type === 'tool_use' && typeof block.id === 'string') state.openToolUseIds?.add(block.id)
+      if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string')
+        state.openToolUseIds?.delete(block.tool_use_id)
+    }
+    if (!state.openToolUseIds?.size) state.settledChainUuid = message.uuid
+  }
+  // A child that started from a rewind's fork point has taken it; the session
+  // it reports is the one to resume from now on, and is recorded as such below
+  // even when its id did not change, so a restart does not fork again.
+  const forked = init && Boolean(state.resumeAt)
+  if (forked) state.resumeAt = null
 
   // The CLI init message reports which credential source the child actually
   // bound (`none` = the subscription login this provider guarantees). Ride it
   // on `session_updated` so the chat can warn when a session is somehow not
-  // metering against the subscription.
-  const apiKeySource =
-    message.type === 'system' && message.subtype === 'init' && typeof message.apiKeySource === 'string'
-      ? message.apiKeySource
-      : null
+  // metering against the subscription. Only the SDK's labels pass: the value
+  // is written to the transcript as is.
+  const apiKeySource = init ? normalizeApiKeySource(message.apiKeySource) : null
 
   if (messageSessionId && messageSessionId !== state.providerSessionId) {
     state.providerSessionId = messageSessionId
@@ -1137,20 +1395,51 @@ export function mapSdkMessage(
     )
   } else if (apiKeySource) {
     events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId, apiKeySource }))
+  } else if (forked && state.providerSessionId) {
+    events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId }))
   }
 
   switch (message.type) {
+    case 'system': {
+      // The CLI summarised the conversation to free context, on /compact or
+      // on its own when the window filled. The transcript marks the seam, since
+      // the model no longer sees what came before it verbatim.
+      if (message.subtype !== 'compact_boundary') break
+      const metadata = asRecord(message.compact_metadata)
+      const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
+      const preTokens = finiteNumber(metadata?.pre_tokens)
+      const postTokens = finiteNumber(metadata?.post_tokens)
+      events.push(
+        eventFor(state, 'context_compacted', {
+          turnId,
+          ...(trigger ? { trigger } : {}),
+          ...(preTokens !== undefined ? { preTokens } : {}),
+          ...(postTokens !== undefined ? { postTokens } : {}),
+        }),
+      )
+      break
+    }
     case 'stream_event': {
       // Text and thinking deltas produced inside a subagent stay dropped: they
       // would interleave into the parent assistant's own streaming bubble. A
       // subagent's visible work rides its parent-linked tool events below.
       if (message.parent_tool_use_id) break
       const streamEvent = asRecord(message.event)
+      // Each thinking block is its own thought. Back-to-back blocks arrive as
+      // one reasoning run, so a block's start is a paragraph break in it rather
+      // than the two running together mid-sentence.
+      if (streamEvent?.type === 'content_block_start' && asRecord(streamEvent.content_block)?.type === 'thinking') {
+        events.push(eventFor(state, 'reasoning_delta', { turnId, text: '\n\n' }))
+        break
+      }
       if (streamEvent?.type !== 'content_block_delta') break
       const delta = asRecord(streamEvent.delta)
       if (!delta) break
       if (delta.type === 'text_delta' && typeof delta.text === 'string' && delta.text) {
-        events.push(eventFor(state, 'content_delta', { turnId, text: delta.text }))
+        events.push(
+          eventFor(state, 'content_delta', { turnId, text: state.textSeam ? `\n\n${delta.text}` : delta.text }),
+        )
+        state.textSeam = false
       } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string' && delta.thinking) {
         events.push(eventFor(state, 'reasoning_delta', { turnId, text: delta.thinking }))
       }
@@ -1187,6 +1476,8 @@ export function mapSdkMessage(
           ...subagentLaneFields(block.name, toolInput),
         }
         events.push(eventFor(state, 'tool_started', payload))
+        // Text after a tool is laid out as a block of its own already.
+        if (!parentToolUseId) state.textSeam = false
       }
       break
     }
@@ -1226,6 +1517,11 @@ export function mapSdkMessage(
       break
     }
     case 'result': {
+      if (options.interrupted) {
+        state.openToolUseIds?.clear()
+        if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
+        break
+      }
       const usage = asRecord(message.usage)
       if (usage) {
         const inputTokens =
@@ -1242,6 +1538,16 @@ export function mapSdkMessage(
           }),
         )
       }
+      // The CLI answers a message steered in after its last tool round with an
+      // exchange of its own; the turn stays open for it, and the cost of both
+      // is counted when that one ends.
+      if (options.exchangeContinues) {
+        state.textSeam = true
+        break
+      }
+      // Every exchange ends settled, whatever the tool calls it left open.
+      state.openToolUseIds?.clear()
+      if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
       // A running total for the live query(); each turn reports what it added.
       // A lower, non-zero total means the SDK started counting again (/clear).
       // A zero total below the last one is a result that carries no cost at
@@ -1260,11 +1566,28 @@ export function mapSdkMessage(
       if (isError) {
         const errors = Array.isArray(message.errors) ? message.errors.filter((entry) => typeof entry === 'string') : []
         const resultText = typeof message.result === 'string' ? message.result : ''
+        const reported = errors.join('; ') || resultText
+        // A child asked to fork at a point its session does not have fails
+        // before it starts. The rewind cannot be taken up; the session goes
+        // on from where it was, and the cursor the rewind recorded is replaced
+        // so a restart does not try the same point again.
+        const missingForkPoint = Boolean(state.resumeAt) && /No message found with message\.uuid/i.test(reported)
+        if (missingForkPoint) {
+          state.resumeAt = null
+          // The point it was given is not one to go back to either.
+          state.lastChainUuid = null
+          state.settledChainUuid = null
+          if (state.providerSessionId)
+            events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId }))
+        }
         events.push(
           eventFor(state, 'turn_failed', {
             turnId,
             reason: typeof message.subtype === 'string' && message.subtype !== 'success' ? message.subtype : 'provider',
-            message: errors.join('; ') || resultText || 'Claude Code reported an error for this turn.',
+            message: missingForkPoint
+              ? 'Claude Code could not go back to that earlier message because its session no longer has it, so this message was not answered. Send it again to continue from the latest point of the conversation; the agent will still remember the messages after the one you edited.'
+              : reported || 'Claude Code reported an error for this turn.',
+            ...providerCursorPayload(state),
           }),
         )
       } else {
@@ -1274,6 +1597,7 @@ export function mapSdkMessage(
             ...(costUsd !== undefined ? { costUsd } : {}),
             ...(typeof message.duration_ms === 'number' ? { durationMs: message.duration_ms } : {}),
             ...(typeof message.num_turns === 'number' ? { numTurns: message.num_turns } : {}),
+            ...providerCursorPayload(state),
           }),
         )
       }
@@ -1319,6 +1643,18 @@ function subagentLaneFields(
   if (!SUBAGENT_TOOL_NAMES.has(tool)) return {}
   const subagentType = typeof toolInput.subagent_type === 'string' ? toolInput.subagent_type.trim() : ''
   return { subagentLane: true, ...(subagentType ? { subagentType } : {}) }
+}
+
+// Where the provider session stands as a turn ends, carried on that end so a
+// later rewind can go back to it (ConversationProviderCursor). Absent until
+// this process has seen an entry of the session: a point it cannot name is no
+// point to go back to.
+function providerCursorPayload(state: { providerSessionId: string | null; lastChainUuid?: string | null }): {
+  providerCursor?: { sessionId: string; at: string }
+} {
+  return state.providerSessionId && state.lastChainUuid
+    ? { providerCursor: { sessionId: state.providerSessionId, at: state.lastChainUuid } }
+    : {}
 }
 
 function eventFor(
@@ -1409,4 +1745,8 @@ function truncate(value: string, max: number): string {
 
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
