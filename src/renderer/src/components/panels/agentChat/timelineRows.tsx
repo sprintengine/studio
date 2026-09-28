@@ -40,7 +40,7 @@ import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFil
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
-import { AgentCardContent, LaneGlyph, laneOutcomeWords } from './subagentStatus'
+import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask } from './subagentStatus'
 import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -600,7 +600,7 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const visibleChildren = hiddenSteps > 0 ? children.slice(hiddenSteps) : children
   // What the model sent this agent to do; the lane's own steps are the rail
   // beneath it, so the header does not repeat their count.
-  const object = toolObject(tool)
+  const object = laneTask(tool)
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0

@@ -19,6 +19,22 @@ export function laneAgentState(tool: TranscriptToolEntry): AgentGlyphState {
   return 'done'
 }
 
+/**
+ * What the agent was sent to do: the spawning call's summary, else the short
+ * description the call gave it (the model writes one for every agent), else
+ * the one the agent reported when it started.
+ */
+export function laneTask(tool: TranscriptToolEntry): string {
+  const summary = toolObject(tool)
+  if (summary) return summary
+  const input = tool.input
+  const described =
+    input && typeof input === 'object' && !Array.isArray(input) && typeof input.description === 'string'
+      ? input.description.trim()
+      : ''
+  return described || tool.agent?.description || ''
+}
+
 /** How long the agent ran: from its spawn to its end, or what it reported. */
 export function laneDurationMs(tool: TranscriptToolEntry): number | undefined {
   if (tool.startedAt !== undefined && tool.completedAt !== undefined)
@@ -109,7 +125,7 @@ function formatTokens(count: number): string {
  */
 export function AgentCardContent({ tool, running }: { tool: TranscriptToolEntry; running: boolean }): JSX.Element {
   const description = useSubagentTypeDescription(tool.subagentType)
-  const task = toolObject(tool)
+  const task = laneTask(tool)
   const outcome = laneOutcomeWords(tool)
   const now = tool.agent?.progressSummary ?? (tool.agent?.lastToolName ? `Using ${tool.agent.lastToolName}` : undefined)
   const steps = tool.agent?.usage?.toolUses ?? flattenToolEntries(tool.children ?? []).length
