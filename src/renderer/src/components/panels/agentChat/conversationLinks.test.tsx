@@ -8,7 +8,6 @@ import {
   splitProseLinkToken,
 } from './conversationLinks'
 import { conversationImageSource } from './ConversationImage'
-import { runnableShellCommand } from './ConversationCodeBlock'
 import {
   ConversationTransportProvider,
   useConversationTransport,
@@ -232,10 +231,10 @@ test('an image source is classified before anything is loaded', () => {
 })
 
 test('a finished shell block offers to paste itself into a terminal; other blocks do not', () => {
-  expect(render('```bash\nnpm test\n```')).toContain('aria-label="Paste into a new terminal"')
-  expect(render('```zsh\nls -la\n```')).toContain('aria-label="Paste into a new terminal"')
-  expect(render('```ts\nconst a = 1\n```')).not.toContain('aria-label="Paste into a new terminal"')
-  expect(render('```\nnpm test\n```')).not.toContain('aria-label="Paste into a new terminal"')
+  expect(render('```bash\nnpm test\n```')).toContain('aria-label="Paste into terminal"')
+  expect(render('```zsh\nls -la\n```')).toContain('aria-label="Paste into terminal"')
+  expect(render('```ts\nconst a = 1\n```')).not.toContain('aria-label="Paste into terminal"')
+  expect(render('```\nnpm test\n```')).not.toContain('aria-label="Paste into terminal"')
   const remote = renderToStaticMarkup(
     <RemoteFiles>
       <ConversationLinkProvider workspaceId="workspace" workspaceRoot="/workspace/app" cwd="/workspace/app">
@@ -243,16 +242,7 @@ test('a finished shell block offers to paste itself into a terminal; other block
       </ConversationLinkProvider>
     </RemoteFiles>,
   )
-  expect(remote).not.toContain('aria-label="Paste into a new terminal"')
-  expect(runnableShellCommand('  npm test\n', 'bash')).toBe('npm test')
-  expect(runnableShellCommand('npm test', 'SH')).toBe('npm test')
-  expect(runnableShellCommand('npm test', 'bash', true)).toBeNull()
-  expect(runnableShellCommand('npm run \\', 'bash')).toBeNull()
-  expect(runnableShellCommand('echo \u202Egnp.exe', 'bash')).toBeNull()
-  expect(runnableShellCommand('printf "\x1b[31m"', 'bash')).toBeNull()
-  expect(runnableShellCommand('printf "\\e[31m"\n\techo done', 'bash')).toBe('printf "\\e[31m"\n\techo done')
-  expect(runnableShellCommand('   ', 'bash')).toBeNull()
-  expect(runnableShellCommand('npm test', 'console')).toBeNull()
+  expect(remote).not.toContain('aria-label="Paste into terminal"')
 })
 
 test('a shell block goes in whole only where the shell takes a bracketed paste, and never runs', async () => {

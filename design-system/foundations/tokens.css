@@ -56,6 +56,7 @@
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
+  --sem-color-bg-well: rgba(32, 36, 40, 0.05);
   --sem-color-bg-hover: var(--ref-color-mist-150);
   --sem-color-bg-active: var(--ref-color-mist-200);
   --sem-color-bg-selected: var(--ref-color-mist-250);
@@ -117,6 +118,7 @@
   --sem-font-line-tight: 1.25;
   --sem-font-line-default: 1.4;
   --sem-font-line-relaxed: 1.5;
+  --sem-font-line-code: 1.6;
   --sem-font-tracking-tight: -0.01em;
   --sem-font-tracking-normal: 0;
   --sem-font-tracking-wide: 0.02em;
@@ -174,6 +176,7 @@
   --sem-color-bg-app: var(--ref-color-ink-950);
   --sem-color-bg-surface: var(--ref-color-ink-900);
   --sem-color-bg-surface-raised: var(--ref-color-ink-875);
+  --sem-color-bg-well: rgba(252, 252, 252, 0.06);
   --sem-color-bg-hover: var(--ref-color-ink-850);
   --sem-color-bg-active: var(--ref-color-ink-825);
   --sem-color-bg-selected: var(--ref-color-ink-800);

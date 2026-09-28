@@ -1,7 +1,7 @@
 // The model's reasoning, one quiet block per stretch of thinking, kept at the
 // point in the turn where it happened.
 
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import { RowButton } from '../../ui'
 import { ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import { useConversationDisclosure } from './conversationViewState'
@@ -58,11 +58,20 @@ export function ReasoningBlock({
     `thought:${disclosureId}`,
     false,
   )
+  const bodyId = useId()
   const label = live ? 'Thinking' : duration ? `Thought for ${duration}` : 'Thought'
   const preview = open ? '' : reasoningPreview(text)
   return (
-    <div ref={ref} className="mb-1" data-reasoning-block="">
-      <RowButton density="row" className="group/tool-row text-meta" aria-expanded={open} onClick={() => setOpen(!open)}>
+    // How the model reached its answer, not the answer: a copied transcript
+    // leaves it out, as the reply's own copy does.
+    <div ref={ref} className="mb-1" data-reasoning-block="" data-copy-exclude="">
+      <RowButton
+        density="row"
+        className="group/tool-row text-meta"
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        onClick={() => setOpen(!open)}
+      >
         <span className="flex shrink-0 text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]">
           <ThoughtGlyph />
         </span>
@@ -81,8 +90,14 @@ export function ReasoningBlock({
         />
       </RowButton>
       {open ? (
-        <div className="mb-1 ml-3 mt-0.5 max-h-96 overflow-y-auto border-l border-[color:var(--border-subtle)] pl-3 text-[color:var(--text-muted)]">
-          <ConversationMarkdown text={text} streaming={live} />
+        // An aside, not the reply: indented off a hairline rule and set in the
+        // muted tone, so bold, code and lists still read as themselves without
+        // the trace competing with the answer it led to.
+        <div
+          id={bodyId}
+          className="mb-1 ml-3 mt-0.5 max-h-96 overflow-y-auto border-l border-[color:var(--border-subtle)] pl-3 text-[color:var(--text-muted)]"
+        >
+          <ConversationMarkdown text={text} streaming={live} tone="muted" />
         </div>
       ) : null}
     </div>

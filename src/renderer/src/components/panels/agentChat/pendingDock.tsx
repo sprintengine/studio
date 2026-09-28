@@ -4,6 +4,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import {
   StatusDot,
+  CopyGlyphButton,
   GhostButton,
   OutlineButton,
   MenuOption,
@@ -16,6 +17,8 @@ import { type TranscriptEntry } from './conversationProjection'
 import { toolObject } from './conversationTimeline'
 import { ConversationFileLink, ConversationMarkdown } from './conversationLinks'
 import { InlineDiff } from '../../ui/InlineDiff'
+import { InlineMarkdown, plainInlineText } from './toolRows/InlineMarkdown'
+import { withoutNoNewlineMarkers } from './toolRows/ToolRow'
 import { deriveEditHunks } from '../../../../../shared/conversation/editHunks'
 import { asRecord } from '../../../../../shared/records'
 import { useConversationTransport } from './conversationTransport'
@@ -70,6 +73,60 @@ export function approvalOutsideWorkspace(entry: ApprovalEntry, workspaceRoot?: s
 export function parseOptionLabel(label: string): { text: string; recommended: boolean } {
   const match = label.match(/^(.*?)\s*\(recommended\)\s*$/i)
   return match?.[1] ? { text: match[1], recommended: true } : { text: label, recommended: false }
+}
+
+// Where a card may put the keyboard when it arrives. A request lands while the
+// person may be mid-sentence in the composer, and a card that took focus then
+// would catch the Enter meant to send the message — approving a command nobody
+// read. So focus moves only when nothing is being typed: nothing is focused, or
+// focus is already inside the dock (the previous card just resolved). Anything
+// being typed into keeps it, and the card announces itself instead; Shift+Tab
+// from the composer reaches its buttons, and its shortcuts work once it has
+// focus.
+export function isTypingOutside(dock: Element | null): boolean {
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  if (!active || active === active.ownerDocument.body || dock?.contains(active)) return false
+  // By tag, not `instanceof`: the element may come from another window's realm.
+  if (active.tagName === 'TEXTAREA') return true
+  if (active.tagName === 'INPUT') return !NON_TEXT_INPUTS.has((active as HTMLInputElement).type)
+  return active.closest('[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]') !== null
+}
+const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'radio', 'range', 'color', 'file', 'image', 'reset', 'submit'])
+
+/**
+ * Focus a newly shown card's target unless the person is typing elsewhere; in
+ * that case return the sentence to announce politely instead. Re-runs when
+ * `key` changes (a question card's next question).
+ */
+function useArrivalFocus(
+  active: boolean,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  target: () => HTMLElement | null,
+  message: string,
+  key?: unknown,
+): string {
+  const [announcement, setAnnouncement] = useState('')
+  useEffect(() => {
+    if (!active) return
+    if (isTypingOutside(containerRef.current)) setAnnouncement(message)
+    else {
+      setAnnouncement('')
+      target()?.focus()
+    }
+    // Only an arrival (or the next question) moves focus; a re-render must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, key])
+  return announcement
+}
+
+// The polite line a card speaks when it did not take focus. Mounted empty with
+// the card and filled after, so a screen reader hears the change.
+function ArrivalAnnouncement({ text }: { text: string }) {
+  return (
+    <span role="status" aria-live="polite" className="sr-only">
+      {text}
+    </span>
+  )
 }
 
 // The shared card shell docked above the composer: eyebrow row with an earned
@@ -256,9 +313,12 @@ export function ConversationPermissionCard({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const denyRef = useRef<HTMLButtonElement | null>(null)
   const { permanentApprovals } = useConversationTransport().capabilities
-  useEffect(() => {
-    if (active) (entry.defaultToNo ? denyRef.current : containerRef.current)?.focus()
-  }, [active, entry.defaultToNo])
+  const announcement = useArrivalFocus(
+    active,
+    containerRef,
+    () => (entry.defaultToNo ? denyRef.current : containerRef.current),
+    `Permission request: ${permissionActionLabel(entry.action)}. Shift+Tab from the message box to review it.`,
+  )
   const rememberable = workspaceRoot
     ? approvalRuleCandidate(
         {
@@ -370,10 +430,22 @@ export function ConversationPermissionCard({
           This request references a path outside this workspace.
         </InlineNotice>
       ) : null}
+      <ArrivalAnnouncement text={announcement} />
       {command ? (
-        <div className="mx-4 mt-2 overflow-x-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-meta text-[color:var(--terminal-fg)]">
-          <span className="select-none text-[color:var(--accent-primary)]">$ </span>
-          {command}
+        // The command exactly as it will run: its line breaks and indentation
+        // are part of it, so they are kept, and long lines wrap rather than
+        // hide past the card's edge.
+        <div className="group/command mx-4 mt-2 flex items-start gap-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] py-1.5 pl-3 pr-1 font-mono text-meta leading-relaxed text-[color:var(--terminal-fg)]">
+          <span aria-hidden="true" className="select-none py-0.5 text-[color:var(--accent-primary)]">
+            $
+          </span>
+          <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5 font-mono">{command}</pre>
+          <CopyGlyphButton
+            text={command}
+            label="Copy command"
+            size="xs"
+            className="opacity-0 group-hover/command:opacity-100 focus-within:opacity-100"
+          />
         </div>
       ) : (
         <p className="px-4 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
@@ -383,7 +455,7 @@ export function ConversationPermissionCard({
       {edits.map((edit, index) => (
         <div key={`${index}:${edit.path}`} className="mx-4 mt-2">
           <ConversationFileLink token={edit.path} source="inlineCode" />
-          <InlineDiff edit={edit} />
+          <InlineDiff edit={withoutNoNewlineMarkers(edit)} />
         </div>
       ))}
       {workspaceName ? (
@@ -408,9 +480,17 @@ export function ConversationPlanCard({
   active?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (active) containerRef.current?.focus()
-  }, [active])
+  const [expanded, setExpanded] = useState(false)
+  const announcement = useArrivalFocus(
+    active,
+    containerRef,
+    () => containerRef.current,
+    'A plan is ready for review. Shift+Tab from the message box to review it.',
+  )
+  const plan = entry.plan?.trim() ?? ''
+  // A plan past a screenful gets a taller box and a way to read it whole; the
+  // dock itself still stops at 60% of the window and scrolls.
+  const long = plan.length > 900 || plan.split('\n').length > 20
   const handleKeyDown = (event: React.KeyboardEvent): void => {
     if (busy || event.defaultPrevented || event.nativeEvent.isComposing) return
     if (event.key === 'Enter' && event.target !== event.currentTarget) return
@@ -450,10 +530,25 @@ export function ConversationPlanCard({
         </>
       }
     >
-      {entry.plan?.trim() ? (
-        <div className="mx-4 mt-2 max-h-64 overflow-y-auto rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-meta leading-5">
-          <ConversationMarkdown text={entry.plan} />
-        </div>
+      <ArrivalAnnouncement text={announcement} />
+      {plan ? (
+        <>
+          <div className="group/plan relative mx-4 mt-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)]">
+            <div className="absolute right-1 top-1 opacity-0 group-hover/plan:opacity-100 focus-within:opacity-100">
+              <CopyGlyphButton text={plan} label="Copy plan" size="xs" />
+            </div>
+            <div className={`overflow-y-auto px-3 py-2.5 ${expanded || !long ? '' : 'max-h-80'}`}>
+              <ConversationMarkdown size="compact" text={plan} />
+            </div>
+          </div>
+          {long ? (
+            <div className="mx-4 mt-1">
+              <GhostButton size="inline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+                {expanded ? 'Show less' : 'Show full plan'}
+              </GhostButton>
+            </div>
+          ) : null}
+        </>
       ) : (
         <p className="px-4 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
       )}
@@ -482,9 +577,13 @@ export function ConversationQuestionCard({
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [otherText, setOtherText] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (active) containerRef.current?.focus()
-  }, [active, stepIndex])
+  const announcement = useArrivalFocus(
+    active,
+    containerRef,
+    () => containerRef.current,
+    'The agent asked a question. Shift+Tab from the message box to answer it.',
+    stepIndex,
+  )
 
   const question = questions[Math.min(stepIndex, questions.length - 1)]
   if (!question) return null
@@ -593,12 +692,13 @@ export function ConversationQuestionCard({
         </>
       }
     >
-      <p className="px-4 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-        {question.question}
-      </p>
+      <ArrivalAnnouncement text={announcement} />
+      <div className="px-4 pt-1.5 font-medium text-[color:var(--text-strong)]">
+        <ConversationMarkdown size="compact" text={question.question} />
+      </div>
       <div
         role={question.multiSelect ? 'group' : 'radiogroup'}
-        aria-label={question.header ?? question.question}
+        aria-label={question.header ?? plainInlineText(question.question)}
         className="flex flex-col px-2 pt-1"
       >
         {question.options.map((option, index) => {
@@ -632,7 +732,7 @@ export function ConversationQuestionCard({
               }
             >
               <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
-                {parsed.text}
+                <InlineMarkdown text={parsed.text} />
                 {parsed.recommended ? (
                   <span className="ml-2 text-micro font-medium tracking-normal text-[color:var(--text-muted)]">
                     Recommended
@@ -641,7 +741,7 @@ export function ConversationQuestionCard({
               </span>
               {option.description ? (
                 <span className="block text-meta leading-[1.45] text-[color:var(--text-muted)]">
-                  {option.description}
+                  <InlineMarkdown text={option.description} />
                 </span>
               ) : null}
             </MenuOption>
@@ -670,7 +770,7 @@ export function ConversationQuestionCard({
             }}
             placeholder="Something else…"
             disabled={busy}
-            aria-label={`Other answer for: ${question.question}`}
+            aria-label={`Other answer for: ${plainInlineText(question.question)}`}
           />
         </div>
       ) : null}

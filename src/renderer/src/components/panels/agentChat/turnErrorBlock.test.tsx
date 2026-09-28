@@ -47,10 +47,22 @@ test('on Windows the copy says it is the Windows sign-in, not the one inside WSL
   expect(html).toContain('WSL')
 })
 
-test('where Studio cannot sign in, the copy names the command to run instead', () => {
-  const html = render(failedTurn(EXPIRED), chrome())
-  expect(html).not.toContain('Sign in</button>')
-  expect(html).toContain('claude auth login')
+test('where Studio cannot sign in, the copy names the chat CLI’s own command, set as code', () => {
+  const claude = render(failedTurn(EXPIRED), chrome({ cli: 'claude-code' }))
+  expect(claude).not.toContain('Sign in</button>')
+  expect(claude).toMatch(/<code[^>]*>claude auth login<\/code>/)
+  expect(claude).not.toContain('`')
+
+  const codex = render(failedTurn(EXPIRED), chrome({ assistantName: 'Codex', cli: 'codex' }))
+  expect(codex).toMatch(/<code[^>]*>codex login<\/code>/)
+  expect(codex).not.toContain('claude')
+})
+
+test('a chat whose CLI has no known sign-in command is told to sign in, not handed another CLI’s', () => {
+  const html = render(failedTurn(EXPIRED), chrome({ assistantName: 'Acme Agent' }))
+  expect(html).toContain('Sign in to Acme Agent in a terminal, then retry.')
+  expect(html).not.toContain('<code')
+  expect(html).not.toContain('claude')
 })
 
 test('a failure that is not about signing in offers no sign-in', () => {
@@ -64,5 +76,6 @@ test('the auth matcher reads real login failures and not words that merely conta
   expect(isAuthShapedFailure('HTTP 401 Unauthorized')).toBe(true)
   expect(isAuthShapedFailure('Invalid API key · Please run /login')).toBe(true)
   expect(isAuthShapedFailure('Could not read src/authors.ts')).toBe(false)
+  expect(isAuthShapedFailure('author')).toBe(false)
   expect(isAuthShapedFailure('Request 14010 timed out')).toBe(false)
 })

@@ -6,8 +6,8 @@ import {
   type ToolPresentation,
 } from '../../../../../../shared/conversation/presentation'
 import { labelCommand } from '../../../../../../shared/conversation/commandLabel'
-import { parseAnsi } from '../../../../../../shared/conversation/ansi'
-import { Checkbox, GhostButton, InlineNotice, RowButton, Spinner } from '../../../ui'
+import { parseAnsi, type AnsiLine } from '../../../../../../shared/conversation/ansi'
+import { Checkbox, CopyGlyphButton, GhostButton, InlineNotice, RowButton, Spinner } from '../../../ui'
 import { CodeBlock } from '../../../ui/CodeBlock'
 import { ConversationFileLink, conversationText, useConversationLinkContext } from '../conversationLinks'
 import { useConversationDisclosure } from '../conversationViewState'
@@ -18,11 +18,13 @@ import { InlineDiff } from '../../../ui/InlineDiff'
 import { openCheckpointDiffWindow } from '../../../auxWindows/openCheckpointDiffWindow'
 import { useLiveRowMotion } from '../liveVisibility'
 import { formatMessageTime, LiveElapsed } from '../liveElapsed'
+import { formatStepDuration } from '../stepDuration'
 import { useConversationTransport } from '../conversationTransport'
 import { isPreviewableImagePath, useLocalImage } from '../useLocalImage'
 import { treeRelativePath } from '../../../../utils/fileTreeEntries'
-import { copyToClipboardWithToast } from '../../../../utils/copyToClipboardWithToast'
 import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
+import { InlineMarkdown } from './InlineMarkdown'
+import type { ConversationEdit } from '../../../../../../shared/conversation/editHunks'
 
 export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
   return {
@@ -59,14 +61,9 @@ export function ToolPanel({
   return (
     <div className="group/tool-panel relative rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]">
       {copyText ? (
-        <GhostButton
-          size="xs"
-          aria-label="Copy output"
-          className="absolute right-1 top-1 opacity-0 group-hover/tool-panel:opacity-100 focus-visible:opacity-100"
-          onClick={() => void copyToClipboardWithToast(copyText)}
-        >
-          Copy
-        </GhostButton>
+        <div className="absolute right-1 top-1 opacity-0 group-hover/tool-panel:opacity-100 focus-within:opacity-100">
+          <CopyGlyphButton text={copyText} label="Copy output" size="xs" />
+        </div>
       ) : null}
       <div
         className={`max-h-72 overflow-auto px-3 py-2 text-meta leading-relaxed text-[color:var(--text-default)] ${
@@ -75,6 +72,68 @@ export function ToolPanel({
       >
         {children}
       </div>
+    </div>
+  )
+}
+
+// A command and what it printed, on the terminal's own ground: it is terminal
+// output, colours and all, and it reads as that rather than as more prose. The
+// command heads the panel and the output scrolls under it, so a long log never
+// scrolls the command out of sight; each has its own copy, because the one
+// wanted again is usually the command and the one pasted into a bug is the
+// output. The exit status sits on the header line in words the eye can skip —
+// quiet at 0, the error tone otherwise.
+function CommandPanel({
+  command,
+  output,
+  lines,
+  exitCode,
+}: {
+  command: string
+  output: string
+  lines: AnsiLine[]
+  exitCode?: number
+}) {
+  return (
+    <div className="group/tool-panel rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] font-mono text-meta leading-relaxed text-[color:var(--terminal-fg)]">
+      <div className="flex items-start gap-2 py-1 pl-3 pr-1">
+        <span aria-hidden="true" className="select-none py-0.5 text-[color:var(--text-subtle)]">
+          $
+        </span>
+        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-0.5">{command}</span>
+        {exitCode !== undefined ? (
+          // Held in a line of the command's own height, so the small status
+          // sits on the command's baseline rather than floating above it.
+          <span className="shrink-0 whitespace-nowrap py-0.5">
+            <span
+              data-exit-tone={exitCode ? 'error' : 'ok'}
+              className={`font-sans text-micro tabular-nums ${
+                exitCode ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'
+              }`}
+            >
+              exit {exitCode}
+            </span>
+          </span>
+        ) : null}
+        {command ? (
+          <CopyGlyphButton
+            text={command}
+            label="Copy command"
+            size="xs"
+            className="opacity-0 group-hover/tool-panel:opacity-100 focus-within:opacity-100"
+          />
+        ) : null}
+      </div>
+      {output ? (
+        <div className="group/tool-output relative border-t border-[color:var(--border-subtle)]">
+          <div className="absolute right-1 top-1 opacity-0 group-hover/tool-output:opacity-100 focus-within:opacity-100">
+            <CopyGlyphButton text={output} label="Copy output" size="xs" />
+          </div>
+          <div className="max-h-72 overflow-auto px-3 py-2">
+            <AnsiOutput lines={lines} />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -106,21 +165,7 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
   if (kind === 'command') {
     const command = String(input.command ?? input.cmd ?? tool.summary ?? '')
     const exitCode = detail?.exitCode ?? tool.exitCode
-    return (
-      <ToolPanel copyText={output ? `$ ${command}\n${output}` : `$ ${command}`}>
-        <div className="text-[color:var(--text-strong)]">$ {command}</div>
-        {output ? (
-          <div className="mt-1.5 text-[color:var(--text-muted)]">
-            <AnsiOutput lines={ansi ?? []} />
-          </div>
-        ) : null}
-        {exitCode !== undefined ? (
-          <div className={`mt-1.5 ${exitCode ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}>
-            exit {exitCode}
-          </div>
-        ) : null}
-      </ToolPanel>
-    )
+    return <CommandPanel command={command} output={output} lines={ansi ?? []} exitCode={exitCode} />
   }
   if (kind === 'file_read') {
     // A read that failed says why; there is no file behind it to show.
@@ -129,22 +174,38 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
     return previewsAsImage(path) ? <ImagePreview path={path} /> : <ReadOutput output={output} path={path} />
   }
   if (kind === 'file_edit' || kind === 'file_write')
-    return <EditBody input={detail?.input ?? tool.input} toolUseId={tool.id} />
+    return <EditBody input={detail?.input ?? tool.input} toolUseId={tool.id} subject={path} />
   if (kind === 'todo') {
     const todos = Array.isArray(input.todos) ? input.todos : []
     return (
       <ToolPanel mono={false}>
-        <ul className="flex flex-col gap-1">
+        {/* The plan as a list the reply's own lists would draw: a box per
+            item on the text's first line, done items struck through and
+            dimmed so what is left stands out. The boxes are read-only; the
+            agent owns the plan. */}
+        <ul className="flex flex-col gap-1.5">
           {todos.map((value, index) => {
             const todo = object(value)
+            const text = String(todo.content ?? todo.description ?? '')
+            const done = todo.status === 'completed'
+            const active = todo.status === 'in_progress'
             return (
-              <li key={index}>
-                <Checkbox
-                  readOnly
-                  checked={todo.status === 'completed'}
-                  ariaLabel={String(todo.content ?? todo.description ?? 'Task')}
-                />{' '}
-                {String(todo.content ?? todo.description ?? '')}
+              <li key={index} data-todo-status={String(todo.status ?? 'pending')} className="flex items-start gap-2">
+                <span className="flex h-5 shrink-0 items-center">
+                  <Checkbox readOnly checked={done} ariaLabel={text || 'Task'} />
+                </span>
+                <span
+                  className={`min-w-0 leading-5 ${
+                    done
+                      ? 'text-[color:var(--text-subtle)] line-through'
+                      : active
+                        ? 'font-medium text-[color:var(--text-strong)]'
+                        : 'text-[color:var(--text-default)]'
+                  }`}
+                >
+                  <InlineMarkdown text={text} />
+                  {active ? <span className="sr-only"> (in progress)</span> : null}
+                </span>
               </li>
             )
           })}
@@ -161,7 +222,7 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
         {query && !presentation.title.includes(query) ? (
           <div className="mb-1.5 text-[color:var(--text-strong)]">{conversationText(query)}</div>
         ) : null}
-        <div className="text-[color:var(--text-muted)]">{output ? conversationText(output) : 'No results'}</div>
+        <div className="text-[color:var(--text-muted)]">{output ? <LinkedOutput output={output} /> : 'No results'}</div>
       </ToolPanel>
     )
   }
@@ -195,16 +256,39 @@ function ImagePreview({ path }: { path: string }) {
   )
 }
 
-function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefined; toolUseId: string }) {
+// Diff noise: git's "\\ No newline at end of file" marker says something about
+// the file's last byte, not about the change, and in a three-line preview it
+// reads as one more line of code. Dropped here, before the diff sees the hunk;
+// the diff window still shows the whole patch.
+export function withoutNoNewlineMarkers(edit: ConversationEdit): ConversationEdit {
+  if (!edit.hunks.some((hunk) => hunk.lines.some((line) => line.startsWith('\\')))) return edit
+  return {
+    ...edit,
+    hunks: edit.hunks.map((hunk) => ({ ...hunk, lines: hunk.lines.filter((line) => !line.startsWith('\\')) })),
+  }
+}
+
+function EditBody({
+  input,
+  toolUseId,
+  subject,
+}: {
+  input: ConversationJsonValue | undefined
+  toolUseId: string
+  // The file the row's header already names; its diff needs no second chip.
+  subject: string
+}) {
   const context = useConversationLinkContext()
   // The diff window reads this machine's checkpoints; a remote edit has none here.
   const openable = useConversationTransport().capabilities.localFiles
-  const edits = useMemo(() => deriveEditHunks(input), [input])
+  const edits = useMemo(() => deriveEditHunks(input).map(withoutNoNewlineMarkers), [input])
   return (
     <>
       {edits.map((edit, index) => (
         <div key={index}>
-          <ConversationFileLink token={edit.path} source="inlineCode" variant="chip" />
+          {edits.length > 1 || edit.path !== subject ? (
+            <ConversationFileLink token={edit.path} source="inlineCode" variant="chip" />
+          ) : null}
           <InlineDiff
             edit={edit}
             onOpen={
@@ -229,24 +313,55 @@ function EditBody({ input, toolUseId }: { input: ConversationJsonValue | undefin
   )
 }
 
+// A read shows the file's text under the row that already names the file, so
+// the block's header carries the language and the copy, not the path again. A
+// long read folds the way any long block does, with the block's own control:
+// the whole text stays in the block, so its copy glyph copies all of it. How
+// much of the file there is to show is the row's business — the transcript
+// keeps a preview, and "Show full output" fetches the rest.
 function ReadOutput({ output, path }: { output: string; path: string }) {
-  const context = useConversationLinkContext()
-  const [all, setAll] = useState(false)
-  const lines = output.split('\n')
-  return (
-    <>
-      <CodeBlock
-        code={all ? output : lines.slice(0, 40).join('\n')}
-        language={path.split('.').at(-1)}
-        filename={path ? displayToolPath(path, context) : undefined}
-      />
-      {lines.length > 40 ? (
-        <GhostButton size="inline" onClick={() => setAll(!all)}>
-          {all ? 'Show less' : 'Show all'}
-        </GhostButton>
-      ) : null}
-    </>
-  )
+  return <CodeBlock code={output} language={path.split('.').at(-1)} />
+}
+
+// How much of a search's or a fetch's output becomes links. Each link is a
+// component that asks the disk whether its path is a file, so linking every
+// word of a ten-thousand-line grep costs ten thousand lookups for rows nobody
+// scrolls to. Only the first lines are linked, and only the words in them that
+// look like a path or a web address; the rest is text, and all of it is still
+// selectable and copyable.
+const LINKED_OUTPUT_LINES = 200
+const LINKABLE =
+  /^[([{"'<]*(?:[a-z][a-z0-9+.-]*:\/\/|~?\.{0,2}\/|[A-Za-z]:[\\/]|[\w@.-]+[\\/]|[\w@-][\w@.-]*\.[A-Za-z][\w]{0,9}(?::\d+){0,2}[:.,;)\]}'">]*$)/u
+
+// Where the linked lines end: just past the last one's newline.
+function linkedHeadLength(output: string): number {
+  let at = -1
+  for (let line = 0; line < LINKED_OUTPUT_LINES; line++) {
+    at = output.indexOf('\n', at + 1)
+    if (at === -1) return output.length
+  }
+  return at + 1
+}
+
+export function LinkedOutput({ output }: { output: string }) {
+  return useMemo(() => {
+    const headLength = linkedHeadLength(output)
+    const nodes: React.ReactNode[] = []
+    let text = ''
+    for (const token of output.slice(0, headLength).split(/(\s+)/u)) {
+      if (!token) continue
+      if (/\s/u.test(token[0]) || !LINKABLE.test(token)) {
+        text += token
+        continue
+      }
+      if (text) nodes.push(text)
+      text = ''
+      nodes.push(<React.Fragment key={nodes.length}>{conversationText(token)}</React.Fragment>)
+    }
+    text += output.slice(headLength)
+    if (text) nodes.push(text)
+    return <>{nodes}</>
+  }, [output])
 }
 
 // Fetched full output, kept by call id: the virtualized timeline unmounts a row
@@ -328,6 +443,18 @@ export function forwardRowGroundClick(event: React.MouseEvent<HTMLElement>, butt
   button?.click()
 }
 
+// The folder part of a file step's path, when the label already carries the
+// file's name; the whole path when it does not (a label shortened past it).
+// Empty for a file at the top of the workspace: its name is the whole of its
+// relative path, and the label has already said it.
+export function subjectFolder(path: string, title: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  const name = path.slice(cut + 1)
+  if (!name || !title.endsWith(name)) return path
+  if (cut === -1) return ''
+  return cut === 0 ? path.slice(0, 1) : path.slice(0, cut)
+}
+
 export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const context = useConversationLinkContext()
   const transport = useConversationTransport()
@@ -344,8 +471,19 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
+  const durationMs =
+    !running && tool.startedAt !== undefined && tool.completedAt !== undefined
+      ? Math.max(0, tool.completedAt - tool.startedAt)
+      : undefined
   // The subtitle is "exit N" exactly when the command exited non-zero.
   const exited = Boolean(tool.exitCode)
+  const subject = presentation.subtitle && !exited ? presentation.subtitle : undefined
+  // A file step's label already ends in the file's name, so the path beside it
+  // gives only the folder the file is in: the name once, where it is once.
+  const fileStep =
+    presentation.icon === 'file_read' || presentation.icon === 'file_edit' || presentation.icon === 'file_write'
+  const subjectLabel = subject ? displayToolPath(subject, context) : undefined
+  const shownSubject = fileStep && subjectLabel ? subjectFolder(subjectLabel, presentation.title) : subjectLabel
   const rowRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   useLiveRowMotion(rowRef, running)
@@ -404,24 +542,15 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
             {tone === 'error' ? <span className="sr-only">failed</span> : null}
           </RowButton>
         </div>
-        {presentation.subtitle ? (
-          <span
-            className={`min-w-0 shrink-[2] truncate text-meta ${
-              exited
-                ? 'text-[color:var(--tone-error)]'
-                : 'text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]'
-            }`}
-          >
-            {exited ? (
-              presentation.subtitle
-            ) : (
-              <ConversationFileLink
-                token={presentation.subtitle}
-                source="inlineCode"
-                ink="quiet"
-                label={displayToolPath(presentation.subtitle, context)}
-              />
-            )}
+        {exited ? (
+          <span className="min-w-0 shrink-[2] truncate text-meta text-[color:var(--tone-error)]">
+            {presentation.subtitle}
+          </span>
+        ) : subject && shownSubject ? (
+          // The link is a button, which lays out as its own box: the ellipsis a
+          // narrow pane needs has to be drawn by the button, not by this span.
+          <span className="min-w-0 shrink-[2] truncate text-meta text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)] [&>button]:max-w-full [&>button]:truncate [&>button]:align-bottom">
+            <ConversationFileLink token={subject} source="inlineCode" ink="quiet" label={shownSubject} />
           </span>
         ) : null}
         <span className="min-w-2 flex-1" />
@@ -430,16 +559,24 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
             <LiveElapsed startedAt={tool.startedAt} />
           </span>
         ) : settledAt !== undefined ? (
-          <span className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-subtle)] opacity-0 group-hover/tool-row:opacity-100">
-            {formatMessageTime(settledAt)}
+          <span className="flex shrink-0 items-baseline gap-2 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-subtle)]">
+            {/* When it happened is there for the asking; how long it took is
+                what a column of steps is scanned for, so it stays. */}
+            <span className="opacity-0 group-hover/tool-row:opacity-100">{formatMessageTime(settledAt)}</span>
+            {durationMs !== undefined ? <span data-step-duration="">{formatStepDuration(durationMs)}</span> : null}
           </span>
         ) : null}
         <ChevronRightGlyph
-          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform group-hover/tool-row:text-[color:var(--text-subtle)] ${open ? 'rotate-90' : ''}`}
+          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)] motion-safe:transition-transform ${open ? 'rotate-90' : ''}`}
         />
       </div>
       {open ? (
-        <div className="mb-1.5 ml-6 mt-1 flex flex-col items-start gap-1.5 text-meta [&>*]:w-full">
+        // What the step produced. A read's code block sits here as every other
+        // step's panel does (index.css drops the margins it keeps in prose).
+        <div
+          data-tool-step-body=""
+          className="mb-1.5 ml-6 mt-1 flex flex-col items-start gap-1.5 text-meta [&>*]:w-full"
+        >
           <ToolBody tool={tool} detail={detail} />
           {detail?.clipped ? (
             <InlineNotice tone="warn">

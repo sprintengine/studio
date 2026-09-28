@@ -135,8 +135,12 @@ test('read previews, edits, todos, searches, and structured tools have concrete 
       })}
     />,
   )
-  expect(read).toContain('Show all')
-  expect(read).not.toContain('line 44')
+  // A long read folds with the block's own control — one disclosure, not a
+  // second one under it — and keeps every line, so its copy copies them all.
+  expect(read.match(/Show all/g)).toHaveLength(1)
+  expect(read).toContain('Show all 45 lines')
+  expect(read).toContain('data-folded')
+  expect(read).toContain('line 44')
   const edit = renderToStaticMarkup(
     <ToolBody
       tool={tool({
@@ -303,14 +307,19 @@ test('truncated output is fetched only on request and failures can be retried', 
   }
 })
 
-test('a running tool shows how long it has been running, a finished one does not', () => {
+test('a running tool shows how long it has been running, a finished one how long it took', () => {
   const startedAt = Date.now() - 5_000
   const running = renderToStaticMarkup(
     <ToolRow tool={tool({ status: 'running', startedAt, input: { command: 'npm test' } })} />,
   )
   expect(running).toMatch(/>[5-6]s</u)
-  const done = renderToStaticMarkup(<ToolRow tool={tool({ startedAt, completedAt: startedAt + 5_000 })} />)
-  expect(done).not.toMatch(/>[5-6]s</u)
+  const done = new JSDOM(renderToStaticMarkup(<ToolRow tool={tool({ startedAt, completedAt: startedAt + 12_400 })} />))
+    .window.document
+  const duration = done.querySelector('[data-step-duration]')
+  expect(duration?.textContent).toBe('12s')
+  expect(duration?.parentElement?.className).toContain('tabular-nums')
+  const quick = renderToStaticMarkup(<ToolRow tool={tool({ startedAt, completedAt: startedAt + 240 })} />)
+  expect(quick).toContain('>0.2s<')
 })
 
 async function withToolDetailDom(
@@ -448,7 +457,9 @@ test('a tool row whose subject is a folder shows the path as text, never a file 
     <ToolRow tool={tool({ name: 'Read', toolKind: 'file_read', input: { path: '/Users/dev/project' } })} />,
   )
   expect(html).not.toContain('aria-label="Open /Users/dev/project"')
-  expect(html).toContain('/Users/dev/project')
+  // The label names the folder read; the text beside it says where it is.
+  expect(html).toContain('Read project')
+  expect(html).toContain('/Users/dev<')
 })
 
 test('an opened step sits in one contained panel with a copy action, not loose text', () => {
@@ -457,9 +468,10 @@ test('an opened step sits in one contained panel with a copy action, not loose t
   )
   const document = new JSDOM(body).window.document
   const panel = document.querySelector('.rounded-sm.border')
-  expect(panel?.textContent).toContain('$ git log')
+  expect(panel?.textContent).toContain('git log')
   expect(panel?.textContent).toContain('b43af0faa chore: tidy')
   expect(document.querySelector('[aria-label="Copy output"]')).not.toBeNull()
+  expect(document.querySelector('[aria-label="Copy command"]')).not.toBeNull()
   const search = renderToStaticMarkup(
     <ToolBody tool={tool({ toolKind: 'search', name: 'Grep', input: { pattern: 'uninstall' }, output: 'src/a.ts' })} />,
   )
@@ -473,8 +485,11 @@ test('a row names its file relative to the workspace and keeps the full path as 
     </ConversationLinkProvider>,
   )
   const document = new JSDOM(html).window.document
+  // The label carries the file's name, so the link beside it names only the
+  // folder — relative to the workspace — and still opens the file itself.
   const link = document.querySelector('[aria-label="Open /Users/dev/project/src/app.ts"]')
-  expect(link?.textContent).toBe('src/app.ts')
+  expect(link?.textContent).toBe('src')
+  expect(document.querySelector('button[aria-expanded]')?.textContent).toContain('Read app.ts')
   expect(displayToolPath('/tmp/shot.png', { cwd: '/Users/dev/project', workspaceRoot: '/Users/dev/project' })).toBe(
     '/tmp/shot.png',
   )
@@ -520,4 +535,143 @@ test('an SVG read shows its markup, and a failed read shows why', () => {
   )
   expect(failed).toContain('File does not exist.')
   expect(failed).not.toContain('no longer available')
+})
+
+test('each kind of step leads with its own glyph', () => {
+  const cases = [
+    [{ name: 'Read', toolKind: 'file_read', input: { path: 'src/app.ts' } }, 'file_read'],
+    [{ name: 'Edit', toolKind: 'file_edit', input: { path: 'src/app.ts' } }, 'file_edit'],
+    [{ name: 'Write', toolKind: 'file_write', input: { path: 'src/app.ts' } }, 'file_write'],
+    [{ name: 'Bash', toolKind: 'command', input: { command: 'ls' } }, 'command'],
+    [{ name: 'Grep', toolKind: 'search', input: { pattern: 'x' } }, 'search'],
+    [{ name: 'WebFetch', toolKind: 'web', input: { url: 'https://example.com' } }, 'web'],
+    [{ name: 'TodoWrite', toolKind: 'todo', input: {} }, 'todo'],
+    [{ name: 'Task', toolKind: 'subagent', input: {} }, 'subagent'],
+    [{ name: 'mcp__acme__lookup', toolKind: 'mcp', input: {} }, 'mcp'],
+    [{ name: 'Mystery', toolKind: 'other', input: {} }, 'other'],
+  ] as const
+  for (const [values, glyph] of cases) {
+    const document = new JSDOM(renderToStaticMarkup(<ToolRow tool={tool(values)} />)).window.document
+    expect(document.querySelector('button[aria-expanded] [data-tool-glyph]')?.getAttribute('data-tool-glyph')).toBe(
+      glyph,
+    )
+  }
+})
+
+test('a command sits on the terminal ground with its exit status toned by outcome', () => {
+  const panel = (exitCode: number) =>
+    new JSDOM(
+      renderToStaticMarkup(
+        <ToolBody tool={tool({ toolKind: 'command', input: { command: 'npm test' }, output: 'ok', exitCode })} />,
+      ),
+    ).window.document
+  const passed = panel(0)
+  expect(passed.querySelector('.rounded-sm.border')?.className).toContain('--terminal-bg')
+  expect(passed.querySelector('[data-exit-tone]')?.getAttribute('data-exit-tone')).toBe('ok')
+  expect(passed.querySelector('[data-exit-tone]')?.className).not.toContain('--tone-error')
+  const failed = panel(2)
+  expect(failed.querySelector('[data-exit-tone]')?.getAttribute('data-exit-tone')).toBe('error')
+  expect(failed.querySelector('[data-exit-tone]')?.className).toContain('--tone-error')
+})
+
+test('a multi-line command keeps its line breaks', () => {
+  const body = renderToStaticMarkup(
+    <ToolBody tool={tool({ toolKind: 'command', input: { command: 'npm test \\\n  --reporter=dot' } })} />,
+  )
+  const document = new JSDOM(body).window.document
+  const command = Array.from(document.querySelectorAll('span')).find((span) => span.textContent?.includes('npm test'))
+  expect(command?.textContent).toBe('npm test \\\n  --reporter=dot')
+  expect(command?.className).toContain('whitespace-pre-wrap')
+})
+
+test('an edit preview leaves out the no-newline-at-end-of-file marker', () => {
+  const body = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        toolKind: 'file_edit',
+        name: 'Edit',
+        input: {
+          path: 'src/app.ts',
+          patch: '@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file',
+        },
+      })}
+    />,
+  )
+  expect(body).toContain('new')
+  expect(body).not.toContain('No newline at end of file')
+})
+
+test('an edit whose file the row already names shows no second file chip', () => {
+  const body = renderToStaticMarkup(
+    <ToolBody
+      tool={tool({
+        toolKind: 'file_edit',
+        name: 'Edit',
+        input: { file_path: 'src/app.ts', old_string: 'old', new_string: 'new' },
+      })}
+    />,
+  )
+  expect(body).toContain('Changes in src/app.ts')
+  expect(body).not.toContain('aria-label="Open src/app.ts"')
+})
+
+test('a long search output links only its first lines, and only words that look like paths', () => {
+  const output = Array.from({ length: 400 }, (_, index) => `src/file${index}.ts:${index + 1}: match here`).join('\n')
+  const document = new JSDOM(
+    renderToStaticMarkup(
+      <ConversationLinkProvider workspaceId="w" cwd="/Users/dev/project" workspaceRoot="/Users/dev/project">
+        <ToolBody tool={tool({ toolKind: 'search', name: 'Grep', input: { pattern: 'match' }, output })} />
+      </ConversationLinkProvider>,
+    ),
+  ).window.document
+  // Every line is still there to read and copy.
+  expect(document.body.textContent).toContain('src/file399.ts:400: match here')
+  // Rendered as one text run after the linked head, not a node per word.
+  const tail = Array.from(document.querySelectorAll('div')).find((div) =>
+    Array.from(div.childNodes).some((node) => node.nodeType === 3 && node.textContent?.includes('src/file399.ts')),
+  )
+  expect(tail).toBeTruthy()
+  const lastText = Array.from(tail!.childNodes).at(-1)
+  expect(lastText?.nodeType).toBe(3)
+  expect(lastText?.textContent).toContain('src/file200.ts')
+  expect(lastText?.textContent).toContain('src/file399.ts')
+})
+
+test('a finished to-do is struck through and dimmed; its marks render', () => {
+  const body = new JSDOM(
+    renderToStaticMarkup(
+      <ToolBody
+        tool={tool({
+          toolKind: 'todo',
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'Run the **markdown** tests', status: 'completed' },
+              { content: 'Check the dock', status: 'in_progress' },
+            ],
+          },
+        })}
+      />,
+    ),
+  ).window.document
+  const [done, active] = Array.from(body.querySelectorAll('li'))
+  expect(done.getAttribute('data-todo-status')).toBe('completed')
+  expect(done.querySelector('.line-through')?.textContent).toBe('Run the markdown tests')
+  expect(done.querySelector('strong')?.textContent).toBe('markdown')
+  expect(active.textContent).toContain('(in progress)')
+  expect(active.querySelector('.line-through')).toBeNull()
+})
+
+test('a file step names its file once: the label has the name, the link beside it the folder', () => {
+  const row = (path: string) =>
+    new JSDOM(
+      renderToStaticMarkup(
+        <ConversationLinkProvider workspaceId="w" cwd="/Users/dev/project" workspaceRoot="/Users/dev/project">
+          <ToolRow tool={tool({ name: 'Read', toolKind: 'file_read', input: { path } })} />
+        </ConversationLinkProvider>,
+      ),
+    ).window.document.body.textContent
+  expect(row('/Users/dev/project/src/shared/conversation/segments.ts')).toBe('Read segments.tssrc/shared/conversation')
+  // At the top of the workspace there is no folder to name, and no second copy of the name.
+  expect(row('/Users/dev/project/package.json')).toBe('Read package.json')
 })

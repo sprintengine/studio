@@ -349,11 +349,19 @@ export function ConversationMarkdown({
   text,
   streaming = false,
   userText = false,
+  tone = 'default',
+  size = 'reply',
 }: {
   text: string
   streaming?: boolean
   // A message the person sent: newlines stay line breaks and HTML stays text.
   userText?: boolean
+  // `muted` sets the whole block one ink step down, for text read beside the
+  // reply it led to rather than as one — a reasoning trace.
+  tone?: 'default' | 'muted'
+  // `compact` is the conversation scale one step smaller, for markdown inside a
+  // card (a plan, a pending question) whose own title already heads it.
+  size?: 'reply' | 'compact'
 }) {
   const streamed = useRef(streaming)
   if (streaming) streamed.current = true
@@ -361,12 +369,14 @@ export function ConversationMarkdown({
     () => ({
       codeBlock: ConversationCodeBlock,
       streaming,
+      density: size === 'compact' ? ('chat-compact' as const) : ('chat' as const),
+      tone,
       renderText: conversationText,
       renderLink,
       renderImage,
       ...(userText ? { userText } : {}),
     }),
-    [streaming, userText],
+    [streaming, userText, tone, size],
   )
   // A settled message re-renders with every token of the reply streaming below
   // it; its text has not changed, so neither has its parse.

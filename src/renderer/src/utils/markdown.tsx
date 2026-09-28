@@ -2,20 +2,38 @@ import React, { type JSX } from 'react'
 import type { Element } from 'hast'
 import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { GhostButton } from '../components/ui/Buttons'
 import { Checkbox } from '../components/ui/Checkbox'
+import { filenameFromFenceMeta } from '../components/ui/codeBlockModel'
+import { CopyGlyphButton } from '../components/ui/CopyGlyphButton'
 import { LinkButton } from '../components/ui/LinkButton'
 import { MarkdownAlertGlyph, type MarkdownAlertKind } from '../components/ui/MarkdownAlertGlyph'
+import { OverflowMenu } from '../components/ui/OverflowMenu'
 import { copyToClipboardWithToast } from './copyToClipboardWithToast'
 import type { GitLineChange } from './gitDiff'
+import { tableCsv, tableHtml, tableMarkdown, tableTsv } from './markdownTableClipboard'
 import { remarkUserText } from './markdownUserText'
 
 /**
  * A document renders at `document` scale; a document read inside a dense
  * surface (the skill reader) renders at `compact`, where the heading scale is
  * the surface's own and body copy stays at its body size.
+ *
+ * A conversation is neither. A reply is read in a narrow pane between tool rows
+ * and a composer, a paragraph or a short list at a time, and a document's
+ * 30px title in it is the largest type in the app. `chat` keeps the reading
+ * size and compresses the headings to a small ladder; `chat-compact` is the
+ * same scale one step down, for markdown inside a card (a plan, a pending
+ * question) where the card's own title is already the top of the ladder.
  */
-type MarkdownDensity = 'document' | 'compact'
+type MarkdownDensity = 'document' | 'compact' | 'chat' | 'chat-compact'
+
+/**
+ * `muted` sets the whole block one ink step down — a reasoning trace, read
+ * beside the reply it led to and quieter than it. Only the chat scales read it:
+ * their ink comes from two custom properties the tone moves together, so
+ * headings, `strong` and code still stand above the body within the block.
+ */
+type MarkdownTone = 'default' | 'muted'
 
 /**
  * What a link that is not a web URL points at. A renderer that owns a local
@@ -34,6 +52,7 @@ export type MarkdownLinkResolver = {
 type MarkdownRenderOptions = {
   lineChanges?: GitLineChange[]
   density?: MarkdownDensity
+  tone?: MarkdownTone
   links?: MarkdownLinkResolver
   codeBlock?: React.ComponentType<{ code: string; language?: string; filename?: string; streaming?: boolean }>
   streaming?: boolean
@@ -86,9 +105,96 @@ type MarkdownScale = {
   list: string
   pre: string
   code: string
+  strong: string
+  em: string
   blockquote: string
+  alert: string
   hr: string
+  /** The block around a table: its scroller and its copy footer. */
+  tableBlock: string
   table: string
+  th: string
+  td: string
+}
+
+// The table chrome every density shares, after the kit's Table
+// (design-system/components/table): row hairlines only, no verticals and no
+// header fill, so the body reads as a field and the header's rule is the
+// strongest line in it. The header is a label row — it holds its line rather
+// than wrapping a column title under itself.
+const TABLE_HEAD_CLASS =
+  'whitespace-nowrap border-b border-[color:var(--border-default)] text-left align-bottom font-semibold'
+const TABLE_CELL_CLASS = 'border-b border-[color:var(--border-subtle)] text-left align-top'
+
+// The conversation scales' ink: two custom properties set on the markdown root
+// (index.css, `.markdown-rendered`), so a muted block and a blockquote move all
+// of their ink with one declaration instead of each element knowing its context.
+const CHAT_INK = 'text-[color:var(--markdown-ink)]'
+const CHAT_INK_STRONG = 'text-[color:var(--markdown-ink-strong)]'
+
+/**
+ * The conversation ladder. Everything is on the type ramp, and the step from
+ * body to the biggest heading is one or two ramp steps, not four: in a reply,
+ * a heading is a signpost between paragraphs, so hierarchy comes from weight
+ * and ink — headings, `strong` and inline code in strong ink over a body one
+ * step quieter — rather than from size. The last two rungs step down in ink
+ * instead of size, the way the compact ladder's do.
+ *
+ * Blocks carry bottom margins only, and headings top ones, so a gap between two
+ * blocks is one margin rather than whichever collapse wins; the first and last
+ * blocks give theirs up so a message sits flush in its row.
+ */
+function chatScale(steps: {
+  text: string
+  h1: string
+  h2: string
+  h3: string
+  h4: string
+  h5: string
+  h6: string
+  gap: string
+  table: string
+  cell: string
+}): MarkdownScale {
+  const block = `${steps.gap} last:mb-0`
+  const heading = 'first:mt-0 font-semibold leading-snug'
+  const body = `${steps.text} ${CHAT_INK}`
+  return {
+    h1: `${steps.h1} ${heading} ${CHAT_INK_STRONG}`,
+    h2: `${steps.h2} ${heading} ${CHAT_INK_STRONG}`,
+    h3: `${steps.h3} ${heading} ${CHAT_INK_STRONG}`,
+    h4: `${steps.h4} ${heading} ${CHAT_INK}`,
+    h5: `${steps.h5} ${heading} ${CHAT_INK}`,
+    h6: `${steps.h6} ${heading} text-[color:var(--text-muted)]`,
+    p: `${body} ${block}`,
+    // Markers hang in the gutter, so wrapped lines align with the text and not
+    // under the bullet; item rhythm and nested lists are index.css's.
+    list: `${body} ${block} pl-5`,
+    pre: `${block} overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-meta leading-[1.6] text-[color:var(--text-default)]`,
+    // A neutral pill in strong ink: an identifier is one of the things a reader
+    // scans a reply for, so it stands out by contrast, not by a status hue. The
+    // mono face runs wide, so it steps under the surrounding text's size.
+    code: `rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] text-[0.9em] ${CHAT_INK_STRONG} break-words [pre_&]:text-[1em]`,
+    strong: `font-semibold ${CHAT_INK_STRONG}`,
+    // Emphasis is a change of voice, not of importance: it keeps the ink it is in.
+    em: 'italic',
+    // A quote is someone else's words, so it steps its whole ink down —
+    // `strong` inside it included — and the rule, not an indent, marks it.
+    blockquote: `${block} border-l-2 border-[color:var(--border-default)] pl-3 [--markdown-ink:var(--text-muted)] [--markdown-ink-strong:var(--text-default)] ${CHAT_INK}`,
+    alert: `${block} ${steps.text}`,
+    hr: `my-4 border-0 border-t border-[color:var(--border-subtle)] first:mt-0 last:mb-0`,
+    tableBlock: `${steps.gap} last:mb-0`,
+    // Sized to its content, not squeezed to the pane: a squeezed column breaks
+    // `acme-large-2026-09` at every hyphen and a number across two lines. A
+    // cell wraps only past a cap — a readable line, and never most of the pane,
+    // so a two-column table of prose still fits a narrow pane beside its label
+    // column — and a table wider than that scrolls (see MarkdownTable).
+    table: `w-max min-w-full border-collapse text-left ${steps.table} tabular-nums leading-normal ${CHAT_INK}`,
+    // The outer columns sit flush with the prose around the table, so its text
+    // starts on the same edge as the paragraph above it.
+    th: `${TABLE_HEAD_CLASS} ${steps.cell} first:pl-0 last:pr-0 ${CHAT_INK_STRONG}`,
+    td: `${TABLE_CELL_CLASS} ${steps.cell} first:pl-0 last:pr-0 max-w-[min(20rem,66cqw)]`,
+  }
 }
 
 const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
@@ -105,9 +211,15 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     // A long path wraps instead of pushing the line box wider than the column;
     // `break-words` keeps a short token whole and moves it down instead.
     code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
+    strong: 'font-semibold text-[color:var(--text-strong)]',
+    em: 'italic',
     blockquote: 'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
+    alert: 'my-4 text-heading',
     hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
-    table: 'w-full border-collapse text-left text-body text-[color:var(--text-default)]',
+    tableBlock: 'my-4',
+    table: 'w-full border-collapse text-left text-body tabular-nums text-[color:var(--text-default)]',
+    th: `${TABLE_HEAD_CLASS} px-3 py-2 text-[color:var(--text-strong)]`,
+    td: `${TABLE_CELL_CLASS} px-3 py-2`,
   },
   compact: {
     h1: 'mt-6 first:mt-0 mb-4 text-title font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
@@ -125,10 +237,40 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
     code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
+    strong: 'font-semibold text-[color:var(--text-strong)]',
+    em: 'italic',
     blockquote: 'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
+    alert: 'my-3 text-meta',
     hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
-    table: 'w-full border-collapse text-left text-micro text-[color:var(--text-default)]',
+    tableBlock: 'my-3',
+    table: 'w-full border-collapse text-left text-micro tabular-nums text-[color:var(--text-default)]',
+    th: `${TABLE_HEAD_CLASS} px-2 py-1.5 text-[color:var(--text-strong)]`,
+    td: `${TABLE_CELL_CLASS} px-2 py-1`,
   },
+  chat: chatScale({
+    text: 'text-heading leading-[1.6]',
+    h1: 'mt-6 mb-2 text-title tracking-tight',
+    h2: 'mt-5 mb-1.5 text-title tracking-tight',
+    h3: 'mt-4 mb-1 text-heading',
+    h4: 'mt-4 mb-1 text-heading',
+    h5: 'mt-3 mb-1 text-body',
+    h6: 'mt-3 mb-1 text-body',
+    gap: 'mb-2.5',
+    table: 'text-body',
+    cell: 'px-3 py-1.5',
+  }),
+  'chat-compact': chatScale({
+    text: 'text-body leading-[1.55]',
+    h1: 'mt-4 mb-1.5 text-heading',
+    h2: 'mt-4 mb-1.5 text-heading',
+    h3: 'mt-3 mb-1 text-body',
+    h4: 'mt-3 mb-1 text-body',
+    h5: 'mt-3 mb-1 text-meta',
+    h6: 'mt-3 mb-1 text-meta',
+    gap: 'mb-2',
+    table: 'text-meta',
+    cell: 'px-2 py-1',
+  }),
 }
 
 function joinClasses(...classes: Array<string | false | null | undefined>): string {
@@ -249,60 +391,125 @@ function alertKind(node: MarkdownNode): MarkdownAlertKind | null {
   return typeof kind === 'string' && kind in ALERTS ? (kind as MarkdownAlertKind) : null
 }
 
-type HastChild = Element['children'][number]
+// An identifier short enough to move to the next line whole. A pill split at
+// its hyphen (`leading-` / `6`) reads as two tokens; a long path still has to
+// wrap, or it would push the line past the pane.
+const SHORT_TOKEN_LENGTH = 32
 
-// A cell's content written back as markdown: the table is copied to be pasted
-// into another document, where a cell's code, emphasis and links should
-// survive, and a `|` inside one must not split it.
-function inlineMarkdown(node: HastChild): string {
-  if (node.type === 'text') return node.value.replace(/\|/gu, '\\|').replace(/\s*\n\s*/gu, ' ')
-  if (node.type !== 'element') return ''
-  const inner = node.children.map(inlineMarkdown).join('')
-  switch (node.tagName) {
-    case 'code':
-      return `\`${inner}\``
-    case 'strong':
-      return `**${inner}**`
-    case 'em':
-      return `*${inner}*`
-    case 'del':
-      return `~~${inner}~~`
-    case 'br':
-      return ' '
-    case 'a':
-      return typeof node.properties.href === 'string' ? `[${inner}](${node.properties.href})` : inner
-    case 'img':
-      return `![${String(node.properties.alt ?? '')}](${String(node.properties.src ?? '')})`
-    case 'input':
-      return node.properties.checked ? '[x] ' : '[ ] '
-    default:
-      return inner
+function isShortToken(children: React.ReactNode): boolean {
+  return typeof children === 'string' && children.length <= SHORT_TOKEN_LENGTH && !children.includes('\n')
+}
+
+function isChatDensity(density: MarkdownDensity | undefined): boolean {
+  return density === 'chat' || density === 'chat-compact'
+}
+
+// An ordered list's gutter has to hold its widest number: the chat scale's
+// gutter fits "9.", and a list that runs to 10 or starts at 120 would hang its
+// markers out past the pane's edge. Only a list that needs more asks for it.
+function orderedGutter(node: MarkdownNode, start: number | undefined): React.CSSProperties | undefined {
+  const items = node?.children.filter((child) => child.type === 'element' && child.tagName === 'li').length ?? 0
+  const last = Math.max(Math.abs(start ?? 1), Math.abs((start ?? 1) + items - 1))
+  const digits = String(last).length
+  return digits > 1 ? { paddingInlineStart: `calc(${digits + 1}ch + 0.4em)` } : undefined
+}
+
+/**
+ * The wrapper every rendered document sits in (or, for a caller that renders
+ * segments bare, the one it draws around them): the class the stylesheet's
+ * markdown rules hang off, and the density and tone those rules read.
+ */
+export function markdownRootProps(options: Pick<MarkdownRenderOptions, 'density' | 'tone'> = {}): {
+  className: string
+  'data-density'?: MarkdownDensity
+  'data-tone'?: MarkdownTone
+} {
+  return {
+    className: 'markdown-rendered',
+    ...(isChatDensity(options.density) ? { 'data-density': options.density } : {}),
+    ...(options.tone === 'muted' ? { 'data-tone': 'muted' as const } : {}),
   }
 }
 
-export function tableMarkdown(table: Element): string {
-  const rows: Element[] = []
-  const collect = (node: Element) => {
-    for (const child of node.children) {
-      if (child.type !== 'element') continue
-      if (child.tagName === 'tr') rows.push(child)
-      else collect(child)
+// Marks a table's scroller with which of its edges hide columns, for the
+// stylesheet to fade: a table cut off at the pane's edge otherwise looks like
+// a table that ends there. Set on the node rather than held in state, so a
+// scroll repaints a mask and never re-renders the cells.
+function useOverflowEdges(ref: React.RefObject<HTMLDivElement | null>): void {
+  React.useEffect(() => {
+    const scroller = ref.current
+    if (!scroller) return
+    const measure = () => {
+      const hidden = scroller.scrollWidth - scroller.clientWidth
+      scroller.toggleAttribute('data-overflow-start', hidden > 1 && scroller.scrollLeft > 1)
+      scroller.toggleAttribute('data-overflow-end', hidden > 1 && scroller.scrollLeft < hidden - 1)
     }
-  }
-  collect(table)
-  const cells = rows.map((row) =>
-    row.children.filter((cell): cell is Element => cell.type === 'element' && /^t[hd]$/u.test(cell.tagName)),
+    measure()
+    scroller.addEventListener('scroll', measure, { passive: true })
+    // A streaming table grows a row at a time, and the pane can be resized
+    // under a finished one; either can change which edges hide columns.
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(scroller)
+    if (scroller.firstElementChild) observer?.observe(scroller.firstElementChild)
+    return () => {
+      scroller.removeEventListener('scroll', measure)
+      observer?.disconnect()
+    }
+  }, [ref])
+}
+
+/**
+ * A table is the one block whose text does not survive a selection: copied off
+ * the page it arrives as runs of cells with no columns. Its footer hands it over
+ * whole instead — as Markdown (with an HTML flavour beside it, so a rich editor
+ * pastes a real table) from the glyph, and as CSV or TSV from the menu beside
+ * it. Every format is written from the syntax tree, never scraped from the page.
+ *
+ * The footer is always there rather than revealed on hover: it is two quiet
+ * glyphs, and a menu opened from it must not vanish when the pointer leaves.
+ */
+function MarkdownTable({
+  node,
+  blockClassName,
+  tableClassName,
+  children,
+}: {
+  node: Element | undefined
+  blockClassName: string
+  tableClassName: string
+  children: React.ReactNode
+}): React.ReactNode {
+  const scroller = React.useRef<HTMLDivElement>(null)
+  useOverflowEdges(scroller)
+  return (
+    <div className={blockClassName}>
+      <div ref={scroller} className="markdown-table-scroll @container overflow-x-auto">
+        <table className={tableClassName}>{children}</table>
+      </div>
+      {node ? (
+        <div data-copy-exclude="" className="mt-0.5 flex items-center justify-end gap-0.5">
+          <CopyGlyphButton size="xs" label="Copy table" text={() => tableMarkdown(node)} html={() => tableHtml(node)} />
+          <OverflowMenu
+            ariaLabel="Copy table as"
+            triggerTooltip="Copy as"
+            items={[
+              {
+                id: 'markdown',
+                label: 'Copy as Markdown',
+                onSelect: () => void copyToClipboardWithToast(tableMarkdown(node), { html: () => tableHtml(node) }),
+              },
+              { id: 'csv', label: 'Copy as CSV', onSelect: () => void copyToClipboardWithToast(tableCsv(node)) },
+              {
+                id: 'tsv',
+                label: 'Copy for a spreadsheet (TSV)',
+                onSelect: () => void copyToClipboardWithToast(tableTsv(node)),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
+    </div>
   )
-  const header = cells[0] ?? []
-  if (!header.length) return ''
-  const line = (row: string[]) => `| ${row.join(' | ')} |`
-  const text = (row: Element[]) =>
-    header.map((_, index) => (row[index] ? row[index].children.map(inlineMarkdown).join('').trim() : ''))
-  const rule = header.map((cell) => {
-    const align = cell.properties.align
-    return align === 'center' ? ':---:' : align === 'right' ? '---:' : align === 'left' ? ':---' : '---'
-  })
-  return [line(text(header)), line(rule), ...cells.slice(1).map((row) => line(text(row)))].join('\n')
 }
 
 const StreamingContext = React.createContext(false)
@@ -327,6 +534,7 @@ function StreamingCode({
 function markdownComponents(options: MarkdownRenderOptions): Components {
   const { lineChanges, links } = options
   const scale = MARKDOWN_SCALE[options.density ?? 'document']
+  const chat = isChatDensity(options.density)
   const Prose = ({ children }: { children: React.ReactNode }): React.ReactNode => {
     const inLinkLabel = React.useContext(LinkLabelContext)
     const { renderText } = options
@@ -345,10 +553,28 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     const inLinkLabel = React.useContext(LinkLabelContext)
     const custom = src && options.renderImage ? options.renderImage(src, alt, inLinkLabel) : null
     if (custom) return custom
+    // Nothing is fetched to show it: an image URL loaded on render is a request
+    // to a host the text chose, made before anyone has read the line. So it is a
+    // quiet chip naming the picture, and a web one opens in the browser on a
+    // click — never inside a link's label, where it would be a second control.
+    const label = alt ? `Image: ${alt}` : 'Image'
+    const chip = joinClasses(
+      className,
+      'inline-block rounded-xs border border-[color:var(--border-subtle)] px-[0.35em] text-[0.9em] text-[color:var(--text-muted)]',
+    )
+    if (inLinkLabel || !/^https?:\/\//iu.test(src)) return <span className={chip}>{label}</span>
     return (
-      <span className={joinClasses(className, 'text-[color:var(--text-muted)]')}>
-        {alt ? `[Image: ${alt}]` : '[Image]'}
-      </span>
+      <a
+        href={src}
+        target="_blank"
+        rel="noreferrer"
+        className={joinClasses(
+          chip,
+          'underline-offset-2 hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring',
+        )}
+      >
+        {label}
+      </a>
     )
   }
 
@@ -429,15 +655,13 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
       )
     },
     strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
-      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>
-        {prose(children)}
-      </strong>
+      <strong className={joinClasses(className, scale.strong)}>{prose(children)}</strong>
     ),
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
-      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{prose(children)}</em>
+      <em className={joinClasses(className, scale.em)}>{prose(children)}</em>
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
-      <code className={joinClasses(className, scale.code)}>
+      <code className={joinClasses(className, scale.code, chat && isShortToken(children) && 'whitespace-nowrap')}>
         <InlineCode>{children}</InlineCode>
       </code>
     ),
@@ -456,7 +680,7 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
             component={Code}
             code={text.replace(/\n$/, '')}
             language={languageClass ? String(languageClass).slice(9) : undefined}
-            filename={meta?.match(/title="([^"]+)"/)?.[1]}
+            filename={filenameFromFenceMeta(meta)}
           />
         )
       }
@@ -481,7 +705,8 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
           data-alert={kind}
           className={joinClasses(
             className,
-            'my-4 rounded-sm border border-[color:var(--border-subtle)] px-3 py-2 [&>:last-child]:mb-0',
+            scale.alert,
+            'rounded-sm border border-[color:var(--border-subtle)] px-3 py-2 [&>:last-child]:mb-0',
             alert.ground,
             changedBlockClass(node, lineChanges),
           )}
@@ -504,6 +729,7 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
         start={start}
         reversed={reversed}
         type={type}
+        style={chat ? orderedGutter(node, start) : undefined}
         className={joinClasses(className, scale.list, 'list-decimal', changedBlockClass(node, lineChanges))}
       >
         {children}
@@ -525,44 +751,24 @@ function markdownComponents(options: MarkdownRenderOptions): Components {
     img: ({ src, alt, className }: MarkdownComponentProps<'img'>) => (
       <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt ?? ''} className={className} />
     ),
-    // A table is the one block whose text does not survive a selection: copied
-    // off the page it arrives as runs of cells with no columns. The copy action
-    // hands over the table as markdown instead, which pastes back as a table
-    // into a document, an issue or the composer.
     table: ({ node, children, className }: MarkdownComponentProps<'table'>) => (
-      <div className={joinClasses('group/table my-4', changedBlockClass(node, lineChanges))}>
-        <div className="overflow-x-auto">
-          <table className={joinClasses(className, scale.table)}>{children}</table>
-        </div>
-        {node ? (
-          <div className="mt-0.5 flex justify-end opacity-0 group-hover/table:opacity-100 focus-within:opacity-100">
-            <GhostButton
-              size="xs"
-              aria-label="Copy table as Markdown"
-              onClick={() => void copyToClipboardWithToast(tableMarkdown(node))}
-            >
-              Copy
-            </GhostButton>
-          </div>
-        ) : null}
-      </div>
-    ),
-    th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
-      <th
-        align={align}
-        className={joinClasses(
-          className,
-          'border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-semibold text-[color:var(--text-strong)]',
-        )}
+      <MarkdownTable
+        node={node}
+        blockClassName={joinClasses(scale.tableBlock, changedBlockClass(node, lineChanges))}
+        tableClassName={joinClasses(className, scale.table)}
       >
+        {children}
+      </MarkdownTable>
+    ),
+    // GFM column alignment arrives as `style.textAlign` — the JSX runtime turns
+    // the tree's `align` into a style — so the style is what has to reach the cell.
+    th: ({ children, className, style }: MarkdownComponentProps<'th'>) => (
+      <th scope="col" style={style} className={joinClasses(className, scale.th)}>
         {children}
       </th>
     ),
-    td: ({ children, className, align }: MarkdownComponentProps<'td'>) => (
-      <td
-        align={align}
-        className={joinClasses(className, 'border border-[color:var(--border-default)] px-3 py-2 align-top')}
-      >
+    td: ({ children, className, style }: MarkdownComponentProps<'td'>) => (
+      <td style={style} className={joinClasses(className, scale.td)}>
         {children}
       </td>
     ),
@@ -615,7 +821,7 @@ function MarkdownRenderer({
       </ReactMarkdown>
     </StreamingContext.Provider>
   )
-  return options.bare ? content : <div className="markdown-rendered">{content}</div>
+  return options.bare ? content : <div {...markdownRootProps(options)}>{content}</div>
 }
 
 export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {

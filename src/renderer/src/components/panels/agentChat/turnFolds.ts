@@ -1,6 +1,7 @@
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
 import { flattenToolEntries } from './conversationTimeline'
 import { stepWentWrong } from './toolRows/ToolRow'
+import { formatStepDuration } from './stepDuration'
 
 // `failed` counts the steps that went wrong, a lane's own included: an older
 // turn rests folded, and a failure inside it must still show on the fold.
@@ -25,9 +26,7 @@ export function deriveTurnFold(
     entry.startedAt !== undefined && entry.completedAt !== undefined
       ? entry.completedAt - entry.startedAt
       : entry.durationMs
-  const seconds = elapsedMs === undefined ? undefined : Math.max(0, Math.round(elapsedMs / 1000))
-  const duration =
-    seconds === undefined ? '' : seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`
+  const duration = elapsedMs === undefined ? '' : formatStepDuration(Math.max(0, elapsedMs))
   const label =
     entry.status === 'failed'
       ? duration

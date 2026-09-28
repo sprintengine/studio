@@ -1,27 +1,8 @@
-import { GhostButton } from '../../ui'
 import { CodeBlock, type CodeBlockProps } from '../../ui/CodeBlock'
 import { showToast } from '../../../store/toastStore'
 import { focusOrAddTerminalTab, getModel } from '../../../utils/modelRegistry'
 import { useConversationLinkContext, type ConversationLinkContext } from './conversationLinks'
 import { useConversationTransport } from './conversationTransport'
-
-const SHELL_LANGUAGES = new Set(['bash', 'sh', 'zsh', 'shell'])
-
-/**
- * The command a shell block would run, or null when it should not be offered.
- * Only a finished block: a streaming one may still be half a command. Only one
- * that ends where it looks like it ends — a trailing `\` would leave the shell
- * waiting for a line the block never had. And never one carrying a control or
- * invisible format character (a bidi override, a zero-width joiner), which can
- * make the text on screen differ from what the shell would be handed.
- */
-export function runnableShellCommand(code: string, language: string | undefined, streaming = false): string | null {
-  if (streaming || !language || !SHELL_LANGUAGES.has(language.toLowerCase())) return null
-  const command = code.trim()
-  if (!command || command.endsWith('\\')) return null
-  if (/[\p{Cc}\p{Cf}]/u.test(command.replace(/[\n\t]/gu, ''))) return null
-  return command
-}
 
 // How long a new terminal's shell gets to show it takes a bracketed paste:
 // long enough for rc files that load a prompt framework, short enough that a
@@ -154,26 +135,16 @@ async function pasteInTerminal(context: ConversationLinkContext, command: string
 }
 
 // A reply's code block. A shell block written for this machine's workspace also
-// offers to put it at a terminal's prompt; one from a conversation on another machine does not — its
-// folder is over there.
+// offers to put it at a terminal's prompt — the block decides whether it is one
+// and hands over the command with its prompts stripped; one from a conversation
+// on another machine does not — its folder is over there.
 export function ConversationCodeBlock(props: CodeBlockProps) {
   const context = useConversationLinkContext()
   const localFiles = useConversationTransport().capabilities.localFiles
-  const command = context && localFiles ? runnableShellCommand(props.code, props.language, props.streaming) : null
   return (
     <CodeBlock
       {...props}
-      actions={
-        command && context ? (
-          <GhostButton
-            size="xs"
-            aria-label="Paste into a new terminal"
-            onClick={() => void pasteInTerminal(context, command)}
-          >
-            Paste in terminal
-          </GhostButton>
-        ) : null
-      }
+      onPasteInTerminal={context && localFiles ? (command) => void pasteInTerminal(context, command) : undefined}
     />
   )
 }

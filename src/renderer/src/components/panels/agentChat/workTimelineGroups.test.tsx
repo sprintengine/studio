@@ -4,12 +4,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   AssistantTurnBlock,
   describeToolGroup,
-  formatStepDuration,
   partitionWorkTimeline,
   SubagentLane,
   type TimelineChrome,
   WorkTimeline,
 } from './timelineRows'
+import { formatStepDuration } from './stepDuration'
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
 
 const tool = (id: string, name = 'Read'): TranscriptToolEntry => ({

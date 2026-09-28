@@ -274,6 +274,25 @@
             }
           }
         },
+        "well": {
+          "$type": "color",
+          "$value": "rgba(32, 36, 40, 0.05)",
+          "$description": "A content well set into a reading surface: a translucent tint of the ink over whatever surface is behind it, so it separates from the conversation canvas, a panel, and a card alike.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "surface",
+              "use": "Code blocks and other preformatted source shown inside prose \u2014 content the reader is meant to see as a separate object in the flow, not as chrome. Pair with a border.subtle hairline.",
+              "doNotUse": "Controls, rows, hover or selection (those are bg.hover / bg.selected), and chrome raised above the panel (bg.surface-raised). Never stack a well inside a well: the tints add.",
+              "components": [
+                "code-block"
+              ],
+              "modes": {
+                "light": "rgba(32, 36, 40, 0.05)",
+                "dark": "rgba(252, 252, 252, 0.06)"
+              }
+            }
+          }
+        },
         "hover": {
           "$type": "color",
           "$value": "{ref.color.mist-150}",
@@ -1322,6 +1341,21 @@
               "seeded": true,
               "role": "typography",
               "use": "Long-form prose in inspectors and docs."
+            }
+          }
+        },
+        "code": {
+          "$type": "number",
+          "$value": 1.6,
+          "$description": "Line height for blocks of source code.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "typography",
+              "use": "Multi-line monospace source read line by line \u2014 code blocks. The extra leading over relaxed keeps a line's brackets and operators from touching the line above, which prose at the same size does not need.",
+              "doNotUse": "Prose, labels and single-line code (inline code takes the line height of the sentence it sits in).",
+              "components": [
+                "code-block"
+              ]
             }
           }
         }

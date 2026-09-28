@@ -25,6 +25,10 @@ export {
   PrimaryButton,
 } from './Buttons'
 export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
+// The one copy affordance (design-system/components/button → The copy glyph):
+// an IconButton that confirms in place instead of spelling "Copy".
+export { COPY_CONFIRM_MS, CopyGlyphButton } from './CopyGlyphButton'
+export type { CopyGlyphButtonProps } from './CopyGlyphButton'
 // The five shapes the button family was missing (the raw-primitive
 // sweep, 2026-09-08). Each is a species, not a restyle: a row, a value row, a
 // popover trigger, a tile and a text link answer questions the three sized
@@ -69,6 +73,7 @@ export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChange
 // The diff tour's marks (design-system/components/tour-strip): the tour itself,
 // Play and Pause, and the step list's toggle.
 export { PauseGlyph, PlayGlyph, StepListGlyph, TourGlyph } from './TourGlyphs'
+export { ToolKindGlyph } from './ToolKindGlyph'
 // The diff tour's surfaces (design-system/components/tour-strip, tour-callout):
 // the band, the callout a step is said in, the step list and the Start card.
 export { TourProgress, TourStrip } from './TourStrip'

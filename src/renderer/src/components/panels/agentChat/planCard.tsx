@@ -4,10 +4,9 @@
 // request. A long plan rests as a fading preview rather than a wall of text.
 
 import React from 'react'
-import { Badge, GhostButton } from '../../ui'
+import { Badge, CopyGlyphButton, GhostButton } from '../../ui'
 import { ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import { useConversationDisclosure } from './conversationViewState'
-import { copyToClipboardWithToast } from '../../../utils/copyToClipboardWithToast'
 
 const HEADING = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u
 
@@ -55,14 +54,7 @@ export function ResolvedPlanCard({ requestId, plan }: { requestId: string; plan:
       <div className="flex items-center gap-2 px-3 pt-2">
         <Badge>Plan</Badge>
         <span className="min-w-0 truncate text-body font-medium text-[color:var(--text-strong)]">{title}</span>
-        <GhostButton
-          size="xs"
-          className="ml-auto shrink-0"
-          aria-label="Copy plan"
-          onClick={() => void copyToClipboardWithToast(plan.trim())}
-        >
-          Copy
-        </GhostButton>
+        <CopyGlyphButton size="xs" label="Copy plan" text={plan.trim()} className="ml-auto shrink-0" />
       </div>
       {body ? (
         <div
@@ -70,7 +62,7 @@ export function ResolvedPlanCard({ requestId, plan }: { requestId: string; plan:
             clamped ? 'max-h-64 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]' : ''
           }`}
         >
-          <ConversationMarkdown text={body} />
+          <ConversationMarkdown text={body} size="compact" />
         </div>
       ) : null}
       <div className="px-3 pb-2 pt-1">

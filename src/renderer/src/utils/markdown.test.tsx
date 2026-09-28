@@ -6,8 +6,7 @@ import {
   resolveSkillLink,
 } from '../components/workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import type { GitLineChange } from './gitDiff'
-import type { Element } from 'hast'
-import { renderMarkdown, tableMarkdown, type MarkdownLinkResolver } from './markdown'
+import { renderMarkdown, type MarkdownLinkResolver } from './markdown'
 import { expect, test } from 'vitest'
 
 test('markdown', async () => {
@@ -83,7 +82,7 @@ test('markdown', async () => {
     const html = render('![Architecture diagram](https://example.com/diagram.png)')
 
     assert.doesNotMatch(html, /<img/)
-    assert.match(html, /\[Image: Architecture diagram\]/)
+    assert.match(html, />Image: Architecture diagram</)
   }
 
   function testPreviewChangeMarkersAttachToChangedBlocks(): void {
@@ -244,46 +243,33 @@ test('a blockquote that only mentions an alert marker stays a blockquote', () =>
   expect(renderPlain('- item\n\n  > [!TIP]\n  > Use the cache.')).toContain('data-alert="tip"')
 })
 
-test('a table offers to copy itself as markdown', () => {
-  expect(renderPlain('| a | b |\n| - | - |\n| 1 | 2 |')).toContain('aria-label="Copy table as Markdown"')
-  // The tree remark hands the `table` component, built by hand: a header row
-  // carrying the column alignment, then body rows, one of them short a cell.
-  const el = (tagName: string, children: Element['children'], properties: Element['properties'] = {}): Element => ({
-    type: 'element',
-    tagName,
-    properties,
-    children,
-  })
-  const text = (value: string) => ({ type: 'text' as const, value })
-  const table = el('table', [
-    el('thead', [
-      el('tr', [
-        el('th', [text('Name')], { align: 'left' }),
-        el('th', [text('Kind')], { align: 'center' }),
-        el('th', [text('Size')], { align: 'right' }),
-      ]),
-    ]),
-    el('tbody', [
-      el('tr', [
-        el('td', [el('code', [text('a|b.ts')])]),
-        el('td', [el('strong', [text('file')])]),
-        el('td', [el('a', [text('1 KB')], { href: 'https://example.com/a' })]),
-      ]),
-      el('tr', [el('td', [text('c')]), el('td', [el('em', [text('dir')])])]),
-    ]),
-  ])
-  expect(tableMarkdown(table)).toBe(
-    [
-      '| Name | Kind | Size |',
-      '| :--- | :---: | ---: |',
-      '| `a\\|b.ts` | **file** | [1 KB](https://example.com/a) |',
-      '| c | *dir* |  |',
-    ].join('\n'),
-  )
+test('a table offers a copy glyph and a menu of other formats, outside what a selection copies', () => {
+  const html = renderPlain('| a | b |\n| - | - |\n| 1 | 2 |')
+  expect(html).toContain('aria-label="Copy table"')
+  expect(html).toContain('aria-label="Copy table as"')
+  expect(html).toMatch(/<div data-copy-exclude=""[^>]*>.*aria-label="Copy table"/u)
+})
+
+test('a GFM column alignment reaches the cells', () => {
+  for (const density of [undefined, 'compact', 'chat'] as const) {
+    const html = renderToStaticMarkup(
+      renderMarkdown('| Name | Size | Kind |\n| :--- | ---: | :---: |\n| a | 12 | file |', { density }),
+    )
+    expect(html, density).toMatch(/<th[^>]*style="text-align:right"[^>]*>Size<\/th>/u)
+    expect(html, density).toMatch(/<td[^>]*style="text-align:right"[^>]*>12<\/td>/u)
+    expect(html, density).toMatch(/<td[^>]*style="text-align:center"[^>]*>file<\/td>/u)
+    expect(html, density).toMatch(/<td[^>]*style="text-align:left"[^>]*>a<\/td>/u)
+  }
 })
 
 test('an image is stated by its alt text unless the surface can show it', () => {
-  expect(renderPlain('![Diagram](https://example.com/d.png)')).toContain('[Image: Diagram]')
+  // Nothing is fetched: a web image is a link to open it, anything else is its name.
+  const web = renderPlain('![Diagram](https://example.com/d.png)')
+  expect(web).not.toContain('<img')
+  expect(web).toMatch(/<a href="https:\/\/example\.com\/d\.png"[^>]*>Image: Diagram<\/a>/u)
+  const local = renderPlain('![](./d.png)')
+  expect(local).toContain('>Image<')
+  expect(local).not.toContain('href=')
   const shown = renderToStaticMarkup(
     renderMarkdown('![Diagram](./d.png) and [![Badge](https://example.com/b.svg)](https://example.com)', {
       renderImage: (src, alt, inLink) => <img data-in-link={String(inLink)} src={src} alt={alt} />,
@@ -292,4 +278,86 @@ test('an image is stated by its alt text unless the surface can show it', () => 
   // The source reaches the renderer as written — a path is not a URL the page may load.
   expect(shown).toContain('<img data-in-link="false" src="./d.png" alt="Diagram"/>')
   expect(shown).toContain('<img data-in-link="true" src="https://example.com/b.svg" alt="Badge"/>')
+})
+
+function renderChat(markdown: string, options: Parameters<typeof renderMarkdown>[1] = {}): string {
+  return renderToStaticMarkup(renderMarkdown(markdown, { density: 'chat', ...options }))
+}
+
+function classOf(html: string, tag: string): string {
+  return new RegExp(`<${tag}[^>]*class="([^"]*)"`, 'u').exec(html)?.[1] ?? ''
+}
+
+// The chat scales are about how a reply looks, so these read the classes; each
+// pins a decision, not a pixel.
+test('a chat reply keeps its headings on the type ramp, a step or two above the body', () => {
+  const html = renderChat('# Title\n\n## Section\n\n### Part\n\nBody')
+  for (const tag of ['h1', 'h2', 'h3']) {
+    expect(classOf(html, tag), tag).not.toMatch(/\btext-(?:3xl|2xl|xl|lg|base)\b/u)
+    expect(classOf(html, tag), tag).toContain('font-semibold')
+  }
+  expect(classOf(html, 'h1')).toContain('text-title')
+  expect(classOf(html, 'h3')).toContain('text-heading')
+  expect(classOf(html, 'p')).toContain('text-heading')
+  // The document scale is unchanged for the surfaces that are documents.
+  expect(classOf(renderPlain('# Title'), 'h1')).toContain('text-3xl')
+})
+
+test('in a chat reply, headings, strong text and inline code take the strong ink over a quieter body', () => {
+  const html = renderChat('## Plan\n\nRun **this** with `npm test`.')
+  expect(classOf(html, 'p')).toContain('var(--markdown-ink)')
+  for (const tag of ['h2', 'strong', 'code']) expect(classOf(html, tag), tag).toContain('var(--markdown-ink-strong)')
+  expect(classOf(html, 'code')).not.toContain('--tone-warn')
+})
+
+test('a muted chat block says so on its root, and a quote steps its own ink down', () => {
+  expect(renderChat('Thinking', { tone: 'muted' })).toMatch(
+    /^<div class="markdown-rendered" data-density="chat" data-tone="muted">/u,
+  )
+  expect(renderChat('Reply')).not.toContain('data-tone')
+  expect(renderChat('Reply', { density: 'chat-compact' })).toContain('data-density="chat-compact"')
+  expect(classOf(renderChat('> quoted'), 'blockquote')).toContain('[--markdown-ink:var(--text-muted)]')
+})
+
+test('a short identifier in a chat reply moves to the next line whole; a long path may wrap', () => {
+  expect(classOf(renderChat('Set `leading-6`.'), 'code')).toContain('whitespace-nowrap')
+  const path = 'src/renderer/src/components/panels/agentChat/conversationLinks.tsx'
+  expect(classOf(renderChat(`See \`${path}\`.`), 'code')).not.toContain('whitespace-nowrap')
+})
+
+test('an ordered list that runs past nine widens its gutter to hold the number', () => {
+  const short = renderChat('1. a\n2. b')
+  const long = renderChat(Array.from({ length: 12 }, (_, index) => `${index + 1}. item`).join('\n'))
+  expect(short).not.toMatch(/<ol[^>]*style=/u)
+  expect(long).toMatch(/<ol[^>]*style="padding-inline-start:calc\(3ch \+ 0\.4em\)"/u)
+})
+
+test('a GitHub alert in a chat reply draws its title and leaves the marker out', () => {
+  const html = renderChat('> [!WARNING]\n> Back up the **database** first.')
+  expect(html).toContain('data-alert="warning"')
+  expect(html).toContain('>Warning</p>')
+  expect(html).not.toContain('[!WARNING]')
+})
+
+test('a fence names its file from the info string, keyed or bare, and the code block receives it', () => {
+  const seen: Array<string | undefined> = []
+  const Code = ({ filename }: { code: string; filename?: string }) => {
+    seen.push(filename)
+    return null
+  }
+  const source = [
+    '```ts src/app.ts',
+    'export {}',
+    '```',
+    '',
+    '```ts title="src/title.ts"',
+    'export {}',
+    '```',
+    '',
+    '```bash',
+    'ls',
+    '```',
+  ].join('\n')
+  renderToStaticMarkup(<>{renderMarkdown(source, { codeBlock: Code })}</>)
+  assert.deepEqual(seen, ['src/app.ts', 'src/title.ts', undefined])
 })

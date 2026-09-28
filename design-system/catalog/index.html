@@ -68,6 +68,7 @@
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
+  --sem-color-bg-well: rgba(32, 36, 40, 0.05);
   --sem-color-bg-hover: var(--ref-color-mist-150);
   --sem-color-bg-active: var(--ref-color-mist-200);
   --sem-color-bg-selected: var(--ref-color-mist-250);
@@ -129,6 +130,7 @@
   --sem-font-line-tight: 1.25;
   --sem-font-line-default: 1.4;
   --sem-font-line-relaxed: 1.5;
+  --sem-font-line-code: 1.6;
   --sem-font-tracking-tight: -0.01em;
   --sem-font-tracking-normal: 0;
   --sem-font-tracking-wide: 0.02em;
@@ -186,6 +188,7 @@
   --sem-color-bg-app: var(--ref-color-ink-950);
   --sem-color-bg-surface: var(--ref-color-ink-900);
   --sem-color-bg-surface-raised: var(--ref-color-ink-875);
+  --sem-color-bg-well: rgba(252, 252, 252, 0.06);
   --sem-color-bg-hover: var(--ref-color-ink-850);
   --sem-color-bg-active: var(--ref-color-ink-825);
   --sem-color-bg-selected: var(--ref-color-ink-800);
@@ -245,6 +248,7 @@
   --sem-color-bg-app: var(--ref-color-ink-950);
   --sem-color-bg-surface: var(--ref-color-ink-900);
   --sem-color-bg-surface-raised: var(--ref-color-ink-875);
+  --sem-color-bg-well: rgba(252, 252, 252, 0.06);
   --sem-color-bg-hover: var(--ref-color-ink-850);
   --sem-color-bg-active: var(--ref-color-ink-825);
   --sem-color-bg-selected: var(--ref-color-ink-800);
@@ -301,6 +305,7 @@
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
+  --sem-color-bg-well: rgba(32, 36, 40, 0.05);
   --sem-color-bg-hover: var(--ref-color-mist-150);
   --sem-color-bg-active: var(--ref-color-mist-200);
   --sem-color-bg-selected: var(--ref-color-mist-250);
@@ -1324,6 +1329,24 @@ code {
   height: var(--sem-icon-size-sm);
 }
 
+/* The copy glyph, confirmed: the check holds in the good tone for 1200ms and
+   swaps back. A state flip, not a transition, so nothing here animates. */
+.ds-button--copied,
+.ds-button--copied:hover:not(:disabled) {
+  color: var(--sem-color-status-good);
+}
+
+/* The copy glyph's announcement: present for a screen reader, absent from the
+   page. Always mounted, so the text change is what gets announced. */
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ds-button {
     transition: none;
@@ -2290,35 +2313,134 @@ code {
 }
 
 /* components/code-block/component.css */
+/* A card set into the reading flow: a translucent well rather than a raised
+ * fill, so it separates from whichever surface it sits on (the conversation
+ * canvas, a panel, a card) in both modes. */
 .ds-code-block {
   border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface-raised);
+  background: var(--sem-color-bg-well);
   color: var(--sem-syntax-foreground);
   margin-block: var(--sem-space-lg);
   overflow: hidden;
 }
+
+/* The header is chrome inside the same surface, set off from the source by a
+ * hairline. Its end padding is tighter than its start so the glyph buttons'
+ * own hit areas sit in the corner instead of floating in from it. */
 .ds-code-block__header {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
-  padding: var(--sem-space-xs) var(--sem-space-lg);
+  padding-block: var(--sem-space-3xs);
+  padding-inline: var(--sem-space-lg) var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
   color: var(--sem-color-text-muted);
+  user-select: none;
 }
-.ds-code-block__label { flex: 1; min-width: 0; }
-.ds-code-block pre {
-  margin: 0;
-  padding: var(--sem-space-lg);
-  overflow-x: auto;
+.ds-code-block__label {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  flex: 1;
+  min-width: 0;
+}
+.ds-code-block__glyph {
+  flex: none;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+/* A filename is an identifier, so it takes the mono face; a language name is a
+ * word, so it keeps the UI face. */
+.ds-code-block__filename {
+  min-width: 0;
+  font-family: var(--sem-font-family-mono);
+}
+.ds-code-block__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  flex: none;
+}
+/* The actions rest at a quiet ink — visible, never hover-only — and lift under
+ * the pointer and under keyboard focus. Glyphs sit at icon-xs in xs buttons. */
+.ds-code-block__actions .ds-button--icon {
+  color: var(--sem-color-text-subtle);
+}
+.ds-code-block__actions button:focus-visible {
+  color: var(--sem-color-text-default);
+}
+.ds-code-block__actions svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Source. The type and leading live on the body rather than the <pre> so the
+ * fold's `lh` measures a line of code. */
+.ds-code-block__body {
   font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-body);
-  line-height: var(--sem-font-line-relaxed);
+  line-height: var(--sem-font-line-code);
 }
-.ds-code-block--wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ds-code-block pre {
+  margin: 0;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+  font: inherit;
+}
+.ds-code-block--wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Edge fades on an unwrapped block, set by the host on exactly the edges that
+ * have code past them — an edge with nothing beyond it must not fade, or a
+ * complete line looks clipped. A mask rather than an overlay, so there is no
+ * element to select, copy or paint in the card's colour; its stops are an
+ * alpha channel (`black` = opaque), not ink. Static, so nothing to reduce
+ * under prefers-reduced-motion. */
+.ds-code-block pre[data-fade-start] {
+  mask-image: linear-gradient(to right, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-end] {
+  mask-image: linear-gradient(to left, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--sem-space-3xl),
+    black calc(100% - var(--sem-space-3xl)),
+    transparent
+  );
+}
+
+/* A folded long block: the box is clipped to its first twelve lines (COLLAPSED_LINES
+ * in CodeBlock.tsx) and the last few fade out, so it reads as continuing rather
+ * than as ending. The source is all still in the DOM. */
+.ds-code-block__body[data-folded] {
+  max-height: calc(12lh + var(--sem-space-md));
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 3lh), transparent);
+}
+.ds-code-block__fold {
+  display: flex;
+  padding: var(--sem-space-3xs) var(--sem-space-2xs) var(--sem-space-2xs);
+}
+.ds-code-block__chevron {
+  flex: none;
+}
+.ds-code-block__chevron--open {
+  transform: rotate(180deg);
+}
+
 .ds-code-block__note {
   padding: var(--sem-space-xs) var(--sem-space-lg);
+  border-top: 1px solid var(--sem-color-border-subtle);
+  font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-muted);
 }
@@ -9219,6 +9341,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     border-radius: var(--sem-radius-shell);
     background: var(--sem-color-bg-surface);
   }
+.ds-embed-component-code-block {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-code-block .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    max-width: 640px;
+  }
+.ds-embed-component-code-block .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
 .ds-embed-component-command-palette {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -12199,6 +12336,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-well)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-well)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.well</code><code class="catalog-token-value">rgba(32, 36, 40, 0.05)</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">A content well set into a reading surface: a translucent tint of the ink over whatever surface is behind it, so it separates from the conversation canvas, a panel, and a card alike. Code blocks and other preformatted source shown inside prose — content the reader is meant to see as a separate object in the flow, not as chrome. Pair with a border.subtle hairline. <strong>Do not:</strong> Controls, rows, hover or selection (those are bg.hover / bg.selected), and chrome raised above the panel (bg.surface-raised). Never stack a well inside a well: the tints add.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-active)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-active)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.active</code><code class="catalog-token-value">{ref.color.mist-200}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Pressed / active background. Pressed state background on interactive surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected</code><code class="catalog-token-value">{ref.color.mist-250}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Selection in the pane that currently has focus. The selected row of the focused pane or list. Pair with text.primary. <strong>Do not:</strong> A second simultaneous strong selection elsewhere on screen — every other pane drops to bg.selected-resting.</p></div></div>
@@ -12255,6 +12393,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.tight</code><code class="catalog-token-value">1.25</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Display and panel-title line height. Titles and single-line labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-default)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.default</code><code class="catalog-token-value">1.4</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Body and row-label line height. Body copy and row labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-relaxed)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.relaxed</code><code class="catalog-token-value">1.5</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Long-form prose line height. Long-form prose in inspectors and docs.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-code)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.code</code><code class="catalog-token-value">1.6</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Line height for blocks of source code. Multi-line monospace source read line by line — code blocks. The extra leading over relaxed keeps a line's brackets and operators from touching the line above, which prose at the same size does not need. <strong>Do not:</strong> Prose, labels and single-line code (inline code takes the line height of the sentence it sits in).</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.tight</code><code class="catalog-token-value">-0.01em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical tightening for titles at 14px and up. font.size.heading and font.size.title, which read loose at their default metrics. <strong>Do not:</strong> Body or meta text — tightening small text costs legibility.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-normal)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.normal</code><code class="catalog-token-value">0</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default tracking: body, labels, and every row title. All UI text that is not a title or a micro label.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-wide)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.wide</code><code class="catalog-token-value">0.02em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical opening for mono identifiers and micro labels. font.family.mono identifiers and font.size.micro labels, which jam at their default metrics. <strong>Do not:</strong> Uppercase-tracked section headings — the system has none.</p></div></div>
@@ -12325,6 +12464,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div id="foundations-glyphs" class="catalog-view">
 <h3>Glyphs</h3>
 <div class="catalog-glyph-grid">
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M3.3 8.3L6.7 11.3L12.7 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>check</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none">
   <path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>close</figcaption></figure>
@@ -12335,6 +12477,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <circle cx="8" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
   <path d="M1.75 8h3.65M10.6 8h3.65" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>commit</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="6" y="6" width="7.4" height="7.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+  <path d="M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>copy</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M3.75 2.25h5l3.5 3.5v8a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
   <path d="M8.75 2.4v3.2h3.2" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
@@ -12490,6 +12636,40 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M6.5 4.5h6.25M6.5 8h6.25M6.5 11.5h6.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>step-list</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+  <path d="M5 6.5 7 8.5 5 10.5M8.5 10.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>terminal-prompt</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M3.5 4.5 7 8l-3.5 3.5M8.5 11.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-command</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M10.5 3 13 5.5 6 12.5H3.5V10L10.5 3ZM9 4.5 11.5 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-edit</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M2.5 4.5v8h11v-6.5H8L6.5 4.5h-4Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-list</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M10.2 2.7a3 3 0 0 0-3.9 3.9L2.8 10.1a1.4 1.4 0 0 0 2 2l3.5-3.5a3 3 0 0 0 3.9-3.9L10.4 6.5 9.2 6.3 9 5.1l1.2-2.4Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-other</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M9 2.5H4.5v11h7V5L9 2.5ZM9 2.5V5h2.5M6.5 8.5h3M6.5 10.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-read</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM10.25 10.25 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-search</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M3.5 6h9v6.5h-9V6ZM8 3.5V6M6 9h.01M10 9h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-subagent</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M2.75 4.5 4 5.75 6 3.5M2.75 10.5 4 11.75 6 9.5M8.5 5h5M8.5 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-todo</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11ZM8 2.5c-1.6 1.6-2.4 3.4-2.4 5.5s.8 3.9 2.4 5.5M8 2.5c1.6 1.6 2.4 3.4 2.4 5.5s-.8 3.9-2.4 5.5M2.5 8h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-web</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M9 2.5H4.5v11h7V5L9 2.5ZM9 2.5V5h2.5M8 7.5v4M6 9.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>tool-write</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <circle cx="3.75" cy="11.75" r="1.6" stroke="currentColor" stroke-width="1.4"/>
   <circle cx="12.25" cy="4.25" r="1.6" stroke="currentColor" stroke-width="1.4"/>
   <path d="M5.35 11.75H9a2 2 0 0 0 0-4H7a1.75 1.75 0 0 1 0-3.5h3.65" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -12502,6 +12682,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <circle cx="8" cy="9.6" r="1.25" stroke="currentColor" stroke-width="1.2" fill="none"/>
   <path d="M4.25 9.6h2.5M9.25 9.6h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 </svg><figcaption>worktree</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>wrap-lines</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M2.25 4.25h7.5M2.25 7.5h5.5M2.25 10.75h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
   <path d="M12.4 7.9v5.2M9.8 10.5h5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
@@ -14066,6 +14249,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       <span style="font-size: var(--sem-font-size-micro)">?</span>
     </button>
   </div>
+  <div class="demo-row" data-copy-exclude>
+    <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Copy code">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="6" y="6" width="7.4" height="7.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/><path d="M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-button ds-button--icon ds-button--icon-xs ds-button--copied" aria-label="Copy code">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.3 8.3L6.7 11.3L12.7 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <span class="ds-visually-hidden" role="status" aria-live="polite">Copied</span>
+  </div>
   <div class="demo-row" style="align-items: stretch; height: 32px; gap: 0; background: var(--sem-color-bg-surface)">
     <span style="flex: 1"></span>
     <button type="button" class="ds-caption-button" aria-label="Minimize window">
@@ -14118,6 +14310,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       <span style="font-size: var(--sem-font-size-micro)">?</span>
     </button>
   </div>
+  <div class="demo-row" data-copy-exclude>
+    <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Copy code">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="6" y="6" width="7.4" height="7.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/><path d="M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-button ds-button--icon ds-button--icon-xs ds-button--copied" aria-label="Copy code">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.3 8.3L6.7 11.3L12.7 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <span class="ds-visually-hidden" role="status" aria-live="polite">Copied</span>
+  </div>
   <div class="demo-row" style="align-items: stretch; height: 32px; gap: 0; background: var(--sem-color-bg-surface)">
     <span style="flex: 1"></span>
     <button type="button" class="ds-caption-button" aria-label="Minimize window">
@@ -14155,6 +14356,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>They take <code>radius.chip</code> rather than <code>radius.control</code>, because 7px on a 16px square is most of the square.</p>
 <h5>The hairline badge</h5>
 <p><code>ds-button--circle</code> turns the square into a <code>radius.pill</code> ring in <code>border.default</code>, lifting to <code>border.strong</code>, with <strong>no ground at any state</strong>. It is the shape a count or a &quot;?&quot; takes beside a heading, where a filled square would read as a control the heading does not have.</p>
+<h5>The copy glyph</h5>
+<p><code>CopyGlyphButton</code> is the icon step with one behaviour built in, and it is the only copy affordance: a code block's header, a message's action row, a table's footer and an error box all take it, and none of them spells the word &quot;Copy&quot;. A word costs a label's width in chrome that repeats down a whole transcript, and it reads as a second action beside the content rather than a property of it.</p>
+<ul><li><strong>Idle</strong> — the <code>copy</code> glyph on an icon step: <code>--icon-xs</code> (24px, with a 13px glyph) in a dense header, the default <code>sm</code> (26px, 16px glyph) in a toolbar. Neutral ink, the family's hover.</li><li><strong>Confirmed</strong> — on a copy that *landed*, the glyph swaps to <code>check</code> in <code>status.good</code> ink and holds for <strong>1200ms</strong>, then swaps back. No transition: it is a state flip, and the hold is a timer rather than motion, so it takes no duration token. A click while confirmed does nothing — the clipboard already holds it, and re-arming would hold the check for as long as someone clicks.</li><li><strong>Failed</strong> — never the check. The failure goes to the shared toast (&quot;Could not copy to clipboard&quot;), because a copy that did not land must not look like one that did. Success does <strong>not</strong> toast: the swap already happened under the pointer, and a corner toast would be the same news twice, far from the eye.</li></ul>
+<p>Accessibility: the accessible name is the label (&quot;Copy code&quot;) and it never changes — renaming a focused button to &quot;Copied&quot; reads as a different control. The confirmation is announced instead, through a visually hidden, always-present polite live region whose text becomes &quot;Copied&quot;. The tooltip carries the same label, as on every icon-only control.</p>
+<p>The whole control carries <code>data-copy-exclude</code>. It sits inside rendered conversation content, and the selection serialiser drops any subtree so marked, so a selection dragged across a code block copies the code and not its chrome. Its click does not bubble: a copy glyph lives in rows and cards that toggle on click, and copying something must not also collapse it.</p>
+<p>With an <code>html</code> flavour it writes <code>text/html</code> beside <code>text/plain</code>, and falls back to the plain text alone where the rich write is refused.</p>
 <h5>Window caption buttons</h5>
 <p><code>ds-caption-button</code> — the window's own minimise, maximise/restore and close, on the platforms where the frame is ours to draw. It is a <strong>species</strong>, not a size, because every one of its departures is the operating system's rather than the system's, and each would be a defect anywhere else in the product:</p>
 <ul><li><strong>No height and no radius.</strong> It stretches to the title strip and fills its corner square. A rounded caption button floating inside the strip is not what any desktop draws.</li><li><strong><code>size.control.lg</code> wide and no more.</strong> The caption cluster's width is the platform's; it is the one place a control's width is not a content measure.</li><li><strong>A fill on plain <code>:focus</code>,</strong> because that is where the OS-standard keyboard highlight shows. The <strong>ring</strong> is still the product's one focus indicator and is still <code>:focus-visible</code>; this is a second, weaker ground underneath it.</li><li><strong>The ring is drawn inward.</strong> An outset ring at the window's corner is clipped by the frame.</li><li><strong>Close paints the platform's own hover red.</strong> A brand colour of the operating system's in exactly the sense a vendor mark is (*Identity colour*): tokenising it would replace a colour every other window on the machine agrees on with one of ours. It carries its lint marker on the line.</li></ul>
@@ -14188,7 +14395,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <ul><li><strong>Label padding</strong> — 8px at xs/sm, 12px at md. The reference CSS's constant <code>0 var(--sem-space-lg)</code> predates the <code>xs</code> step; applied to a 26px control it is mostly padding.</li><li><strong><code>xs</code> size</strong> — real, in use across dense chrome, and it has a token (<code>size.control.xs</code>). A ramp step the tokens already carry is not drift.</li><li><strong><code>OutlineButton</code></strong> — canonical. It is outlined rather than filled, so the one-accent rule is untouched.</li></ul>
 <p>Control <strong>heights were never drift</strong>: both the reference CSS and the shipped code already sit on <code>size.control.*</code>. The drift ruling's own table listed a 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this entry, and the numbers here come from the tokens.</p>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/Buttons.tsx</code>, exporting <code>PrimaryButton</code>, <code>DangerButton</code>, <code>GhostButton</code>, <code>OutlineButton</code>, <code>IconButton</code>, <code>MediaButton</code>, <code>CaptionButton</code> and <code>CloseIconButton</code> — the last being the canonical close affordance named under Variants, exported separately so no surface has to re-pick the glyph or the label.</p>
+<p><code>src/renderer/src/components/ui/Buttons.tsx</code>, exporting <code>PrimaryButton</code>, <code>DangerButton</code>, <code>GhostButton</code>, <code>OutlineButton</code>, <code>IconButton</code>, <code>MediaButton</code>, <code>CaptionButton</code> and <code>CloseIconButton</code> — the last being the canonical close affordance named under Variants, exported separately so no surface has to re-pick the glyph or the label. <code>CopyGlyphButton</code> (<code>src/renderer/src/components/ui/CopyGlyphButton.tsx</code>) is the copy glyph above, built on <code>IconButton</code> for the same reason.</p>
 <p>The five shapes this family deliberately does <strong>not</strong> absorb each have an entry of their own, and each says why: [row-button](../row-button/component.md), [menu-option](../menu-option/component.md), [trigger-button](../trigger-button/component.md), [card-button](../card-button/component.md), [chip-button](../chip-button/component.md) and [link-button](../link-button/component.md).</p>
 </div>
 </div>
@@ -14320,6 +14527,24 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-button--icon svg {
   width: var(--sem-icon-size-sm);
   height: var(--sem-icon-size-sm);
+}
+
+/* The copy glyph, confirmed: the check holds in the good tone for 1200ms and
+   swaps back. A state flip, not a transition, so nothing here animates. */
+.ds-button--copied,
+.ds-button--copied:hover:not(:disabled) {
+  color: var(--sem-color-status-good);
+}
+
+/* The copy glyph's announcement: present for a screen reader, absent from the
+   page. Always mounted, so the text change is what gets announced. */
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -14607,6 +14832,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;span style=&quot;font-size: var(--sem-font-size-micro)&quot;&gt;?&lt;/span&gt;
     &lt;/button&gt;
   &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot; data-copy-exclude&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Copy code&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;6&quot; y=&quot;6&quot; width=&quot;7.4&quot; height=&quot;7.4&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs ds-button--copied&quot; aria-label=&quot;Copy code&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.3 8.3L6.7 11.3L12.7 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;span class=&quot;ds-visually-hidden&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Copied&lt;/span&gt;
+  &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot; style=&quot;align-items: stretch; height: 32px; gap: 0; background: var(--sem-color-bg-surface)&quot;&gt;
     &lt;span style=&quot;flex: 1&quot;&gt;&lt;/span&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-caption-button&quot; aria-label=&quot;Minimize window&quot;&gt;
@@ -14658,6 +14892,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-3xs ds-button--circle&quot; aria-label=&quot;What this means&quot;&gt;
       &lt;span style=&quot;font-size: var(--sem-font-size-micro)&quot;&gt;?&lt;/span&gt;
     &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot; data-copy-exclude&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Copy code&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;6&quot; y=&quot;6&quot; width=&quot;7.4&quot; height=&quot;7.4&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs ds-button--copied&quot; aria-label=&quot;Copy code&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.3 8.3L6.7 11.3L12.7 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;span class=&quot;ds-visually-hidden&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Copied&lt;/span&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot; style=&quot;align-items: stretch; height: 32px; gap: 0; background: var(--sem-color-bg-surface)&quot;&gt;
     &lt;span style=&quot;flex: 1&quot;&gt;&lt;/span&gt;
@@ -17609,78 +17852,376 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h3>Code block</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-code-block">
-<section class="ds-code-block" aria-label="TypeScript code">
-  <header class="ds-code-block__header"><span class="ds-code-block__label">TypeScript · greeting.ts</span><button class="ds-button ds-button--ghost" aria-pressed="false">Wrap</button><button class="ds-button ds-button--ghost">Copy</button></header>
-  <pre><code><span style="color:var(--sem-syntax-keyword)">const</span> greeting = <span style="color:var(--sem-syntax-string)">"Hello"</span></code></pre>
-</section>
-<div data-mode="dark">
-  <section class="ds-code-block ds-code-block--wrap" aria-label="Wrapped TypeScript code">
-    <header class="ds-code-block__header"><span class="ds-code-block__label">TypeScript</span><button class="ds-button ds-button--ghost" aria-pressed="true">Wrap</button><button class="ds-button ds-button--ghost" disabled>Copy</button></header>
-    <pre><code><span style="color:var(--sem-syntax-comment)">// Streaming code stays selectable</span>
-<span style="color:var(--sem-syntax-keyword)">return</span> greeting</code></pre>
+<div class="demo-stage">
+  <p class="demo-label">Light — a filename, wrap on</p>
+  <section class="ds-code-block ds-code-block--wrap" aria-label="TypeScript code, src/greeting.ts" data-code-block data-code-language="typescript">
+    <div class="ds-code-block__header" data-copy-exclude>
+      <span class="ds-code-block__label">
+        <svg class="ds-code-block__glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 7h3M6 7v4.5M11.5 7.4c-.3-.3-.8-.4-1.2-.4-.7 0-1.2.4-1.2.9 0 1.2 2.5.8 2.5 2.1 0 .6-.6 1-1.3 1-.5 0-1-.2-1.3-.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <span class="ds-code-block__filename">src/greeting.ts</span>
+      </span>
+      <div class="ds-code-block__actions" role="group" aria-label="Code actions">
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Wrap lines" aria-pressed="true" title="Wrap lines">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Copy code" title="Copy code">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="6" y="6" width="7.4" height="7.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/><path d="M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="ds-code-block__body">
+      <pre><code><span style="color:var(--sem-syntax-keyword)">export const</span> greeting = <span style="color:var(--sem-syntax-string)">"Hello, a line long enough to wrap rather than scroll when the pane is narrow"</span></code></pre>
+    </div>
+  </section>
+
+  <p class="demo-label">Light — a shell block with a terminal to paste into</p>
+  <section class="ds-code-block" aria-label="Bash code" data-code-block data-code-language="bash">
+    <div class="ds-code-block__header" data-copy-exclude>
+      <span class="ds-code-block__label">
+        <svg class="ds-code-block__glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 5.5 6 8l-2.5 2.5M7.5 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Bash</span>
+      </span>
+      <div class="ds-code-block__actions" role="group" aria-label="Code actions">
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Paste into terminal" title="Paste into terminal — it runs when you press Enter">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.5 7 8.5 5 10.5M8.5 10.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Wrap lines" aria-pressed="false" title="Wrap lines">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs ds-button--copied" aria-label="Copy code" title="Copy code">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.3 8.3L6.7 11.3L12.7 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="ds-visually-hidden" role="status" aria-live="polite">Copied</span>
+      </div>
+    </div>
+    <div class="ds-code-block__body">
+      <pre data-fade-end><code><span style="color:var(--sem-syntax-function)">npm</span> run typecheck &amp;&amp; <span style="color:var(--sem-syntax-function)">npx</span> vitest run src/renderer/src/components/ui/CodeBlock.test.tsx --reporter=verbose</code></pre>
+    </div>
+  </section>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — a long block, folded</p>
+  <section class="ds-code-block" aria-label="Plain text code" data-code-block data-code-language="">
+    <div class="ds-code-block__header" data-copy-exclude>
+      <span class="ds-code-block__label"><span>Plain text</span></span>
+      <div class="ds-code-block__actions" role="group" aria-label="Code actions">
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Wrap lines" aria-pressed="false" title="Wrap lines">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="ds-button ds-button--icon ds-button--icon-xs" aria-label="Copy code" title="Copy code">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="6" y="6" width="7.4" height="7.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/><path d="M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="ds-code-block__body" id="demo-folded" data-folded>
+      <pre><code>line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+line 20
+line 21
+line 22</code></pre>
+    </div>
+    <div class="ds-code-block__fold" data-copy-exclude>
+      <button type="button" class="ds-button ds-button--ghost" aria-expanded="false" aria-controls="demo-folded">
+        <svg class="ds-code-block__chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="width: var(--sem-icon-size-xs); height: var(--sem-icon-size-xs)"><path d="M6 9.5L12 15L18 9.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Show all 22 lines
+      </button>
+    </div>
   </section>
 </div>
 </div>
 <div class="catalog-doc">
 <h4>Anatomy</h4>
-<p>A neutral bordered code surface with a header for language, optional filename, wrap toggle and copy action. Source uses the mono family and body size. A surface may add its own header actions before Wrap — a conversation offers Run on a shell block — as ghost buttons of the same size.</p>
+<p>A card set into the reading flow: <code>bg.well</code> (a translucent tint of the ink, so it separates from the conversation canvas, a panel or a card alike in both modes), a <code>border.subtle</code> hairline and the control radius. Inside it, top to bottom:</p>
+<p>1. <strong>Header</strong> — one row, set off from the source by a <code>border.subtle</code> divider. - _Left:_ the label. A block with a known filename shows the filename in the mono face, led by its file-type glyph, truncated with the full path in a tooltip. Otherwise the language's name in the UI face — TypeScript, Bash, JSON, never the fence's <code>ts</code> / <code>sh</code> / <code>json</code> — led by the file-type glyph when the vocabulary has one for it. No language is &quot;Plain text&quot;; a language nobody has mapped is shown as the fence wrote it. - _Right:_ the actions, all glyphs at <code>icon-xs</code> inside <code>xs</code> icon buttons, in this order: a surface's own actions, Paste into terminal (shell blocks only, see Variants), Wrap lines, Copy code. 2. <strong>Source</strong> — a real <code>&lt;pre&gt;&lt;code&gt;</code>, mono at <code>font.size.body</code>, leading <code>font.line.code</code> (1.6), padded <code>space.md</code> × <code>space.lg</code>. 3. <strong>Fold control</strong> (long blocks only) — a ghost button with the chevron, &quot;Show all N lines&quot; / &quot;Show less&quot;. 4. <strong>Note</strong> (past 2000 lines only) — &quot;Highlighting stopped at 2000 lines&quot;.</p>
+<p>A filename comes from the fence info: <code>title=&quot;src/app.ts&quot;</code>, <code>file=</code> / <code>filename=</code> / <code>path=</code>, or a bare path after the language (<code> </code>`<code>ts src/app.ts </code>). A fence tag that is itself a path (<code> </code>`<code>src/app.ts </code>) is read as the filename, and the language comes from its extension.</p>
+<p><strong>For code that reads the rendered block</strong> (the selection-to-markdown copy): the root carries <code>data-code-block</code> and <code>data-code-language</code> — the highlighter's id when it knows the language, else the fence's own tag lowercased, else empty. The header, the fold control and the note carry <code>data-copy-exclude</code>. The edge fades are masks on the source, not elements, so there is nothing else to exclude.</p>
 <h4>Variants</h4>
-<p>Unwrapped code scrolls horizontally. Wrapped code preserves whitespace and wraps long lines. Unknown languages keep the same surface with plain source.</p>
+<ul><li><strong>Unwrapped</strong> (default): long lines scroll horizontally. When they overflow, the edges with code past them fade (<code>space.3xl</code>), and only those edges.</li><li><strong>Wrapped</strong>: the Wrap lines toggle is pressed; whitespace is preserved and long lines wrap anywhere. No edge fades.</li><li><strong>Shell</strong> (<code>bash</code>, <code>sh</code>, <code>zsh</code>, <code>shell</code>, <code>console</code>): a surface that can reach a terminal adds Paste into terminal (<code>TerminalPromptGlyph</code>). It puts the command at a prompt and never presses Enter. A <code>$ </code> or <code>% </code> prompt at the start of a line comes off it (an indented one is output, as in curl's progress table); when some lines carry a prompt, only those lines, the lines a trailing <code>\</code> continues onto and the body of a here-document they open are the command, and the rest is output. A <code>console</code> block is a session, so it is offered only when its prompts mark the commands. <code>fish</code> and PowerShell are not offered — their syntax is not the login shell's.</li><li><strong>Unknown language</strong>: the same card with plain source.</li></ul>
 <h4>States</h4>
-<p>Loading reserves the source height without flashing plain code. Streaming keeps completed lines stable and displays the unfinished line as plain text. A failed grammar falls back to plain source. Large blocks label the highlighting limit. Hover and focus on header actions follow the button component. Disabled copy uses the button's disabled state. Light and dark use the same semantic tokens.</p>
+<ul><li><strong>Loading</strong>: the source reserves its height, hidden, until the grammar is in — plain code never flashes before its colour.</li><li><strong>Streaming</strong>: completed lines are highlighted once and stay stable; the open line is plain. Wrap and copy work (copy takes what has arrived). Paste into terminal and the fold control are absent until the block settles.</li><li><strong>Folded</strong>: a settled block over 20 lines shows its first 12, the last few fading out, and &quot;Show all N lines&quot; below. &quot;Show less&quot; folds it again. A block first seen while streaming stays open when it settles, so it never pulls lines away from someone reading them. Every line is in the DOM either way.</li><li><strong>Actions</strong>: at rest <code>text.subtle</code>; <code>text.default</code> under the pointer and under keyboard focus. Wrap lines pressed takes the neutral pressed fill. Copy swaps to the check for 1.2 s on success ([button → The copy glyph](../button/component.md#the-copy-glyph)).</li><li><strong>Failed grammar</strong>: plain source. <strong>Over 2000 lines</strong>: highlighting stops and the note says so.</li></ul>
+<p>Light and dark come from the same semantic tokens.</p>
 <h4>Usage</h4>
 <p>Syntax colours identify grammatical roles inside code only (2026-09-26). They are content, never control accents. Use sem.syntax tokens and do not load the highlighter in the application's initial bundle.</p>
+<p>The actions are always visible, never hover-revealed: a hover-only control is missing on touch and cannot be found from the keyboard. Their quiet ink is what keeps them from competing with the code.</p>
+<p>A surface that already pages its own output (a tool row showing a file read with its own &quot;Show all&quot;) turns folding off (<code>collapsible={false}</code>) rather than stacking a second disclosure. Don't nest a code block inside another well.</p>
 <h4>Accessibility</h4>
-<p>Source stays selectable text in pre/code. Wrap is an aria-pressed toggle. Copy has a spoken name and reports failure or success through the shared toast. Header actions retain visible keyboard focus. No animated loading treatment.</p>
+<ul><li>The card is a <code>section</code> named &quot;‹Language› code&quot; (&quot;, ‹filename›&quot; when there is one).</li><li>Source stays selectable text in <code>pre</code>/<code>code</code>; folding clips the box, never the text, so find-in-page, selection and copy reach every line.</li><li>Every action is an icon button with a spoken name and a matching tooltip: &quot;Paste into terminal&quot;, &quot;Wrap lines&quot;, &quot;Copy code&quot;. Wrap lines is an <code>aria-pressed</code> toggle with a stable name. Copy announces &quot;Copied&quot; politely; a failure reports through the shared toast.</li><li>The fold control is a button with <code>aria-expanded</code> and <code>aria-controls</code> naming the source.</li><li>Header actions keep the visible focus ring. There is no animation to reduce: the fades are static masks, and the fold opens without a transition.</li></ul>
 </div>
 </div>
-<details class="catalog-source"><summary>components/code-block/component.css</summary><pre><code>.ds-code-block {
+<details class="catalog-source"><summary>components/code-block/component.css</summary><pre><code>/* A card set into the reading flow: a translucent well rather than a raised
+ * fill, so it separates from whichever surface it sits on (the conversation
+ * canvas, a panel, a card) in both modes. */
+.ds-code-block {
   border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
-  background: var(--sem-color-bg-surface-raised);
+  background: var(--sem-color-bg-well);
   color: var(--sem-syntax-foreground);
   margin-block: var(--sem-space-lg);
   overflow: hidden;
 }
+
+/* The header is chrome inside the same surface, set off from the source by a
+ * hairline. Its end padding is tighter than its start so the glyph buttons'
+ * own hit areas sit in the corner instead of floating in from it. */
 .ds-code-block__header {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
-  padding: var(--sem-space-xs) var(--sem-space-lg);
+  padding-block: var(--sem-space-3xs);
+  padding-inline: var(--sem-space-lg) var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
   color: var(--sem-color-text-muted);
+  user-select: none;
 }
-.ds-code-block__label { flex: 1; min-width: 0; }
-.ds-code-block pre {
-  margin: 0;
-  padding: var(--sem-space-lg);
-  overflow-x: auto;
+.ds-code-block__label {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  flex: 1;
+  min-width: 0;
+}
+.ds-code-block__glyph {
+  flex: none;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+/* A filename is an identifier, so it takes the mono face; a language name is a
+ * word, so it keeps the UI face. */
+.ds-code-block__filename {
+  min-width: 0;
+  font-family: var(--sem-font-family-mono);
+}
+.ds-code-block__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  flex: none;
+}
+/* The actions rest at a quiet ink — visible, never hover-only — and lift under
+ * the pointer and under keyboard focus. Glyphs sit at icon-xs in xs buttons. */
+.ds-code-block__actions .ds-button--icon {
+  color: var(--sem-color-text-subtle);
+}
+.ds-code-block__actions button:focus-visible {
+  color: var(--sem-color-text-default);
+}
+.ds-code-block__actions svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Source. The type and leading live on the body rather than the &lt;pre&gt; so the
+ * fold's `lh` measures a line of code. */
+.ds-code-block__body {
   font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-body);
-  line-height: var(--sem-font-line-relaxed);
+  line-height: var(--sem-font-line-code);
 }
-.ds-code-block--wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ds-code-block pre {
+  margin: 0;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+  font: inherit;
+}
+.ds-code-block--wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Edge fades on an unwrapped block, set by the host on exactly the edges that
+ * have code past them — an edge with nothing beyond it must not fade, or a
+ * complete line looks clipped. A mask rather than an overlay, so there is no
+ * element to select, copy or paint in the card's colour; its stops are an
+ * alpha channel (`black` = opaque), not ink. Static, so nothing to reduce
+ * under prefers-reduced-motion. */
+.ds-code-block pre[data-fade-start] {
+  mask-image: linear-gradient(to right, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-end] {
+  mask-image: linear-gradient(to left, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--sem-space-3xl),
+    black calc(100% - var(--sem-space-3xl)),
+    transparent
+  );
+}
+
+/* A folded long block: the box is clipped to its first twelve lines (COLLAPSED_LINES
+ * in CodeBlock.tsx) and the last few fade out, so it reads as continuing rather
+ * than as ending. The source is all still in the DOM. */
+.ds-code-block__body[data-folded] {
+  max-height: calc(12lh + var(--sem-space-md));
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 3lh), transparent);
+}
+.ds-code-block__fold {
+  display: flex;
+  padding: var(--sem-space-3xs) var(--sem-space-2xs) var(--sem-space-2xs);
+}
+.ds-code-block__chevron {
+  flex: none;
+}
+.ds-code-block__chevron--open {
+  transform: rotate(180deg);
+}
+
 .ds-code-block__note {
   padding: var(--sem-space-xs) var(--sem-space-lg);
+  border-top: 1px solid var(--sem-color-border-subtle);
+  font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-muted);
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/code-block/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
-&lt;html lang=&quot;en&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;Code block&lt;/title&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot;&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot;&gt;&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot;&gt;&lt;/head&gt;&lt;body&gt;
-&lt;section class=&quot;ds-code-block&quot; aria-label=&quot;TypeScript code&quot;&gt;
-  &lt;header class=&quot;ds-code-block__header&quot;&gt;&lt;span class=&quot;ds-code-block__label&quot;&gt;TypeScript · greeting.ts&lt;/span&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; aria-pressed=&quot;false&quot;&gt;Wrap&lt;/button&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot;&gt;Copy&lt;/button&gt;&lt;/header&gt;
-  &lt;pre&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-keyword)&quot;&gt;const&lt;/span&gt; greeting = &lt;span style=&quot;color:var(--sem-syntax-string)&quot;&gt;&quot;Hello&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
-&lt;/section&gt;
-&lt;div data-mode=&quot;dark&quot;&gt;
-  &lt;section class=&quot;ds-code-block ds-code-block--wrap&quot; aria-label=&quot;Wrapped TypeScript code&quot;&gt;
-    &lt;header class=&quot;ds-code-block__header&quot;&gt;&lt;span class=&quot;ds-code-block__label&quot;&gt;TypeScript&lt;/span&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; aria-pressed=&quot;true&quot;&gt;Wrap&lt;/button&gt;&lt;button class=&quot;ds-button ds-button--ghost&quot; disabled&gt;Copy&lt;/button&gt;&lt;/header&gt;
-    &lt;pre&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-comment)&quot;&gt;// Streaming code stays selectable&lt;/span&gt;
-&lt;span style=&quot;color:var(--sem-syntax-keyword)&quot;&gt;return&lt;/span&gt; greeting&lt;/code&gt;&lt;/pre&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Code block&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    max-width: 640px;
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a filename, wrap on&lt;/p&gt;
+  &lt;section class=&quot;ds-code-block ds-code-block--wrap&quot; aria-label=&quot;TypeScript code, src/greeting.ts&quot; data-code-block data-code-language=&quot;typescript&quot;&gt;
+    &lt;div class=&quot;ds-code-block__header&quot; data-copy-exclude&gt;
+      &lt;span class=&quot;ds-code-block__label&quot;&gt;
+        &lt;svg class=&quot;ds-code-block__glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;2&quot; y=&quot;2&quot; width=&quot;12&quot; height=&quot;12&quot; rx=&quot;2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/&gt;&lt;path d=&quot;M4.5 7h3M6 7v4.5M11.5 7.4c-.3-.3-.8-.4-1.2-.4-.7 0-1.2.4-1.2.9 0 1.2 2.5.8 2.5 2.1 0 .6-.6 1-1.3 1-.5 0-1-.2-1.3-.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;span class=&quot;ds-code-block__filename&quot;&gt;src/greeting.ts&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;div class=&quot;ds-code-block__actions&quot; role=&quot;group&quot; aria-label=&quot;Code actions&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Wrap lines&quot; aria-pressed=&quot;true&quot; title=&quot;Wrap lines&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Copy code&quot; title=&quot;Copy code&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;6&quot; y=&quot;6&quot; width=&quot;7.4&quot; height=&quot;7.4&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-code-block__body&quot;&gt;
+      &lt;pre&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-keyword)&quot;&gt;export const&lt;/span&gt; greeting = &lt;span style=&quot;color:var(--sem-syntax-string)&quot;&gt;&quot;Hello, a line long enough to wrap rather than scroll when the pane is narrow&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a shell block with a terminal to paste into&lt;/p&gt;
+  &lt;section class=&quot;ds-code-block&quot; aria-label=&quot;Bash code&quot; data-code-block data-code-language=&quot;bash&quot;&gt;
+    &lt;div class=&quot;ds-code-block__header&quot; data-copy-exclude&gt;
+      &lt;span class=&quot;ds-code-block__label&quot;&gt;
+        &lt;svg class=&quot;ds-code-block__glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.5 5.5 6 8l-2.5 2.5M7.5 11h5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;span&gt;Bash&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;div class=&quot;ds-code-block__actions&quot; role=&quot;group&quot; aria-label=&quot;Code actions&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Paste into terminal&quot; title=&quot;Paste into terminal — it runs when you press Enter&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;2&quot; y=&quot;3&quot; width=&quot;12&quot; height=&quot;10&quot; rx=&quot;1.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M5 6.5 7 8.5 5 10.5M8.5 10.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Wrap lines&quot; aria-pressed=&quot;false&quot; title=&quot;Wrap lines&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs ds-button--copied&quot; aria-label=&quot;Copy code&quot; title=&quot;Copy code&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.3 8.3L6.7 11.3L12.7 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-visually-hidden&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;Copied&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-code-block__body&quot;&gt;
+      &lt;pre data-fade-end&gt;&lt;code&gt;&lt;span style=&quot;color:var(--sem-syntax-function)&quot;&gt;npm&lt;/span&gt; run typecheck &amp;amp;&amp;amp; &lt;span style=&quot;color:var(--sem-syntax-function)&quot;&gt;npx&lt;/span&gt; vitest run src/renderer/src/components/ui/CodeBlock.test.tsx --reporter=verbose&lt;/code&gt;&lt;/pre&gt;
+    &lt;/div&gt;
   &lt;/section&gt;
 &lt;/div&gt;
-&lt;/body&gt;&lt;/html&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — a long block, folded&lt;/p&gt;
+  &lt;section class=&quot;ds-code-block&quot; aria-label=&quot;Plain text code&quot; data-code-block data-code-language=&quot;&quot;&gt;
+    &lt;div class=&quot;ds-code-block__header&quot; data-copy-exclude&gt;
+      &lt;span class=&quot;ds-code-block__label&quot;&gt;&lt;span&gt;Plain text&lt;/span&gt;&lt;/span&gt;
+      &lt;div class=&quot;ds-code-block__actions&quot; role=&quot;group&quot; aria-label=&quot;Code actions&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Wrap lines&quot; aria-pressed=&quot;false&quot; title=&quot;Wrap lines&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2.5 3.5h11M2.5 8h8.25a2.25 2.25 0 0 1 0 4.5H8M9.5 11 8 12.5 9.5 14M2.5 12.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon ds-button--icon-xs&quot; aria-label=&quot;Copy code&quot; title=&quot;Copy code&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;rect x=&quot;6&quot; y=&quot;6&quot; width=&quot;7.4&quot; height=&quot;7.4&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M3.4 10H3a1 1 0 0 1-1-1V3.4A1.4 1.4 0 0 1 3.4 2H9a1 1 0 0 1 1 1v.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-code-block__body&quot; id=&quot;demo-folded&quot; data-folded&gt;
+      &lt;pre&gt;&lt;code&gt;line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+line 20
+line 21
+line 22&lt;/code&gt;&lt;/pre&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-code-block__fold&quot; data-copy-exclude&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;demo-folded&quot;&gt;
+        &lt;svg class=&quot;ds-code-block__chevron&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; style=&quot;width: var(--sem-icon-size-xs); height: var(--sem-icon-size-xs)&quot;&gt;&lt;path d=&quot;M6 9.5L12 15L18 9.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        Show all 22 lines
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/section&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
 </code></pre></details>
 </div>
 <div id="component-command-palette" class="catalog-view catalog-component">
@@ -24139,7 +24680,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The forty-three SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The fifty-seven SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list — and the copy affordance's pair — copy, and the check it confirms with — and the code block's two — wrap-lines, terminal-prompt — and the chat's ten tool-step marks, <code>tool-*</code>) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -24152,7 +24693,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h4>Variants</h4>
 <p>The variants of this system are its families. Within a family, glyphs share a grid, a stroke, and a naming pattern; across families they share nothing but the ramp and <code>currentColor</code>.</p>
 <h5>Core actions and navigation (24-grid)</h5>
-<p>| Export | Meaning | |---|---| | <code>CheckIcon</code> | Confirmed / applied | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>CopyIcon</code> | Copy to clipboard | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because compose is not create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character | | <code>FolderPlusIcon</code> | Install from a folder on disk — a folder wearing the plus | | <code>ResetIcon</code> | Restore a default: the shortcut a person rebound, a setting they changed | | <code>ReleaseNotesIcon</code> | What changed in this version |</p>
+<p>| Export | Meaning | |---|---| | <code>CheckIcon</code> | Confirmed / applied — <code>glyphs/check.svg</code> is its 16-grid sample | | <code>ChevronDownIcon</code> | Disclosure; rotate for other directions rather than adding siblings | | <code>CopyIcon</code> | Copy to clipboard — <code>glyphs/copy.svg</code> is its 16-grid sample. Reach for it through <code>CopyGlyphButton</code>, which swaps it for <code>CheckIcon</code> on a landed copy ([button → The copy glyph](../button/component.md#the-copy-glyph)) | | <code>NewChatIcon</code> | Compose — pencil-in-square, deliberately *not* a plus, because compose is not create | | <code>WarningIcon</code> | Finding / warning triangle — a real glyph so it scales and inks like one, never the <code>▲</code> character | | <code>FolderPlusIcon</code> | Install from a folder on disk — a folder wearing the plus | | <code>ResetIcon</code> | Restore a default: the shortcut a person rebound, a setting they changed | | <code>ReleaseNotesIcon</code> | What changed in this version |</p>
 <p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
@@ -24205,6 +24746,13 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>Reused, not redrawn, by the same two surfaces: <code>RefreshIcon</code> (re-read the working tree), <code>FileTypeGlyph</code> <code>lock</code> (the padlock), <code>glyphs/commit.svg</code>, <code>glyphs/worktree.svg</code>, <code>glyphs/history.svg</code> (the view strip), and <code>ChevronDownIcon</code> rotated for disclosure.</p>
 <h5>Utility marks (16-grid)</h5>
 <p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> | | <code>WslMachineGlyph</code> | A WSL distribution on this computer, which is a machine of its own (&quot;WSL: Ubuntu&quot;): a terminal window with a prompt, because the distribution is reached as a shell. It is not remote — it sits beside <code>RemoteMachineGlyph</code> in the New chat machine dropdown and must not be mistaken for it — and it is not a Device identity mark, because it names no hardware. Stroke 1.4. <code>glyphs/wsl-machine.svg</code> |</p>
+<h5>Code block actions (16-grid — <code>ui/CodeBlockGlyphs.tsx</code>)</h5>
+<p>The two header actions a code block has beside its copy glyph ([code-block](../code-block/component.md)). Stroke 1.4, <code>currentColor</code>, drawn at <code>icon-xs</code> inside an <code>xs</code> icon button.</p>
+<p>| Export | Asset | Drawing | |---|---|---| | <code>WrapLinesGlyph</code> | <code>glyphs/wrap-lines.svg</code> | A full line, a line that runs to the edge and turns back under itself with an arrowhead, and the short line it continues on. The turn is the meaning; without it the mark is a paragraph icon. A toggle, so it takes the pressed fill when on | | <code>TerminalPromptGlyph</code> | <code>glyphs/terminal-prompt.svg</code> | A terminal frame with a <code>&gt;</code> prompt and the cursor after it: &quot;put this at a terminal's prompt&quot;. Deliberately not the play triangle — nothing runs until the person presses Enter, and a play mark would promise that it does. The same drawing as the terminal pane kind's private glyph (<code>workspace/pane/paneKinds.tsx</code>); see Known drift |</p>
+<h5>Tool step (16-grid — <code>ui/ToolKindGlyph.tsx</code>)</h5>
+<p>*What kind of step did the agent take* — the mark that leads each tool row in a conversation's work log, and the summary row over a group of them. A column of steps is read by shape before it is read by label (&quot;read, read, ran, edited&quot;), so each kind gets one drawing and the label beside it never has to start with the kind. 16-grid, stroke 1.4, <code>currentColor</code>, <code>fill=&quot;none&quot;</code>, decorative (<code>aria-hidden</code>; the row's label says what happened). The glyph carries its kind as <code>data-tool-glyph</code>.</p>
+<p><code>ToolKindGlyph({ kind })</code> takes a <code>ConversationToolKind</code> and falls back to the wrench for anything it does not know. The row owns the ink: the quietest text ink at rest, the accent (pulsing) while the step runs, the error tone when it failed — so the mark doubles as the step's status and the row needs no second status dot.</p>
+<p>| Kind | Drawing | Asset | |---|---|---| | <code>command</code> | A prompt caret and a cursor line | <code>glyphs/tool-command.svg</code> | | <code>file_read</code> | A page with its corner folded and two lines of text | <code>glyphs/tool-read.svg</code> | | <code>file_edit</code> | A pencil | <code>glyphs/tool-edit.svg</code> | | <code>file_write</code> | The page again, wearing a plus: a file made rather than read | <code>glyphs/tool-write.svg</code> | | <code>search</code> | A magnifier, drawn to this family's grid and weight; <code>glyphs/search.svg</code> stays the search field's 11-grid mark | <code>glyphs/tool-search.svg</code> | | <code>list</code> | A folder | <code>glyphs/tool-list.svg</code> | | <code>web</code> | A globe: rim, meridian, equator | <code>glyphs/tool-web.svg</code> | | <code>mcp</code> | <code>McpGlyph</code>, the plug the capability inventory already wears for MCP — one concept, one drawing, so it has no second asset | — | | <code>subagent</code> | A small robot head | <code>glyphs/tool-subagent.svg</code> | | <code>todo</code> | A checklist: two ticks, two lines | <code>glyphs/tool-todo.svg</code> | | <code>other</code> | A wrench | <code>glyphs/tool-other.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
 <p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MachinesSettingsIcon</code> (a screen with a prompt; Windows only), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines). All at <code>iconStroke</code> so the rail reads as one set.</p>
 <h4>States</h4>
@@ -24215,7 +24763,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> A labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>PullRequestGlyph</code> with <code>label</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
 <p>Shipped divergences from the conventions above, with their backlog homes. Cite these rather than matching the code you happen to be nearest.</p>
-<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as the icon-size conformance axis. *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Automations leads rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked in the glyph-slot ruling (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above).</p>
+<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as the icon-size conformance axis. *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Automations leads rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked in the glyph-slot ruling (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above). 7. <strong>Two copies of the terminal-prompt drawing.</strong> <code>TerminalPromptGlyph</code> (<code>ui/CodeBlockGlyphs.tsx</code>, stroke 1.4) and the terminal pane kind's private <code>TerminalGlyph</code> (<code>workspace/pane/paneKinds.tsx</code>, stroke 1.5) are the same frame, <code>&gt;</code> and cursor. The pane kind should import the kit's export and drop its own copy.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/glyphs/component.css</summary><pre><code>/* Glyphs — the sizing and ink contract for the icon vocabulary.
@@ -38693,6 +39241,10 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p><strong>Ruling — tabular figures in the UI face, not the mono family.</strong> The intent above said &quot;mono tabular numerals&quot;. The UI face already has tabular figures, and switching family mid-row is a louder change than the alignment it buys, in a row whose labels are UI-face.</p>
 <p><strong>Not migrated: <code>ThirdPartyModuleList</code>.</strong> Named in the intent above as a third variant, but it is a module *editor* — rows of tiles, capability chips and per-module toggles. <code>&lt;table&gt;</code> semantics are wrong for configurable rows, and the rewrite would be large for no accessibility gain.</p>
 <p><strong><code>DiagnosticsContent</code> keeps one local cell rule</strong> deliberately: every cell is <code>whitespace-nowrap</code>, because a wrapped PID or byte count destroys the column scan those tables exist for. Sharing the table chrome does not mean a surface gives up the one thing that is genuinely local to it.</p>
+<h4>Usage — a table in rendered markdown</h4>
+<p>A table an agent writes into a reply, a plan or a document is drawn by the markdown renderer (<code>utils/markdown.tsx</code>) on this same chrome: header rule in <code>border.default</code>, row hairlines in <code>border.subtle</code>, no verticals, no header fill, tabular figures, and GFM column alignment carried to every cell. Three things differ, each because the table sits in prose rather than in a panel:</p>
+<ul><li><strong>The header is in strong ink, semibold.</strong> In a panel the header labels columns of chrome and steps back; in a reply it is the author's own words and reads with the headings around it.</li><li><strong>In a conversation it is sized to its content and scrolls.</strong> Squeezed to the pane, a column breaks an id at every hyphen and a number across two lines. A cell wraps only past a cap (a readable line, never most of the pane), a wider table scrolls inside the pane, and the edge that hides columns fades so a cut-off table does not read as one that ends there. Its outer columns sit flush with the prose.</li><li><strong>A footer copies it whole.</strong> A selection of a table pastes as runs of cells, so the table carries the copy glyph (Markdown, with an HTML flavour so a rich editor pastes a real table) and a menu beside it for CSV and TSV. The footer is <code>data-copy-exclude</code> and always visible: two quiet glyphs, and a menu opened from it must not vanish with the pointer. A CSV or TSV cell that a spreadsheet would run as a formula (one opening with <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code>, other than a plain signed number) goes out behind a <code>'</code>, so it pastes as text.</li></ul>
+<p>The conversation's prose around it is one ramp step per rung, not a document's: body at <code>heading</code> (14px, relaxed leading) in <code>text.default</code>, headings compressed to <code>title</code> / <code>heading</code> / <code>body</code>, and headings, <code>strong</code> and inline code in <code>text.primary</code> — the contrast between the two inks, not size, is what makes the important words stand out.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/table/component.css</summary><pre><code>/* Table — the shared header/row/cell chrome for genuinely tabular data:

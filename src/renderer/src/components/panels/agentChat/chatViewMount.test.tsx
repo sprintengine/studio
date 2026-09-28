@@ -46,6 +46,19 @@ vi.mock('@legendapp/list/react', () => ({
   }),
 }))
 
+// Decoding an image needs a real <img> and canvas, which jsdom lacks; what the
+// composer does with the decoded attachment is what these tests drive.
+vi.mock('./imageAttachments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./imageAttachments')>()),
+  readImageAttachment: async (file: File, id: string) => ({
+    id,
+    mediaType: file.type || 'image/png',
+    dataBase64: 'iVBORw0KGgo=',
+    name: file.name,
+    byteLength: 8,
+  }),
+}))
+
 type SendTurn = (input: {
   mode?: string
   message?: string
@@ -365,8 +378,8 @@ test('a turn never shows a dollar figure, even when the provider reports one', a
   const chat = await mountChat({ events, capabilities: { cost: true } })
   try {
     expect(chat.host.textContent).not.toContain('$')
-    // The elapsed time and Copy stay under the reply.
-    expect(chat.button('Copy')).toBeDefined()
+    // The elapsed time and the copy glyph stay under the reply.
+    expect(chat.host.querySelector('button[aria-label="Copy reply"]')).not.toBeNull()
   } finally {
     await chat.unmount()
   }
@@ -709,6 +722,197 @@ test('a pasted image path that can no longer be read goes in as text, with the r
     expect(chat.host.textContent).toContain(
       'Could not attach Screenshot 2026-09-27 at 22.41.31.png: the file no longer exists.',
     )
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a send that fails offers Retry, which sends that message again and empties the composer', async () => {
+  const sendTurn = vi
+    .fn<SendTurn>()
+    .mockResolvedValueOnce({ ok: false, message: 'The provider is restarting.' })
+    .mockResolvedValueOnce({ ok: true })
+  const chat = await mountChat({ sendTurn })
+  try {
+    await chat.act(async () => chat.type('Rerun the migration'))
+    await chat.act(async () => chat.enter())
+    expect(chat.host.textContent).toContain('The provider is restarting.')
+    expect(chat.host.querySelector('textarea')!.value, 'the message is handed back').toBe('Rerun the migration')
+    await chat.act(async () => chat.button('Retry')!.click())
+    expect(sendTurn).toHaveBeenCalledTimes(2)
+    expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'Rerun the migration' })
+    expect(chat.host.querySelector('textarea')!.value).toBe('')
+    expect(chat.button('Retry')).toBeUndefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Retry sends the failed message as it was, even after the composer was edited', async () => {
+  const sendTurn = vi
+    .fn<SendTurn>()
+    .mockResolvedValueOnce({ ok: false, message: 'The provider is restarting.' })
+    .mockResolvedValueOnce({ ok: true })
+  const chat = await mountChat({ sendTurn })
+  try {
+    await chat.act(async () => chat.type('Rerun the migration'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => chat.type('Something else entirely'))
+    await chat.act(async () => chat.button('Retry')!.click())
+    expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'Rerun the migration' })
+    expect(chat.host.querySelector('textarea')!.value).toBe('Something else entirely')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Retry after an edit takes the failed send’s images with it, so the next send does not upload them again', async () => {
+  const sendTurn = vi
+    .fn<SendTurn>()
+    .mockResolvedValueOnce({ ok: false, message: 'The provider is restarting.' })
+    .mockResolvedValue({ ok: true })
+  const chat = await mountChat({ capabilities: { images: true }, sendTurn })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.readImageDataUrl = async () =>
+    'data:image/png;base64,iVBORw0KGgo='
+  const attached = () => chat.host.querySelector('[aria-label="Remove shot.png"]')
+  try {
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/Desktop/shot.png' },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    expect(attached(), 'the pasted image is on the composer').not.toBeNull()
+    await chat.act(async () => chat.type('What is wrong in this screenshot?'))
+    await chat.act(async () => chat.enter())
+    expect(attached(), 'a failed send hands its image back').not.toBeNull()
+    await chat.act(async () => chat.type('Something else entirely'))
+    await chat.act(async () => chat.button('Retry')!.click())
+    expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'What is wrong in this screenshot?' })
+    expect(chat.host.querySelector('textarea')!.value).toBe('Something else entirely')
+    expect(attached(), 'the retry took the image').toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('an error that is not a failed send has no Retry', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({
+    capabilities: { images: true },
+    sendTurn,
+    events: [event('user_message', { turnId: 'a', text: 'Earlier message' })],
+  })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.readImageDataUrl = async () => {
+    throw new Error('ENOENT: no such file')
+  }
+  try {
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => '/tmp/gone/Screenshot.png' },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    expect(chat.host.textContent).toContain('Could not attach Screenshot.png')
+    expect(chat.button('Retry'), 'nothing to send again').toBeUndefined()
+    expect(sendTurn).not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('Esc in the composer stops a running turn, and does nothing while the chat is idle', async () => {
+  const turn = runningTurnSend()
+  const interrupt = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn: turn.sendTurn })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
+  const escape = () =>
+    chat.host
+      .querySelector('textarea')!
+      .dispatchEvent(new chat.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  try {
+    await chat.act(async () => escape())
+    expect(interrupt, 'no turn to stop').not.toHaveBeenCalled()
+    await chat.act(async () => chat.type('Investigate the flaky test'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't1' }) })
+    })
+    await chat.act(async () => escape())
+    expect(interrupt).toHaveBeenCalledOnce()
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+test('Esc in the composer leaves a turn that is waiting on a request alone', async () => {
+  const turn = runningTurnSend()
+  const interrupt = vi.fn(async () => ({ ok: true }))
+  const chat = await mountChat({ sendTurn: turn.sendTurn, capabilities: { approvals: true } })
+  ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
+  try {
+    await chat.act(async () => chat.type('Run the tests'))
+    await chat.act(async () => chat.enter())
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't1' }) })
+      chat.emit({
+        type: 'event',
+        event: event('approval_requested', {
+          turnId: 't1',
+          requestId: 'approval-1',
+          action: 'Bash',
+          summary: 'npm test',
+          input: { command: 'npm test' },
+        }),
+      })
+    })
+    await chat.act(async () =>
+      chat.host
+        .querySelector('textarea')!
+        .dispatchEvent(
+          new chat.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        ),
+    )
+    expect(interrupt, 'the turn is paused on the request, not stopped').not.toHaveBeenCalled()
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
+test('copying a selection of the conversation puts its markdown on the clipboard', async () => {
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 'a', text: 'Summarise the change' }),
+      event('turn_started', { turnId: 'a' }),
+      event('content_delta', { turnId: 'a', text: '## Result\n\nThe **cache** is fixed.' }),
+      event('turn_completed', { turnId: 'a' }),
+    ],
+  })
+  try {
+    const log = chat.host.querySelector('[role="log"]')!
+    const heading = Array.from(log.querySelectorAll('h2')).find((node) => node.textContent === 'Result')!
+    const paragraph = Array.from(log.querySelectorAll('p')).find((node) => node.textContent === 'The cache is fixed.')!
+    const range = chat.dom.window.document.createRange()
+    range.setStartBefore(heading)
+    range.setEndAfter(paragraph)
+    const selection = chat.dom.window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    const written: Record<string, string> = {}
+    const copy = new chat.dom.window.Event('copy', { bubbles: true, cancelable: true })
+    Object.defineProperty(copy, 'clipboardData', {
+      value: { setData: (type: string, value: string) => void (written[type] = value) },
+    })
+    await chat.act(async () => {
+      paragraph.dispatchEvent(copy)
+    })
+    expect(copy.defaultPrevented).toBe(true)
+    expect(written['text/plain']).toBe('## Result\n\nThe **cache** is fixed.')
+    expect(written['text/html']).toContain('<h2>Result</h2>')
   } finally {
     await chat.unmount()
   }
