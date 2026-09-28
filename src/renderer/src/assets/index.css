@@ -130,7 +130,7 @@
  * has no counterpart for that variable; everything it does name is aliased.
  * The seventeen other theme blocks stay literal throughout. */
 :root,
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   /* Anti-dither baseline: every solid hex channel value is a multiple of 4
      in 8-bit (lower two bits = 0). This lands every surface on the native
      LUT of 6-bit-FRC panels, eliminating temporal dithering as a source of
@@ -542,7 +542,7 @@
    Vercel Light, Stripe Light. Surface, text, border, accent-soft,
    tone-soft, and scrollbar tokens override; semantic tone hexes, tool
    identity dots, accent hue, and structural scales stay constant. */
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   /* Anti-dither baseline (multiples of 4); pure white #ffffff and pure
      black are kept as-is — every panel renders the extremes natively. */
   /* App is a touch greyer than the white card surfaces so panels/cards read as
@@ -646,7 +646,7 @@
 /* Slate uses a neutral grey ramp, lighter than the default ink scale so
    adjacent editor surfaces remain distinct. The accent stays brand blue.
    Anti-dither baseline. */
-:root[data-theme='slate'] {
+:root[data-theme="slate"] {
   --bg-app: #202020;
   --bg-surface: #242424;
   --bg-surface-raised: #2c2c30;
@@ -689,7 +689,7 @@
    reference: f.lux, Apple Night Shift, incandescent bulb. Anti-dither
    baseline (channel values are multiples of 4; warm R>G>B tint preserved
    by rounding direction where a half-step would have flipped it). */
-:root[data-theme='lantern'] {
+:root[data-theme="lantern"] {
   --bg-app: #181408;
   --bg-surface: #1c1810;
   --bg-surface-raised: #242018;
@@ -732,7 +732,7 @@
 /* Tokyo Night — Folke's iconic theme. Cool muted purple-blue base
    with crisp cyan accents. Premium "night coding" aesthetic. Anti-dither
    baseline. */
-:root[data-theme='tokyo-night'] {
+:root[data-theme="tokyo-night"] {
   --bg-app: #181824;
   --bg-surface: #1c1c28;
   --bg-surface-raised: #24283c;
@@ -773,7 +773,7 @@
 
 /* Rose Pine — soft mauve-lavender base with muted rose accent. Designer-
    coded "thoughtful" palette (rosepinetheme.com). Anti-dither baseline. */
-:root[data-theme='rose-pine'] {
+:root[data-theme="rose-pine"] {
   --bg-app: #181420;
   --bg-surface: #1c1828;
   --bg-surface-raised: #241c34;
@@ -820,7 +820,7 @@
    overrides the semantic tones — the dark catalogue's luminous-on-dark tones
    wash out on cream — and flips error ink to white over the deep red. Anti-
    dither baseline (channels in multiples of 4); pure white #ffffff exempt. */
-:root[data-theme='vellum'] {
+:root[data-theme="vellum"] {
   /* App is a touch deeper than the card surfaces so panels read as elevated
      paper against the canvas (same step as Light), warm throughout. */
   --bg-app: #e8e0d0;
@@ -905,7 +905,7 @@
    luminous tones wash out on light) and flips error ink to white. Shares the
    light-surface git-lane / pill / highlight legibility overrides below.
    Anti-dither baseline: channels in multiples of 4; pure white #ffffff exempt. */
-:root[data-theme='herbarium'] {
+:root[data-theme="herbarium"] {
   /* Sage-olive chrome canvas (G >= R > B) vs warm-parchment cards — the
      warm/cool split is the whole identity. App is the sage the sidebar wears. */
   --bg-app: #d4dcc0;
@@ -990,7 +990,7 @@
    A green-accented, warm-light sibling of Herbarium, but cream-dominant (vs
    Herbarium's sage-dominant canvas) so the green accent pops on cream rather
    than muddying on sage. Shares the light-theme legibility overrides below. */
-:root[data-theme='paper'] {
+:root[data-theme="paper"] {
   --bg-app: #f4f1e8; /* cream canvas — matches the website body */
   --bg-surface: #fbf9f2; /* warm near-white panel/card, elevated above cream */
   --bg-surface-raised: #fdfcf7;
@@ -1066,7 +1066,7 @@
    to Fernery so the chrome stays calm and recedes, with the terracotta accent
    carrying the only saturation. Green tint preserved by keeping G >= R > B.
    Anti-dither baseline. */
-:root[data-theme='sage'] {
+:root[data-theme="sage"] {
   --bg-app: #20241c;
   --bg-surface: #282c20;
   --bg-surface-raised: #303428;
@@ -1136,7 +1136,7 @@
    is pushed to a saturated teal-emerald so it never reads as a second sage next
    to the muted accent (green lives in the accent + canvas; success separates by
    saturation + hue). Anti-dither baseline: channel values are multiples of 4. */
-:root[data-theme='herbarium-dark'] {
+:root[data-theme="herbarium-dark"] {
   /* Dark sage-slate ramp; faint olive tint preserved by keeping G >= R > B.
      Calmer and greyer than the saturated Sage/Fernery chrome so the sage accent
      carries the identity, not the surfaces. App sits a step under the cards. */
@@ -1261,10 +1261,10 @@ samp,
 /* Light-surface themes already render a legible dark glyph — inverting it there
  * would wash it out. (sage/fernery/greenhouse are dark mid-greens, so they keep
  * the inverted glyph above.) */
-:root[data-theme='light'] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme='vellum'] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme='herbarium'] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme='paper'] .time-control::-webkit-calendar-picker-indicator {
+:root[data-theme="light"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="vellum"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="herbarium"] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme="paper"] .time-control::-webkit-calendar-picker-indicator {
   filter: none;
   opacity: 0.7;
 }
@@ -1503,10 +1503,10 @@ samp,
 /* Light-theme legibility: deepen lane strokes and pull pill labels to
  * majority-ink, same fix as the highlight palette. Shared by every light-
  * surface theme (Light, Vellum). */
-:root[data-theme='light'],
-:root[data-theme='vellum'],
-:root[data-theme='herbarium'],
-:root[data-theme='paper'] {
+:root[data-theme="light"],
+:root[data-theme="vellum"],
+:root[data-theme="herbarium"],
+:root[data-theme="paper"] {
   --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
   --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
   --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);
@@ -1517,52 +1517,52 @@ samp,
   --git-lane-7: color-mix(in oklab, var(--text-strong) 35%, #ff5a5f);
 }
 
-:root[data-theme='light'] .git-ref-pill-0,
-:root[data-theme='herbarium'] .git-ref-pill-0,
-:root[data-theme='paper'] .git-ref-pill-0,
-:root[data-theme='vellum'] .git-ref-pill-0 {
+:root[data-theme="light"] .git-ref-pill-0,
+:root[data-theme="herbarium"] .git-ref-pill-0,
+:root[data-theme="paper"] .git-ref-pill-0,
+:root[data-theme="vellum"] .git-ref-pill-0 {
   color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff);
 }
-:root[data-theme='light'] .git-ref-pill-1,
-:root[data-theme='herbarium'] .git-ref-pill-1,
-:root[data-theme='paper'] .git-ref-pill-1,
-:root[data-theme='vellum'] .git-ref-pill-1 {
+:root[data-theme="light"] .git-ref-pill-1,
+:root[data-theme="herbarium"] .git-ref-pill-1,
+:root[data-theme="paper"] .git-ref-pill-1,
+:root[data-theme="vellum"] .git-ref-pill-1 {
   color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa);
 }
-:root[data-theme='light'] .git-ref-pill-2,
-:root[data-theme='herbarium'] .git-ref-pill-2,
-:root[data-theme='paper'] .git-ref-pill-2,
-:root[data-theme='vellum'] .git-ref-pill-2 {
+:root[data-theme="light"] .git-ref-pill-2,
+:root[data-theme="herbarium"] .git-ref-pill-2,
+:root[data-theme="paper"] .git-ref-pill-2,
+:root[data-theme="vellum"] .git-ref-pill-2 {
   color: color-mix(in oklab, var(--text-strong) 55%, #30d158);
 }
-:root[data-theme='light'] .git-ref-pill-3,
-:root[data-theme='herbarium'] .git-ref-pill-3,
-:root[data-theme='paper'] .git-ref-pill-3,
-:root[data-theme='vellum'] .git-ref-pill-3 {
+:root[data-theme="light"] .git-ref-pill-3,
+:root[data-theme="herbarium"] .git-ref-pill-3,
+:root[data-theme="paper"] .git-ref-pill-3,
+:root[data-theme="vellum"] .git-ref-pill-3 {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42);
 }
-:root[data-theme='light'] .git-ref-pill-4,
-:root[data-theme='herbarium'] .git-ref-pill-4,
-:root[data-theme='paper'] .git-ref-pill-4,
-:root[data-theme='vellum'] .git-ref-pill-4 {
+:root[data-theme="light"] .git-ref-pill-4,
+:root[data-theme="herbarium"] .git-ref-pill-4,
+:root[data-theme="paper"] .git-ref-pill-4,
+:root[data-theme="vellum"] .git-ref-pill-4 {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3);
 }
-:root[data-theme='light'] .git-ref-pill-5,
-:root[data-theme='herbarium'] .git-ref-pill-5,
-:root[data-theme='paper'] .git-ref-pill-5,
-:root[data-theme='vellum'] .git-ref-pill-5 {
+:root[data-theme="light"] .git-ref-pill-5,
+:root[data-theme="herbarium"] .git-ref-pill-5,
+:root[data-theme="paper"] .git-ref-pill-5,
+:root[data-theme="vellum"] .git-ref-pill-5 {
   color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf);
 }
-:root[data-theme='light'] .git-ref-pill-6,
-:root[data-theme='herbarium'] .git-ref-pill-6,
-:root[data-theme='paper'] .git-ref-pill-6,
-:root[data-theme='vellum'] .git-ref-pill-6 {
+:root[data-theme="light"] .git-ref-pill-6,
+:root[data-theme="herbarium"] .git-ref-pill-6,
+:root[data-theme="paper"] .git-ref-pill-6,
+:root[data-theme="vellum"] .git-ref-pill-6 {
   color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f);
 }
-:root[data-theme='light'] .git-ref-pill-7,
-:root[data-theme='herbarium'] .git-ref-pill-7,
-:root[data-theme='paper'] .git-ref-pill-7,
-:root[data-theme='vellum'] .git-ref-pill-7 {
+:root[data-theme="light"] .git-ref-pill-7,
+:root[data-theme="herbarium"] .git-ref-pill-7,
+:root[data-theme="paper"] .git-ref-pill-7,
+:root[data-theme="vellum"] .git-ref-pill-7 {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f);
 }
 /* design-tokens-allow-end */
@@ -1576,167 +1576,167 @@ samp,
  * label, and the tab fills/borders are deepened so the coloured tab registers
  * against white. Higher specificity wins regardless of source order.
  * design-tokens-allow-block: user-chosen highlight palette, hue literals */
-:root[data-theme='light'] .highlight-text-red,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='herbarium'] .highlight-text-red,
-:root[data-theme='paper'] .highlight-text-red,
-:root[data-theme='vellum'] .highlight-text-red,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red {
+:root[data-theme="light"] .highlight-text-red,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="herbarium"] .highlight-text-red,
+:root[data-theme="paper"] .highlight-text-red,
+:root[data-theme="vellum"] .highlight-text-red,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f);
 }
-:root[data-theme='light'] .highlight-text-orange,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='herbarium'] .highlight-text-orange,
-:root[data-theme='paper'] .highlight-text-orange,
-:root[data-theme='vellum'] .highlight-text-orange,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange {
+:root[data-theme="light"] .highlight-text-orange,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="herbarium"] .highlight-text-orange,
+:root[data-theme="paper"] .highlight-text-orange,
+:root[data-theme="vellum"] .highlight-text-orange,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42);
 }
-:root[data-theme='light'] .highlight-text-amber,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='herbarium'] .highlight-text-amber,
-:root[data-theme='paper'] .highlight-text-amber,
-:root[data-theme='vellum'] .highlight-text-amber,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber {
+:root[data-theme="light"] .highlight-text-amber,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="herbarium"] .highlight-text-amber,
+:root[data-theme="paper"] .highlight-text-amber,
+:root[data-theme="vellum"] .highlight-text-amber,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber {
   color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f);
 }
-:root[data-theme='light'] .highlight-text-green,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='herbarium'] .highlight-text-green,
-:root[data-theme='paper'] .highlight-text-green,
-:root[data-theme='vellum'] .highlight-text-green,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green {
+:root[data-theme="light"] .highlight-text-green,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="herbarium"] .highlight-text-green,
+:root[data-theme="paper"] .highlight-text-green,
+:root[data-theme="vellum"] .highlight-text-green,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green {
   color: color-mix(in oklab, var(--text-strong) 55%, #30d158);
 }
-:root[data-theme='light'] .highlight-text-blue,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='herbarium'] .highlight-text-blue,
-:root[data-theme='paper'] .highlight-text-blue,
-:root[data-theme='vellum'] .highlight-text-blue,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue {
+:root[data-theme="light"] .highlight-text-blue,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="herbarium"] .highlight-text-blue,
+:root[data-theme="paper"] .highlight-text-blue,
+:root[data-theme="vellum"] .highlight-text-blue,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue {
   color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff);
 }
-:root[data-theme='light'] .highlight-text-purple,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='herbarium'] .highlight-text-purple,
-:root[data-theme='paper'] .highlight-text-purple,
-:root[data-theme='vellum'] .highlight-text-purple,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple {
+:root[data-theme="light"] .highlight-text-purple,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="herbarium"] .highlight-text-purple,
+:root[data-theme="paper"] .highlight-text-purple,
+:root[data-theme="vellum"] .highlight-text-purple,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple {
   color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa);
 }
-:root[data-theme='light'] .highlight-text-pink,
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='herbarium'] .highlight-text-pink,
-:root[data-theme='paper'] .highlight-text-pink,
-:root[data-theme='vellum'] .highlight-text-pink,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink {
+:root[data-theme="light"] .highlight-text-pink,
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="herbarium"] .highlight-text-pink,
+:root[data-theme="paper"] .highlight-text-pink,
+:root[data-theme="vellum"] .highlight-text-pink,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink {
   color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3);
 }
 
 /* Deepen the tab fill/border so the coloured tab itself reads on white. */
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red {
   background: rgba(255, 90, 95, 0.16);
   border-color: rgba(255, 90, 95, 0.52);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
   background: rgba(255, 90, 95, 0.28);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange {
   background: rgba(255, 140, 66, 0.16);
   border-color: rgba(255, 140, 66, 0.52);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
   background: rgba(255, 140, 66, 0.28);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber {
   background: rgba(255, 191, 47, 0.18);
   border-color: rgba(255, 191, 47, 0.52);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
   background: rgba(255, 191, 47, 0.3);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green {
   background: rgba(48, 209, 88, 0.16);
   border-color: rgba(48, 209, 88, 0.52);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
   background: rgba(48, 209, 88, 0.28);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue {
   background: rgba(92, 124, 255, 0.16);
   border-color: rgba(92, 124, 255, 0.55);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
   background: rgba(92, 124, 255, 0.28);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple {
   background: rgba(167, 139, 250, 0.16);
   border-color: rgba(167, 139, 250, 0.55);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
   background: rgba(167, 139, 250, 0.28);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink {
   background: rgba(255, 126, 179, 0.16);
   border-color: rgba(255, 126, 179, 0.55);
 }
-:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
+:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
   background: rgba(255, 126, 179, 0.28);
 }
 /* design-tokens-allow-end */
@@ -3468,12 +3468,12 @@ body:has([data-selection-pane]:focus-within)
    floating on a cool field); the interior grid reads as calm parchment seams
    divided by each panel's own border, not a loud green lattice. Hover still lifts
    to a neutral tone so the divider stays discoverable. */
-:root[data-theme='herbarium'] .flexlayout__splitter {
+:root[data-theme="herbarium"] .flexlayout__splitter {
   background: transparent;
 }
 
-:root[data-theme='herbarium'] .flexlayout__splitter:hover,
-:root[data-theme='herbarium'] .flexlayout__splitter_drag {
+:root[data-theme="herbarium"] .flexlayout__splitter:hover,
+:root[data-theme="herbarium"] .flexlayout__splitter_drag {
   background: var(--border-default);
 }
 
