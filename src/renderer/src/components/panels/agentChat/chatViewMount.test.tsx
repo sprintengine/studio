@@ -917,3 +917,94 @@ test('copying a selection of the conversation puts its markdown on the clipboard
     await chat.unmount()
   }
 })
+
+// The `/` menu over a Claude Code chat whose CLI reported two commands.
+async function mountCommandChat(sendTurn: SendTurn = async () => ({ ok: true })) {
+  const chat = await mountChat({
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    capabilities: { reasoningEfforts: ['low', 'high'] },
+    sendTurn,
+  })
+  const { resetConversationCommandsCache } = await import('./useConversationCommands')
+  resetConversationCommandsCache()
+  Object.assign(chat.dom.window.api, {
+    conversationCommands: async ({ cli, cwd }: { cli: string; cwd: string }) => ({
+      cli,
+      cwd,
+      fetchedAt: Date.now(),
+      commands: [
+        { name: 'compact', description: 'Summarize the conversation', source: 'cli' },
+        { name: 'review', description: 'Review a pull request', argumentHint: '[pr-number]', source: 'custom' },
+      ],
+    }),
+  })
+  const field = () => chat.host.querySelector('textarea')!
+  const key = (name: string) =>
+    chat.act(async () => {
+      field().dispatchEvent(
+        new chat.dom.window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
+      )
+    })
+  const options = () => Array.from(chat.dom.window.document.querySelectorAll('[role="option"]'))
+  return { ...chat, field, key, options }
+}
+
+test('picking a command from the / menu inserts it as text with the caret after it, and shows what it takes', async () => {
+  const chat = await mountCommandChat()
+  try {
+    await chat.act(async () => chat.type('/rev'))
+    expect(chat.field().getAttribute('aria-expanded')).toBe('true')
+    expect(chat.options().map((row) => row.textContent)).toEqual([expect.stringContaining('/review')])
+    await chat.key('Enter')
+    expect(chat.field().value).toBe('/review ')
+    expect(chat.field().selectionStart).toBe('/review '.length)
+    expect(chat.field().getAttribute('aria-expanded')).toBe('false')
+    expect(chat.host.textContent).toContain('/review [pr-number]')
+    await chat.act(async () => chat.type('/review 12'))
+    expect(chat.host.textContent, 'the hint goes once the person types').not.toContain('[pr-number]')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('/model from the menu opens the model picker and leaves nothing to send', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountCommandChat(sendTurn)
+  try {
+    await chat.act(async () => chat.type('/mod'))
+    expect(chat.options()[0]?.textContent).toContain('/model')
+    await chat.key('Enter')
+    expect(chat.field().value).toBe('')
+    expect(chat.dom.window.document.querySelector('[role="listbox"][aria-label="Agent runtime"]')).not.toBeNull()
+    expect(sendTurn).not.toHaveBeenCalled()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('/effort from the menu steps the chat to its next effort', async () => {
+  const chat = await mountCommandChat()
+  try {
+    await chat.act(async () => chat.type('/eff'))
+    await chat.key('Tab')
+    expect(chat.field().value).toBe('')
+    expect(chat.agent().conversationReasoningEffort).toBe('low')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a / command the menu does not know is sent as typed', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountCommandChat(sendTurn)
+  try {
+    await chat.act(async () => chat.type('/zzz'))
+    expect(chat.options()).toHaveLength(0)
+    await chat.key('Enter')
+    expect(sendTurn).toHaveBeenCalledOnce()
+    expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: '/zzz' })
+  } finally {
+    await chat.unmount()
+  }
+})

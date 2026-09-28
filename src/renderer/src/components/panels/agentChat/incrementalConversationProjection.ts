@@ -34,6 +34,8 @@ function entryKey(entry: TranscriptEntry): string {
       return `approval:${entry.requestId}`
     case 'compaction':
       return `compaction:${entry.id}`
+    case 'commandOutput':
+      return `commandOutput:${entry.id}`
   }
 }
 

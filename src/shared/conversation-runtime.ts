@@ -35,6 +35,11 @@ export type ConversationEventType =
   // `trigger` 'manual' | 'auto', `preTokens`, `postTokens`). Additive: a
   // client that does not know it skips it, as the wire validator allows.
   | 'context_compacted'
+  // What a command the CLI ran without the model printed (`/context`,
+  // `/usage`; payload: `output`, `command` without its slash). `adapterNote:
+  // true` marks a line the adapter wrote about the command instead, such as a
+  // `/clear` having started a new conversation. Additive, as above.
+  | 'command_output'
   | 'turn_completed'
   | 'turn_failed'
 

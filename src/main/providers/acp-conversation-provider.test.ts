@@ -8,8 +8,11 @@ import {
   acpToolKind,
   confinedAcpPath,
   createAcpConversationProvider,
+  probeAcpConversationCommands,
 } from './acp-conversation-provider'
 import type { ConversationEvent, ConversationPermissionPreset } from '../../shared/conversation-runtime'
+import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
+import { conversationCommandsFor, onConversationCommandsChanged } from '../conversation-commands/registry'
 
 // A separate process speaks JSON-RPC over real stdio, including agent-to-client
 // permission and file requests. No installed CLI or network is needed in CI.
@@ -23,20 +26,25 @@ const request=(method,params)=>new Promise(resolve=>{const id=++serial;pending.s
 createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
- if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[]});
+ if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
    opened=m.method;
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
-   return result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
+   result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
+   // Like Cursor and OpenCode: the command list follows the new session, outside any turn. STRAY
+   // text goes first, so a test that has seen the list knows the text was read too.
+   if(m.method==='session/new'){if(process.env.STRAY)update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'STRAY OUTSIDE A TURN'}});update({sessionUpdate:'available_commands_update',availableCommands:[{name:'review',description:'Review changes',input:{hint:'[commit|branch]'}},{name:'triage',description:'Sort the open issues. (builtin skill)'},{name:'changelog',description:'Draft a changelog entry. (global)'},{name:'always-approve',description:'Toggle approvals',input:{hint:'on|off'}},{name:'exit',description:'Leave'}]})}
+   return;
  }
  if(m.method==='session/set_mode')return result(m.id,{});
  if(m.method==='session/set_config_option'){if(p.configId==='model')model=p.value;return result(m.id,{configOptions:[]})}
  if(m.method==='session/cancel'){if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
  if(m.method!=='session/prompt')return result(m.id,{});
  prompt=m.id;const text=p.prompt[0].text;
+ if(text.startsWith('/')){if(text==='/refresh')update({sessionUpdate:'available_commands_update',availableCommands:[{name:'fresh',description:'Replaced list'}]});update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ran '+text}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text.includes('inspect history')){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text}});result(m.id,{stopReason:'end_turn'});return}
  if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened,model,permission:process.env.OPENCODE_PERMISSION??null})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text==='crash')process.exit(2);
@@ -53,7 +61,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
  result(m.id,{stopReason:'end_turn',usage:{inputTokens:10,outputTokens:2,totalTokens:12}});prompt=null;
 });
 `
-async function fixture(resume = false, lostSessionId?: string) {
+async function fixture(resume = false, lostSessionId?: string, env: Record<string, string> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'acp-provider-'))
   const input = {
     sessionId: 'session',
@@ -84,7 +92,7 @@ async function fixture(resume = false, lostSessionId?: string) {
     },
     {
       detect: async () => process.execPath,
-      buildEnv: async () => ({ PATH: process.env.PATH, ...(resume ? { NO_LOAD: '1' } : {}) }),
+      buildEnv: async () => ({ PATH: process.env.PATH, ...(resume ? { NO_LOAD: '1' } : {}), ...env }),
       startupTimeoutMs: 2000,
     },
   )
@@ -560,5 +568,78 @@ test('a model switch lands on the ACP session config before the next prompt, and
     expect((await launched(f)).model, 'the CLI default row maps back to the model it started on').toBe('model-one')
   } finally {
     await f.cleanup()
+  }
+})
+
+test('ACP publishes the command list the agent sends outside a turn, filtered for chat, without touching turn state', async () => {
+  const published: ConversationCommandCatalog[] = []
+  const stop = onConversationCommandsChanged((catalog) => published.push(catalog))
+  const f = await fixture(false, undefined, { STRAY: '1' })
+  try {
+    // The handshake's list, then the session's, which replaces it.
+    const own = published.filter((catalog) => catalog.cwd === f.root && catalog.cli === 'test')
+    expect(own[0]?.commands.map((command) => command.name)).toEqual(['handshake'])
+    await expect.poll(() => conversationCommandsFor('test', f.root).commands.length).toBe(3)
+    expect(conversationCommandsFor('test', f.root).commands).toEqual([
+      { name: 'review', description: 'Review changes', argumentHint: '[commit|branch]', source: 'cli' },
+      { name: 'triage', description: 'Sort the open issues.', source: 'skill' },
+      { name: 'changelog', description: 'Draft a changelog entry.', source: 'custom' },
+    ])
+    // Text the agent streamed outside a turn is not carried into the next one.
+    const events = await turn(f, 'first')
+    expect(events.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text)).toEqual([
+      'Done',
+    ])
+    expect(events.at(-1)?.type).toBe('turn_completed')
+  } finally {
+    stop()
+    await f.cleanup()
+  }
+})
+test('ACP replaces the published command list when the agent sends a new one', async () => {
+  const f = await fixture()
+  try {
+    await expect.poll(() => conversationCommandsFor('test', f.root).commands.length).toBe(3)
+    const events = await turn(f, '/refresh')
+    expect(events.at(-1)?.type).toBe('turn_completed')
+    expect(conversationCommandsFor('test', f.root).commands).toEqual([
+      { name: 'fresh', description: 'Replaced list', source: 'cli' },
+    ])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP sends a leading slash command as the prompt itself, and replays lost history with the next message', async () => {
+  const f = await fixture(false, 'gone')
+  try {
+    const ran = (await turn(f, '/review HEAD~1')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(ran).toBe('ran /review HEAD~1')
+    const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(content).toContain('persisted question')
+    expect(content).toContain('inspect history')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP lists the commands an agent gives in its handshake without opening a session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acp-probe-'))
+  try {
+    const commands = await probeAcpConversationCommands(
+      {
+        id: 'probe-acp',
+        displayName: 'Test agent',
+        cli: 'probe-test',
+        argv: ['-e', agent],
+        authHint: '',
+        images: false,
+        planMode: false,
+      },
+      { cwd: root },
+      { detect: async () => process.execPath, buildEnv: async () => ({ PATH: process.env.PATH }) },
+    )
+    expect(commands).toEqual([{ name: 'handshake', description: 'Listed before any session', source: 'cli' }])
+    expect(conversationCommandsFor('probe-test', root).commands).toEqual(commands)
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })

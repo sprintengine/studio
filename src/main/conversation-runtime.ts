@@ -20,6 +20,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSkillRef,
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
@@ -47,7 +48,11 @@ import {
   toolOutputStreamPath,
   TOOL_PREVIEW_CHARS,
 } from './conversation-tool-details'
-import { createConversationSkillsResolver, type ConversationSkillsResolver } from './conversation-skills'
+import {
+  createConversationSkillsResolver,
+  type ConversationSkillsResolver,
+  type ResolvedConversationSkills,
+} from './conversation-skills'
 import { resolveConversationMentions } from './conversation-mentions'
 import { ConversationCheckpoints } from './conversation-checkpoints'
 import { ConversationIndex } from './conversation-index'
@@ -76,6 +81,8 @@ import { createOpenAiCompatibleProvider } from './providers/openai-compatible-pr
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
 import { createCodexConversationProvider } from './providers/codex-conversation-provider'
 import { ACP_PROFILES, createAcpConversationProvider } from './providers/acp-conversation-provider'
+import { leadingCommandFor } from './conversation-commands/leading-command'
+import { cliForConversationProvider } from '../shared/conversation-harness'
 import { workspaceSidecarPath } from './workspace-sidecar'
 import {
   ConversationEventLog,
@@ -118,6 +125,10 @@ type RuntimeSession = ConversationSessionSummary & {
   checkpointNotice?: string
   checkpointNoticeSent?: boolean
   revertedNote?: string
+  // Skills attached to a message that opened with a slash command. The CLI
+  // runs that message as the command, so they wait here and go with the next
+  // message that is not one, exactly once.
+  pendingSkills?: ConversationSkillRef[]
   approvalRequests: Map<string, ApprovalRuleRequest>
   automaticApprovals: Map<string, string>
   cliRuntimes?: ConversationCliRuntimeOverrides
@@ -482,12 +493,26 @@ export class ConversationRuntime {
     if (input.mode === 'plan' && !session.capabilities?.planMode)
       return { ok: false, message: 'This provider does not support plan mode.' }
 
-    let skills: Awaited<ReturnType<ConversationSkillsResolver>>
+    // A message that opens with a slash command is run by the CLI, which reads
+    // everything after the name as its arguments: skill text would push the
+    // command into prose ahead of it or into its arguments after it. So that
+    // turn goes without its skills, and they wait on the session for the next
+    // message that is not a command. Only a stateful provider is a CLI that
+    // runs commands; any other takes `/word` as prose, and its skills ride as a
+    // system message beside the text rather than in it.
+    const opensWithCommand =
+      session.stateful &&
+      leadingCommandFor(message, {
+        cli: cliForConversationProvider(session.providerId),
+        cwd: session.workspaceRoot,
+      }) !== null
+    const turnSkills = opensWithCommand ? [] : [...(session.pendingSkills ?? []), ...(input.skills ?? [])]
+    let skills: ResolvedConversationSkills
     let mentions: Awaited<ReturnType<typeof resolveConversationMentions>>
     try {
       skills = await this.resolveSkills({
         workspaceRoot: session.workspaceRoot,
-        skills: input.skills ?? [],
+        skills: turnSkills,
         mode: adapter.capabilities?.skills ?? 'none',
       })
       mentions = await resolveConversationMentions({
@@ -513,12 +538,18 @@ export class ConversationRuntime {
     // steer over a turn that has since ended is an ordinary send.
     if (isSessionBusy(session) && !input.steer)
       return { ok: false, message: 'Conversation turn is already in progress.' }
+    // The resolver keeps one of each skill, so a skill attached again is sent once.
+    if (opensWithCommand) {
+      if (input.skills?.length) session.pendingSkills = [...(session.pendingSkills ?? []), ...input.skills]
+    } else session.pendingSkills = undefined
     // What the provider is handed: stateful providers own their history, so
     // they get the message with the skill context it needs; others get the
-    // history below as well.
+    // history below as well. A command turn goes without the reverted-files
+    // note for the reason above; the note stays with the session and rides
+    // every later turn.
     const providerMessage = [
-      session.stateful ? skills.context : undefined,
-      session.revertedNote,
+      session.stateful && !opensWithCommand ? skills.context : undefined,
+      opensWithCommand ? undefined : session.revertedNote,
       message,
       mentions.context,
     ]

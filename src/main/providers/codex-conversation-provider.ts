@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import type {
+  ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationPermissionPreset,
   ConversationToolKind,
@@ -17,6 +18,9 @@ import {
   type CodexRpcTransport,
   type RpcMessage,
 } from './codex-json-rpc'
+import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
+import type { ConversationCommand } from '../../shared/conversation/commands'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
 type RecordValue = Record<string, unknown>
@@ -62,6 +66,8 @@ type ActiveTurn = {
   deferredApprovals: Map<string, (item: RecordValue) => void>
   message: string
   text: string
+  // A `/compact` turn: Codex runs it from `thread/compact/start`, not a prompt.
+  compact: boolean
 }
 type Session = {
   closed: boolean
@@ -124,7 +130,7 @@ export function createCodexConversationProvider(
     if (!state.turn) return
     for (const requestId of state.pending.keys()) emit(state, 'approval_resolved', { requestId, approved: false })
     state.pending.clear()
-    if (!failure && !interrupted && !state.turn.cancelled)
+    if (!failure && !interrupted && !state.turn.cancelled && !state.turn.compact)
       state.history.push({ user: state.turn.message, assistant: state.turn.text })
     emit(
       state,
@@ -243,6 +249,12 @@ export function createCodexConversationProvider(
       } else raise(known ?? {})
       return
     }
+    // Codex watches its skill folders and says when they change, whether or
+    // not a turn is running; the list is asked for again rather than patched.
+    if (message.method === 'skills/changed') {
+      void publishSkills(state, true)
+      return
+    }
     if (!turn) return
     const method = message.method
     if (method === 'turn/started') {
@@ -288,6 +300,13 @@ export function createCodexConversationProvider(
         id = text(item.id)
       if (!id) return
       const complete = method === 'item/completed'
+      // Codex summarised the thread: on `/compact`, or on its own when the
+      // window filled mid-turn. The transcript marks the seam the same way it
+      // does for Claude Code.
+      if (item.type === 'contextCompaction') {
+        if (complete) emit(state, 'context_compacted', { trigger: turn.compact ? 'manual' : 'auto' })
+        return
+      }
       if (item.type === 'agentMessage' && complete && !turn.textItems.has(id)) {
         emit(state, 'content_delta', { text: text(item.text) })
         turn.textItems.add(id)
@@ -332,6 +351,25 @@ export function createCodexConversationProvider(
         native.status === 'failed' ? text(record(native.error).message) || 'Codex turn failed.' : undefined,
         native.status === 'interrupted',
       )
+    }
+  }
+  // The composer's `/` menu for this folder: `/compact`, which this adapter
+  // runs, and the skills Codex lists for the folder as `$name` mentions.
+  async function publishSkills(state: Session, forceReload = false) {
+    const transport = state.transport
+    const cwd = state.input.workspaceRoot ?? ''
+    if (!transport || !cwd) return
+    try {
+      const listed = await transport.request('skills/list', { cwds: [cwd], ...(forceReload ? { forceReload } : {}) })
+      publishConversationCommands({ cli: 'codex', cwd, commands: codexConversationCommands(listed, cwd) })
+    } catch (error) {
+      if (state.transport !== transport) return
+      publishConversationCommands({
+        cli: 'codex',
+        cwd,
+        commands: [],
+        error: error instanceof Error ? error.message : 'Codex could not list its skills.',
+      })
     }
   }
   async function ensureConnected(state: Session) {
@@ -389,6 +427,7 @@ export function createCodexConversationProvider(
         const id = text(record(result.thread).id)
         if (!id) throw new Error('Codex did not return a conversation identity.')
         state.threadId = id
+        void publishSkills(state)
         if (resumeLost) state.replayHistory = true
         emit(state, 'session_updated', {
           providerSessionId: id,
@@ -444,6 +483,18 @@ export function createCodexConversationProvider(
         spawnedAt: null,
       }
       sessions.set(input.sessionId, state)
+      // The app-server starts with the first turn, and its skills follow. Until
+      // then the menu offers what needs no app-server to know, unless a list
+      // for this folder is already in hand. It goes in as not yet answered
+      // (`fetchedAt` 0): the folder's skills are still to be asked for, and a
+      // stand-in must neither hold that ask off nor be cached as the answer.
+      if (input.workspaceRoot && !conversationCommandsFor('codex', input.workspaceRoot).commands.length)
+        publishConversationCommands({
+          cli: 'codex',
+          cwd: input.workspaceRoot,
+          commands: [CODEX_COMPACT_COMMAND],
+          fetchedAt: 0,
+        })
       return [event(state, 'session_started'), event(state, 'session_ready')]
     },
     async *sendTurn(input: MockAdapterTurnInput) {
@@ -451,6 +502,7 @@ export function createCodexConversationProvider(
       if (!state) throw new Error('Codex conversation is not active.')
       if (state.turn) throw new Error('Codex is already running a turn.')
       if (input.mode === 'plan') throw new Error('This Codex connection does not support plan mode.')
+      const compact = codexCompactRequest(input.message, input.attachments?.length ?? 0)
       const queue = new EventQueue()
       state.turn = {
         id: input.turnId,
@@ -463,6 +515,7 @@ export function createCodexConversationProvider(
         deferredApprovals: new Map(),
         message: input.message,
         text: '',
+        compact: compact !== null,
       }
       emit(state, 'turn_started')
       const abort = () => {
@@ -473,11 +526,28 @@ export function createCodexConversationProvider(
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
+          if (compact === 'refuse')
+            return finish(
+              state,
+              'Send /compact on its own: Codex compacts the conversation without instructions or images.',
+            )
+          // A thread that has not had a turn yet has nothing to summarise.
+          if (compact && !state.threadId && !state.history.length)
+            return finish(state, 'There is no conversation to compact yet.')
           // Capture before starting the autonomous turn, not after an edit notification.
           await state.input.onBeforeTool?.('Edit')
           await ensureConnected(state)
           if (state.closed || !state.turn || state.turn.cancelled || input.signal?.aborted) {
             finish(state, undefined, true)
+            return
+          }
+          // Compaction is a turn of its own on Codex's side: `turn/started`,
+          // a `contextCompaction` item and `turn/completed` arrive as for any
+          // turn and close this one. Sent as text it would only reach the
+          // model as a message to answer.
+          if (compact) {
+            await state.transport!.request('thread/compact/start', { threadId: state.threadId })
+            if (state.turn?.cancelled || input.signal?.aborted) await interrupt(state)
             return
           }
           // Ask can inspect, never escalate an attempted write through approval.
@@ -636,7 +706,7 @@ async function interrupt(state: Session): Promise<void> {
   if (!state.turn.nativeId || !state.transport) return
   await state.transport.request('turn/interrupt', { threadId: state.threadId, turnId: state.turn.nativeId })
 }
-async function resolveExecutable(input: MockAdapterSessionInput): Promise<string> {
+async function resolveExecutable(input: Pick<MockAdapterSessionInput, 'cliRuntimes'>): Promise<string> {
   if (input.cliRuntimes?.codex?.hostId && input.cliRuntimes.codex.hostId !== 'local')
     throw new Error('Codex conversation requires a local CLI runtime.')
   const { detectCli } = await import('../cli-runtime-install')
@@ -670,6 +740,50 @@ export function codexChildEnv(env: NodeJS.ProcessEnv, input: Pick<MockAdapterSes
     delete next[key]
   next.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
   return next
+}
+
+/**
+ * Codex's `/` menu for a folder before any chat there has started, published
+ * for the composer. A short-lived app-server is asked only for its skills and
+ * closed: it opens no thread and needs no sign-in, so it leaves nothing behind
+ * and costs no model call.
+ */
+export async function probeCodexConversationCommands(
+  input: { cwd: string; cliRuntimes?: ConversationCliRuntimeOverrides },
+  options: {
+    resolveExecutable?: (input: Pick<MockAdapterSessionInput, 'cliRuntimes'>) => Promise<string>
+    buildEnv?: () => Promise<NodeJS.ProcessEnv>
+    createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
+  } = {},
+): Promise<ConversationCommand[]> {
+  const command = await (options.resolveExecutable ?? resolveExecutable)(input)
+  const env =
+    (await options.buildEnv?.()) ??
+    (await (async () => {
+      const { getTerminalEnv } = await import('../terminal-launch')
+      const next = codexChildEnv(getTerminalEnv(), { sessionId: '' })
+      delete next.SPRINTENGINE_CONVERSATION_SESSION_ID
+      return next
+    })())
+  const transport = (options.createTransport ?? createCodexRpcTransport)({
+    command,
+    cwd: input.cwd,
+    env,
+    onMessage: () => undefined,
+    onClose: () => undefined,
+    timeoutMs: 15_000,
+  })
+  try {
+    await transport.request('initialize', {
+      clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
+    })
+    transport.notify('initialized', {})
+    const commands = codexConversationCommands(await transport.request('skills/list', { cwds: [input.cwd] }), input.cwd)
+    publishConversationCommands({ cli: 'codex', cwd: input.cwd, commands })
+    return commands
+  } finally {
+    transport.close()
+  }
 }
 
 /** Codex's answer to `thread/resume` says the thread does not exist, rather than that it cannot be used right now. */

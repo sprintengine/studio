@@ -65,7 +65,7 @@ let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
-registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
+const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
 })
@@ -314,6 +314,7 @@ registerAppLifecycle({
   workspaceSyncService: services.workspaceSyncService,
   removeSessionIntegrations: services.removeSessionIntegrations,
   canvasService: services.canvasService,
+  conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,
   analytics: services.analytics,

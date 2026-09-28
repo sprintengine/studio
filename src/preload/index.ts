@@ -17,6 +17,7 @@ import { cliModelDiscoveryApi } from './api/cli-model-discovery'
 import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
+import { conversationCommandsApi } from './api/conversation-commands'
 import { conversationPeekApi } from './api/conversation-peek'
 import { pullRequestApi } from './api/pull-request'
 import { credentialApi } from './api/credential'
@@ -88,6 +89,7 @@ const api = {
   ...modulesApi,
   ...pluginsApi,
   ...conversationApi,
+  ...conversationCommandsApi,
   ...conversationPeekApi,
   ...pullRequestApi,
   ...credentialApi,

@@ -229,6 +229,8 @@ export type {
 } from './version-control'
 import type { SprintEngineAuthState } from './ipc/account'
 import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
+import type { ConversationCommandsRequest } from './ipc/conversation-commands'
+import type { ConversationCommandCatalog } from './conversation/commands'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -1301,6 +1303,10 @@ export type ElectronApi = {
   // produced, whoever asked, and returns the unsubscribe.
   cliModelsDiscover: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
   onCliModelsChanged: (cb: (result: CliModelDiscoveryResult) => void) => () => void
+  // A chat composer's slash commands for one CLI in one folder, and every
+  // list main hears afterwards (src/main/conversation-commands).
+  conversationCommands: (input: ConversationCommandsRequest) => Promise<ConversationCommandCatalog>
+  onConversationCommandsChanged: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
