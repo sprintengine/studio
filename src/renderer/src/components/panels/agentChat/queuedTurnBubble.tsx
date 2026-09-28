@@ -3,6 +3,11 @@
 // conversation above the composer. It waits for the turn to end on its own;
 // "Send now" hands it to the running turn instead (a steer), and Edit takes it
 // back into the composer.
+//
+// It floats over the foot of the transcript rather than taking a band of its
+// own, so the conversation stays readable beside it. Only the bubble and its
+// action line are solid and take the pointer; the rest of its width lets the
+// transcript through, to the eye and to clicks and scrolling.
 
 import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
@@ -62,8 +67,8 @@ export function QueuedTurnBubble({
       ? `Give this to the agent while it works (${shortcutLabel})`
       : `Stop the reply and send this instead (${shortcutLabel})`)
   return (
-    <div role="group" aria-label="Queued message" className="mb-2 flex flex-col items-end">
-      <div className="max-w-[76%] rounded-sm border border-dashed border-[color:var(--border-default)] px-3 py-1.5">
+    <div role="group" aria-label="Queued message" className="pointer-events-none flex flex-col items-end">
+      <div className="pointer-events-auto max-w-[76%] rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5">
         {attachments.length > 0 ? (
           <div className={`flex flex-wrap justify-end gap-1.5 ${text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
@@ -77,7 +82,7 @@ export function QueuedTurnBubble({
           </p>
         ) : null}
       </div>
-      <div className="mt-1 flex items-center justify-end gap-2">
+      <div className="pointer-events-auto mt-1 flex items-center justify-end gap-2 rounded-sm bg-[color:var(--bg-surface)] pl-2">
         <span className="text-meta leading-5 text-[color:var(--text-muted)]">Queued · sends when this turn ends</span>
         <Tooltip content={sendNowHint} placement="top">
           <GhostButton size="inline" disabled={sendNow.disabled} onClick={onSendNow}>
