@@ -13,6 +13,7 @@
   "contents": {
     "foundations": ["foundations/tokens.tokens.json", "foundations/principles.md"],
     "components": [
+      "agent-glyph",
       "attachment-chip",
       "badge",
       "banner",

@@ -530,7 +530,7 @@ test('designSystemConformance', async () => {
     })
 
     await run('the peek card composes: a corner, a ring, a file row and a thread', () => {
-      assert.ok(peekContainer.querySelector('.agent-working-dots'), 'the corner drew the sidebar’s mark')
+      assert.ok(peekContainer.querySelector('.working-mark'), 'the corner drew the sidebar’s mark')
       assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
       assert.ok(peekContainer.querySelector('[aria-label^="Open the diff for"]'), 'the changed file drew as a link')
       assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
@@ -550,20 +550,20 @@ test('designSystemConformance', async () => {
 
     await run('the corner is the sidebar’s working mark, never a status dot', () => {
       // The whole point of the 2026-09-09 revision: the row says "working" with
-      // three staggered dots, so a pulsing disc six pixels away on the card would
+      // the working mark, so a pulsing disc six pixels away on the card would
       // be two vocabularies for one fact.
       for (const element of subtree(peekContainer)) {
         for (const token of classesOf(element)) {
           assert.ok(
             !/^animate-pulse$/.test(token),
-            `the card wears the working dots, never a second liveness idiom — found \`${token}\``,
+            `the card wears the working mark, never a second liveness idiom — found \`${token}\``,
           )
         }
       }
-      const dots = peekContainer.querySelector('.agent-working-dots')
-      assert.equal(dots?.getAttribute('role'), 'img', 'the mark carries the state')
+      const mark = peekContainer.querySelector('.working-mark')
+      assert.equal(mark?.getAttribute('role'), 'img', 'the mark carries the state')
       assert.equal(
-        dots?.getAttribute('aria-label'),
+        mark?.getAttribute('aria-label'),
         '2 running',
         'in words, and the visible word beside it is decorative so nothing is announced twice',
       )

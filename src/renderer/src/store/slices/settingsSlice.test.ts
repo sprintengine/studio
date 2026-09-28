@@ -842,21 +842,32 @@ test('settingsSlice', async () => {
   )
 
   // Appearance: windowMaterial is a second axis beside theme.
-  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'glass' })
+  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'glass', agentCharacters: true })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
     theme: 'sage',
     windowMaterial: 'glass',
+    agentCharacters: true,
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
-    { theme: 'sage', windowMaterial: 'tinted' },
+    { theme: 'sage', windowMaterial: 'tinted', agentCharacters: true },
     'tinted is a stored material in its own right',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'glass' },
+    { theme: 'sage', windowMaterial: 'glass', agentCharacters: true },
     'a persisted appearance predating the material axis hydrates to the glass default',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: false }).agentCharacters,
+    false,
+    'turning the characters off is kept',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: 'no' }).agentCharacters,
+    true,
+    'a malformed value falls back to characters on',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),

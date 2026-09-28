@@ -135,7 +135,7 @@
 /* The working note — a search in flight, or an install-and-use round trip —
  * is a line IN the list, never beside the query: a note on the field's own
  * line read as part of what was typed. The word and the liveness component's
- * working dots (components/liveness), not a static ellipsis: the marker the
+ * working mark (components/liveness), not a static ellipsis: the marker the
  * system already uses for "alive right now, for an unknown duration". */
 .ds-command-palette-status {
   display: flex;

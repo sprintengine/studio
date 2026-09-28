@@ -36,12 +36,12 @@ import {
   IconButton,
   Input,
   LifecycleGlyph,
-  AgentWorkingDots,
   RowButton,
   StarGlyph,
   StatusDot,
   Tooltip,
   TruncatedText,
+  WorkingMark,
 } from '../ui'
 import { Modal, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExtensionsRail } from './ExtensionsRail'
@@ -1702,7 +1702,7 @@ function WorkspaceSidebar({
   // until it is opened.
   //
   // The seat and the surface are the local rows' own (owner ruling
-  // 2026-09-05): the working dots with how long the turn has run, the gold
+  // 2026-09-05): the working mark with how long the turn has run, the gold
   // surface for a turn waiting on a person, a quiet time since an idle row
   // last worked. No status dot — that vocabulary was already spoken for.
   const renderRemoteConversationRow = (
@@ -2984,7 +2984,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     rowIsLive && !options?.settled && !options?.snoozed ? conversationSessions : NO_CONVERSATIONS
   const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
-  // The row's status seat: run glyph / working dots + elapsed / tone dot /
+  // The row's status seat: run glyph / working mark + elapsed / tone dot /
   // idle recency, with the hover-revealed row actions layered over it.
   //
   // Owner ruling 2026-09-04: this used to live on line 1, where its
@@ -3164,7 +3164,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
           </RowTooltip>
         ) : null}
-        {/* Active work earns the three-dot working marker; the other
+        {/* Active work earns the working mark; the other
             attention states keep the tone dot. */}
         {/* An attention row renders NO dot: the row's own gold surface is the
             mark, and status-dot's spec calls a dot beside something already
@@ -3173,7 +3173,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         {!runGlyph && tone && !needsAttention ? (
           activity === 'working' ? (
             <>
-              <AgentWorkingDots label={activityLabel(activity)} />
+              <WorkingMark label={activityLabel(activity)} seed={workspace.id} />
               {/* How long the turn has been running. The workspace-level
                   activity above decides WHETHER work is in flight (hooks are
                   the authority on that); the terminal snapshot only supplies
@@ -3625,8 +3625,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
 })
 
 /**
- * A chat line's own seat, for a line that does not carry the row's: working
- * dots while a turn runs, else how long since its last turn finished — what a
+ * A chat line's own seat, for a line that does not carry the row's: the
+ * working mark while a turn or its background agents run, else how long since
+ * its last turn finished — what a
  * terminal line's seat says (TerminalLineView), so a row with a terminal and a
  * chat can tell you when each one stopped. A chat waiting on a person says so
  * in its text; the row's gold surface is the mark.
@@ -3635,7 +3636,8 @@ function ConversationLineSeat({ session, now }: { session: ConversationSessionSu
   const phase = conversationSummaryPhase(session)
   const finishedAt = conversationFinishedAt(session)
   let content: React.ReactNode = null
-  if (phase === 'running' || phase === 'starting') content = <AgentWorkingDots label="Agent working" />
+  if (phase === 'running' || phase === 'starting')
+    content = <WorkingMark label="Agent working" seed={session.agentId} />
   else if (finishedAt !== null && formatRelativeMs(finishedAt, now)) {
     content = (
       <RowTooltip

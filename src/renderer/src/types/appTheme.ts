@@ -296,4 +296,7 @@ export function effectiveWindowMaterial(material: WindowMaterial, platform: stri
 export type AppearanceSettings = {
   theme: AppTheme
   windowMaterial: WindowMaterial
+  // Draw each spawned agent as a small character that moves while it works.
+  // Off, an agent is a working mark while it runs and a lifecycle glyph after.
+  agentCharacters: boolean
 }

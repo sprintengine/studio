@@ -596,6 +596,8 @@ code {
 #ds-view-foundations-doc-principles:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-foundations-doc-principles"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-components:checked ~ .ds-catalog #components { display: block; }
 #ds-view-components:checked ~ .ds-catalog #components .catalog-view { display: block; }
+#ds-view-component-agent-glyph:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-agent-glyph:checked ~ .ds-catalog #component-agent-glyph { display: block; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog #component-attachment-chip { display: block; }
 #ds-view-component-badge:checked ~ .ds-catalog #components { display: block; }
@@ -720,6 +722,8 @@ code {
 #ds-view-component-workspace-panel:checked ~ .ds-catalog #component-workspace-panel { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-agent-glyph:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-agent-glyph:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-agent-glyph"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-attachment-chip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-attachment-chip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-attachment-chip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-badge:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -860,6 +864,298 @@ code {
 #ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
+/* components/agent-glyph/component.css */
+/* Agent glyph — a spawned agent drawn as a small character.
+ *
+ * The drawing is currentColor line work on the 16px glyph grid; the state
+ * picks the ink. While its agent works the character moves, each part on its
+ * own loop; done, failed and stopped characters stand still. The motion lives
+ * here with its reduced-motion guard, so a consumer cannot forget it. */
+
+.ds-agent-glyph {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  overflow: visible;
+}
+
+.ds-agent-glyph--working {
+  color: var(--sem-color-accent-primary);
+}
+.ds-agent-glyph--done,
+.ds-agent-glyph--stopped,
+.ds-agent-glyph--unknown {
+  color: var(--sem-color-text-subtle);
+}
+.ds-agent-glyph--failed {
+  color: var(--sem-color-status-danger);
+}
+
+/* Parts turn and scale about their own box, so each keyframe names its pivot. */
+.ds-agent-glyph * {
+  transform-box: fill-box;
+}
+
+@keyframes ds-agent-glyph-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.2px);
+  }
+}
+@keyframes ds-agent-glyph-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes ds-agent-glyph-look {
+  0%,
+  20%,
+  100% {
+    transform: translateX(0);
+  }
+  30%,
+  55% {
+    transform: translateX(1px);
+  }
+  65%,
+  85% {
+    transform: translateX(-1px);
+  }
+}
+@keyframes ds-agent-glyph-scan {
+  0%,
+  100% {
+    transform: translateX(-0.9px);
+  }
+  50% {
+    transform: translateX(0.9px);
+  }
+}
+@keyframes ds-agent-glyph-nod {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes ds-agent-glyph-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  40% {
+    transform: scale(1.07, 0.92);
+  }
+  70% {
+    transform: scale(0.96, 1.05);
+  }
+}
+@keyframes ds-agent-glyph-antenna {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.25;
+  }
+}
+@keyframes ds-agent-glyph-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.65;
+  }
+}
+@keyframes ds-agent-glyph-flop {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes ds-agent-glyph-hoho {
+  0%,
+  24%,
+  48%,
+  100% {
+    transform: translateY(0);
+  }
+  12%,
+  36% {
+    transform: translateY(-1.1px);
+  }
+}
+@keyframes ds-agent-glyph-wiggle {
+  0%,
+  100% {
+    transform: skewX(-6deg);
+  }
+  50% {
+    transform: skewX(6deg);
+  }
+}
+@keyframes ds-agent-glyph-twitch {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(-6deg);
+  }
+  90% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-tilt {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes ds-agent-glyph-peer {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(0.5px, -0.3px);
+  }
+  50% {
+    transform: translate(-0.5px, 0.2px);
+  }
+  75% {
+    transform: translate(0.4px, 0.4px);
+  }
+}
+
+.ds-agent-glyph--robot .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-scan 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-antenna {
+  animation: ds-agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-squish 1100ms ease-in-out infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2600ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-legs {
+  transform-origin: center top;
+  animation: ds-agent-glyph-wiggle 800ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3000ms infinite;
+}
+.ds-agent-glyph--owl .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-tilt 2400ms ease-in-out infinite;
+}
+.ds-agent-glyph--owl .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-peer 2400ms ease-in-out infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3200ms infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-flicker 900ms steps(1) infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 2000ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2800ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whiskers {
+  transform-origin: center;
+  animation: ds-agent-glyph-twitch 2200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-hat {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-flop 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 2800ms infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-hoho 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-hat {
+  transform-origin: left bottom;
+  animation: ds-agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3400ms infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-agent-glyph * {
+    animation: none;
+  }
+}
+
 /* components/attachment-chip/component.css */
 .ds-attachment-chip {
   display: inline-flex;
@@ -2465,7 +2761,7 @@ code {
 /* The working note — a search in flight, or an install-and-use round trip —
  * is a line IN the list, never beside the query: a note on the field's own
  * line read as part of what was typed. The word and the liveness component's
- * working dots (components/liveness), not a static ellipsis: the marker the
+ * working mark (components/liveness), not a static ellipsis: the marker the
  * system already uses for "alive right now, for an unknown duration". */
 .ds-command-palette-status {
   display: flex;
@@ -4777,48 +5073,106 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* components/liveness/component.css */
-/* Liveness — the two marks motion is allowed to make.
+/* Liveness — the working mark and the change pulse.
  *
  * Both animations live here rather than in the consuming component, so the
  * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
  * that animates is the class that carries the guard. */
 
-/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+/* ── working mark: alive right now, unbounded ─────────────────────────────── */
 
-.ds-working-dots {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sem-space-3xs);
-  width: 14px;
+/* A 3×3 grid of cells resting dim; a pattern lights them. Each cell's delay
+ * into its pattern's loop is written by the consumer (--ds-cell-delay), so the
+ * four patterns share one set of cells. */
+.ds-working-mark {
+  display: inline-grid;
   flex: none;
+  grid-template-columns: repeat(3, 3px);
+  grid-auto-rows: 3px;
+  gap: var(--sem-space-3xs);
+  place-content: center;
+  width: 14px;
+  height: 14px;
 }
 
-.ds-working-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: var(--sem-radius-pill);
+.ds-working-mark-cell {
+  /* Softened, never round: a round cell would read as a dot. */
+  border-radius: 0.8px;
   background: var(--sem-color-accent-primary);
-  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+  opacity: 0.16;
+  animation-delay: var(--ds-cell-delay, 0s);
 }
 
-/* Staggered, not synchronised — three dots blinking together read as one
- * flashing mark rather than as movement. */
-.ds-working-dot:nth-child(2) {
-  animation-delay: 0.16s;
+.ds-working-mark--orbit .ds-working-mark-cell {
+  animation: ds-working-mark-orbit 1.2s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--ripple .ds-working-mark-cell {
+  animation: ds-working-mark-ripple 1.3s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--think .ds-working-mark-cell {
+  animation: ds-working-mark-think 1.8s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--snake .ds-working-mark-cell {
+  animation: ds-working-mark-snake 1.6s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+/* The edge patterns leave the centre cell at rest. */
+.ds-working-mark .ds-working-mark-cell--still {
+  animation: none;
 }
 
-.ds-working-dot:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes ds-working-dot {
-  0%,
-  100% {
+@keyframes ds-working-mark-orbit {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.75;
+  }
+  30% {
     opacity: 0.3;
   }
-  50% {
+  45%,
+  100% {
+    opacity: 0.16;
+  }
+}
+
+@keyframes ds-working-mark-ripple {
+  0%,
+  70%,
+  100% {
+    opacity: 0.16;
+    transform: scale(0.7);
+  }
+  35% {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ds-working-mark-think {
+  0%,
+  40%,
+  100% {
+    opacity: 0.16;
+  }
+  15% {
+    opacity: 1;
+  }
+}
+
+/* Head plus two tail cells: each edge cell is lit for three of eight steps. */
+@keyframes ds-working-mark-snake {
+  0%,
+  37% {
+    opacity: 1;
+  }
+  37.5%,
+  100% {
+    opacity: 0.16;
   }
 }
 
@@ -4845,17 +5199,18 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
-/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
- * dot still says "working" — and drops only the movement. */
+/* One guard, every mark. Reduced motion keeps the INFORMATION — one still
+ * frame, the four corners and the centre lit, still says "working" whichever
+ * pattern was picked — and drops only the movement. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-working-dot {
+  .ds-working-mark .ds-working-mark-cell {
     animation: none;
-    opacity: 1;
+    opacity: 0.16;
+    transform: none;
   }
 
-  .ds-working-dot:nth-child(2),
-  .ds-working-dot:nth-child(3) {
-    display: none;
+  .ds-working-mark .ds-working-mark-cell:nth-child(odd) {
+    opacity: 0.9;
   }
 
   .ds-change-pulse {
@@ -8943,6 +9298,70 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
+.ds-embed-component-agent-glyph {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-agent-glyph .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-agent-glyph .demo-label {
+    margin: var(--sem-space-2xl) 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-agent-glyph .demo-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-2xl);
+  }
+.ds-embed-component-agent-glyph .demo-name {
+    margin: 0 0 var(--sem-space-xs);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-agent-glyph .demo-faces {
+    display: flex;
+    gap: var(--sem-space-md);
+  }
+.ds-embed-component-agent-glyph .demo-face {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    margin: 0;
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-agent-glyph .demo-face .ds-agent-glyph {
+    width: 40px; 
+    height: 40px; 
+  }
+.ds-embed-component-agent-glyph .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-agent-glyph .demo-agent {
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-agent-glyph .demo-task {
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-agent-glyph .demo-time {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+.ds-embed-component-agent-glyph .demo-time--working {
+    color: var(--sem-color-accent-primary);
+  }
+.ds-embed-component-agent-glyph .demo-time--failed {
+    color: var(--sem-color-status-danger);
+  }
 .ds-embed-component-badge {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -9809,6 +10228,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     gap: var(--sem-space-lg);
     padding: var(--sem-space-xs) var(--sem-space-sm);
     font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-liveness .demo-pattern {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
   }
 .ds-embed-component-liveness .demo-note {
     margin: var(--sem-space-lg) 0 0;
@@ -11999,6 +12422,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-glyphs" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-foundations-doc-principles" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-agent-glyph" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-attachment-chip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-badge" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-banner" />
@@ -12081,6 +12505,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-foundations-glyphs">Glyphs</label>
 <label class="catalog-nav-item" for="ds-view-foundations-doc-principles">Principles</label>
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
+<label class="catalog-nav-item" for="ds-view-component-agent-glyph">Agent glyph</label>
 <label class="catalog-nav-item" for="ds-view-component-attachment-chip">Attachment chip</label>
 <label class="catalog-nav-item" for="ds-view-component-badge">Badge</label>
 <label class="catalog-nav-item" for="ds-view-component-banner">Banner</label>
@@ -12599,7 +13024,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
 <h4>Motion</h4>
-<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. Glass is a material of four kit shells and nothing else, pinned there by the conformance lint: the toast card (ruling 2026-09-04, a corner-sized blur), the popover family's opt-in <code>material=&quot;glass&quot;</code> (2026-09-07/08), and the command palette's shell (2026-09-10) — the last affordable only because the palette pauses terminal repaints while it is up, so the blur beneath it is computed once. The scrims behind all of them stay plain tones.</li></ul>
+<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>Motion means one of two things: *alive right now* (a working mark, a running agent's character, a spinner) or *just changed* (a reorder, a just-moved flash). It may carry a little personality while it says so (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned agent is a small character that moves while it works. What never moves is something at rest — ambient decoration on an idle surface is noise.</li><li>Never a status dot. State is a word, a glyph, a timer, a working mark or an agent glyph (ruling 2026-09-28).</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. Glass is a material of four kit shells and nothing else, pinned there by the conformance lint: the toast card (ruling 2026-09-04, a corner-sized blur), the popover family's opt-in <code>material=&quot;glass&quot;</code> (2026-09-07/08), and the command palette's shell (2026-09-10) — the last affordable only because the palette pauses terminal repaints while it is up, so the blur beneath it is computed once. The scrims behind all of them stay plain tones.</li></ul>
 <h4>Accessibility</h4>
 <p>A gate, not a preference. No design system supplies it for you.</p>
 <ul><li>WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.</li><li>Body text clears AA on its own surface. <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone. The ink ramp orders identically in both modes — <code>default</code> darker than <code>muted</code> darker than <code>subtle</code> darker than <code>disabled</code> — so a token means the same thing in either theme.</li><li>Visible focus on everything focusable, in a sensible order, never removed.</li><li>Status conveyed by shape or label, never by color alone.</li><li>Real labels on controls; <code>aria-label</code> on every icon-only button. Icons that duplicate adjacent text are <code>aria-hidden</code>.</li><li>Overlays: Escape closes the topmost surface only, focus is restored to the trigger, and a modal traps focus while open.</li><li>Design the states, not the happy path. Every data surface distinguishes populated, empty, loading, error, unavailable, and permission-denied. A failed dependency must never render identically to an empty list.</li></ul>
@@ -12619,6 +13044,455 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </section>
 <section id="components" class="catalog-group">
 <h2>Components</h2>
+<div id="component-agent-glyph" class="catalog-view catalog-component">
+<h3>Agent glyph</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-agent-glyph">
+<div class="demo-stage">
+    <p class="demo-label">In a chat — the glyph beside the agent, its state in words</p>
+      <div class="demo-row"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" class="ds-agent-glyph-antenna" cx="8" cy="2.4" r=".95"></circle><g class="ds-agent-glyph-eyes"><rect fill="currentColor" x="5.4" y="8" width="1.6" height="2.2" rx=".6"></rect><rect fill="currentColor" x="9" y="8" width="1.6" height="2.2" rx=".6"></rect></g></g></svg><span class="demo-agent">Explore agent</span><span class="demo-task">· Map the router</span><span class="demo-time demo-time--working">Working · 42s</span></div>
+      <div class="demo-row"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4Q8 10.9 12.4 9.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 7.35q.8-1 1.6 0M8.7 7.35q.8-1 1.6 0"></path></svg><span class="demo-agent">Plan agent</span><span class="demo-task">· Design the Agents panel</span><span class="demo-time demo-time--">Done in 2m 4s</span></div>
+      <div class="demo-row"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 7.7l1.4 1.4M7.2 7.7l-1.4 1.4M8.8 7.7l1.4 1.4M10.2 7.7l-1.4 1.4"></path></svg><span class="demo-agent">general-purpose agent</span><span class="demo-task">· Check the SDK exports</span><span class="demo-time demo-time--failed">Failed after 9s</span></div>
+
+    <p class="demo-label">Everyday · Most of the year</p>
+    <div class="demo-grid">
+      <div class="demo-character"><p class="demo-name">Robot</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" class="ds-agent-glyph-antenna" cx="8" cy="2.4" r=".95"></circle><g class="ds-agent-glyph-eyes"><rect fill="currentColor" x="5.4" y="8" width="1.6" height="2.2" rx=".6"></rect><rect fill="currentColor" x="9" y="8" width="1.6" height="2.2" rx=".6"></rect></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 9.2h1.4M9.100000000000001 9.2h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Bubble</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"></path><g class="ds-agent-glyph-eyes"><circle fill="currentColor" cx="6.5" cy="8.4" r=".95"></circle><circle fill="currentColor" cx="9.5" cy="8.4" r=".95"></circle></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 8.75q.8-1 1.6 0M8.7 8.75q.8-1 1.6 0"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.2 10.4q.8.6 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 7.7l1.4 1.4M7.2 7.7l-1.4 1.4M8.8 7.7l1.4 1.4M10.2 7.7l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 8.4h1.4M8.8 8.4h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Octopus</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4Q8 10.9 12.4 9.4"></path><g class="ds-agent-glyph-legs"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"></path></g><g class="ds-agent-glyph-eyes"><ellipse fill="currentColor" cx="6.5" cy="7" rx=".75" ry=".95"></ellipse><ellipse fill="currentColor" cx="9.5" cy="7" rx=".75" ry=".95"></ellipse></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4Q8 10.9 12.4 9.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 7.35q.8-1 1.6 0M8.7 7.35q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4Q8 10.9 12.4 9.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 6.3l1.4 1.4M7.2 6.3l-1.4 1.4M8.8 6.3l1.4 1.4M10.2 6.3l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4Q8 10.9 12.4 9.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 7h1.4M8.8 7h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Owl</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z"></path><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="6.2" cy="8.3" r="1.55"></circle><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="9.8" cy="8.3" r="1.55"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.4L8 11.2l.6-.8"></path><g class="ds-agent-glyph-eyes"><circle fill="currentColor" cx="6.2" cy="8.3" r=".7"></circle><circle fill="currentColor" cx="9.8" cy="8.3" r=".7"></circle></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z"></path><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="6.2" cy="8.3" r="1.55"></circle><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="9.8" cy="8.3" r="1.55"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.4L8 11.2l.6-.8"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.4 8.65q.8-1 1.6 0M9 8.65q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z"></path><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="6.2" cy="8.3" r="1.55"></circle><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="9.8" cy="8.3" r="1.55"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.4L8 11.2l.6-.8"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.65 7.750000000000001l1.1 1.1M6.75 7.750000000000001l-1.1 1.1M9.25 7.750000000000001l1.1 1.1M10.350000000000001 7.750000000000001l-1.1 1.1"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z"></path><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="6.2" cy="8.3" r="1.55"></circle><circle fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" cx="9.8" cy="8.3" r="1.55"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.4L8 11.2l.6-.8"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 8.3h1.4M9.100000000000001 8.3h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+    </div>
+    <p class="demo-label">Halloween · 1–31 October</p>
+    <div class="demo-grid">
+      <div class="demo-character"><p class="demo-name">Robot</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" class="ds-agent-glyph-antenna" cx="8" cy="2.4" r=".95"></circle><g class="ds-agent-glyph-eyes"><rect fill="currentColor" x="5.4" y="8" width="1.6" height="2.2" rx=".6"></rect><rect fill="currentColor" x="9" y="8" width="1.6" height="2.2" rx=".6"></rect></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 9.2h1.4M9.100000000000001 9.2h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Pumpkin</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6V3.8q.5-1.1 1.8-1.3"></path><path fill="currentColor" class="ds-agent-glyph-eyes" d="M5.4 9.3l1-1.6 1 1.6zM8.6 9.3l1-1.6 1 1.6z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6 11.2q2 1.3 4 0"></path></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6V3.8q.5-1.1 1.8-1.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.6000000000000005 9.15q.8-1 1.6 0M8.799999999999999 9.15q.8-1 1.6 0"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.4 11.2q1.6 1 3.2 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6V3.8q.5-1.1 1.8-1.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 8.100000000000001l1.4 1.4M7.1000000000000005 8.100000000000001l-1.4 1.4M8.9 8.100000000000001l1.4 1.4M10.299999999999999 8.100000000000001l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.6V3.8q.5-1.1 1.8-1.3"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 8.8h1.4M8.9 8.8h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Ghost</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z"></path><g class="ds-agent-glyph-eyes"><ellipse fill="currentColor" cx="6.4" cy="7.6" rx=".85" ry="1.1"></ellipse><ellipse fill="currentColor" cx="9.6" cy="7.6" rx=".85" ry="1.1"></ellipse></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.6000000000000005 7.949999999999999q.8-1 1.6 0M8.799999999999999 7.949999999999999q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 6.8999999999999995l1.4 1.4M7.1000000000000005 6.8999999999999995l-1.4 1.4M8.9 6.8999999999999995l1.4 1.4M10.299999999999999 6.8999999999999995l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.7 7.6h1.4M8.9 7.6h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Black cat</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.8L8 11.3l.6-.5"></path><g class="ds-agent-glyph-whiskers"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6"></path></g><path fill="currentColor" class="ds-agent-glyph-eyes" d="M6.3 7.6q.7 1.1 0 2.2-.7-1.1 0-2.2zM9.7 7.6q.7 1.1 0 2.2-.7-1.1 0-2.2z"></path></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.8L8 11.3l.6-.5"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 9.049999999999999q.8-1 1.6 0M8.899999999999999 9.049999999999999q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.8L8 11.3l.6-.5"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.6 7.999999999999999l1.4 1.4M7 7.999999999999999l-1.4 1.4M9 7.999999999999999l1.4 1.4M10.399999999999999 7.999999999999999l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M7.4 10.8L8 11.3l.6-.5"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.6 8.7h1.4M9 8.7h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+    </div>
+    <p class="demo-label">Christmas · 1–26 December</p>
+    <div class="demo-grid">
+      <div class="demo-character"><p class="demo-name">Robot</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" class="ds-agent-glyph-antenna" cx="8" cy="2.4" r=".95"></circle><g class="ds-agent-glyph-eyes"><rect fill="currentColor" x="5.4" y="8" width="1.6" height="2.2" rx=".6"></rect><rect fill="currentColor" x="9" y="8" width="1.6" height="2.2" rx=".6"></rect></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped"><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="5.4" width="10" height="7.8" rx="2.4"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8"></path><circle fill="currentColor" cx="8" cy="2.4" r=".95" opacity=".35"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.5 9.2h1.4M9.100000000000001 9.2h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Elf</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3"></path><g class="ds-agent-glyph-hat"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5"></path><circle fill="currentColor" cx="12.2" cy="5.2" r=".95"></circle></g><g class="ds-agent-glyph-eyes"><ellipse fill="currentColor" cx="6.6" cy="10.3" rx=".7" ry=".85"></ellipse><ellipse fill="currentColor" cx="9.4" cy="10.3" rx=".7" ry=".85"></ellipse></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5"></path><circle fill="currentColor" cx="12.2" cy="5.2" r=".95"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 10.65q.8-1 1.6 0M8.6 10.65q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5"></path><circle fill="currentColor" cx="12.2" cy="5.2" r=".95"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.05 9.75l1.1 1.1M7.1499999999999995 9.75l-1.1 1.1M8.85 9.75l1.1 1.1M9.950000000000001 9.75l-1.1 1.1"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4"></path><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5"></path><circle fill="currentColor" cx="12.2" cy="5.2" r=".95"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8999999999999995 10.3h1.4M8.700000000000001 10.3h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+      <div class="demo-character"><p class="demo-name">Santa</p><div class="demo-faces"><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--working"><g class="ds-agent-glyph-whole"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3"></path><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="6.2" width="10" height="1.8" rx=".9"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0"></path><g class="ds-agent-glyph-hat"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4"></path><circle fill="currentColor" cx="13.1" cy="5.9" r="1"></circle></g><g class="ds-agent-glyph-eyes"><ellipse fill="currentColor" cx="6.6" cy="9.6" rx=".65" ry=".8"></ellipse><ellipse fill="currentColor" cx="9.4" cy="9.6" rx=".65" ry=".8"></ellipse></g></g></svg><figcaption>working</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--done"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3"></path><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="6.2" width="10" height="1.8" rx=".9"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4"></path><circle fill="currentColor" cx="13.1" cy="5.9" r="1"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8 9.95q.8-1 1.6 0M8.6 9.95q.8-1 1.6 0"></path></svg><figcaption>done</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--failed"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3"></path><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="6.2" width="10" height="1.8" rx=".9"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4"></path><circle fill="currentColor" cx="13.1" cy="5.9" r="1"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.05 9.049999999999999l1.1 1.1M7.1499999999999995 9.049999999999999l-1.1 1.1M8.85 9.049999999999999l1.1 1.1M9.950000000000001 9.049999999999999l-1.1 1.1"></path></svg><figcaption>failed</figcaption></figure><figure class="demo-face"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--stopped"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3"></path><rect fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" x="3" y="6.2" width="10" height="1.8" rx=".9"></rect><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0"></path><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" d="M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4"></path><circle fill="currentColor" cx="13.1" cy="5.9" r="1"></circle><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="M5.8999999999999995 9.6h1.4M8.700000000000001 9.6h1.4"></path></svg><figcaption>stopped</figcaption></figure></div></div>
+    </div>
+  </div>
+</div>
+<div class="catalog-doc">
+<p>A spawned agent drawn as a small character. While its agent works the character moves; when the agent ends it stands still and its face says how it ended.</p>
+<p>It answers one question, *where is this agent*, for the agents a conversation sends off to do part of the work: a search, a plan, a review. It is the [liveness](../liveness/component.md) mark for an agent, and the one mark in the system that is allowed a personality (ruling 2026-09-28): an agent is a helper someone is waiting on, and a character they can recognise across a long run reads faster than a fourth identical row.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Glyph | <code>.ds-agent-glyph</code> | yes — a 16px SVG on the glyph grid, <code>currentColor</code> line work (1.4 stroke for the outline, 1.3 for detail) | | Character | <code>.ds-agent-glyph--&lt;character&gt;</code> | yes — which drawing | | State | <code>.ds-agent-glyph--&lt;state&gt;</code> | yes — working, done, failed, stopped or unknown; picks the ink and the face | | Moving parts | <code>.ds-agent-glyph-whole</code>, <code>-eyes</code>, <code>-antenna</code>, <code>-legs</code>, <code>-whiskers</code>, <code>-hat</code> | while working — the parts a character's loop moves |</p>
+<h4>Variants</h4>
+<p>The characters come in seasonal pools. Each pool holds at least three, and the robot is in every one, so an agent is never a stranger.</p>
+<p>| Pool | When | Characters | |---|---|---| | Everyday | most of the year | robot, bubble, octopus, owl | | Halloween | 1–31 October | robot, pumpkin, ghost, black cat | | Christmas | 1–26 December | robot, elf, Santa |</p>
+<p>The character is picked from the current pool by the agent's id (the id of the tool call that spawned it), so an agent keeps its face for as long as it is on screen and agents running side by side usually differ. The season follows the local calendar.</p>
+<p>Each character moves in its own way while it works: the robot's antenna blinks and its eyes scan, the bubble squishes and glances about, the octopus waves its tentacles, the owl tilts and peers, the ghost floats and blinks, the pumpkin rocks by candlelight, the cat's whiskers twitch, the elf's hat flops and Santa bounces.</p>
+<h4>States</h4>
+<p>| State | Ink | Face | |---|---|---| | Working | <code>accent.primary</code> | eyes open, moving | | Done | <code>text.subtle</code> | eyes closed, content (^ ^) | | Failed | <code>status.danger</code> | crossed out (x x) | | Stopped | <code>text.subtle</code> | switched off (- -) | | Unknown | <code>text.subtle</code> | as done — an agent from a transcript that never recorded how it ended | | Reduced motion | as its state | a working character holds still, eyes open |</p>
+<p>Every loop also holds still while the window is hidden or in the background, and a transcript row pauses its own when it scrolls out of view.</p>
+<h4>Usage</h4>
+<ul><li>On the row of the agent it stands for: an agent lane in a chat, a row of the Agents panel. Beside the agent's name and its state in words (<code>Working · 42s</code>, <code>Done in 1m 29s</code>, <code>Failed after 9s</code>), never instead of them.</li><li>One per agent. A glyph and a working mark on the same row is two marks saying one thing.</li><li>Not for conversations, terminals or jobs. Those are working [liveness](../liveness/component.md) marks; the characters are for agents a conversation spawned.</li><li>People can turn the characters off (Settings → Appearance). Then a working agent wears the working mark and a finished one a lifecycle glyph.</li><li>Never a status dot beside it (ruling 2026-09-28).</li></ul>
+<h4>Accessibility</h4>
+<ul><li>Decorative (<code>aria-hidden</code>) when the text beside it names the agent and its state, which is the normal case. Given a label it is <code>role=&quot;img&quot;</code>.</li><li>The state is never carried by the character or its motion alone: the words beside it say working, done, failed or stopped.</li><li>Reduced motion is honoured in the stylesheet: the class that animates is the class that carries the guard.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/agent-glyph/component.css</summary><pre><code>/* Agent glyph — a spawned agent drawn as a small character.
+ *
+ * The drawing is currentColor line work on the 16px glyph grid; the state
+ * picks the ink. While its agent works the character moves, each part on its
+ * own loop; done, failed and stopped characters stand still. The motion lives
+ * here with its reduced-motion guard, so a consumer cannot forget it. */
+
+.ds-agent-glyph {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  overflow: visible;
+}
+
+.ds-agent-glyph--working {
+  color: var(--sem-color-accent-primary);
+}
+.ds-agent-glyph--done,
+.ds-agent-glyph--stopped,
+.ds-agent-glyph--unknown {
+  color: var(--sem-color-text-subtle);
+}
+.ds-agent-glyph--failed {
+  color: var(--sem-color-status-danger);
+}
+
+/* Parts turn and scale about their own box, so each keyframe names its pivot. */
+.ds-agent-glyph * {
+  transform-box: fill-box;
+}
+
+@keyframes ds-agent-glyph-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.2px);
+  }
+}
+@keyframes ds-agent-glyph-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes ds-agent-glyph-look {
+  0%,
+  20%,
+  100% {
+    transform: translateX(0);
+  }
+  30%,
+  55% {
+    transform: translateX(1px);
+  }
+  65%,
+  85% {
+    transform: translateX(-1px);
+  }
+}
+@keyframes ds-agent-glyph-scan {
+  0%,
+  100% {
+    transform: translateX(-0.9px);
+  }
+  50% {
+    transform: translateX(0.9px);
+  }
+}
+@keyframes ds-agent-glyph-nod {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes ds-agent-glyph-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  40% {
+    transform: scale(1.07, 0.92);
+  }
+  70% {
+    transform: scale(0.96, 1.05);
+  }
+}
+@keyframes ds-agent-glyph-antenna {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.25;
+  }
+}
+@keyframes ds-agent-glyph-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.65;
+  }
+}
+@keyframes ds-agent-glyph-flop {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes ds-agent-glyph-hoho {
+  0%,
+  24%,
+  48%,
+  100% {
+    transform: translateY(0);
+  }
+  12%,
+  36% {
+    transform: translateY(-1.1px);
+  }
+}
+@keyframes ds-agent-glyph-wiggle {
+  0%,
+  100% {
+    transform: skewX(-6deg);
+  }
+  50% {
+    transform: skewX(6deg);
+  }
+}
+@keyframes ds-agent-glyph-twitch {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(-6deg);
+  }
+  90% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-tilt {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes ds-agent-glyph-peer {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(0.5px, -0.3px);
+  }
+  50% {
+    transform: translate(-0.5px, 0.2px);
+  }
+  75% {
+    transform: translate(0.4px, 0.4px);
+  }
+}
+
+.ds-agent-glyph--robot .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-scan 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-antenna {
+  animation: ds-agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-squish 1100ms ease-in-out infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2600ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-legs {
+  transform-origin: center top;
+  animation: ds-agent-glyph-wiggle 800ms ease-in-out infinite;
+}
+.ds-agent-glyph--octopus .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3000ms infinite;
+}
+.ds-agent-glyph--owl .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-tilt 2400ms ease-in-out infinite;
+}
+.ds-agent-glyph--owl .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-peer 2400ms ease-in-out infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3200ms infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-flicker 900ms steps(1) infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 2000ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2800ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whiskers {
+  transform-origin: center;
+  animation: ds-agent-glyph-twitch 2200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-hat {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-flop 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 2800ms infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-hoho 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-hat {
+  transform-origin: left bottom;
+  animation: ds-agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3400ms infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-agent-glyph * {
+    animation: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/agent-glyph/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Agent glyph&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: var(--sem-space-2xl) 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-2xl);
+  }
+  .demo-name {
+    margin: 0 0 var(--sem-space-xs);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-faces {
+    display: flex;
+    gap: var(--sem-space-md);
+  }
+  .demo-face {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    margin: 0;
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-face .ds-agent-glyph {
+    width: 40px; /* ds-lint-allow: an enlarged specimen, not a layout size */
+    height: 40px; /* ds-lint-allow: an enlarged specimen, not a layout size */
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-agent {
+    color: var(--sem-color-text-primary);
+  }
+  .demo-task {
+    color: var(--sem-color-text-muted);
+  }
+  .demo-time {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .demo-time--working {
+    color: var(--sem-color-accent-primary);
+  }
+  .demo-time--failed {
+    color: var(--sem-color-status-danger);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class=&quot;demo-stage&quot;&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;In a chat — the glyph beside the agent, its state in words&lt;/p&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-antenna&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;span class=&quot;demo-agent&quot;&gt;Explore agent&lt;/span&gt;&lt;span class=&quot;demo-task&quot;&gt;· Map the router&lt;/span&gt;&lt;span class=&quot;demo-time demo-time--working&quot;&gt;Working · 42s&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4Q8 10.9 12.4 9.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 7.35q.8-1 1.6 0M8.7 7.35q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;span class=&quot;demo-agent&quot;&gt;Plan agent&lt;/span&gt;&lt;span class=&quot;demo-task&quot;&gt;· Design the Agents panel&lt;/span&gt;&lt;span class=&quot;demo-time demo-time--&quot;&gt;Done in 2m 4s&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-row&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 7.7l1.4 1.4M7.2 7.7l-1.4 1.4M8.8 7.7l1.4 1.4M10.2 7.7l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;span class=&quot;demo-agent&quot;&gt;general-purpose agent&lt;/span&gt;&lt;span class=&quot;demo-task&quot;&gt;· Check the SDK exports&lt;/span&gt;&lt;span class=&quot;demo-time demo-time--failed&quot;&gt;Failed after 9s&lt;/span&gt;&lt;/div&gt;
+
+    &lt;p class=&quot;demo-label&quot;&gt;Everyday · Most of the year&lt;/p&gt;
+    &lt;div class=&quot;demo-grid&quot;&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Robot&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-antenna&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 9.2h1.4M9.100000000000001 9.2h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Bubble&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;6.5&quot; cy=&quot;8.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;9.5&quot; cy=&quot;8.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 8.75q.8-1 1.6 0M8.7 8.75q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.2 10.4q.8.6 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 7.7l1.4 1.4M7.2 7.7l-1.4 1.4M8.8 7.7l1.4 1.4M10.2 7.7l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--blob ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 8.4h1.4M8.8 8.4h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Octopus&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4Q8 10.9 12.4 9.4&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-legs&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3&quot;&gt;&lt;/path&gt;&lt;/g&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;6.5&quot; cy=&quot;7&quot; rx=&quot;.75&quot; ry=&quot;.95&quot;&gt;&lt;/ellipse&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;9.5&quot; cy=&quot;7&quot; rx=&quot;.75&quot; ry=&quot;.95&quot;&gt;&lt;/ellipse&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4Q8 10.9 12.4 9.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 7.35q.8-1 1.6 0M8.7 7.35q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4Q8 10.9 12.4 9.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 6.3l1.4 1.4M7.2 6.3l-1.4 1.4M8.8 6.3l1.4 1.4M10.2 6.3l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--octopus ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4C3.4 5.8 5.4 3 8 3s4.6 2.8 4.4 6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4Q8 10.9 12.4 9.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 7h1.4M8.8 7h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Owl&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;6.2&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;9.8&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.4L8 11.2l.6-.8&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;6.2&quot; cy=&quot;8.3&quot; r=&quot;.7&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;9.8&quot; cy=&quot;8.3&quot; r=&quot;.7&quot;&gt;&lt;/circle&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;6.2&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;9.8&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.4L8 11.2l.6-.8&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.4 8.65q.8-1 1.6 0M9 8.65q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;6.2&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;9.8&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.4L8 11.2l.6-.8&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.65 7.750000000000001l1.1 1.1M6.75 7.750000000000001l-1.1 1.1M9.25 7.750000000000001l1.1 1.1M10.350000000000001 7.750000000000001l-1.1 1.1&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--owl ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;6.2&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;circle fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; cx=&quot;9.8&quot; cy=&quot;8.3&quot; r=&quot;1.55&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.4L8 11.2l.6-.8&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 8.3h1.4M9.100000000000001 8.3h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;Halloween · 1–31 October&lt;/p&gt;
+    &lt;div class=&quot;demo-grid&quot;&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Robot&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-antenna&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 9.2h1.4M9.100000000000001 9.2h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Pumpkin&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6V3.8q.5-1.1 1.8-1.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-eyes&quot; d=&quot;M5.4 9.3l1-1.6 1 1.6zM8.6 9.3l1-1.6 1 1.6z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6 11.2q2 1.3 4 0&quot;&gt;&lt;/path&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6V3.8q.5-1.1 1.8-1.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.6000000000000005 9.15q.8-1 1.6 0M8.799999999999999 9.15q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.4 11.2q1.6 1 3.2 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6V3.8q.5-1.1 1.8-1.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 8.100000000000001l1.4 1.4M7.1000000000000005 8.100000000000001l-1.4 1.4M8.9 8.100000000000001l1.4 1.4M10.299999999999999 8.100000000000001l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--pumpkin ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6C5.9 4.7 2.4 5.5 2.4 9.5 2.4 12.9 5.2 14 8 14s5.6-1.1 5.6-4.5c0-4-3.5-4.8-5.6-3.9z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.6V3.8q.5-1.1 1.8-1.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 8.8h1.4M8.9 8.8h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Ghost&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;6.4&quot; cy=&quot;7.6&quot; rx=&quot;.85&quot; ry=&quot;1.1&quot;&gt;&lt;/ellipse&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;9.6&quot; cy=&quot;7.6&quot; rx=&quot;.85&quot; ry=&quot;1.1&quot;&gt;&lt;/ellipse&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.6000000000000005 7.949999999999999q.8-1 1.6 0M8.799999999999999 7.949999999999999q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 6.8999999999999995l1.4 1.4M7.1000000000000005 6.8999999999999995l-1.4 1.4M8.9 6.8999999999999995l1.4 1.4M10.299999999999999 6.8999999999999995l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--ghost ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.2 13.6V7.4a4.8 4.8 0 0 1 9.6 0v6.2l-1.6-1.2-1.6 1.2L8 12.4l-1.6 1.2-1.6-1.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.7 7.6h1.4M8.9 7.6h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Black cat&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.8L8 11.3l.6-.5&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-whiskers&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6&quot;&gt;&lt;/path&gt;&lt;/g&gt;&lt;path fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-eyes&quot; d=&quot;M6.3 7.6q.7 1.1 0 2.2-.7-1.1 0-2.2zM9.7 7.6q.7 1.1 0 2.2-.7-1.1 0-2.2z&quot;&gt;&lt;/path&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.8L8 11.3l.6-.5&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 9.049999999999999q.8-1 1.6 0M8.899999999999999 9.049999999999999q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.8L8 11.3l.6-.5&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.6 7.999999999999999l1.4 1.4M7 7.999999999999999l-1.4 1.4M9 7.999999999999999l1.4 1.4M10.399999999999999 7.999999999999999l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--cat ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.3 7.2L3.5 2.9l3 2.3q1.5-.4 3 0l3-2.3.2 4.3q.9 6.6-4.7 6.6T3.3 7.2z&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M7.4 10.8L8 11.3l.6-.5&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.6 8.7h1.4M9 8.7h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;Christmas · 1–26 December&lt;/p&gt;
+    &lt;div class=&quot;demo-grid&quot;&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Robot&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; class=&quot;ds-agent-glyph-antenna&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;5.4&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;rect fill=&quot;currentColor&quot; x=&quot;9&quot; y=&quot;8&quot; width=&quot;1.6&quot; height=&quot;2.2&quot; rx=&quot;.6&quot;&gt;&lt;/rect&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--done&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.4 9.549999999999999q.8-1 1.6 0M9 9.549999999999999q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--failed&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 8.5l1.4 1.4M6.9 8.5l-1.4 1.4M9.100000000000001 8.5l1.4 1.4M10.5 8.5l-1.4 1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--robot ds-agent-glyph--stopped&quot;&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;5.4&quot; width=&quot;10&quot; height=&quot;7.8&quot; rx=&quot;2.4&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M8 5.4V3.3M2.1 8.4v1.8M13.9 8.4v1.8&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;8&quot; cy=&quot;2.4&quot; r=&quot;.95&quot; opacity=&quot;.35&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.5 9.2h1.4M9.100000000000001 9.2h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Elf&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-hat&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;12.2&quot; cy=&quot;5.2&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;/g&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;6.6&quot; cy=&quot;10.3&quot; rx=&quot;.7&quot; ry=&quot;.85&quot;&gt;&lt;/ellipse&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;9.4&quot; cy=&quot;10.3&quot; rx=&quot;.7&quot; ry=&quot;.85&quot;&gt;&lt;/ellipse&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;12.2&quot; cy=&quot;5.2&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 10.65q.8-1 1.6 0M8.6 10.65q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;12.2&quot; cy=&quot;5.2&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.05 9.75l1.1 1.1M7.1499999999999995 9.75l-1.1 1.1M8.85 9.75l1.1 1.1M9.950000000000001 9.75l-1.1 1.1&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--elf ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.4 7.6C3.9 11 5.6 14 8 14s4.1-3 3.6-6.4&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.1 9.3L2.1 8.4l2.1 2.3M11.9 9.3l2-.9-2.1 2.3&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.8 7.5h8.4M5 7.5L8.4 2.8q2.2.1 3.3 1.8M8.4 2.8L11 7.5&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;12.2&quot; cy=&quot;5.2&quot; r=&quot;.95&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8999999999999995 10.3h1.4M8.700000000000001 10.3h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;div class=&quot;demo-character&quot;&gt;&lt;p class=&quot;demo-name&quot;&gt;Santa&lt;/p&gt;&lt;div class=&quot;demo-faces&quot;&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--working&quot;&gt;&lt;g class=&quot;ds-agent-glyph-whole&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3&quot;&gt;&lt;/path&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;6.2&quot; width=&quot;10&quot; height=&quot;1.8&quot; rx=&quot;.9&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0&quot;&gt;&lt;/path&gt;&lt;g class=&quot;ds-agent-glyph-hat&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;13.1&quot; cy=&quot;5.9&quot; r=&quot;1&quot;&gt;&lt;/circle&gt;&lt;/g&gt;&lt;g class=&quot;ds-agent-glyph-eyes&quot;&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;6.6&quot; cy=&quot;9.6&quot; rx=&quot;.65&quot; ry=&quot;.8&quot;&gt;&lt;/ellipse&gt;&lt;ellipse fill=&quot;currentColor&quot; cx=&quot;9.4&quot; cy=&quot;9.6&quot; rx=&quot;.65&quot; ry=&quot;.8&quot;&gt;&lt;/ellipse&gt;&lt;/g&gt;&lt;/g&gt;&lt;/svg&gt;&lt;figcaption&gt;working&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--done&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3&quot;&gt;&lt;/path&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;6.2&quot; width=&quot;10&quot; height=&quot;1.8&quot; rx=&quot;.9&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;13.1&quot; cy=&quot;5.9&quot; r=&quot;1&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8 9.95q.8-1 1.6 0M8.6 9.95q.8-1 1.6 0&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;done&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--failed&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3&quot;&gt;&lt;/path&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;6.2&quot; width=&quot;10&quot; height=&quot;1.8&quot; rx=&quot;.9&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;13.1&quot; cy=&quot;5.9&quot; r=&quot;1&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.05 9.049999999999999l1.1 1.1M7.1499999999999995 9.049999999999999l-1.1 1.1M8.85 9.049999999999999l1.1 1.1M9.950000000000001 9.049999999999999l-1.1 1.1&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;failed&lt;/figcaption&gt;&lt;/figure&gt;&lt;figure class=&quot;demo-face&quot;&gt;&lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-agent-glyph ds-agent-glyph--santa ds-agent-glyph--stopped&quot;&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M3.9 8q-.6 3.9 1.6 5.3 1.2.7 2.5-.1 1.3.8 2.5.1 2.2-1.4 1.6-5.3&quot;&gt;&lt;/path&gt;&lt;rect fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; x=&quot;3&quot; y=&quot;6.2&quot; width=&quot;10&quot; height=&quot;1.8&quot; rx=&quot;.9&quot;&gt;&lt;/rect&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M6.2 11.3q.9-.8 1.8 0 .9-.8 1.8 0&quot;&gt;&lt;/path&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M4.6 6.2L8.6 2.2q3 .1 4.2 2.9M8.6 2.2l3 4&quot;&gt;&lt;/path&gt;&lt;circle fill=&quot;currentColor&quot; cx=&quot;13.1&quot; cy=&quot;5.9&quot; r=&quot;1&quot;&gt;&lt;/circle&gt;&lt;path fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot; stroke-linecap=&quot;round&quot; d=&quot;M5.8999999999999995 9.6h1.4M8.700000000000001 9.6h1.4&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;figcaption&gt;stopped&lt;/figcaption&gt;&lt;/figure&gt;&lt;/div&gt;&lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-attachment-chip" class="catalog-view catalog-component">
 <h3>Attachment chip</h3>
 <div class="catalog-component-grid">
@@ -17844,7 +18718,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-scoped" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-dots" role="img" aria-label="Searching"><span class="ds-working-dot"></span><span class="ds-working-dot"></span><span class="ds-working-dot"></span></span></p>
+        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-mark ds-working-mark--think" role="img" aria-label="Searching">  <i class="ds-working-mark-cell" style="--ds-cell-delay: 200ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1000ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 600ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1400ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1600ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 800ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1200ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 400ms" aria-hidden="true"></i></span></p>
       </div>
     </div>
   </div>
@@ -18065,7 +18939,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>A scope strip and one field over a grouped result list: the keyboard route to everything the product can do or open. It is the launcher, not a search screen — a person opens it, types, presses Enter and it is gone. Extracted from the shipped <code>CommandPalette</code> primitive (<code>src/renderer/src/components/ui/CommandPalette.tsx</code>).</p>
 <p>It is a [modal](../modal/component.md) shell in every respect the modal spec governs — chrome, width step, focus trap, scrim, restore — and it earns the scrim by the three tests in the principles: the workspace underneath stays the subject, nothing that names a place leads to it, and it is a task with an end. What it adds, and what this entry specifies, is the part above the shell: the <strong>scope strip</strong> that says which question is being asked, the <strong>combobox-over-listbox</strong> contract, the grouped result anatomy, the row marks, and the rule that keeps a launcher from turning into a browser. Its ground is the one thing it takes from nowhere else: <strong>glass</strong> — see Material.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-command-palette-scrim</code> | yes — full-viewport <code>overlay.scrim</code> at <code>z.modal</code>, dismissing on a press that both starts and ends on it; a plain tone, never a blur | | Shell | <code>.ds-command-palette</code> | yes — the modal shell's chrome at the <code>palette</code> width step (600px, capped <code>95vw</code>) on the glass ground, clipping its own corners | | Band | <code>.ds-command-palette-band</code> | yes — the one band of chrome: the strip and the field, one <code>border.default</code> hairline beneath | | Scope strip | <code>.ds-command-palette-tabs</code> | yes — a borderless [tabs](../tabs/component.md) strip, <code>role=&quot;tablist&quot;</code> labelled &quot;Search in&quot;: All, then the five narrowings | | Query row | <code>.ds-command-palette-query</code> | yes — <code>space.lg</code>/<code>space.xl</code> insets, no hairline of its own | | Leading hint | <code>.ds-command-palette-hint</code> | yes — the kit's search glyph in <code>text.disabled</code>; it is decoration and says so | | Input | <code>.ds-command-palette-input</code> | yes — <code>role=&quot;combobox&quot;</code>, transparent, <code>font.size.heading</code> | | Working note | <code>.ds-command-palette-status</code> | no — <code>role=&quot;status&quot;</code>, a line in the list: the word and the liveness working dots, for a search in flight or an install round trip | | Results | <code>.ds-command-palette-results</code> | yes — <code>role=&quot;listbox&quot;</code> with a required label, height-capped and scrolling | | Group | <code>.ds-command-palette-group</code> | no — <code>role=&quot;group&quot;</code> with the group's name as its label | | Group heading | <code>.ds-command-palette-group-heading</code> | with a group — the name alone, <code>font.size.meta</code> in <code>text.muted</code>; no rule, no count; <code>aria-hidden</code> | | Option | <code>.ds-command-palette-option</code> | yes — <code>role=&quot;option&quot;</code>, a stable <code>id</code>, <code>aria-selected</code> | | Option mark | <code>.ds-command-palette-option-mark</code> | no — a file's kind glyph in its kind's hue, a skill's or plugin's own artwork, an action's glyph, or (<code>--chip</code>) a chat's provider chip; <code>aria-hidden</code> | | Option label | <code>.ds-command-palette-option-label</code> | yes — truncating; <code>font.size.heading</code> | | File heading | <code>.ds-command-palette-file-heading</code> | in the Text group — <code>role=&quot;presentation&quot;</code>: the file's kind glyph, its name, its folder, and how many lines matched; not an option | | Line option | <code>.ds-command-palette-option--line</code> | in the Text group — a matched line under its file heading: the line number in the gutter (<code>.ds-command-palette-line-number</code>), then the line, mono at <code>font.size.meta</code> | | Option detail | <code>.ds-command-palette-option-detail</code> | no — the locator under the label, <code>font.size.micro</code> in <code>text.disabled</code> | | Shortcut | <code>.ds-command-palette-shortcut</code> | no — the command's chord, trailing, a [kbd-chord](../kbd-chord/component.md) capsule | | Empty | <code>.ds-command-palette-empty</code> | no — the one-sentence state when nothing matched |</p>
+<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-command-palette-scrim</code> | yes — full-viewport <code>overlay.scrim</code> at <code>z.modal</code>, dismissing on a press that both starts and ends on it; a plain tone, never a blur | | Shell | <code>.ds-command-palette</code> | yes — the modal shell's chrome at the <code>palette</code> width step (600px, capped <code>95vw</code>) on the glass ground, clipping its own corners | | Band | <code>.ds-command-palette-band</code> | yes — the one band of chrome: the strip and the field, one <code>border.default</code> hairline beneath | | Scope strip | <code>.ds-command-palette-tabs</code> | yes — a borderless [tabs](../tabs/component.md) strip, <code>role=&quot;tablist&quot;</code> labelled &quot;Search in&quot;: All, then the five narrowings | | Query row | <code>.ds-command-palette-query</code> | yes — <code>space.lg</code>/<code>space.xl</code> insets, no hairline of its own | | Leading hint | <code>.ds-command-palette-hint</code> | yes — the kit's search glyph in <code>text.disabled</code>; it is decoration and says so | | Input | <code>.ds-command-palette-input</code> | yes — <code>role=&quot;combobox&quot;</code>, transparent, <code>font.size.heading</code> | | Working note | <code>.ds-command-palette-status</code> | no — <code>role=&quot;status&quot;</code>, a line in the list: the word and the liveness working mark, for a search in flight or an install round trip | | Results | <code>.ds-command-palette-results</code> | yes — <code>role=&quot;listbox&quot;</code> with a required label, height-capped and scrolling | | Group | <code>.ds-command-palette-group</code> | no — <code>role=&quot;group&quot;</code> with the group's name as its label | | Group heading | <code>.ds-command-palette-group-heading</code> | with a group — the name alone, <code>font.size.meta</code> in <code>text.muted</code>; no rule, no count; <code>aria-hidden</code> | | Option | <code>.ds-command-palette-option</code> | yes — <code>role=&quot;option&quot;</code>, a stable <code>id</code>, <code>aria-selected</code> | | Option mark | <code>.ds-command-palette-option-mark</code> | no — a file's kind glyph in its kind's hue, a skill's or plugin's own artwork, an action's glyph, or (<code>--chip</code>) a chat's provider chip; <code>aria-hidden</code> | | Option label | <code>.ds-command-palette-option-label</code> | yes — truncating; <code>font.size.heading</code> | | File heading | <code>.ds-command-palette-file-heading</code> | in the Text group — <code>role=&quot;presentation&quot;</code>: the file's kind glyph, its name, its folder, and how many lines matched; not an option | | Line option | <code>.ds-command-palette-option--line</code> | in the Text group — a matched line under its file heading: the line number in the gutter (<code>.ds-command-palette-line-number</code>), then the line, mono at <code>font.size.meta</code> | | Option detail | <code>.ds-command-palette-option-detail</code> | no — the locator under the label, <code>font.size.micro</code> in <code>text.disabled</code> | | Shortcut | <code>.ds-command-palette-shortcut</code> | no — the command's chord, trailing, a [kbd-chord](../kbd-chord/component.md) capsule | | Empty | <code>.ds-command-palette-empty</code> | no — the one-sentence state when nothing matched |</p>
 <p><strong>The shell is the modal's, not its own — except its ground.</strong> Radius, border, elevation and width all come from the overlay scale; the palette's local additions are the glass ground (Material, below) and <code>overflow: hidden</code>, so the band's hairline is clipped by the shell's corners. It keeps its own scrim only because it sits at <strong>15vh from the top</strong> rather than centred, which no dialog does — a launcher belongs under the person's hands, not in the middle of the screen.</p>
 <p><strong>One band of chrome, two lines in it.</strong> The strip and the field share a band that draws a single hairline, under the field; the strip is the tabs component's borderless variant, so the active tab's own accent underline is the only mark between the two lines. A hairline under the strip *and* one under the field would be the two stacked bands of chrome the principles reject on sight. Everything else the palette knows is in the list.</p>
 <h4>Material</h4>
@@ -18079,7 +18953,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>States</h4>
 <p>The Skills inventory retains the palette shell, its one field and the grouped keyboard list; the field keeps <code>aria-activedescendant</code> on the inventory's rows. Its only controls off the rows are the meta line's two ghost buttons. Selecting a row opens installation details and actions inside the same shell; Escape returns to the list and puts the caret back in the field. Removal has a second, explicit confirmation naming the scope and path. Managed installations state why removal is unavailable. A refresh failure remains visible, and a loading state never reports an empty inventory. Project and Global headings stay visible when empty so an absent scope cannot be mistaken for a hidden one.</p>
 <p>The product-specific inventory lives in <code>InstalledSkillsPanel</code>; its directory discovery and removal semantics are not design-system primitives. The generic controls, focus behavior, type, spacing and row states follow this system.</p>
-<p>| State | Treatment | |---|---| | Resting (no query, All) | The resting page: <strong>Actions</strong> — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then <strong>Recent conversations</strong>, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) | | Resting (no query, a narrowing) | The tab's groups show a capped preview, except Skills, which lists installations under Project then Global, ten per group, each group closing with a Show more row while it holds more | | Skills, no agent to decide by | The meta line reads &quot;No agent in focus&quot; and the list says to focus an agent; Browse skills stays reachable | | Skills, a group of more than ten | A Show more row, in <code>text.muted</code>, with how many are still hidden in <code>text.disabled</code>; pressing it reveals ten more of that group only. Typing resets every group to ten | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> line in the list — &quot;Searching&quot; or &quot;Working&quot; beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move | | Rest (row) | <code>text.default</code> — the sidebar's row ink. The heading above it is the quieter one, not the row | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One line, and it distinguishes *searching* (the working note), *nothing matched*, and *the search failed* — never one &quot;No results&quot; standing in for a failure |</p>
+<p>| State | Treatment | |---|---| | Resting (no query, All) | The resting page: <strong>Actions</strong> — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then <strong>Recent conversations</strong>, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) | | Resting (no query, a narrowing) | The tab's groups show a capped preview, except Skills, which lists installations under Project then Global, ten per group, each group closing with a Show more row while it holds more | | Skills, no agent to decide by | The meta line reads &quot;No agent in focus&quot; and the list says to focus an agent; Browse skills stays reachable | | Skills, a group of more than ten | A Show more row, in <code>text.muted</code>, with how many are still hidden in <code>text.disabled</code>; pressing it reveals ten more of that group only. Typing resets every group to ten | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> line in the list — &quot;Searching&quot; or &quot;Working&quot; beside the [liveness](../liveness/component.md) working mark. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move | | Rest (row) | <code>text.default</code> — the sidebar's row ink. The heading above it is the quieter one, not the row | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One line, and it distinguishes *searching* (the working note), *nothing matched*, and *the search failed* — never one &quot;No results&quot; standing in for a failure |</p>
 <p>The active row scrolls itself into view (<code>block: 'nearest'</code>) as the selection moves, so a keyboard walk never runs off the bottom of the capped list.</p>
 <h4>Usage</h4>
 <p><strong>The palette is a launcher, not a destination.</strong> Every row's job is to close it. There is no multi-select, no inline editing, no detail pane, no state that survives the dismiss beyond the scope it was opened with.</p>
@@ -18235,7 +19109,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 /* The working note — a search in flight, or an install-and-use round trip —
  * is a line IN the list, never beside the query: a note on the field's own
  * line read as part of what was typed. The word and the liveness component's
- * working dots (components/liveness), not a static ellipsis: the marker the
+ * working mark (components/liveness), not a static ellipsis: the marker the
  * system already uses for &quot;alive right now, for an unknown duration&quot;. */
 .ds-command-palette-status {
   display: flex;
@@ -18649,7 +19523,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;/div&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-palette-scoped&quot; role=&quot;listbox&quot; aria-label=&quot;Search results&quot;&gt;
-        &lt;p class=&quot;ds-command-palette-status&quot; role=&quot;status&quot;&gt;Searching &lt;span class=&quot;ds-working-dots&quot; role=&quot;img&quot; aria-label=&quot;Searching&quot;&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
+        &lt;p class=&quot;ds-command-palette-status&quot; role=&quot;status&quot;&gt;Searching &lt;span class=&quot;ds-working-mark ds-working-mark--think&quot; role=&quot;img&quot; aria-label=&quot;Searching&quot;&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1000ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 0ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 800ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;  &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;&lt;/span&gt;&lt;/p&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
@@ -28655,14 +29529,66 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-liveness">
 <div class="demo-stage">
-    <p class="demo-label">Alive right now — unbounded work on a row that stays readable</p>
+    <p class="demo-label">Alive right now — unbounded work on a row that stays readable. Each chat keeps one of four patterns.</p>
     <div class="demo-row">
-      <span class="ds-working-dots" role="img" aria-label="Agent working">
-        <span class="ds-working-dot" aria-hidden="true"></span>
-        <span class="ds-working-dot" aria-hidden="true"></span>
-        <span class="ds-working-dot" aria-hidden="true"></span>
+      <span class="ds-working-mark ds-working-mark--orbit" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1050ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -900ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -150ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell ds-working-mark-cell--still" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -750ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -300ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -450ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -600ms" aria-hidden="true"></i>
       </span>
       <span>Reviewing the changeset</span>
+      <span class="demo-pattern">orbit</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--ripple" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 120ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 120ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 360ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 360ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 480ms" aria-hidden="true"></i>
+      </span>
+      <span>Mapping the router</span>
+      <span class="demo-pattern">ripple</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--think" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1000ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 800ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 400ms" aria-hidden="true"></i>
+      </span>
+      <span>Planning the migration</span>
+      <span class="demo-pattern">think</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--snake" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell ds-working-mark-cell--still" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1000ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -800ms" aria-hidden="true"></i>
+      </span>
+      <span>Running the test suite</span>
+      <span class="demo-pattern">snake</span>
     </div>
 
     <p class="demo-label" style="margin-top: var(--sem-space-3xl)">
@@ -28680,73 +29606,134 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
     <p class="demo-note">
       The pulse is decoration: the count beside it is what actually says three.
-      The dots carry a required label, because "working" is information and a
-      purely visual liveness cue is invisible to a screen reader.
+      The working mark carries a required label, because "working" is information
+      and a purely visual liveness cue is invisible to a screen reader. With
+      reduced motion every pattern holds the same still frame.
     </p>
   </div>
 </div>
 <div class="catalog-doc">
-<p>The two things motion is allowed to mean, and the marks that mean them.</p>
-<p>Motion in this system says exactly one of two things: <strong>something is alive right now</strong>, or <strong>something just changed</strong>. Anything else — an entrance flourish, a hover lift, a decorative loop — is noise competing with the two signals that carry information, and it teaches people to ignore movement.</p>
-<p>| Mark | Means | Shipped as | |---|---|---| | Working dots | alive right now, for an unknown duration | <code>ui/AgentWorkingDots.tsx</code> | | Change pulse | just changed, one shot | <code>ui/ChangePulse.tsx</code> | | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) | | Working edge | alive right now, on a surface whose content stays readable meanwhile | [working-edge](../working-edge/component.md) |</p>
-<h4>Working dots</h4>
-<p>Three staggered dots in <code>accent.primary</code>, ~14px wide, on a pure-CSS keyframe loop. Use it where work is genuinely in flight and has no predictable end — an agent running, a job with no progress to report.</p>
-<p>It is <strong>not</strong> a spinner substitute. A spinner says &quot;wait, this will finish&quot;; the dots say &quot;this is ongoing&quot;, which is why they live on a row that stays readable and interactive around them rather than over a blocked surface.</p>
-<p>Never ambient. A mark that is always moving stops meaning anything, and it is the single most effective way to make a list feel unquiet.</p>
+<p>The marks that say something is happening, and the one that says something just changed.</p>
+<p>Motion here carries information first: <strong>something is alive right now</strong>, or <strong>something just changed</strong>. It is also allowed a little character (ruling 2026-09-28): a working mark picks one of four patterns so a list of working chats does not tick in step, and a spawned agent is drawn as a small [agent glyph](../agent-glyph/component.md) that moves while it works. What motion never does is decorate something at rest. A mark that moves while nothing is happening teaches people to ignore movement.</p>
+<p>| Mark | Means | Shipped as | |---|---|---| | Working mark | alive right now, for an unknown duration | <code>ui/WorkingMark.tsx</code> | | Agent glyph | this spawned agent is working, or how it ended | [agent-glyph](../agent-glyph/component.md) | | Change pulse | just changed, one shot | <code>ui/ChangePulse.tsx</code> | | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) | | Working edge | alive right now, on a surface whose content stays readable meanwhile | [working-edge](../working-edge/component.md) |</p>
+<h4>Working mark</h4>
+<p>A 3×3 grid of small square cells in <code>accent.primary</code>, 14px across, every cell resting dim. One of four patterns lights them, on a pure-CSS keyframe loop:</p>
+<p>| Pattern | Movement | |---|---| | Orbit | a lit cell runs round the edge, trailing a fading tail; the centre holds still | | Ripple | a diagonal wave washes across, corner to corner | | Think | cells light in a shuffled order, like it is working something out | | Snake | a three-cell snake slithers round the edge; the centre holds still |</p>
+<p>The pattern is picked from a seed, the id of the chat or agent that is working, so a chat keeps its pattern for as long as it works and a row of working chats spreads across all four. Use the mark where work is genuinely in flight and has no predictable end: an agent running, a job with no progress to report.</p>
+<p>It is <strong>not</strong> a spinner substitute. A spinner says &quot;wait, this will finish&quot;; the mark says &quot;this is ongoing&quot;, which is why it lives on a row that stays readable and interactive around it rather than over a blocked surface.</p>
 <h4>Change pulse</h4>
 <p>A one-shot tint-and-glow that eases back to rest when a watched number moves. It paints in the <strong>status colour that already applies</strong> — passed in as a tint — so it never introduces a new accent, and it never fires on first render, only on a change from a value that was already on screen.</p>
 <p>Wrap the icon, not the number. The pulse is decoration; the real count stays on a sibling [badge](../badge/component.md) or in the control's accessible name, so nothing depends on having seen the animation.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | no motion at all — both marks are absent or static | | Live | dots cycle; the surface around them stays interactive | | Changed | one pulse, then rest — never a repeat, never a loop | | Reduced motion | dots collapse to a single static accent dot; the pulse does not play |</p>
-<p>Reduced motion is handled in the stylesheet rather than in each component, so a consumer cannot forget it: the same class that animates is the class that carries the <code>prefers-reduced-motion</code> guard.</p>
+<p>| State | Treatment | |---|---| | Rest | no motion at all: the mark is absent, the pulse static | | Live | the mark's pattern cycles; the surface around it stays interactive | | Changed | one pulse, then rest — never a repeat, never a loop | | Reduced motion | every working mark holds one still frame, the four corners and the centre lit; the pulse does not play |</p>
+<p>Reduced motion is handled in the stylesheet rather than in each component, so a consumer cannot forget it: the same class that animates is the class that carries the <code>prefers-reduced-motion</code> guard. The still frame is the same for all four patterns, so &quot;working&quot; reads one way to someone who has turned motion off. It is never a dot.</p>
+<p>Every loop also holds still while the window is hidden or in the background, and a transcript row pauses its own when it scrolls out of view.</p>
 <h4>Accessibility</h4>
-<ul><li>The working dots are <code>role=&quot;img&quot;</code> with a <strong>required</strong> label — &quot;Agent working&quot; is information, and a purely visual liveness cue is invisible to a screen reader.</li><li>The change pulse is <strong>decorative only</strong> and takes no ARIA. Whatever changed is announced by the thing that actually changed — the badge count, the status line — not by the animation.</li><li>Neither mark may be the only carrier of its meaning. Someone with reduced motion, or not looking at that corner of the screen when it fired, must still be able to find out.</li></ul>
+<ul><li>The working mark is <code>role=&quot;img&quot;</code> with a <strong>required</strong> label — &quot;Agent working&quot; is information, and a purely visual liveness cue is invisible to a screen reader.</li><li>The change pulse is <strong>decorative only</strong> and takes no ARIA. Whatever changed is announced by the thing that actually changed — the badge count, the status line — not by the animation.</li><li>No mark may be the only carrier of its meaning. Someone with reduced motion, or not looking at that corner of the screen when it fired, must still be able to find out.</li></ul>
 <h4>Usage</h4>
-<ul><li>One liveness mark per row. Dots *and* a spinner *and* a pulsing badge on the same row is three components saying one thing.</li><li>Never pulse on a value the person just typed. The pulse means &quot;this changed underneath you&quot;; replaying their own edit back at them is noise.</li><li>Motion is not emphasis. Something important but static gets ink, weight or a tone — never movement.</li></ul>
+<ul><li>One liveness mark per row. A working mark *and* a spinner *and* a pulsing badge on the same row is three components saying one thing.</li><li>Seed the mark with the id of what is working, never with something that changes while it works, or the pattern will jump.</li><li>Never pulse on a value the person just typed. The pulse means &quot;this changed underneath you&quot;; replaying their own edit back at them is noise.</li><li>Motion is not emphasis. Something important but static gets ink, weight or a tone — never movement.</li><li>Never a status dot. State is a word, a glyph, a timer, a working mark or an agent glyph (ruling 2026-09-28).</li></ul>
 </div>
 </div>
-<details class="catalog-source"><summary>components/liveness/component.css</summary><pre><code>/* Liveness — the two marks motion is allowed to make.
+<details class="catalog-source"><summary>components/liveness/component.css</summary><pre><code>/* Liveness — the working mark and the change pulse.
  *
  * Both animations live here rather than in the consuming component, so the
  * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
  * that animates is the class that carries the guard. */
 
-/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+/* ── working mark: alive right now, unbounded ─────────────────────────────── */
 
-.ds-working-dots {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sem-space-3xs);
-  width: 14px;
+/* A 3×3 grid of cells resting dim; a pattern lights them. Each cell's delay
+ * into its pattern's loop is written by the consumer (--ds-cell-delay), so the
+ * four patterns share one set of cells. */
+.ds-working-mark {
+  display: inline-grid;
   flex: none;
+  grid-template-columns: repeat(3, 3px);
+  grid-auto-rows: 3px;
+  gap: var(--sem-space-3xs);
+  place-content: center;
+  width: 14px;
+  height: 14px;
 }
 
-.ds-working-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: var(--sem-radius-pill);
+.ds-working-mark-cell {
+  /* Softened, never round: a round cell would read as a dot. */
+  border-radius: 0.8px;
   background: var(--sem-color-accent-primary);
-  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+  opacity: 0.16;
+  animation-delay: var(--ds-cell-delay, 0s);
 }
 
-/* Staggered, not synchronised — three dots blinking together read as one
- * flashing mark rather than as movement. */
-.ds-working-dot:nth-child(2) {
-  animation-delay: 0.16s;
+.ds-working-mark--orbit .ds-working-mark-cell {
+  animation: ds-working-mark-orbit 1.2s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--ripple .ds-working-mark-cell {
+  animation: ds-working-mark-ripple 1.3s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--think .ds-working-mark-cell {
+  animation: ds-working-mark-think 1.8s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--snake .ds-working-mark-cell {
+  animation: ds-working-mark-snake 1.6s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+/* The edge patterns leave the centre cell at rest. */
+.ds-working-mark .ds-working-mark-cell--still {
+  animation: none;
 }
 
-.ds-working-dot:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes ds-working-dot {
-  0%,
-  100% {
+@keyframes ds-working-mark-orbit {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.75;
+  }
+  30% {
     opacity: 0.3;
   }
-  50% {
+  45%,
+  100% {
+    opacity: 0.16;
+  }
+}
+
+@keyframes ds-working-mark-ripple {
+  0%,
+  70%,
+  100% {
+    opacity: 0.16;
+    transform: scale(0.7);
+  }
+  35% {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ds-working-mark-think {
+  0%,
+  40%,
+  100% {
+    opacity: 0.16;
+  }
+  15% {
+    opacity: 1;
+  }
+}
+
+/* Head plus two tail cells: each edge cell is lit for three of eight steps. */
+@keyframes ds-working-mark-snake {
+  0%,
+  37% {
+    opacity: 1;
+  }
+  37.5%,
+  100% {
+    opacity: 0.16;
   }
 }
 
@@ -28773,17 +29760,18 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   }
 }
 
-/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
- * dot still says &quot;working&quot; — and drops only the movement. */
+/* One guard, every mark. Reduced motion keeps the INFORMATION — one still
+ * frame, the four corners and the centre lit, still says &quot;working&quot; whichever
+ * pattern was picked — and drops only the movement. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-working-dot {
+  .ds-working-mark .ds-working-mark-cell {
     animation: none;
-    opacity: 1;
+    opacity: 0.16;
+    transform: none;
   }
 
-  .ds-working-dot:nth-child(2),
-  .ds-working-dot:nth-child(3) {
-    display: none;
+  .ds-working-mark .ds-working-mark-cell:nth-child(odd) {
+    opacity: 0.9;
   }
 
   .ds-change-pulse {
@@ -28821,6 +29809,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     padding: var(--sem-space-xs) var(--sem-space-sm);
     font-size: var(--sem-font-size-meta);
   }
+  .demo-pattern {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+  }
   .demo-note {
     margin: var(--sem-space-lg) 0 0;
     max-width: 60ch;
@@ -28831,14 +29823,66 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
   &lt;div class=&quot;demo-stage&quot;&gt;
-    &lt;p class=&quot;demo-label&quot;&gt;Alive right now — unbounded work on a row that stays readable&lt;/p&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;Alive right now — unbounded work on a row that stays readable. Each chat keeps one of four patterns.&lt;/p&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
-      &lt;span class=&quot;ds-working-dots&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
-        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-working-mark ds-working-mark--orbit&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1050ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -900ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -150ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell ds-working-mark-cell--still&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -750ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -300ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -450ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
       &lt;/span&gt;
       &lt;span&gt;Reviewing the changeset&lt;/span&gt;
+      &lt;span class=&quot;demo-pattern&quot;&gt;orbit&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;ds-working-mark ds-working-mark--ripple&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 0ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 120ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 240ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 120ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 240ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 360ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 240ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 360ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 480ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+      &lt;/span&gt;
+      &lt;span&gt;Mapping the router&lt;/span&gt;
+      &lt;span class=&quot;demo-pattern&quot;&gt;ripple&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;ds-working-mark ds-working-mark--think&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1000ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 0ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 800ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 1200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: 400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+      &lt;/span&gt;
+      &lt;span&gt;Planning the migration&lt;/span&gt;
+      &lt;span class=&quot;demo-pattern&quot;&gt;think&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;ds-working-mark ds-working-mark--snake&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -200ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell ds-working-mark-cell--still&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -1000ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -400ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -600ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;i class=&quot;ds-working-mark-cell&quot; style=&quot;--ds-cell-delay: -800ms&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+      &lt;/span&gt;
+      &lt;span&gt;Running the test suite&lt;/span&gt;
+      &lt;span class=&quot;demo-pattern&quot;&gt;snake&lt;/span&gt;
     &lt;/div&gt;
 
     &lt;p class=&quot;demo-label&quot; style=&quot;margin-top: var(--sem-space-3xl)&quot;&gt;
@@ -28856,8 +29900,9 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
     &lt;p class=&quot;demo-note&quot;&gt;
       The pulse is decoration: the count beside it is what actually says three.
-      The dots carry a required label, because &quot;working&quot; is information and a
-      purely visual liveness cue is invisible to a screen reader.
+      The working mark carries a required label, because &quot;working&quot; is information
+      and a purely visual liveness cue is invisible to a screen reader. With
+      reduced motion every pattern holds the same still frame.
     &lt;/p&gt;
   &lt;/div&gt;
 &lt;/body&gt;
@@ -42744,7 +43789,7 @@ measureAll()
 </div>
 <div class="catalog-doc">
 <p>A light that travels round the edge of a surface while that surface is being brought back, with its content still on screen and still readable. Shipped as <code>WorkingEdge</code> (<code>src/renderer/src/components/ui/WorkingEdge.tsx</code>). Its first use is a paused agent terminal resuming: the frozen output stays up, readable and scrollable, until the relaunched agent's first frame replaces it, and the edge is what says the click was heard.</p>
-<p>It is a [liveness](../liveness/component.md) mark: it means *alive right now*. What sets it apart from the spinner and the working dots is where it sits. Both of those are marks placed beside something; the working edge belongs to a whole surface, and it is the one liveness mark that can run while the content it concerns is fully visible, because it paints on the edge and never over the content.</p>
+<p>It is a [liveness](../liveness/component.md) mark: it means *alive right now*. What sets it apart from the spinner and the working mark is where it sits. Both of those are marks placed beside something; the working edge belongs to a whole surface, and it is the one liveness mark that can run while the content it concerns is fully visible, because it paints on the edge and never over the content.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Edge | <code>.ds-working-edge</code> | yes. An empty element, last child of a positioned surface; it fills that surface's box and follows its radius | | Status | <code>role=&quot;status&quot;</code>, visually hidden | yes. One short phrase (&quot;Resuming agent&quot;) |</p>
 <p>The edge is a 2px ring: the element's border box with its padding box masked out. It is a faint <code>accent.soft</code> track all the way round with an <code>accent.primary</code> head that fades into the track behind it, and the head laps the ring once every 1800ms. Everything inside the ring is left alone.</p>

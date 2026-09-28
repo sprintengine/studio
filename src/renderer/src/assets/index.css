@@ -3,12 +3,12 @@
    renderer draws is fetched from a font CDN at runtime: a window opened offline
    paints in the same faces as one opened online, and Monaco measures the face it
    will actually draw (see utils/fonts.ts). */
-@import "@fontsource/inter/400.css";
-@import "@fontsource/inter/500.css";
-@import "@fontsource/inter/600.css";
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "tailwindcss";
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import 'tailwindcss';
 /* The design system is the authority on the palette (design-system/USAGE.md).
    The base dark block and the light block below alias these `--sem-*`
    variables name-for-name instead of restating their values, so a change to
@@ -18,9 +18,9 @@
    <html> must always carry `data-mode` alongside `data-theme`. Both are
    stamped together by applyThemeAttributes() in src/renderer/src/hooks/
    useAppTheme.ts, and pre-paint by the boot script in src/renderer/index.html. */
-@import "../../../../design-system/foundations/tokens.css";
+@import '../../../../design-system/foundations/tokens.css';
 /* Diff tours: the classes Monaco hangs on its own nodes while a tour plays. */
-@import "./tours.css";
+@import './tours.css';
 
 /* The Tailwind mapping layer design-system/USAGE.md asks for: "map the token
  * variables into your Tailwind config instead of restating their values".
@@ -130,7 +130,7 @@
  * has no counterpart for that variable; everything it does name is aliased.
  * The seventeen other theme blocks stay literal throughout. */
 :root,
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   /* Anti-dither baseline: every solid hex channel value is a multiple of 4
      in 8-bit (lower two bits = 0). This lands every surface on the native
      LUT of 6-bit-FRC panels, eliminating temporal dithering as a source of
@@ -395,8 +395,7 @@
      canvas. Scoped to MemoryGraphCanvas: the graph is an atmospheric surface,
      and this is the one gradient the app allows.
      Dark default here; the light theme overrides it below. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
 
   /* Type scale. The structural scales below are mode-invariant in the bundle,
      so they resolve the same under either data-mode and every theme inherits
@@ -537,14 +536,13 @@
   --z-menu: var(--sem-z-menu);
   --z-modal: var(--sem-z-modal);
   --z-toast: var(--sem-z-toast);
-
 }
 
 /* Light theme — paper-warm whites, dark ink text. References: Linear Light,
    Vercel Light, Stripe Light. Surface, text, border, accent-soft,
    tone-soft, and scrollbar tokens override; semantic tone hexes, tool
    identity dots, accent hue, and structural scales stay constant. */
-:root[data-theme="light"] {
+:root[data-theme='light'] {
   /* Anti-dither baseline (multiples of 4); pure white #ffffff and pure
      black are kept as-is — every panel renders the extremes natively. */
   /* App is a touch greyer than the white card surfaces so panels/cards read as
@@ -624,8 +622,7 @@
 
   /* Light atmosphere: a barely-there cool tint on the near-white canvas so the
      graph still has depth without a blue vignette reading as a colour cast. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.045), transparent 52%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.045), transparent 52%);
 }
 
 /* ── Theme catalogue ────────────────────────────────────────────────────────
@@ -649,7 +646,7 @@
 /* Slate uses a neutral grey ramp, lighter than the default ink scale so
    adjacent editor surfaces remain distinct. The accent stays brand blue.
    Anti-dither baseline. */
-:root[data-theme="slate"] {
+:root[data-theme='slate'] {
   --bg-app: #202020;
   --bg-surface: #242424;
   --bg-surface-raised: #2c2c30;
@@ -667,7 +664,7 @@
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(252, 252, 252, 0.07);
-  --border-default: rgba(252, 252, 252, 0.10);
+  --border-default: rgba(252, 252, 252, 0.1);
   --border-strong: rgba(252, 252, 252, 0.16);
   --border-focus: #5c7cfc;
 
@@ -692,7 +689,7 @@
    reference: f.lux, Apple Night Shift, incandescent bulb. Anti-dither
    baseline (channel values are multiples of 4; warm R>G>B tint preserved
    by rounding direction where a half-step would have flipped it). */
-:root[data-theme="lantern"] {
+:root[data-theme='lantern'] {
   --bg-app: #181408;
   --bg-surface: #1c1810;
   --bg-surface-raised: #242018;
@@ -710,7 +707,7 @@
   --text-on-accent: #181408;
 
   --border-subtle: rgba(244, 232, 200, 0.06);
-  --border-default: rgba(244, 232, 200, 0.10);
+  --border-default: rgba(244, 232, 200, 0.1);
   --border-strong: rgba(244, 232, 200, 0.16);
   --border-focus: #e8a850;
 
@@ -735,7 +732,7 @@
 /* Tokyo Night — Folke's iconic theme. Cool muted purple-blue base
    with crisp cyan accents. Premium "night coding" aesthetic. Anti-dither
    baseline. */
-:root[data-theme="tokyo-night"] {
+:root[data-theme='tokyo-night'] {
   --bg-app: #181824;
   --bg-surface: #1c1c28;
   --bg-surface-raised: #24283c;
@@ -753,7 +750,7 @@
   --text-on-accent: #181824;
 
   --border-subtle: rgba(192, 200, 220, 0.06);
-  --border-default: rgba(192, 200, 220, 0.10);
+  --border-default: rgba(192, 200, 220, 0.1);
   --border-strong: rgba(192, 200, 220, 0.16);
   --border-focus: #7cb4fc;
 
@@ -776,7 +773,7 @@
 
 /* Rose Pine — soft mauve-lavender base with muted rose accent. Designer-
    coded "thoughtful" palette (rosepinetheme.com). Anti-dither baseline. */
-:root[data-theme="rose-pine"] {
+:root[data-theme='rose-pine'] {
   --bg-app: #181420;
   --bg-surface: #1c1828;
   --bg-surface-raised: #241c34;
@@ -794,7 +791,7 @@
   --text-on-accent: #181420;
 
   --border-subtle: rgba(224, 212, 220, 0.06);
-  --border-default: rgba(224, 212, 220, 0.10);
+  --border-default: rgba(224, 212, 220, 0.1);
   --border-strong: rgba(224, 212, 220, 0.16);
   --border-focus: #d488a0;
 
@@ -823,7 +820,7 @@
    overrides the semantic tones — the dark catalogue's luminous-on-dark tones
    wash out on cream — and flips error ink to white over the deep red. Anti-
    dither baseline (channels in multiples of 4); pure white #ffffff exempt. */
-:root[data-theme="vellum"] {
+:root[data-theme='vellum'] {
   /* App is a touch deeper than the card surfaces so panels read as elevated
      paper against the canvas (same step as Light), warm throughout. */
   --bg-app: #e8e0d0;
@@ -846,15 +843,15 @@
 
   /* Warm-ink hairlines (rgb 44,36,24) lifted so structure reads on parchment:
      subtle divider → clear hairline → structural separator. */
-  --border-subtle: rgba(44, 36, 24, 0.10);
-  --border-default: rgba(44, 36, 24, 0.20);
-  --border-strong: rgba(44, 36, 24, 0.30);
+  --border-subtle: rgba(44, 36, 24, 0.1);
+  --border-default: rgba(44, 36, 24, 0.2);
+  --border-strong: rgba(44, 36, 24, 0.3);
   --border-focus: #b04428;
 
   --accent-primary: #b04428;
   --accent-primary-hover: #9c3c20;
   --accent-primary-soft: rgba(176, 68, 40, 0.12);
-  --accent-primary-soft-strong: rgba(176, 68, 40, 0.20);
+  --accent-primary-soft-strong: rgba(176, 68, 40, 0.2);
 
   /* Semantic tones overridden for light, drawn from the plate: forest-teal
      swallowtail (good), mustard gold (warn), a cooler crimson (error) kept
@@ -886,17 +883,14 @@
   --skeleton-shimmer-low: rgba(44, 36, 24, 0.04);
   --skeleton-shimmer-high: rgba(44, 36, 24, 0.09);
 
-  --shadow-drawer:
-    0 1px 3px rgba(40, 32, 20, 0.07),
-    0 8px 24px -6px rgba(40, 32, 20, 0.12);
+  --shadow-drawer: 0 1px 3px rgba(40, 32, 20, 0.07), 0 8px 24px -6px rgba(40, 32, 20, 0.12);
 
   --terminal-bg: #f8f0e4;
   --terminal-fg: #2c2418;
 
   /* Warm atmosphere: a barely-there terracotta tint on the parchment canvas so
      the graph keeps depth without a colour cast. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(176, 68, 40, 0.05), transparent 52%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(176, 68, 40, 0.05), transparent 52%);
 }
 
 /* Herbarium — green-forward light sibling of Vellum, pulling the sage/olive of
@@ -911,7 +905,7 @@
    luminous tones wash out on light) and flips error ink to white. Shares the
    light-surface git-lane / pill / highlight legibility overrides below.
    Anti-dither baseline: channels in multiples of 4; pure white #ffffff exempt. */
-:root[data-theme="herbarium"] {
+:root[data-theme='herbarium'] {
   /* Sage-olive chrome canvas (G >= R > B) vs warm-parchment cards — the
      warm/cool split is the whole identity. App is the sage the sidebar wears. */
   --bg-app: #d4dcc0;
@@ -948,7 +942,7 @@
   --accent-primary: #b04428;
   --accent-primary-hover: #9c3c20;
   --accent-primary-soft: rgba(176, 68, 40, 0.12);
-  --accent-primary-soft-strong: rgba(176, 68, 40, 0.20);
+  --accent-primary-soft-strong: rgba(176, 68, 40, 0.2);
 
   /* Semantic tones from the plate; good is brightened toward the jewel
      swallowtail's emerald (Vellum's was a deeper forest-teal). All kept
@@ -978,9 +972,7 @@
   --skeleton-shimmer-low: rgba(36, 40, 24, 0.04);
   --skeleton-shimmer-high: rgba(36, 40, 24, 0.09);
 
-  --shadow-drawer:
-    0 1px 3px rgba(24, 32, 16, 0.07),
-    0 8px 24px -6px rgba(24, 32, 16, 0.14);
+  --shadow-drawer: 0 1px 3px rgba(24, 32, 16, 0.07), 0 8px 24px -6px rgba(24, 32, 16, 0.14);
 
   /* Warm parchment (= --bg-surface-raised), not sage: the terminal is a working
      card, so it floats warm on the cool sage canvas like every other card
@@ -989,8 +981,7 @@
   --terminal-fg: #242818;
 
   /* Faint emerald atmosphere leans the graph into the green identity. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(44, 124, 92, 0.06), transparent 52%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(44, 124, 92, 0.06), transparent 52%);
 }
 
 /* Paper — the product's signature light theme: warm cream canvas, sage
@@ -999,9 +990,9 @@
    A green-accented, warm-light sibling of Herbarium, but cream-dominant (vs
    Herbarium's sage-dominant canvas) so the green accent pops on cream rather
    than muddying on sage. Shares the light-theme legibility overrides below. */
-:root[data-theme="paper"] {
-  --bg-app: #f4f1e8;        /* cream canvas — matches the website body */
-  --bg-surface: #fbf9f2;    /* warm near-white panel/card, elevated above cream */
+:root[data-theme='paper'] {
+  --bg-app: #f4f1e8; /* cream canvas — matches the website body */
+  --bg-surface: #fbf9f2; /* warm near-white panel/card, elevated above cream */
   --bg-surface-raised: #fdfcf7;
   --bg-hover: #ece9dc;
   /* Neutral cream steps, not sage (owner ruling 2026-07-23): the
@@ -1022,7 +1013,7 @@
   --text-on-accent: #f4f1e8; /* cream label on the green accent, as on the site */
 
   /* Warm ink-alpha hairlines (rgb 28,32,22), mirroring the website hairlines. */
-  --border-subtle: rgba(28, 32, 22, 0.10);
+  --border-subtle: rgba(28, 32, 22, 0.1);
   --border-default: rgba(28, 32, 22, 0.18);
   --border-strong: rgba(28, 32, 22, 0.28);
   --border-focus: #2f6a4a;
@@ -1031,7 +1022,7 @@
   --accent-primary: #2f6a4a;
   --accent-primary-hover: #275842;
   --accent-primary-soft: rgba(47, 106, 74, 0.12);
-  --accent-primary-soft-strong: rgba(47, 106, 74, 0.20);
+  --accent-primary-soft-strong: rgba(47, 106, 74, 0.2);
 
   /* Semantic tones tuned for the cream surfaces (luminous-on-dark hues wash
      out here). `good` stays a deeper emerald, kept distinct from the forest
@@ -1062,23 +1053,20 @@
   --skeleton-shimmer-low: rgba(28, 32, 22, 0.04);
   --skeleton-shimmer-high: rgba(28, 32, 22, 0.09);
 
-  --shadow-drawer:
-    0 1px 3px rgba(24, 22, 16, 0.06),
-    0 8px 24px -6px rgba(24, 22, 16, 0.12);
+  --shadow-drawer: 0 1px 3px rgba(24, 22, 16, 0.06), 0 8px 24px -6px rgba(24, 22, 16, 0.12);
 
   --terminal-bg: #f0ede2;
   --terminal-fg: #191613;
 
   /* Faint green atmosphere leans the graph into the brand accent. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.05), transparent 52%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(47, 106, 74, 0.05), transparent 52%);
 }
 
 /* Sage — mid-tone muted gray-green ("slate, but green"). Desaturated relative
    to Fernery so the chrome stays calm and recedes, with the terracotta accent
    carrying the only saturation. Green tint preserved by keeping G >= R > B.
    Anti-dither baseline. */
-:root[data-theme="sage"] {
+:root[data-theme='sage'] {
   --bg-app: #20241c;
   --bg-surface: #282c20;
   --bg-surface-raised: #303428;
@@ -1136,8 +1124,7 @@
   --terminal-bg: #181c14;
   --terminal-fg: #e8e8d4;
 
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(68, 168, 124, 0.06), transparent 52%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(68, 168, 124, 0.06), transparent 52%);
 }
 
 /* Herbarium Dark — the dark counterpart of Herbarium. Where Herbarium puts sage
@@ -1149,7 +1136,7 @@
    is pushed to a saturated teal-emerald so it never reads as a second sage next
    to the muted accent (green lives in the accent + canvas; success separates by
    saturation + hue). Anti-dither baseline: channel values are multiples of 4. */
-:root[data-theme="herbarium-dark"] {
+:root[data-theme='herbarium-dark'] {
   /* Dark sage-slate ramp; faint olive tint preserved by keeping G >= R > B.
      Calmer and greyer than the saturated Sage/Fernery chrome so the sage accent
      carries the identity, not the surfaces. App sits a step under the cards. */
@@ -1173,7 +1160,7 @@
 
   /* Cream-ink hairlines so structure reads on the dark sage-slate. */
   --border-subtle: rgba(228, 232, 216, 0.06);
-  --border-default: rgba(228, 232, 216, 0.10);
+  --border-default: rgba(228, 232, 216, 0.1);
   --border-strong: rgba(228, 232, 216, 0.16);
   --border-focus: #d4dcc0;
 
@@ -1217,10 +1204,8 @@
   --terminal-fg: #e4e8d8;
 
   /* Faint sage glow keeps the graph in the green identity against the dark. */
-  --memory-graph-atmosphere:
-    radial-gradient(circle at 50% 45%, rgba(212, 220, 192, 0.06), transparent 50%);
+  --memory-graph-atmosphere: radial-gradient(circle at 50% 45%, rgba(212, 220, 192, 0.06), transparent 50%);
 }
-
 
 * {
   box-sizing: border-box;
@@ -1238,15 +1223,8 @@ body,
 body {
   background-color: var(--bg-app);
   color: var(--text-strong);
-  font-family:
-    Inter,
-    "SF Pro Text",
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
-  font-feature-settings: "cv11", "ss01", "ss03";
+  font-family: Inter, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -1258,20 +1236,12 @@ kbd,
 pre,
 samp,
 .font-mono {
-  font-family:
-    "JetBrains Mono",
-    ui-monospace,
-    SFMono-Regular,
-    "SF Mono",
-    "Cascadia Code",
-    Menlo,
-    Consolas,
-    monospace;
-  font-feature-settings: "tnum", "zero";
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  font-feature-settings: 'tnum', 'zero';
 }
 
 .tabular-nums {
-  font-feature-settings: "tnum";
+  font-feature-settings: 'tnum';
   font-variant-numeric: tabular-nums;
 }
 
@@ -1291,10 +1261,10 @@ samp,
 /* Light-surface themes already render a legible dark glyph — inverting it there
  * would wash it out. (sage/fernery/greenhouse are dark mid-greens, so they keep
  * the inverted glyph above.) */
-:root[data-theme="light"] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme="vellum"] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme="herbarium"] .time-control::-webkit-calendar-picker-indicator,
-:root[data-theme="paper"] .time-control::-webkit-calendar-picker-indicator {
+:root[data-theme='light'] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme='vellum'] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme='herbarium'] .time-control::-webkit-calendar-picker-indicator,
+:root[data-theme='paper'] .time-control::-webkit-calendar-picker-indicator {
   filter: none;
   opacity: 0.7;
 }
@@ -1306,13 +1276,27 @@ samp,
  * + pastel red." The hue hexes match utils/highlight.ts and the
  * .tab-highlight-* palette above.
  * design-tokens-allow-block: user-chosen highlight palette, hue literals */
-.highlight-bg-red    { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff5a5f); }
-.highlight-bg-orange { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff8c42); }
-.highlight-bg-amber  { background-color: color-mix(in oklab, var(--bg-surface) 88%, #ffbf2f); }
-.highlight-bg-green  { background-color: color-mix(in oklab, var(--bg-surface) 88%, #30d158); }
-.highlight-bg-blue   { background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff); }
-.highlight-bg-purple { background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa); }
-.highlight-bg-pink   { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3); }
+.highlight-bg-red {
+  background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff5a5f);
+}
+.highlight-bg-orange {
+  background-color: color-mix(in oklab, var(--bg-surface) 88%, #ff8c42);
+}
+.highlight-bg-amber {
+  background-color: color-mix(in oklab, var(--bg-surface) 88%, #ffbf2f);
+}
+.highlight-bg-green {
+  background-color: color-mix(in oklab, var(--bg-surface) 88%, #30d158);
+}
+.highlight-bg-blue {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff);
+}
+.highlight-bg-purple {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa);
+}
+.highlight-bg-pink {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3);
+}
 
 /* Dimmed companions to the .highlight-bg-* fills above. Inactive highlighted
  * rows (sidebar workspaces, backlog items) carry this lower-strength tint across
@@ -1320,28 +1304,62 @@ samp,
  * selected; selecting the row swaps to the brighter .highlight-bg-* fill. Clearly
  * visible across the full row but a step below the active fill, which also wins on
  * brighter text + selection halo. */
-.highlight-bg-dim-red    { background-color: color-mix(in oklab, var(--bg-surface) 92%, #ff5a5f); }
-.highlight-bg-dim-orange { background-color: color-mix(in oklab, var(--bg-surface) 92%, #ff8c42); }
-.highlight-bg-dim-amber  { background-color: color-mix(in oklab, var(--bg-surface) 92%, #ffbf2f); }
-.highlight-bg-dim-green  { background-color: color-mix(in oklab, var(--bg-surface) 92%, #30d158); }
-.highlight-bg-dim-blue   { background-color: color-mix(in oklab, var(--bg-surface) 91%, #5c7cff); }
-.highlight-bg-dim-purple { background-color: color-mix(in oklab, var(--bg-surface) 91%, #a78bfa); }
-.highlight-bg-dim-pink   { background-color: color-mix(in oklab, var(--bg-surface) 91%, #ff7eb3); }
+.highlight-bg-dim-red {
+  background-color: color-mix(in oklab, var(--bg-surface) 92%, #ff5a5f);
+}
+.highlight-bg-dim-orange {
+  background-color: color-mix(in oklab, var(--bg-surface) 92%, #ff8c42);
+}
+.highlight-bg-dim-amber {
+  background-color: color-mix(in oklab, var(--bg-surface) 92%, #ffbf2f);
+}
+.highlight-bg-dim-green {
+  background-color: color-mix(in oklab, var(--bg-surface) 92%, #30d158);
+}
+.highlight-bg-dim-blue {
+  background-color: color-mix(in oklab, var(--bg-surface) 91%, #5c7cff);
+}
+.highlight-bg-dim-purple {
+  background-color: color-mix(in oklab, var(--bg-surface) 91%, #a78bfa);
+}
+.highlight-bg-dim-pink {
+  background-color: color-mix(in oklab, var(--bg-surface) 91%, #ff7eb3);
+}
 
-.highlight-text-red    { color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f); }
-.highlight-text-orange { color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42); }
-.highlight-text-amber  { color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f); }
-.highlight-text-green  { color: color-mix(in oklab, var(--text-strong) 30%, #30d158); }
-.highlight-text-blue   { color: color-mix(in oklab, var(--text-strong) 25%, #5c7cff); }
-.highlight-text-purple { color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa); }
-.highlight-text-pink   { color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
+.highlight-text-red {
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
+}
+.highlight-text-orange {
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42);
+}
+.highlight-text-amber {
+  color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f);
+}
+.highlight-text-green {
+  color: color-mix(in oklab, var(--text-strong) 30%, #30d158);
+}
+.highlight-text-blue {
+  color: color-mix(in oklab, var(--text-strong) 25%, #5c7cff);
+}
+.highlight-text-purple {
+  color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa);
+}
+.highlight-text-pink {
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3);
+}
 
 /* Theme-portable chip ink for tone-coded badges (git status letters, level
  * chips, etc.). Same color-mix approach as the highlight palette.
  * design-tokens-allow-block: semantic tone hue literals */
-.chip-text-good { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-good)); }
-.chip-text-warn { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-warn)); }
-.chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
+.chip-text-good {
+  color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-good));
+}
+.chip-text-warn {
+  color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-warn));
+}
+.chip-text-error {
+  color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error));
+}
 /* design-tokens-allow-end */
 
 /* Project identity hues - one colour per project, worn on the folder glyph and
@@ -1374,12 +1392,18 @@ samp,
  * dot a person clicks has to be the colour the glyph then wears. */
 .project-mark,
 .project-swatch {
-  --project-mark: oklch(var(--sem-color-mark-project-lightness) var(--sem-color-mark-project-chroma) var(--project-hue));
+  --project-mark: oklch(
+    var(--sem-color-mark-project-lightness) var(--sem-color-mark-project-chroma) var(--project-hue)
+  );
 }
 
 /* The glyph wears the hue as ink; the picker's dot wears it as a fill. */
-.project-mark { color: var(--project-mark); }
-.project-swatch { background-color: var(--project-mark); }
+.project-mark {
+  color: var(--project-mark);
+}
+.project-swatch {
+  background-color: var(--project-mark);
+}
 
 /* File-tree row washes - "what IS this file?", answered by the row's own
  * background (ruled 2026-09-07, principles.md ->
@@ -1407,8 +1431,12 @@ samp,
  * selection makes the row a person is pointing at unreadable.
  * design-tokens-allow-block: identity mark hues, mixed per theme */
 @layer utilities {
-  .file-row-wash-test { background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-teal)); }
-  .file-row-wash-generated { background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-orange)); }
+  .file-row-wash-test {
+    background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-teal));
+  }
+  .file-row-wash-generated {
+    background-color: color-mix(in oklab, var(--bg-surface) 88%, var(--sem-color-mark-orange));
+  }
 }
 /* design-tokens-allow-end */
 
@@ -1431,22 +1459,54 @@ samp,
   --git-lane-7: color-mix(in oklab, var(--text-strong) 22%, #ff5a5f);
 }
 
-.git-ref-pill-0 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff); border-color: color-mix(in oklab, var(--bg-surface) 66%, #5c7cff); color: color-mix(in oklab, var(--text-strong) 30%, #5c7cff); }
-.git-ref-pill-1 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa); border-color: color-mix(in oklab, var(--bg-surface) 66%, #a78bfa); color: color-mix(in oklab, var(--text-strong) 30%, #a78bfa); }
-.git-ref-pill-2 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #30d158); border-color: color-mix(in oklab, var(--bg-surface) 66%, #30d158); color: color-mix(in oklab, var(--text-strong) 30%, #30d158); }
-.git-ref-pill-3 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff8c42); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff8c42); color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42); }
-.git-ref-pill-4 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff7eb3); color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3); }
-.git-ref-pill-5 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #2dd4bf); border-color: color-mix(in oklab, var(--bg-surface) 66%, #2dd4bf); color: color-mix(in oklab, var(--text-strong) 30%, #2dd4bf); }
-.git-ref-pill-6 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ffbf2f); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ffbf2f); color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f); }
-.git-ref-pill-7 { background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f); border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f); color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f); }
+.git-ref-pill-0 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #5c7cff);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #5c7cff);
+  color: color-mix(in oklab, var(--text-strong) 30%, #5c7cff);
+}
+.git-ref-pill-1 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #a78bfa);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #a78bfa);
+  color: color-mix(in oklab, var(--text-strong) 30%, #a78bfa);
+}
+.git-ref-pill-2 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #30d158);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #30d158);
+  color: color-mix(in oklab, var(--text-strong) 30%, #30d158);
+}
+.git-ref-pill-3 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff8c42);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff8c42);
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42);
+}
+.git-ref-pill-4 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff7eb3);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff7eb3);
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3);
+}
+.git-ref-pill-5 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #2dd4bf);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #2dd4bf);
+  color: color-mix(in oklab, var(--text-strong) 30%, #2dd4bf);
+}
+.git-ref-pill-6 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #ffbf2f);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #ffbf2f);
+  color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f);
+}
+.git-ref-pill-7 {
+  background-color: color-mix(in oklab, var(--bg-surface) 86%, #ff5a5f);
+  border-color: color-mix(in oklab, var(--bg-surface) 66%, #ff5a5f);
+  color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
+}
 
 /* Light-theme legibility: deepen lane strokes and pull pill labels to
  * majority-ink, same fix as the highlight palette. Shared by every light-
  * surface theme (Light, Vellum). */
-:root[data-theme="light"],
-:root[data-theme="vellum"],
-:root[data-theme="herbarium"],
-:root[data-theme="paper"] {
+:root[data-theme='light'],
+:root[data-theme='vellum'],
+:root[data-theme='herbarium'],
+:root[data-theme='paper'] {
   --git-lane-0: color-mix(in oklab, var(--text-strong) 35%, #5c7cff);
   --git-lane-1: color-mix(in oklab, var(--text-strong) 35%, #a78bfa);
   --git-lane-2: color-mix(in oklab, var(--text-strong) 35%, #30d158);
@@ -1457,38 +1517,54 @@ samp,
   --git-lane-7: color-mix(in oklab, var(--text-strong) 35%, #ff5a5f);
 }
 
-:root[data-theme="light"] .git-ref-pill-0,
-:root[data-theme="herbarium"] .git-ref-pill-0,
-:root[data-theme="paper"] .git-ref-pill-0,
-:root[data-theme="vellum"] .git-ref-pill-0 { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
-:root[data-theme="light"] .git-ref-pill-1,
-:root[data-theme="herbarium"] .git-ref-pill-1,
-:root[data-theme="paper"] .git-ref-pill-1,
-:root[data-theme="vellum"] .git-ref-pill-1 { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
-:root[data-theme="light"] .git-ref-pill-2,
-:root[data-theme="herbarium"] .git-ref-pill-2,
-:root[data-theme="paper"] .git-ref-pill-2,
-:root[data-theme="vellum"] .git-ref-pill-2 { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
-:root[data-theme="light"] .git-ref-pill-3,
-:root[data-theme="herbarium"] .git-ref-pill-3,
-:root[data-theme="paper"] .git-ref-pill-3,
-:root[data-theme="vellum"] .git-ref-pill-3 { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
-:root[data-theme="light"] .git-ref-pill-4,
-:root[data-theme="herbarium"] .git-ref-pill-4,
-:root[data-theme="paper"] .git-ref-pill-4,
-:root[data-theme="vellum"] .git-ref-pill-4 { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
-:root[data-theme="light"] .git-ref-pill-5,
-:root[data-theme="herbarium"] .git-ref-pill-5,
-:root[data-theme="paper"] .git-ref-pill-5,
-:root[data-theme="vellum"] .git-ref-pill-5 { color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf); }
-:root[data-theme="light"] .git-ref-pill-6,
-:root[data-theme="herbarium"] .git-ref-pill-6,
-:root[data-theme="paper"] .git-ref-pill-6,
-:root[data-theme="vellum"] .git-ref-pill-6 { color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f); }
-:root[data-theme="light"] .git-ref-pill-7,
-:root[data-theme="herbarium"] .git-ref-pill-7,
-:root[data-theme="paper"] .git-ref-pill-7,
-:root[data-theme="vellum"] .git-ref-pill-7 { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
+:root[data-theme='light'] .git-ref-pill-0,
+:root[data-theme='herbarium'] .git-ref-pill-0,
+:root[data-theme='paper'] .git-ref-pill-0,
+:root[data-theme='vellum'] .git-ref-pill-0 {
+  color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff);
+}
+:root[data-theme='light'] .git-ref-pill-1,
+:root[data-theme='herbarium'] .git-ref-pill-1,
+:root[data-theme='paper'] .git-ref-pill-1,
+:root[data-theme='vellum'] .git-ref-pill-1 {
+  color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa);
+}
+:root[data-theme='light'] .git-ref-pill-2,
+:root[data-theme='herbarium'] .git-ref-pill-2,
+:root[data-theme='paper'] .git-ref-pill-2,
+:root[data-theme='vellum'] .git-ref-pill-2 {
+  color: color-mix(in oklab, var(--text-strong) 55%, #30d158);
+}
+:root[data-theme='light'] .git-ref-pill-3,
+:root[data-theme='herbarium'] .git-ref-pill-3,
+:root[data-theme='paper'] .git-ref-pill-3,
+:root[data-theme='vellum'] .git-ref-pill-3 {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42);
+}
+:root[data-theme='light'] .git-ref-pill-4,
+:root[data-theme='herbarium'] .git-ref-pill-4,
+:root[data-theme='paper'] .git-ref-pill-4,
+:root[data-theme='vellum'] .git-ref-pill-4 {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3);
+}
+:root[data-theme='light'] .git-ref-pill-5,
+:root[data-theme='herbarium'] .git-ref-pill-5,
+:root[data-theme='paper'] .git-ref-pill-5,
+:root[data-theme='vellum'] .git-ref-pill-5 {
+  color: color-mix(in oklab, var(--text-strong) 55%, #2dd4bf);
+}
+:root[data-theme='light'] .git-ref-pill-6,
+:root[data-theme='herbarium'] .git-ref-pill-6,
+:root[data-theme='paper'] .git-ref-pill-6,
+:root[data-theme='vellum'] .git-ref-pill-6 {
+  color: color-mix(in oklab, var(--text-strong) 58%, #ffbf2f);
+}
+:root[data-theme='light'] .git-ref-pill-7,
+:root[data-theme='herbarium'] .git-ref-pill-7,
+:root[data-theme='paper'] .git-ref-pill-7,
+:root[data-theme='vellum'] .git-ref-pill-7 {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f);
+}
 /* design-tokens-allow-end */
 
 /* Light-theme legibility overrides for the user-chosen highlight / tab-highlight
@@ -1500,120 +1576,169 @@ samp,
  * label, and the tab fills/borders are deepened so the coloured tab registers
  * against white. Higher specificity wins regardless of source order.
  * design-tokens-allow-block: user-chosen highlight palette, hue literals */
-:root[data-theme="light"] .highlight-text-red,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="herbarium"] .highlight-text-red,
-:root[data-theme="paper"] .highlight-text-red,
-:root[data-theme="vellum"] .highlight-text-red,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f); }
-:root[data-theme="light"] .highlight-text-orange,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="herbarium"] .highlight-text-orange,
-:root[data-theme="paper"] .highlight-text-orange,
-:root[data-theme="vellum"] .highlight-text-orange,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42); }
-:root[data-theme="light"] .highlight-text-amber,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="herbarium"] .highlight-text-amber,
-:root[data-theme="paper"] .highlight-text-amber,
-:root[data-theme="vellum"] .highlight-text-amber,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f); }
-:root[data-theme="light"] .highlight-text-green,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="herbarium"] .highlight-text-green,
-:root[data-theme="paper"] .highlight-text-green,
-:root[data-theme="vellum"] .highlight-text-green,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { color: color-mix(in oklab, var(--text-strong) 55%, #30d158); }
-:root[data-theme="light"] .highlight-text-blue,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="herbarium"] .highlight-text-blue,
-:root[data-theme="paper"] .highlight-text-blue,
-:root[data-theme="vellum"] .highlight-text-blue,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff); }
-:root[data-theme="light"] .highlight-text-purple,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="herbarium"] .highlight-text-purple,
-:root[data-theme="paper"] .highlight-text-purple,
-:root[data-theme="vellum"] .highlight-text-purple,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa); }
-:root[data-theme="light"] .highlight-text-pink,
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="herbarium"] .highlight-text-pink,
-:root[data-theme="paper"] .highlight-text-pink,
-:root[data-theme="vellum"] .highlight-text-pink,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3); }
+:root[data-theme='light'] .highlight-text-red,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='herbarium'] .highlight-text-red,
+:root[data-theme='paper'] .highlight-text-red,
+:root[data-theme='vellum'] .highlight-text-red,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff5a5f);
+}
+:root[data-theme='light'] .highlight-text-orange,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='herbarium'] .highlight-text-orange,
+:root[data-theme='paper'] .highlight-text-orange,
+:root[data-theme='vellum'] .highlight-text-orange,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff8c42);
+}
+:root[data-theme='light'] .highlight-text-amber,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='herbarium'] .highlight-text-amber,
+:root[data-theme='paper'] .highlight-text-amber,
+:root[data-theme='vellum'] .highlight-text-amber,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ffbf2f);
+}
+:root[data-theme='light'] .highlight-text-green,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='herbarium'] .highlight-text-green,
+:root[data-theme='paper'] .highlight-text-green,
+:root[data-theme='vellum'] .highlight-text-green,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green {
+  color: color-mix(in oklab, var(--text-strong) 55%, #30d158);
+}
+:root[data-theme='light'] .highlight-text-blue,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='herbarium'] .highlight-text-blue,
+:root[data-theme='paper'] .highlight-text-blue,
+:root[data-theme='vellum'] .highlight-text-blue,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue {
+  color: color-mix(in oklab, var(--text-strong) 52%, #5c7cff);
+}
+:root[data-theme='light'] .highlight-text-purple,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='herbarium'] .highlight-text-purple,
+:root[data-theme='paper'] .highlight-text-purple,
+:root[data-theme='vellum'] .highlight-text-purple,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple {
+  color: color-mix(in oklab, var(--text-strong) 52%, #a78bfa);
+}
+:root[data-theme='light'] .highlight-text-pink,
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='herbarium'] .highlight-text-pink,
+:root[data-theme='paper'] .highlight-text-pink,
+:root[data-theme='vellum'] .highlight-text-pink,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink {
+  color: color-mix(in oklab, var(--text-strong) 55%, #ff7eb3);
+}
 
 /* Deepen the tab fill/border so the coloured tab itself reads on white. */
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red { background: rgba(255, 90, 95, 0.16); border-color: rgba(255, 90, 95, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected { background: rgba(255, 90, 95, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange { background: rgba(255, 140, 66, 0.16); border-color: rgba(255, 140, 66, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected { background: rgba(255, 140, 66, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber { background: rgba(255, 191, 47, 0.18); border-color: rgba(255, 191, 47, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected { background: rgba(255, 191, 47, 0.30); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green { background: rgba(48, 209, 88, 0.16); border-color: rgba(48, 209, 88, 0.52); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected { background: rgba(48, 209, 88, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue { background: rgba(92, 124, 255, 0.16); border-color: rgba(92, 124, 255, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected { background: rgba(92, 124, 255, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple { background: rgba(167, 139, 250, 0.16); border-color: rgba(167, 139, 250, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected { background: rgba(167, 139, 250, 0.28); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink { background: rgba(255, 126, 179, 0.16); border-color: rgba(255, 126, 179, 0.55); }
-:root[data-theme="light"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme="herbarium"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme="paper"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
-:root[data-theme="vellum"] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected { background: rgba(255, 126, 179, 0.28); }
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red {
+  background: rgba(255, 90, 95, 0.16);
+  border-color: rgba(255, 90, 95, 0.52);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
+  background: rgba(255, 90, 95, 0.28);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange {
+  background: rgba(255, 140, 66, 0.16);
+  border-color: rgba(255, 140, 66, 0.52);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
+  background: rgba(255, 140, 66, 0.28);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber {
+  background: rgba(255, 191, 47, 0.18);
+  border-color: rgba(255, 191, 47, 0.52);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
+  background: rgba(255, 191, 47, 0.3);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green {
+  background: rgba(48, 209, 88, 0.16);
+  border-color: rgba(48, 209, 88, 0.52);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
+  background: rgba(48, 209, 88, 0.28);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue {
+  background: rgba(92, 124, 255, 0.16);
+  border-color: rgba(92, 124, 255, 0.55);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
+  background: rgba(92, 124, 255, 0.28);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple {
+  background: rgba(167, 139, 250, 0.16);
+  border-color: rgba(167, 139, 250, 0.55);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
+  background: rgba(167, 139, 250, 0.28);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink {
+  background: rgba(255, 126, 179, 0.16);
+  border-color: rgba(255, 126, 179, 0.55);
+}
+:root[data-theme='light'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme='herbarium'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme='paper'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected,
+:root[data-theme='vellum'] .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
+  background: rgba(255, 126, 179, 0.28);
+}
 /* design-tokens-allow-end */
 
 /* Canonical SVG icon size utilities. Pair with the --icon-* token scale.
@@ -1781,7 +1906,7 @@ samp,
  * sink at once — two metaphors for one click. Spelled as `:not()` here rather
  * than as an `active:scale-100` utility at the call site because this rule is
  * three classes deep and would outrank any utility trying to cancel it. */
-.interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
+.interactive:active:not(:disabled):not([aria-disabled='true']):not(.control-raised):not(.control-edge) {
   transform: scale(0.97);
 }
 
@@ -1801,17 +1926,17 @@ samp,
   box-shadow: var(--shadow-control-edge);
 }
 
-.control-raised:active:not(:disabled):not([aria-disabled="true"]),
+.control-raised:active:not(:disabled):not([aria-disabled='true']),
 .control-raised[data-pressed]:not(:disabled),
-.control-edge:active:not(:disabled):not([aria-disabled="true"]),
+.control-edge:active:not(:disabled):not([aria-disabled='true']),
 .control-edge[data-pressed]:not(:disabled) {
   box-shadow: var(--shadow-control-pressed);
 }
 
 .control-raised:disabled,
-.control-raised[aria-disabled="true"],
+.control-raised[aria-disabled='true'],
 .control-edge:disabled,
-.control-edge[aria-disabled="true"] {
+.control-edge[aria-disabled='true'] {
   box-shadow: none;
 }
 
@@ -1834,7 +1959,7 @@ samp,
   transition-timing-function: var(--motion-ease);
 }
 
-.switch-track[aria-checked="true"] .switch-thumb {
+.switch-track[aria-checked='true'] .switch-thumb {
   translate: 18px 0;
 }
 
@@ -1844,7 +1969,7 @@ samp,
   .switch-track:active:not(:disabled) .switch-thumb {
     width: 15px;
   }
-  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb {
+  .switch-track[aria-checked='true']:active:not(:disabled) .switch-thumb {
     translate: 15px 0;
   }
 }
@@ -1888,7 +2013,7 @@ samp,
  * the switch's full-strength off-thumb ink: the leading stop is the ramp at
  * rest, and --text-strong made the quietest state on the control the loudest
  * mark on it. */
-[data-slider="true"][data-at-start] .slider-thumb {
+[data-slider='true'][data-at-start] .slider-thumb {
   background: var(--text-muted);
 }
 
@@ -2124,7 +2249,7 @@ samp,
   transform: translate3d(100%, 0, 0);
   will-change: transform;
 }
-.settings-overlay-panel[data-state="open"] {
+.settings-overlay-panel[data-state='open'] {
   transform: translate3d(0, 0, 0);
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2152,7 +2277,7 @@ samp,
   will-change: transform;
   box-shadow: var(--shadow-drawer);
 }
-.drawer-panel[data-state="open"] {
+.drawer-panel[data-state='open'] {
   transform: translate3d(0, 0, 0);
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2183,12 +2308,7 @@ samp,
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--skeleton-shimmer-high) 50%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg, transparent 0%, var(--skeleton-shimmer-high) 50%, transparent 100%);
     transform: translateX(-100%);
     animation: skeleton-shimmer 1400ms ease-in-out infinite;
   }
@@ -2200,7 +2320,8 @@ samp,
  * needs-input/pending, red #ff787c = failed. The pulse is allowed because it
  * communicates state rather than decorating. */
 @keyframes status-dot-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
@@ -2214,43 +2335,375 @@ samp,
   animation: status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Agent-working marker — three staggered accent dots on a workspace row while
- * an agent is actively working (AgentWorkingDots). Opacity/translate keyframes
- * only — cheap to composite, no per-frame JS. Reduced motion collapses the
- * marker to one static accent dot below. */
-@keyframes agent-working-dot {
-  0%, 60%, 100% {
-    opacity: 0.35;
-    transform: translateY(0);
+/* Working mark — "an agent is working right now" on a workspace row
+ * (WorkingMark.tsx): a 3×3 grid of accent cells animated by one of four
+ * patterns, picked per chat. Every cell rests dim; a pattern lights cells with
+ * opacity (and, for the ripple, scale) keyframes only, cheap to composite, no
+ * per-frame JS. Each cell's delay into the loop is set inline by the component.
+ * Reduced motion holds every pattern on one still frame: the four corners and
+ * the centre lit. */
+.working-mark {
+  display: inline-grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(3, 3px);
+  grid-auto-rows: 3px;
+  gap: 1.5px;
+  place-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.working-mark__cell {
+  border-radius: 0.8px;
+  background: var(--accent-primary);
+  opacity: 0.16;
+}
+
+@keyframes working-mark-orbit {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.75;
   }
   30% {
-    opacity: 1;
-    transform: translateY(-1.5px);
+    opacity: 0.3;
+  }
+  45%,
+  100% {
+    opacity: 0.16;
   }
 }
 
-.agent-working-dot {
-  animation: agent-working-dot 1200ms ease-in-out infinite;
+@keyframes working-mark-ripple {
+  0%,
+  70%,
+  100% {
+    opacity: 0.16;
+    transform: scale(0.7);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
-.agent-working-dot:nth-child(2) {
-  animation-delay: 150ms;
+
+@keyframes working-mark-think {
+  0%,
+  40%,
+  100% {
+    opacity: 0.16;
+  }
+  15% {
+    opacity: 1;
+  }
 }
-.agent-working-dot:nth-child(3) {
-  animation-delay: 300ms;
+
+/* Head plus two tail cells: each edge cell is lit for three of eight steps. */
+@keyframes working-mark-snake {
+  0%,
+  37% {
+    opacity: 1;
+  }
+  37.5%,
+  100% {
+    opacity: 0.16;
+  }
+}
+
+.working-mark--orbit .working-mark__cell {
+  animation: working-mark-orbit 1200ms linear infinite;
+}
+.working-mark--ripple .working-mark__cell {
+  animation: working-mark-ripple 1300ms ease-in-out infinite;
+}
+.working-mark--think .working-mark__cell {
+  animation: working-mark-think 1800ms ease-in-out infinite;
+}
+.working-mark--snake .working-mark__cell {
+  animation: working-mark-snake 1600ms linear infinite;
+}
+.working-mark .working-mark__cell--still {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-working-dots .agent-working-dot {
+  .working-mark .working-mark__cell {
     animation: none;
+    opacity: 0.16;
+    transform: none;
+  }
+  .working-mark .working-mark__cell:nth-child(odd) {
+    opacity: 0.9;
+  }
+}
+
+/* Agent glyph — a spawned agent drawn as a small character (AgentGlyph.tsx):
+ * while its agent works the character moves, each part on its own loop; done,
+ * failed and stopped characters stand still. Parts turn and scale about their
+ * own box, so each keyframe names its pivot. Reduced motion holds every
+ * character still, eyes open. */
+.agent-glyph * {
+  transform-box: fill-box;
+}
+
+@keyframes agent-glyph-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.2px);
+  }
+}
+@keyframes agent-glyph-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes agent-glyph-look {
+  0%,
+  20%,
+  100% {
+    transform: translateX(0);
+  }
+  30%,
+  55% {
+    transform: translateX(1px);
+  }
+  65%,
+  85% {
+    transform: translateX(-1px);
+  }
+}
+@keyframes agent-glyph-scan {
+  0%,
+  100% {
+    transform: translateX(-0.9px);
+  }
+  50% {
+    transform: translateX(0.9px);
+  }
+}
+@keyframes agent-glyph-nod {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes agent-glyph-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes agent-glyph-squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  40% {
+    transform: scale(1.07, 0.92);
+  }
+  70% {
+    transform: scale(0.96, 1.05);
+  }
+}
+@keyframes agent-glyph-antenna {
+  0%,
+  49% {
     opacity: 1;
   }
-  .agent-working-dots .agent-working-dot:nth-child(1),
-  .agent-working-dots .agent-working-dot:nth-child(3) {
-    display: none;
+  50%,
+  100% {
+    opacity: 0.25;
   }
-  .agent-working-dots .agent-working-dot:nth-child(2) {
-    width: 6px;
-    height: 6px;
+}
+@keyframes agent-glyph-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.65;
+  }
+}
+@keyframes agent-glyph-flop {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes agent-glyph-hoho {
+  0%,
+  24%,
+  48%,
+  100% {
+    transform: translateY(0);
+  }
+  12%,
+  36% {
+    transform: translateY(-1.1px);
+  }
+}
+@keyframes agent-glyph-wiggle {
+  0%,
+  100% {
+    transform: skewX(-6deg);
+  }
+  50% {
+    transform: skewX(6deg);
+  }
+}
+@keyframes agent-glyph-twitch {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(-6deg);
+  }
+  90% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes agent-glyph-tilt {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes agent-glyph-peer {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(0.5px, -0.3px);
+  }
+  50% {
+    transform: translate(-0.5px, 0.2px);
+  }
+  75% {
+    transform: translate(0.4px, 0.4px);
+  }
+}
+
+.agent-glyph--robot .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.agent-glyph--robot .agent-glyph__eyes {
+  animation: agent-glyph-scan 1600ms ease-in-out infinite;
+}
+.agent-glyph--robot .agent-glyph__antenna {
+  animation: agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.agent-glyph--blob .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-squish 1100ms ease-in-out infinite;
+}
+.agent-glyph--blob .agent-glyph__eyes {
+  animation: agent-glyph-look 2600ms ease-in-out infinite;
+}
+.agent-glyph--octopus .agent-glyph__whole {
+  animation: agent-glyph-float 1600ms ease-in-out infinite;
+}
+.agent-glyph--octopus .agent-glyph__legs {
+  transform-origin: center top;
+  animation: agent-glyph-wiggle 800ms ease-in-out infinite;
+}
+.agent-glyph--octopus .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3000ms infinite;
+}
+.agent-glyph--owl .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-tilt 2400ms ease-in-out infinite;
+}
+.agent-glyph--owl .agent-glyph__eyes {
+  animation: agent-glyph-peer 2400ms ease-in-out infinite;
+}
+.agent-glyph--ghost .agent-glyph__whole {
+  animation: agent-glyph-float 1800ms ease-in-out infinite;
+}
+.agent-glyph--ghost .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3200ms infinite;
+}
+.agent-glyph--pumpkin .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.agent-glyph--pumpkin .agent-glyph__eyes {
+  animation: agent-glyph-flicker 900ms steps(1) infinite;
+}
+.agent-glyph--cat .agent-glyph__whole {
+  animation: agent-glyph-float 2000ms ease-in-out infinite;
+}
+.agent-glyph--cat .agent-glyph__eyes {
+  animation: agent-glyph-look 2800ms ease-in-out infinite;
+}
+.agent-glyph--cat .agent-glyph__whiskers {
+  transform-origin: center;
+  animation: agent-glyph-twitch 2200ms ease-in-out infinite;
+}
+.agent-glyph--elf .agent-glyph__whole {
+  animation: agent-glyph-float 1200ms ease-in-out infinite;
+}
+.agent-glyph--elf .agent-glyph__hat {
+  transform-origin: center bottom;
+  animation: agent-glyph-flop 1200ms ease-in-out infinite;
+}
+.agent-glyph--elf .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 2800ms infinite;
+}
+.agent-glyph--santa .agent-glyph__whole {
+  animation: agent-glyph-hoho 1800ms ease-in-out infinite;
+}
+.agent-glyph--santa .agent-glyph__hat {
+  transform-origin: left bottom;
+  animation: agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.agent-glyph--santa .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3400ms infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-glyph * {
+    animation: none;
   }
 }
 
@@ -2282,7 +2735,8 @@ samp,
 
 /* Every infinite "something is working" motion holds still while the window is
  * hidden or in the background (data-window-active, stamped by
- * utils/windowActivity.ts): the three above, the working edge and the chat
+ * utils/windowActivity.ts): the pulse, the working marks, every moving part of
+ * an agent glyph and the spinner above, the working edge and the chat
  * shimmer below, the skeleton sweep, and Tailwind's `animate-pulse` and
  * `animate-ping`. They exist to catch the eye of someone looking at the
  * window; with nobody looking, every frame they ask for is a wakeup spent on
@@ -2295,7 +2749,13 @@ samp,
 :root[data-window-active='false']
   :is(
     .status-dot-pulse,
-    .agent-working-dot,
+    .working-mark__cell,
+    .agent-glyph__whole,
+    .agent-glyph__eyes,
+    .agent-glyph__antenna,
+    .agent-glyph__legs,
+    .agent-glyph__whiskers,
+    .agent-glyph__hat,
     .lifecycle-spin,
     .working-edge,
     .chat-shimmer,
@@ -2423,7 +2883,7 @@ samp,
   .slider-thumb {
     transition: none;
   }
-  .interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
+  .interactive:active:not(:disabled):not([aria-disabled='true']):not(.control-raised):not(.control-edge) {
     transform: none;
   }
 }
@@ -2454,11 +2914,11 @@ samp,
  * An unmarked list is a single-pane surface: it never rests. Marking a pane
  * whose fill is painted on a wrapper around the row rather than on the row that
  * carries the ARIA state does nothing — the rebinding lands on the row. */
-[data-selection-pane="auto"]:not(:focus-within)
-  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]),
+[data-selection-pane='auto']:not(:focus-within)
+  :is([aria-current='true'], [aria-current='page'], [aria-selected='true']),
 body:has([data-selection-pane]:focus-within)
-  [data-selection-pane="primary"]:not(:focus-within)
-  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
+  [data-selection-pane='primary']:not(:focus-within)
+  :is([aria-current='true'], [aria-current='page'], [aria-selected='true']) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
   --selection-edge: transparent;
@@ -2474,8 +2934,7 @@ body:has([data-selection-pane]:focus-within)
  *
  * Marked on the group, never guessed from position: a rail has at most one
  * outer-context group, and which one it is belongs to the surface. */
-[data-rail-group="outer-context"]
-  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
+[data-rail-group='outer-context'] :is([aria-current='true'], [aria-current='page'], [aria-selected='true']) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
   --selection-edge: transparent;
@@ -2535,7 +2994,7 @@ body:has([data-selection-pane]:focus-within)
 
   --fl-font-size: var(--text-size-xs);
   --fl-font-weight: var(--sem-font-weight-regular);
-  --fl-font-family: Inter, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --fl-font-family: Inter, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
 
   --fl-color-overflow: var(--text-muted);
   --color-icon: var(--text-muted);
@@ -2646,7 +3105,7 @@ body:has([data-selection-pane]:focus-within)
 }
 
 .flexlayout__layout .flexlayout__tab_button--selected::after {
-  content: "";
+  content: '';
   position: absolute;
   left: 10px;
   right: 10px;
@@ -2689,7 +3148,7 @@ body:has([data-selection-pane]:focus-within)
 }
 
 .flexlayout__tab.agent-tab-spawn-flash-panel::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -2743,72 +3202,72 @@ body:has([data-selection-pane]:focus-within)
    user-chosen tab tints, not surface chrome — theme-invariant.
    design-tokens-allow-block: user-chosen tab-highlight palette */
 .flexlayout__tab_button.tab-highlight-red {
-  border-color: rgba(255, 90, 95, 0.40);
-  background: rgba(255, 90, 95, 0.10);
+  border-color: rgba(255, 90, 95, 0.4);
+  background: rgba(255, 90, 95, 0.1);
   color: color-mix(in oklab, var(--text-strong) 30%, #ff5a5f);
 }
 .flexlayout__tab_button.tab-highlight-red.flexlayout__tab_button--selected {
-  background: rgba(255, 90, 95, 0.20);
-  border-color: rgba(255, 90, 95, 0.60);
+  background: rgba(255, 90, 95, 0.2);
+  border-color: rgba(255, 90, 95, 0.6);
   box-shadow: inset 0 -2px 0 #ff5a5f;
 }
 .flexlayout__tab_button.tab-highlight-orange {
-  border-color: rgba(255, 140, 66, 0.40);
-  background: rgba(255, 140, 66, 0.10);
+  border-color: rgba(255, 140, 66, 0.4);
+  background: rgba(255, 140, 66, 0.1);
   color: color-mix(in oklab, var(--text-strong) 30%, #ff8c42);
 }
 .flexlayout__tab_button.tab-highlight-orange.flexlayout__tab_button--selected {
-  background: rgba(255, 140, 66, 0.20);
-  border-color: rgba(255, 140, 66, 0.60);
+  background: rgba(255, 140, 66, 0.2);
+  border-color: rgba(255, 140, 66, 0.6);
   box-shadow: inset 0 -2px 0 #ff8c42;
 }
 .flexlayout__tab_button.tab-highlight-amber {
-  border-color: rgba(255, 191, 47, 0.40);
-  background: rgba(255, 191, 47, 0.10);
+  border-color: rgba(255, 191, 47, 0.4);
+  background: rgba(255, 191, 47, 0.1);
   color: color-mix(in oklab, var(--text-strong) 30%, #ffbf2f);
 }
 .flexlayout__tab_button.tab-highlight-amber.flexlayout__tab_button--selected {
   background: rgba(255, 191, 47, 0.18);
-  border-color: rgba(255, 191, 47, 0.60);
+  border-color: rgba(255, 191, 47, 0.6);
   box-shadow: inset 0 -2px 0 #ffbf2f;
 }
 .flexlayout__tab_button.tab-highlight-green {
-  border-color: rgba(48, 209, 88, 0.40);
-  background: rgba(48, 209, 88, 0.10);
+  border-color: rgba(48, 209, 88, 0.4);
+  background: rgba(48, 209, 88, 0.1);
   color: color-mix(in oklab, var(--text-strong) 30%, #30d158);
 }
 .flexlayout__tab_button.tab-highlight-green.flexlayout__tab_button--selected {
   background: rgba(48, 209, 88, 0.18);
-  border-color: rgba(48, 209, 88, 0.60);
+  border-color: rgba(48, 209, 88, 0.6);
   box-shadow: inset 0 -2px 0 #30d158;
 }
 .flexlayout__tab_button.tab-highlight-blue {
   border-color: rgba(92, 124, 255, 0.45);
-  background: rgba(92, 124, 255, 0.10);
+  background: rgba(92, 124, 255, 0.1);
   color: color-mix(in oklab, var(--text-strong) 25%, #5c7cff);
 }
 .flexlayout__tab_button.tab-highlight-blue.flexlayout__tab_button--selected {
-  background: rgba(92, 124, 255, 0.20);
+  background: rgba(92, 124, 255, 0.2);
   border-color: rgba(92, 124, 255, 0.65);
   box-shadow: inset 0 -2px 0 #5c7cff;
 }
 .flexlayout__tab_button.tab-highlight-purple {
   border-color: rgba(167, 139, 250, 0.45);
-  background: rgba(167, 139, 250, 0.10);
+  background: rgba(167, 139, 250, 0.1);
   color: color-mix(in oklab, var(--text-strong) 25%, #a78bfa);
 }
 .flexlayout__tab_button.tab-highlight-purple.flexlayout__tab_button--selected {
-  background: rgba(167, 139, 250, 0.20);
+  background: rgba(167, 139, 250, 0.2);
   border-color: rgba(167, 139, 250, 0.65);
   box-shadow: inset 0 -2px 0 #a78bfa;
 }
 .flexlayout__tab_button.tab-highlight-pink {
   border-color: rgba(255, 126, 179, 0.45);
-  background: rgba(255, 126, 179, 0.10);
+  background: rgba(255, 126, 179, 0.1);
   color: color-mix(in oklab, var(--text-strong) 30%, #ff7eb3);
 }
 .flexlayout__tab_button.tab-highlight-pink.flexlayout__tab_button--selected {
-  background: rgba(255, 126, 179, 0.20);
+  background: rgba(255, 126, 179, 0.2);
   border-color: rgba(255, 126, 179, 0.65);
   box-shadow: inset 0 -2px 0 #ff7eb3;
 }
@@ -2817,7 +3276,7 @@ body:has([data-selection-pane]:focus-within)
 /* A highlighted tab's selected underline keeps its user-chosen hue (the inset
    box-shadow rules above); suppress the accent ::after so two underlines never
    stack. */
-.flexlayout__layout .flexlayout__tab_button[class*="tab-highlight-"].flexlayout__tab_button--selected::after {
+.flexlayout__layout .flexlayout__tab_button[class*='tab-highlight-'].flexlayout__tab_button--selected::after {
   display: none;
 }
 
@@ -3009,12 +3468,12 @@ body:has([data-selection-pane]:focus-within)
    floating on a cool field); the interior grid reads as calm parchment seams
    divided by each panel's own border, not a loud green lattice. Hover still lifts
    to a neutral tone so the divider stays discoverable. */
-:root[data-theme="herbarium"] .flexlayout__splitter {
+:root[data-theme='herbarium'] .flexlayout__splitter {
   background: transparent;
 }
 
-:root[data-theme="herbarium"] .flexlayout__splitter:hover,
-:root[data-theme="herbarium"] .flexlayout__splitter_drag {
+:root[data-theme='herbarium'] .flexlayout__splitter:hover,
+:root[data-theme='herbarium'] .flexlayout__splitter_drag {
   background: var(--border-default);
 }
 
@@ -3099,7 +3558,7 @@ body:has([data-selection-pane]:focus-within)
   position: absolute;
   left: 1px;
   top: 3px;
-  content: "";
+  content: '';
   width: 0;
   height: 0;
   border-bottom: 5px solid transparent;
@@ -3139,7 +3598,7 @@ body:has([data-selection-pane]:focus-within)
   width: 4px;
   min-height: 14px;
   border-radius: 999px;
-  content: "";
+  content: '';
 }
 
 .markdown-change-added::before {
@@ -3184,8 +3643,8 @@ body:has([data-selection-pane]:focus-within)
  * is one ground painted once on body with the canvas layers see-through above
  * it — an opaque gradient rather than the OS frost — so every chrome fill here
  * has the same job there, tinting the ground instead of covering it. */
-:root[data-window-material="glass"],
-:root[data-window-material="tinted"] {
+:root[data-window-material='glass'],
+:root[data-window-material='tinted'] {
   --bg-canvas: transparent;
   /* The top band is a canvas layer, not a stacking one: nothing scrolls under
      it, so it paints nothing and inherits the OS frost, and the frost runs
@@ -3225,15 +3684,15 @@ body:has([data-selection-pane]:focus-within)
  * a scope and not a second block of :root overrides. Nothing stacks: a row
  * wears one of these at a time, so it is one alpha step over the body tint,
  * the same budget --bg-field spends. */
-:root[data-window-material="glass"] .window-chrome,
-:root[data-window-material="tinted"] .window-chrome {
+:root[data-window-material='glass'] .window-chrome,
+:root[data-window-material='tinted'] .window-chrome {
   --bg-surface-raised: var(--bg-chrome-raised);
   --bg-hover: var(--bg-chrome-hover);
   --bg-active: var(--bg-chrome-active);
   --bg-selected: var(--bg-chrome-selected);
   --bg-selected-resting: var(--bg-chrome-selected-resting);
 }
-:root[data-window-material="glass"] body {
+:root[data-window-material='glass'] body {
   background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);
 }
 /* The window's top 36px band, as one piece. Four strips sit on that line — the
@@ -3246,8 +3705,8 @@ body:has([data-selection-pane]:focus-within)
  * --bg-chrome-bar, so whatever that token is set to above, the band is one
  * continuous thing rather than four tiles — and at `transparent` it is exactly
  * one layer (body's tint) over the OS frost, with nothing stacked on it. */
-:root[data-window-material="glass"] .chrome-bar,
-:root[data-window-material="tinted"] .chrome-bar {
+:root[data-window-material='glass'] .chrome-bar,
+:root[data-window-material='tinted'] .chrome-bar {
   background-color: var(--bg-chrome-bar);
 }
 
@@ -3278,9 +3737,9 @@ body:has([data-selection-pane]:focus-within)
  * there is no edge to find at any stop or at the end. It is written once as
  * --tinted-feather against two per-element inputs, the ink and its peak
  * share, and each element that wears it sets those two. */
-:root[data-window-material="tinted"] body,
-:root[data-window-material="tinted"] .material-brand-wash::before,
-:root[data-window-material="tinted"] .material-brand-wash::after {
+:root[data-window-material='tinted'] body,
+:root[data-window-material='tinted'] .material-brand-wash::before,
+:root[data-window-material='tinted'] .material-brand-wash::after {
   --tinted-feather:
     color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 100%), transparent) 0%,
     color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 97.6%), transparent) 10%,
@@ -3306,7 +3765,7 @@ body:has([data-selection-pane]:focus-within)
  *    small moves the ground by one 8-bit step per tens of pixels, which keeps
  *    the chrome's text at its contrast and is also why the wash does not
  *    band. */
-:root[data-window-material="tinted"] body {
+:root[data-window-material='tinted'] body {
   --tinted-feather-ink: var(--text-strong);
   --tinted-feather-peak: var(--sem-tinted-wash);
   background-color: var(--bg-app);
@@ -3332,24 +3791,24 @@ body:has([data-selection-pane]:focus-within)
  *    mark's own stacking context (--z-behind). It rides on the mark rather
  *    than on its button so it follows the mark wherever the row puts it and
  *    goes with it when the row is too narrow to show it. */
-:root[data-window-material="tinted"] .material-brand-wash {
+:root[data-window-material='tinted'] .material-brand-wash {
   position: relative;
   isolation: isolate;
 }
-:root[data-window-material="tinted"] .material-brand-wash::before,
-:root[data-window-material="tinted"] .material-brand-wash::after {
-  content: "";
+:root[data-window-material='tinted'] .material-brand-wash::before,
+:root[data-window-material='tinted'] .material-brand-wash::after {
+  content: '';
   position: absolute;
   inset: calc(var(--sem-tinted-brand-reach) * -0.4) calc(var(--sem-tinted-brand-reach) * -1);
   z-index: var(--z-behind);
   pointer-events: none;
 }
-:root[data-window-material="tinted"] .material-brand-wash::before {
+:root[data-window-material='tinted'] .material-brand-wash::before {
   --tinted-feather-ink: var(--text-strong);
   --tinted-feather-peak: var(--sem-tinted-brand-ink);
   background-image: radial-gradient(ellipse 36% 50% at 36% 50%, var(--tinted-feather));
 }
-:root[data-window-material="tinted"] .material-brand-wash::after {
+:root[data-window-material='tinted'] .material-brand-wash::after {
   --tinted-feather-ink: var(--accent-primary);
   --tinted-feather-peak: var(--sem-tinted-brand);
   background-image: radial-gradient(ellipse 36% 50% at 64% 50%, var(--tinted-feather));
@@ -3360,11 +3819,11 @@ body:has([data-selection-pane]:focus-within)
  *    Said here rather than left to how the engine treats a gradient under
  *    forced colours. */
 @media (forced-colors: active) {
-  :root[data-window-material="tinted"] body {
+  :root[data-window-material='tinted'] body {
     background-image: none;
   }
-  :root[data-window-material="tinted"] .material-brand-wash::before,
-  :root[data-window-material="tinted"] .material-brand-wash::after {
+  :root[data-window-material='tinted'] .material-brand-wash::before,
+  :root[data-window-material='tinted'] .material-brand-wash::after {
     content: none;
   }
 }

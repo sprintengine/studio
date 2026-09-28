@@ -687,6 +687,8 @@ export default function SettingsPanel({
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const appearanceWindowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
+  const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
+  const setAppearanceAgentCharacters = useWorkspaceStore((s) => s.setAppearanceAgentCharacters)
   const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
@@ -1314,6 +1316,12 @@ export default function SettingsPanel({
                   onChange={setAppearanceWindowMaterial}
                 />
               </SettingsRow>
+              <SettingToggle
+                label="Agent characters"
+                description="Draw each agent Claude sends off as a little character that moves while it works, and changes with the seasons."
+                enabled={agentCharacters}
+                onChange={setAppearanceAgentCharacters}
+              />
             </SettingCard>
           </section>
         </div>

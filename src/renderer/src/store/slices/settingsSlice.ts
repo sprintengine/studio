@@ -79,7 +79,7 @@ export type SettingsOverlayOptions = {
 let lastAgentsMachineRequestId = 0
 
 export function defaultAppearanceSettings(): AppearanceSettings {
-  return { theme: 'system', windowMaterial: 'glass' }
+  return { theme: 'system', windowMaterial: 'glass', agentCharacters: true }
 }
 
 export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
@@ -89,6 +89,8 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
   return {
     theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme,
     windowMaterial: isWindowMaterial(candidate.windowMaterial) ? candidate.windowMaterial : defaults.windowMaterial,
+    agentCharacters:
+      typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
   }
 }
 
@@ -1063,6 +1065,7 @@ export interface SettingsSliceActions {
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1673,6 +1676,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           windowMaterial: material,
+        })
+      }),
+
+    setAppearanceAgentCharacters: (enabled) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          agentCharacters: enabled,
         })
       }),
   }

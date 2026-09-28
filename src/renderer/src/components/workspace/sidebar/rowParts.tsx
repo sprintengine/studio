@@ -113,7 +113,7 @@ export function AttentionPulse({
 }
 
 /**
- * How long the turn in flight has been running, beside the working dots (owner
+ * How long the turn in flight has been running, beside the working mark (owner
  * direction 2026-09-04): the dots say work
  * is ongoing, this says for how long. The word is dropped — the dots already
  * carry it and the aria-label spells it out — because a 276px rail has no room

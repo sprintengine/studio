@@ -667,9 +667,14 @@ title, none above the buttons. See *Hairlines carry the structure*.
   is the tell that one was added by accident. An entrance a *pattern* owns (a
   rail swapping its contents) is not a fourth motion: it composes the same
   duration and easing pair rather than introducing a curve of its own.
-- At most one thing animates at a time, and it means one of exactly two things:
-  *alive right now* (a streaming or running pulse) or *just changed* (a
-  reorder, a just-moved flash). Ambient decoration is not motion, it is noise.
+- Motion means one of two things: *alive right now* (a working mark, a
+  running agent's character, a spinner) or *just changed* (a reorder, a
+  just-moved flash). It may carry a little personality while it says so
+  (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned
+  agent is a small character that moves while it works. What never moves is
+  something at rest — ambient decoration on an idle surface is noise.
+- Never a status dot. State is a word, a glyph, a timer, a working mark or an
+  agent glyph (ruling 2026-09-28).
 - Motion is never the sole signal of a state change — the accessible name and
   the visible label carry it too.
 - Every animation honors `prefers-reduced-motion: reduce`, including the

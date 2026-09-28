@@ -127,11 +127,11 @@ test('WorkspaceSidebar.rowMeta', async () => {
   })
 
   run('when the row owns the status, the line stops saying it — once per row, not twice', () => {
-    // The flat stream puts the clock and the working dots on the row's project
+    // The flat stream puts the clock and the working mark on the row's project
     // line (all-chats-view). The line under it used to say both again six pixels
     // away, so a working chat read "••• 2m" twice.
     const working = view({ working: true, workingSince: NOW - 120_000 }, { rowOwnsStatus: true })
-    assert.doesNotMatch(working, /Agent working/, 'no second set of working dots')
+    assert.doesNotMatch(working, /Agent working/, 'no second working mark')
     assert.doesNotMatch(working, /2m/, 'and no second elapsed clock')
 
     const idle = view({ idleSince: NOW - 600_000, idleLabel: 'Idle' }, { rowOwnsStatus: true })
@@ -312,7 +312,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
     assert.doesNotMatch(linesOnly, /202|122/, 'and never the lines in its place')
   })
 
-  run('the seat is the line’s own: working dots + how long, or how long idle', () => {
+  run('the seat is the line’s own: working mark + how long, or how long idle', () => {
     const working = view({ working: true, workingSince: NOW - 4_000 })
     assert.match(working, /aria-label="Agent working"/)
     assert.match(working, /sr-only">Working for 4s/)

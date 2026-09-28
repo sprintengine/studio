@@ -305,6 +305,7 @@ export interface WorkspaceStore
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
