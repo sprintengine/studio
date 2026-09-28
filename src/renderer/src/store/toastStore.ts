@@ -54,7 +54,7 @@ export type ShowToastInput = {
   description?: string
   /**
    * A stable identity for a toast that a producer will later RETRACT
-   * (`pair-request:<id>`, `fleet:<connectionId>`). Showing again under the
+   * (`pair-request:<id>`, `mesh:<connectionId>`). Showing again under the
    * same id replaces the toast in place and keeps the id, so the producer's
    * handle never goes stale. Id-less toasts dedupe on (tone, title) instead.
    * A replaced toast keeps its React key, so a polite tone's auto-dismiss

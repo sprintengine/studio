@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { FleetLinkState, FleetTerminalAccess } from '../../../../shared/tailnet-fleet'
+import type { MeshLinkState, MeshTerminalAccess } from '../../../../shared/tailnet-mesh'
 import { waitForMonoFontReady } from '../../utils/fonts'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createStudioTerminal, type StudioTerminal } from '../../utils/createStudioTerminal'
@@ -15,7 +15,7 @@ import { TerminalMount } from '../terminal/TerminalMount'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
-import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
+import { meshInputState, meshLinkBadge } from './mesh/meshModel'
 
 // One terminal on ANOTHER machine, in a pane of this one.
 //
@@ -45,7 +45,7 @@ interface Props {
   attachId: string
   connectionId: string
   /**
-   * The workspace this pane is rendered in. Not a resolution root — a fleet
+   * The workspace this pane is rendered in. Not a resolution root — a mesh
    * pane resolves no local path at all — only where a chosen link action lands
    * (a browser tab, the clipboard).
    */
@@ -60,7 +60,7 @@ interface Props {
   sessionId: string
 }
 
-export default function FleetTerminalPanel({ attachId, connectionId, sessionId, workspaceId }: Props) {
+export default function MeshTerminalPanel({ attachId, connectionId, sessionId, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The padding-free box xterm is opened into; see TerminalMount.
   const terminalMountRef = useRef<HTMLDivElement>(null)
@@ -71,29 +71,29 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
   // answers Find only while it holds focus, never through the active-workspace
   // fallback, which would be answering for a workspace it is not part of.
   const find = useTerminalFind({ workspaceId: null, containerRef, terminalRef: studioTerminalRef })
-  const [link, setLink] = useState<FleetLinkState>('connecting')
+  const [link, setLink] = useState<MeshLinkState>('connecting')
   const [linkDetail, setLinkDetail] = useState<string | null>(null)
-  const [access, setAccess] = useState<FleetTerminalAccess>('none')
+  const [access, setAccess] = useState<MeshTerminalAccess>('none')
   const [failure, setFailure] = useState<string | null>(null)
   const [linkMenu, setLinkMenu] = useState<{ target: TerminalLinkTarget; x: number; y: number } | null>(null)
   const [linkError, setLinkError] = useState<{ message: string; x: number; y: number } | null>(null)
   // The terminal's onData handler is installed once; these refs are how it reads
   // the CURRENT permission instead of the one captured at mount.
-  const accessRef = useRef<FleetTerminalAccess>('none')
-  const linkRef = useRef<FleetLinkState>('connecting')
+  const accessRef = useRef<MeshTerminalAccess>('none')
+  const linkRef = useRef<MeshLinkState>('connecting')
 
   useEffect(() => {
     const container = containerRef.current
     const mount = terminalMountRef.current
     if (!container || !mount) return
 
-    // `kind: 'fleet'` carries no roots, and that is the point: this pane is
+    // `kind: 'mesh'` carries no roots, and that is the point: this pane is
     // attached to a terminal on another machine, so a path printed in it names
     // a file over there. The surface type is what stops a later change from
     // resolving it against this machine's filesystem and opening a same-named
     // local file.
     const studioTerminal = createStudioTerminal({
-      surface: { kind: 'fleet' },
+      surface: { kind: 'mesh' },
       // Closed until the far end says this socket may type. Nothing is known
       // about the grant until the attach header arrives, and a cursor that
       // accepts keystrokes it will not send is a lie for that whole window.
@@ -106,9 +106,9 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
       // hyperlink printed by the REMOTE machine therefore opened in the user's
       // real browser without passing `resolveTerminalOscLink` or this chooser.
       // `createStudioTerminal` now derives the gate from `surface`, so the
-      // fleet rule holds here by construction rather than by remembering.
+      // mesh rule holds here by construction rather than by remembering.
       oscLinks: {
-        // Unreachable: a fleet surface has no link roots, so
+        // Unreachable: a mesh surface has no link roots, so
         // `resolveTerminalOscLink` never returns a `file` target for it. Kept
         // fail-closed rather than thrown, so a future surface change degrades
         // to "that file does not exist" instead of opening a same-named local
@@ -132,7 +132,7 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
     const fitTerminal = () => {
       if (mount.clientWidth === 0 || mount.clientHeight === 0) return
       fitAddon.fit()
-      if (term.cols > 0 && term.rows > 0) window.api.fleetTerminalResize(attachId, term.cols, term.rows)
+      if (term.cols > 0 && term.rows > 0) window.api.meshTerminalResize(attachId, term.cols, term.rows)
     }
     const focusTerminal = () => term.focus()
 
@@ -148,14 +148,14 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
     const outputQueue = createXtermOutputQueue(term, { recordWrite: () => {} })
     const replayGate = createXtermReplayGate(term, outputQueue)
 
-    const applyAccess = (next: FleetTerminalAccess) => {
+    const applyAccess = (next: MeshTerminalAccess) => {
       accessRef.current = next
       setAccess(next)
       // xterm's own read-only mode, not just a dropped handler: a watch-only
       // pane should not blink a cursor that accepts nothing.
       term.options.disableStdin = next !== 'control'
     }
-    const applyLink = (next: FleetLinkState) => {
+    const applyLink = (next: MeshLinkState) => {
       linkRef.current = next
       setLink(next)
     }
@@ -163,7 +163,7 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
     // Subscribed BEFORE the attach call: the replay is the first frame the
     // listener sends, and a subscription placed after the await would miss the
     // screen this pane exists to show.
-    const disposeEvents = window.api.onFleetTerminalEvent(attachId, (event) => {
+    const disposeEvents = window.api.onMeshTerminalEvent(attachId, (event) => {
       switch (event.type) {
         case 'status':
           applyLink(event.state)
@@ -202,7 +202,7 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
 
     replayGate.beginReplayWait()
     void window.api
-      .fleetAttachTerminal({ attachId, connectionId, sessionId })
+      .meshAttachTerminal({ attachId, connectionId, sessionId })
       .then((result) => {
         if (disposed) return
         if (!result.ok) {
@@ -214,7 +214,7 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
         // resize was dropped. Send it now: the size is held and replayed on
         // every (re)connect, and without it the remote pty renders to whatever
         // width the last viewer had.
-        window.api.fleetTerminalResize(attachId, term.cols, term.rows)
+        window.api.meshTerminalResize(attachId, term.cols, term.rows)
       })
       .catch((error: unknown) => {
         if (disposed) return
@@ -226,11 +226,11 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
       // Refused here as well as at the far end. The listener drops an
       // observe-scoped input frame and says so, but a keystroke that leaves this
       // machine before being refused is a keystroke a person believes landed.
-      if (!fleetInputState(accessRef.current, linkRef.current).canType) return
-      window.api.fleetTerminalInput(attachId, data)
+      if (!meshInputState(accessRef.current, linkRef.current).canType) return
+      window.api.meshTerminalInput(attachId, data)
     })
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      window.api.fleetTerminalResize(attachId, cols, rows)
+      window.api.meshTerminalResize(attachId, cols, rows)
     })
 
     const fitScheduler = createTerminalFitScheduler(fitTerminal, mount)
@@ -271,12 +271,12 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
       studioTerminal.dispose()
       // The socket is main's, and it is this pane's alone: closing the pane ends
       // the attachment rather than leaving a remote pty narrating to nobody.
-      void window.api.fleetDetachTerminal(attachId).catch(() => {})
+      void window.api.meshDetachTerminal(attachId).catch(() => {})
     }
   }, [attachId, connectionId, sessionId])
 
-  const badge = useMemo(() => fleetLinkBadge(link, linkDetail), [link, linkDetail])
-  const input = useMemo(() => fleetInputState(access, link), [access, link])
+  const badge = useMemo(() => meshLinkBadge(link, linkDetail), [link, linkDetail])
+  const input = useMemo(() => meshInputState(access, link), [access, link])
 
   // The one line the pane may draw, and only when there is something wrong to
   // say: the failure, then the link's own sentence, then the reason typing is

@@ -14,7 +14,7 @@ import { shortMachineName } from '../remote/machineRowModel'
 // announce and never act — pairing state stays readable in Settings → Remote
 // and the top bar's Remote glyph, link state on the pane itself.
 export function ToastHost() {
-  useFleetToastBridge()
+  useMeshToastBridge()
   usePairRequestToastBridge()
   useListenerToastBridge()
   return <ToastRegion />
@@ -82,7 +82,7 @@ export const LISTENER_TOAST_ID = 'tailnet-listener'
  * heartbeat), and until now the only way to learn that was to open the Remote
  * glyph — a phone would just stop being able to reach this device. Warn, so it
  * persists, and RETRACTED the moment the listener binds again, with the
- * recovery announced only if a loss was: the fleet bridge's rule, for the same
+ * recovery announced only if a loss was: the mesh bridge's rule, for the same
  * reason.
  *
  * Only a failure speaks. `running: false` with no reason is someone turning
@@ -116,15 +116,15 @@ function useListenerToastBridge(): void {
   }, [])
 }
 
-export function fleetLossToastId(connectionId: string): string {
-  return `fleet:${connectionId}`
+export function meshLossToastId(connectionId: string): string {
+  return `mesh:${connectionId}`
 }
 
-export function fleetRevokedToastId(connectionId: string): string {
-  return `fleet-revoked:${connectionId}`
+export function meshRevokedToastId(connectionId: string): string {
+  return `mesh-revoked:${connectionId}`
 }
 
-function useFleetToastBridge(): void {
+function useMeshToastBridge(): void {
   // Per-connection link memory, so N panes on one machine make one
   // announcement per outage, not N — and recovery is only news after one.
   // The loss toast is keyed by the CONNECTION so recovery RETRACTS it: a
@@ -135,30 +135,30 @@ function useFleetToastBridge(): void {
   const revokedConnections = useRef(new Set<string>())
 
   useEffect(() => {
-    if (typeof window.api.onFleetEvent !== 'function') return
+    if (typeof window.api.onMeshEvent !== 'function') return
     const retract = (connectionId: string): boolean => {
       const hadLoss = lostConnections.current.delete(connectionId)
-      if (hadLoss) useToastStore.getState().dismissToast(fleetLossToastId(connectionId))
+      if (hadLoss) useToastStore.getState().dismissToast(meshLossToastId(connectionId))
       return hadLoss
     }
-    return window.api.onFleetEvent((event) => {
+    return window.api.onMeshEvent((event) => {
       if (event.kind === 'machine-paired') {
         showToast({
           tone: 'good',
           title: 'Machine paired',
-          description: `${event.connection.machineName} is in your fleet.`,
+          description: `${event.connection.machineName} is in your mesh.`,
         })
         return
       }
       if (event.kind === 'machine-forgotten') {
         retract(event.connectionId)
         if (revokedConnections.current.delete(event.connectionId)) {
-          useToastStore.getState().dismissToast(fleetRevokedToastId(event.connectionId))
+          useToastStore.getState().dismissToast(meshRevokedToastId(event.connectionId))
         }
         showToast({
           tone: 'neutral',
           title: 'Machine removed',
-          description: `${event.machineName} was removed from your fleet.`,
+          description: `${event.machineName} was removed from your mesh.`,
         })
         return
       }
@@ -192,7 +192,7 @@ function useFleetToastBridge(): void {
         // Revoked over there is the one reachability answer worth a toast:
         // it will not fix itself. Warn, so it persists; retracted the moment
         // the machine answers again (a re-pair), never re-raised per retry.
-        const toastId = fleetRevokedToastId(event.connectionId)
+        const toastId = meshRevokedToastId(event.connectionId)
         if (event.unauthorized) {
           if (revokedConnections.current.has(event.connectionId)) return
           revokedConnections.current.add(event.connectionId)
@@ -200,7 +200,7 @@ function useFleetToastBridge(): void {
             id: toastId,
             tone: 'warn',
             title: `${event.machineName} revoked this device`,
-            description: 'Its pairing was taken back over there. Pair again from the Fleet when you want it back.',
+            description: 'Its pairing was taken back over there. Pair again from the Mesh when you want it back.',
           })
         } else if (event.reachable && revokedConnections.current.delete(event.connectionId)) {
           useToastStore.getState().dismissToast(toastId)
@@ -212,7 +212,7 @@ function useFleetToastBridge(): void {
           if (lostConnections.current.has(event.connectionId)) return
           lostConnections.current.add(event.connectionId)
           showToast({
-            id: fleetLossToastId(event.connectionId),
+            id: meshLossToastId(event.connectionId),
             tone: 'warn',
             title: `Connection to ${event.machineName} lost`,
             description: 'Reconnecting.',

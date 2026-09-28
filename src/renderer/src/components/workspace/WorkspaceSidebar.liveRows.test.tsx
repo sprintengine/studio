@@ -98,16 +98,16 @@ test('WorkspaceSidebar.liveRows', async () => {
     const workspace = (id: string, name: string, folderPath: string, extra?: Record<string, unknown>) =>
       ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown as Workspace
 
-    // The pure rule, before the DOM: local live sessions and mounted fleet panes
+    // The pure rule, before the DOM: local live sessions and mounted mesh panes
     // are open terminals; nothing else is.
-    const fleetLayout = {
+    const meshLayout = {
       layout: {
         type: 'tabset',
         children: [
           {
             type: 'tab',
-            id: 'fleet-terminal:c1:s9',
-            component: 'fleet-terminal',
+            id: 'mesh-terminal:c1:s9',
+            component: 'mesh-terminal',
             config: { machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
           },
         ],
@@ -121,12 +121,12 @@ test('WorkspaceSidebar.liveRows', async () => {
       'an exited session was filtered before the map was built',
     )
     assert.equal(
-      rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live),
+      rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: meshLayout }), live),
       true,
-      'a mounted fleet pane is an open terminal',
+      'a mounted mesh pane is an open terminal',
     )
-    assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live), [
-      { sessionId: 'fleet-terminal:c1:s9', cli: 'codex', remote: true },
+    assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: meshLayout }), live), [
+      { sessionId: 'mesh-terminal:c1:s9', cli: 'codex', remote: true },
     ])
 
     const workspaces = [

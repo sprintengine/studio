@@ -124,7 +124,7 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
-import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
+import { meshTerminalTabName } from '../panels/mesh/meshModel'
 import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
@@ -295,7 +295,7 @@ const WorkspacePaneColumn = React.lazy(() =>
   import('./pane/WorkspacePaneColumn').then((m) => ({ default: m.WorkspacePaneColumn })),
 )
 // The toast region and its app-level producers (pair requests, the tailnet
-// listener notice, fleet loss/revocation). Nothing it draws exists at first
+// listener notice, mesh loss/revocation). Nothing it draws exists at first
 // paint — the region is empty until something raises a toast, and its producers
 // are subscriptions to events that arrive after boot — so it is fetched with
 // the rest of the deferred shell rather than carried through it.
@@ -3237,16 +3237,16 @@ export default function WorkspaceManager() {
 
   // A chat started on a paired machine (remote-sessions-ux /
   // new-chat-on-a-remote-machine): the agent is created THERE over the
-  // audited fleet client — cli, prompt, model, and preset forwarded verbatim,
+  // audited mesh client — cli, prompt, model, and preset forwarded verbatim,
   // so the remote's own refusals (a scope, a CLI it lacks) surface word for
   // word — and what appears here is a solo workspace whose lone pane is the
-  // fleet attachment onto that session, provenance-badged by the two-line row.
+  // mesh attachment onto that session, provenance-badged by the two-line row.
   // A failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
   // A session on a paired machine, opened from the sidebar's Remote band
   // (remote-sessions-in-the-sidebar): the row that already is that session
   // is focused; any other becomes a solo workspace whose lone pane is the
-  // fleet attachment — the same shape a chat started over there takes,
+  // mesh attachment — the same shape a chat started over there takes,
   // minus the create. Provenance is stamped with the session id so the band
   // recognises the row next time it reads the machine.
   const openRemoteSession = useCallback(
@@ -3288,8 +3288,8 @@ export default function WorkspaceManager() {
         // there; a terminal agent attaches its pty, as it always has.
         seedAgent: spec.conversation
           ? {
-              tabName: fleetTerminalTabName(spec.machineName, spec.title),
-              fleetConversation: {
+              tabName: meshTerminalTabName(spec.machineName, spec.title),
+              meshConversation: {
                 connectionId: spec.connectionId,
                 machineName: spec.machineName,
                 remoteWorkspaceId: spec.conversation.workspaceId,
@@ -3298,8 +3298,8 @@ export default function WorkspaceManager() {
               },
             }
           : {
-              tabName: fleetTerminalTabName(spec.machineName, spec.title),
-              fleet: {
+              tabName: meshTerminalTabName(spec.machineName, spec.title),
+              mesh: {
                 connectionId: spec.connectionId,
                 machineName: spec.machineName,
                 remoteSessionId: spec.sessionId,
@@ -3313,7 +3313,7 @@ export default function WorkspaceManager() {
   const confirmRemoteNewChat = useCallback(
     async (launch: RemoteNewChatLaunch): Promise<void> => {
       const created = await window.api
-        .fleetCreateTerminal({
+        .meshCreateTerminal({
           connectionId: launch.connectionId,
           workspaceId: launch.remoteWorkspaceId,
           cli: launch.cli,
@@ -3378,8 +3378,8 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: fleetTerminalTabName(launch.machineName, created.title),
-          fleet: {
+          tabName: meshTerminalTabName(launch.machineName, created.title),
+          mesh: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,
             remoteSessionId: created.sessionId,

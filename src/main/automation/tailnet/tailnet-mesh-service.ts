@@ -11,31 +11,31 @@ import {
   type TailnetScope,
 } from '../../../shared/tailnet'
 import {
-  fleetTerminalAccess,
-  type FleetAttachResult,
-  type FleetBrowse,
-  type FleetConnection,
-  type FleetEvent,
-  type FleetLinkState,
-  type FleetLiveState,
-  type FleetMachineReachability,
-  type FleetPairRequestPhase,
-  type FleetCreateTerminalResult,
-  type FleetGap,
-  type FleetPairResult,
-  type FleetTerminal,
-  type FleetTerminalEvent,
-  type FleetWorkspace,
-  type FleetCollectPairingResult,
-  type FleetPairRequestView,
-  type FleetRequestPairingResult,
-  type FleetCheckoutRequest,
-  type FleetForgetMachineResult,
-  type FleetWorkspaceCheckoutResult,
-  type FleetConversationCommandResult,
-  type FleetConversationFrame,
-  type FleetConversationListResult,
-} from '../../../shared/tailnet-fleet'
+  meshTerminalAccess,
+  type MeshAttachResult,
+  type MeshBrowse,
+  type MeshConnection,
+  type MeshEvent,
+  type MeshLinkState,
+  type MeshLiveState,
+  type MeshMachineReachability,
+  type MeshPairRequestPhase,
+  type MeshCreateTerminalResult,
+  type MeshGap,
+  type MeshPairResult,
+  type MeshTerminal,
+  type MeshTerminalEvent,
+  type MeshWorkspace,
+  type MeshCollectPairingResult,
+  type MeshPairRequestView,
+  type MeshRequestPairingResult,
+  type MeshCheckoutRequest,
+  type MeshForgetMachineResult,
+  type MeshWorkspaceCheckoutResult,
+  type MeshConversationCommandResult,
+  type MeshConversationFrame,
+  type MeshConversationListResult,
+} from '../../../shared/tailnet-mesh'
 import type {
   ConversationPageResult,
   ConversationToolDetailResult,
@@ -44,10 +44,10 @@ import type {
 import { createRemoteConversationCache } from './tailnet-remote-conversation-cache'
 import {
   createRemoteConversations,
-  fleetConversationKeyOf,
+  meshConversationKeyOf,
   type RemoteConversationsOptions,
 } from './tailnet-remote-conversations'
-import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
+import { createTailnetMeshStore, type StoredMeshConnection, type TailnetMeshStore } from './tailnet-mesh-store'
 import { tailnetPeerSupports } from './tailnet-routes'
 import {
   callRemoteTool,
@@ -65,7 +65,7 @@ import {
 } from './tailnet-remote-client'
 import { asRecord } from '../../../shared/records'
 
-// The Fleet: this Studio driving other machines.
+// The Mesh: this Studio driving other machines.
 //
 // Everything a window needs to work "on the Mini from the laptop" — the paired
 // machines, what they hold, and the terminals open on them — with the tokens
@@ -118,7 +118,7 @@ const DEFAULT_REACHABILITY_INTERVAL_MS = 5 * 60_000
 /** A check must be cheap for a sleeping laptop too: three seconds, not the browse's ten. */
 const DEFAULT_REACHABILITY_TIMEOUT_MS = 3_000
 
-export type TailnetFleetService = {
+export type TailnetMeshService = {
   /**
    * Begin the reachability supervisor (phase 4): one check of every paired
    * machine now, and one per interval from here on. Idempotent.
@@ -134,9 +134,9 @@ export type TailnetFleetService = {
    * Check whether one paired machine (or every one) answers right now, and
    * report the state after. The row's Retry.
    */
-  checkReachability(connectionId?: unknown): Promise<FleetLiveState>
-  listConnections(): FleetConnection[]
-  pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<FleetPairResult>
+  checkReachability(connectionId?: unknown): Promise<MeshLiveState>
+  listConnections(): MeshConnection[]
+  pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<MeshPairResult>
   /**
    * Ask a machine to pair and wait for someone there to approve it.
    *
@@ -145,7 +145,7 @@ export type TailnetFleetService = {
    * cannot dial a peer. The collect secret lives here and is never handed to a
    * renderer. Main also owns the WAIT (phase 3): the poll runs here until the
    * request is answered, lapses, or is cancelled, and every phase is broadcast
-   * as a `pair-request` fleet event.
+   * as a `pair-request` mesh event.
    *
    * `scopes` is what this machine asks to be allowed to do THERE;
    * `reverseScopes` (phase 6) offers the machine asked a device HERE with those
@@ -164,13 +164,13 @@ export type TailnetFleetService = {
      */
     scopes?: unknown
     reverseScopes?: unknown
-  }): Promise<FleetRequestPairingResult>
+  }): Promise<MeshRequestPairingResult>
   /**
    * Poll one request we made, now, and report. The timer polls on its own;
    * this is the one-off a surface may ask for. Lands the connection when
    * the request has been approved.
    */
-  collectPairing(requestId: unknown): Promise<FleetCollectPairingResult>
+  collectPairing(requestId: unknown): Promise<MeshCollectPairingResult>
   /** Forget a request we made. The far end's copy lapses on its own; a reverse device minted for it is revoked. */
   cancelPairing(requestId: unknown): void
   /**
@@ -183,8 +183,8 @@ export type TailnetFleetService = {
     grant: TailnetReverseGrant
     askerName: string
     peerNode: string | null
-  }): FleetConnection | null
-  forget(connectionId: unknown): FleetConnection[]
+  }): MeshConnection | null
+  forget(connectionId: unknown): MeshConnection[]
   /**
    * End a pairing in both directions (remote-settings-rebuild).
    *
@@ -195,8 +195,8 @@ export type TailnetFleetService = {
    * already gone is not an error, because "we are not paired any more" is the
    * state the caller asked for and the state it gets.
    */
-  forgetMachine(input: { deviceId?: unknown; connectionId?: unknown }): FleetForgetMachineResult
-  browse(connectionId: unknown): Promise<FleetBrowse>
+  forgetMachine(input: { deviceId?: unknown; connectionId?: unknown }): MeshForgetMachineResult
+  browse(connectionId: unknown): Promise<MeshBrowse>
   createTerminal(input: {
     connectionId: unknown
     workspaceId?: unknown
@@ -207,14 +207,14 @@ export type TailnetFleetService = {
     permissionPreset?: unknown
     /** Where the chat runs there (checkout-and-branch-on-remote-create); the current checkout when absent. */
     checkout?: unknown
-  }): Promise<FleetCreateTerminalResult>
+  }): Promise<MeshCreateTerminalResult>
   /**
    * One remote workspace's checkout facts — branch, trunk, branches,
    * worktrees — over `workspace.checkout` (workspace:read). A pairing that
    * may not read them gets the refusal as its answer, never an empty list
    * dressed as "no branches".
    */
-  workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<FleetWorkspaceCheckoutResult>
+  workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<MeshWorkspaceCheckoutResult>
   /**
    * Attach a pane to a remote session. `emit` is the pane's event sink; the
    * caller owns its lifetime and calls `detach` when the pane goes away.
@@ -223,8 +223,8 @@ export type TailnetFleetService = {
     attachId: string
     connectionId: unknown
     sessionId: unknown
-    emit: (event: FleetTerminalEvent) => void
-  }): Promise<FleetAttachResult>
+    emit: (event: MeshTerminalEvent) => void
+  }): Promise<MeshAttachResult>
   sendInput(attachId: unknown, data: unknown): void
   resizeTerminal(attachId: unknown, cols: unknown, rows: unknown): void
   detachTerminal(attachId: unknown): void
@@ -233,13 +233,13 @@ export type TailnetFleetService = {
    * same revision the events carry — the initial read behind `onEvent`, so a
    * window that mounts after a pane went live is not stuck on "paired".
    */
-  getLiveState(): FleetLiveState
+  getLiveState(): MeshLiveState
   /**
    * The conversations a paired machine holds, over its conversation socket.
    * The identity read comes first, as for a browse, so the access reported is
    * the grant as it stands now.
    */
-  listConversations(connectionId: unknown): Promise<FleetConversationListResult>
+  listConversations(connectionId: unknown): Promise<MeshConversationListResult>
   /**
    * Follow one conversation on a paired machine. `emit` receives the kept
    * copy at once (when there is one), then the link state and live frames,
@@ -250,7 +250,7 @@ export type TailnetFleetService = {
     followId: string
     key: unknown
     turnLimit?: unknown
-    emit: (frame: FleetConversationFrame) => void
+    emit: (frame: MeshConversationFrame) => void
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }>
   unfollowConversation(followId: unknown): void
   conversationLoadEarlier(input: {
@@ -258,26 +258,26 @@ export type TailnetFleetService = {
     beforeCursor: unknown
     turnLimit?: unknown
   }): Promise<ConversationPageResult>
-  conversationCommand(input: { key: unknown; command: unknown }): Promise<FleetConversationCommandResult>
+  conversationCommand(input: { key: unknown; command: unknown }): Promise<MeshConversationCommandResult>
   conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
   conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
   shutdown(): void
 }
 
-export type TailnetFleetServiceOptions = {
+export type TailnetMeshServiceOptions = {
   resolveUserDataDir: () => string
   /** This machine's name, as the other end will list the pairing. */
   resolveDeviceName?: () => string
   /** Tailscale node name for an address, so a machine is listed by name rather than by IP. */
   resolvePeerName?: (address: string) => Promise<string | null>
   /**
-   * Whole-app fleet lifecycle for the live-state push (remote-sessions-ux):
+   * Whole-app mesh lifecycle for the live-state push (remote-sessions-ux):
    * a machine paired or forgotten, an attachment's link state changing. The
    * per-attachment pty stream stays on its own channel to the owning window;
    * these are the facts chrome in every window may show. Payloads never carry
    * a credential — connections cross this boundary as the store's public view.
    */
-  onEvent?: (event: FleetEvent) => void
+  onEvent?: (event: MeshEvent) => void
   /**
    * Mint a device on THIS machine's listener for a machine it is asking to
    * drive (phase 6). Null when nothing is listening here. Absent in a build
@@ -306,7 +306,7 @@ export type TailnetFleetServiceOptions = {
   pairPollMs?: number
   reachabilityIntervalMs?: number
   reachabilityTimeoutMs?: number
-  createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetFleetStore
+  createStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetMeshStore
   /** Timing for followed conversations; tests shorten it. */
   conversations?: Pick<
     RemoteConversationsOptions,
@@ -315,14 +315,14 @@ export type TailnetFleetServiceOptions = {
   log?: (message: string) => void
 }
 
-/** A fleet event before the service stamps its revision — distributed over the union, member by member. */
-type FleetEventBody = FleetEvent extends infer E ? (E extends FleetEvent ? Omit<E, 'revision'> : never) : never
+/** A mesh event before the service stamps its revision — distributed over the union, member by member. */
+type MeshEventBody = MeshEvent extends infer E ? (E extends MeshEvent ? Omit<E, 'revision'> : never) : never
 
 type Attachment = {
   attachId: string
   connectionId: string
   sessionId: string
-  emit: (event: FleetTerminalEvent) => void
+  emit: (event: MeshTerminalEvent) => void
   socket: RemoteTerminalSocket | null
   /** Set once the pane detaches, so an in-flight reconnect stops instead of resurrecting it. */
   released: boolean
@@ -344,12 +344,12 @@ type Attachment = {
   stream: string | null
   position: number | null
   /** The last status frame's state, so a snapshot can say what the pane was last told. */
-  state: FleetLinkState
+  state: MeshLinkState
   detail: string
 }
 
-export function createTailnetFleetService(options: TailnetFleetServiceOptions): TailnetFleetService {
-  const store = (options.createStore ?? createTailnetFleetStore)({
+export function createTailnetMeshService(options: TailnetMeshServiceOptions): TailnetMeshService {
+  const store = (options.createStore ?? createTailnetMeshStore)({
     resolveUserDataDir: options.resolveUserDataDir,
     log: options.log,
   })
@@ -361,7 +361,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   // Stamped on every broadcast and every snapshot; only ever goes up, so a
   // subscriber can order a late initial read against events already applied.
   let revision = 0
-  const broadcast = (event: FleetEventBody): void => {
+  const broadcast = (event: MeshEventBody): void => {
     revision += 1
     options.onEvent?.({ ...event, revision })
   }
@@ -398,11 +398,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     log: options.log,
   })
 
-  function connectionFor(connectionId: unknown): StoredFleetConnection | null {
+  function connectionFor(connectionId: unknown): StoredMeshConnection | null {
     return typeof connectionId === 'string' ? store.find(connectionId) : null
   }
 
-  async function pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<FleetPairResult> {
+  async function pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<MeshPairResult> {
     const raw = typeof input.pairingUrl === 'string' ? input.pairingUrl : ''
     const parsed = parsePairingUrl(raw)
     if (!parsed) {
@@ -468,7 +468,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   type OutboundRequest = {
     endpoint: TailnetEndpoint
     collectSecret: string
-    view: FleetPairRequestView
+    view: MeshPairRequestView
     /** The reverse half offered to the machine asked (phase 6), or null. */
     reverse: TailnetReverseGrant | null
     timer: ReturnType<typeof setTimeout> | null
@@ -479,18 +479,18 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   // How each request this session ended, so a surface that asks late (a
   // panel that was closed while the answer landed) hears the answer rather
   // than "expired". Bounded: a session makes a handful of requests, ever.
-  const settledRequests = new Map<string, FleetCollectPairingResult>()
+  const settledRequests = new Map<string, MeshCollectPairingResult>()
 
   function announceRequest(
     request: OutboundRequest,
-    phase: FleetPairRequestPhase,
-    extra: { connection?: FleetConnection; detail?: string } = {},
+    phase: MeshPairRequestPhase,
+    extra: { connection?: MeshConnection; detail?: string } = {},
   ): void {
     broadcast({ kind: 'pair-request', phase, request: { ...request.view }, ...extra })
   }
 
   /** End a request here: stop its timer, take back its reverse device, and drop it. */
-  function endRequest(request: OutboundRequest, keepReverse: boolean, settled?: FleetCollectPairingResult): void {
+  function endRequest(request: OutboundRequest, keepReverse: boolean, settled?: MeshCollectPairingResult): void {
     if (request.timer) clearTimeout(request.timer)
     request.timer = null
     outboundRequests.delete(request.view.requestId)
@@ -558,7 +558,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         })
         return
       }
-      let connection: FleetConnection
+      let connection: MeshConnection
       try {
         connection = store.add({
           machineName: request.view.machineName,
@@ -597,7 +597,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     deviceName?: unknown
     scopes?: unknown
     reverseScopes?: unknown
-  }): Promise<FleetRequestPairingResult> {
+  }): Promise<MeshRequestPairingResult> {
     const endpoint = parseTailnetEndpoint(typeof input.endpoint === 'string' ? input.endpoint : '')
     if (!endpoint) {
       return { ok: false, code: 'invalid_endpoint', message: 'That is not a machine address this can dial.' }
@@ -676,7 +676,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       return { ok: false, code: asked.code, message: asked.message }
     }
 
-    const view: FleetPairRequestView = {
+    const view: MeshPairRequestView = {
       requestId: asked.value.requestId,
       endpoint: formatTailnetEndpoint(endpoint),
       machineName,
@@ -691,7 +691,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     return { ok: true, request: view }
   }
 
-  async function collectPairing(requestId: unknown): Promise<FleetCollectPairingResult> {
+  async function collectPairing(requestId: unknown): Promise<MeshCollectPairingResult> {
     const id = typeof requestId === 'string' ? requestId : ''
     const pending = outboundRequests.get(id)
     if (!pending) {
@@ -723,7 +723,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     grant: TailnetReverseGrant
     askerName: string
     peerNode: string | null
-  }): FleetConnection | null {
+  }): MeshConnection | null {
     const { grant } = input
     // The same machine twice is two real records over there, exactly as a
     // second carried-code pairing is — but a reverse grant arrives without
@@ -737,7 +737,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       )
       store.forget(existing.id)
     }
-    let connection: FleetConnection
+    let connection: MeshConnection
     try {
       connection = store.add({
         machineName: input.peerNode ?? grant.machineName ?? input.askerName,
@@ -769,11 +769,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   // moments that change the answer: start, wake, the interval, a Retry. The
   // browse and the dial feed the same record, so a machine that just
   // answered a person is not shown as "not answering" until the next timer.
-  const reachability = new Map<string, FleetMachineReachability>()
+  const reachability = new Map<string, MeshMachineReachability>()
   const probes = new Map<string, Promise<void>>()
   let reachabilityTimer: ReturnType<typeof setInterval> | null = null
 
-  function reachabilityFor(connection: FleetConnection): FleetMachineReachability {
+  function reachabilityFor(connection: MeshConnection): MeshMachineReachability {
     return (
       reachability.get(connection.id) ?? {
         connectionId: connection.id,
@@ -789,12 +789,12 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   }
 
   function recordReachability(
-    connection: FleetConnection,
+    connection: MeshConnection,
     answer: { reachable: boolean; unauthorized: boolean; detail: string | null },
   ): void {
     const previous = reachabilityFor(connection)
     const now = Date.now()
-    const next: FleetMachineReachability = {
+    const next: MeshMachineReachability = {
       ...previous,
       machineName: connection.machineName,
       checking: false,
@@ -808,10 +808,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     broadcast({ kind: 'machine-reachability', ...next })
   }
 
-  function probeReachability(connection: FleetConnection): Promise<void> {
+  function probeReachability(connection: MeshConnection): Promise<void> {
     const inFlight = probes.get(connection.id)
     if (inFlight) return inFlight
-    const checking: FleetMachineReachability = { ...reachabilityFor(connection), checking: true }
+    const checking: MeshMachineReachability = { ...reachabilityFor(connection), checking: true }
     reachability.set(connection.id, checking)
     broadcast({ kind: 'machine-reachability', ...checking })
     const probe = (async () => {
@@ -1033,7 +1033,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     }
   }
 
-  async function browse(connectionId: unknown): Promise<FleetBrowse> {
+  async function browse(connectionId: unknown): Promise<MeshBrowse> {
     const connection = connectionFor(connectionId)
     if (!connection) return unknownConnectionBrowse(connectionId)
 
@@ -1053,7 +1053,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         unreachableReason: identity.message,
         unauthorized: identity.code === 'unauthorized',
         scopes: connection.scopes,
-        terminalAccess: fleetTerminalAccess(connection.scopes),
+        terminalAccess: meshTerminalAccess(connection.scopes),
         workspaces: [],
         terminals: [],
         gaps: [],
@@ -1065,7 +1065,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
     const scopes = identity.value.scopes
 
-    const gaps: FleetGap[] = []
+    const gaps: MeshGap[] = []
     const [workspaces, terminals] = await Promise.all([
       readWorkspaces(connection, scopes, gaps),
       readTerminals(connection, scopes, gaps),
@@ -1077,7 +1077,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       unreachableReason: null,
       unauthorized: false,
       scopes,
-      terminalAccess: fleetTerminalAccess(scopes),
+      terminalAccess: meshTerminalAccess(scopes),
       workspaces,
       terminals,
       gaps,
@@ -1085,10 +1085,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   }
 
   async function readWorkspaces(
-    connection: StoredFleetConnection,
+    connection: StoredMeshConnection,
     scopes: TailnetScope[],
-    gaps: FleetGap[],
-  ): Promise<FleetWorkspace[]> {
+    gaps: MeshGap[],
+  ): Promise<MeshWorkspace[]> {
     // Asked for only when the grant allows it. A refusal is a real answer and is
     // reported as one — an empty list would say "that machine has no
     // workspaces", which is a different and false statement.
@@ -1134,11 +1134,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   }
 
   async function readTerminals(
-    connection: StoredFleetConnection,
+    connection: StoredMeshConnection,
     scopes: TailnetScope[],
-    gaps: FleetGap[],
-  ): Promise<FleetTerminal[]> {
-    if (fleetTerminalAccess(scopes) === 'none') {
+    gaps: MeshGap[],
+  ): Promise<MeshTerminal[]> {
+    if (meshTerminalAccess(scopes) === 'none') {
       gaps.push({
         part: 'terminals',
         code: 'scope_required',
@@ -1179,7 +1179,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     })
   }
 
-  async function workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<FleetWorkspaceCheckoutResult> {
+  async function workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<MeshWorkspaceCheckoutResult> {
     const connection = connectionFor(connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
     if (typeof workspaceId !== 'string' || !workspaceId) {
@@ -1222,7 +1222,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   }
 
   /** The checkout request as the wire carries it, or null for anything not that shape. */
-  function checkoutRequestOf(value: unknown): FleetCheckoutRequest | null {
+  function checkoutRequestOf(value: unknown): MeshCheckoutRequest | null {
     const record = asRecord(value)
     if (!record) return null
     if (record.mode === 'current') return { mode: 'current' }
@@ -1245,10 +1245,10 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     cliModel?: unknown
     permissionPreset?: unknown
     checkout?: unknown
-  }): Promise<FleetCreateTerminalResult> {
+  }): Promise<MeshCreateTerminalResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
-    const checkout: FleetCheckoutRequest = checkoutRequestOf(input.checkout) ?? { mode: 'current' }
+    const checkout: MeshCheckoutRequest = checkoutRequestOf(input.checkout) ?? { mode: 'current' }
     // Launch identity forwarded verbatim (remote-sessions-ux /
     // new-chat-on-a-remote-machine): the remote gateway validates every
     // field itself, and any refusal surfaces to the caller word for word
@@ -1347,8 +1347,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     attachId: string
     connectionId: unknown
     sessionId: unknown
-    emit: (event: FleetTerminalEvent) => void
-  }): Promise<FleetAttachResult> {
+    emit: (event: MeshTerminalEvent) => void
+  }): Promise<MeshAttachResult> {
     const connection = connectionFor(input.connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
     if (typeof input.sessionId !== 'string' || !input.sessionId) {
@@ -1365,7 +1365,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     // is the one interception that keeps the broadcast and the pane agreeing.
     const machineName = connection.machineName
     const sessionId = input.sessionId
-    const emitAndBroadcast = (event: FleetTerminalEvent): void => {
+    const emitAndBroadcast = (event: MeshTerminalEvent): void => {
       if (event.type === 'status') {
         attachment.state = event.state
         attachment.detail = event.detail
@@ -1619,7 +1619,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     })
   }
 
-  function getLiveState(): FleetLiveState {
+  function getLiveState(): MeshLiveState {
     return {
       revision,
       attachments: [...attachments.values()].map((attachment) => ({
@@ -1648,12 +1648,12 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     reachability.delete(connectionId)
     peerCapabilities.delete(connectionId)
     for (const attachment of [...attachments.values()]) {
-      if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
+      if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your mesh.')
     }
     stopWatch(connectionId)
     // Its followed conversations end, and what was kept of them goes too: a
     // transcript from a machine no longer paired is not this machine's to keep.
-    void remoteConversations.forgetConnection(connectionId, 'This machine was removed from your fleet.')
+    void remoteConversations.forgetConnection(connectionId, 'This machine was removed from your mesh.')
     store.forget(connectionId)
     if (forgotten) broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
     // Never the stored record itself: it carries the device token, and nothing
@@ -1664,7 +1664,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   return {
     start,
     onWake,
-    async checkReachability(connectionId): Promise<FleetLiveState> {
+    async checkReachability(connectionId): Promise<MeshLiveState> {
       if (typeof connectionId === 'string') {
         const connection = store.find(connectionId)
         if (connection) await probeReachability(connection)
@@ -1677,7 +1677,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     collectPairing,
     cancelPairing,
     adoptReverseGrant,
-    forgetMachine(input): FleetForgetMachineResult {
+    forgetMachine(input): MeshForgetMachineResult {
       const deviceId = typeof input.deviceId === 'string' && input.deviceId ? input.deviceId : null
       const connectionId = typeof input.connectionId === 'string' && input.connectionId ? input.connectionId : null
       // Inbound first. The outbound forget below tears down live attachments,
@@ -1701,7 +1701,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       }
     },
 
-    forget(connectionId): FleetConnection[] {
+    forget(connectionId): MeshConnection[] {
       if (typeof connectionId === 'string') forgetConnection(connectionId)
       return store.list()
     },
@@ -1710,7 +1710,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     workspaceCheckout,
     attachTerminal,
 
-    async listConversations(connectionId): Promise<FleetConversationListResult> {
+    async listConversations(connectionId): Promise<MeshConversationListResult> {
       const connection = connectionFor(connectionId)
       if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
       const identity = await readRemoteIdentity({ endpoint: endpointOf(connection), token: connection.deviceToken })
@@ -1745,7 +1745,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     },
 
     async followConversation(input) {
-      const key = fleetConversationKeyOf(input.key)
+      const key = meshConversationKeyOf(input.key)
       if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the machine and conversation to follow.' }
       return remoteConversations.follow({
         followId: input.followId,
@@ -1760,7 +1760,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     },
 
     async conversationLoadEarlier(input): Promise<ConversationPageResult> {
-      const key = fleetConversationKeyOf(input.key)
+      const key = meshConversationKeyOf(input.key)
       if (!key || !isNonNegativeInteger(input.beforeCursor))
         return { ok: false, message: 'Name the conversation and where to page back from.' }
       return remoteConversations.loadEarlier(
@@ -1770,21 +1770,21 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       )
     },
 
-    async conversationCommand(input): Promise<FleetConversationCommandResult> {
-      const key = fleetConversationKeyOf(input.key)
+    async conversationCommand(input): Promise<MeshConversationCommandResult> {
+      const key = meshConversationKeyOf(input.key)
       if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
       return remoteConversations.command(key, input.command)
     },
 
     async conversationToolDetail(input): Promise<ConversationToolDetailResult> {
-      const key = fleetConversationKeyOf(input.key)
+      const key = meshConversationKeyOf(input.key)
       if (!key || typeof input.toolUseId !== 'string' || !input.toolUseId || input.toolUseId.length > 200)
         return { ok: false, code: 'invalid_input', message: 'Name the conversation and the tool call.' }
       return remoteConversations.toolDetail(key, input.toolUseId)
     },
 
     async conversationTurnDiff(input): Promise<ConversationTurnDiffResult> {
-      const key = fleetConversationKeyOf(input.key)
+      const key = meshConversationKeyOf(input.key)
       if (!key || !isNonNegativeInteger(input.turnSeq)) return { ok: false, message: 'Name the conversation and turn.' }
       const path = typeof input.path === 'string' && input.path.length <= 4096 ? input.path : undefined
       return remoteConversations.turnDiff(key, input.turnSeq, path)
@@ -1827,7 +1827,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   }
 }
 
-function unknownConnectionBrowse(connectionId: unknown): FleetBrowse {
+function unknownConnectionBrowse(connectionId: unknown): MeshBrowse {
   return {
     connectionId: typeof connectionId === 'string' ? connectionId : '',
     reachable: false,
@@ -1841,7 +1841,7 @@ function unknownConnectionBrowse(connectionId: unknown): FleetBrowse {
   }
 }
 
-function endpointOf(connection: StoredFleetConnection): { host: string; port: number } {
+function endpointOf(connection: StoredMeshConnection): { host: string; port: number } {
   const parsed = parseTailnetEndpoint(connection.endpoint)
   // Unreadable endpoints never reach the store (the reader drops them), so this
   // is the type system's ask rather than a real branch.
@@ -1916,7 +1916,7 @@ function message(error: unknown): string {
  * (remote-band-in-the-sidebar). Absent or malformed is null — the row then
  * shows no branch — never a zero that claims a measurement.
  */
-function terminalGitOf(value: unknown): FleetTerminal['git'] {
+function terminalGitOf(value: unknown): MeshTerminal['git'] {
   if (!value || typeof value !== 'object') return null
   const git = value as Record<string, unknown>
   const count = (field: unknown): number => (typeof field === 'number' && Number.isFinite(field) ? field : 0)

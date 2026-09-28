@@ -1,5 +1,5 @@
 import type { RepositoryIdentity } from '../../../../../shared/repository-identity'
-import type { FleetWorkspace } from '../../../../../shared/tailnet-fleet'
+import type { MeshWorkspace } from '../../../../../shared/tailnet-mesh'
 
 // The New-chat machine picker's project list, folded out of what a paired
 // machine actually serves.
@@ -55,7 +55,7 @@ function folderName(folderPath: string): string {
  * for a new chat to run in it, and a "No folder" row in a list whose only job
  * is picking a folder is a row that cannot be chosen.
  */
-export function remoteProjectsOf(workspaces: readonly FleetWorkspace[]): RemoteProject[] {
+export function remoteProjectsOf(workspaces: readonly MeshWorkspace[]): RemoteProject[] {
   const byFolder = new Map<string, RemoteProject>()
   for (const workspace of workspaces) {
     const folderPath = workspace.folderPath?.trim()
@@ -87,7 +87,7 @@ export function remoteProjectsOf(workspaces: readonly FleetWorkspace[]): RemoteP
 /** The project a picked workspace id belongs to, or null when the read no longer holds it. */
 export function remoteProjectOfWorkspace(
   projects: readonly RemoteProject[],
-  workspaces: readonly FleetWorkspace[],
+  workspaces: readonly MeshWorkspace[],
   workspaceId: string,
 ): RemoteProject | null {
   const workspace = workspaces.find((entry) => entry.id === workspaceId)

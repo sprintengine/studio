@@ -4,15 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
-import type { FleetEvent } from '../../shared/tailnet-fleet'
+import type { MeshEvent } from '../../shared/tailnet-mesh'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
-import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
+import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { pairingUrl } from './tailnet/tailnet-service'
 import { test } from 'vitest'
 
-test('tailnet-fleet-reachability', async () => {
+test('tailnet-mesh-reachability', async () => {
   // Staying paired (pair-from-the-scan-and-stay-paired, phases 3, 4, 6), on a
   // REAL listener over loopback: main owns the wait on a request and announces
   // every phase; a paired machine is checked and its answer broadcast; a lid
@@ -51,21 +51,21 @@ test('tailnet-fleet-reachability', async () => {
     devices: TailnetDeviceStore
     server: TailnetGatewayServer
     port: number
-    fleet: TailnetFleetService
-    events: FleetEvent[]
+    mesh: TailnetMeshService
+    events: MeshEvent[]
     /** Bring the listener down (a lid closing) and back on the same port (opening it). */
     stop(): Promise<void>
     restart(): Promise<void>
     close(): Promise<void>
   }
 
-  /** One "machine": a listener with its device store, and a fleet that can ask others. */
+  /** One "machine": a listener with its device store, and a mesh that can ask others. */
   async function startMachine(name: string, options: { reachabilityIntervalMs?: number } = {}): Promise<Machine> {
     const dir = mkdtempSync(join(tmpdir(), `sprintengine-reach-${name}-`))
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
-    const events: FleetEvent[] = []
-    // The fleet is built first so the listener's reverse-grant hook can reach it.
-    let fleet: TailnetFleetService
+    const events: MeshEvent[] = []
+    // The mesh is built first so the listener's reverse-grant hook can reach it.
+    let mesh: TailnetMeshService
     const build = (port: number): TailnetGatewayServer =>
       createTailnetGatewayServer({
         bindAddress: '127.0.0.1',
@@ -77,14 +77,14 @@ test('tailnet-fleet-reachability', async () => {
         devices,
         peers: createTailnetPeerResolver({ runWhois: async () => null }),
         onReverseGrant: (input) => {
-          fleet.adoptReverseGrant(input)
+          mesh.adoptReverseGrant(input)
         },
       })
     let server = build(0)
     await server.start()
     const port = server.address()?.port ?? 0
     assert.ok(port > 0)
-    fleet = createTailnetFleetService({
+    mesh = createTailnetMeshService({
       resolveUserDataDir: () => dir,
       resolveDeviceName: () => name,
       resolvePeerName: async () => null,
@@ -113,7 +113,7 @@ test('tailnet-fleet-reachability', async () => {
         return server
       },
       port,
-      fleet,
+      mesh,
       events,
       async stop() {
         await server.stop()
@@ -123,7 +123,7 @@ test('tailnet-fleet-reachability', async () => {
         await server.start()
       },
       async close() {
-        fleet.shutdown()
+        mesh.shutdown()
         await server.stop().catch(() => {})
         rmSync(dir, { recursive: true, force: true })
       },
@@ -141,14 +141,14 @@ test('tailnet-fleet-reachability', async () => {
   }
 
   const reachabilityOf = (machine: Machine, connectionId: string) =>
-    machine.fleet.getLiveState().reachability.find((entry) => entry.connectionId === connectionId)
+    machine.mesh.getLiveState().reachability.find((entry) => entry.connectionId === connectionId)
 
   check('a paired machine is checked on start and after every change: reachable, asleep, awake, revoked', async () => {
     const laptop = await startMachine('laptop')
     const mini = await startMachine('mini')
     try {
       const offer = mini.devices.offerPairing({ scopes: ['workspace:read'] })
-      const paired = await laptop.fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
+      const paired = await laptop.mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
       assert.ok(paired.ok)
       const connectionId = paired.connection.id
       assert.equal(paired.connection.pairedVia, 'link')
@@ -156,7 +156,7 @@ test('tailnet-fleet-reachability', async () => {
       assert.equal(reachabilityOf(laptop, connectionId)?.reachable, true, 'reachable straight after pairing')
 
       // Start: one check now. A snapshot read afterwards agrees with the event.
-      laptop.fleet.start()
+      laptop.mesh.start()
       await waitFor(
         () => laptop.events.filter((event) => event.kind === 'machine-reachability' && !event.checking).length >= 2,
         'the start check',
@@ -167,7 +167,7 @@ test('tailnet-fleet-reachability', async () => {
       // and keeps the last time it DID answer.
       const before = reachabilityOf(laptop, connectionId)
       await mini.stop()
-      await laptop.fleet.checkReachability(connectionId)
+      await laptop.mesh.checkReachability(connectionId)
       const asleep = reachabilityOf(laptop, connectionId)
       assert.equal(asleep?.reachable, false)
       assert.equal(asleep?.unauthorized, false, 'sleep is not revocation')
@@ -176,20 +176,20 @@ test('tailnet-fleet-reachability', async () => {
 
       // The lid opens: wake re-checks everything at once.
       await mini.restart()
-      laptop.fleet.onWake()
+      laptop.mesh.onWake()
       await waitFor(() => reachabilityOf(laptop, connectionId)?.reachable === true, 'reachable after wake')
 
       // Revoked over there: told apart from sleep, so the row can say "pair again".
       mini.devices.revokeDevice(paired.connection.deviceId)
-      await laptop.fleet.checkReachability(connectionId)
+      await laptop.mesh.checkReachability(connectionId)
       const revoked = reachabilityOf(laptop, connectionId)
       assert.equal(revoked?.reachable, false)
       assert.equal(revoked?.unauthorized, true, 'a 401 is a decision someone made')
 
       // Forgetting drops the record; nothing is probed for a machine no longer paired.
-      laptop.fleet.forget(connectionId)
+      laptop.mesh.forget(connectionId)
       assert.equal(reachabilityOf(laptop, connectionId), undefined)
-      await laptop.fleet.checkReachability(connectionId)
+      await laptop.mesh.checkReachability(connectionId)
       assert.equal(reachabilityOf(laptop, connectionId), undefined)
     } finally {
       await laptop.close()
@@ -202,19 +202,19 @@ test('tailnet-fleet-reachability', async () => {
     const mini = await startMachine('mini')
     try {
       const offer = mini.devices.offerPairing({ scopes: ['workspace:read'] })
-      const paired = await laptop.fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
+      const paired = await laptop.mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
       assert.ok(paired.ok)
-      laptop.fleet.start()
-      laptop.fleet.start()
+      laptop.mesh.start()
+      laptop.mesh.start()
       const completed = () =>
         laptop.events.filter((event) => event.kind === 'machine-reachability' && !event.checking).length
       await waitFor(() => completed() >= 4, 'several interval checks')
       // Hammer the manual check while the interval runs: every completion pairs
       // with exactly one "checking" announcement — never two probes for one machine.
       await Promise.all([
-        laptop.fleet.checkReachability(),
-        laptop.fleet.checkReachability(),
-        laptop.fleet.checkReachability(),
+        laptop.mesh.checkReachability(),
+        laptop.mesh.checkReachability(),
+        laptop.mesh.checkReachability(),
       ])
       const checking = laptop.events.filter((event) => event.kind === 'machine-reachability' && event.checking).length
       assert.ok(checking <= completed(), `at most one checking per completion (${checking} vs ${completed()})`)
@@ -234,7 +234,7 @@ test('tailnet-fleet-reachability', async () => {
         // what the laptop asks to do on the mini, `reverseScopes` what the mini may
         // do on the laptop. They are deliberately different here — one field
         // standing in for both is the bug this closes.
-        const asked = await laptop.fleet.requestPairing({
+        const asked = await laptop.mesh.requestPairing({
           endpoint: `127.0.0.1:${mini.port}`,
           scopes: ['workspace:read', 'terminal:observe', 'terminal:control'],
           reverseScopes: ['workspace:read'],
@@ -247,7 +247,7 @@ test('tailnet-fleet-reachability', async () => {
         assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'terminal:observe', 'terminal:control'])
         // A request is not a grant: nothing has been given yet.
         assert.equal(mini.devices.listDevices().length, 0)
-        laptop.fleet.cancelPairing(asked.request.requestId)
+        laptop.mesh.cancelPairing(asked.request.requestId)
       } finally {
         await laptop.close()
         await mini.close()
@@ -259,7 +259,7 @@ test('tailnet-fleet-reachability', async () => {
         // An asker that names nothing — an older build, or a client with no opinion
         // — is recorded as the set every pairing path defaulted to before askers
         // could ask, not as a request for no access at all.
-        const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
+        const asked = await laptop2.mesh.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
         assert.ok(asked.ok, asked.ok ? '' : asked.message)
         const pending = mini2.devices.listPairRequests()
         assert.deepEqual(pending[0]?.requestedScopes, [
@@ -268,7 +268,7 @@ test('tailnet-fleet-reachability', async () => {
           'backlog:read',
           'backlog:operate',
         ])
-        laptop2.fleet.cancelPairing(asked.request.requestId)
+        laptop2.mesh.cancelPairing(asked.request.requestId)
       } finally {
         await laptop2.close()
         await mini2.close()
@@ -282,13 +282,13 @@ test('tailnet-fleet-reachability', async () => {
       const laptop = await startMachine('laptop')
       const mini = await startMachine('mini')
       try {
-        const asked = await laptop.fleet.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
+        const asked = await laptop.mesh.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
         assert.ok(asked.ok, asked.ok ? '' : asked.message)
         assert.equal(asked.request.reverseOffered, false)
         const waiting = laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'waiting')
         assert.ok(waiting, 'waiting is announced the moment the ask is accepted')
         assert.deepEqual(
-          laptop.fleet.getLiveState().requests.map((request) => request.requestId),
+          laptop.mesh.getLiveState().requests.map((request) => request.requestId),
           [asked.request.requestId],
           'the snapshot lists it',
         )
@@ -322,17 +322,17 @@ test('tailnet-fleet-reachability', async () => {
         assert.equal(landed.connection?.pairedVia, 'request')
         assert.ok(
           laptop.events.some((event) => event.kind === 'machine-paired'),
-          'and the fleet announces the machine',
+          'and the mesh announces the machine',
         )
-        assert.deepEqual(laptop.fleet.getLiveState().requests, [], 'nothing is waiting any more')
-        assert.equal(laptop.fleet.listConnections().length, 1)
+        assert.deepEqual(laptop.mesh.getLiveState().requests, [], 'nothing is waiting any more')
+        assert.equal(laptop.mesh.listConnections().length, 1)
         assert.equal(
           reachabilityOf(laptop, landed.connection?.id ?? '')?.reachable,
           true,
           'a machine that just approved is reachable',
         )
         // A late collect from a panel reports what landed, not "expired".
-        const late = await laptop.fleet.collectPairing(asked.request.requestId)
+        const late = await laptop.mesh.collectPairing(asked.request.requestId)
         assert.equal(late.ok && late.status, 'approved')
       } finally {
         await laptop.close()
@@ -345,7 +345,7 @@ test('tailnet-fleet-reachability', async () => {
     const laptop = await startMachine('laptop')
     const mini = await startMachine('mini')
     try {
-      const asked = await laptop.fleet.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
+      const asked = await laptop.mesh.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
       assert.ok(asked.ok)
       mini.devices.denyPairRequest(mini.devices.listPairRequests()[0].id)
       const denied = await waitFor(
@@ -353,7 +353,7 @@ test('tailnet-fleet-reachability', async () => {
         'denied',
       )
       assert.ok(denied.kind === 'pair-request' && /declined/u.test(denied.detail ?? ''))
-      assert.deepEqual(laptop.fleet.getLiveState().requests, [])
+      assert.deepEqual(laptop.mesh.getLiveState().requests, [])
 
       // Cancel: the far end's copy is left to lapse; here it is gone at once.
       // (The denial's cooldown is per peer address; wait it out is not an
@@ -363,12 +363,12 @@ test('tailnet-fleet-reachability', async () => {
       try {
         const mini2 = await startMachine('mini2')
         try {
-          const asked2 = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
+          const asked2 = await laptop2.mesh.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
           assert.ok(asked2.ok)
-          laptop2.fleet.cancelPairing(asked2.request.requestId)
+          laptop2.mesh.cancelPairing(asked2.request.requestId)
           assert.ok(laptop2.events.some((event) => event.kind === 'pair-request' && event.phase === 'cancelled'))
-          assert.deepEqual(laptop2.fleet.getLiveState().requests, [])
-          const afterCancel = await laptop2.fleet.collectPairing(asked2.request.requestId)
+          assert.deepEqual(laptop2.mesh.getLiveState().requests, [])
+          const afterCancel = await laptop2.mesh.collectPairing(asked2.request.requestId)
           assert.equal(afterCancel.ok && afterCancel.status, 'expired', 'a cancelled request is not waited on')
         } finally {
           await mini2.close()
@@ -388,7 +388,7 @@ test('tailnet-fleet-reachability', async () => {
       const laptop = await startMachine('laptop')
       const mini = await startMachine('mini')
       try {
-        const asked = await laptop.fleet.requestPairing({
+        const asked = await laptop.mesh.requestPairing({
           endpoint: `127.0.0.1:${mini.port}`,
           reverseScopes: ['workspace:read', 'backlog:read'],
         })
@@ -415,7 +415,7 @@ test('tailnet-fleet-reachability', async () => {
 
         // The mini now lists the laptop as a machine it can drive, with the grant
         // the laptop chose — and it answers, so the reverse pairing is live.
-        const reverse = await waitFor(() => mini.fleet.listConnections()[0], 'the reverse connection on the mini')
+        const reverse = await waitFor(() => mini.mesh.listConnections()[0], 'the reverse connection on the mini')
         assert.equal(reverse.pairedVia, 'reverse')
         assert.equal(reverse.endpoint, `127.0.0.1:${laptop.port}`)
         assert.deepEqual(reverse.scopes, ['workspace:read', 'backlog:read'])
@@ -423,7 +423,7 @@ test('tailnet-fleet-reachability', async () => {
           mini.events.some((event) => event.kind === 'machine-paired'),
           'the mini announces it without anyone there pressing anything',
         )
-        const browse = await mini.fleet.browse(reverse.id)
+        const browse = await mini.mesh.browse(reverse.id)
         assert.equal(browse.reachable, true, 'the mini can drive the laptop with the reverse token')
         assert.equal(browse.unauthorized, false)
         assert.equal(
@@ -440,13 +440,13 @@ test('tailnet-fleet-reachability', async () => {
       const laptop2 = await startMachine('laptop2')
       const mini2 = await startMachine('mini2')
       try {
-        const asked = await laptop2.fleet.requestPairing({
+        const asked = await laptop2.mesh.requestPairing({
           endpoint: `127.0.0.1:${mini2.port}`,
           reverseScopes: ['workspace:read'],
         })
         assert.ok(asked.ok)
         assert.equal(laptop2.devices.listDevices().length, 1)
-        laptop2.fleet.cancelPairing(asked.request.requestId)
+        laptop2.mesh.cancelPairing(asked.request.requestId)
         assert.equal(laptop2.devices.listDevices().length, 0, 'no orphan grant is left on the asker')
       } finally {
         await laptop2.close()
@@ -462,7 +462,7 @@ test('tailnet-fleet-reachability', async () => {
       const mini = await startMachine('mini')
       try {
         await laptop.stop()
-        const asked = await laptop.fleet.requestPairing({
+        const asked = await laptop.mesh.requestPairing({
           endpoint: `127.0.0.1:${mini.port}`,
           reverseScopes: ['workspace:read'],
         })
@@ -514,7 +514,7 @@ test('tailnet-fleet-reachability', async () => {
           false,
           'the store’s bookkeeping never reaches the wire',
         )
-        assert.equal(mini.fleet.listConnections().length, 0, 'a grant that does not dial the asker is not kept')
+        assert.equal(mini.mesh.listConnections().length, 0, 'a grant that does not dial the asker is not kept')
       } finally {
         await laptop.close()
         await mini.close()
@@ -527,11 +527,11 @@ test('tailnet-fleet-reachability', async () => {
     const mini = await startMachine('mini')
     try {
       const offer = mini.devices.offerPairing({ scopes: ['terminal:control'] })
-      const paired = await laptop.fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
+      const paired = await laptop.mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
       assert.ok(paired.ok)
       await mini.stop()
       const states: string[] = []
-      await laptop.fleet.attachTerminal({
+      await laptop.mesh.attachTerminal({
         attachId: 'pane',
         connectionId: paired.connection.id,
         sessionId: 'session_one',
@@ -542,7 +542,7 @@ test('tailnet-fleet-reachability', async () => {
       await waitFor(() => states.includes('reconnecting'), 'the pane is retrying against a dead port')
       const dialsBefore = states.filter((state) => state === 'reconnecting').length
       // Wake: the backoff timer is not waited out; a dial happens now.
-      laptop.fleet.onWake()
+      laptop.mesh.onWake()
       await waitFor(
         () => states.filter((state) => state === 'reconnecting').length > dialsBefore,
         'an immediate re-dial',
@@ -559,7 +559,7 @@ test('tailnet-fleet-reachability', async () => {
       console.error(`${failures} test(s) failed`)
       process.exit(1)
     }
-    console.log('all fleet reachability tests passed')
+    console.log('all mesh reachability tests passed')
   })
 
   await suiteRun

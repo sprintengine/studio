@@ -47,7 +47,11 @@ import type {
 } from '../../types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
-import { fleetConversationSessionId } from '../../../../shared/tailnet-fleet'
+import {
+  MESH_CONVERSATION_COMPONENT,
+  MESH_TERMINAL_COMPONENT,
+  meshConversationSessionId,
+} from '../../../../shared/tailnet-mesh'
 
 // How far the person's last-input clock may run ahead of main's copy before
 // the next report is sent as a field patch (recordWorkspaceTerminalActivity).
@@ -499,19 +503,19 @@ export type SoloChatSeed = {
   tabName?: string
   terminal?: { terminalId: string }
   /**
-   * Swap the lone agent tab for a fleet-terminal pane attached to a session
+   * Swap the lone agent tab for a mesh-terminal pane attached to a session
    * on another machine (remote-sessions-ux / new-chat-on-a-remote-machine).
    * Like `terminal`, no local agent record is created — the agent lives on
    * the remote machine; this workspace is the pane onto it. The tab id
-   * follows `addFleetTerminalTab`'s convention so opening the same session
+   * follows `addMeshTerminalTab`'s convention so opening the same session
    * later focuses this pane rather than attaching twice.
    */
-  fleet?: { connectionId: string; machineName: string; remoteSessionId: string }
+  mesh?: { connectionId: string; machineName: string; remoteSessionId: string }
   /**
    * Swap it instead for a chat pane following a conversation on another
    * machine. No local agent record either: the conversation lives over there.
    */
-  fleetConversation?: {
+  meshConversation?: {
     connectionId: string
     machineName: string
     remoteWorkspaceId: string
@@ -531,30 +535,30 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
     if (!node || done) return
     if (node.component === 'agent') {
       const target = node as { component?: unknown; id?: unknown; name?: unknown; config?: Record<string, unknown> }
-      if (seed.fleetConversation) {
-        const remote = seed.fleetConversation
-        target.component = 'fleet-conversation'
-        target.id = `fleet-conversation:${remote.connectionId}:${encodeURIComponent(remote.remoteWorkspaceId)}:${encodeURIComponent(remote.remoteAgentId)}`
+      if (seed.meshConversation) {
+        const remote = seed.meshConversation
+        target.component = MESH_CONVERSATION_COMPONENT
+        target.id = `mesh-conversation:${remote.connectionId}:${encodeURIComponent(remote.remoteWorkspaceId)}:${encodeURIComponent(remote.remoteAgentId)}`
         target.name = seed.tabName ?? remote.title
         target.config = {
           connectionId: remote.connectionId,
           machineName: remote.machineName,
           remoteWorkspaceId: remote.remoteWorkspaceId,
           remoteAgentId: remote.remoteAgentId,
-          remoteSessionId: fleetConversationSessionId(remote.remoteWorkspaceId, remote.remoteAgentId),
+          remoteSessionId: meshConversationSessionId(remote.remoteWorkspaceId, remote.remoteAgentId),
           title: remote.title,
         }
         done = true
         return
       }
-      if (seed.fleet) {
-        target.component = 'fleet-terminal'
-        target.id = `fleet-terminal:${seed.fleet.connectionId}:${encodeURIComponent(seed.fleet.remoteSessionId)}`
+      if (seed.mesh) {
+        target.component = MESH_TERMINAL_COMPONENT
+        target.id = `mesh-terminal:${seed.mesh.connectionId}:${encodeURIComponent(seed.mesh.remoteSessionId)}`
         target.name = seed.tabName ?? 'Remote terminal'
         target.config = {
-          connectionId: seed.fleet.connectionId,
-          machineName: seed.fleet.machineName,
-          remoteSessionId: seed.fleet.remoteSessionId,
+          connectionId: seed.mesh.connectionId,
+          machineName: seed.mesh.machineName,
+          remoteSessionId: seed.mesh.remoteSessionId,
         }
         done = true
         return
@@ -1250,8 +1254,8 @@ export function createWorkspacesSlice(
         // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
-        if (options?.seedAgent?.terminal || options?.seedAgent?.fleet || options?.seedAgent?.fleetConversation) {
-          // Terminal and fleet seeds: the lone agent tab is swapped for a
+        if (options?.seedAgent?.terminal || options?.seedAgent?.mesh || options?.seedAgent?.meshConversation) {
+          // Terminal and mesh seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
           // other machine.
@@ -1287,8 +1291,8 @@ export function createWorkspacesSlice(
           options?.seedAgent &&
           (options.seedAgent.tabName ||
             options.seedAgent.terminal ||
-            options.seedAgent.fleet ||
-            options.seedAgent.fleetConversation)
+            options.seedAgent.mesh ||
+            options.seedAgent.meshConversation)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
         const newWorkspace: Workspace = {

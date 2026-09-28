@@ -351,7 +351,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
 /**
  * The chat view itself, over whichever transport the tree provides: the
- * conversation IPC here, or a paired machine's conversation over the Fleet.
+ * conversation IPC here, or a paired machine's conversation over the Mesh.
  * `binding` is the agent it is for — a record in the store, or the fields a
  * remote pane keeps — and the transport's capabilities decide which controls
  * it offers.

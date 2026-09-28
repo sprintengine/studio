@@ -683,7 +683,7 @@ test('workspacesSlice', async () => {
     let found: SeededTab | undefined
     const visit = (node: { component?: unknown; children?: unknown[] } | undefined) => {
       if (!node || found) return
-      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'fleet-terminal') {
+      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'mesh-terminal') {
         found = node as SeededTab
         return
       }
@@ -769,18 +769,18 @@ test('workspacesSlice', async () => {
   assert.equal(firstTab({ layoutModel: swapped } as never)?.component, 'terminal')
   assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 
-  // The fleet seed (remote-sessions-ux / new-chat-on-a-remote-machine): the lone
-  // agent tab becomes a fleet-terminal pane onto a session on another machine —
-  // no local agent, the addFleetTerminalTab id convention so a later open
+  // The mesh seed (remote-sessions-ux / new-chat-on-a-remote-machine): the lone
+  // agent tab becomes a mesh-terminal pane onto a session on another machine —
+  // no local agent, the addMeshTerminalTab id convention so a later open
   // focuses this pane instead of attaching twice.
   const remote = applySoloChatSeed(seedSource, {
     tabName: 'Air · Rook',
-    fleet: { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' },
+    mesh: { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' },
   })
   const remoteTab = firstTab({ layoutModel: remote } as never) as
     { component?: string; id?: string; name?: string; config?: Record<string, unknown> } | undefined
-  assert.equal(remoteTab?.component, 'fleet-terminal')
-  assert.equal(remoteTab?.id, 'fleet-terminal:conn-1:session%20two')
+  assert.equal(remoteTab?.component, 'mesh-terminal')
+  assert.equal(remoteTab?.id, 'mesh-terminal:conn-1:session%20two')
   assert.equal(remoteTab?.name, 'Air · Rook')
   assert.deepEqual(remoteTab?.config, { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' })
   assert.equal(

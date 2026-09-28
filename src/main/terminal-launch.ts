@@ -1788,7 +1788,7 @@ export function getPlainShellLaunchConfig(
   })
   // Only a shell pane gets shell integration — OSC 7 and OSC 133 alike. An
   // agent pane runs a CLI rather than a prompt (nothing would fire the hook),
-  // and a fleet pane must not resolve a local path at all — so this is the one
+  // and a mesh pane must not resolve a local path at all — so this is the one
   // launcher that arms it. The 133 marks are shell ergonomics and nothing else:
   // agent phase comes from `agent-state.ts` over the state socket, and no pane
   // ever derives it from what a shell printed.

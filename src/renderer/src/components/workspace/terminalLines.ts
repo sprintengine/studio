@@ -432,13 +432,13 @@ function lineOfSession(
 }
 
 /**
- * A fleet pane the layout mounts from another machine: its checkout is on
+ * A mesh pane the layout mounts from another machine: its checkout is on
  * that machine's disk, so the only branch this side can name is the one a
  * remote-born workspace had stamped at its create; no ±lines are claimed.
  * No name either — the machine's name is the glyph's tooltip and accessible
  * name, never row text (owner ruling 2026-09-05), and the pane has no other.
  */
-function lineOfFleetPane(
+function lineOfMeshPane(
   workspace: TerminalLinesWorkspace,
   pane: { tabId: string; machineName: string; cli?: string },
 ): TerminalLine {
@@ -532,7 +532,7 @@ function activityAt(line: TerminalLine, session?: TerminalSessionSnapshot): numb
 export function terminalLinesOf(input: {
   workspace: TerminalLinesWorkspace
   sessions: ReadonlyArray<TerminalSessionSnapshot>
-  fleetPanes: ReadonlyArray<{ tabId: string; machineName: string; cli?: string }>
+  meshPanes: ReadonlyArray<{ tabId: string; machineName: string; cli?: string }>
   summaries: Record<string, WorkspaceChangeSummary>
 }): { lines: TerminalLine[]; overflow: number } {
   const ranked = [
@@ -540,8 +540,8 @@ export function terminalLinesOf(input: {
       const line = lineOfSession(input.workspace, session, input.summaries)
       return { line, at: activityAt(line, session) }
     }),
-    ...input.fleetPanes.map((pane) => {
-      const line = lineOfFleetPane(input.workspace, pane)
+    ...input.meshPanes.map((pane) => {
+      const line = lineOfMeshPane(input.workspace, pane)
       return { line, at: activityAt(line) }
     }),
   ]

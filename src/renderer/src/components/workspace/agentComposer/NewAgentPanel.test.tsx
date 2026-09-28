@@ -62,10 +62,10 @@ test('NewAgentPanel', async () => {
   const previewCalls: Array<Record<string, unknown>> = []
   const PREVIEW_DISPLAY = 'claude --model claude-opus-5'
 
-  // The fleet the remote-machine tests drive (remote-sessions-ux /
+  // The mesh the remote-machine tests drive (remote-sessions-ux /
   // new-chat-on-a-remote-machine). Reassigned per check.
-  let fleetConnections: Array<Record<string, unknown>> = []
-  let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () => ({
+  let meshConnections: Array<Record<string, unknown>> = []
+  let meshBrowseAnswer: (connectionId: string) => Record<string, unknown> = () => ({
     connectionId: 'c',
     reachable: true,
     unreachableReason: null,
@@ -80,7 +80,7 @@ test('NewAgentPanel', async () => {
   // Which repository a local folder is (one-project-across-machines); null = no remote.
   let localIdentityAnswer: (folderPath: string) => Record<string, unknown> | null = () => null
   // The picked remote project's checkout facts (checkout-and-branch-on-remote-create).
-  let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (
+  let meshCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (
     _c,
     workspaceId,
   ) => ({
@@ -114,12 +114,12 @@ test('NewAgentPanel', async () => {
       }
     },
     getGitRepoRoot: async () => '/proj',
-    fleetListConnections: async () => fleetConnections,
-    fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
-    fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) =>
-      fleetCheckoutAnswer(connectionId, workspaceId),
+    meshListConnections: async () => meshConnections,
+    meshBrowse: async (connectionId: string) => meshBrowseAnswer(connectionId),
+    meshWorkspaceCheckout: async (connectionId: string, workspaceId: string) =>
+      meshCheckoutAnswer(connectionId, workspaceId),
     getGitRepositoryIdentity: async (folderPath: string) => localIdentityAnswer(folderPath),
-    onFleetEvent: () => () => {},
+    onMeshEvent: () => () => {},
     defaultWorkspaceParentDir: async () => '/w',
     getPathForFile: () => '/tmp/shot.png',
     saveDroppedImage: async () => '/tmp/shot.png',
@@ -1336,9 +1336,9 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
+        meshConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
         assert.deepEqual(
-          sortMachines(fleetConnections as never).map((m) => m.machineName),
+          sortMachines(meshConnections as never).map((m) => m.machineName),
           ['Air', 'mini', 'Studio'],
         )
         const view = await remoteRender()
@@ -1371,8 +1371,8 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1423,7 +1423,7 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = []
+        meshConnections = []
         hostsAnswer = {
           hosts: [
             { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
@@ -1514,8 +1514,8 @@ test('NewAgentPanel', async () => {
     await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = [machine('down', 'Down'), machine('revoked', 'Revoked'), machine('gap', 'Gap')]
-      fleetBrowseAnswer = (id) => ({
+      meshConnections = [machine('down', 'Down'), machine('revoked', 'Revoked'), machine('gap', 'Gap')]
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: id !== 'down',
         unreachableReason: id === 'down' ? 'Down is asleep.' : null,
@@ -1553,8 +1553,8 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1642,8 +1642,8 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1727,8 +1727,8 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1740,7 +1740,7 @@ test('NewAgentPanel', async () => {
           gaps: [],
         })
         const checkoutReads: string[] = []
-        fleetCheckoutAnswer = (_c, workspaceId) => {
+        meshCheckoutAnswer = (_c, workspaceId) => {
           checkoutReads.push(workspaceId)
           return {
             ok: true,
@@ -1834,8 +1834,8 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1847,7 +1847,7 @@ test('NewAgentPanel', async () => {
           gaps: [],
         })
         let release: (value: Record<string, unknown>) => void = () => {}
-        fleetCheckoutAnswer = () =>
+        meshCheckoutAnswer = () =>
           new Promise<Record<string, unknown>>((resolve) => {
             release = resolve
           }) as never
@@ -1905,7 +1905,7 @@ test('NewAgentPanel', async () => {
           'the trunk is the base when there is no branch, and an unnamed worktree sends no name',
         )
         view.unmount()
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
+        meshCheckoutAnswer = (_c, workspaceId) => ({
           ok: true,
           checkout: {
             workspaceId,
@@ -1924,9 +1924,9 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
+        meshConnections = [machine('m1', 'Air')]
         let scopes: string[] = ['terminal:control']
-        fleetBrowseAnswer = (id) => ({
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
@@ -1960,7 +1960,7 @@ test('NewAgentPanel', async () => {
         assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
 
         scopes = ['workspace:operate', 'terminal:control']
-        fleetCheckoutAnswer = () => ({
+        meshCheckoutAnswer = () => ({
           ok: false,
           code: 'tailnet_scope_required',
           message: 'This device is not granted "workspace:read".',
@@ -1972,14 +1972,14 @@ test('NewAgentPanel', async () => {
           'an unreadable checkout carries the gateway’s words',
         )
 
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
+        meshCheckoutAnswer = (_c, workspaceId) => ({
           ok: true,
           checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
         })
         const plain = await reasonFor()
         assert.equal(plain.disabled, 'true')
         assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
+        meshCheckoutAnswer = (_c, workspaceId) => ({
           ok: true,
           checkout: {
             workspaceId,
@@ -2004,9 +2004,9 @@ test('NewAgentPanel', async () => {
           name: 'sprintengine',
         }
         localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
-        fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
+        meshConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
         const browsed: string[] = []
-        fleetBrowseAnswer = (id) => {
+        meshBrowseAnswer = (id) => {
           browsed.push(id)
           return {
             connectionId: id,
@@ -2126,7 +2126,7 @@ test('NewAgentPanel', async () => {
     await check('the lifted project chip still opens New chat’s own sources', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = []
+      meshConnections = []
       const view = await render({
         folderPath: '/proj',
         projectOptions: [
@@ -2181,7 +2181,7 @@ test('NewAgentPanel', async () => {
         seedStore()
         seedColours()
         resetRememberedMachineForTests()
-        fleetConnections = []
+        meshConnections = []
         const sprintengine = {
           canonicalKey: 'github.com/acme/sprintengine',
           remoteUrl: 'git@github.com:acme/sprintengine.git',
@@ -2266,8 +2266,8 @@ test('NewAgentPanel', async () => {
         name: 'sprintengine',
       }
       localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
-      fleetConnections = [machine('m1', 'Air')]
-      fleetBrowseAnswer = (id) => ({
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: true,
         unreachableReason: null,
@@ -2327,7 +2327,7 @@ test('NewAgentPanel', async () => {
       )
       view.unmount()
       localIdentityAnswer = () => null
-      fleetConnections = []
+      meshConnections = []
     })
 
     await check(
@@ -2336,7 +2336,7 @@ test('NewAgentPanel', async () => {
         seedStore()
         seedColours()
         resetRememberedMachineForTests()
-        fleetConnections = []
+        meshConnections = []
         const sprintengine = {
           canonicalKey: 'github.com/acme/sprintengine',
           remoteUrl: 'git@github.com:acme/sprintengine.git',
@@ -2442,10 +2442,10 @@ test('NewAgentPanel', async () => {
       // filter by and the Air is pickable; the point of the check is what happens
       // to the REMOTE key, not to the local one.
       localIdentityAnswer = () => null
-      fleetConnections = [machine('m1', 'Air')]
+      meshConnections = [machine('m1', 'Air')]
       // One workspace, so it is picked without a click — and its machine reported
       // no repository, which is what an older peer and a non-repo folder both do.
-      fleetBrowseAnswer = (id) => ({
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: true,
         unreachableReason: null,
@@ -2482,13 +2482,13 @@ test('NewAgentPanel', async () => {
       )
       view.unmount()
       localIdentityAnswer = () => null
-      fleetConnections = []
+      meshConnections = []
     })
 
     await check('the local access menu walks with the arrows and selects on Enter', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = []
+      meshConnections = []
       const view = await render({ permissionPreset: 'none' })
       const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]

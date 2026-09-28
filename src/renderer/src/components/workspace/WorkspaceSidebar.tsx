@@ -83,7 +83,7 @@ import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWok
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import {
   buildFolderGroups,
-  fleetPanesOf,
+  meshPanesOf,
   folderDisplayName,
   folderKey,
   groupKeyOf,
@@ -127,7 +127,7 @@ export { provenanceMachinesOf, rowHasOpenTerminals, rowOpenTerminals } from './s
 
 export { rowAccent } from './sidebar/rowStyle'
 
-export { fleetMachineNamesOf, fleetPanesOf, groupKeyOf } from './sidebar/folderGroups'
+export { meshMachineNamesOf, meshPanesOf, groupKeyOf } from './sidebar/folderGroups'
 export type { LocalGroupHeader } from './sidebar/folderGroups'
 
 type TerminalRecency = {
@@ -190,7 +190,7 @@ type WorkspaceSidebarProps = {
   onSelectWorkspace: (id: WorkspaceId) => void
   // Open a session that lives on a paired machine (the Remote band): focus
   // the workspace here that already is it, or attach a new one. Absent in a
-  // host with no fleet (partial harnesses); the band then draws its rows
+  // host with no mesh (partial harnesses); the band then draws its rows
   // and opens nothing.
   onOpenRemoteSession?: (spec: RemoteSessionOpenSpec) => void
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
@@ -462,7 +462,7 @@ function WorkspaceSidebar({
   // after a restart settles hundreds of rows at once: without the gate each
   // one would fan out a kill per recorded agent session, and every one of
   // those is a no-op IPC round trip for a chat whose ptys died with the last
-  // app run. Only a row with live sessions (or a mounted fleet pane) is worth
+  // app run. Only a row with live sessions (or a mounted mesh pane) is worth
   // asking main about.
   //
   // Nothing here can kill a working agent: the sweep never settles a row that
@@ -751,17 +751,17 @@ function WorkspaceSidebar({
   const remoteGroups = useMemo(
     () =>
       buildRemoteBand({
-        connections: remotePresence.fleet,
+        connections: remotePresence.mesh,
         browses: remoteBrowses,
-        attachments: remotePresence.fleetAttachments,
-        reachability: remotePresence.fleetReachability,
+        attachments: remotePresence.meshAttachments,
+        reachability: remotePresence.meshReachability,
         workspaces: railWorkspaces,
       }),
     [
-      remotePresence.fleet,
+      remotePresence.mesh,
       remoteBrowses,
-      remotePresence.fleetAttachments,
-      remotePresence.fleetReachability,
+      remotePresence.meshAttachments,
+      remotePresence.meshReachability,
       railWorkspaces,
     ],
   )
@@ -2902,7 +2902,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const highlighted = hasHighlightOverride(workspace.highlight)
   const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
   // The row's lines (sidebar-lists-every-terminal): one per open terminal —
-  // the local live sessions AND the fleet panes the layout mounts from
+  // the local live sessions AND the mesh panes the layout mounts from
   // other machines.
   // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
   // no open terminal is the one-liner it always was — title only, with idle
@@ -2927,7 +2927,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const rowIsLive =
     liveSessions.length > 0 ||
     conversationSessions.length > 0 ||
-    fleetPanesOf(workspace).length > 0 ||
+    meshPanesOf(workspace).length > 0 ||
     rowConversation !== null
   // A settled row is the one-liner by construction: rest is the point, and
   // a checkout's branch and ±lines are not facts about a chat at rest.
@@ -2935,7 +2935,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     rowIsLive && !options?.settled && !options?.snoozed
       ? rowConversation
         ? // A remote chat draws the agents standing in IT, not the one pane this
-          // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
+          // window happens to hold (owner, 2026-09-13). `meshPanesOf` can only
           // see the session this workspace attached, so a chat running three
           // agents over there drew one nameless, activity-free line here while
           // the very same chat, unopened, drew three live ones in the band
@@ -2946,7 +2946,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         : terminalLinesOf({
             workspace,
             sessions: liveSessions,
-            fleetPanes: fleetPanesOf(workspace),
+            meshPanes: meshPanesOf(workspace),
             summaries: gitSummaries,
           })
       : { lines: [], overflow: 0 }

@@ -107,23 +107,23 @@ import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
 import type {
-  FleetAttachResult,
-  FleetBrowse,
-  FleetConnection,
-  FleetCreateTerminalResult,
-  FleetCheckoutRequest,
-  FleetWorkspaceCheckoutResult,
-  FleetEvent,
-  FleetLiveState,
-  FleetPairResult,
-  FleetTerminalEvent,
-  FleetRequestPairingResult,
+  MeshAttachResult,
+  MeshBrowse,
+  MeshConnection,
+  MeshCreateTerminalResult,
+  MeshCheckoutRequest,
+  MeshWorkspaceCheckoutResult,
+  MeshEvent,
+  MeshLiveState,
+  MeshPairResult,
+  MeshTerminalEvent,
+  MeshRequestPairingResult,
   TailnetForgetMachineResult,
-  FleetConversationCommandResult,
-  FleetConversationFrame,
-  FleetConversationKey,
-  FleetConversationListResult,
-} from './tailnet-fleet'
+  MeshConversationCommandResult,
+  MeshConversationFrame,
+  MeshConversationKey,
+  MeshConversationListResult,
+} from './tailnet-mesh'
 import type {
   AutomationsBuiltinInstallInput,
   AutomationsBuiltinInstallResult,
@@ -721,19 +721,19 @@ export type ElectronApi = {
   tailnetShareStatus: () => Promise<TailnetShareStatus>
   tailnetSharePort: (localPort: number) => Promise<TailnetShareResult>
   tailnetUnsharePort: (servePort: number) => Promise<TailnetShareResult>
-  // The Fleet: the machines this Studio is paired WITH, and the panes
+  // The Mesh: the machines this Studio is paired WITH, and the panes
   // it mounts from them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer
   // always sends, so this is the only route a window has.
-  fleetListConnections: () => Promise<FleetConnection[]>
+  meshListConnections: () => Promise<MeshConnection[]>
   /** Redeem a pairing link from another machine's Settings → Remote. */
-  fleetPair: (pairingUrl: string) => Promise<FleetPairResult>
+  meshPair: (pairingUrl: string) => Promise<MeshPairResult>
   /**
    * Ask a machine to pair, for someone there to approve, then poll it.
    * Main holds the collect secret, so a window can neither dial the peer nor
    * take the token the approval mints.
    */
-  fleetRequestPairing: (
+  meshRequestPairing: (
     endpoint: string,
     options?: {
       /** What to ask that machine to let THIS one do. The far end's default applies when omitted. */
@@ -741,16 +741,16 @@ export type ElectronApi = {
       /** What that machine may do HERE, granted in the same exchange. Omitted asks one way only. */
       reverseScopes?: TailnetScope[]
     },
-  ) => Promise<FleetRequestPairingResult>
-  fleetCancelPairing: (requestId: string) => Promise<void>
+  ) => Promise<MeshRequestPairingResult>
+  meshCancelPairing: (requestId: string) => Promise<void>
   /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */
-  fleetCheckReachability: (connectionId?: string) => Promise<FleetLiveState>
+  meshCheckReachability: (connectionId?: string) => Promise<MeshLiveState>
   /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
-  fleetForget: (connectionId: string) => Promise<FleetConnection[]>
+  meshForget: (connectionId: string) => Promise<MeshConnection[]>
   /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
-  fleetBrowse: (connectionId: string) => Promise<FleetBrowse>
+  meshBrowse: (connectionId: string) => Promise<MeshBrowse>
   /** Open a terminal on the remote machine and get the session id to attach to. */
-  fleetCreateTerminal: (input: {
+  meshCreateTerminal: (input: {
     connectionId: string
     workspaceId?: string
     name?: string
@@ -764,80 +764,77 @@ export type ElectronApi = {
      * workspace's current checkout, or a fresh worktree branched from
      * `baseRef`. The current checkout when absent.
      */
-    checkout?: FleetCheckoutRequest
-  }) => Promise<FleetCreateTerminalResult>
+    checkout?: MeshCheckoutRequest
+  }) => Promise<MeshCreateTerminalResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
-  fleetWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<FleetWorkspaceCheckoutResult>
+  meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**
-   * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`
+   * Attach a pane to a remote session. Subscribe with `onMeshTerminalEvent`
    * on the same `attachId` FIRST — the replay is the first thing that arrives.
    */
-  fleetAttachTerminal: (input: {
+  meshAttachTerminal: (input: {
     attachId: string
     connectionId: string
     sessionId: string
-  }) => Promise<FleetAttachResult>
-  fleetDetachTerminal: (attachId: string) => Promise<void>
-  fleetTerminalInput: (attachId: string, data: string) => void
-  fleetTerminalResize: (attachId: string, cols: number, rows: number) => void
-  onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void) => () => void
+  }) => Promise<MeshAttachResult>
+  meshDetachTerminal: (attachId: string) => Promise<void>
+  meshTerminalInput: (attachId: string, data: string) => void
+  meshTerminalResize: (attachId: string, cols: number, rows: number) => void
+  onMeshTerminalEvent: (attachId: string, cb: (event: MeshTerminalEvent) => void) => () => void
   /**
    * Every attachment main holds right now with its link state — the initial
-   * read behind `onFleetEvent`, carrying the same revision the events do.
+   * read behind `onMeshEvent`, carrying the same revision the events do.
    */
-  fleetGetLiveState: () => Promise<FleetLiveState>
+  meshGetLiveState: () => Promise<MeshLiveState>
   /**
-   * Whole-app fleet lifecycle (remote-sessions-ux): a machine paired or
+   * Whole-app mesh lifecycle (remote-sessions-ux): a machine paired or
    * forgotten, an attachment's link state changing — broadcast to every
    * window, credential-free. Returns the unsubscribe.
    */
-  onFleetEvent: (cb: (event: FleetEvent) => void) => () => void
+  onMeshEvent: (cb: (event: MeshEvent) => void) => () => void
   /**
    * Conversations on a paired machine, the same calls the local session API
    * makes with the machine named in the key. Main follows over the tailnet
    * and keeps the transcript tail; the renderer never holds a credential.
    */
-  fleetConversationList: (connectionId: string) => Promise<FleetConversationListResult>
-  onFleetConversationSession: (
-    input: { key: FleetConversationKey; turnLimit?: number },
-    cb: (frame: FleetConversationFrame) => void,
+  meshConversationList: (connectionId: string) => Promise<MeshConversationListResult>
+  onMeshConversationSession: (
+    input: { key: MeshConversationKey; turnLimit?: number },
+    cb: (frame: MeshConversationFrame) => void,
   ) => () => void
-  fleetConversationLoadEarlier: (input: {
-    key: FleetConversationKey
+  meshConversationLoadEarlier: (input: {
+    key: MeshConversationKey
     beforeCursor: number
     turnLimit?: number
   }) => Promise<ConversationPageResult>
-  fleetConversationSend: (input: {
-    key: FleetConversationKey
-    message: string
-  }) => Promise<FleetConversationCommandResult>
-  fleetConversationInterrupt: (input: { key: FleetConversationKey }) => Promise<FleetConversationCommandResult>
-  fleetConversationResolveApproval: (input: {
-    key: FleetConversationKey
+  meshConversationSend: (input: { key: MeshConversationKey; message: string }) => Promise<MeshConversationCommandResult>
+  meshConversationInterrupt: (input: { key: MeshConversationKey }) => Promise<MeshConversationCommandResult>
+  meshConversationResolveApproval: (input: {
+    key: MeshConversationKey
     requestId: string
     decision: 'once' | 'conversation' | 'deny'
-  }) => Promise<FleetConversationCommandResult>
-  fleetConversationAnswerQuestion: (input: {
-    key: FleetConversationKey
+  }) => Promise<MeshConversationCommandResult>
+  meshConversationAnswerQuestion: (input: {
+    key: MeshConversationKey
     requestId: string
     answers: Record<string, string>
-  }) => Promise<FleetConversationCommandResult>
-  fleetConversationSetPermissionPreset: (input: {
-    key: FleetConversationKey
+  }) => Promise<MeshConversationCommandResult>
+  meshConversationSetPermissionPreset: (input: {
+    key: MeshConversationKey
     preset: 'none' | 'bypass'
-  }) => Promise<FleetConversationCommandResult>
+  }) => Promise<MeshConversationCommandResult>
   // Switch a paired machine's chat to another model of its CLI, from the
   // catalog that machine's list names. Needs `conversation-models` there.
-  fleetConversationSetModel: (input: {
-    key: FleetConversationKey
+  meshConversationSetModel: (input: {
+    key: MeshConversationKey
     modelId: string
-  }) => Promise<FleetConversationCommandResult>
-  fleetConversationToolDetail: (input: {
-    key: FleetConversationKey
+  }) => Promise<MeshConversationCommandResult>
+  meshConversationToolDetail: (input: {
+    key: MeshConversationKey
     toolUseId: string
   }) => Promise<ConversationToolDetailResult>
-  fleetConversationTurnDiff: (input: {
-    key: FleetConversationKey
+  meshConversationTurnDiff: (input: {
+    key: MeshConversationKey
     turnSeq: number
     path?: string
   }) => Promise<ConversationTurnDiffResult>

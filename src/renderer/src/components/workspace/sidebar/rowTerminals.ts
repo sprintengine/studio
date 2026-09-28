@@ -1,12 +1,12 @@
-// Which terminals and fleet panes a sidebar row stands for, and which of
+// Which terminals and mesh panes a sidebar row stands for, and which of
 // their completions the user has not seen yet.
 
 import { type Workspace } from '../../../types/workspace'
-import { fleetPanesOf, fleetMachineNamesOf } from './folderGroups'
+import { meshPanesOf, meshMachineNamesOf } from './folderGroups'
 
 /**
  * The panes this workspace's layout mounts FROM other machines: one entry per
- * fleet-terminal tab, with the machine it names and the CLI mark if the tab
+ * mesh-terminal tab, with the machine it names and the CLI mark if the tab
  * carries one. The layout JSON is the one durable record of a remote
  * attachment, so a walk of it — not a live socket — is what says a workspace
  * is remote-flavoured even while the peer sleeps. Each pane is an open
@@ -15,7 +15,7 @@ import { fleetPanesOf, fleetMachineNamesOf } from './folderGroups'
 /**
  * The open terminals a row shows as heads, and the one liveness test the row
  * has (the-diff-an-agent-made, decision 9): the local sessions whose process is
- * alive, plus the fleet panes the layout mounts from other machines. A
+ * alive, plus the mesh panes the layout mounts from other machines. A
  * suspended or exited local session is not open — `isLiveTerminal` is the
  * filter the caller applies before building the map — so a chat whose agent
  * has been parked has no heads, no line 2, and no git facts.
@@ -29,7 +29,7 @@ export function rowOpenTerminals(
       sessionId: session.sessionId,
       ...(session.cli ? { cli: session.cli } : {}),
     })),
-    ...fleetPanesOf(workspace).map((pane) => ({
+    ...meshPanesOf(workspace).map((pane) => ({
       sessionId: pane.tabId,
       ...(pane.cli ? { cli: pane.cli } : {}),
       remote: true,
@@ -42,7 +42,7 @@ export function rowHasOpenTerminals(
   workspace: Workspace,
   liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<unknown>>,
 ): boolean {
-  return (liveSessionsByWorkspaceId.get(workspace.id)?.length ?? 0) > 0 || fleetPanesOf(workspace).length > 0
+  return (liveSessionsByWorkspaceId.get(workspace.id)?.length ?? 0) > 0 || meshPanesOf(workspace).length > 0
 }
 
 /**
@@ -54,7 +54,7 @@ export function rowHasOpenTerminals(
 export function provenanceMachinesOf(workspace: Workspace): string[] {
   const names = new Set<string>()
   if (workspace.remoteOrigin) names.add(workspace.remoteOrigin.machineName)
-  for (const name of fleetMachineNamesOf(workspace)) names.add(name)
+  for (const name of meshMachineNamesOf(workspace)) names.add(name)
   return [...names]
 }
 

@@ -79,6 +79,12 @@ import {
   type Tone,
   Tooltip,
 } from '../ui'
+import {
+  canonicalMeshPaneComponent,
+  MESH_CONVERSATION_COMPONENT,
+  MESH_TERMINAL_COMPONENT,
+  meshPaneKind,
+} from '../../../../shared/tailnet-mesh'
 
 const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type: 'row', children: [] } }
 
@@ -125,7 +131,7 @@ const AgentPanel = React.lazy(() => import('../panels/AgentPanel'))
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
+const MeshTerminalPanel = React.lazy(() => import('../panels/MeshTerminalPanel'))
 const RemoteConversationPanel = React.lazy(() => import('../panels/agentChat/RemoteConversationPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
@@ -540,7 +546,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
 
   const factory = useCallback(
     (node: TabNode) => {
-      const component = node.getComponent()
+      // A remote pane saved under its pre-rename name renders as the same pane.
+      const component = canonicalMeshPaneComponent(node.getComponent())
       const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
       const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
       const config = node.getConfig() as
@@ -629,14 +636,14 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         // Fleet panel that used to sit beside it was retired on 2026-09-05 —
         // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
         // default branch's unavailable surface.)
-        case 'fleet-terminal':
+        case MESH_TERMINAL_COMPONENT:
           // A stale tab whose config lost its machine is refused rather than
           // rendered as an empty terminal: there is no session to attach to, and
           // a blank xterm would look like one that simply had no output.
           return config?.connectionId && config.remoteSessionId
             ? timedPanel(
-                'FleetTerminalPanel',
-                <FleetTerminalPanel
+                'MeshTerminalPanel',
+                <MeshTerminalPanel
                   // Scoped by WORKSPACE, not just by the tab's session-derived id:
                   // the tab id is deliberately deterministic per session (dedupe
                   // within a workspace), so the same session opened in a second
@@ -655,7 +662,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             : DISABLED_SURFACE
         // A conversation on another machine, in the regular chat view. Core
         // chrome for the same reason a remote terminal is.
-        case 'fleet-conversation': {
+        case MESH_CONVERSATION_COMPONENT: {
           const remote = config as
             | {
                 connectionId?: string
@@ -1203,7 +1210,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             )
             return
           }
-        } else if (componentId === 'fleet-terminal' || componentId === 'fleet-conversation') {
+        } else if (meshPaneKind(componentId) !== null) {
           // A pane on another machine's terminal wears the shared remote glyph
           // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
           // the same keystroke means different things on two machines, and the

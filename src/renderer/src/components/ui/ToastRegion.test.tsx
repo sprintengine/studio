@@ -258,23 +258,23 @@ test('ToastRegion', async () => {
     reset()
     const mounted = mount()
     act(() => {
-      showToast({ id: 'fleet:c1', tone: 'warn', title: 'Connection to Air lost' })
-      showToast({ id: 'fleet:c2', tone: 'warn', title: 'Connection to Air lost' })
-      showToast({ id: 'fleet:c1', tone: 'warn', title: 'Connection to Air lost', description: 'Still reconnecting.' })
+      showToast({ id: 'mesh:c1', tone: 'warn', title: 'Connection to Air lost' })
+      showToast({ id: 'mesh:c2', tone: 'warn', title: 'Connection to Air lost' })
+      showToast({ id: 'mesh:c1', tone: 'warn', title: 'Connection to Air lost', description: 'Still reconnecting.' })
     })
     const ids = useToastStore.getState().toasts.map((toast) => toast.id)
     assert.deepEqual(
       ids,
-      ['fleet:c1', 'fleet:c2'],
+      ['mesh:c1', 'mesh:c2'],
       'same title, different ids — two machines, two toasts; the re-show replaced c1 in place',
     )
     assert.match(mounted.innerHTML, /Still reconnecting\./)
     act(() => {
-      useToastStore.getState().dismissToast('fleet:c1')
+      useToastStore.getState().dismissToast('mesh:c1')
     })
     assert.deepEqual(
       useToastStore.getState().toasts.map((toast) => toast.id),
-      ['fleet:c2'],
+      ['mesh:c2'],
       'the handle a producer kept still retracts',
     )
     unmount()

@@ -26,7 +26,7 @@ import {
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
-import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
+import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
@@ -1316,12 +1316,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onTailnetEvent(payload)
     },
-    onFleetEvent: (event) => {
+    onMeshEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(FLEET_EVENT_CHANNEL, event)
+        window.webContents.send(MESH_EVENT_CHANNEL, event)
       }
-      tailnetNotifier.onFleetEvent(event)
+      tailnetNotifier.onMeshEvent(event)
     },
     hasWindow: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
@@ -1673,7 +1673,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
   void app.whenReady().then(() => {
-    const wake = () => automationService.fleet().onWake()
+    const wake = () => automationService.mesh().onWake()
     powerMonitor.on('resume', wake)
     powerMonitor.on('unlock-screen', wake)
   })

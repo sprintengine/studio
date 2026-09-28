@@ -134,10 +134,10 @@ test('RemoteTailnetSettingsTab', async () => {
       bridge.listPeersCalls += 1
       return Promise.resolve({ tailscaleAvailable: true, unavailableReason: null, probedPort: 8471, peers: PEERS })
     },
-    fleetListConnections: () => Promise.resolve([]),
-    fleetGetLiveState: () => Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] }),
+    meshListConnections: () => Promise.resolve([]),
+    meshGetLiveState: () => Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] }),
     onTailnetEvent: () => () => {},
-    onFleetEvent: () => () => {},
+    onMeshEvent: () => () => {},
     clipboardWriteText: () => Promise.resolve(),
   }
 

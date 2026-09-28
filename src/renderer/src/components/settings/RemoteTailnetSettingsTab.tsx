@@ -46,7 +46,7 @@ import { useTailnetPresence } from '../workspace/topbar/useTailnetPresence'
 // the scan runs by itself, and the scope set is the one link on the row. The
 // only remaining chrome is the split button that starts a pairing.
 //
-// Everything here is IPC-only (`tailnet:*` / `fleet:*`). The matching
+// Everything here is IPC-only (`tailnet:*` / `mesh:*`). The matching
 // `tailnet.*` gateway tools let an agent ON THIS MACHINE drive the same
 // service, but that family is refused over the tailnet itself, so no paired
 // remote device can pair another device or widen its own reach.
@@ -108,7 +108,7 @@ export function RemoteTailnetSettingsTab() {
   // the same pushed presence the Remote glyph reads, so this tab and the
   // popover cannot disagree.
   const presence = useTailnetPresence()
-  const askingCount = presence.fleetRequests.length
+  const askingCount = presence.meshRequests.length
 
   // Only ticks while a countdown is on screen: an idle panel should not wake
   // once a second for a number nobody is looking at.
@@ -156,11 +156,11 @@ export function RemoteTailnetSettingsTab() {
         // down — so the tab still says which machine you are sitting at.
         self: { name: 'This machine', os: window.api.platform },
         devices: status?.devices ?? [],
-        connections: presence.fleet,
+        connections: presence.mesh,
         peers: scan?.peers ?? [],
         now,
       }),
-    [status?.devices, presence.fleet, scan, now],
+    [status?.devices, presence.mesh, scan, now],
   )
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
@@ -187,7 +187,7 @@ export function RemoteTailnetSettingsTab() {
       // Both ways, always (owner ruling 2026-09-10): the same set is what we
       // ask for over there and what we grant back here.
       void run(`Asking ${target.machineName} to pair.`, async () => {
-        const result = await window.api.fleetRequestPairing(target.endpoint, {
+        const result = await window.api.meshRequestPairing(target.endpoint, {
           scopes,
           reverseScopes: scopes,
         })
@@ -235,7 +235,7 @@ export function RemoteTailnetSettingsTab() {
     const link = pairingLink.trim()
     if (!link) return Promise.resolve()
     return run('Pairing with that machine.', async () => {
-      const result = await window.api.fleetPair(link)
+      const result = await window.api.meshPair(link)
       if (!result.ok) {
         setAction({ tone: 'error', message: result.message })
         return
@@ -406,17 +406,17 @@ export function RemoteTailnetSettingsTab() {
         </section>
       ) : null}
 
-      {presence.fleetRequests.length > 0 ? (
+      {presence.meshRequests.length > 0 ? (
         <section>
           {/* Named for what the card under it is FOR. "Asking" described the
               state and hid the payload: each row carries the six digits the
               other machine is waiting to be told, and someone who has walked
               to that machine needs to find them by the heading alone. */}
-          <SettingsSectionTitle className="mb-1.5" count={presence.fleetRequests.length}>
+          <SettingsSectionTitle className="mb-1.5" count={presence.meshRequests.length}>
             Waiting for another machine — with the code to type on it
           </SettingsSectionTitle>
           <SettingCard>
-            {presence.fleetRequests.map((request) => (
+            {presence.meshRequests.map((request) => (
               <OutboundPairRequestCard key={request.requestId} request={request} now={now} variant="flush" />
             ))}
           </SettingCard>

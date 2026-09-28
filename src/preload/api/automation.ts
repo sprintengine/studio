@@ -27,7 +27,7 @@ import {
   type TailnetShareResult,
   type TailnetShareStatus,
 } from '../../shared/tailnet-share'
-import { TAILNET_FORGET_MACHINE_CHANNEL, type TailnetForgetMachineResult } from '../../shared/tailnet-fleet'
+import { TAILNET_FORGET_MACHINE_CHANNEL, type TailnetForgetMachineResult } from '../../shared/tailnet-mesh'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // Status only for the always-on gateway. Its mutations are main services, so

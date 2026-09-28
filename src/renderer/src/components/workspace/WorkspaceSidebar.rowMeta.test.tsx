@@ -5,8 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   AttentionPulse,
-  fleetMachineNamesOf,
-  fleetPanesOf,
+  meshMachineNamesOf,
+  meshPanesOf,
   groupKeyOf,
   provenanceMachinesOf,
   TerminalLineView,
@@ -363,7 +363,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
     assert.equal(renderToStaticMarkup(<AttentionPulse active resetKey="w1" tone="good" />), '')
   })
 
-  run('fleetMachineNamesOf finds fleet-terminal tabs anywhere in the layout, deduplicated', () => {
+  run('meshMachineNamesOf finds mesh-terminal tabs anywhere in the layout, deduplicated', () => {
     const workspace = {
       layoutModel: {
         layout: {
@@ -373,7 +373,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
               type: 'tabset',
               children: [
                 { type: 'tab', component: 'terminal', config: {} },
-                { type: 'tab', component: 'fleet-terminal', config: { machineName: 'Air' } },
+                { type: 'tab', component: 'mesh-terminal', config: { machineName: 'Air' } },
               ],
             },
             {
@@ -381,7 +381,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
               children: [
                 {
                   type: 'tabset',
-                  children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Air' } }],
+                  children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Air' } }],
                 },
               ],
             },
@@ -389,17 +389,17 @@ test('WorkspaceSidebar.rowMeta', async () => {
         },
       },
     } as unknown as Workspace
-    assert.deepEqual(fleetMachineNamesOf(workspace), ['Air'])
+    assert.deepEqual(meshMachineNamesOf(workspace), ['Air'])
   })
 
-  run('a workspace with no fleet tabs reports no machines', () => {
+  run('a workspace with no mesh tabs reports no machines', () => {
     const workspace = {
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
-    assert.deepEqual(fleetMachineNamesOf(workspace), [])
+    assert.deepEqual(meshMachineNamesOf(workspace), [])
   })
 
-  run('fleetPanesOf finds the mounted remote panes, CLI mark when the tab carries one', () => {
+  run('meshPanesOf finds the mounted remote panes, CLI mark when the tab carries one', () => {
     const workspace = {
       layoutModel: {
         layout: {
@@ -407,24 +407,24 @@ test('WorkspaceSidebar.rowMeta', async () => {
           children: [
             {
               type: 'tab',
-              id: 'fleet-terminal:c1:s1',
-              component: 'fleet-terminal',
+              id: 'mesh-terminal:c1:s1',
+              component: 'mesh-terminal',
               config: { machineName: 'Air', remoteSessionId: 's1', cli: 'codex' },
             },
             {
               type: 'tab',
-              id: 'fleet-terminal:c1:s2',
-              component: 'fleet-terminal',
+              id: 'mesh-terminal:c1:s2',
+              component: 'mesh-terminal',
               config: { machineName: 'Air', remoteSessionId: 's2' },
             },
           ],
         },
       },
     } as unknown as Workspace
-    const panes = fleetPanesOf(workspace)
+    const panes = meshPanesOf(workspace)
     assert.deepEqual(panes, [
-      { tabId: 'fleet-terminal:c1:s1', machineName: 'Air', cli: 'codex' },
-      { tabId: 'fleet-terminal:c1:s2', machineName: 'Air' },
+      { tabId: 'mesh-terminal:c1:s1', machineName: 'Air', cli: 'codex' },
+      { tabId: 'mesh-terminal:c1:s2', machineName: 'Air' },
     ])
   })
 
@@ -468,7 +468,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
       layoutModel: {
         layout: {
           type: 'tabset',
-          children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }],
+          children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Mini' } }],
         },
       },
     } as unknown as Workspace
@@ -538,16 +538,16 @@ test('WorkspaceSidebar.rowMeta', async () => {
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
     assert.equal(groupKeyOf(remote), 'remote:c1:rw1')
-    const fleet = {
+    const mesh = {
       folderPath: null,
       layoutModel: {
         layout: {
           type: 'tabset',
-          children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }],
+          children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Mini' } }],
         },
       },
     } as unknown as Workspace
-    assert.equal(groupKeyOf(fleet), 'remote:mini')
+    assert.equal(groupKeyOf(mesh), 'remote:mini')
 
     // A folder of nothing but whitespace is no folder, and has to be no folder
     // to every reader: the project resolver trims it away, so a key that kept it

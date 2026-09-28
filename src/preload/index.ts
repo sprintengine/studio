@@ -7,7 +7,7 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
-import { fleetApi } from './api/fleet'
+import { meshApi } from './api/mesh'
 import { automationsApi } from './api/automations'
 import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
@@ -68,7 +68,7 @@ const api = {
   ...appearanceApi,
   ...authApi,
   ...automationApi,
-  ...fleetApi,
+  ...meshApi,
   ...automationsApi,
   ...backlogApi,
   ...builtinSkillsApi,

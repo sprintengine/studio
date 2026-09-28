@@ -1,0 +1,234 @@
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
+
+import {
+  meshTerminalEventChannel,
+  MESH_ATTACH_TERMINAL_CHANNEL,
+  MESH_BROWSE_CHANNEL,
+  MESH_CREATE_TERMINAL_CHANNEL,
+  MESH_WORKSPACE_CHECKOUT_CHANNEL,
+  MESH_DETACH_TERMINAL_CHANNEL,
+  MESH_FORGET_CHANNEL,
+  MESH_GET_LIVE_STATE_CHANNEL,
+  MESH_LIST_CONNECTIONS_CHANNEL,
+  MESH_CANCEL_PAIRING_CHANNEL,
+  MESH_CHECK_REACHABILITY_CHANNEL,
+  MESH_PAIR_CHANNEL,
+  MESH_REQUEST_PAIRING_CHANNEL,
+  MESH_EVENT_CHANNEL,
+  MESH_TERMINAL_INPUT_CHANNEL,
+  MESH_TERMINAL_RESIZE_CHANNEL,
+  type MeshAttachResult,
+  type MeshBrowse,
+  type MeshConnection,
+  type MeshCreateTerminalResult,
+  type MeshCheckoutRequest,
+  type MeshWorkspaceCheckoutResult,
+  type MeshEvent,
+  type MeshLiveState,
+  type MeshPairResult,
+  type MeshRequestPairingResult,
+  type MeshTerminalEvent,
+  meshConversationFrameChannel,
+  MESH_CONVERSATION_COMMAND_CHANNEL,
+  MESH_CONVERSATION_EARLIER_CHANNEL,
+  MESH_CONVERSATION_FOLLOW_CHANNEL,
+  MESH_CONVERSATION_LIST_CHANNEL,
+  MESH_CONVERSATION_TOOL_DETAIL_CHANNEL,
+  MESH_CONVERSATION_TURN_DIFF_CHANNEL,
+  MESH_CONVERSATION_UNFOLLOW_CHANNEL,
+  type MeshConversationCommand,
+  type MeshConversationCommandResult,
+  type MeshConversationFrame,
+  type MeshConversationKey,
+  type MeshConversationListResult,
+} from '../../shared/tailnet-mesh'
+import type {
+  ConversationPageResult,
+  ConversationToolDetailResult,
+  ConversationTurnDiffResult,
+} from '../../shared/conversation-runtime'
+import type { TailnetScope } from '../../shared/tailnet'
+import type { ElectronApi } from '../../shared/electron-api'
+
+// The Mesh's data path: the machines this Studio drives, what they
+// hold, and the terminals it has open on them.
+//
+// Nothing here carries a credential. The device tokens stay in main, which is
+// also the only place that can dial the listener at all — it refuses any
+// request with an `Origin` header, and a renderer always sends one.
+export const meshApi = {
+  meshListConnections: (): Promise<MeshConnection[]> =>
+    ipcRenderer.invoke(MESH_LIST_CONNECTIONS_CHANNEL) as Promise<MeshConnection[]>,
+  meshPair: (pairingUrl: string): Promise<MeshPairResult> =>
+    ipcRenderer.invoke(MESH_PAIR_CHANNEL, { pairingUrl }) as Promise<MeshPairResult>,
+  meshRequestPairing: (
+    endpoint: string,
+    options?: { scopes?: TailnetScope[]; reverseScopes?: TailnetScope[] },
+  ): Promise<MeshRequestPairingResult> =>
+    ipcRenderer.invoke(MESH_REQUEST_PAIRING_CHANNEL, {
+      endpoint,
+      // Omitted rather than sent empty when the caller names nothing, so each
+      // end's own default stays in force.
+      ...(options?.scopes ? { scopes: options.scopes } : {}),
+      ...(options?.reverseScopes ? { reverseScopes: options.reverseScopes } : {}),
+    }) as Promise<MeshRequestPairingResult>,
+  meshCheckReachability: (connectionId?: string): Promise<MeshLiveState> =>
+    ipcRenderer.invoke(MESH_CHECK_REACHABILITY_CHANNEL, connectionId ?? null) as Promise<MeshLiveState>,
+  meshCancelPairing: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke(MESH_CANCEL_PAIRING_CHANNEL, requestId) as Promise<void>,
+  meshForget: (connectionId: string): Promise<MeshConnection[]> =>
+    ipcRenderer.invoke(MESH_FORGET_CHANNEL, connectionId) as Promise<MeshConnection[]>,
+  meshBrowse: (connectionId: string): Promise<MeshBrowse> =>
+    ipcRenderer.invoke(MESH_BROWSE_CHANNEL, connectionId) as Promise<MeshBrowse>,
+  meshCreateTerminal: (input: {
+    connectionId: string
+    workspaceId?: string
+    name?: string
+    cli?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: string
+    checkout?: MeshCheckoutRequest
+  }): Promise<MeshCreateTerminalResult> =>
+    ipcRenderer.invoke(MESH_CREATE_TERMINAL_CHANNEL, input) as Promise<MeshCreateTerminalResult>,
+  meshWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<MeshWorkspaceCheckoutResult> =>
+    ipcRenderer.invoke(MESH_WORKSPACE_CHECKOUT_CHANNEL, {
+      connectionId,
+      workspaceId,
+    }) as Promise<MeshWorkspaceCheckoutResult>,
+  meshAttachTerminal: (input: {
+    attachId: string
+    connectionId: string
+    sessionId: string
+  }): Promise<MeshAttachResult> => ipcRenderer.invoke(MESH_ATTACH_TERMINAL_CHANNEL, input) as Promise<MeshAttachResult>,
+  meshDetachTerminal: (attachId: string): Promise<void> =>
+    ipcRenderer.invoke(MESH_DETACH_TERMINAL_CHANNEL, attachId) as Promise<void>,
+  meshTerminalInput: (attachId: string, data: string): void => {
+    // Fire-and-forget, like the local terminal's fast write: a keystroke that
+    // waits for a round trip before the next one is read feels laggy.
+    ipcRenderer.send(MESH_TERMINAL_INPUT_CHANNEL, { attachId, data })
+  },
+  meshTerminalResize: (attachId: string, cols: number, rows: number): void => {
+    ipcRenderer.send(MESH_TERMINAL_RESIZE_CHANNEL, { attachId, cols, rows })
+  },
+  onMeshTerminalEvent: (attachId: string, cb: (event: MeshTerminalEvent) => void): (() => void) => {
+    const channel = meshTerminalEventChannel(attachId)
+    const handler = (_: IpcRendererEvent, event: MeshTerminalEvent) => cb(event)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+  // Whole-app mesh lifecycle (remote-sessions-ux): machine paired/forgotten
+  // and attachment link-state changes, broadcast to every window.
+  meshGetLiveState: (): Promise<MeshLiveState> =>
+    ipcRenderer.invoke(MESH_GET_LIVE_STATE_CHANNEL) as Promise<MeshLiveState>,
+  onMeshEvent: (cb: (event: MeshEvent) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, event: MeshEvent) => cb(event)
+    ipcRenderer.on(MESH_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(MESH_EVENT_CHANNEL, handler)
+  },
+  meshConversationList: (connectionId: string): Promise<MeshConversationListResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_LIST_CHANNEL, connectionId) as Promise<MeshConversationListResult>,
+  // The same shape as `onConversationSession`: listen first, then ask main
+  // to follow, and hand back the unsubscribe. A follow that could not start
+  // reaches the callback as an `error` frame, never as a throw.
+  onMeshConversationSession: (
+    input: { key: MeshConversationKey; turnLimit?: number },
+    cb: (frame: MeshConversationFrame) => void,
+  ): (() => void) => {
+    const followId = `follow-${Date.now()}-${++nextFollowId}`
+    const channel = meshConversationFrameChannel(followId)
+    let disposed = false
+    const handler = (_: IpcRendererEvent, frame: MeshConversationFrame) => {
+      if (!disposed) cb(frame)
+    }
+    ipcRenderer.on(channel, handler)
+    const followed = ipcRenderer.invoke(MESH_CONVERSATION_FOLLOW_CHANNEL, { followId, ...input }) as Promise<
+      { ok: true } | { ok: false; code: string; message: string }
+    >
+    void followed
+      .then((result) => {
+        if (!disposed && !result.ok) cb({ type: 'error', message: result.message })
+      })
+      .catch((error: unknown) => {
+        if (!disposed) cb({ type: 'error', message: String(error) })
+      })
+    return () => {
+      if (disposed) return
+      disposed = true
+      ipcRenderer.removeListener(channel, handler)
+      void followed.then(() => ipcRenderer.invoke(MESH_CONVERSATION_UNFOLLOW_CHANNEL, followId)).catch(() => undefined)
+    }
+  },
+  meshConversationLoadEarlier: (input: {
+    key: MeshConversationKey
+    beforeCursor: number
+    turnLimit?: number
+  }): Promise<ConversationPageResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_EARLIER_CHANNEL, input) as Promise<ConversationPageResult>,
+  meshConversationSend: (input: { key: MeshConversationKey; message: string }) =>
+    command(input.key, { kind: 'send', message: input.message }),
+  meshConversationInterrupt: (input: { key: MeshConversationKey }) => command(input.key, { kind: 'interrupt' }),
+  meshConversationResolveApproval: (input: {
+    key: MeshConversationKey
+    requestId: string
+    decision: 'once' | 'conversation' | 'deny'
+  }) => command(input.key, { kind: 'resolveApproval', requestId: input.requestId, decision: input.decision }),
+  meshConversationAnswerQuestion: (input: {
+    key: MeshConversationKey
+    requestId: string
+    answers: Record<string, string>
+  }) => command(input.key, { kind: 'answerQuestion', requestId: input.requestId, answers: input.answers }),
+  meshConversationSetPermissionPreset: (input: { key: MeshConversationKey; preset: 'none' | 'bypass' }) =>
+    command(input.key, { kind: 'setPermissionPreset', preset: input.preset }),
+  meshConversationSetModel: (input: { key: MeshConversationKey; modelId: string }) =>
+    command(input.key, { kind: 'setModel', modelId: input.modelId }),
+  meshConversationToolDetail: (input: {
+    key: MeshConversationKey
+    toolUseId: string
+  }): Promise<ConversationToolDetailResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_TOOL_DETAIL_CHANNEL, input) as Promise<ConversationToolDetailResult>,
+  meshConversationTurnDiff: (input: {
+    key: MeshConversationKey
+    turnSeq: number
+    path?: string
+  }): Promise<ConversationTurnDiffResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_TURN_DIFF_CHANNEL, input) as Promise<ConversationTurnDiffResult>,
+} satisfies Pick<
+  ElectronApi,
+  | 'meshListConnections'
+  | 'meshPair'
+  | 'meshRequestPairing'
+  | 'meshCancelPairing'
+  | 'meshCheckReachability'
+  | 'meshForget'
+  | 'meshBrowse'
+  | 'meshCreateTerminal'
+  | 'meshWorkspaceCheckout'
+  | 'meshAttachTerminal'
+  | 'meshDetachTerminal'
+  | 'meshTerminalInput'
+  | 'meshTerminalResize'
+  | 'onMeshTerminalEvent'
+  | 'meshGetLiveState'
+  | 'onMeshEvent'
+  | 'meshConversationList'
+  | 'onMeshConversationSession'
+  | 'meshConversationLoadEarlier'
+  | 'meshConversationSend'
+  | 'meshConversationInterrupt'
+  | 'meshConversationResolveApproval'
+  | 'meshConversationAnswerQuestion'
+  | 'meshConversationSetPermissionPreset'
+  | 'meshConversationSetModel'
+  | 'meshConversationToolDetail'
+  | 'meshConversationTurnDiff'
+>
+
+let nextFollowId = 0
+
+function command(key: MeshConversationKey, input: MeshConversationCommand): Promise<MeshConversationCommandResult> {
+  return ipcRenderer.invoke(MESH_CONVERSATION_COMMAND_CHANNEL, {
+    key,
+    command: input,
+  }) as Promise<MeshConversationCommandResult>
+}

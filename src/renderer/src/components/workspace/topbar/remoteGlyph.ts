@@ -2,7 +2,7 @@ import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { fleetMachinePhase, machineIsAnswering } from '../../remote/machineRowModel'
+import { meshMachinePhase, machineIsAnswering } from '../../remote/machineRowModel'
 
 // The Remote glyph's own vocabulary — state, tooltip, ink, and the settings
 // opener the trigger needs. Split out of `RemotePopover.tsx` so the title bar's
@@ -39,25 +39,25 @@ export function remoteGlyphState(presence: TailnetPresence): {
   const enabled = presence.status?.enabled === true
   const driving = presence.live.devices.some((device) => device.attachedTerminalSessions.length > 0)
   const connected =
-    presence.live.devices.length > 0 || [...presence.fleetLiveSessions.values()].some((sessions) => sessions.size > 0)
+    presence.live.devices.length > 0 || [...presence.meshLiveSessions.values()].some((sessions) => sessions.size > 0)
   const degraded =
-    [...presence.fleetAttachments.values()].some(
+    [...presence.meshAttachments.values()].some(
       (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline',
     ) ||
     // A machine that revoked us is degraded too: it will not fix itself, and
     // the glyph is where a person would look before opening anything.
-    [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
+    [...presence.meshReachability.values()].some((entry) => entry.unauthorized)
   const serving = presence.status?.running === true
   const answering = serving
-    ? presence.fleet.filter((connection) =>
-        machineIsAnswering(fleetMachinePhase(connection.id, presence.fleetAttachments, presence.fleetReachability)),
+    ? presence.mesh.filter((connection) =>
+        machineIsAnswering(meshMachinePhase(connection.id, presence.meshAttachments, presence.meshReachability)),
       ).length
     : 0
   return {
     // Hidden entirely while the feature is off — absent, not present-but-empty
-    // (epic cross-cutting acceptance). A fleet-only user still gets it: paired
+    // (epic cross-cutting acceptance). A mesh-only user still gets it: paired
     // machines are remote presence even with the inbound listener off.
-    visible: enabled || presence.fleet.length > 0,
+    visible: enabled || presence.mesh.length > 0,
     driving,
     serving,
     connected,

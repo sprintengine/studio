@@ -10,11 +10,11 @@ a private data structure, and changing one is not a local edit.**
 
 ## What is versioned
 
-| Wire | Version | Window | Declared in |
-|---|---|---|---|
-| Tailnet transport — Studio driving another Studio | `TAILNET_TRANSPORT_VERSION` (integer) | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
-| Mobile control — the phone reading and driving a desktop over the tailnet gateway | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions` | `src/main/mobile/control/protocol.ts` |
-| MCP | dated strings, newest first | every entry in the list | `src/shared/mcp/protocol.ts` |
+| Wire                                                                              | Version                                  | Window                                               | Declared in                                     |
+| --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| Tailnet transport — Studio driving another Studio                                 | `TAILNET_TRANSPORT_VERSION` (integer)    | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
+| Mobile control — the phone reading and driving a desktop over the tailnet gateway | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions`             | `src/main/mobile/control/protocol.ts`           |
+| MCP                                                                               | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
 
 One more version number is near these and is **not** a wire window: the
 backlog item schema version is a file format, and is not negotiated with a peer.
@@ -133,7 +133,7 @@ If your change alters anything that crosses either wire, do all of this:
 4. **Test the edge, not the middle.** A peer inside the window is accepted, one
    outside it is refused, and the refusal names both versions. The existing
    examples are in `src/main/automation/tailnet-peers.test.ts`,
-   `src/main/automation/tailnet-fleet-reachability.test.ts`,
+   `src/main/automation/tailnet-mesh-reachability.test.ts`,
    `src/main/mobile/control/command-validation.test.ts` and
    `src/main/mobile/control/protocol.test.ts`.
 5. **Make the same edit on the phone.** The phone carries its own copy of the

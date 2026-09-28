@@ -6,13 +6,13 @@ import { test } from 'vitest'
 
 import type { ConversationEvent, ConversationSessionFrame } from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
-import type { FleetConversationFrame, FleetConversationKey } from '../../shared/tailnet-fleet'
+import type { MeshConversationFrame, MeshConversationKey } from '../../shared/tailnet-mesh'
 import { ConversationRuntime } from '../conversation-runtime'
 import type { ConversationProviderAdapter } from '../providers/conversation-provider-adapter'
 import { createMockConversationProvider } from '../providers/mock-conversation-provider'
 import { createConversationGatewayHost, type ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
-import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
+import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { createRemoteConversations } from './tailnet/tailnet-remote-conversations'
@@ -25,7 +25,7 @@ import { pairingUrl } from './tailnet/tailnet-service'
 
 // Another Studio desktop following this machine's conversations over the
 // tailnet. Both halves are real: the gateway, its conversation socket, the
-// session API and a conversation runtime on one side; the fleet service's
+// session API and a conversation runtime on one side; the mesh service's
 // conversation client, its kept copy on disk, and the real outbound socket on
 // the other, over loopback TCP.
 
@@ -104,8 +104,8 @@ type Harness = {
   sessionId: string
   /** What the session API handed the gateway for each subscribe: the cursor asked with, and the frames produced. */
   joins: Array<{ afterSeq?: number; generation?: string; frames: ConversationSessionFrame[] }>
-  fleet: TailnetFleetService
-  newFleet(): TailnetFleetService
+  mesh: TailnetMeshService
+  newMesh(): TailnetMeshService
   pair(scopes: TailnetScope[]): Promise<string>
   stopServer(): Promise<void>
   restartServer(): Promise<void>
@@ -172,8 +172,8 @@ async function startHarness(): Promise<Harness> {
   let server = build(0)
   await server.start()
   const port = server.address()!.port
-  const newFleet = () =>
-    createTailnetFleetService({
+  const newMesh = () =>
+    createTailnetMeshService({
       resolveUserDataDir: () => localDir,
       resolveDeviceName: () => 'dev-macbook-air',
       resolvePeerName: async () => null,
@@ -195,11 +195,11 @@ async function startHarness(): Promise<Harness> {
     localDir,
     sessionId: started.session.sessionId,
     joins,
-    fleet: newFleet(),
-    newFleet,
+    mesh: newMesh(),
+    newMesh,
     async pair(scopes) {
       const offer = devices.offerPairing({ scopes })
-      const result = await harness.fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', port, offer.token) })
+      const result = await harness.mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', port, offer.token) })
       assert.ok(result.ok, result.ok ? '' : result.message)
       return result.connection.id
     },
@@ -209,7 +209,7 @@ async function startHarness(): Promise<Harness> {
       await server.start()
     },
     async close() {
-      harness.fleet.shutdown()
+      harness.mesh.shutdown()
       await server.stop().catch(() => undefined)
       await runtime.shutdown()
       for (const dir of [workspaceRoot, remoteDir, localDir]) rmSync(dir, { recursive: true, force: true })
@@ -219,11 +219,11 @@ async function startHarness(): Promise<Harness> {
 }
 
 /** Everything one window was handed for a followed conversation. */
-function follower(fleet: TailnetFleetService, key: FleetConversationKey, followId = 'pane-1') {
-  const frames: FleetConversationFrame[] = []
-  const following = fleet.followConversation({ followId, key, turnLimit: 10, emit: (frame) => frames.push(frame) })
-  const of = <T extends FleetConversationFrame['type']>(type: T) =>
-    frames.filter((frame): frame is Extract<FleetConversationFrame, { type: T }> => frame.type === type)
+function follower(mesh: TailnetMeshService, key: MeshConversationKey, followId = 'pane-1') {
+  const frames: MeshConversationFrame[] = []
+  const following = mesh.followConversation({ followId, key, turnLimit: 10, emit: (frame) => frames.push(frame) })
+  const of = <T extends MeshConversationFrame['type']>(type: T) =>
+    frames.filter((frame): frame is Extract<MeshConversationFrame, { type: T }> => frame.type === type)
   return {
     frames,
     following,
@@ -242,7 +242,7 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
   const h = await startHarness()
   try {
     const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
-    const listed = await h.fleet.listConversations(connectionId)
+    const listed = await h.mesh.listConversations(connectionId)
     assert.ok(listed.ok, listed.ok ? '' : listed.message)
     assert.equal(listed.access, 'operate')
     assert.deepEqual(
@@ -252,14 +252,14 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
     )
 
     const key = { connectionId, workspaceId, agentId }
-    const pane = follower(h.fleet, key)
+    const pane = follower(h.mesh, key)
     assert.deepEqual(await pane.following, { ok: true })
     await waitFor(pane.live, 'the follow synchronizes and goes live')
     assert.equal(pane.of('snapshot').length, 1, 'a first follow is hydrated by one snapshot')
 
     // A send from this desktop starts a turn over there, on a chat in Bypass.
     // It is answered when the turn ends, as a send on the desktop itself is.
-    const sent = h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
+    const sent = h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
     await h.provider.turnStarted()
     for (let index = 0; index < 5; index++) h.provider.push(`before-${index} `)
     await waitFor(() => pane.text().endsWith('before-4 '), 'live deltas reach the follower')
@@ -304,10 +304,10 @@ test('a paired desktop lists, follows and drives a conversation, and a dropped l
 
     // And this desktop can switch the chat over there to No flag, and back.
     for (const preset of ['none', 'bypass'] as const) {
-      assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setPermissionPreset', preset } }), {
+      assert.deepEqual(await h.mesh.conversationCommand({ key, command: { kind: 'setPermissionPreset', preset } }), {
         ok: true,
       })
-      const relisted = await h.fleet.listConversations(connectionId)
+      const relisted = await h.mesh.listConversations(connectionId)
       assert.ok(relisted.ok)
       assert.equal(relisted.conversations[0]?.permissionPreset, preset)
     }
@@ -320,7 +320,7 @@ test("a paired desktop switches a chat's model within its CLI, and the host's se
   const h = await startHarness()
   try {
     const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
-    const listed = await h.fleet.listConversations(connectionId)
+    const listed = await h.mesh.listConversations(connectionId)
     assert.ok(listed.ok, listed.ok ? '' : listed.message)
     assert.equal(listed.modelSwitch, true, 'the host advertises model switching')
     assert.deepEqual(
@@ -339,18 +339,18 @@ test("a paired desktop switches a chat's model within its CLI, and the host's se
     assert.equal(listed.conversations[0]?.modelId, 'mock-model')
 
     const key = { connectionId, workspaceId, agentId }
-    const pane = follower(h.fleet, key)
+    const pane = follower(h.mesh, key)
     await waitFor(pane.live, 'the follow goes live')
 
     // Between turns the switch simply applies.
-    assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'mock-large' } }), {
+    assert.deepEqual(await h.mesh.conversationCommand({ key, command: { kind: 'setModel', modelId: 'mock-large' } }), {
       ok: true,
     })
     assert.deepEqual(h.provider.switched, ['mock-large'])
     const hostSession = h.runtime.listSessions({ workspaceId, agentId })
     assert.ok(hostSession.ok)
     assert.equal(hostSession.sessions[0]?.modelId, 'mock-large', "the host's session is on the new model")
-    const relisted = await h.fleet.listConversations(connectionId)
+    const relisted = await h.mesh.listConversations(connectionId)
     assert.ok(relisted.ok)
     assert.equal(relisted.conversations[0]?.modelId, 'mock-large', 'and the list names it')
     await waitFor(
@@ -359,9 +359,9 @@ test("a paired desktop switches a chat's model within its CLI, and the host's se
     )
 
     // Mid-turn, the answer says the switch applies from the next turn.
-    const sent = h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
+    const sent = h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'stream' } })
     await h.provider.turnStarted()
-    assert.deepEqual(await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'default' } }), {
+    assert.deepEqual(await h.mesh.conversationCommand({ key, command: { kind: 'setModel', modelId: 'default' } }), {
       ok: true,
       notice: MID_TURN_NOTICE,
     })
@@ -369,7 +369,7 @@ test("a paired desktop switches a chat's model within its CLI, and the host's se
     assert.deepEqual(await sent, { ok: true })
 
     // A model the CLI does not offer is refused by the host with its own code.
-    const refused = await h.fleet.conversationCommand({ key, command: { kind: 'setModel', modelId: 'gpt-large' } })
+    const refused = await h.mesh.conversationCommand({ key, command: { kind: 'setModel', modelId: 'gpt-large' } })
     assert.equal(!refused.ok && refused.code, 'unsupported_model')
     assert.deepEqual(h.provider.switched, ['mock-large', 'default'])
   } finally {
@@ -382,16 +382,16 @@ test('a restarted client shows its kept copy at once and resumes from its cursor
   try {
     const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
     const key = { connectionId, workspaceId, agentId }
-    const first = follower(h.fleet, key)
+    const first = follower(h.mesh, key)
     await waitFor(first.live, 'first follow goes live')
-    const sent = h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'one' } })
+    const sent = h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'one' } })
     await h.provider.turnStarted()
     h.provider.push('kept ')
     h.provider.push(null)
     assert.deepEqual(await sent, { ok: true })
     await waitFor(() => first.of('event').some((frame) => frame.event.type === 'turn_completed'), 'first turn lands')
     const heldThrough = Math.max(...first.seqs())
-    h.fleet.shutdown()
+    h.mesh.shutdown()
 
     // Offline: another turn happens over there.
     h.provider.nextTurn()
@@ -402,9 +402,9 @@ test('a restarted client shows its kept copy at once and resumes from its cursor
     await sending
 
     // A fresh process: nothing in memory, the copy on disk.
-    h.fleet = h.newFleet()
+    h.mesh = h.newMesh()
     const joinsBefore = h.joins.length
-    const second = follower(h.fleet, key, 'pane-2')
+    const second = follower(h.mesh, key, 'pane-2')
     await second.following
     const cached = second.of('snapshot')[0]
     assert.ok(cached, 'the kept copy is handed over at once')
@@ -427,15 +427,15 @@ test('a restarted client shows its kept copy at once and resumes from its cursor
       second.seqs().every((seq) => seq > heldThrough),
       'nothing already held arrives twice',
     )
-    h.fleet.shutdown()
+    h.mesh.shutdown()
 
     // The copy now names a log generation the far end no longer has.
     const directory = join(h.localDir, 'tailnet-remote-conversations')
     const [file] = readdirSync(directory)
     const record = JSON.parse(readFileSync(join(directory, file), 'utf8')) as Record<string, unknown>
     writeFileSync(join(directory, file), JSON.stringify({ ...record, generation: 'a-recreated-log' }))
-    h.fleet = h.newFleet()
-    const third = follower(h.fleet, key, 'pane-3')
+    h.mesh = h.newMesh()
+    const third = follower(h.mesh, key, 'pane-3')
     await waitFor(() => third.of('snapshot').some((frame) => frame.reset === true), 'another generation resets')
     const reset = third.of('snapshot').find((frame) => frame.reset === true)!
     assert.ok(reset.generation && reset.generation !== 'a-recreated-log', 'the reset names the live generation')
@@ -455,21 +455,21 @@ test('a grant narrowed to read refuses commands; one without read ends the follo
     const connectionId = await h.pair(['conversation:read', 'conversation:operate'])
     const deviceId = h.devices.listDevices()[0].id
     const key = { connectionId, workspaceId, agentId }
-    const pane = follower(h.fleet, key)
+    const pane = follower(h.mesh, key)
     await waitFor(pane.live, 'follow goes live')
     assert.equal(pane.link()?.access, 'operate')
 
     h.devices.updateDeviceScopes(deviceId, ['conversation:read'])
-    const refused = await h.fleet.conversationCommand({ key, command: { kind: 'interrupt' } })
+    const refused = await h.mesh.conversationCommand({ key, command: { kind: 'interrupt' } })
     assert.equal(refused.ok, false)
     assert.equal(!refused.ok && refused.code, 'conversation_operate_required')
     assert.equal(pane.link()?.access, 'read', 'the window learns it is read-only')
     // Known to be read-only now: refused here, without a round trip.
-    const again = await h.fleet.conversationCommand({ key, command: { kind: 'send', message: 'hi' } })
+    const again = await h.mesh.conversationCommand({ key, command: { kind: 'send', message: 'hi' } })
     assert.equal(!again.ok && again.code, 'conversation_operate_required')
 
     // A permanent rule is refused before it leaves this machine.
-    const always = await h.fleet.conversationCommand({
+    const always = await h.mesh.conversationCommand({
       key,
       command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
     })
@@ -482,7 +482,7 @@ test('a grant narrowed to read refuses commands; one without read ends the follo
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert.equal(h.joins.length, joins, 'and it does not dial again')
 
-    const listed = await h.fleet.listConversations(connectionId)
+    const listed = await h.mesh.listConversations(connectionId)
     assert.equal(!listed.ok && listed.code, 'conversation_scope_required')
   } finally {
     await h.close()
@@ -493,13 +493,13 @@ test('a revoked pairing ends the follow and is recorded as unauthorized', async 
   const h = await startHarness()
   try {
     const connectionId = await h.pair(['conversation:read'])
-    const pane = follower(h.fleet, { connectionId, workspaceId, agentId })
+    const pane = follower(h.mesh, { connectionId, workspaceId, agentId })
     await waitFor(pane.live, 'follow goes live')
     assert.equal(pane.link()?.access, 'read')
     h.devices.revokeDevice(h.devices.listDevices()[0].id)
     await waitFor(() => pane.link()?.state === 'closed', 'revocation closes the follow')
     assert.equal(pane.link()?.code, 'revoked')
-    const reach = h.fleet.getLiveState().reachability.find((entry) => entry.connectionId === connectionId)
+    const reach = h.mesh.getLiveState().reachability.find((entry) => entry.connectionId === connectionId)
     assert.equal(reach?.unauthorized, true)
   } finally {
     await h.close()
@@ -531,7 +531,7 @@ test('a resync close waits the delay the far end advised before dialling again',
       return { ok: true, value: { send: () => undefined, close: () => undefined, isOpen: () => true } }
     },
   })
-  const frames: FleetConversationFrame[] = []
+  const frames: MeshConversationFrame[] = []
   await client.follow({
     followId: 'pane',
     key: { connectionId: 'c', workspaceId, agentId },
@@ -571,7 +571,7 @@ test('a frame of a known type in the wrong shape ends the follow instead of bein
       return { ok: true, value: { send: () => undefined, close: () => undefined, isOpen: () => true } }
     },
   })
-  const frames: FleetConversationFrame[] = []
+  const frames: MeshConversationFrame[] = []
   await client.follow({ followId: 'p', key: { connectionId: 'c', workspaceId, agentId }, emit: (f) => frames.push(f) })
   await waitFor(() => handlers.length === 1, 'dialled')
   // A newer desktop's frame type is ignored.
@@ -608,7 +608,7 @@ test('a snapshot sent in parts and chunks is applied once whole, and a busy comm
       return { ok: true, value: { send: (frame) => sent.push(frame), close: () => undefined, isOpen: () => true } }
     },
   })
-  const frames: FleetConversationFrame[] = []
+  const frames: MeshConversationFrame[] = []
   const key = { connectionId: 'c', workspaceId, agentId }
   await client.follow({ followId: 'p', key, emit: (f) => frames.push(f) })
   await waitFor(() => handlers.length === 1, 'dialled')

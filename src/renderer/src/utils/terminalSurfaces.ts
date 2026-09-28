@@ -11,8 +11,8 @@
  */
 
 /**
- * The fleet case carries no roots and this is load-bearing, not an omission: a
- * fleet pane is attached to a terminal on ANOTHER machine, so a path printed in
+ * The mesh case carries no roots and this is load-bearing, not an omission: a
+ * mesh pane is attached to a terminal on ANOTHER machine, so a path printed in
  * it names a file in that machine's filesystem. Resolving it here would open
  * whatever local file happens to sit at the same path — the same words, a
  * different file, with no way for the user to tell. Making the roots absent
@@ -22,7 +22,7 @@
 export type TerminalSurface =
   | { kind: 'agent'; workspaceRoot: string | null; executionRoot: string | null }
   | { kind: 'shell'; workspaceRoot: string | null }
-  | { kind: 'fleet' }
+  | { kind: 'mesh' }
 
 /** The roots a relative path printed in a pane may be resolved against. */
 export type TerminalLinkRoots = {
@@ -43,7 +43,7 @@ export function terminalSurfaceLinkRoots(surface: TerminalSurface): TerminalLink
       return { workspaceRoot: surface.workspaceRoot, executionRoot: surface.executionRoot }
     case 'shell':
       return { workspaceRoot: surface.workspaceRoot, executionRoot: null }
-    case 'fleet':
+    case 'mesh':
       return null
   }
 }

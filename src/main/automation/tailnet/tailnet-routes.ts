@@ -121,7 +121,7 @@ export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
  * therefore has no capabilities, not all of them — this answers "may I RELY on
  * X", and silence is not a promise. It is not the same question as "should I
  * stop trying X", where silence means only that we do not know; the change-feed
- * gate in `tailnet-fleet-service.ts` keeps the two apart.
+ * gate in `tailnet-mesh-service.ts` keeps the two apart.
  */
 export function tailnetPeerSupports(
   capabilities: readonly string[] | null | undefined,
