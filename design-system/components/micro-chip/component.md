@@ -61,7 +61,7 @@ qualifies. Two micro chips on one row is a row that wants a column.
 
 **Never a second status idiom.** If the row already carries a status mark or a
 lifecycle glyph, this chip must be saying something *else* — "Default" beside
-the working dots is fine, "Active" beside them is the duplicate the principles
+the working mark is fine, "Active" beside them is the duplicate the principles
 reject on sight.
 
 **Never interactive.** No `onClick`, no `role="button"`, no dismiss ✕. A chip

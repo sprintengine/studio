@@ -10,7 +10,7 @@ in the product reading as one system.
   with one click target) on `bg.surface` with a `border.subtle` hairline and
   `radius.control`.
 - Leading: an optional status mark (`.ds-status-dot` + a tone modifier, from
-  `status-dot`) — the tone's 13px glyph, or the working dots while the task
+  `status-dot`) — the tone's 13px glyph, or the working mark while the task
   runs. Never a dot: the product draws no status dots (owner ruling
   2026-09-28). Status only — omit it when the surrounding column or text
   already states the status.

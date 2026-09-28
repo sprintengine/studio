@@ -8,6 +8,10 @@ import {
   resolveConversationPath,
 } from '../conversation-file-access'
 import { cliSpawnTarget, terminateCliChild } from './cli-child-process'
+import { publishConversationCommands } from '../conversation-commands/registry'
+import { acpConversationCommands } from '../conversation-commands/acp'
+import { leadingCommandFor } from '../conversation-commands/leading-command'
+import type { ConversationCommand } from '../../shared/conversation/commands'
 import type {
   ClientSideConnection,
   RequestPermissionRequest,
@@ -17,6 +21,7 @@ import type {
 } from '@agentclientprotocol/sdk'
 import type {
   ConversationCapabilities,
+  ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationPermissionPreset,
   ConversationToolKind,
@@ -223,6 +228,96 @@ export async function confinedAcpPath(cwd: string, requested: string, writing = 
   return target
 }
 
+async function detectAcpCommand(profile: AcpProfile, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
+  const { detectCli } = await import('../cli-runtime-install')
+  const result = await detectCli(profile.cli, cliRuntimes?.[profile.cli])
+  if (!result.installed || !result.resolvedPath)
+    throw new Error(`${profile.displayName} CLI was not found. Install it or configure its command in Settings.`)
+  return result.resolvedPath
+}
+
+async function acpEnvironment(): Promise<NodeJS.ProcessEnv> {
+  const { getTerminalEnv } = await import('../terminal-launch')
+  return Object.fromEntries(
+    Object.entries(getTerminalEnv()).filter(
+      ([key]) => !/^(SPRINTENGINE_|MULTICODE_|CODEX_|CLAUDECODE$|ELECTRON_)/.test(key),
+    ),
+  )
+}
+
+/**
+ * The commands an ACP CLI lists before any chat has started, published for the
+ * composer's `/` menu. Only a list the agent gives in its `initialize` answer
+ * is read (Grok does): opening a session just to list would leave an empty
+ * chat in the CLI's own history, so Cursor and OpenCode are listed once a
+ * chat's session opens. Resolves null when the CLI gives no list this way.
+ */
+export async function probeAcpConversationCommands(
+  profile: AcpProfile,
+  input: { cwd: string; cliRuntimes?: ConversationCliRuntimeOverrides },
+  options: { detect?: () => Promise<string>; buildEnv?: () => Promise<NodeJS.ProcessEnv>; timeoutMs?: number } = {},
+): Promise<ConversationCommand[] | null> {
+  const hostId = input.cliRuntimes?.[profile.cli]?.hostId
+  if (hostId && hostId !== 'local') return null
+  const command = await (options.detect ?? (() => detectAcpCommand(profile, input.cliRuntimes)))()
+  const env = await (options.buildEnv ?? acpEnvironment)()
+  const sdk = await import('@agentclientprotocol/sdk')
+  const target = cliSpawnTarget(command, profile.argv, { env })
+  const child = spawn(target.file, target.args, {
+    cwd: input.cwd,
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+  })
+  child.stderr.on('data', () => undefined)
+  child.stdin.on('error', () => undefined)
+  const failed = new Promise<never>((_, reject) => {
+    child.on('error', reject)
+    child.on('close', () => reject(new Error(`${profile.displayName} exited before answering.`)))
+  })
+  failed.catch(() => undefined)
+  // Nothing is asked of this client before a session exists; refuse anything that is.
+  const refuse = async (): Promise<never> => {
+    throw new Error('No conversation is open.')
+  }
+  const connection = new sdk.ClientSideConnection(
+    () => ({
+      requestPermission: refuse,
+      sessionUpdate: async () => undefined,
+      readTextFile: refuse,
+      writeTextFile: refuse,
+    }),
+    sdk.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>),
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const hello = await Promise.race([
+      connection.initialize({
+        protocolVersion: sdk.PROTOCOL_VERSION,
+        clientInfo: { name: 'sprintengine-studio', version: '1' },
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      }),
+      failed,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${profile.displayName} did not answer.`)),
+          options.timeoutMs ?? 10_000,
+        )
+      }),
+    ])
+    const advertised = hello._meta?.availableCommands
+    if (!Array.isArray(advertised)) return null
+    const commands = acpConversationCommands(advertised)
+    publishConversationCommands({ cli: profile.cli, cwd: input.cwd, commands })
+    return commands
+  } finally {
+    if (timer) clearTimeout(timer)
+    child.stdin.end()
+    terminateCliChild(child)
+  }
+}
+
 export function createAcpConversationProvider(profile: AcpProfile, options: Options = {}): ConversationProviderAdapter {
   const sessions = new Map<string, State>()
   const modelIds = new Set<string>(['default'])
@@ -280,7 +375,20 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     })
     return result
   }
+  // The agent's command list, for the composer's `/` menu. ACP agents send it
+  // on their own schedule — right after `session/new`, outside any turn — and
+  // send it again whole when it changes, so each one replaces the last.
+  const publishCommands = (state: State, available: unknown) =>
+    publishConversationCommands({
+      cli: profile.cli,
+      cwd: state.input.workspaceRoot!,
+      commands: acpConversationCommands(available),
+    })
   const update = (state: State, value: SessionUpdate) => {
+    // The one update read outside a turn: it describes the session, not a
+    // reply, so it touches no turn state. Everything else out of turn is
+    // replayed history or stray output and stays dropped.
+    if (value.sessionUpdate === 'available_commands_update') return publishCommands(state, value.availableCommands)
     if (state.loading || !state.turn) return
     if (value.sessionUpdate === 'agent_message_chunk' || value.sessionUpdate === 'agent_thought_chunk') {
       if (value.content.type === 'text')
@@ -349,17 +457,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     }
   }
   const environment = async (input: MockAdapterSessionInput): Promise<NodeJS.ProcessEnv> =>
-    (
-      options.buildEnv ??
-      (async () => {
-        const { getTerminalEnv } = await import('../terminal-launch')
-        return Object.fromEntries(
-          Object.entries(getTerminalEnv()).filter(
-            ([key]) => !/^(SPRINTENGINE_|MULTICODE_|CODEX_|CLAUDECODE$|ELECTRON_)/.test(key),
-          ),
-        )
-      })
-    )(input)
+    (options.buildEnv ?? acpEnvironment)(input)
   const ensure = async (state: State) => {
     if (state.connection) return
     if (state.starting) return state.starting
@@ -369,18 +467,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const hostId = state.input.cliRuntimes?.[profile.cli]?.hostId
       if (hostId && hostId !== 'local')
         throw new Error(`${profile.displayName} conversation requires a local CLI runtime.`)
-      const command = await (
-        options.detect ??
-        (async (input) => {
-          const { detectCli } = await import('../cli-runtime-install')
-          const result = await detectCli(profile.cli, input.cliRuntimes?.[profile.cli])
-          if (!result.installed || !result.resolvedPath)
-            throw new Error(
-              `${profile.displayName} CLI was not found. Install it or configure its command in Settings.`,
-            )
-          return result.resolvedPath
-        })
-      )(state.input)
+      const command = await (options.detect ?? ((input) => detectAcpCommand(profile, input.cliRuntimes)))(state.input)
       const env = await environment(state.input)
       if (state.input.permissionPreset === 'bypass') Object.assign(env, profile.bypassEnv)
       if (state.closed) throw new Error('Conversation was stopped during startup.')
@@ -528,6 +615,9 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
         })
         if (hello.protocolVersion !== sdk.PROTOCOL_VERSION) throw new Error('ACP protocol version is incompatible.')
+        // Grok lists its commands in the handshake, before any session.
+        const advertised = hello._meta?.availableCommands
+        if (Array.isArray(advertised)) publishCommands(state, advertised)
         state.loadSupported = hello.agentCapabilities?.loadSession === true
         state.capabilities = {
           ...baseCapabilities(profile),
@@ -728,19 +818,24 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           }
           await state.input.onBeforeTool?.('ACP agent turn')
           emit(state, 'turn_started', { providerSessionId: state.nativeId })
-          const prior = state.replayHistory
-            ? [
-                ...(state.input.fallbackHistory ?? []).map((message) => `${message.role}: ${message.content}`),
-                ...state.history.map((turn) => `User: ${turn.user}\nAssistant: ${turn.assistant}`),
-              ].join('\n\n')
-            : ''
+          // A slash command runs only from the start of the prompt, so the
+          // replayed conversation waits for the next message rather than
+          // pushing the command off it and into prose.
+          const command = leadingCommandFor(input.message, { cli: profile.cli, cwd: state.input.workspaceRoot })
+          const prior =
+            state.replayHistory && !command
+              ? [
+                  ...(state.input.fallbackHistory ?? []).map((message) => `${message.role}: ${message.content}`),
+                  ...state.history.map((turn) => `User: ${turn.user}\nAssistant: ${turn.assistant}`),
+                ].join('\n\n')
+              : ''
           const prompt: Parameters<ClientSideConnection['prompt']>[0]['prompt'] = [
             {
               type: 'text',
               text: prior ? `Previous conversation:\n${prior}\n\nUser: ${input.message}` : input.message,
             },
           ]
-          state.replayHistory = false
+          if (!command) state.replayHistory = false
           if (input.attachments?.length && !state.capabilities.images)
             throw new Error('This ACP agent does not support images.')
           for (const attachment of input.attachments ?? [])

@@ -1,4 +1,5 @@
 import type { ConversationEvent } from '../../../../../shared/conversation-runtime'
+import { isBackgroundLaunchAck } from '../../../../../shared/conversation/subagents'
 import {
   openReasoningRun,
   projectConversation,
@@ -34,6 +35,8 @@ function entryKey(entry: TranscriptEntry): string {
       return `approval:${entry.requestId}`
     case 'compaction':
       return `compaction:${entry.id}`
+    case 'commandOutput':
+      return `commandOutput:${entry.id}`
   }
 }
 
@@ -214,6 +217,9 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
   if (event.type === 'tool_output') {
     const id = readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')
     if (!id) return null
+    // A background agent's launch notice keeps its lane open; only the fold
+    // knows how to read one.
+    if (isBackgroundLaunchAck(readString(event.payload, 'preview', 'output', 'text'))) return null
     if (turnId && !state.entryIndexes.has(`assistant:${turnId}`)) return null
     for (let index = 0; index < state.projection.entries.length; index++) {
       const entry = state.projection.entries[index]

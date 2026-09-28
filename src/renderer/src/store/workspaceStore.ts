@@ -28,7 +28,7 @@ import type {
   WorkspaceHighlight,
   McpServerConfig,
 } from '../types/workspace'
-import type { AppTheme, WindowMaterial } from '../types/appTheme'
+import type { AppTheme, ChatWidth, WindowMaterial } from '../types/appTheme'
 import { noteLaunchedAgentArrived, type LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
@@ -305,6 +305,9 @@ export interface WorkspaceStore
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceChatContrast: (contrast: number) => void
+  setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {

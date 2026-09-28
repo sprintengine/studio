@@ -37,12 +37,12 @@ import {
   IconButton,
   Input,
   LifecycleGlyph,
-  AgentWorkingDots,
   RowButton,
   StarGlyph,
   StatusDot,
   Tooltip,
   TruncatedText,
+  WorkingMark,
 } from '../ui'
 import { Modal, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExtensionsRail } from './ExtensionsRail'
@@ -84,7 +84,7 @@ import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWok
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import {
   buildFolderGroups,
-  fleetPanesOf,
+  meshPanesOf,
   folderDisplayName,
   folderKey,
   groupKeyOf,
@@ -128,7 +128,7 @@ export { provenanceMachinesOf, rowHasOpenTerminals, rowOpenTerminals } from './s
 
 export { rowAccent } from './sidebar/rowStyle'
 
-export { fleetMachineNamesOf, fleetPanesOf, groupKeyOf } from './sidebar/folderGroups'
+export { meshMachineNamesOf, meshPanesOf, groupKeyOf } from './sidebar/folderGroups'
 export type { LocalGroupHeader } from './sidebar/folderGroups'
 
 type TerminalRecency = {
@@ -191,7 +191,7 @@ type WorkspaceSidebarProps = {
   onSelectWorkspace: (id: WorkspaceId) => void
   // Open a session that lives on a paired machine (the Remote band): focus
   // the workspace here that already is it, or attach a new one. Absent in a
-  // host with no fleet (partial harnesses); the band then draws its rows
+  // host with no mesh (partial harnesses); the band then draws its rows
   // and opens nothing.
   onOpenRemoteSession?: (spec: RemoteSessionOpenSpec) => void
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
@@ -460,7 +460,7 @@ function WorkspaceSidebar({
   // after a restart settles hundreds of rows at once: without the gate each
   // one would fan out a kill per recorded agent session, and every one of
   // those is a no-op IPC round trip for a chat whose ptys died with the last
-  // app run. Only a row with live sessions (or a mounted fleet pane) is worth
+  // app run. Only a row with live sessions (or a mounted mesh pane) is worth
   // asking main about.
   //
   // Nothing here can kill a working agent: the sweep never settles a row that
@@ -749,17 +749,17 @@ function WorkspaceSidebar({
   const remoteGroups = useMemo(
     () =>
       buildRemoteBand({
-        connections: remotePresence.fleet,
+        connections: remotePresence.mesh,
         browses: remoteBrowses,
-        attachments: remotePresence.fleetAttachments,
-        reachability: remotePresence.fleetReachability,
+        attachments: remotePresence.meshAttachments,
+        reachability: remotePresence.meshReachability,
         workspaces: railWorkspaces,
       }),
     [
-      remotePresence.fleet,
+      remotePresence.mesh,
       remoteBrowses,
-      remotePresence.fleetAttachments,
-      remotePresence.fleetReachability,
+      remotePresence.meshAttachments,
+      remotePresence.meshReachability,
       railWorkspaces,
     ],
   )
@@ -1697,7 +1697,7 @@ function WorkspaceSidebar({
   // until it is opened.
   //
   // The seat and the surface are the local rows' own (owner ruling
-  // 2026-09-05): the working dots with how long the turn has run, the gold
+  // 2026-09-05): the working mark with how long the turn has run, the gold
   // surface for a turn waiting on a person, a quiet time since an idle row
   // last worked. No status dot — that vocabulary was already spoken for.
   const renderRemoteConversationRow = (
@@ -2843,7 +2843,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const highlighted = hasHighlightOverride(workspace.highlight)
   const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
   // The row's lines (sidebar-lists-every-terminal): one per open terminal —
-  // the local live sessions AND the fleet panes the layout mounts from
+  // the local live sessions AND the mesh panes the layout mounts from
   // other machines.
   // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): a row with
   // no open terminal is the one-liner it always was — title only, with idle
@@ -2868,7 +2868,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const rowIsLive =
     liveSessions.length > 0 ||
     conversationSessions.length > 0 ||
-    fleetPanesOf(workspace).length > 0 ||
+    meshPanesOf(workspace).length > 0 ||
     rowConversation !== null
   // A sleeping row is the one-liner by construction: it is waiting on a
   // clock, and a checkout's branch and ±lines are not facts about that.
@@ -2876,7 +2876,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     rowIsLive && !options?.snoozed
       ? rowConversation
         ? // A remote chat draws the agents standing in IT, not the one pane this
-          // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
+          // window happens to hold (owner, 2026-09-13). `meshPanesOf` can only
           // see the session this workspace attached, so a chat running three
           // agents over there drew one nameless, activity-free line here while
           // the very same chat, unopened, drew three live ones in the band
@@ -2887,7 +2887,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         : terminalLinesOf({
             workspace,
             sessions: liveSessions,
-            fleetPanes: fleetPanesOf(workspace),
+            meshPanes: meshPanesOf(workspace),
             summaries: gitSummaries,
           })
       : { lines: [], overflow: 0 }
@@ -2924,7 +2924,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const visibleConversations = rowIsLive && !options?.snoozed ? conversationSessions : NO_CONVERSATIONS
   const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
-  // The row's status seat: run glyph / working dots + elapsed / tone dot /
+  // The row's status seat: run glyph / working mark + elapsed / tone dot /
   // idle recency, with the hover-revealed row actions layered over it.
   //
   // Owner ruling 2026-09-04: this used to live on line 1, where its
@@ -3067,7 +3067,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
           </RowTooltip>
         ) : null}
-        {/* Active work earns the three-dot working marker; the other
+        {/* Active work earns the working mark; the other
             attention states keep the tone dot. */}
         {/* An attention row renders NO dot: the row's own gold surface is the
             mark, and status-dot's spec calls a dot beside something already
@@ -3076,7 +3076,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
         {!runGlyph && tone && !needsAttention ? (
           activity === 'working' ? (
             <>
-              <AgentWorkingDots label={activityLabel(activity)} />
+              <WorkingMark label={activityLabel(activity)} seed={workspace.id} />
               {/* How long the turn has been running. The workspace-level
                   activity above decides WHETHER work is in flight (hooks are
                   the authority on that); the terminal snapshot only supplies
@@ -3544,8 +3544,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
 })
 
 /**
- * A chat line's own seat, for a line that does not carry the row's: working
- * dots while a turn runs, else how long since its last turn finished — what a
+ * A chat line's own seat, for a line that does not carry the row's: the
+ * working mark while a turn or its background agents run, else how long since
+ * its last turn finished — what a
  * terminal line's seat says (TerminalLineView), so a row with a terminal and a
  * chat can tell you when each one stopped. A chat waiting on a person says so
  * in its text; the row's gold surface is the mark.
@@ -3554,7 +3555,8 @@ function ConversationLineSeat({ session, now }: { session: ConversationSessionSu
   const phase = conversationSummaryPhase(session)
   const finishedAt = conversationFinishedAt(session)
   let content: React.ReactNode = null
-  if (phase === 'running' || phase === 'starting') content = <AgentWorkingDots label="Agent working" />
+  if (phase === 'running' || phase === 'starting')
+    content = <WorkingMark label="Agent working" seed={session.agentId} />
   else if (finishedAt !== null && formatRelativeMs(finishedAt, now)) {
     content = (
       <>

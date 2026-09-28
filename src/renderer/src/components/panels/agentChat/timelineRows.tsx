@@ -25,6 +25,7 @@ import {
 import { ConversationFileLink, ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import { stepWentWrong, ToolRow, toolGlyphInk, toolPresentationInput } from './toolRows/ToolRow'
 import { useConversationDisclosure } from './conversationViewState'
+import { UserMessageFold } from './userMessageFold'
 import { presentToolItem, summarizeToolGroup } from '../../../../../shared/conversation/presentation'
 import type { ConversationToolKind } from '../../../../../shared/conversation-runtime'
 import { deriveTurnFold } from './turnFolds'
@@ -33,6 +34,7 @@ import { useLiveRowMotion } from './liveVisibility'
 import { formatMessageDateTime, formatMessageTime, LiveElapsed } from './liveElapsed'
 import { ReasoningBlock } from './reasoningBlock'
 import { CompactionDivider, TurnMeta } from './turnMeta'
+import { CommandOutputRow } from './commandOutputRow'
 import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
@@ -109,7 +111,9 @@ export const TimelineRow = React.memo(function TimelineRow({
       // A copied stretch of transcript is what was said: the messages. A
       // compaction marker, a decision record and the live status line are
       // the view's own furniture, so a selection across them skips them.
-      data-copy-exclude={row.kind === 'user' || row.kind === 'assistant' ? undefined : ''}
+      data-copy-exclude={
+        row.kind === 'user' || row.kind === 'assistant' || row.kind === 'commandOutput' ? undefined : ''
+      }
     >
       {row.kind === 'user' ? <UserTimelineRow entry={row.entry} chrome={chrome} /> : null}
       {row.kind === 'assistant' ? (
@@ -122,6 +126,7 @@ export const TimelineRow = React.memo(function TimelineRow({
         />
       ) : null}
       {row.kind === 'compaction' ? <CompactionDivider entry={row.entry} /> : null}
+      {row.kind === 'commandOutput' ? <CommandOutputRow entry={row.entry} /> : null}
       {row.kind === 'approval' ? <ResolvedDecisions rows={row.decisions} className="pb-6" /> : null}
       {row.kind === 'working' ? <WorkingTimelineRow row={row} /> : null}
     </div>
@@ -223,18 +228,6 @@ function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>
 }
 
-// A pasted log or file reads as a wall in the transcript, so past either of
-// these a message folds to its first lines under a fade until asked for. What
-// counts is what was typed, not how it wraps, so a narrow pane folds the same
-// messages a wide one does.
-export const COLLAPSED_USER_MESSAGE_CHARS = 600
-export const COLLAPSED_USER_MESSAGE_LINES = 8
-
-export function shouldCollapseUserMessage(text: string): boolean {
-  if (!text.trim()) return false
-  return text.length > COLLAPSED_USER_MESSAGE_CHARS || text.split('\n').length > COLLAPSED_USER_MESSAGE_LINES
-}
-
 // The bubble reads at the reply's own text size, so the two sides of the
 // conversation are one reading scale; what it keeps of its own is the strong
 // ink, blocks closer together, headings no larger than the text around them,
@@ -249,42 +242,20 @@ const USER_MESSAGE_PROSE =
   '[&_.markdown-rendered>:first-child]:mt-0 [&_.markdown-rendered>:last-child]:mb-0'
 
 // The message as markdown, so a pasted fence is highlighted code and a list
-// is a list, with every newline kept as typed. Folded, it keeps its first
-// lines under a fade; the disclosure is remembered per message.
+// is a list, with every newline kept as typed. A long one folds to its first
+// lines under a fade (userMessageFold); the disclosure is remembered per
+// message.
 function UserMessageBody({ id, text }: { id: string; text: string }) {
   const context = useConversationLinkContext()
-  const collapsible = shouldCollapseUserMessage(text)
-  const [expanded, setExpanded] = useConversationDisclosure(
-    `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
-    `user-message:${id}`,
-    false,
-  )
-  const collapsed = collapsible && !expanded
   return (
-    <div className="min-w-0">
-      <div
-        data-user-message-collapsed={collapsed ? 'true' : 'false'}
-        className={`min-w-0 text-heading text-[color:var(--text-strong)] ${USER_MESSAGE_PROSE} ${
-          collapsed
-            ? 'max-h-44 overflow-hidden [mask-image:linear-gradient(to_bottom,black_calc(100%_-_var(--sem-space-xl)),transparent)]'
-            : ''
-        }`}
-      >
-        <ConversationMarkdown text={text} userText />
-      </div>
-      {collapsible ? (
-        <GhostButton
-          size="inline"
-          tone="subtle"
-          align="start"
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-          className="mt-1"
-        >
-          {expanded ? 'Show less' : 'Show full message'}
-        </GhostButton>
-      ) : null}
-    </div>
+    <UserMessageFold
+      conversationKey={`${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`}
+      id={id}
+      measureKey={text}
+      className={`min-w-0 text-heading text-[color:var(--text-strong)] ${USER_MESSAGE_PROSE}`}
+    >
+      <ConversationMarkdown text={text} userText />
+    </UserMessageFold>
   )
 }
 
@@ -373,9 +344,8 @@ export function AssistantTurnBlock({
       {entry.text.trim() ? (
         // The pane's full width, as the composer below it: the column's edges
         // are the list's own padding, so prose, code blocks and tool rows all
-        // share them with the user's bubble. Selecting in it offers a quote
-        // into the composer (quoteSelection).
-        <div ref={proseRef} className="min-w-0" data-quote-source="">
+        // share them with the user's bubble.
+        <div ref={proseRef} className="min-w-0">
           <ConversationMarkdown text={entry.text} streaming={entry.status === 'streaming'} />
         </div>
       ) : null}

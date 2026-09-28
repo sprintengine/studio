@@ -11,7 +11,7 @@ import {
   TAILNET_SET_ENABLED_CHANNEL,
   TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL,
 } from '../../shared/tailnet'
-import { TAILNET_FORGET_MACHINE_CHANNEL } from '../../shared/tailnet-fleet'
+import { TAILNET_FORGET_MACHINE_CHANNEL } from '../../shared/tailnet-mesh'
 import { TAILNET_LIST_PEERS_CHANNEL } from '../../shared/tailnet-peers'
 import {
   TAILNET_SHARE_PORT_CHANNEL,

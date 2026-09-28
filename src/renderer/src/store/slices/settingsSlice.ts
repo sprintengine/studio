@@ -36,10 +36,15 @@ import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/works
 import { isSelectableAgentCli } from '../../components/workspace/newWorkspace/cliRuntimeOptions'
 import { WORKSPACE_ASIDE_DEFAULT_WIDTH, clampWorkspaceAsideWidth } from '../../components/workspace/workspaceAsideWidth'
 import {
+  DEFAULT_CHAT_CONTRAST,
+  DEFAULT_CHAT_WIDTH,
   isAppTheme,
+  isChatWidth,
   isWindowMaterial,
+  normalizeChatContrast,
   type AppearanceSettings,
   type AppTheme,
+  type ChatWidth,
   type WindowMaterial,
 } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
@@ -79,7 +84,13 @@ export type SettingsOverlayOptions = {
 let lastAgentsMachineRequestId = 0
 
 export function defaultAppearanceSettings(): AppearanceSettings {
-  return { theme: 'system', windowMaterial: 'glass' }
+  return {
+    theme: 'system',
+    windowMaterial: 'glass',
+    chatContrast: DEFAULT_CHAT_CONTRAST,
+    chatWidth: DEFAULT_CHAT_WIDTH,
+    agentCharacters: true,
+  }
 }
 
 export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
@@ -89,6 +100,13 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
   return {
     theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme,
     windowMaterial: isWindowMaterial(candidate.windowMaterial) ? candidate.windowMaterial : defaults.windowMaterial,
+    // Both chat fields arrived after the envelope's other appearance fields, so
+    // a stored appearance without them is an older profile, not a corrupt one:
+    // it takes the defaults, which are the chat as it looked before.
+    chatContrast: normalizeChatContrast(candidate.chatContrast),
+    chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : defaults.chatWidth,
+    agentCharacters:
+      typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
   }
 }
 
@@ -1063,6 +1081,9 @@ export interface SettingsSliceActions {
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceChatContrast: (contrast: number) => void
+  setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1673,6 +1694,30 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           windowMaterial: material,
+        })
+      }),
+
+    setAppearanceChatContrast: (contrast) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          chatContrast: contrast,
+        })
+      }),
+
+    setAppearanceChatWidth: (width) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          chatWidth: width,
+        })
+      }),
+
+    setAppearanceAgentCharacters: (enabled) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          agentCharacters: enabled,
         })
       }),
   }

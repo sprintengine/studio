@@ -293,7 +293,7 @@ export default function PlainTerminalPanel({
     studioTerminal.loadWebglRenderer()
 
     // Non-null for every shell surface; the guard is what keeps a surface that
-    // must not resolve local paths (fleet) from ever registering this provider.
+    // must not resolve local paths (mesh) from ever registering this provider.
     const fileLinkDisposable = surfaceLinkRoots
       ? term.registerLinkProvider(
           createTerminalFileLinkProvider({

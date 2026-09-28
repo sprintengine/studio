@@ -9,30 +9,26 @@ import { createRoot, type Root } from 'react-dom/client'
 import {
   RemotePopover,
   deviceLivenessText,
-  fleetMachinePhase,
+  meshMachinePhase,
   machinePhaseText,
   remoteGlyphState,
   remoteGlyphToneClass,
   remoteGlyphTooltip,
 } from './RemotePopover'
 import { drivenTerminalView, shortMachineName } from '../../remote/machineRowModel'
-import { fleetLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
+import { meshLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
 import { useToastStore } from '../../../store/toastStore'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { refreshTerminalSessions } from '../../../hooks/terminalSessionsStore'
 import type { TailnetLiveDevice, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type {
-  FleetConnection,
-  FleetLiveAttachment,
-  FleetMachineReachability,
-} from '../../../../../shared/tailnet-fleet'
+import type { MeshConnection, MeshLiveAttachment, MeshMachineReachability } from '../../../../../shared/tailnet-mesh'
 import { test } from 'vitest'
 
 test('RemotePopover', async () => {
   // The Remote glyph's derivation and surface (remote-sessions-ux /
   // remote-glyph-topbar + incoming-pair-request-prompt). The push plumbing is
   // pinned main-side
-  // (tailnet-live-events, tailnet-fleet); what this file pins is what the
+  // (tailnet-live-events, tailnet-mesh); what this file pins is what the
   // chrome SAYS and DOES — mounted for real, so busy states and answers can be
   // driven by clicks.
 
@@ -91,15 +87,15 @@ test('RemotePopover', async () => {
       return Promise.resolve(bridge.approveResult)
     },
     tailnetDenyPairRequest: () => Promise.resolve({}),
-    fleetCheckReachability: (connectionId?: string) => {
+    meshCheckReachability: (connectionId?: string) => {
       bridge.reachabilityCalls.push(connectionId)
       return Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] })
     },
-    fleetCancelPairing: (requestId: string) => {
+    meshCancelPairing: (requestId: string) => {
       bridge.cancelCalls.push(requestId)
       return Promise.resolve()
     },
-    fleetForget: (connectionId: string) => {
+    meshForget: (connectionId: string) => {
       bridge.forgetCalls.push(connectionId)
       return Promise.resolve([])
     },
@@ -140,7 +136,7 @@ test('RemotePopover', async () => {
     }
   }
 
-  function connection(overrides: Partial<FleetConnection> = {}): FleetConnection {
+  function connection(overrides: Partial<MeshConnection> = {}): MeshConnection {
     return {
       id: 'conn-1',
       machineName: 'Sam’s MacBook Air',
@@ -155,7 +151,7 @@ test('RemotePopover', async () => {
     }
   }
 
-  function reach(overrides: Partial<FleetMachineReachability> = {}): FleetMachineReachability {
+  function reach(overrides: Partial<MeshMachineReachability> = {}): MeshMachineReachability {
     return {
       connectionId: 'conn-1',
       machineName: 'Sam’s MacBook Air',
@@ -184,8 +180,8 @@ test('RemotePopover', async () => {
   }
 
   function attachments(
-    list: Array<Partial<FleetLiveAttachment> & { attachId: string }>,
-  ): Map<string, FleetLiveAttachment> {
+    list: Array<Partial<MeshLiveAttachment> & { attachId: string }>,
+  ): Map<string, MeshLiveAttachment> {
     return new Map(
       list.map((entry) => [
         entry.attachId,
@@ -202,16 +198,16 @@ test('RemotePopover', async () => {
   }
 
   function presence(overrides: Partial<TailnetPresence> = {}): TailnetPresence {
-    const fleetAttachments = overrides.fleetAttachments ?? new Map()
+    const meshAttachments = overrides.meshAttachments ?? new Map()
     return {
       status: status(),
       live: { revision: 0, devices: [] },
-      fleet: [],
-      fleetAttachments,
-      fleetLiveSessions: fleetLiveSessionsOf(fleetAttachments),
-      fleetRequests: [],
-      fleetReachability: new Map(),
-      fleetRemoteChanges: new Map(),
+      mesh: [],
+      meshAttachments,
+      meshLiveSessions: meshLiveSessionsOf(meshAttachments),
+      meshRequests: [],
+      meshReachability: new Map(),
+      meshRemoteChanges: new Map(),
       ...overrides,
     }
   }
@@ -289,9 +285,9 @@ test('RemotePopover', async () => {
     assert.equal(remoteGlyphState(presence({ status: null })).visible, false)
   })
 
-  run('a paired fleet machine earns the glyph even with the inbound listener off', () => {
+  run('a paired mesh machine earns the glyph even with the inbound listener off', () => {
     const state = remoteGlyphState(
-      presence({ status: status({ enabled: false, running: false, endpoint: null }), fleet: [connection()] }),
+      presence({ status: status({ enabled: false, running: false, endpoint: null }), mesh: [connection()] }),
     )
     assert.equal(state.visible, true)
   })
@@ -306,15 +302,15 @@ test('RemotePopover', async () => {
       assert.equal(driving.connected, true)
       assert.equal(driving.degraded, false)
       const outbound = remoteGlyphState(
-        presence({ fleet: [connection()], fleetAttachments: attachments([{ attachId: 'a', state: 'live' }]) }),
+        presence({ mesh: [connection()], meshAttachments: attachments([{ attachId: 'a', state: 'live' }]) }),
       )
       assert.equal(outbound.driving, false)
       assert.equal(outbound.connected, true)
       assert.equal(outbound.degraded, false)
       const degraded = remoteGlyphState(
         presence({
-          fleet: [connection()],
-          fleetAttachments: attachments([
+          mesh: [connection()],
+          meshAttachments: attachments([
             { attachId: 'a', state: 'live' },
             { attachId: 'b', state: 'reconnecting', sessionId: 's2' },
           ]),
@@ -323,8 +319,7 @@ test('RemotePopover', async () => {
       assert.equal(degraded.connected, true, 'one live link still counts as connected')
       assert.equal(degraded.degraded, true, 'and the reconnecting one makes it degraded — the warn dot')
       assert.equal(
-        remoteGlyphState(presence({ fleetAttachments: attachments([{ attachId: 'a', state: 'connecting' }]) }))
-          .degraded,
+        remoteGlyphState(presence({ meshAttachments: attachments([{ attachId: 'a', state: 'connecting' }]) })).degraded,
         false,
         'a first dial is not degradation',
       )
@@ -334,8 +329,8 @@ test('RemotePopover', async () => {
   run(
     'a machine’s phase is derived from its links, by precedence: live > reconnecting > connecting > offline > paired',
     () => {
-      const byAttach = (list: Array<Partial<FleetLiveAttachment> & { attachId: string }>) =>
-        fleetMachinePhase('conn-1', attachments(list))
+      const byAttach = (list: Array<Partial<MeshLiveAttachment> & { attachId: string }>) =>
+        meshMachinePhase('conn-1', attachments(list))
       assert.deepEqual(byAttach([]), { phase: 'paired' })
       assert.deepEqual(byAttach([{ attachId: 'a', state: 'connecting', detail: 'Connecting to Air.' }]), {
         phase: 'connecting',
@@ -376,9 +371,9 @@ test('RemotePopover', async () => {
       { attachId: 'a', state: 'live' },
       { attachId: 'b', state: 'live' },
     ])
-    assert.deepEqual([...(fleetLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'])
+    assert.deepEqual([...(meshLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'])
     both.delete('a')
-    assert.deepEqual([...(fleetLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'], 'still live through pane b')
+    assert.deepEqual([...(meshLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'], 'still live through pane b')
   })
 
   run('device liveness reads "Connected for" from the socket, else "Last seen" from the last activity', () => {
@@ -431,8 +426,8 @@ test('RemotePopover', async () => {
       assert.match(
         tone(
           presence({
-            fleet: [connection()],
-            fleetReachability: new Map([['conn-1', reach({ reachable: false, detail: 'no answer' })]]),
+            mesh: [connection()],
+            meshReachability: new Map([['conn-1', reach({ reachable: false, detail: 'no answer' })]]),
           }),
         ),
         /tone-good/,
@@ -488,8 +483,8 @@ test('RemotePopover', async () => {
               ],
             }),
             live: { revision: 1, devices: [device({ attachedTerminalSessions: ['agent-standup'] })] },
-            fleet: [connection()],
-            fleetAttachments: attachments([
+            mesh: [connection()],
+            meshAttachments: attachments([
               { attachId: 'a', state: 'live', sessionId: 's1' },
               { attachId: 'b', state: 'live', sessionId: 's2' },
             ]),
@@ -560,12 +555,12 @@ test('RemotePopover', async () => {
     const mounted = mount(
       popover(
         presence({
-          fleet: [
+          mesh: [
             connection(),
             connection({ id: 'conn-2', machineName: 'Mini', endpoint: '100.1.1.2:8471' }),
             connection({ id: 'conn-3', machineName: 'Studio', endpoint: '100.1.1.3:8471' }),
           ],
-          fleetAttachments: attachments([
+          meshAttachments: attachments([
             { attachId: 'a', state: 'reconnecting', connectionId: 'conn-1', detail: 'Reconnecting.' },
             { attachId: 'b', state: 'offline', connectionId: 'conn-2', machineName: 'Mini' },
           ]),
@@ -705,8 +700,8 @@ test('RemotePopover', async () => {
       const error = 'Tailnet remote control is enabled but no Tailscale address was found.'
       const p = presence({
         status: status({ running: false, lastError: error }),
-        fleet: [connection()],
-        fleetReachability: new Map([['conn-1', reach()]]),
+        mesh: [connection()],
+        meshReachability: new Map([['conn-1', reach()]]),
       })
       const mounted = mount(popover(p))
       const header = mounted.querySelector('header')
@@ -740,12 +735,12 @@ test('RemotePopover', async () => {
       assert.match(remoteGlyphTooltip(state), /no Tailscale address/, 'the error rides the tooltip')
       assert.match(
         remoteGlyphTooltip(
-          remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach()]]) })),
+          remoteGlyphState(presence({ mesh: [connection()], meshReachability: new Map([['conn-1', reach()]]) })),
         ),
         /live · 1 machine answering/,
       )
       assert.equal(
-        remoteGlyphState(presence({ fleet: [connection()], fleetReachability: new Map([['conn-1', reach()]]) }))
+        remoteGlyphState(presence({ mesh: [connection()], meshReachability: new Map([['conn-1', reach()]]) }))
           .answering,
         1,
         'the count the glyph wears',
@@ -824,7 +819,7 @@ test('RemotePopover', async () => {
       useToastStore.setState({ toasts: [] })
     })
     bridge.forgetCalls.length = 0
-    const mounted = mount(popover(presence({ fleet: [connection()] })))
+    const mounted = mount(popover(presence({ mesh: [connection()] })))
     click(buttonLabelled(mounted, /^Remove Sam’s MacBook Air/))
     await flush()
     assert.deepEqual(bridge.forgetCalls, ['conn-1'])
@@ -887,7 +882,7 @@ test('RemotePopover', async () => {
       const mounted = mount(
         popover(
           presence({
-            fleetRequests: [
+            meshRequests: [
               {
                 requestId: 'tpr_9',
                 endpoint: '100.5.5.5:8471',
@@ -920,12 +915,12 @@ test('RemotePopover', async () => {
       const mounted = mount(
         <RemotePopover
           presence={presence({
-            fleet: [
+            mesh: [
               connection(),
               connection({ id: 'conn-2', machineName: 'Studio', endpoint: '100.1.1.2:8471' }),
               connection({ id: 'conn-3', machineName: 'Old box', endpoint: '100.1.1.3:8471' }),
             ],
-            fleetReachability: new Map([
+            meshReachability: new Map([
               ['conn-1', reach()],
               [
                 'conn-2',
@@ -977,8 +972,8 @@ test('RemotePopover', async () => {
       assert.equal(
         remoteGlyphState(
           presence({
-            fleet: [connection()],
-            fleetReachability: new Map([['conn-1', reach({ reachable: false, unauthorized: true })]]),
+            mesh: [connection()],
+            meshReachability: new Map([['conn-1', reach({ reachable: false, unauthorized: true })]]),
           }),
         ).degraded,
         true,

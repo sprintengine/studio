@@ -267,7 +267,7 @@ export type TailnetApprovePairRequestView =
 export type TailnetReverseGrant = {
   /** `address:port` of the asker's listener, for the approver to dial. */
   endpoint: string
-  /** The asker's name for itself, as the approver's Fleet will list it. */
+  /** The asker's name for itself, as the approver's Mesh will list it. */
   machineName: string
   deviceId: string
   /** The name the approver's machine was granted under on the asker. */

@@ -8,7 +8,7 @@ import type { LifecycleState } from '../../../../shared/lifecycle-state'
 //
 // It is also what StatusDot draws: the app has no status dots, so a status
 // tone is one of these shapes in that tone's ink, and a live one is the working
-// dots.
+// mark.
 // Domain-agnostic: callers map their own status enum to a LifecycleState. The
 // union is declared on a core shared path (`src/shared/lifecycle-state.ts`) so
 // main-process and shared code can name a state without importing the

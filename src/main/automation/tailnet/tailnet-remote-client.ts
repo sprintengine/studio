@@ -362,7 +362,7 @@ export type RemoteIdentity = {
  * This is the handshake, and so it is where the transport version is enforced
  * (the first version shipped without that check, and a mismatched peer then failed later
  * on a payload shape instead). A machine outside the window is refused here
- * with a named code, so the Fleet records it as unreachable-with-a-reason
+ * with a named code, so the Mesh records it as unreachable-with-a-reason
  * rather than as a machine that answered and then behaved oddly.
  *
  * `timeoutMs` is for the reachability check (phase 4), which asks this of
@@ -445,7 +445,7 @@ export async function callRemoteTool(input: {
       timeoutMs: input.timeoutMs,
       body: {
         jsonrpc: '2.0',
-        id: `fleet-${randomBytes(6).toString('hex')}`,
+        id: `mesh-${randomBytes(6).toString('hex')}`,
         method: 'tools/call',
         params: { name: input.tool, arguments: input.args ?? {} },
       },

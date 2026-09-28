@@ -1,9 +1,17 @@
 import { expect, test } from 'vitest'
-import { createCodexConversationProvider, codexPermissionPolicy, codexChildEnv } from './codex-conversation-provider'
+import {
+  createCodexConversationProvider,
+  codexPermissionPolicy,
+  codexChildEnv,
+  probeCodexConversationCommands,
+} from './codex-conversation-provider'
 import { CodexRpcError, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
 import type { ConversationEvent } from '../../shared/conversation-runtime'
+import { conversationCommandsFor } from '../conversation-commands/registry'
 
-function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (params: unknown) => unknown } = {}) {
+function fixture(
+  setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (params: unknown) => unknown; skills?: unknown } = {},
+) {
   let connection!: CodexRpcOptions
   const calls: { method: string; params: unknown }[] = []
   const replies: { id: string | number; result: unknown }[] = []
@@ -29,6 +37,11 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
           if (method === 'turn/start') {
             resolveStarted()
             return { turn: { id: 'native-turn' } }
+          }
+          if (method === 'skills/list') return setup.skills ?? { data: [] }
+          if (method === 'thread/compact/start') {
+            resolveStarted()
+            return {}
           }
           if (method === 'turn/interrupt')
             await options.onMessage({
@@ -56,12 +69,12 @@ function fixture(setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (
     permissionPreset: 'none' as 'none' | 'bypass',
   }
   const events: ConversationEvent[] = []
-  const send = async (reasoningEffort?: string, mode?: 'default' | 'ask' | 'plan') => {
+  const send = async (reasoningEffort?: string, mode?: 'default' | 'ask' | 'plan', message = 'Make a change.') => {
     for await (const event of (await adapter.sendTurn({
       ...input,
       turnId: 'turn',
       requestId: 'request',
-      message: 'Make a change.',
+      message,
       reasoningEffort,
       mode,
     })) as AsyncIterable<ConversationEvent>)
@@ -544,4 +557,127 @@ test('a model switch rides the next turn without a reconnect, and the running tu
   expect(f.calls.find((call) => call.method === 'turn/start')?.params).not.toHaveProperty('model')
   await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
   await third
+})
+
+const names = (cwd: string) => conversationCommandsFor('codex', cwd).commands.map((command) => command.name)
+
+test('Codex offers /compact as soon as a chat starts, and its skills once the app-server connects', async () => {
+  const skills = {
+    data: [
+      { cwd: '/workspace/skills', skills: [{ name: 'release-notes', description: 'Release notes', enabled: true }] },
+    ],
+  }
+  const f = fixture({ skills })
+  f.input.workspaceRoot = '/workspace/skills'
+  await f.adapter.startSession(f.input)
+  expect(names('/workspace/skills')).toEqual(['compact'])
+  // A stand-in, not an answer: the folder's skills are still due to be asked for.
+  expect(conversationCommandsFor('codex', '/workspace/skills').fetchedAt).toBe(0)
+  const done = f.send()
+  await f.started
+  await expect.poll(() => names('/workspace/skills')).toEqual(['compact', 'release-notes'])
+  expect(conversationCommandsFor('codex', '/workspace/skills').commands[1]).toMatchObject({
+    insertText: '$release-notes ',
+    source: 'skill',
+  })
+  expect(f.calls.find((call) => call.method === 'skills/list')?.params).toEqual({ cwds: ['/workspace/skills'] })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  // A change on disk is announced outside any turn, and the list is read again from disk.
+  skills.data[0].skills.push({ name: 'changelog', description: 'Changelogs', enabled: true })
+  await f.message({ method: 'skills/changed', params: {} })
+  await expect.poll(() => names('/workspace/skills')).toEqual(['compact', 'release-notes', 'changelog'])
+  expect(f.calls.filter((call) => call.method === 'skills/list').at(-1)?.params).toEqual({
+    cwds: ['/workspace/skills'],
+    forceReload: true,
+  })
+  expect(f.events.at(-1)?.type).toBe('turn_completed')
+})
+
+test('/compact at the start of a message compacts the thread natively instead of sending it as a turn', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const first = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await first
+  f.nextTurn()
+  f.events.length = 0
+  const compacting = f.send(undefined, undefined, '/compact')
+  await f.started
+  expect(f.calls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
+  expect(f.calls.at(-1)).toEqual({ method: 'thread/compact/start', params: { threadId: 'native-thread' } })
+  await f.message({ method: 'turn/started', params: { threadId: 'native-thread', turn: { id: 'compact-turn' } } })
+  await f.message({ method: 'item/started', params: { item: { id: 'summary', type: 'contextCompaction' } } })
+  await f.message({ method: 'item/completed', params: { item: { id: 'summary', type: 'contextCompaction' } } })
+  await f.message({ method: 'turn/completed', params: { turn: { id: 'compact-turn', status: 'completed' } } })
+  await compacting
+  expect(f.events.map((event) => [event.type, event.payload?.turnId, event.payload?.trigger])).toEqual([
+    ['turn_started', 'turn', undefined],
+    ['context_compacted', 'turn', 'manual'],
+    ['turn_completed', 'turn', undefined],
+  ])
+})
+
+test('Codex marks a compaction it makes on its own mid-turn as automatic', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'item/completed', params: { item: { id: 'summary', type: 'contextCompaction' } } })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.events.find((event) => event.type === 'context_compacted')?.payload).toMatchObject({ trigger: 'auto' })
+})
+
+test('/compact with instructions, or before anything was said, is refused without reaching Codex', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  await f.send(undefined, undefined, '/compact keep the API notes')
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn_failed',
+    payload: { message: 'Send /compact on its own: Codex compacts the conversation without instructions or images.' },
+  })
+  await f.send(undefined, undefined, '/compact')
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn_failed',
+    payload: { message: 'There is no conversation to compact yet.' },
+  })
+  expect(f.calls.some((call) => call.method === 'turn/start' || call.method === 'thread/compact/start')).toBe(false)
+})
+
+test('Codex lists a folder before any chat there has started from an app-server that opens no thread', async () => {
+  const calls: string[] = []
+  let closed = false
+  const commands = await probeCodexConversationCommands(
+    { cwd: '/workspace/probe' },
+    {
+      resolveExecutable: async () => '/usr/bin/codex',
+      buildEnv: async () => ({}),
+      createTransport: () => ({
+        pid: 1,
+        async request(method) {
+          calls.push(method)
+          return method === 'skills/list'
+            ? {
+                data: [
+                  {
+                    cwd: '/workspace/probe',
+                    skills: [{ name: 'release-notes', description: 'Release notes', enabled: true }],
+                  },
+                ],
+              }
+            : {}
+        },
+        notify: (method) => calls.push(method),
+        respond: () => undefined,
+        reject: () => undefined,
+        close: () => (closed = true),
+      }),
+    },
+  )
+  expect(commands.map((command) => command.name)).toEqual(['compact', 'release-notes'])
+  expect(names('/workspace/probe')).toEqual(['compact', 'release-notes'])
+  expect(calls).toEqual(['initialize', 'initialized', 'skills/list'])
+  expect(closed).toBe(true)
 })

@@ -1,6 +1,6 @@
 import React from 'react'
 
-import type { FleetPairRequestView } from '../../../../shared/tailnet-fleet'
+import type { MeshPairRequestView } from '../../../../shared/tailnet-mesh'
 import { OutlineButton, StatusDot } from '../ui'
 import { showToast } from '../../store/toastStore'
 
@@ -8,9 +8,9 @@ import { showToast } from '../../store/toastStore'
 // paired, phases 2–3). The code is shown large because the person at the
 // other machine has to type it; the sentence says exactly that. Main owns
 // the wait, so this card is drawable anywhere — the Remote popover, Settings,
-// the Fleet — and closing whichever surface asked does not end the request.
+// the Mesh — and closing whichever surface asked does not end the request.
 
-function pendingPairRequestNote(request: FleetPairRequestView, nowMs: number): string {
+function pendingPairRequestNote(request: MeshPairRequestView, nowMs: number): string {
   const expiresAtMs = Date.parse(request.expiresAt)
   if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {
     return `${request.machineName} did not answer in time. Ask again when someone is at it.`
@@ -28,7 +28,7 @@ export function OutboundPairRequestCard({
   now,
   variant = 'card',
 }: {
-  request: FleetPairRequestView
+  request: MeshPairRequestView
   now: number
   variant?: 'card' | 'flush'
 }) {
@@ -40,7 +40,7 @@ export function OutboundPairRequestCard({
   const stop = async (): Promise<void> => {
     setStopping(true)
     try {
-      await window.api.fleetCancelPairing(request.requestId)
+      await window.api.meshCancelPairing(request.requestId)
     } catch (error) {
       showToast({
         tone: 'error',

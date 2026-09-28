@@ -1,7 +1,7 @@
 /* Status mark — what the StatusDot primitive draws
  * (src/renderer/src/components/ui/StatusDot.tsx). The product draws no status
  * dots: a state is a shape-coded glyph in its tone's ink, and live work is the
- * three working dots. The class keeps its historical name because the
+ * working mark. The class keeps its historical name because the
  * primitive does.
  *
  * Each glyph is an SVG mask filled with the tone's ink, so a tone is one
@@ -56,13 +56,16 @@
 }
 
 /* ── Working ─────────────────────────────────────────────────────────────
- * Something is running right now: the three working dots, in accent ink —
- * the app's one "working" mark (AgentWorkingDots). A live good or accent
- * tone is always drawn this way, never as a pulsing glyph. */
+ * Something is running right now: the working mark, in accent ink — the
+ * app's one "working" mark (WorkingMark, components/liveness). Drawn here as
+ * its still frame, the 3×3 grid with the four corners and the centre lit,
+ * breathing; the product's own mark cycles one of four patterns. A live good
+ * or accent tone is always drawn this way, never as a pulsing glyph. */
 .ds-status-dot--working {
   width: 14px;
+  height: 14px;
   background: var(--sem-color-accent-primary);
-  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 13'%3E%3Ccircle cx='3.5' cy='6.5' r='1.5'/%3E%3Ccircle cx='7' cy='6.5' r='1.5'/%3E%3Ccircle cx='10.5' cy='6.5' r='1.5'/%3E%3C/svg%3E");
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Crect x='1' y='1' width='3' height='3' rx='0.8'/%3E%3Crect x='5.5' y='1' width='3' height='3' rx='0.8' fill-opacity='0.2'/%3E%3Crect x='10' y='1' width='3' height='3' rx='0.8'/%3E%3Crect x='1' y='5.5' width='3' height='3' rx='0.8' fill-opacity='0.2'/%3E%3Crect x='5.5' y='5.5' width='3' height='3' rx='0.8'/%3E%3Crect x='10' y='5.5' width='3' height='3' rx='0.8' fill-opacity='0.2'/%3E%3Crect x='1' y='10' width='3' height='3' rx='0.8'/%3E%3Crect x='5.5' y='10' width='3' height='3' rx='0.8' fill-opacity='0.2'/%3E%3Crect x='10' y='10' width='3' height='3' rx='0.8'/%3E%3C/svg%3E");
   animation: ds-status-dot-pulse 1200ms ease-in-out infinite;
 }
 
@@ -87,7 +90,7 @@
   }
 }
 
-/* Reduced motion stills the breath and the working dots; the shape keeps
+/* Reduced motion stills the breath and the working mark; the shape keeps
  * carrying the state, and the accessible name or adjacent label says it. */
 @media (prefers-reduced-motion: reduce) {
   .ds-status-dot--pulse,

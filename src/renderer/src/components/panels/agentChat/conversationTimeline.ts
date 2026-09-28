@@ -73,6 +73,7 @@ export type ConversationTimelineRow =
   // Requests that never named a turn; they surface on their own.
   | { kind: 'approval'; id: string; decisions: ConversationDecisionRow[] }
   | { kind: 'compaction'; id: string; entry: Extract<TranscriptEntry, { kind: 'compaction' }> }
+  | { kind: 'commandOutput'; id: string; entry: Extract<TranscriptEntry, { kind: 'commandOutput' }> }
   | {
       kind: 'working'
       id: string
@@ -185,6 +186,10 @@ export function deriveConversationTimelineRows(
       rows.push({ kind: 'compaction', id: `compaction:${entry.id}`, entry })
       continue
     }
+    if (entry.kind === 'commandOutput') {
+      rows.push({ kind: 'commandOutput', id: `commandOutput:${entry.id}`, entry })
+      continue
+    }
     if (entry.kind === 'assistant') {
       const tools: Extract<TranscriptEntry, { kind: 'tool' }>[] = []
       let cursor = index + 1
@@ -295,6 +300,8 @@ export function deriveConversationTimelineRows(
     )
       return previous
     if (row.kind === 'compaction' && previous.kind === 'compaction' && row.entry === previous.entry) return previous
+    if (row.kind === 'commandOutput' && previous.kind === 'commandOutput' && row.entry === previous.entry)
+      return previous
     if (row.kind === 'approval' && previous.kind === 'approval' && sameDecisions(row.decisions, previous.decisions))
       return previous
     if (

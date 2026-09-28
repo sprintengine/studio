@@ -9,6 +9,15 @@ function reportVisibility() {
   for (const listener of listeners.values()) listener.callback(listener.inView && isWindowVisible())
 }
 
+// Everything in a live transcript row that loops: held still while the row is
+// off screen, the window is idle, or motion is reduced.
+const LIVE_MOTION_SELECTOR = [
+  '.status-dot-pulse',
+  '.chat-shimmer',
+  '.working-mark__cell',
+  '.agent-glyph [class^="agent-glyph__"]',
+].join(', ')
+
 export function useLiveRowMotion(ref: RefObject<HTMLElement | null>, running: boolean): void {
   useEffect(() => {
     const element = ref.current
@@ -16,7 +25,7 @@ export function useLiveRowMotion(ref: RefObject<HTMLElement | null>, running: bo
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
     let visible = isWindowVisible()
     const update = () => {
-      for (const animated of element.querySelectorAll<HTMLElement>('.status-dot-pulse, .chat-shimmer'))
+      for (const animated of element.querySelectorAll<HTMLElement>(LIVE_MOTION_SELECTOR))
         animated.style.animationPlayState = visible && !media?.matches ? 'running' : 'paused'
     }
     const dispose = observeLiveVisibility(element, (next) => {

@@ -6,6 +6,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
+import { ChatAppearanceRows } from './ChatAppearanceRows'
 import { effectiveWindowMaterial, type WindowMaterial } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
@@ -706,6 +707,8 @@ export default function SettingsPanel({
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const appearanceWindowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
+  const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
+  const setAppearanceAgentCharacters = useWorkspaceStore((s) => s.setAppearanceAgentCharacters)
   const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
@@ -1290,6 +1293,7 @@ export default function SettingsPanel({
                   onChange={setChatListView}
                 />
               </SettingsRow>
+              <ChatAppearanceRows />
               {/* Where a file opens (owner ruling 2026-09-25). The editor
                   window is the default: the file on its own, with a tree
                   beside it that says where it lives. The in-app tab stays a
@@ -1333,6 +1337,12 @@ export default function SettingsPanel({
                   onChange={setAppearanceWindowMaterial}
                 />
               </SettingsRow>
+              <SettingToggle
+                label="Agent characters"
+                description="Draw each agent Claude sends off as a little character that moves while it works, and changes with the seasons."
+                enabled={agentCharacters}
+                onChange={setAppearanceAgentCharacters}
+              />
             </SettingCard>
           </section>
         </div>

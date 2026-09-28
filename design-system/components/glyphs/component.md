@@ -1,7 +1,7 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The fifty-seven SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The fifty-eight SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
 the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
@@ -13,8 +13,8 @@ show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
 new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and
 the diff tour's four — tour, play, pause, step-list — and the copy
 affordance's pair — copy, and the check it confirms with — and the code
-block's two — wrap-lines, terminal-prompt — and the chat's ten tool-step
-marks, `tool-*`) are
+block's two — wrap-lines, terminal-prompt — the chat's ten tool-step
+marks, `tool-*`, and the quote mark — quote) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
@@ -176,7 +176,7 @@ glyph family of its own.
 (owner ruling 2026-09-28), so a status tone maps onto a lifecycle shape —
 danger to `failed`'s ×, warn to `needs_input`'s !, good and merged to `done`'s
 check, neutral to `blocked`'s bar, accent to `in_progress`'s held arc — and a
-live good or accent tone is the working dots (`components/liveness`). One
+live good or accent tone is the working mark (`components/liveness`). One
 status idiom per surface still holds: a surface speaks in status tones
 (`StatusDot`) *or* in lifecycle states (`LifecycleGlyph`), never both, or the
 same shapes turn up twice saying two different things.
@@ -440,6 +440,16 @@ triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
 prompt; Windows only), `MobileSettingsIcon` (phone),
 `RemoteSettingsIcon` (two linked machines).
 All at `iconStroke` so the rail reads as one set.
+
+### Conversation actions (16-grid — `ui/QuoteGlyph.tsx`)
+
+What a person can do with a stretch of a conversation they have selected.
+Stroke 1.4, `currentColor`, drawn at `icon-xs` beside the action's word in the
+selection toolbar.
+
+| Export | Asset | Drawing |
+|---|---|---|
+| `QuoteGlyph` | `glyphs/quote.svg` | Two opening quotation marks, each a small block with a tail that curls up and forward: "carry these words into what I write next". Deliberately not a speech bubble — a bubble reads as reply or comment, and pressing it sends nothing; the selection lands in the composer as a markdown blockquote for the person to write under |
 
 ## States
 

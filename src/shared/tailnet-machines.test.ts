@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { TailnetDevice, TailnetScope } from './tailnet'
-import type { FleetConnection } from './tailnet-fleet'
+import type { MeshConnection } from './tailnet-mesh'
 import type { TailnetPeer } from './tailnet-peers'
 import {
   mergeMachines,
@@ -64,7 +64,7 @@ test('tailnet-machines', async () => {
     }
   }
 
-  function connection(over: Partial<FleetConnection> & { id: string; machineName: string }): FleetConnection {
+  function connection(over: Partial<MeshConnection> & { id: string; machineName: string }): MeshConnection {
     return {
       endpoint: '100.64.0.2:8788',
       deviceId: 'tnd_remote',

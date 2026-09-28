@@ -3,7 +3,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react'
 import CliIcon from '../CliIcon'
 import type { PromptCacheReading } from '../../../../shared/prompt-cache'
 import { PromptCacheCardLine } from './PromptCacheMark'
-import { AgentWorkingDots, Badge, ContextRing, IconButton, LinkButton, Skeleton, Tooltip, TruncatedText } from '../ui'
+import { Badge, ContextRing, IconButton, LinkButton, Skeleton, Tooltip, TruncatedText, WorkingMark } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs } from '../../utils/relativeTime'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -40,7 +40,7 @@ import type { ConversationPeek, ConversationPeekMessage } from '../../../../shar
  * The chat's live state, in the corner's voice.
  *
  * `kind` and not a `Tone`, because the corner is not a status dot and never
- * was: it is the SIDEBAR's own mark — the working dots — and one word beside
+ * was: it is the SIDEBAR's own mark — the working mark — and one word beside
  * them. Three kinds are all the corner can draw differently: dots and muted
  * ink, no dots and subtle ink, no dots and muted ink.
  */
@@ -248,7 +248,15 @@ export function splitChangedPath(path: string): { name: string; folder: string }
  * more than "Working" — it says the agent is working AND what it is doing — so
  * a card that said both would be spending a line on the weaker half.
  */
-function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatus; activeSubagents: number }) {
+function LiveCorner({
+  status,
+  activeSubagents,
+  seed,
+}: {
+  status: ConversationPeekStatus
+  activeSubagents: number
+  seed?: string
+}) {
   const working = status.kind === 'working'
   const label = working && activeSubagents > 0 ? `${activeSubagents} running` : status.label
   return (
@@ -259,11 +267,12 @@ function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatu
     >
       {working ? (
         <>
-          {/* The dots carry the accessible name and the word beside them is
+          {/* The mark carries the accessible name and the word beside it is
               decorative, so the state is announced once rather than twice.
-              (`AgentWorkingDots` is `role="img"` with a label by construction —
-              it is the sidebar's mark, and this is the same mark.) */}
-          <AgentWorkingDots label={label} />
+              (`WorkingMark` is `role="img"` with a label by construction —
+              it is the sidebar's mark, and this is the same mark, seeded the
+              same way so the card moves like the row it opened from.) */}
+          <WorkingMark label={label} seed={seed} />
           <span aria-hidden="true">{label}</span>
         </>
       ) : (
@@ -604,7 +613,13 @@ export function ConversationPeekCard({
             ring it never yields width — the title is the only thing on this
             line that does, and it already has an ellipsis. */}
         <PullRequestPeekMark pullRequests={agent.pullRequests} now={now} />
-        {identity.status ? <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} /> : null}
+        {identity.status ? (
+          <LiveCorner
+            status={identity.status}
+            activeSubagents={agent.activeSubagents}
+            seed={agent.agentId ?? agent.sessionId ?? undefined}
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">

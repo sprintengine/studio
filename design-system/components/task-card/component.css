@@ -43,7 +43,7 @@
 }
 
 /* The leading mark is components/status-dot (`.ds-status-dot` + a tone
- * modifier): the tone's 13px glyph, or the working dots while the task runs.
+ * modifier): the tone's 13px glyph, or the working mark while the task runs.
  * It brings its own size and ink, and the card's centred flex line places it,
  * so the card defines no mark of its own. Status only — never decoration or
  * category coding. */

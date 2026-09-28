@@ -156,7 +156,7 @@ test('terminalLines', async () => {
         session({ sessionId: 's1', lastOutputAt: 10 }),
         session({ sessionId: 's2', agentId: 'a2', observedCheckout: worktreeObserved, lastOutputAt: 20 }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries,
     })
     assert.equal(overflow, 0)
@@ -171,7 +171,7 @@ test('terminalLines', async () => {
   }
 
   // A working line outranks a more recent idle one; a plain shell is a line too,
-  // named Terminal; a fleet pane is a line with its machine and no diff claim.
+  // named Terminal; a mesh pane is a line with its machine and no diff claim.
   {
     const { lines } = terminalLinesOf({
       workspace: workspace({ remoteOrigin: { checkout: { branch: 'remote-main' } } as never }),
@@ -186,7 +186,7 @@ test('terminalLines', async () => {
         }),
         session({ sessionId: 'shell', kind: 'terminal', cli: undefined, agentId: undefined, lastOutputAt: 500 }),
       ],
-      fleetPanes: [{ tabId: 'fleet-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
+      meshPanes: [{ tabId: 'mesh-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
       summaries: { '/repo': summary({}) },
     })
     assert.deepEqual(
@@ -195,7 +195,7 @@ test('terminalLines', async () => {
         ['working', 'agent', 'Aine Carey', true, 120],
         ['idle-recent', 'agent', 'Conor Kirby', false, null],
         ['shell', 'shell', 'Terminal', false, null],
-        ['fleet-terminal:c1:s9', 'remote', null, false, null],
+        ['mesh-terminal:c1:s9', 'remote', null, false, null],
       ],
     )
     const pane = lines[3]
@@ -213,7 +213,7 @@ test('terminalLines', async () => {
         session({ sessionId: 'waiting', agentState: { phase: 'awaiting_input', source: 'hook', since: 1 } as never }),
         session({ sessionId: 'failed', agentId: 'a2', activity: { kind: 'failed', at: 7, exitCode: 1 } }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries: {},
     })
     const byKey = Object.fromEntries(lines.map((line) => [line.key, line]))
@@ -227,7 +227,7 @@ test('terminalLines', async () => {
     const sessions = Array.from({ length: MAX_TERMINAL_LINES + 2 }, (_, index) =>
       session({ sessionId: `s${index}`, activity: { kind: 'idle', since: 1_000 + index } }),
     )
-    const { lines, overflow } = terminalLinesOf({ workspace: workspace(), sessions, fleetPanes: [], summaries: {} })
+    const { lines, overflow } = terminalLinesOf({ workspace: workspace(), sessions, meshPanes: [], summaries: {} })
     assert.equal(lines.length, MAX_TERMINAL_LINES)
     assert.equal(overflow, 2)
     assert.equal(lines[0].key, `s${MAX_TERMINAL_LINES + 1}`, 'the most recent stays')
@@ -282,7 +282,7 @@ test('terminalLines', async () => {
         }),
         session({ sessionId: 's2', agentId: 'a2', lastOutputAt: 10, fileChanges: [edited('/repo/src/c.ts', 2, 0)] }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries,
     })
     assert.deepEqual(
@@ -307,7 +307,7 @@ test('terminalLines', async () => {
       sessions: [
         session({ sessionId: 's1', observedCheckout: worktreeObserved, fileChanges: [edited('/repo/src/a.ts', 9, 2)] }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries: {
         '/repo/.claude/worktrees/rail': summary({
           branch: 'worktree-workspace-rail',
@@ -337,7 +337,7 @@ test('terminalLines', async () => {
           activeSubagents: 2,
         }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries: { '/repo': summary({ additions: 202, deletions: 122 }) },
     })
     assert.deepEqual([lines[0].additions, lines[0].deletions, lines[0].diffScope], [202, 122, 'folder'])
@@ -356,7 +356,7 @@ test('terminalLines', async () => {
         // from an older sidecar) must not throw or claim a session reading.
         session({ sessionId: 'absent', agentId: 'a2', fileChanges: undefined as never }),
       ],
-      fleetPanes: [],
+      meshPanes: [],
       summaries,
     })
     for (const line of lines) {
@@ -368,18 +368,18 @@ test('terminalLines', async () => {
     }
   }
 
-  // A fleet pane claims nothing at all: its checkout is another machine's disk.
+  // A mesh pane claims nothing at all: its checkout is another machine's disk.
   {
-    const fleetOnly = terminalLinesOf({
+    const meshOnly = terminalLinesOf({
       workspace: workspace(),
       sessions: [],
-      fleetPanes: [{ tabId: 'fleet-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
+      meshPanes: [{ tabId: 'mesh-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
       summaries: {},
     })
-    assert.equal(fleetOnly.lines[0].activeSubagents, 0, 'a pane on another machine reports no subagents')
-    assert.equal(fleetOnly.lines[0].changedFiles, 0)
-    assert.equal(fleetOnly.lines[0].files, null, 'and nothing to draw')
-    assert.equal(fleetOnly.lines[0].diffScope, 'folder')
+    assert.equal(meshOnly.lines[0].activeSubagents, 0, 'a pane on another machine reports no subagents')
+    assert.equal(meshOnly.lines[0].changedFiles, 0)
+    assert.equal(meshOnly.lines[0].files, null, 'and nothing to draw')
+    assert.equal(meshOnly.lines[0].diffScope, 'folder')
   }
 
   // Subagents ride the line for a later renderer; nothing draws them yet.
@@ -387,7 +387,7 @@ test('terminalLines', async () => {
     const { lines } = terminalLinesOf({
       workspace: workspace(),
       sessions: [session({ sessionId: 's1', activeSubagents: 3 })],
-      fleetPanes: [],
+      meshPanes: [],
       summaries: {},
     })
     assert.equal(lines[0].activeSubagents, 3)
@@ -619,7 +619,7 @@ test('terminalLines', async () => {
     const merged = terminalLinesOf({
       workspace: workspace(),
       sessions: [session({ sessionId: 's1', pullRequests: [pr({ number: 418, state: 'merged' })] })],
-      fleetPanes: [],
+      meshPanes: [],
       summaries,
     })
     assert.deepEqual(
@@ -635,7 +635,7 @@ test('terminalLines', async () => {
     const open = terminalLinesOf({
       workspace: workspace(),
       sessions: [session({ sessionId: 's1', pullRequests: [pr({ number: 418, state: 'open' })] })],
-      fleetPanes: [],
+      meshPanes: [],
       summaries,
     })
     assert.deepEqual([open.lines[0].additions, open.lines[0].diffScope], [202, 'branch'])
@@ -664,14 +664,14 @@ test('terminalLines', async () => {
         session({ sessionId: 's2', agentId: 'a2', lastOutputAt: 10 }),
         session({ sessionId: 's3', kind: 'terminal', agentId: undefined, lastOutputAt: 5 }),
       ],
-      fleetPanes: [{ tabId: 'pane-1', machineName: 'Mini' }],
+      meshPanes: [{ tabId: 'pane-1', machineName: 'Mini' }],
       summaries: {},
     })
     const byKey = new Map(lines.map((line) => [line.key, line.pullRequests]))
     assert.deepEqual(byKey.get('s1'), [opened], 'the agent line wears what its snapshot carries')
     assert.deepEqual(byKey.get('s2'), [], 'a snapshot with no answer draws what an empty one draws')
     assert.deepEqual(byKey.get('s3'), [], 'a plain shell has no conversation to have opened one')
-    assert.deepEqual(byKey.get('pane-1'), [], 'a fleet pane’s checkout is another machine’s')
+    assert.deepEqual(byKey.get('pane-1'), [], 'a mesh pane’s checkout is another machine’s')
   }
 
   console.log('terminalLines: ok')

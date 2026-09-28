@@ -1,9 +1,9 @@
-import { chmodSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 
 import { normalizeTailnetScopes, type TailnetScope } from '../../../shared/tailnet'
-import type { FleetConnection } from '../../../shared/tailnet-fleet'
+import type { MeshConnection } from '../../../shared/tailnet-mesh'
 import { isRecord } from '../../../shared/records'
 
 // The tokens THIS machine holds for OTHER machines.
@@ -18,16 +18,22 @@ import { isRecord } from '../../../shared/records'
 // revoke the device on the machine that issued it. Revocation lands on our very
 // next request, so the stored token becomes inert without us being told.
 
-export const TAILNET_FLEET_FILENAME = 'tailnet-fleet-connections.json'
+export const TAILNET_MESH_FILENAME = 'tailnet-mesh-connections.json'
+/**
+ * The name the store had before the client side was called the mesh. A profile
+ * that still holds it is moved to the current name on first read, so an update
+ * keeps every pairing and leaves no second copy of the tokens behind.
+ */
+export const LEGACY_TAILNET_MESH_FILENAME = 'tailnet-fleet-connections.json'
 
 /** A stored connection, with the credential the public view omits. */
-export type StoredFleetConnection = FleetConnection & { deviceToken: string }
+export type StoredMeshConnection = MeshConnection & { deviceToken: string }
 
-export type TailnetFleetStore = {
+export type TailnetMeshStore = {
   /** Public view: no tokens. This is what IPC returns. */
-  list(): FleetConnection[]
+  list(): MeshConnection[]
   /** Internal view, for the client that must actually authenticate. */
-  find(connectionId: string): StoredFleetConnection | null
+  find(connectionId: string): StoredMeshConnection | null
   add(input: {
     machineName: string
     endpoint: string
@@ -35,24 +41,24 @@ export type TailnetFleetStore = {
     deviceName: string
     deviceToken: string
     scopes: TailnetScope[]
-    pairedVia: FleetConnection['pairedVia']
-  }): FleetConnection
+    pairedVia: MeshConnection['pairedVia']
+  }): MeshConnection
   /** Record what the remote says our grants are now; they can narrow without us being told. */
   updateScopes(connectionId: string, scopes: TailnetScope[]): void
   markConnected(connectionId: string): void
   forget(connectionId: string): boolean
 }
 
-export function createTailnetFleetStore(options: {
+export function createTailnetMeshStore(options: {
   resolveUserDataDir: () => string
   now?: () => Date
   log?: (message: string) => void
-}): TailnetFleetStore {
+}): TailnetMeshStore {
   const now = options.now ?? (() => new Date())
-  let connections: StoredFleetConnection[] = read(options.resolveUserDataDir(), options.log)
+  let connections: StoredMeshConnection[] = read(options.resolveUserDataDir(), options.log)
 
   function persist(): void {
-    const path = join(options.resolveUserDataDir(), TAILNET_FLEET_FILENAME)
+    const path = join(options.resolveUserDataDir(), TAILNET_MESH_FILENAME)
     writeFileSync(path, `${JSON.stringify({ version: 1, connections }, null, 2)}\n`, { mode: 0o600 })
     if (process.platform !== 'win32') chmodSync(path, 0o600)
   }
@@ -63,7 +69,7 @@ export function createTailnetFleetStore(options: {
     } catch (error) {
       // Diagnostics only. Losing a last-connected timestamp must not fail the
       // browse a person is waiting on.
-      options.log?.(`Could not write ${TAILNET_FLEET_FILENAME} (${context}): ${message(error)}`)
+      options.log?.(`Could not write ${TAILNET_MESH_FILENAME} (${context}): ${message(error)}`)
     }
   }
 
@@ -72,8 +78,8 @@ export function createTailnetFleetStore(options: {
 
     find: (connectionId) => connections.find((entry) => entry.id === connectionId) ?? null,
 
-    add(input): FleetConnection {
-      const stored: StoredFleetConnection = {
+    add(input): MeshConnection {
+      const stored: StoredMeshConnection = {
         id: `tnc_${randomBytes(9).toString('base64url')}`,
         machineName: input.machineName.slice(0, 120),
         endpoint: input.endpoint,
@@ -132,7 +138,7 @@ export function createTailnetFleetStore(options: {
   }
 }
 
-function publicConnection(entry: StoredFleetConnection): FleetConnection {
+function publicConnection(entry: StoredMeshConnection): MeshConnection {
   return {
     id: entry.id,
     machineName: entry.machineName,
@@ -150,13 +156,14 @@ function sameScopes(left: readonly TailnetScope[], right: readonly TailnetScope[
   return left.length === right.length && left.every((scope, index) => scope === right[index])
 }
 
-function read(userDataDir: string, log?: (message: string) => void): StoredFleetConnection[] {
+function read(userDataDir: string, log?: (message: string) => void): StoredMeshConnection[] {
+  const path = migrateLegacyFile(userDataDir, log)
   let raw: string
   try {
-    raw = readFileSync(join(userDataDir, TAILNET_FLEET_FILENAME), 'utf8')
+    raw = readFileSync(path, 'utf8')
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    if (code !== 'ENOENT') log?.(`Could not read ${TAILNET_FLEET_FILENAME}: ${message(error)}`)
+    if (code !== 'ENOENT') log?.(`Could not read ${TAILNET_MESH_FILENAME}: ${message(error)}`)
     return []
   }
   try {
@@ -166,12 +173,30 @@ function read(userDataDir: string, log?: (message: string) => void): StoredFleet
     // guessed endpoint would send this machine's credential somewhere nobody chose.
     return entries.flatMap((entry) => (isStored(entry) ? [normalize(entry)] : []))
   } catch (error) {
-    log?.(`${TAILNET_FLEET_FILENAME} is not valid JSON (${message(error)}); no machine is paired until it is fixed.`)
+    log?.(`${TAILNET_MESH_FILENAME} is not valid JSON (${message(error)}); no machine is paired until it is fixed.`)
     return []
   }
 }
 
-function isStored(value: unknown): value is StoredFleetConnection {
+/**
+ * The file to read: the current one, after moving a legacy-named one into its
+ * place. A move that fails reads the legacy file where it is, so the pairings
+ * still load; the next write lands under the current name.
+ */
+function migrateLegacyFile(userDataDir: string, log?: (message: string) => void): string {
+  const current = join(userDataDir, TAILNET_MESH_FILENAME)
+  const legacy = join(userDataDir, LEGACY_TAILNET_MESH_FILENAME)
+  if (existsSync(current) || !existsSync(legacy)) return current
+  try {
+    renameSync(legacy, current)
+    return current
+  } catch (error) {
+    log?.(`Could not move ${LEGACY_TAILNET_MESH_FILENAME} to ${TAILNET_MESH_FILENAME}: ${message(error)}`)
+    return legacy
+  }
+}
+
+function isStored(value: unknown): value is StoredMeshConnection {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
@@ -185,7 +210,7 @@ function isStored(value: unknown): value is StoredFleetConnection {
   )
 }
 
-function normalize(value: StoredFleetConnection): StoredFleetConnection {
+function normalize(value: StoredMeshConnection): StoredMeshConnection {
   return {
     id: value.id,
     machineName:
@@ -204,8 +229,8 @@ function normalize(value: StoredFleetConnection): StoredFleetConnection {
 
 const PAIRED_VIA: ReadonlySet<string> = new Set(['link', 'request', 'reverse', 'unknown'])
 
-function readPairedVia(value: unknown): FleetConnection['pairedVia'] {
-  return typeof value === 'string' && PAIRED_VIA.has(value) ? (value as FleetConnection['pairedVia']) : 'unknown'
+function readPairedVia(value: unknown): MeshConnection['pairedVia'] {
+  return typeof value === 'string' && PAIRED_VIA.has(value) ? (value as MeshConnection['pairedVia']) : 'unknown'
 }
 
 function message(error: unknown): string {

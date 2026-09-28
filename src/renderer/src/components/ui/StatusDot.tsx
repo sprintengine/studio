@@ -1,7 +1,7 @@
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
-import { AgentWorkingDots } from './AgentWorkingDots'
 import { LifecycleGlyph } from './LifecycleGlyph'
 import { STATUS_TONE_COLOR_VAR, type StatusTone } from './tokens'
+import { WorkingMark } from './WorkingMark'
 
 /**
  * The status mark. The app draws no status dots (owner ruling 2026-09-28): a
@@ -11,7 +11,7 @@ import { STATUS_TONE_COLOR_VAR, type StatusTone } from './tokens'
  * app already reads state by.
  *
  * - A live good or accent tone — something running right now — is the working
- *   dots, the one "working" mark the sidebar, the tabs and the peek card share.
+ *   mark, the one "working" mark the sidebar, the tabs and the peek card share.
  * - Every other tone is a lifecycle glyph in that tone's ink: danger is a ring
  *   with "×", warn a ring with "!", good a check, neutral a ring with a bar
  *   (off), accent a held arc, merged a check in the merged ink. A pulsing one
@@ -28,7 +28,7 @@ const TONE_SHAPE: Record<StatusTone, LifecycleState> = {
 
 type StatusDotProps = {
   tone: StatusTone
-  /** The state is live: a good or accent tone draws the working dots, any
+  /** The state is live: a good or accent tone draws the working mark, any
    *  other breathes. Reduced motion is honored globally in index.css. Use
    *  sparingly — only for live indicators. */
   pulse?: boolean
@@ -41,7 +41,8 @@ type StatusDotProps = {
 }
 
 export function StatusDot({ tone, pulse = false, label, size, className }: StatusDotProps) {
-  if (pulse && (tone === 'good' || tone === 'accent')) return <AgentWorkingDots label={label} className={className} />
+  if (pulse && (tone === 'good' || tone === 'accent'))
+    return <WorkingMark label={label ?? 'Working'} className={className} />
   const side = size ?? 'var(--icon-xs)'
   return (
     <LifecycleGlyph

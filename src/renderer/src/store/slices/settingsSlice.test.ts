@@ -842,21 +842,40 @@ test('settingsSlice', async () => {
   )
 
   // Appearance: windowMaterial is a second axis beside theme.
-  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'glass' })
+  assert.deepEqual(defaultAppearanceSettings(), {
+    theme: 'system',
+    windowMaterial: 'glass',
+    chatContrast: 100,
+    chatWidth: 'full',
+    agentCharacters: true,
+  })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
     theme: 'sage',
     windowMaterial: 'glass',
+    chatContrast: 100,
+    chatWidth: 'full',
+    agentCharacters: true,
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
-    { theme: 'sage', windowMaterial: 'tinted' },
+    { theme: 'sage', windowMaterial: 'tinted', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'tinted is a stored material in its own right',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'glass' },
+    { theme: 'sage', windowMaterial: 'glass', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'a persisted appearance predating the material axis hydrates to the glass default',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: false }).agentCharacters,
+    false,
+    'turning the characters off is kept',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: 'no' }).agentCharacters,
+    true,
+    'a malformed value falls back to characters on',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
@@ -1306,4 +1325,38 @@ test('a remembered model survives a refresh that stops listing it', () => {
   })
   store.setLastSelectedAgentModel(null)
   store.setCliModelCatalog('codex', null)
+})
+
+test('a stored appearance from before the chat settings hydrates to the chat as it was', () => {
+  assert.deepEqual(normalizeAppearanceSettings({ theme: 'light', windowMaterial: 'solid' }), {
+    theme: 'light',
+    windowMaterial: 'solid',
+    chatContrast: 100,
+    chatWidth: 'full',
+  })
+})
+
+test('chat contrast is clamped to its ramp and snapped to a step', () => {
+  const contrast = (value: unknown) => normalizeAppearanceSettings({ chatContrast: value }).chatContrast
+  assert.equal(contrast(135), 135)
+  assert.equal(contrast(132), 130)
+  assert.equal(contrast(10), 85)
+  assert.equal(contrast(500), 200)
+  assert.equal(contrast(Number.NaN), 100)
+  assert.equal(contrast('140'), 100)
+})
+
+test('an unknown chat width falls back to full', () => {
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'wide' }).chatWidth, 'wide')
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'narrow' }).chatWidth, 'full')
+})
+
+test('the chat appearance setters store normalised values', () => {
+  const store = useWorkspaceStore.getState()
+  store.setAppearanceChatContrast(163)
+  assert.equal(useWorkspaceStore.getState().appSettings.appearance.chatContrast, 165)
+  store.setAppearanceChatWidth('comfortable')
+  assert.equal(useWorkspaceStore.getState().appSettings.appearance.chatWidth, 'comfortable')
+  store.setAppearanceChatContrast(100)
+  store.setAppearanceChatWidth('full')
 })

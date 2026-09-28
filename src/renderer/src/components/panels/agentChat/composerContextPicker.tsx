@@ -4,6 +4,7 @@ import type { FileSearchEntry } from '../../../../../shared/ipc/filesystem'
 import { detectComposerTrigger, type ComposerTrigger } from '../../../../../shared/conversation/composerTrigger'
 import type { ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 import { rankMentionCandidates } from '../../../../../shared/conversation/searchRanking'
+import type { ConversationCommand } from '../../../../../shared/conversation/commands'
 import {
   ChipButton,
   InlineSkillPicker,
@@ -16,6 +17,7 @@ import {
 import { SkillsAndMcpsPicker } from '../../workspace/agentComposer/SkillsAndMcpsPicker'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
+import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
 
 type TriggerRange = ComposerTrigger['range']
 
@@ -169,54 +171,107 @@ const InlineMentionPicker = forwardRef<
   )
 })
 
+/** The `/` menu's inputs: the merged command list and what is known about the CLI's answer. */
+export type ComposerCommandMenuInput = {
+  commands: readonly ConversationCommand[]
+  status: SlashCommandMenuStatus
+  /** The menu opened on a fresh `/`: a chance to ask the CLI again. */
+  onOpen?: () => void
+}
+
 export function useComposerContextPicker({
   workspaceRoot,
   draft,
   caret,
   skillsEnabled,
   mentionsEnabled = true,
+  commandMenu = null,
   onPickSkill,
   onPickMention,
+  onPickCommand,
 }: {
   workspaceRoot: string | null
   draft: string
   caret: number
   skillsEnabled: boolean
   mentionsEnabled?: boolean
+  /** Null where the chat has no command list: `/` then stays literal text. */
+  commandMenu?: ComposerCommandMenuInput | null
   onPickSkill: (skill: WorkspaceSkill, range: TriggerRange) => void
   onPickMention: (mention: ConversationMentionRef, range: TriggerRange) => void
+  onPickCommand?: (command: ConversationCommand, range: TriggerRange) => void
 }) {
   const detected = useMemo(() => detectComposerTrigger(draft, caret), [draft, caret])
-  const triggerKey = detected
-    ? `${detected.kind}:${detected.range.start}:${detected.range.end}:${detected.query}`
-    : null
+  // A dismissal is remembered by where the token starts, not by what it
+  // holds: Esc keeps the menu shut while the person goes on typing into the
+  // same token, and a new token (or the caret leaving this one) forgets it.
+  const tokenKey = detected ? `${detected.kind}:${detected.range.start}` : null
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
-  useEffect(() => setDismissedKey(null), [triggerKey])
-  const trigger =
-    detected && triggerKey !== dismissedKey && (detected.kind === 'mention' ? mentionsEnabled : skillsEnabled)
-      ? detected
-      : null
+  useEffect(() => {
+    if (dismissedKey !== null && tokenKey !== dismissedKey) setDismissedKey(null)
+  }, [dismissedKey, tokenKey])
+  const enabled =
+    detected?.kind === 'mention' ? mentionsEnabled : detected?.kind === 'skill' ? skillsEnabled : commandMenu !== null
+  const trigger = detected && tokenKey !== dismissedKey && enabled ? detected : null
   const pickerRef = useRef<InlineSkillPickerHandle>(null)
-  const dismiss = useCallback(() => setDismissedKey(triggerKey), [triggerKey])
+  const dismiss = useCallback(() => setDismissedKey(tokenKey), [tokenKey])
+
+  // The command menu's rows and highlight live here rather than inside the
+  // menu, because the field is the combobox: its `aria-activedescendant`
+  // names the highlighted row, and the keys that move it arrive on the field.
+  const commandQuery = trigger?.kind === 'slash' ? trigger.query : null
+  const allCommands = commandMenu?.commands
+  const commandRows = useMemo(
+    () => (commandQuery === null || !allCommands ? [] : rankConversationCommands(allCommands, commandQuery)),
+    [allCommands, commandQuery],
+  )
+  const [commandIndex, setCommandIndex] = useState(0)
+  useEffect(() => setCommandIndex(0), [commandQuery])
+  const activeCommand = Math.min(commandIndex, Math.max(0, commandRows.length - 1))
+  const commandOpen = trigger?.kind === 'slash'
+  const onOpenCommands = commandMenu?.onOpen
+  const commandTokenStart = commandOpen ? trigger.range.start : null
+  useEffect(() => {
+    if (commandTokenStart !== null) onOpenCommands?.()
+  }, [commandTokenStart, onOpenCommands])
+  const pickCommand = useCallback(
+    (command: ConversationCommand) => {
+      if (trigger?.kind === 'slash') onPickCommand?.(command, trigger.range)
+    },
+    [onPickCommand, trigger],
+  )
+
+  const listId = useId()
+  const optionId = useCallback((index: number) => `${listId}-option-${index}`, [listId])
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
       if (!trigger || event.nativeEvent.isComposing) return false
       // A token under the caret is not a request to pick: "ping @alice" + Enter
       // sends, arrows move the caret and Tab moves focus unless the open picker
       // has a highlighted result to act on. Shift+Enter is always a newline.
+      // With no command matching, Enter sends what was typed — `/foo bar` for
+      // a command the list does not know still reaches the CLI.
+      const commands = trigger.kind === 'slash'
       const picker = pickerRef.current
-      const highlighted = (picker?.matchCount() ?? 0) > 0
+      const count = commands ? commandRows.length : (picker?.matchCount() ?? 0)
+      const highlighted = count > 0
       if (event.key === 'Escape') dismiss()
-      else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && highlighted)
-        picker?.moveSelection(event.key === 'ArrowUp' ? -1 : 1)
-      else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && highlighted) {
-        if (!picker?.pickActive()) return false
+      else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && highlighted) {
+        const delta = event.key === 'ArrowUp' ? -1 : 1
+        // The command list wraps, as a short menu does; the skill and file
+        // lists stop at their ends.
+        if (commands) setCommandIndex((activeCommand + delta + count) % count)
+        else picker?.moveSelection(delta)
+      } else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && highlighted) {
+        if (commands) pickCommand(commandRows[activeCommand])
+        else if (!picker?.pickActive()) return false
       } else return false
       event.preventDefault()
       event.stopPropagation()
       return true
     },
-    [dismiss, trigger],
+    [activeCommand, commandRows, dismiss, pickCommand, trigger],
   )
   const picker =
     trigger?.kind === 'mention' ? (
@@ -227,7 +282,7 @@ export function useComposerContextPicker({
         onPick={(mention) => onPickMention(mention, trigger.range)}
         onDismiss={dismiss}
       />
-    ) : trigger ? (
+    ) : trigger?.kind === 'skill' ? (
       <InlineSkillPicker
         ref={pickerRef}
         workspaceRoot={workspaceRoot}
@@ -236,8 +291,34 @@ export function useComposerContextPicker({
         onPick={(skill) => onPickSkill(skill, trigger.range)}
         onDismiss={dismiss}
       />
+    ) : trigger?.kind === 'slash' && commandMenu ? (
+      <SlashCommandMenu
+        listId={listId}
+        optionId={optionId}
+        rows={commandRows}
+        activeIndex={activeCommand}
+        query={trigger.query}
+        status={commandMenu.status}
+        skillsHint={skillsEnabled}
+        onActiveIndexChange={setCommandIndex}
+        onPick={pickCommand}
+        onDismiss={dismiss}
+      />
     ) : null
-  return { trigger, pickerRef, handleKeyDown, dismiss, picker }
+  // The field's combobox wiring, where the chat has a command menu. Only that
+  // menu is a listbox the field points into; the skill and file pickers keep
+  // their own semantics.
+  const commandMenuOpen = commandOpen && commandMenu !== null
+  const comboboxProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = commandMenu
+    ? {
+        role: 'combobox',
+        'aria-autocomplete': 'list',
+        'aria-expanded': commandMenuOpen,
+        'aria-controls': commandMenuOpen ? listId : undefined,
+        'aria-activedescendant': commandMenuOpen && commandRows.length ? optionId(activeCommand) : undefined,
+      }
+    : {}
+  return { trigger, pickerRef, handleKeyDown, dismiss, picker, comboboxProps }
 }
 
 export function ComposerSkillsPicker({

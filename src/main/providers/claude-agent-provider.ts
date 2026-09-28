@@ -25,6 +25,17 @@ import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
+import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
+import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import {
+  CLAUDE_COMMANDS_CLI,
+  claudeCommandsFromInit,
+  initSkillNames,
+  initTerminalCommands,
+  mapClaudeCommands,
+  sameCommandNames,
+} from '../conversation-commands/claude'
+import { isBackgroundLaunchAck } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
@@ -42,6 +53,8 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
+  ConversationSubagentState,
+  ConversationSubagentStatusPayload,
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
 } from '../../shared/conversation-runtime'
@@ -110,6 +123,20 @@ type PendingPermissionResolve = (decision: PermissionDecision) => void
 type PendingPermission = {
   turnId: string
   resolve: PendingPermissionResolve
+}
+
+// A spawned agent the child reported through its task messages, keyed by the
+// tool call that spawned it.
+type TrackedSubagent = {
+  taskId: string
+  toolUseId: string
+  background: boolean
+  subagentType?: string
+  description?: string
+  // The agent's latest text: its answer, once it has finished.
+  lastText?: string
+  endedAt?: number
+  error?: string
 }
 
 type ActiveTurn = {
@@ -197,6 +224,18 @@ type SessionState = {
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
+  // Agents the child has running, by spawning tool call.
+  subagents: Map<string, TrackedSubagent>
+  // What the child's last init said about its commands: which names are
+  // skills and which are bound to the terminal, so a later `commands_changed`
+  // push is read the same way. Null until an init has said.
+  commandSkills: string[] | null
+  terminalCommands: string[] | null
+  // The exchange has already shown a local command's output (the CLI reports
+  // it more than one way), and whether it compacted, whose divider already
+  // says what `/compact` printed. Both reset when the exchange ends.
+  commandOutputShown: boolean
+  compactedInExchange: boolean
 }
 
 // Event types that belong to a turn (carry a turnId and must be suppressed by
@@ -208,7 +247,27 @@ const SESSION_SCOPED_EVENT_TYPES = new Set<ConversationEvent['type']>([
   'session_closed',
   'session_updated',
   'user_message',
+  'subagent_status',
 ])
+
+// A background agent's result belongs to no turn: it closes a lane opened by a
+// turn that has usually ended, so it must not open a continuation turn.
+function isSessionScopedEvent(event: ConversationEvent): boolean {
+  return (
+    SESSION_SCOPED_EVENT_TYPES.has(event.type) ||
+    (event.type === 'tool_output' && event.payload?.backgroundResult === true)
+  )
+}
+
+// Session-scoped events that still matter between turns and ride the session
+// channel when no turn is open to carry them.
+function ridesSessionChannel(event: ConversationEvent): boolean {
+  return (
+    event.type === 'session_updated' ||
+    event.type === 'subagent_status' ||
+    (event.type === 'tool_output' && event.payload?.backgroundResult === true)
+  )
+}
 
 // Minimal push-based async iterable: producers push/end, one consumer drains.
 class PushStream<T> implements AsyncIterable<T> {
@@ -282,7 +341,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // Post-`result` turn-scoped activity with no open `sendTurn`: open a
       // continuation turn so the event (and any approval it raises) reaches the
       // runtime instead of being dropped. Requires the session channel.
-      if (!openTurn(state) && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
+      if (!openTurn(state) && state.onSessionEvent && !isSessionScopedEvent(event)) {
         ensureContinuationTurn(state)
       }
       const turn = openTurn(state)
@@ -290,9 +349,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         // Events mapped before the continuation turn existed carry no turnId;
         // stamp the continuation id so the runtime attaches them to its mirror.
         turn.queue.push(withContinuationTurnId(event, turn.turnId))
-      } else if (event.type === 'session_updated') {
-        // A resume-cursor update between turns: ride the session channel if it
-        // is open, else buffer for the next turn start.
+      } else if (ridesSessionChannel(event)) {
+        // A resume-cursor update or a background agent's progress between
+        // turns: ride the session channel if it is open, else buffer for the
+        // next turn start.
         if (state.onSessionEvent) state.onSessionEvent(event)
         else state.pendingSessionEvents.push(event)
       }
@@ -392,6 +452,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   function disposeChild(state: SessionState): boolean {
     const hadChild = state.query !== null
+    stopTrackedSubagents(state)
     resolveAllPendingPermissions(state, { approved: false })
     endTurn(state)
     state.pendingSendUuids.clear()
@@ -409,6 +470,23 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
     state.skillPluginDir = null
     return hadChild
+  }
+
+  // Background agents run inside the child: when it goes, they go with it. Say
+  // so, or their lanes would read as working forever.
+  function stopTrackedSubagents(state: SessionState): void {
+    const stopped = Array.from(state.subagents.values())
+    state.subagents.clear()
+    const events = stopped.map((agent) =>
+      eventFor(state, 'subagent_status', {
+        ...subagentStatusFields(agent, 'stopped'),
+        error: 'The agent stopped when its Claude Code process ended.',
+      }),
+    )
+    for (const event of events) {
+      if (state.onSessionEvent) state.onSessionEvent(event)
+      else state.pendingSessionEvents.push(event)
+    }
   }
 
   // Whether the live child runs under the session's recorded preset.
@@ -439,6 +517,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
             state.interruptedSendUuids.clear()
           }
         }
+        if (message.type === 'system') noteCommandList(state, message)
         const forking = state.resumeAt !== null
         const ends = message.type === 'result' && resultEndsExchange(state.pendingSendUuids, message)
         deliver(state, mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends }))
@@ -480,6 +559,35 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         disposeChild(state)
       }
     }
+  }
+
+  // What the live child says its commands are, for the composer's `/` menu.
+  // The init (sent at the start of every exchange) names them; a
+  // `commands_changed` push replaces them whole. Published only when the list
+  // changed, and never into the transcript: it is the folder's list, not
+  // something that happened in the chat. A chat with skills attached runs its
+  // child on those skills alone (the `skills` option) plus a plugin of its
+  // own, so its list is not the folder's and is kept out of it.
+  function noteCommandList(state: SessionState, message: Record<string, unknown>): void {
+    if (message.subtype !== 'init' && message.subtype !== 'commands_changed') return
+    if (message.subtype === 'init') {
+      state.commandSkills = initSkillNames(message) ?? state.commandSkills
+      state.terminalCommands = initTerminalCommands(message) ?? state.terminalCommands
+    }
+    if (state.skillIds?.length || !state.workspaceRoot) return
+    const known = conversationCommandsFor(CLAUDE_COMMANDS_CLI, state.workspaceRoot)
+    const next =
+      message.subtype === 'init'
+        ? claudeCommandsFromInit(message, known.commands)
+        : Array.isArray(message.commands)
+          ? mapClaudeCommands(message.commands, { skills: state.commandSkills, terminal: state.terminalCommands })
+          : null
+    if (!next) return
+    // An init repeats the same names every exchange; only a change is news.
+    // A push carries descriptions too, so it is taken whenever it arrives.
+    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands))
+      return
+    publishConversationCommands({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, commands: next })
   }
 
   function ensureQuery(state: SessionState): Promise<void> {
@@ -526,6 +634,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(state.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.modelId } : {}),
       ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
+      // A one-line "what it is doing now" for each running agent, forked from
+      // the agent's own context about every 30s; shown on its lane and card.
+      agentProgressSummaries: true,
       permissionMode,
       ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
@@ -589,6 +700,26 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
+    void reportSupportedAgents(state, q)
+  }
+
+  // The agent types this child can spawn, with what each is for, so an agent's
+  // card can say what kind of helper it is (custom agents included).
+  async function reportSupportedAgents(state: SessionState, q: Query): Promise<void> {
+    if (typeof q.supportedAgents !== 'function') return
+    const agents = await q.supportedAgents().catch(() => null)
+    if (!agents || state.query !== q) return
+    deliver(state, [
+      eventFor(state, 'session_updated', {
+        providerSessionId: state.providerSessionId,
+        agents: agents
+          .filter((agent) => typeof agent?.name === 'string' && agent.name)
+          .map((agent) => ({
+            name: agent.name,
+            ...(typeof agent.description === 'string' && agent.description ? { description: agent.description } : {}),
+          })),
+      }),
+    ])
   }
 
   async function handleCanUseTool(
@@ -601,8 +732,28 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       toolUseID?: string
       defaultToNo?: boolean
       suppressAlwaysAllowRule?: boolean
+      matchedAskRule?: unknown
     },
   ): Promise<PermissionResult> {
+    // Bypass means no approval cards, subagents included. The CLI still asks
+    // for some calls under bypassPermissions (an Explore subagent's compound
+    // Bash it can't prove read-only), so answer those here. Two asks still
+    // reach the person: a safety check the CLI marks as not approvable by a
+    // stray keystroke, and one forced by the user's own `permissions.ask`
+    // rule. Questions and plans are answers, not permissions, so they always
+    // show. The preset the child was spawned under decides, matching the
+    // "this reply finishes under the permissions it started with" contract.
+    if (
+      state.spawnedPreset === 'bypass' &&
+      state.mode !== 'plan' &&
+      state.mode !== 'ask' &&
+      toolName !== 'AskUserQuestion' &&
+      toolName !== 'ExitPlanMode' &&
+      !permissionContext?.defaultToNo &&
+      !permissionContext?.matchedAskRule
+    ) {
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being
@@ -749,6 +900,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         interruptedSendUuids: new Set(),
         textSeam: false,
         declinedToolUseIds: new Set(),
+        subagents: new Map(),
+        commandSkills: null,
+        terminalCommands: null,
+        commandOutputShown: false,
+        compactedInExchange: false,
       }
       sessions.set(input.sessionId, state)
       return [
@@ -818,15 +974,21 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       // The turn is the session's before its message reaches the child, and
       // nothing between the two yields: a steer finds this turn only once the
-      // child has what it joins.
+      // child has what it joins. The note naming the attached skills goes
+      // ahead of prose only: Claude Code runs a message as a slash command
+      // when it starts with `/`, and read after a note it would be prose. The
+      // skills stay loaded for the command either way.
+      const opensWithCommand =
+        leadingCommandFor(input.message, { cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot }) !== null
       if (!turn.queue.closed)
         pushUserMessage(
           state,
           buildUserMessageContent(
-            input.skills?.length
+            input.skills?.length && !opensWithCommand
               ? `Use the attached skills: ${input.skills.map(attachedSkillName).join(', ')}.\n\n${input.message}`
               : input.message,
             input.attachments,
+            opensWithCommand,
           ),
         )
 
@@ -860,7 +1022,14 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // here" on it goes back to.
       const sessionId = state.providerSessionId
       const at = state.settledChainUuid
-      pushUserMessage(state, buildUserMessageContent(input.message, input.attachments))
+      pushUserMessage(
+        state,
+        buildUserMessageContent(
+          input.message,
+          input.attachments,
+          leadingCommandFor(input.message, { cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot }) !== null,
+        ),
+      )
       state.lastActivityAt = now()
       return { ok: true, ...(sessionId && at ? { providerCursor: { sessionId, at } } : {}) }
     },
@@ -1152,13 +1321,23 @@ function readPlanText(toolInput: Record<string, unknown>): string {
 // multimodal block array — the text block (when present) followed by one base64
 // `image` block per attachment. Media types are already validated at the IPC
 // boundary, so they are trusted here.
+//
+// A message that opens with a slash command keeps its text last instead:
+// Claude Code runs a block array as a command only when its *last* block is
+// text starting with `/` (read off Claude Code 2.1.284, which checks
+// `content.at(-1)`), so images ahead of it ride along with the command rather
+// than turning it into prose.
 export function buildUserMessageContent(
   message: string,
   attachments: ConversationImageAttachment[] | undefined,
+  // Whether the message runs as a command: the session judges that against the
+  // list its CLI reported, and without one the message's look decides.
+  opensWithCommand = leadingSlashCommand(message) !== null,
 ): SDKUserMessage['message']['content'] {
   if (!attachments || attachments.length === 0) return message
   const blocks: Exclude<SDKUserMessage['message']['content'], string> = []
-  if (message) blocks.push({ type: 'text', text: message })
+  const commandLast = opensWithCommand
+  if (message && !commandLast) blocks.push({ type: 'text', text: message })
   for (const attachment of attachments) {
     blocks.push({
       type: 'image',
@@ -1171,6 +1350,7 @@ export function buildUserMessageContent(
       },
     })
   }
+  if (commandLast) blocks.push({ type: 'text', text: message })
   return blocks
 }
 
@@ -1225,7 +1405,7 @@ function answersOnlyInterrupted(interruptedSendUuids: Set<string>, message: Reco
 // events and events that already carry a turnId are returned unchanged, so the
 // normal per-turn path is a no-op.
 function withContinuationTurnId(event: ConversationEvent, turnId: string): ConversationEvent {
-  if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
+  if (isSessionScopedEvent(event)) return event
   const current = event.payload?.turnId
   if (typeof current === 'string' && current) return event
   return { ...event, payload: { ...event.payload, turnId } }
@@ -1271,6 +1451,9 @@ async function defaultLoadQuery(): Promise<SdkQueryFunction> {
   return sdk.query
 }
 
+// The `claude` a chat runs, which the command probe runs too.
+export { defaultResolveExecutable as resolveClaudeExecutable }
+
 async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
   const { detectCli } = await import('../cli-runtime-install')
   const detection = await detectCli('claude-code', cliRuntimes?.['claude-code'])
@@ -1303,17 +1486,28 @@ export function stripAnthropicAuthEnv(env: Record<string, string>): Record<strin
   return next
 }
 
+/**
+ * The environment every chat child starts from, before it is marked with the
+ * conversation it belongs to: the terminal's, without the auth that would
+ * take the child off the person's login. The command probe asks with it, so
+ * the CLI it asks sees what a chat's CLI sees.
+ */
+export async function claudeChatBaseEnv(): Promise<Record<string, string>> {
+  // Deferred import keeps terminal-launch (and its transitive electron/pty
+  // imports) out of unit tests that only exercise the mapping logic. It must
+  // be import() — a bare require('../terminal-launch') survives bundling as a
+  // runtime lookup relative to out/main/index.js and fails in the built app.
+  const { getTerminalEnv } = await import('../terminal-launch')
+  return stripAnthropicAuthEnv(getTerminalEnv())
+}
+
 async function defaultBuildEnv(input: {
   workspaceId: string
   agentId: string
   sessionId: string
 }): Promise<Record<string, string>> {
-  // Deferred import keeps terminal-launch (and its transitive electron/pty
-  // imports) out of unit tests that only exercise the mapping logic. It must
-  // be import() — a bare require('../terminal-launch') survives bundling as a
-  // runtime lookup relative to out/main/index.js and fails in the built app.
-  const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')
-  const env = applyAgentIdentityEnv(stripAnthropicAuthEnv(getTerminalEnv()), {
+  const { applyAgentIdentityEnv } = await import('../terminal-launch')
+  const env = applyAgentIdentityEnv(await claudeChatBaseEnv(), {
     workspaceId: input.workspaceId,
     agentId: input.agentId,
   })
@@ -1335,6 +1529,7 @@ export function mapSdkMessage(
     turn: { turnId: string } | null
     queryCostUsd?: number
     declinedToolUseIds?: Set<string>
+    subagents?: Map<string, TrackedSubagent>
     lastChainUuid?: string | null
     settledChainUuid?: string | null
     openToolUseIds?: Set<string>
@@ -1343,6 +1538,8 @@ export function mapSdkMessage(
     // The lifetime of the cache the main chain's requests last wrote. A request
     // that only reads says nothing about it, so it carries over.
     promptCacheTtl?: PromptCacheTtl | null
+    commandOutputShown?: boolean
+    compactedInExchange?: boolean
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -1360,10 +1557,13 @@ export function mapSdkMessage(
   // its point reports its error under a fresh one.
   const messageSessionId = init && typeof message.session_id === 'string' ? message.session_id : null
   // The main chain's newest entry: what the turn's end records as the point a
-  // rewind can fork at. A subagent's messages live in a chain of their own.
+  // rewind can fork at. A subagent's messages live in a chain of their own,
+  // and the copy of a local command's output the CLI makes for its stream is
+  // not an entry of the session at all.
   if (
     (message.type === 'assistant' || message.type === 'user') &&
     !readParentToolUseId(message) &&
+    typeof message.local_command_source !== 'string' &&
     typeof message.uuid === 'string' &&
     message.uuid
   ) {
@@ -1403,12 +1603,33 @@ export function mapSdkMessage(
     events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId }))
   }
 
+  // What a command the CLI ran by itself printed (`/context`, `/usage`…): no
+  // model turn, so no streamed text either. Shown once per exchange whichever
+  // way the CLI reported it. `/compact` prints a line the compaction divider
+  // already says, so a compacting exchange shows the divider alone.
+  const commandOutput = (output: string, command: string | undefined): void => {
+    const text = stripLocalCommandTags(output).trim()
+    if (!text || state.commandOutputShown) return
+    if (command === 'compact' && state.compactedInExchange) return
+    state.commandOutputShown = true
+    events.push(eventFor(state, 'command_output', { turnId, ...(command ? { command } : {}), output: text }))
+  }
+
   switch (message.type) {
     case 'system': {
+      if (message.subtype === 'local_command_output') {
+        if (typeof message.content === 'string') commandOutput(stripLocalCommandTags(message.content), undefined)
+        break
+      }
       // The CLI summarised the conversation to free context, on /compact or
       // on its own when the window filled. The transcript marks the seam, since
       // the model no longer sees what came before it verbatim.
-      if (message.subtype !== 'compact_boundary') break
+      if (message.subtype !== 'compact_boundary') {
+        // Spawned agents report through `task_*` system messages.
+        events.push(...mapTaskMessage(state, message))
+        break
+      }
+      state.compactedInExchange = true
       const metadata = asRecord(message.compact_metadata)
       const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
       const preTokens = finiteNumber(metadata?.pre_tokens)
@@ -1465,8 +1686,22 @@ export function mapSdkMessage(
       const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
+      // Claude Code 2.1.284 hands a local command's output over as an
+      // assistant message of its own making (marked by `local_command_source`)
+      // that nothing streams, so it is read here or not at all.
+      if (!parentToolUseId && typeof message.local_command_source === 'string') {
+        commandOutput(extractResultText(content), readString(asRecord(message.local_command_run)?.command))
+        break
+      }
+      const tracked = parentToolUseId ? state.subagents?.get(parentToolUseId) : undefined
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
+        // A background agent's last words are its answer: its spawning call
+        // only ever returned the launch notice.
+        if (tracked && block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          tracked.lastText = block.text
+          continue
+        }
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
         const toolInput = asRecord(block.input) ?? {}
         const payload: ConversationToolStartedPayload = {
@@ -1507,6 +1742,9 @@ export function mapSdkMessage(
         const source = asRecord(binary?.source)
         const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined
         const output = extractResultText(block.content)
+        // The notice a background agent's call returns at once is for the
+        // model, not the person; the lane stays open until the agent reports.
+        if (toolUseId && state.subagents?.get(toolUseId)?.background && isBackgroundLaunchAck(output)) continue
         const declined = toolUseId !== undefined && state.declinedToolUseIds?.delete(toolUseId) === true
         const command = commandOutcome(message.tool_use_result, block.is_error === true, output)
         const payload: ConversationToolOutputPayload = {
@@ -1530,6 +1768,12 @@ export function mapSdkMessage(
       break
     }
     case 'result': {
+      // A result that answers a local command repeats its output: the one
+      // report left when the CLI sent it no other way.
+      if (typeof message.local_command === 'string' && typeof message.result === 'string')
+        commandOutput(message.result, message.local_command)
+      state.commandOutputShown = false
+      state.compactedInExchange = false
       if (options.interrupted) {
         state.openToolUseIds?.clear()
         if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
@@ -1619,10 +1863,159 @@ export function mapSdkMessage(
       }
       break
     }
+    case 'conversation_reset': {
+      // `/clear` (typed, since the menu does not offer it) started a new CLI
+      // conversation. The next init names it, and the chat follows it from
+      // there; the transcript says the model no longer has what came before.
+      events.push(
+        eventFor(state, 'command_output', {
+          turnId,
+          command: 'clear',
+          adapterNote: true,
+          output: 'Claude Code started a new conversation. The messages above are no longer in its context.',
+        }),
+      )
+      break
+    }
     default:
       break
   }
   return events
+}
+
+// Claude Code reports each spawned agent through `task_*` system messages:
+// started, progress (latest tool, token use, a one-line summary), updated
+// (moved to the background, ended) and a final notification. Only agents are
+// followed; background shells, monitors and ambient watchers are not lanes.
+function mapTaskMessage(
+  state: Parameters<typeof mapSdkMessage>[0],
+  message: Record<string, unknown>,
+): ConversationEvent[] {
+  const subagents = state.subagents
+  if (!subagents) return []
+  const taskId = typeof message.task_id === 'string' ? message.task_id : null
+  if (!taskId) return []
+  const find = (): TrackedSubagent | undefined => {
+    const toolUseId = typeof message.tool_use_id === 'string' ? message.tool_use_id : null
+    if (toolUseId && subagents.has(toolUseId)) return subagents.get(toolUseId)
+    for (const agent of subagents.values()) if (agent.taskId === taskId) return agent
+    return undefined
+  }
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+
+  switch (message.subtype) {
+    case 'task_started': {
+      const toolUseId = text(message.tool_use_id)
+      if (!toolUseId || message.ambient === true || message.skip_transcript === true) return []
+      if (message.task_type !== undefined && message.task_type !== 'local_agent') return []
+      const agent: TrackedSubagent = {
+        taskId,
+        toolUseId,
+        background: message.is_backgrounded === true,
+        subagentType: text(message.subagent_type),
+        description: text(message.description),
+      }
+      subagents.set(toolUseId, agent)
+      return [eventFor(state, 'subagent_status', subagentStatusFields(agent, 'running'))]
+    }
+    case 'task_progress': {
+      const agent = find()
+      if (!agent) return []
+      return [
+        eventFor(state, 'subagent_status', {
+          ...subagentStatusFields(agent, 'running'),
+          ...optional('lastToolName', text(message.last_tool_name)),
+          ...optional('progressSummary', text(message.summary)),
+          ...optional('usage', readTaskUsage(message.usage)),
+        }),
+      ]
+    }
+    case 'task_updated': {
+      const agent = find()
+      const patch = asRecord(message.patch)
+      if (!agent || !patch) return []
+      if (typeof patch.end_time === 'number') agent.endedAt = patch.end_time
+      if (text(patch.error)) agent.error = text(patch.error)
+      // A foreground agent sent to the background keeps running after its
+      // call returns, exactly like one launched there.
+      if (patch.is_backgrounded === true && !agent.background) {
+        agent.background = true
+        return [eventFor(state, 'subagent_status', subagentStatusFields(agent, 'running'))]
+      }
+      return []
+    }
+    case 'task_notification': {
+      const agent = find()
+      if (!agent) return []
+      subagents.delete(agent.toolUseId)
+      const status: ConversationSubagentState =
+        message.status === 'failed' ? 'failed' : message.status === 'stopped' ? 'stopped' : 'completed'
+      const events: ConversationEvent[] = []
+      if (agent.background) {
+        // The answer the model is about to read, and the result the lane has
+        // been waiting for since its call returned the launch notice.
+        const output = agent.lastText ?? text(message.summary) ?? ''
+        const payload: ConversationToolOutputPayload = {
+          toolCallId: agent.toolUseId,
+          toolUseId: agent.toolUseId,
+          output,
+          status: status === 'failed' ? 'error' : status === 'stopped' ? 'stopped' : 'ok',
+          isError: status === 'failed',
+          backgroundResult: true,
+        }
+        events.push(eventFor(state, 'tool_output', payload))
+      }
+      events.push(
+        eventFor(state, 'subagent_status', {
+          ...subagentStatusFields(agent, status),
+          ...optional('usage', readTaskUsage(message.usage)),
+          ...(status === 'completed' ? {} : optional('error', agent.error ?? text(message.summary))),
+        }),
+      )
+      return events
+    }
+    default:
+      return []
+  }
+}
+
+function subagentStatusFields(
+  agent: TrackedSubagent,
+  status: ConversationSubagentState,
+): ConversationSubagentStatusPayload {
+  return {
+    toolUseId: agent.toolUseId,
+    taskId: agent.taskId,
+    status,
+    background: agent.background,
+    ...optional('subagentType', agent.subagentType),
+    ...optional('description', agent.description),
+    ...(status !== 'running' ? optional('endedAt', agent.endedAt) : {}),
+  }
+}
+
+function readTaskUsage(value: unknown): ConversationSubagentStatusPayload['usage'] | undefined {
+  const usage = asRecord(value)
+  if (!usage) return undefined
+  return {
+    totalTokens: numberOr(usage.total_tokens, 0),
+    toolUses: numberOr(usage.tool_uses, 0),
+    durationMs: numberOr(usage.duration_ms, 0),
+  }
+}
+
+function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
+}
+
+// The CLI wraps what a local command printed in the tags its own transcript
+// keeps it in; the output is what is between them.
+function stripLocalCommandTags(text: string): string {
+  return text.replace(/<\/?local-command-(?:stdout|stderr)>/g, '')
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
 }
 
 // What a shell command's result says about how it ended. The structured

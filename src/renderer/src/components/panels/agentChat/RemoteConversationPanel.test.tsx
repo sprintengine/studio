@@ -3,11 +3,11 @@ import { forwardRef, Fragment, useImperativeHandle, useRef, type ReactNode } fro
 import { expect, test, vi } from 'vitest'
 import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
 import type {
-  FleetConversation,
-  FleetConversationFrame,
-  FleetConversationKey,
-  FleetConversationLink,
-} from '../../../../../shared/tailnet-fleet'
+  MeshConversation,
+  MeshConversationFrame,
+  MeshConversationKey,
+  MeshConversationLink,
+} from '../../../../../shared/tailnet-mesh'
 
 // The virtual list measures a real viewport, which jsdom does not have; this
 // stand-in renders every row.
@@ -44,7 +44,7 @@ vi.mock('@legendapp/list/react', () => ({
   }),
 }))
 
-const key: FleetConversationKey = {
+const key: MeshConversationKey = {
   connectionId: 'connection',
   workspaceId: 'remote-workspace',
   agentId: 'remote-agent',
@@ -67,7 +67,7 @@ function event(type: ConversationEventType, payload: Record<string, unknown>): C
   }
 }
 
-const thread: FleetConversation = {
+const thread: MeshConversation = {
   workspaceId: key.workspaceId,
   agentId: key.agentId,
   title: 'Fix the flaky upload test',
@@ -82,7 +82,7 @@ const thread: FleetConversation = {
   capabilities: { images: true, approvals: true, questions: true, planMode: true, interrupt: true, checkpoints: true },
 }
 
-// Mounts the remote pane against a scripted Fleet API. The local
+// Mounts the remote pane against a scripted Mesh API. The local
 // conversation API is absent altogether: nothing in this view may reach it.
 async function mountRemote({
   access,
@@ -91,8 +91,8 @@ async function mountRemote({
   modelSwitch = false,
 }: {
   access: 'read' | 'operate'
-  permissionPreset?: FleetConversation['permissionPreset']
-  models?: FleetConversation['models']
+  permissionPreset?: MeshConversation['permissionPreset']
+  models?: MeshConversation['models']
   modelSwitch?: boolean
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -110,13 +110,13 @@ async function mountRemote({
     IS_REACT_ACT_ENVIRONMENT: true,
   }
   Object.assign(globalThis, globals)
-  const receivers: Array<(frame: FleetConversationFrame) => void> = []
-  const followed: FleetConversationKey[] = []
+  const receivers: Array<(frame: MeshConversationFrame) => void> = []
+  const followed: MeshConversationKey[] = []
   // The model the machine says the chat is on: what an accepted switch moves.
   let listedModel = thread.modelId
   const api = {
     platform: 'darwin',
-    fleetConversationList: vi.fn(async () => ({
+    meshConversationList: vi.fn(async () => ({
       ok: true,
       conversations: [
         {
@@ -129,26 +129,26 @@ async function mountRemote({
       access,
       modelSwitch,
     })),
-    onFleetConversationSession: vi.fn(
-      (input: { key: FleetConversationKey }, receive: (frame: FleetConversationFrame) => void) => {
+    onMeshConversationSession: vi.fn(
+      (input: { key: MeshConversationKey }, receive: (frame: MeshConversationFrame) => void) => {
         followed.push(input.key)
         receivers.push(receive)
         return () => undefined
       },
     ),
     // A turn's changed files are listed as soon as its card is drawn.
-    fleetConversationTurnDiff: vi.fn(async () => ({
+    meshConversationTurnDiff: vi.fn(async () => ({
       ok: true,
       diff: {
         files: [{ path: 'src/upload.ts', status: 'modified', addedLines: 1, removedLines: 1, binary: false }],
         submodulesExcluded: true,
       },
     })),
-    fleetConversationSend: vi.fn(async () => ({ ok: true })),
-    fleetConversationResolveApproval: vi.fn(async () => ({ ok: true })),
-    fleetConversationInterrupt: vi.fn(async () => ({ ok: true })),
-    fleetConversationSetPermissionPreset: vi.fn(async () => ({ ok: true })),
-    fleetConversationSetModel: vi.fn(async (input: { key: FleetConversationKey; modelId: string }) => {
+    meshConversationSend: vi.fn(async () => ({ ok: true })),
+    meshConversationResolveApproval: vi.fn(async () => ({ ok: true })),
+    meshConversationInterrupt: vi.fn(async () => ({ ok: true })),
+    meshConversationSetPermissionPreset: vi.fn(async () => ({ ok: true })),
+    meshConversationSetModel: vi.fn(async (input: { key: MeshConversationKey; modelId: string }) => {
       listedModel = input.modelId
       return { ok: true, notice: 'The new model starts with your next message.' }
     }),
@@ -196,7 +196,7 @@ async function mountRemote({
       input: { command: 'npm test' },
     }),
   ]
-  const link: FleetConversationLink = { type: 'link', state: 'live', detail: 'Following on mac-mini.', access }
+  const link: MeshConversationLink = { type: 'link', state: 'live', detail: 'Following on mac-mini.', access }
   await act(async () => {
     const receive = receivers.at(-1)!
     receive({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null }, generation: 'g' })
@@ -210,7 +210,7 @@ async function mountRemote({
     act,
     api,
     followed,
-    emit: (frame: FleetConversationFrame) => receivers.at(-1)!(frame),
+    emit: (frame: MeshConversationFrame) => receivers.at(-1)!(frame),
     button: (label: string) =>
       Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.trim() === label),
     type: (value: string) => {
@@ -233,7 +233,7 @@ async function mountRemote({
   }
 }
 
-test('a conversation on a paired machine renders in the chat view and is driven over the fleet', async () => {
+test('a conversation on a paired machine renders in the chat view and is driven over the mesh', async () => {
   const chat = await mountRemote({ access: 'operate' })
   try {
     expect(chat.followed).toEqual([key])
@@ -242,11 +242,11 @@ test('a conversation on a paired machine renders in the chat view and is driven 
     expect(chat.host.textContent).toContain('On mac-mini')
     expect(chat.host.textContent).toContain('Fix the flaky upload test')
 
-    // An approval is answered over the fleet, and no rule that would outlive
+    // An approval is answered over the mesh, and no rule that would outlive
     // the conversation is offered.
     expect(chat.host.textContent).not.toMatch(/always/i)
     await chat.act(async () => chat.button('Allow once')!.click())
-    expect(chat.api.fleetConversationResolveApproval).toHaveBeenCalledWith({
+    expect(chat.api.meshConversationResolveApproval).toHaveBeenCalledWith({
       key,
       requestId: 'approval-1',
       decision: 'once',
@@ -282,17 +282,17 @@ test('a send goes to the machine that holds the conversation, with no session st
     await chat.act(async () => chat.enter())
     expect(chat.host.textContent).toContain('Queued')
     await chat.act(async () => chat.button('Deny')!.click())
-    expect(chat.api.fleetConversationResolveApproval).toHaveBeenCalledWith({
+    expect(chat.api.meshConversationResolveApproval).toHaveBeenCalledWith({
       key,
       requestId: 'approval-1',
       decision: 'deny',
     })
-    expect(chat.api.fleetConversationSend).not.toHaveBeenCalled()
+    expect(chat.api.meshConversationSend).not.toHaveBeenCalled()
     await chat.act(async () => {
       chat.emit({ type: 'event', event: event('approval_resolved', { requestId: 'approval-1', approved: false }) })
       chat.emit({ type: 'event', event: event('turn_completed', { turnId: 'a' }) })
     })
-    expect(chat.api.fleetConversationSend).toHaveBeenCalledExactlyOnceWith({ key, message: 'Try it with --runInBand' })
+    expect(chat.api.meshConversationSend).toHaveBeenCalledExactlyOnceWith({ key, message: 'Try it with --runInBand' })
     // No optimistic bubble: the machine's own `user_message` is the one shown.
     expect(chat.host.textContent?.match(/Try it with --runInBand/g) ?? []).toHaveLength(0)
     await chat.act(async () =>
@@ -318,7 +318,7 @@ test('a pairing that may only follow sees the conversation with every action clo
   }
 })
 
-test('a chat whose machine names its preset offers the same two presets on its engine picker, and a pick goes over the fleet', async () => {
+test('a chat whose machine names its preset offers the same two presets on its engine picker, and a pick goes over the mesh', async () => {
   const chat = await mountRemote({ access: 'operate', permissionPreset: 'bypass' })
   try {
     // One control for engine, effort and permissions: the chip opens the
@@ -341,7 +341,7 @@ test('a chat whose machine names its preset offers the same two presets on its e
     ).toEqual([true, true])
     expect(rows.some((row) => row.disabled)).toBe(false)
     await chat.act(async () => rows[1]!.click())
-    expect(chat.api.fleetConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
+    expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
     await chat.act(async () => chip()!.click())
     expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: No flag')
   } finally {
@@ -352,7 +352,7 @@ test('a chat whose machine names its preset offers the same two presets on its e
 // The catalog the machine lists for the chat's CLI. This machine's own catalog
 // for that CLI is empty here, so every model row the picker shows is the
 // machine's.
-const remoteModels: NonNullable<FleetConversation['models']> = {
+const remoteModels: NonNullable<MeshConversation['models']> = {
   cli: 'claude-code',
   cliLabel: 'Claude Code',
   liveModelSwitch: true,
@@ -365,24 +365,24 @@ const remoteModels: NonNullable<FleetConversation['models']> = {
 const engineChip = (host: HTMLElement) =>
   Array.from(host.querySelectorAll('button')).find((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))
 
-test("a chat on a machine that offers model switching lists that machine's models, and a pick goes over the fleet", async () => {
+test("a chat on a machine that offers model switching lists that machine's models, and a pick goes over the mesh", async () => {
   const chat = await mountRemote({ access: 'operate', models: remoteModels, modelSwitch: true })
   try {
     expect(engineChip(chat.host)?.textContent).toContain('Opus')
     await chat.act(async () => engineChip(chat.host)!.click())
     const rows = () => Array.from(chat.document.querySelectorAll<HTMLElement>('[data-model-row="true"]'))
     expect(rows().some((row) => row.textContent?.includes('Sonnet'))).toBe(true)
-    const listReads = chat.api.fleetConversationList.mock.calls.length
+    const listReads = chat.api.meshConversationList.mock.calls.length
     await chat.act(async () =>
       rows()
         .find((row) => row.textContent?.includes('Sonnet'))!
         .click(),
     )
-    expect(chat.api.fleetConversationSetModel).toHaveBeenCalledExactlyOnceWith({ key, modelId: 'sonnet' })
+    expect(chat.api.meshConversationSetModel).toHaveBeenCalledExactlyOnceWith({ key, modelId: 'sonnet' })
     // The chip names the model the machine accepted, the machine is asked
     // again, and its word that the switch waits for the next turn is shown.
     expect(engineChip(chat.host)?.textContent).toContain('Sonnet')
-    expect(chat.api.fleetConversationList.mock.calls.length).toBeGreaterThan(listReads)
+    expect(chat.api.meshConversationList.mock.calls.length).toBeGreaterThan(listReads)
     expect(chat.host.textContent).toContain('The new model starts with your next message.')
   } finally {
     await chat.unmount()
@@ -395,7 +395,7 @@ test('a machine that does not offer model switching keeps the chat on its model,
     await chat.act(async () => engineChip(chat.host)!.click())
     const rows = Array.from(chat.document.querySelectorAll<HTMLElement>('[data-model-row="true"]'))
     expect(rows.some((row) => row.textContent?.includes('Sonnet'))).toBe(false)
-    expect(chat.api.fleetConversationSetModel).not.toHaveBeenCalled()
+    expect(chat.api.meshConversationSetModel).not.toHaveBeenCalled()
   } finally {
     await chat.unmount()
   }

@@ -141,6 +141,21 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.turn.next' },
   }),
+  // Quote what is selected in a conversation's transcript into its composer,
+  // as the selection toolbar's Quote does. `>` is markdown's quote marker and
+  // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is
+  // what the dispatcher matches, so the chord is written unshifted. Outside
+  // editable targets only: the selection it acts on is in the transcript, and
+  // focus is there with it.
+  command({
+    id: 'chat.quoteSelection',
+    title: 'Quote Selection in Reply',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+.'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.quoteSelection' },
+  }),
   command({
     id: 'workspace.close',
     title: 'Close Workspace',

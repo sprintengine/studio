@@ -26,7 +26,7 @@ import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfac
  *    exception, because the URL parser normalises it to no host at all, which
  *    is what "this machine" is spelled as.)
  * 3. **A `file:` URI on a surface with no local roots is refused entirely.**
- *    A fleet pane is attached to a terminal on another machine; the decision of
+ *    A mesh pane is attached to a terminal on another machine; the decision of
  *    record for the epic is that it never resolves a local path. That is passed
  *    in as `allowLocalPaths`, derived from `terminalSurfaceLinkRoots(surface)`
  *    being non-null so the two cannot drift apart.
@@ -110,7 +110,7 @@ export function resolveTerminalOscLink(uri: string, options: TerminalOscLinkOpti
   if (!path) return null
   // Checked last on purpose: the parse and the host rule are facts about the
   // URI, this is a fact about the pane, and keeping them apart is what lets the
-  // fleet rule be read as one line rather than inferred from a parser.
+  // mesh rule be read as one line rather than inferred from a parser.
   if (!options.allowLocalPaths) return null
   return { kind: 'file', path }
 }
@@ -211,7 +211,7 @@ export type TerminalOscLinkHandlerInput = TerminalSurfaceOscLinkCallbacks & {
   /**
    * Whether this pane may turn a `file:` URI into a local path at all. Derive
    * it from `terminalSurfaceLinkRoots(surface) !== null` — never hardcode it,
-   * or the fleet rule stops being enforced by the type that carries it. Use
+   * or the mesh rule stops being enforced by the type that carries it. Use
    * `createTerminalSurfaceOscLinkHandler` and it is derived for you.
    */
   allowLocalPaths: boolean

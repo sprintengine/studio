@@ -179,7 +179,7 @@ export function rowConversationPeekIdentities(input: {
           model: session.modelId,
           fileChanges: [],
           pullRequests: [],
-          activeSubagents: 0,
+          activeSubagents: session.backgroundAgents ?? 0,
           contextUsage: null,
           // A chat compacts from its own composer, where its notice offers it.
           promptCache: session.promptCache ?? null,

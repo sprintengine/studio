@@ -18,25 +18,25 @@ import { revealAgentTerminalTab } from '../../../utils/agentTabReveal'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { formatElapsedMs, formatRelativeMsAgo } from '../../../utils/relativeTime'
 import type { TailnetLiveDevice } from '../../../../../shared/tailnet'
-import type { FleetConnection } from '../../../../../shared/tailnet-fleet'
+import type { MeshConnection } from '../../../../../shared/tailnet-mesh'
 import { showToast } from '../../../store/toastStore'
 import { PairRequestCard } from '../../remote/PairRequestCard'
 import { OutboundPairRequestCard } from '../../remote/OutboundPairRequestCard'
 import {
   drivenTerminalView,
-  fleetMachinePhase,
+  meshMachinePhase,
   machineGlyphToneClass,
   machineIsAnswering,
   machinePhaseText,
   machineRowAction,
   shortMachineName,
-  type FleetMachinePhase,
+  type MeshMachinePhase,
 } from '../../remote/machineRowModel'
 
 // The machine-row vocabulary lives in `remote/machineRowModel.ts` now (pair-
-// from-the-scan-and-stay-paired, phase 4), shared with the Fleet; re-exported
+// from-the-scan-and-stay-paired, phase 4), shared with the Mesh; re-exported
 // so the glyph's tests keep one import.
-export { fleetMachinePhase, machinePhaseText, type FleetMachinePhase }
+export { meshMachinePhase, machinePhaseText, type MeshMachinePhase }
 
 // The Remote glyph's surface (remote-sessions-ux / remote-glyph-topbar):
 // ONE list of the other machines — the devices holding a socket here and the
@@ -62,16 +62,16 @@ export function RemotePopover({
   presence: TailnetPresence
   onOpenRemoteSettings: () => void
 }) {
-  const { status, live, fleet, fleetAttachments, fleetRequests, fleetReachability } = presence
+  const { status, live, mesh, meshAttachments, meshRequests, meshReachability } = presence
   const now = useRelativeNow(1000)
   const pairRequests = status?.pairRequests ?? []
   // The count over the list is what the list holds: connected devices and
   // paired machines, the rows a person came to look at.
-  const rowCount = live.devices.length + fleet.length
+  const rowCount = live.devices.length + mesh.length
   // Where "Add a machine…" and "Pair again" go: Settings → Remote, which
   // draws the picker. The Fleet panel is being retired (owner, 2026-09-05),
   // so this surface no longer routes anyone into it.
-  const quiet = rowCount === 0 && pairRequests.length === 0 && fleetRequests.length === 0
+  const quiet = rowCount === 0 && pairRequests.length === 0 && meshRequests.length === 0
   // Whether this device is on the tailnet at all. The header does not say it
   // (owner ruling 2026-09-05: no dot, no "Serving" — the glyph that opened
   // this popover is green when the listener is up, and its tooltip has the
@@ -89,17 +89,17 @@ export function RemotePopover({
         ))}
         {/* Requests THIS machine made, waiting: the code to read out lives
             here as well as in the panel that asked (phase 3). */}
-        {fleetRequests.map((request) => (
+        {meshRequests.map((request) => (
           <OutboundPairRequestCard key={request.requestId} request={request} now={now} />
         ))}
         {live.devices.map((device) => (
           <ConnectedDeviceRow key={device.deviceId} device={device} now={now} />
         ))}
-        {fleet.map((connection) => (
+        {mesh.map((connection) => (
           <MachineRow
             key={connection.id}
             connection={connection}
-            phase={fleetMachinePhase(connection.id, fleetAttachments, fleetReachability)}
+            phase={meshMachinePhase(connection.id, meshAttachments, meshReachability)}
             now={now}
             listening={listening}
             onPairAgain={onOpenRemoteSettings}
@@ -284,8 +284,8 @@ function MachineRow({
   listening,
   onPairAgain,
 }: {
-  connection: FleetConnection
-  phase: FleetMachinePhase
+  connection: MeshConnection
+  phase: MeshMachinePhase
   now: number
   /** This device is on the tailnet. Off it the row is remembered, not reachable: disabled ink, no Retry. */
   listening: boolean
@@ -301,7 +301,7 @@ function MachineRow({
     if (retrying) return
     setRetrying(true)
     try {
-      await window.api.fleetCheckReachability(connection.id)
+      await window.api.meshCheckReachability(connection.id)
       // The push channel updates the row; nothing to do locally.
     } catch (error) {
       showToast({
@@ -317,7 +317,7 @@ function MachineRow({
     if (forgetting) return
     setForgetting(true)
     try {
-      await window.api.fleetForget(connection.id)
+      await window.api.meshForget(connection.id)
       // `machine-forgotten` clears the row everywhere and announces the
       // removal; the half only a person over there can do is added here.
       showToast({

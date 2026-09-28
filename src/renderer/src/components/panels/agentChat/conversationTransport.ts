@@ -21,16 +21,16 @@ import type {
   ConversationTurnDiffResult,
 } from '../../../../../shared/conversation-runtime'
 import type {
-  FleetConversationAccess,
-  FleetConversationCommandResult,
-  FleetConversationKey,
-  FleetConversationLink,
-} from '../../../../../shared/tailnet-fleet'
+  MeshConversationAccess,
+  MeshConversationCommandResult,
+  MeshConversationKey,
+  MeshConversationLink,
+} from '../../../../../shared/tailnet-mesh'
 
 // Where a chat view's conversation lives. The view — its transcript, pending
 // dock, composer — is the same whether the conversation runs on this machine
 // or on a paired one; only the calls behind it differ. The local transport is
-// the conversation IPC; a remote one is the Fleet's, which follows the
+// the conversation IPC; a remote one is the Mesh's, which follows the
 // conversation over the tailnet from main.
 //
 // What a transport cannot do is said by its capabilities, not inferred from a
@@ -146,20 +146,20 @@ export function useConversationTransport(): ConversationTransport {
   return useContext(ConversationTransportContext)
 }
 
-const commandResult = (result: FleetConversationCommandResult): ConversationTransportResult =>
+const commandResult = (result: MeshConversationCommandResult): ConversationTransportResult =>
   result.ok ? { ok: true, ...(result.notice ? { notice: result.notice } : {}) } : { ok: false, message: result.message }
 
 /**
- * A conversation on a paired machine, over the Fleet. The key it was made for
+ * A conversation on a paired machine, over the Mesh. The key it was made for
  * is the one every call names: the local key a view passes carries this
  * machine's idea of a workspace root, which means nothing over there.
  * `onLink` receives the connection state main narrates beside the frames.
  */
 export function createRemoteConversationTransport(input: {
-  key: FleetConversationKey
+  key: MeshConversationKey
   machineName: string
-  access: FleetConversationAccess | null
-  onLink?: (link: FleetConversationLink) => void
+  access: MeshConversationAccess | null
+  onLink?: (link: MeshConversationLink) => void
 }): ConversationTransport {
   const { key } = input
   return {
@@ -181,20 +181,20 @@ export function createRemoteConversationTransport(input: {
       steer: false,
     },
     subscribe: (subscription, cb) =>
-      window.api.onFleetConversationSession({ key, turnLimit: subscription.turnLimit }, (frame) => {
+      window.api.onMeshConversationSession({ key, turnLimit: subscription.turnLimit }, (frame) => {
         if (frame.type === 'link') input.onLink?.(frame)
         else cb(frame)
       }),
     loadEarlier: (page) =>
-      window.api.fleetConversationLoadEarlier({ key, beforeCursor: page.beforeCursor, turnLimit: page.turnLimit }),
-    toolDetail: (detail) => window.api.fleetConversationToolDetail({ key, toolUseId: detail.toolUseId }),
-    turnDiff: (diff) => window.api.fleetConversationTurnDiff({ key, turnSeq: diff.turnSeq, path: diff.path }),
-    send: async (turn) => commandResult(await window.api.fleetConversationSend({ key, message: turn.message })),
-    interrupt: async () => commandResult(await window.api.fleetConversationInterrupt({ key })),
+      window.api.meshConversationLoadEarlier({ key, beforeCursor: page.beforeCursor, turnLimit: page.turnLimit }),
+    toolDetail: (detail) => window.api.meshConversationToolDetail({ key, toolUseId: detail.toolUseId }),
+    turnDiff: (diff) => window.api.meshConversationTurnDiff({ key, turnSeq: diff.turnSeq, path: diff.path }),
+    send: async (turn) => commandResult(await window.api.meshConversationSend({ key, message: turn.message })),
+    interrupt: async () => commandResult(await window.api.meshConversationInterrupt({ key })),
     respond: async (response) => {
       if (response.answers && response.approved)
         return commandResult(
-          await window.api.fleetConversationAnswerQuestion({
+          await window.api.meshConversationAnswerQuestion({
             key,
             requestId: response.requestId,
             answers: response.answers,
@@ -204,14 +204,14 @@ export function createRemoteConversationTransport(input: {
         return { ok: false, message: 'A remote device cannot choose a permanent rule.' }
       const decision = !response.approved ? 'deny' : response.decision === 'conversation' ? 'conversation' : 'once'
       return commandResult(
-        await window.api.fleetConversationResolveApproval({ key, requestId: response.requestId, decision }),
+        await window.api.meshConversationResolveApproval({ key, requestId: response.requestId, decision }),
       )
     },
     setPermissionPreset: async (change) =>
-      commandResult(await window.api.fleetConversationSetPermissionPreset({ key, preset: change.permissionPreset })),
+      commandResult(await window.api.meshConversationSetPermissionPreset({ key, preset: change.permissionPreset })),
     // Offered only while the machine advertises model switching; the pane turns
     // `modelSwitch` on from its list, and the chip stays locked without it.
     setModel: async (change) =>
-      commandResult(await window.api.fleetConversationSetModel({ key, modelId: change.modelId })),
+      commandResult(await window.api.meshConversationSetModel({ key, modelId: change.modelId })),
   }
 }

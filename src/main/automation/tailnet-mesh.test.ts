@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { TailnetScope } from '../../shared/tailnet'
-import type { FleetEvent, FleetTerminalEvent } from '../../shared/tailnet-fleet'
+import type { MeshEvent, MeshTerminalEvent } from '../../shared/tailnet-mesh'
 import type {
   TerminalAttachFrame,
   TerminalAttachTransport,
@@ -14,16 +14,16 @@ import type {
   TerminalStreamPosition,
 } from '../terminal-remote-attach'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
-import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
-import { TAILNET_FLEET_FILENAME } from './tailnet/tailnet-fleet-store'
+import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
+import { TAILNET_MESH_FILENAME } from './tailnet/tailnet-mesh-store'
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { pairingUrl } from './tailnet/tailnet-service'
 import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 import { test } from 'vitest'
 
-test('tailnet-fleet', async () => {
-  // The Fleet client: this Studio driving another machine.
+test('tailnet-mesh', async () => {
+  // The Mesh client: this Studio driving another machine.
   //
   // Every test drives the REAL listener over a real TCP socket on loopback, with
   // the real outbound client, the real pairing exchange, and the real attach
@@ -49,11 +49,11 @@ test('tailnet-fleet', async () => {
     port: number
     remoteDir: string
     localDir: string
-    fleet: TailnetFleetService
+    mesh: TailnetMeshService
     terminals: StubTerminalHost
-    /** Every whole-app fleet event the service broadcast, in order. */
-    events: FleetEvent[]
-    /** Pair the fleet service with the harness's listener under the given scopes. */
+    /** Every whole-app mesh event the service broadcast, in order. */
+    events: MeshEvent[]
+    /** Pair the mesh service with the harness's listener under the given scopes. */
     pair(scopes: TailnetScope[]): Promise<string>
     /** Stop the listener, leaving the client dialling a dead port. */
     stopServer(): Promise<void>
@@ -63,8 +63,8 @@ test('tailnet-fleet', async () => {
   }
 
   async function startHarness(options: { positioned?: boolean } = {}): Promise<Harness> {
-    const remoteDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-remote-'))
-    const localDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-local-'))
+    const remoteDir = mkdtempSync(join(tmpdir(), 'sprintengine-mesh-remote-'))
+    const localDir = mkdtempSync(join(tmpdir(), 'sprintengine-mesh-local-'))
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => remoteDir })
     const terminals = createStubTerminalHost(options)
 
@@ -88,9 +88,9 @@ test('tailnet-fleet', async () => {
     assert.ok(address, 'the harness listener reports a bound address')
     const port = address.port
 
-    const events: FleetEvent[] = []
+    const events: MeshEvent[] = []
     const localDevices = createTailnetDeviceStore({ resolveUserDataDir: () => localDir })
-    const fleet = createTailnetFleetService({
+    const mesh = createTailnetMeshService({
       resolveUserDataDir: () => localDir,
       resolveDeviceName: () => 'laptop',
       // No Tailscale in a test, so no name: the machine is listed by address, and
@@ -111,12 +111,12 @@ test('tailnet-fleet', async () => {
       port,
       remoteDir,
       localDir,
-      fleet,
+      mesh,
       terminals,
       events,
       async pair(scopes): Promise<string> {
         const offer = devices.offerPairing({ scopes })
-        const result = await fleet.pair({ pairingUrl: pairingUrl('127.0.0.1', port, offer.token) })
+        const result = await mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', port, offer.token) })
         assert.equal(result.ok, true, result.ok ? '' : result.message)
         assert.ok(result.ok)
         return result.connection.id
@@ -129,7 +129,7 @@ test('tailnet-fleet', async () => {
         await server.start()
       },
       async close(): Promise<void> {
-        fleet.shutdown()
+        mesh.shutdown()
         await server.stop().catch(() => {})
         rmSync(remoteDir, { recursive: true, force: true })
         rmSync(localDir, { recursive: true, force: true })
@@ -137,7 +137,7 @@ test('tailnet-fleet', async () => {
     }
   }
 
-  /** The remote machine's tool surface, answering the shapes the Fleet reads. */
+  /** The remote machine's tool surface, answering the shapes the Mesh reads. */
   function remoteTools(): McpToolRegistration[] {
     void terminalCreateArgs
     const tool = (name: string, structured: Record<string, unknown>): McpToolRegistration => ({
@@ -344,14 +344,14 @@ test('tailnet-fleet', async () => {
 
   /** A pane's event sink, with the waiting a real pane does implicitly. */
   function createRecorder() {
-    const events: FleetTerminalEvent[] = []
+    const events: MeshTerminalEvent[] = []
     const waiters: Array<{
-      match: (event: FleetTerminalEvent) => boolean
-      resolve: (event: FleetTerminalEvent) => void
+      match: (event: MeshTerminalEvent) => boolean
+      resolve: (event: MeshTerminalEvent) => void
     }> = []
     return {
       events,
-      emit(event: FleetTerminalEvent): void {
+      emit(event: MeshTerminalEvent): void {
         events.push(event)
         for (const waiter of [...waiters]) {
           if (!waiter.match(event)) continue
@@ -360,10 +360,10 @@ test('tailnet-fleet', async () => {
         }
       },
       /** Resolve with the first matching event, past or future. */
-      async waitFor(match: (event: FleetTerminalEvent) => boolean, what: string): Promise<FleetTerminalEvent> {
+      async waitFor(match: (event: MeshTerminalEvent) => boolean, what: string): Promise<MeshTerminalEvent> {
         const seen = events.find(match)
         if (seen) return seen
-        return new Promise<FleetTerminalEvent>((resolve, reject) => {
+        return new Promise<MeshTerminalEvent>((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 20_000)
           waiters.push({
             match,
@@ -392,7 +392,7 @@ test('tailnet-fleet', async () => {
     const harness = await startHarness()
     try {
       const connectionId = await harness.pair(['workspace:read', 'terminal:control'])
-      const listed = harness.fleet.listConnections()
+      const listed = harness.mesh.listConnections()
       assert.equal(listed.length, 1)
       assert.equal(listed[0].id, connectionId)
       assert.equal(listed[0].endpoint, `127.0.0.1:${harness.port}`)
@@ -401,7 +401,7 @@ test('tailnet-fleet', async () => {
       // the renderer.
       assert.equal('deviceToken' in listed[0], false)
 
-      const storePath = join(harness.localDir, TAILNET_FLEET_FILENAME)
+      const storePath = join(harness.localDir, TAILNET_MESH_FILENAME)
       const stored = JSON.parse(readFileSync(storePath, 'utf8')) as { connections: Array<{ deviceToken: string }> }
       assert.equal(typeof stored.connections[0].deviceToken, 'string')
       if (process.platform !== 'win32') {
@@ -422,22 +422,22 @@ test('tailnet-fleet', async () => {
   test('a link that is not a pairing link is refused before anything is dialled', async () => {
     const harness = await startHarness()
     try {
-      const result = await harness.fleet.pair({ pairingUrl: 'https://example.com/pair?token=abc' })
+      const result = await harness.mesh.pair({ pairingUrl: 'https://example.com/pair?token=abc' })
       assert.equal(result.ok, false)
       assert.ok(!result.ok && result.code === 'invalid_pairing_link')
-      assert.equal(harness.fleet.listConnections().length, 0)
+      assert.equal(harness.mesh.listConnections().length, 0)
     } finally {
       await harness.close()
     }
   })
 
-  // The browse is the Fleet's whole read: another machine's workspaces and
+  // The browse is the Mesh's whole read: another machine's workspaces and
   // terminals, over the real tool surface, behind the real scopes.
   test('browsing a machine reads its workspaces and terminals', async () => {
     const harness = await startHarness()
     try {
       const connectionId = await harness.pair(['workspace:read', 'backlog:read', 'terminal:control'])
-      const browse = await harness.fleet.browse(connectionId)
+      const browse = await harness.mesh.browse(connectionId)
       assert.equal(browse.reachable, true)
       assert.equal(browse.unauthorized, false)
       assert.equal(browse.terminalAccess, 'control')
@@ -464,7 +464,7 @@ test('tailnet-fleet', async () => {
   })
 
   // The change feed (2026-09-05): pairing opens a watch on the machine, and the
-  // machine saying "terminals changed" lands here as a fleet event a surface
+  // machine saying "terminals changed" lands here as a mesh event a surface
   // re-reads on — no timer, no browse in between. Forgetting the machine closes
   // the watch, so a forgotten machine cannot keep pushing.
   test("a paired machine's change feed lands as a remote-changed event, and forgetting closes it", async () => {
@@ -478,11 +478,11 @@ test('tailnet-fleet', async () => {
       for (let i = 0; i < 100 && !harness.events.some((event) => event.kind === 'remote-changed'); i += 1)
         await delay(20)
       const changed = harness.events.find((event) => event.kind === 'remote-changed')
-      assert.ok(changed && changed.kind === 'remote-changed', 'the push became a fleet event')
+      assert.ok(changed && changed.kind === 'remote-changed', 'the push became a mesh event')
       assert.equal(changed.connectionId, connectionId)
       assert.equal(changed.what, 'terminals')
 
-      harness.fleet.forget(connectionId)
+      harness.mesh.forget(connectionId)
       for (let i = 0; i < 100 && harness.server.eventStreamCount() > 0; i += 1) await delay(20)
       assert.equal(harness.server.eventStreamCount(), 0, 'forgetting the machine closed its watch')
     } finally {
@@ -497,7 +497,7 @@ test('tailnet-fleet', async () => {
     const harness = await startHarness()
     try {
       const connectionId = await harness.pair(['terminal:observe'])
-      const browse = await harness.fleet.browse(connectionId)
+      const browse = await harness.mesh.browse(connectionId)
       assert.equal(browse.reachable, true)
       assert.equal(browse.terminals.length, 1)
       assert.equal(browse.workspaces.length, 0)
@@ -516,7 +516,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['workspace:read'])
       harness.devices.revokeDevice(harness.devices.listDevices()[0].id)
-      const browse = await harness.fleet.browse(connectionId)
+      const browse = await harness.mesh.browse(connectionId)
       assert.equal(browse.reachable, false)
       assert.equal(browse.unauthorized, true)
       assert.match(browse.unreachableReason ?? '', /no longer accepts/u)
@@ -532,7 +532,7 @@ test('tailnet-fleet', async () => {
     const harness = await startHarness()
     try {
       const connectionId = await harness.pair(['workspace:read'])
-      const read = await harness.fleet.workspaceCheckout(connectionId, 'ws-1')
+      const read = await harness.mesh.workspaceCheckout(connectionId, 'ws-1')
       assert.ok(read.ok, read.ok ? '' : read.message)
       assert.equal(read.checkout.branch, 'main')
       assert.equal(read.checkout.defaultBranch, 'main')
@@ -543,7 +543,7 @@ test('tailnet-fleet', async () => {
       assert.equal(read.checkout.worktrees[0]?.isMain, true)
 
       const terminalsOnly = await harness.pair(['terminal:control'])
-      const refused = await harness.fleet.workspaceCheckout(terminalsOnly, 'ws-1')
+      const refused = await harness.mesh.workspaceCheckout(terminalsOnly, 'ws-1')
       assert.equal(refused.ok, false)
       assert.equal(refused.ok ? '' : refused.code, 'tailnet_scope_required')
       assert.match(
@@ -552,7 +552,7 @@ test('tailnet-fleet', async () => {
         'the gateway names the missing scope, verbatim',
       )
 
-      const nameless = await harness.fleet.workspaceCheckout(connectionId, '')
+      const nameless = await harness.mesh.workspaceCheckout(connectionId, '')
       assert.equal(nameless.ok, false)
     } finally {
       await harness.close()
@@ -569,7 +569,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['workspace:operate', 'terminal:control'])
       const before = terminalCreateArgs.length
-      const created = await harness.fleet.createTerminal({
+      const created = await harness.mesh.createTerminal({
         connectionId,
         workspaceId: 'ws-1',
         cli: 'claude-code',
@@ -593,7 +593,7 @@ test('tailnet-fleet', async () => {
       assert.equal(terminalCreateArgs.length, before, 'terminal.create was not asked')
 
       // The current checkout is still terminal.create, and says so.
-      const current = await harness.fleet.createTerminal({
+      const current = await harness.mesh.createTerminal({
         connectionId,
         workspaceId: 'ws-1',
         checkout: { mode: 'current' },
@@ -604,7 +604,7 @@ test('tailnet-fleet', async () => {
 
       const terminalsOnly = await harness.pair(['terminal:control'])
       const launches = agentLaunchArgs.length
-      const refused = await harness.fleet.createTerminal({
+      const refused = await harness.mesh.createTerminal({
         connectionId: terminalsOnly,
         workspaceId: 'ws-1',
         checkout: { mode: 'worktree', baseRef: 'main' },
@@ -624,7 +624,7 @@ test('tailnet-fleet', async () => {
     const harness = await startHarness()
     try {
       const connectionId = await harness.pair(['workspace:read', 'terminal:control'])
-      const created = await harness.fleet.createTerminal({
+      const created = await harness.mesh.createTerminal({
         connectionId,
         workspaceId: 'ws-1',
         cli: 'claude-code',
@@ -646,7 +646,7 @@ test('tailnet-fleet', async () => {
       harness.terminals.create(created.sessionId)
 
       const recorder = createRecorder()
-      const attached = await harness.fleet.attachTerminal({
+      const attached = await harness.mesh.attachTerminal({
         attachId: 'pane-1',
         connectionId,
         sessionId: created.sessionId,
@@ -658,11 +658,11 @@ test('tailnet-fleet', async () => {
       assert.ok(header.type === 'attached' && header.access === 'control')
       await recorder.waitFor((event) => event.type === 'status' && event.state === 'live', 'a live link')
 
-      harness.fleet.sendInput('pane-1', 'ls\r')
+      harness.mesh.sendInput('pane-1', 'ls\r')
       await waitUntil(() => harness.terminals.writes.length > 0, 'the keystroke to reach the remote pty')
       assert.deepEqual(harness.terminals.writes[0], { sessionId: 'session_two', data: 'ls\r' })
 
-      harness.fleet.resizeTerminal('pane-1', 100, 40)
+      harness.mesh.resizeTerminal('pane-1', 100, 40)
       await waitUntil(() => harness.terminals.resizes.length > 0, 'the resize to reach the remote pty')
       assert.deepEqual(harness.terminals.resizes[0], { sessionId: 'session_two', cols: 100, rows: 40 })
 
@@ -672,7 +672,7 @@ test('tailnet-fleet', async () => {
 
       // Detaching ends the attachment on the far side too, rather than leaving a
       // pty narrating to a pane that is gone.
-      harness.fleet.detachTerminal('pane-1')
+      harness.mesh.detachTerminal('pane-1')
       await waitUntil(() => harness.terminals.attachedCount() === 0, 'the remote attachment to be released')
     } finally {
       await harness.close()
@@ -686,7 +686,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-2',
         connectionId,
         sessionId: 'session_one',
@@ -696,7 +696,7 @@ test('tailnet-fleet', async () => {
       assert.ok(replay.type === 'replay' && replay.data === 'scrollback so far\r\n' && replay.reason === 'attach')
       const frames = recorder.events.filter((event) => event.type === 'replay' || event.type === 'attached')
       assert.equal(frames[0].type, 'replay', 'the screen arrives before the header')
-      harness.fleet.detachTerminal('pane-2')
+      harness.mesh.detachTerminal('pane-2')
     } finally {
       await harness.close()
     }
@@ -709,7 +709,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:observe'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-3',
         connectionId,
         sessionId: 'session_one',
@@ -718,11 +718,11 @@ test('tailnet-fleet', async () => {
       const header = await recorder.waitFor((event) => event.type === 'attached', 'the attach header')
       assert.ok(header.type === 'attached' && header.access === 'observe')
 
-      harness.fleet.sendInput('pane-3', 'rm -rf /\r')
+      harness.mesh.sendInput('pane-3', 'rm -rf /\r')
       const refusal = await recorder.waitFor((event) => event.type === 'error', 'the refusal')
       assert.ok(refusal.type === 'error' && refusal.code === 'terminal_control_required')
       assert.equal(harness.terminals.writes.length, 0, 'nothing was written to the remote pty')
-      harness.fleet.detachTerminal('pane-3')
+      harness.mesh.detachTerminal('pane-3')
     } finally {
       await harness.close()
     }
@@ -735,7 +735,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['workspace:read'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-4',
         connectionId,
         sessionId: 'session_one',
@@ -766,7 +766,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-8',
         connectionId,
         sessionId: 'session_that_is_gone',
@@ -796,14 +796,14 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-5',
         connectionId,
         sessionId: 'session_one',
         emit: recorder.emit,
       })
       await recorder.waitFor((event) => event.type === 'status' && event.state === 'live', 'the first live link')
-      harness.fleet.resizeTerminal('pane-5', 120, 30)
+      harness.mesh.resizeTerminal('pane-5', 120, 30)
       await waitUntil(() => harness.terminals.resizes.length > 0, 'the pane size to reach the remote pty')
 
       // The machine goes away mid-session — a closed lid, a Wi-Fi handover.
@@ -838,9 +838,9 @@ test('tailnet-fleet', async () => {
       // including the pane's size, which the remote pty would otherwise keep from
       // whichever viewer attached last.
       assert.deepEqual(harness.terminals.resizes.at(-1), { sessionId: 'session_one', cols: 120, rows: 30 })
-      harness.fleet.sendInput('pane-5', 'echo back\r')
+      harness.mesh.sendInput('pane-5', 'echo back\r')
       await waitUntil(() => harness.terminals.writes.length > 0, 'typing to work after the reconnect')
-      harness.fleet.detachTerminal('pane-5')
+      harness.mesh.detachTerminal('pane-5')
     } finally {
       await harness.close()
     }
@@ -854,7 +854,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-resume',
         connectionId,
         sessionId: 'session_one',
@@ -893,7 +893,7 @@ test('tailnet-fleet', async () => {
       // And it goes on streaming, still positioned, from there.
       harness.terminals.emit('session_one', 'and after\r\n')
       await recorder.waitFor((event) => event.type === 'output' && event.data === 'and after\r\n', 'live again')
-      harness.fleet.detachTerminal('pane-resume')
+      harness.mesh.detachTerminal('pane-resume')
     } finally {
       await harness.close()
     }
@@ -909,7 +909,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:observe'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-unvouched',
         connectionId,
         sessionId: 'session_one',
@@ -952,7 +952,7 @@ test('tailnet-fleet', async () => {
         await redial()
         assert.notEqual(harness.terminals.resumes.at(-1), undefined, `after "${frame.data}" the replay was not trusted`)
       }
-      harness.fleet.detachTerminal('pane-unvouched')
+      harness.mesh.detachTerminal('pane-unvouched')
     } finally {
       await harness.close()
     }
@@ -966,7 +966,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:observe'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-dedupe',
         connectionId,
         sessionId: 'session_one',
@@ -987,7 +987,7 @@ test('tailnet-fleet', async () => {
         ['abc', 'dé', '!', 'end'],
         'duplicates dropped, overlaps trimmed to what is new',
       )
-      harness.fleet.detachTerminal('pane-dedupe')
+      harness.mesh.detachTerminal('pane-dedupe')
     } finally {
       await harness.close()
     }
@@ -1000,7 +1000,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-6',
         connectionId,
         sessionId: 'session_one',
@@ -1033,7 +1033,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:control'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-7',
         connectionId,
         sessionId: 'session_one',
@@ -1041,13 +1041,13 @@ test('tailnet-fleet', async () => {
       })
       await recorder.waitFor((event) => event.type === 'status' && event.state === 'live', 'a live link')
 
-      const remaining = harness.fleet.forget(connectionId)
+      const remaining = harness.mesh.forget(connectionId)
       assert.equal(remaining.length, 0)
       const closed = await recorder.waitFor(
         (event) => event.type === 'status' && event.state === 'closed',
         'the pane to be closed',
       )
-      assert.ok(closed.type === 'status' && /removed from your fleet/u.test(closed.detail))
+      assert.ok(closed.type === 'status' && /removed from your mesh/u.test(closed.detail))
       await waitUntil(() => harness.terminals.attachedCount() === 0, 'the remote attachment to be released')
     } finally {
       await harness.close()
@@ -1075,11 +1075,11 @@ test('tailnet-fleet', async () => {
   // machine paired and forgotten, per-attachment link state keyed by the PANE,
   // and a snapshot read that agrees with the events — every one stamped with
   // a revision that only goes up.
-  test('the fleet broadcasts machine paired/forgotten and attachment link state, keyed by attachId, with a matching snapshot', async () => {
+  test('the mesh broadcasts machine paired/forgotten and attachment link state, keyed by attachId, with a matching snapshot', async () => {
     const harness = await startHarness()
     try {
       assert.deepEqual(
-        harness.fleet.getLiveState(),
+        harness.mesh.getLiveState(),
         { revision: 0, attachments: [], requests: [], reachability: [] },
         'nothing attached, revision 0',
       )
@@ -1097,13 +1097,13 @@ test('tailnet-fleet', async () => {
       // Two panes on ONE session: two links, announced separately.
       const first = createRecorder()
       const second = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-a',
         connectionId,
         sessionId: 'session_one',
         emit: first.emit,
       })
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-b',
         connectionId,
         sessionId: 'session_one',
@@ -1124,7 +1124,7 @@ test('tailnet-fleet', async () => {
         )
       }
 
-      const snapshot = harness.fleet.getLiveState()
+      const snapshot = harness.mesh.getLiveState()
       assert.equal(
         snapshot.revision,
         harness.events[harness.events.length - 1].revision,
@@ -1140,17 +1140,17 @@ test('tailnet-fleet', async () => {
       )
 
       // Closing one pane retracts ONLY that pane's link.
-      harness.fleet.detachTerminal('pane-a')
+      harness.mesh.detachTerminal('pane-a')
       const closed = harness.events[harness.events.length - 1]
       assert.ok(closed.kind === 'attachment' && closed.attachId === 'pane-a' && closed.state === 'closed')
       assert.deepEqual(
-        harness.fleet.getLiveState().attachments.map((attachment) => attachment.attachId),
+        harness.mesh.getLiveState().attachments.map((attachment) => attachment.attachId),
         ['pane-b'],
         'the other pane is still held',
       )
 
       // Forgetting the machine ends the remaining pane and announces the forget.
-      harness.fleet.forget(connectionId)
+      harness.mesh.forget(connectionId)
       const forgotten = harness.events.find((event) => event.kind === 'machine-forgotten')
       assert.ok(forgotten && forgotten.kind === 'machine-forgotten' && forgotten.connectionId === connectionId)
       assert.ok(
@@ -1159,7 +1159,7 @@ test('tailnet-fleet', async () => {
         ),
         'the pane on a forgotten machine is closed, and said to be',
       )
-      assert.deepEqual(harness.fleet.getLiveState().attachments, [])
+      assert.deepEqual(harness.mesh.getLiveState().attachments, [])
 
       harness.events.forEach((event, index) => {
         if (index === 0) return
@@ -1178,7 +1178,7 @@ test('tailnet-fleet', async () => {
     try {
       const connectionId = await harness.pair(['terminal:observe'])
       const recorder = createRecorder()
-      await harness.fleet.attachTerminal({
+      await harness.mesh.attachTerminal({
         attachId: 'pane-x',
         connectionId,
         sessionId: 'session_one',
@@ -1195,13 +1195,13 @@ test('tailnet-fleet', async () => {
         .map((event) => event.kind === 'attachment' && event.state)
       assert.ok(sequence.includes('reconnecting'), 'reconnecting precedes offline')
       assert.ok(sequence.indexOf('reconnecting') < sequence.indexOf('offline'))
-      assert.equal(harness.fleet.getLiveState().attachments[0]?.state, 'offline', 'the snapshot agrees')
+      assert.equal(harness.mesh.getLiveState().attachments[0]?.state, 'offline', 'the snapshot agrees')
       await harness.restartServer()
       await waitUntil(() => {
         const last = harness.events[harness.events.length - 1]
         return last.kind === 'attachment' && last.state === 'live'
       }, 'the link to come back live')
-      harness.fleet.detachTerminal('pane-x')
+      harness.mesh.detachTerminal('pane-x')
     } finally {
       await harness.close()
     }
@@ -1227,15 +1227,15 @@ test('tailnet-fleet', async () => {
         origin: { kind: 'reverse', by: 'mac-mini.tail1234.ts.net' },
       })
       assert.equal(harness.localDevices.listDevices().length, 1)
-      assert.equal(harness.fleet.listConnections().length, 1)
+      assert.equal(harness.mesh.listConnections().length, 1)
 
-      const result = harness.fleet.forgetMachine({ deviceId: inbound.device.id, connectionId })
+      const result = harness.mesh.forgetMachine({ deviceId: inbound.device.id, connectionId })
       assert.deepEqual(result.connections, [])
       assert.equal(result.revokedDeviceId, inbound.device.id)
       assert.equal(result.forgottenConnectionId, connectionId)
       // Both stores, not just the report.
       assert.equal(harness.localDevices.listDevices().length, 0)
-      assert.equal(harness.fleet.listConnections().length, 0)
+      assert.equal(harness.mesh.listConnections().length, 0)
       // And every window hears it, exactly as a one-sided forget announces.
       assert.ok(harness.events.some((event) => event.kind === 'machine-forgotten'))
     } finally {
@@ -1249,7 +1249,7 @@ test('tailnet-fleet', async () => {
       // Outbound only: this machine drives that one, and was never granted a
       // device here. Nothing to revoke, and that is not a failure.
       const connectionId = await harness.pair(['workspace:read'])
-      const outboundOnly = harness.fleet.forgetMachine({ connectionId })
+      const outboundOnly = harness.mesh.forgetMachine({ connectionId })
       assert.equal(outboundOnly.revokedDeviceId, null)
       assert.equal(outboundOnly.forgottenConnectionId, connectionId)
       assert.deepEqual(outboundOnly.connections, [])
@@ -1261,16 +1261,16 @@ test('tailnet-fleet', async () => {
         scopes: ['workspace:read'],
         origin: { kind: 'approval', by: null },
       })
-      const inboundOnly = harness.fleet.forgetMachine({ deviceId: inbound.device.id })
+      const inboundOnly = harness.mesh.forgetMachine({ deviceId: inbound.device.id })
       assert.equal(inboundOnly.revokedDeviceId, inbound.device.id)
       assert.equal(inboundOnly.forgottenConnectionId, null)
       assert.equal(harness.localDevices.listDevices().length, 0)
 
       // Neither half left, or ids that were never real: the caller asked for "we
       // are not paired any more", which is already true, so it is not an error.
-      const nothing = harness.fleet.forgetMachine({ deviceId: 'tnd_gone', connectionId: 'tnc_gone' })
+      const nothing = harness.mesh.forgetMachine({ deviceId: 'tnd_gone', connectionId: 'tnc_gone' })
       assert.deepEqual(nothing, { connections: [], revokedDeviceId: null, forgottenConnectionId: null })
-      assert.deepEqual(harness.fleet.forgetMachine({}), {
+      assert.deepEqual(harness.mesh.forgetMachine({}), {
         connections: [],
         revokedDeviceId: null,
         forgottenConnectionId: null,
@@ -1295,7 +1295,7 @@ test('tailnet-fleet', async () => {
       console.error(`\n${failures.length} failing: ${failures.join(', ')}`)
       process.exit(1)
     }
-    console.log('\ntailnet fleet client contracts ok')
+    console.log('\ntailnet mesh client contracts ok')
   }
 
   const suiteRun = runAll()

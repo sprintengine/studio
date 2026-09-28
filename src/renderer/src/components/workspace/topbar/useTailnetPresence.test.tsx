@@ -37,26 +37,26 @@ test('useTailnetPresence', async () => {
   const reads = {
     status: deferred<unknown>(),
     live: deferred<unknown>(),
-    fleet: deferred<unknown>(),
-    fleetLive: deferred<unknown>(),
+    mesh: deferred<unknown>(),
+    meshLive: deferred<unknown>(),
   }
   let tailnetListener: ((payload: unknown) => void) | null = null
-  let fleetListener: ((event: unknown) => void) | null = null
+  let meshListener: ((event: unknown) => void) | null = null
   ;(dom.window as unknown as { api: unknown }).api = {
     tailnetGetStatus: () => reads.status.promise,
     tailnetGetLiveState: () => reads.live.promise,
-    fleetListConnections: () => reads.fleet.promise,
-    fleetGetLiveState: () => reads.fleetLive.promise,
+    meshListConnections: () => reads.mesh.promise,
+    meshGetLiveState: () => reads.meshLive.promise,
     onTailnetEvent: (listener: (payload: unknown) => void) => {
       tailnetListener = listener
       return () => {
         tailnetListener = null
       }
     },
-    onFleetEvent: (listener: (event: unknown) => void) => {
-      fleetListener = listener
+    onMeshEvent: (listener: (event: unknown) => void) => {
+      meshListener = listener
       return () => {
-        fleetListener = null
+        meshListener = null
       }
     },
   }
@@ -99,7 +99,7 @@ test('useTailnetPresence', async () => {
     await act(async () => {
       root.render(createElement(Probe))
     })
-    assert.ok(tailnetListener && fleetListener, 'both channels are subscribed on mount')
+    assert.ok(tailnetListener && meshListener, 'both channels are subscribed on mount')
 
     // A push lands before any initial read resolves.
     await act(async () => {
@@ -141,9 +141,9 @@ test('useTailnetPresence', async () => {
     })
     assert.equal(current().status?.running, true, 'an older pushed revision is dropped')
 
-    // The fleet channel folds the same way, keyed by attachId.
-    reads.fleet.resolve([])
-    reads.fleetLive.resolve({
+    // The mesh channel folds the same way, keyed by attachId.
+    reads.mesh.resolve([])
+    reads.meshLive.resolve({
       revision: 2,
       attachments: [
         { attachId: 'a1', connectionId: 'air', sessionId: 's1', state: 'live' },
@@ -152,12 +152,12 @@ test('useTailnetPresence', async () => {
     })
     await flush()
     assert.deepEqual(
-      [...(current().fleetLiveSessions.get('air') ?? [])],
+      [...(current().meshLiveSessions.get('air') ?? [])],
       ['s1'],
-      'the fleet snapshot seeds live sessions',
+      'the mesh snapshot seeds live sessions',
     )
     await act(async () => {
-      fleetListener!({
+      meshListener!({
         kind: 'attachment',
         revision: 3,
         attachId: 'a1',
@@ -167,12 +167,12 @@ test('useTailnetPresence', async () => {
       })
     })
     assert.deepEqual(
-      [...(current().fleetLiveSessions.get('air') ?? [])],
+      [...(current().meshLiveSessions.get('air') ?? [])],
       ['s1'],
       'closing one of two panes keeps the session live',
     )
     await act(async () => {
-      fleetListener!({
+      meshListener!({
         kind: 'attachment',
         revision: 1,
         attachId: 'a2',
@@ -181,9 +181,9 @@ test('useTailnetPresence', async () => {
         state: 'closed',
       })
     })
-    assert.equal(current().fleetAttachments.size, 1, 'an older fleet revision is dropped')
+    assert.equal(current().meshAttachments.size, 1, 'an older mesh revision is dropped')
     await act(async () => {
-      fleetListener!({
+      meshListener!({
         kind: 'attachment',
         revision: 4,
         attachId: 'a2',
@@ -192,12 +192,12 @@ test('useTailnetPresence', async () => {
         state: 'closed',
       })
     })
-    assert.equal(current().fleetLiveSessions.get('air'), undefined, 'the last pane closing ends the live session')
+    assert.equal(current().meshLiveSessions.get('air'), undefined, 'the last pane closing ends the live session')
 
     // The change feed: a machine saying it changed lands as the latest change
     // for that machine, and never as an attachment.
     await act(async () => {
-      fleetListener!({
+      meshListener!({
         kind: 'remote-changed',
         revision: 5,
         connectionId: 'air',
@@ -205,17 +205,17 @@ test('useTailnetPresence', async () => {
         what: 'terminals',
       })
     })
-    assert.equal(current().fleetRemoteChanges.get('air')?.what, 'terminals', 'the change is recorded per machine')
-    assert.equal(current().fleetRemoteChanges.get('air')?.revision, 5)
-    assert.equal(current().fleetAttachments.size, 0, 'a change push is not an attachment')
+    assert.equal(current().meshRemoteChanges.get('air')?.what, 'terminals', 'the change is recorded per machine')
+    assert.equal(current().meshRemoteChanges.get('air')?.revision, 5)
+    assert.equal(current().meshAttachments.size, 0, 'a change push is not an attachment')
     await act(async () => {
-      fleetListener!({ kind: 'machine-forgotten', revision: 6, connectionId: 'air', machineName: 'air' })
+      meshListener!({ kind: 'machine-forgotten', revision: 6, connectionId: 'air', machineName: 'air' })
     })
-    assert.equal(current().fleetRemoteChanges.get('air'), undefined, 'forgetting the machine drops its change')
+    assert.equal(current().meshRemoteChanges.get('air'), undefined, 'forgetting the machine drops its change')
 
     act(() => root.unmount())
     assert.equal(tailnetListener, null, 'unmount releases the tailnet subscription')
-    assert.equal(fleetListener, null, 'unmount releases the fleet subscription')
+    assert.equal(meshListener, null, 'unmount releases the mesh subscription')
     console.log('useTailnetPresence.test.tsx: ok')
   }
 

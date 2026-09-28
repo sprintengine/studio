@@ -5,7 +5,7 @@
  *
  * The overlay deliberately does not contain the spinner: the rotating arc marks
  * a specific process beside its subject, and a panel-centred one is the
- * generic-dashboard default. The overlay shows the working dots instead — the
+ * generic-dashboard default. The overlay shows the working mark instead — the
  * status mark (components/status-dot, `--working`) every live surface already
  * shares. That does spend the accent, on three small dots rather than a
  * panel-sized mark. */
@@ -51,7 +51,7 @@
   gap: var(--sem-space-lg);
 }
 
-/* The body leads with the working dots: `.ds-status-dot.ds-status-dot--working`
+/* The body leads with the working mark: `.ds-status-dot.ds-status-dot--working`
  * from components/status-dot, which brings its own size, ink and motion. No
  * bespoke overlay mark — the product draws no status dots, and a panel-scale
  * pulsing disc read the same as a waiting one. */
@@ -61,8 +61,8 @@
   color: var(--sem-color-text-muted);
 }
 
-/* Reduced motion: the spinner freezes to its at-rest arc (the working dots'
- * own guard, in components/status-dot, stills all three). Shape and label
+/* Reduced motion: the spinner freezes to its at-rest arc (the working mark's
+ * own guard, in components/status-dot, holds its still frame). Shape and label
  * still carry the state — motion is never the sole signal. */
 @media (prefers-reduced-motion: reduce) {
   .ds-spinner {

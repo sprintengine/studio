@@ -20,7 +20,7 @@ export const TERMINAL_FIND_COMMAND = 'terminal.find'
 export type MountedTerminalFind = {
   /**
    * The workspace this pane belongs to, or null for a pane that belongs to no
-   * workspace (a fleet attachment is to a machine, not a folder). A null entry
+   * workspace (a mesh attachment is to a machine, not a folder). A null entry
    * can still answer — but only by holding focus, never through the
    * active-workspace fallback below, which would otherwise let a remote pane
    * answer for a workspace it is not part of.

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import {
   colorSchemeForResolvedTheme,
+  DEFAULT_CHAT_CONTRAST,
   effectiveWindowMaterial,
   LIGHT_SURFACE_THEMES,
+  normalizeChatContrast,
   type AppTheme,
+  type ChatWidth,
   type ColorScheme,
   type ResolvedAppTheme,
   type WindowMaterial,
@@ -90,6 +93,32 @@ function applyWindowMaterial(material: WindowMaterial): void {
   pushWindowMaterial(material)
 }
 
+/**
+ * The chat's two appearance settings, on <html> like the theme: the chat reads
+ * them through CSS (the chat rules in assets/index.css), so every chat pane —
+ * local or a paired machine's — follows without a prop, and live.
+ *
+ * `data-chat-width` selects the column cap. Contrast is a number, not a
+ * choice, so it travels as two percentages: how much of each ink to keep
+ * against the background (under 100) and how far to push it past the theme's
+ * strongest ink (over 100). Half the distance at the top of the ramp, not all
+ * of it, so a heading still sits a step above body text at 200. At the
+ * default nothing is set at all, and the chat's inks are the theme's own.
+ */
+export function applyChatAppearance(root: HTMLElement, contrast: number, width: ChatWidth): void {
+  root.setAttribute('data-chat-width', width)
+  const value = normalizeChatContrast(contrast)
+  if (value === DEFAULT_CHAT_CONTRAST) {
+    root.removeAttribute('data-chat-contrast')
+    root.style.removeProperty('--chat-contrast-keep')
+    root.style.removeProperty('--chat-contrast-boost')
+    return
+  }
+  root.setAttribute('data-chat-contrast', value < DEFAULT_CHAT_CONTRAST ? 'lower' : 'higher')
+  root.style.setProperty('--chat-contrast-keep', `${Math.min(value, 100)}%`)
+  root.style.setProperty('--chat-contrast-boost', `${Math.max(value - 100, 0) / 2}%`)
+}
+
 // Drives the <html data-theme="…"> attribute from the persisted preference.
 // Mount once near the root of the React tree. The boot-time script in
 // index.html applies the same logic synchronously to avoid a flash of the
@@ -97,10 +126,19 @@ function applyWindowMaterial(material: WindowMaterial): void {
 export function useAppTheme(): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const windowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
+  const chatContrast = useWorkspaceStore((s) => s.appSettings.appearance.chatContrast)
+  const chatWidth = useWorkspaceStore((s) => s.appSettings.appearance.chatWidth)
 
   useEffect(() => {
     applyWindowMaterial(windowMaterial)
   }, [windowMaterial])
+
+  // Before paint, as the boot script in index.html stamps them before the
+  // first one: a chat must not draw a frame at the old width or contrast.
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return
+    applyChatAppearance(document.documentElement, chatContrast, chatWidth)
+  }, [chatContrast, chatWidth])
 
   useEffect(() => {
     applyTheme(resolveTheme(theme))

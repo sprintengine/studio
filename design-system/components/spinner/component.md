@@ -3,7 +3,7 @@
 The "working on this, and it will finish" mark: a faint track ring with a
 90° accent arc rotating through it, at icon scale, beside the thing that is
 working. It is for a bounded wait (a button's action, a task row's run). An
-agent or process that runs for as long as it runs wears the working dots
+agent or process that runs for as long as it runs wears the working mark
 (`liveness`) instead.
 Extracted from the source product's `Spinner`
 (`src/renderer/src/components/ui/Spinner.tsx`); the same drawing serves the
@@ -30,7 +30,7 @@ The overlay does not use the spinner because the rotating arc means *a live
 process the user can point to*, drawn at icon scale beside that process. A
 panel that is merely fetching has no such process to name, and a large
 centered rotating accent mark is the generic-dashboard default this system
-exists to avoid. The overlay shows the **working dots** instead: the status
+exists to avoid. The overlay shows the **working mark** instead: the status
 mark (`status-dot`, a live good tone) that every other "working right now"
 surface already shows, at their own 14px width. That does spend the accent —
 an honest cost, since fetching is live work — but on three small dots the
@@ -54,7 +54,7 @@ Loading overlay:
 |---|---|---|
 | Region | `.ds-loading-overlay` | yes — fills and centers within the panel |
 | Body | `.ds-loading-overlay-body` | yes — mark + label cluster, `space.lg` gap |
-| Mark | `.ds-status-dot.ds-status-dot--working` | yes — the working dots from `status-dot`, `aria-hidden` |
+| Mark | `.ds-status-dot.ds-status-dot--working` | yes — the working mark from `status-dot`, `aria-hidden` |
 | Label | `.ds-loading-overlay-label` | yes — one sentence, `font.size.meta` in `text.muted` |
 
 ## Variants
@@ -69,8 +69,8 @@ Loading overlay:
 
 | State | Treatment |
 |---|---|
-| Live | The arc rotates (spinner) / the working dots cycle (overlay), continuous |
-| Reduced motion | Spinner freezes to its at-rest arc; the working dots stand still, all three of them. The shape and the label still say "working" |
+| Live | The arc rotates (spinner) / the working mark cycles (overlay), continuous |
+| Reduced motion | Spinner freezes to its at-rest arc; the working mark holds its still frame, the four corners and the centre lit. The shape and the label still say "working" |
 | Done | The mark unmounts. No completion flourish |
 
 A frozen spinner still reads: track + arc is the in-progress shape whether or
@@ -103,8 +103,8 @@ broken.
   `role="img"` and an `aria-label` naming the work — never an unlabeled
   moving mark.
 - The overlay region is `role="status"` with `aria-live="polite"`: it
-  announces once, and loading is never assertive. The working dots inside it
-  are `aria-hidden` — the sentence is the announcement.
+  announces once, and loading is never assertive. The working mark inside it
+  is `aria-hidden` — the sentence is the announcement.
 - Both honor `prefers-reduced-motion: reduce` in CSS, not in script, so the
   preference works even where no framework mounted.
 - The rotation and pulse are opacity/transform-only animations — cheap to
@@ -112,6 +112,6 @@ broken.
 
 ## Known drift
 
-The spinner's rotation period (900ms) and the working dots' cycle (1200ms)
+The spinner's rotation period (900ms) and the working mark's cycles (1200–1800ms)
 are shipped values with no token: they are loops, not transitions, so the
 three `motion.duration.*` steps do not apply.

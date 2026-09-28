@@ -1,19 +1,20 @@
 import type { RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
 import {
-  fleetConversationPresence,
-  fleetConversationSessionId,
-  type FleetBrowse,
-  type FleetConnection,
-  type FleetConversation,
-  type FleetLiveAttachment,
-  type FleetMachineReachability,
-  type FleetTerminal,
-} from '../../../../../shared/tailnet-fleet'
+  meshConversationPresence,
+  meshConversationSessionId,
+  type MeshBrowse,
+  type MeshConnection,
+  type MeshConversation,
+  type MeshLiveAttachment,
+  type MeshMachineReachability,
+  type MeshTerminal,
+  meshPaneKind,
+} from '../../../../../shared/tailnet-mesh'
 import type { Workspace } from '../../../types/workspace'
 import type { Tone } from '../../ui'
-import { fleetMachinePhase, type FleetMachinePhase } from '../../remote/machineRowModel'
-import { fleetTerminalStatus, fleetTerminalTitle } from '../../panels/fleet/fleetModel'
+import { meshMachinePhase, type MeshMachinePhase } from '../../remote/machineRowModel'
+import { meshTerminalStatus, meshTerminalTitle } from '../../panels/mesh/meshModel'
 
 // The sidebar's Remote band (remote-sessions-in-the-sidebar): the sessions
 // that live on each paired machine, as rows a person can open here. DOM-free,
@@ -28,7 +29,7 @@ import { fleetTerminalStatus, fleetTerminalTitle } from '../../panels/fleet/flee
 /** One machine's last read, as the hook holds it. */
 export type RemoteBrowseEntry = {
   /** The newest browse that answered. Kept across a machine going quiet, so its rows stay on screen dimmed. */
-  browse: FleetBrowse | null
+  browse: MeshBrowse | null
   loading: boolean
   /** Why the newest read did not answer; null when it did. */
   error: string | null
@@ -39,13 +40,13 @@ export type RemoteBrowseEntry = {
    * list them; absent before one has. A pairing without conversation access,
    * or a machine that does not serve them, simply has none.
    */
-  conversations?: FleetConversation[]
+  conversations?: MeshConversation[]
 }
 
 /**
  * What a remote conversation is doing, in the local rows' vocabulary (owner
  * ruling 2026-09-05: the band reuses the marks local rows already have — the
- * working dots and elapsed, the gold surface for needs-input, a quiet time
+ * working mark and elapsed, the gold surface for needs-input, a quiet time
  * for idle — and invents no dot of its own). `paused` is the one state a
  * local row has no word for: suspended to reclaim memory, resumes on open.
  */
@@ -54,7 +55,7 @@ type RemoteRowActivity = 'working' | 'needs-input' | 'idle' | 'paused'
 /** The hook phases that mean a turn is in flight. Anything else alive is idle. */
 const WORKING_PHASES = new Set(['starting', 'thinking', 'tool_use', 'working'])
 
-function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
+function remoteRowActivity(terminal: Pick<MeshTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
   if (terminal.suspended) return 'paused'
   if (terminal.phase === 'awaiting_input') return 'needs-input'
   if (terminal.phase && WORKING_PHASES.has(terminal.phase)) return 'working'
@@ -104,7 +105,7 @@ export type RemoteMachineGroup = {
   /** Null when the pairing is gone but rows born on it remain — they still need a home. */
   connectionId: string | null
   machineName: string
-  phase: FleetMachinePhase | null
+  phase: MeshMachinePhase | null
   rows: RemoteSessionRow[]
   /**
    * Remote-born workspaces here whose session the machine did not list: the
@@ -168,13 +169,13 @@ export type RemoteSessionOpenSpec = {
   attachedWorkspaceId: string | null
 }
 
-/** The remote sessions a workspace's layout holds panes on, read off the fleet-terminal tabs. */
-function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
+/** The remote sessions a workspace's layout holds panes on, read off the mesh-terminal tabs. */
+function meshPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
   const panes: Array<{ connectionId: string; remoteSessionId: string }> = []
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; component?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && (record.component === 'fleet-terminal' || record.component === 'fleet-conversation')) {
+    if (record.type === 'tab' && meshPaneKind(record.component) !== null) {
       const config = record.config as { connectionId?: unknown; remoteSessionId?: unknown } | undefined
       if (typeof config?.connectionId === 'string' && typeof config.remoteSessionId === 'string') {
         panes.push({ connectionId: config.connectionId, remoteSessionId: config.remoteSessionId })
@@ -190,7 +191,7 @@ function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string
 
 /**
  * The workspace here that is this remote session, if any: by the session id
- * stamped at its creation first, then by a fleet pane still in its layout
+ * stamped at its creation first, then by a mesh pane still in its layout
  * (rows born before the stamp existed). Two panes on one session in two
  * workspaces are two healthy attachments; the first in list order is the one
  * a click focuses.
@@ -206,7 +207,7 @@ export function attachedWorkspaceFor(
   }
   for (const workspace of workspaces) {
     if (
-      fleetPaneSessionsOf(workspace).some(
+      meshPaneSessionsOf(workspace).some(
         (pane) => pane.connectionId === connectionId && pane.remoteSessionId === sessionId,
       )
     ) {
@@ -222,7 +223,7 @@ export function attachedWorkspaceFor(
  * checked gets one read — the check and the read race at mount, and waiting
  * on the check would leave the band empty on a quiet system.
  */
-export function shouldBrowse(reach: FleetMachineReachability | undefined): boolean {
+export function shouldBrowse(reach: MeshMachineReachability | undefined): boolean {
   if (!reach) return true
   if (reach.unauthorized) return false
   if (reach.checkedAt === null) return true
@@ -235,14 +236,14 @@ export function shouldBrowse(reach: FleetMachineReachability | undefined): boole
  * is not a conversation (owner ruling 2026-09-05): the band lists the agents
  * a person can read and talk to, not every pty the other machine holds.
  */
-function isRemoteSessionRow(terminal: FleetTerminal): boolean {
+function isRemoteSessionRow(terminal: MeshTerminal): boolean {
   return terminal.kind === 'agent' && (terminal.processAlive || terminal.suspended)
 }
 
 function remoteSessionRowOf(
-  connection: FleetConnection,
-  terminal: FleetTerminal,
-  browse: FleetBrowse,
+  connection: MeshConnection,
+  terminal: MeshTerminal,
+  browse: MeshBrowse,
   workspaces: readonly Workspace[],
 ): RemoteSessionRow {
   const remoteWorkspace = terminal.workspaceId
@@ -255,7 +256,7 @@ function remoteSessionRowOf(
     machineName: connection.machineName,
     sessionId: terminal.sessionId,
     kind: terminal.kind,
-    title: fleetTerminalTitle(terminal),
+    title: meshTerminalTitle(terminal),
     cli: terminal.cli,
     workspaceId: terminal.workspaceId,
     workspaceName: terminal.workspaceName ?? remoteWorkspace?.name ?? null,
@@ -266,7 +267,7 @@ function remoteSessionRowOf(
     deletions: terminal.git?.deletions ?? 0,
     diffScope: terminal.git?.scope ?? 'folder',
     live: terminal.processAlive && !terminal.suspended,
-    status: fleetTerminalStatus(terminal),
+    status: meshTerminalStatus(terminal),
     activity: remoteRowActivity(terminal),
     since: terminal.phaseSince,
     attachedWorkspaceId: attached?.id ?? null,
@@ -279,14 +280,14 @@ function remoteSessionRowOf(
  * it waits on an approval or a question — titled with the chat's own name.
  */
 function remoteChatRowOf(
-  connection: FleetConnection,
-  conversation: FleetConversation,
-  browse: FleetBrowse | null,
+  connection: MeshConnection,
+  conversation: MeshConversation,
+  browse: MeshBrowse | null,
   workspaces: readonly Workspace[],
 ): RemoteSessionRow {
   const remoteWorkspace = browse?.workspaces.find((workspace) => workspace.id === conversation.workspaceId) ?? null
-  const sessionId = fleetConversationSessionId(conversation.workspaceId, conversation.agentId)
-  const presence = fleetConversationPresence(conversation.phase)
+  const sessionId = meshConversationSessionId(conversation.workspaceId, conversation.agentId)
+  const presence = meshConversationPresence(conversation.phase)
   const attached = attachedWorkspaceFor(workspaces, connection.id, sessionId)
   return {
     key: `${connection.id}:${sessionId}`,
@@ -348,17 +349,17 @@ export function openSpecOf(row: RemoteSessionRow): RemoteSessionOpenSpec {
   }
 }
 
-const QUIET_PHASES = new Set<FleetMachinePhase['phase']>(['unreachable', 'offline', 'revoked'])
+const QUIET_PHASES = new Set<MeshMachinePhase['phase']>(['unreachable', 'offline', 'revoked'])
 
 /**
  * The band: one group per paired machine, in name order, plus a group for
  * any machine whose pairing is gone but whose rows are still here.
  */
 export function buildRemoteBand(input: {
-  connections: readonly FleetConnection[]
+  connections: readonly MeshConnection[]
   browses: ReadonlyMap<string, RemoteBrowseEntry>
-  attachments: ReadonlyMap<string, FleetLiveAttachment>
-  reachability: ReadonlyMap<string, FleetMachineReachability>
+  attachments: ReadonlyMap<string, MeshLiveAttachment>
+  reachability: ReadonlyMap<string, MeshMachineReachability>
   workspaces: readonly Workspace[]
 }): RemoteMachineGroup[] {
   const { connections, browses, attachments, reachability, workspaces } = input
@@ -368,7 +369,7 @@ export function buildRemoteBand(input: {
     .map((connection) => {
       const entry = browses.get(connection.id)
       const browse = entry?.browse ?? null
-      const phase = fleetMachinePhase(connection.id, attachments, reachability)
+      const phase = meshMachinePhase(connection.id, attachments, reachability)
       const rows = [
         ...(browse
           ? browse.terminals
@@ -560,7 +561,7 @@ export function remoteConversationTitle(workspace: Pick<Workspace, 'name' | 'rem
  * `tailnetAddress` is the signal rather than `running`, which is the INBOUND
  * listener's state: a person can drive paired machines with Remote turned off
  * here — the listener is what lets other machines drive THIS one — so a
- * listener that is down says nothing about whether the fleet can be reached.
+ * listener that is down says nothing about whether the mesh can be reached.
  * An address out of Tailscale's own ranges sits on an interface only while
  * Tailscale is up (`resolveTailnetInterface`), which is exactly the question.
  */
@@ -587,7 +588,7 @@ export function attachedConversations(
   groups: readonly RemoteMachineGroup[],
   workspaces: readonly Workspace[],
 ): ReadonlyMap<string, RemoteConversation> {
-  // Remote-BORN rows only. A local project's workspace can hold a fleet pane
+  // Remote-BORN rows only. A local project's workspace can hold a mesh pane
   // too — someone opened a terminal from another machine inside the chat they
   // were working in — and `attachedWorkspaceFor` matches it, because for the
   // band's purposes it genuinely is the window showing that session. It is not

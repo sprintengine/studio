@@ -1,4 +1,4 @@
-import type { FleetLinkState, FleetTerminal, FleetTerminalAccess } from '../../../../../shared/tailnet-fleet'
+import type { MeshLinkState, MeshTerminal, MeshTerminalAccess } from '../../../../../shared/tailnet-mesh'
 import type { Tone } from '../../ui'
 
 // The remote pane's view model, DOM-free so the rules that matter can be
@@ -17,7 +17,7 @@ import type { Tone } from '../../ui'
 //     the frame), but a person must not have to discover that by typing into a
 //     terminal that silently ignores them.
 
-export type FleetLinkBadge = {
+export type MeshLinkBadge = {
   label: string
   tone: Tone
   /** One sentence for the pane's status line; null when there is nothing to add. */
@@ -31,7 +31,7 @@ export type FleetLinkBadge = {
  * error — while a link that is still trying says so, because those are
  * different things to wait for.
  */
-export function fleetLinkBadge(state: FleetLinkState, detail: string | null): FleetLinkBadge {
+export function meshLinkBadge(state: MeshLinkState, detail: string | null): MeshLinkBadge {
   switch (state) {
     case 'connecting':
       return { label: 'Connecting', tone: 'neutral', detail }
@@ -50,7 +50,7 @@ export function fleetLinkBadge(state: FleetLinkState, detail: string | null): Fl
   }
 }
 
-export type FleetInputState = {
+export type MeshInputState = {
   /** Whether keystrokes should reach the remote pty at all. */
   canType: boolean
   /** What the pane says about typing. Null when input is simply live. */
@@ -64,7 +64,7 @@ export type FleetInputState = {
  * decision someone made about this pairing and will not change by waiting,
  * while a dropped link is temporary and will.
  */
-export function fleetInputState(access: FleetTerminalAccess, link: FleetLinkState): FleetInputState {
+export function meshInputState(access: MeshTerminalAccess, link: MeshLinkState): MeshInputState {
   if (access !== 'control') {
     return {
       canType: false,
@@ -77,7 +77,7 @@ export function fleetInputState(access: FleetTerminalAccess, link: FleetLinkStat
 }
 
 /** A terminal row's title: the agent's name where it has one, else the shell it is. */
-export function fleetTerminalTitle(terminal: FleetTerminal): string {
+export function meshTerminalTitle(terminal: MeshTerminal): string {
   if (terminal.agentName) return terminal.agentName
   return terminal.kind === 'agent' ? 'Agent' : 'Terminal'
 }
@@ -89,7 +89,7 @@ export function fleetTerminalTitle(terminal: FleetTerminal): string {
  * a paused agent's screen is real and its process is not, and offering to type
  * into one as if it were live would be offering a frozen screen.
  */
-export function fleetTerminalStatus(terminal: FleetTerminal): { label: string; tone: Tone } {
+export function meshTerminalStatus(terminal: MeshTerminal): { label: string; tone: Tone } {
   if (terminal.suspended) return { label: 'Paused', tone: 'neutral' }
   if (!terminal.processAlive) return { label: 'Exited', tone: 'neutral' }
   if (terminal.phase) return { label: terminal.phase.replace(/_/gu, ' '), tone: 'good' }
@@ -97,11 +97,11 @@ export function fleetTerminalStatus(terminal: FleetTerminal): { label: string; t
 }
 
 /** The tab name a remote pane wears. The machine is part of the name, not a tooltip. */
-export function fleetTerminalTabName(machineName: string, title: string): string {
+export function meshTerminalTabName(machineName: string, title: string): string {
   return `${title} · ${machineName}`
 }
 
 // The machine picker and the waiting card moved to `components/remote/`
 // (pair-from-the-scan-and-stay-paired, phases 1–3): one picker for Settings
-// and the Fleet, and a wait that main owns so closing this panel does not
+// and the Mesh, and a wait that main owns so closing this panel does not
 // abandon it.

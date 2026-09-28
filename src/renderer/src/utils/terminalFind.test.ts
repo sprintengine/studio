@@ -82,22 +82,22 @@ test('terminalFind', async () => {
   })
 
   run('a pane with no workspace answers only by holding focus', () => {
-    // A fleet pane is attached to a MACHINE. Letting it answer through the
+    // A mesh pane is attached to a MACHINE. Letting it answer through the
     // active-workspace fallback would put a find bar on a remote terminal because
     // of a key pressed while looking at a local one.
-    const fleet = pane(null)
-    registerMountedTerminalFind(fleet)
+    const mesh = pane(null)
+    registerMountedTerminalFind(mesh)
 
     assert.equal(respondToTerminalFind('workspace-a'), null)
-    assert.equal(fleet.opened, 0)
+    assert.equal(mesh.opened, 0)
   })
 
   run('a focused pane with no workspace does answer', () => {
-    const fleet = pane(null, { focused: true })
-    registerMountedTerminalFind(fleet)
+    const mesh = pane(null, { focused: true })
+    registerMountedTerminalFind(mesh)
 
-    assert.equal(respondToTerminalFind(null), fleet)
-    assert.equal(fleet.opened, 1)
+    assert.equal(respondToTerminalFind(null), mesh)
+    assert.equal(mesh.opened, 1)
   })
 
   run('exactly one pane ever answers', () => {

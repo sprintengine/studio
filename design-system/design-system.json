@@ -13,6 +13,7 @@
   "contents": {
     "foundations": ["foundations/tokens.tokens.json", "foundations/principles.md"],
     "components": [
+      "agent-glyph",
       "attachment-chip",
       "badge",
       "banner",
@@ -109,6 +110,7 @@
       "glyphs/pull-request-closed.svg",
       "glyphs/pull-request-merged.svg",
       "glyphs/pull-request-open.svg",
+      "glyphs/quote.svg",
       "glyphs/remote-machine.svg",
       "glyphs/wsl-machine.svg",
       "glyphs/rollback.svg",

@@ -135,7 +135,7 @@ export function deriveWorkspaceTerminalActivity(
     if (activity.kind === 'working') {
       // Live processes only (`isSessionWorking`). A chat whose last agent was
       // paused mid-turn would otherwise read as working for as long as the
-      // frozen session sits in the list: bold row, working dots, no idle
+      // frozen session sits in the list: bold row, working mark, no idle
       // clock — the sidebar claiming an agent that is not there.
       if (!isSessionWorking(session)) continue
       if (workingSince === null || activity.since < workingSince) workingSince = activity.since

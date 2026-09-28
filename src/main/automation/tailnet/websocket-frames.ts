@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'crypto'
 // JSON-RPC — the app ships no WebSocket dependency, and the slice this listener
 // needs (text frames, ping/pong, close) is small and fully specified.
 //
-// Both roles live here. The listener is the server half; the Fleet client
+// Both roles live here. The listener is the server half; the Mesh client
 // dials OTHER machines from this same process, and giving it its own
 // copy of the framing would be two implementations of one wire format, drifting
 // against each other in a security-relevant file. The role only changes who

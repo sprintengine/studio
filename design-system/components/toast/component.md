@@ -26,7 +26,9 @@ persistent surface the request is also readable behind.
 
 The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glass.opacity` over a `backdrop-filter` of
 `glass.blur` and `glass.saturation`, a `border.default` hairline, and
-`shadow.popover` drawing the edge over whatever shows through. Where
+`shadow.toast` drawing the edge over whatever shows through — a 1px lit top
+edge (the button's light source) over a lifted drop, so the card reads as
+sitting on the page (owner ruling 2026-09-28). Where
 `backdrop-filter` is unsupported the card is solid `bg.surface-raised`.
 
 The blur ban (`principles.md`, the modal and drawer specs) exists because a
@@ -71,14 +73,18 @@ Five tones, each deciding color, politeness, and persistence:
 | `--neutral` | ring with a bar, `status.neutral`    | `status` / `polite`   | 5 s          |
 | `--good`    | check disc, `status.good`            | `status` / `polite`   | 5 s          |
 | `--accent`  | held quarter arc, `accent.primary`   | `status` / `polite`   | 5 s          |
-| `--warn`    | ring with "!", `status.warn`         | `alert` / `assertive` | never        |
-| `--danger`  | ring with "×", `status.danger`       | `alert` / `assertive` | never        |
+| `--warn`    | ring with "!", `status.warn`         | `alert` / `assertive` | 10 s         |
+| `--danger`  | ring with "×", `status.danger`       | `alert` / `assertive` | 10 s         |
 
-**Warn and danger stay until dismissed.** An auto-dismissing error is a
-failure the operator can miss by looking away for five seconds; a persistent
-success is furniture. The policy is the point — consumers may override the
-duration, not the split. (The shipped kit names the danger tone `error`; the
-class here follows the token grammar, `status.danger`.)
+**Every tone leaves on its own** (owner ruling 2026-09-28, amending the
+earlier never-for-warn-and-danger). A toast is not the state: the
+notification bell and the surface behind each report keep what it said, so
+a corner of stale cards is furniture, not safety. Warn and danger stay twice
+as long as a success, and hovering or focusing any toast holds its clock,
+restarting the full duration on leave, so nobody is raced while reading. A
+producer that needs a toast to stay says so with `autoDismissMs: false` (the
+app-update steps). (The shipped kit names the danger tone `error`; the class
+here follows the token grammar, `status.danger`.)
 
 **The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
@@ -146,10 +152,10 @@ under it holding the instruction, or the refusal in `status.danger` ink. It is
 the one toast in the system with a field, and it earns it: the answer IS six
 digits, read off the screen of the machine asking to pair, and every other
 route to typing them (a popover, a settings tab) walks the person away from
-the screen they are reading. The toast never auto-dismisses — a surface
-holding a half-typed code that vanishes on a timer is worse than no surface —
-and the request stays answerable on its own persistent card, so a dismissed
-toast loses nothing. Everything the field cannot express stays on that card:
+the screen they are reading. The toast times out like any warn, but focus in
+the code field holds its clock — a surface holding a half-typed code that
+vanishes on a timer is worse than no surface — and the request stays
+answerable on its own persistent card, so a toast that left loses nothing. Everything the field cannot express stays on that card:
 this variant grants the request's DEFAULT authority and nothing a checkbox
 would have chosen. A second consumer, or a second field, is a modal.
 
@@ -217,8 +223,8 @@ staying the toast's alone.
   out to `size.hit-target-min` with a transparent hit area — the glyph
   shrinks, the target does not.
 - The entrance animation honours `prefers-reduced-motion: reduce`.
-- Persistent tones remain until explicitly dismissed, so an assistive-tech
-  user navigating slowly is never raced by a timer.
+- Every toast holds its clock while hovered or focused, so an assistive-tech user navigating into
+  one is never raced by a timer.
 
 ## Known drift
 

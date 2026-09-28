@@ -11,7 +11,7 @@ export type LoadingOverlayProps = {
 /**
  * Centered loading state, used when a panel has no content to skeleton-render
  * and instead needs to communicate "we're working on it." Pairs the working
- * dots (StatusDot's live good tone) with one short sentence of context.
+ * mark (StatusDot's live good tone) with one short sentence of context.
  */
 export function LoadingOverlay({ label, className }: LoadingOverlayProps) {
   return (

@@ -7,7 +7,7 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
-import { fleetApi } from './api/fleet'
+import { meshApi } from './api/mesh'
 import { automationsApi } from './api/automations'
 import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
@@ -17,6 +17,7 @@ import { cliModelDiscoveryApi } from './api/cli-model-discovery'
 import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
+import { conversationCommandsApi } from './api/conversation-commands'
 import { conversationPeekApi } from './api/conversation-peek'
 import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
@@ -68,7 +69,7 @@ const api = {
   ...appearanceApi,
   ...authApi,
   ...automationApi,
-  ...fleetApi,
+  ...meshApi,
   ...automationsApi,
   ...backlogApi,
   ...builtinSkillsApi,
@@ -89,6 +90,7 @@ const api = {
   ...modulesApi,
   ...pluginsApi,
   ...conversationApi,
+  ...conversationCommandsApi,
   ...conversationPeekApi,
   ...agentCompactApi,
   ...pullRequestApi,

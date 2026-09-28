@@ -29,3 +29,24 @@ test('conversation phase follows action priority', () => {
     'waiting_for_input',
   )
 })
+
+test('background agents keep a finished conversation working', () => {
+  const summary = {
+    sessionId: 'conversation-1',
+    workspaceId: 'workspace-1',
+    agentId: 'agent-1',
+    providerId: 'provider-1',
+    modelId: 'model-1',
+    status: 'ready' as const,
+    createdAt: 1,
+    updatedAt: 2,
+  }
+  assert.equal(conversationSummaryPhase({ ...summary, phase: 'completed', backgroundAgents: 2 }), 'running')
+  assert.equal(conversationSummaryPhase({ ...summary, phase: 'idle', backgroundAgents: 1 }), 'running')
+  assert.equal(conversationSummaryPhase({ ...summary, phase: 'completed' }), 'completed')
+  // A person still has to answer, whatever the agents are doing.
+  assert.equal(
+    conversationSummaryPhase({ ...summary, phase: 'waiting_for_approval', backgroundAgents: 1 }),
+    'waiting_for_approval',
+  )
+})

@@ -18,6 +18,11 @@ import {
 } from './claude-agent-provider'
 import type { MockAdapterTurnInput } from './mock-conversation-provider'
 import { ConversationRuntime } from '../conversation-runtime'
+import {
+  conversationCommandsFor,
+  onConversationCommandsChanged,
+  publishConversationCommands,
+} from '../conversation-commands/registry'
 import { test } from 'vitest'
 
 test('claude-agent-provider', async () => {
@@ -33,6 +38,7 @@ test('claude-agent-provider', async () => {
     await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
+    await testBypassAnswersSubagentAsksButKeepsSafetyAndRuleAsks()
     await testDeniedToolResultReadsAsDeclined()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
     await testExitPlanModeBecomesPlanCard()
@@ -845,6 +851,54 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(deniedEvents.find((event) => event.type === 'approval_resolved')?.payload?.approved, false)
     assert.equal(decisions[1]?.behavior, 'deny')
+  }
+
+  // Under bypass the CLI still asks for some subagent calls (an Explore
+  // agent's compound Bash); those answer themselves. A safety check marked
+  // defaultToNo and an ask forced by the user's own rule still show a card.
+  async function testBypassAnswersSubagentAsksButKeepsSafetyAndRuleAsks(): Promise<void> {
+    const decisions: Array<Record<string, unknown>> = []
+    const { adapter } = createAdapter(async (_userMessage, context) => {
+      const canUseTool = context.options.canUseTool as (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: Record<string, unknown>,
+      ) => Promise<Record<string, unknown>>
+      decisions.push(await canUseTool('Bash', { command: 'cd src; grep -rn x . | head' }, { agentID: 'explore-1' }))
+      decisions.push(await canUseTool('Bash', { command: 'rm -rf /' }, { agentID: 'explore-1', defaultToNo: true }))
+      decisions.push(
+        await canUseTool('Bash', { command: 'git push' }, { matchedAskRule: { source: 'user', toolName: 'Bash' } }),
+      )
+      context.emit({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        session_id: 's1',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+    })
+    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
+    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
+      if (event.type === 'approval_requested')
+        void collect(
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_1',
+            requestId: String(event.payload?.requestId),
+            approved: false,
+          }) as ConversationEvent[],
+        )
+    })
+    const asked = events.filter((event) => event.type === 'approval_requested')
+    assert.deepEqual(
+      asked.map((event) => (event.payload?.input as { command?: string })?.command),
+      ['rm -rf /', 'git push'],
+    )
+    assert.deepEqual(
+      decisions.map((decision) => decision.behavior),
+      ['allow', 'deny', 'deny'],
+    )
+    adapter.disposeAll()
   }
 
   async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promise<void> {
@@ -1924,6 +1978,170 @@ test('a skills plugin left by a process that is gone is swept, one a live proces
   }
 })
 
+// The sequence Claude Code 2.1 streams for one agent launched in the background
+// (recorded from a real run): the launch notice comes back at once, the turn
+// ends, and the agent reports its progress and its end through task messages.
+test('a background Claude agent keeps its lane open until it reports, then closes it with its answer', () => {
+  const state = { ...mapperState(), subagents: new Map() }
+  const types = (events: ConversationEvent[]) => events.map((event) => event.type)
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+
+  map({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { subagent_type: 'Explore' } }] },
+  })
+  const started = map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    description: 'Count .txt files',
+    task_type: 'local_agent',
+    subagent_type: 'Explore',
+    is_backgrounded: true,
+  })
+  assert.deepEqual(types(started), ['subagent_status'])
+  assert.deepEqual(started[0]?.payload, {
+    toolUseId: 'toolu_bg',
+    taskId: 'task_bg',
+    status: 'running',
+    background: true,
+    subagentType: 'Explore',
+    description: 'Count .txt files',
+  })
+  assert.equal('turnId' in (started[0]?.payload ?? {}), false, 'an agent outlives its turn, so its status carries none')
+
+  // The launch notice is for the model; the lane waits for the agent.
+  const ack = map({
+    type: 'user',
+    parent_tool_use_id: null,
+    message: {
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_bg',
+          content: [
+            { type: 'text', text: 'Async agent launched successfully. (This tool result is internal metadata)' },
+          ],
+        },
+      ],
+    },
+  })
+  assert.deepEqual(ack, [])
+
+  state.turn = null
+  const progress = map({
+    type: 'system',
+    subtype: 'task_progress',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    description: 'Count .txt files',
+    last_tool_name: 'Bash',
+    summary: 'Listing the directory',
+    usage: { total_tokens: 9287, tool_uses: 1, duration_ms: 6011 },
+  })
+  assert.equal(progress[0]?.payload?.lastToolName, 'Bash')
+  assert.equal(progress[0]?.payload?.progressSummary, 'Listing the directory')
+  assert.deepEqual(progress[0]?.payload?.usage, { totalTokens: 9287, toolUses: 1, durationMs: 6011 })
+
+  // The agent's own last words are its answer.
+  assert.deepEqual(
+    map({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_bg',
+      message: {
+        content: [
+          { type: 'thinking', thinking: '' },
+          { type: 'text', text: 'There are 2 files.' },
+        ],
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(
+    map({ type: 'system', subtype: 'task_updated', task_id: 'task_bg', patch: { status: 'completed', end_time: 42 } }),
+    [],
+  )
+  const finished = map({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    status: 'completed',
+    output_file: '/tmp/task_bg.output',
+    summary: '2',
+    usage: { total_tokens: 10065, tool_uses: 1, duration_ms: 7333 },
+  })
+  assert.deepEqual(types(finished), ['tool_output', 'subagent_status'])
+  assert.equal(finished[0]?.payload?.toolUseId, 'toolu_bg')
+  assert.equal(finished[0]?.payload?.output, 'There are 2 files.')
+  assert.equal(finished[0]?.payload?.status, 'ok')
+  assert.equal(finished[0]?.payload?.backgroundResult, true)
+  assert.equal(finished[0]?.payload?.turnId, undefined)
+  assert.equal(finished[1]?.payload?.status, 'completed')
+  assert.equal(finished[1]?.payload?.endedAt, 42)
+  assert.deepEqual(finished[1]?.payload?.usage, { totalTokens: 10065, toolUses: 1, durationMs: 7333 })
+  assert.equal(state.subagents.size, 0)
+})
+
+test('a foreground Claude agent keeps its own result and background shells are not agents', () => {
+  const state = { ...mapperState(), subagents: new Map() }
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+  map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_fg',
+    tool_use_id: 'toolu_fg',
+    task_type: 'local_agent',
+    is_backgrounded: false,
+  })
+  const result = map({
+    type: 'user',
+    parent_tool_use_id: null,
+    message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_fg', content: 'Found it in router.ts' }] },
+  })
+  assert.equal(result[0]?.payload?.output, 'Found it in router.ts')
+  const done = map({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'task_fg',
+    tool_use_id: 'toolu_fg',
+    status: 'failed',
+    summary: 'Ran out of turns',
+  })
+  assert.deepEqual(
+    done.map((event) => event.type),
+    ['subagent_status'],
+    'a foreground agent returned its result on its call',
+  )
+  assert.equal(done[0]?.payload?.status, 'failed')
+  assert.equal(done[0]?.payload?.error, 'Ran out of turns')
+
+  assert.deepEqual(
+    map({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'shell',
+      tool_use_id: 'toolu_shell',
+      task_type: 'local_bash',
+      is_backgrounded: true,
+    }),
+    [],
+  )
+  assert.deepEqual(
+    map({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'watch',
+      tool_use_id: 'toolu_watch',
+      task_type: 'local_agent',
+      ambient: true,
+    }),
+    [],
+  )
+})
+
 /**
  * A stand-in SDK driven from the test: every prompt the child reads is
  * recorded, and `emit` plays a message out of the child when the test says so.
@@ -2344,6 +2562,220 @@ test('a failed Claude result that names only messages nothing waits on does not 
     await second.done
     assert.equal(second.events.at(-1)?.type, 'turn_completed')
   } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+// ── Slash commands ──────────────────────────────────────────────────────────
+
+/** The text the child was handed for prompt `index`. */
+const promptText = (h: ReturnType<typeof scriptedHarness>, index: number) =>
+  (h.prompts[index]?.message as { content: unknown } | undefined)?.content
+
+test('a slash command reaches Claude Code as the message itself, with no skill note ahead of it', async () => {
+  const h = scriptedHarness()
+  try {
+    const skills = { skills: ['acme:deploy'] }
+    await h.adapter.startSession(h.turn('turn_1'))
+    const command = reader(
+      (await h.adapter.sendTurn(
+        h.turn('turn_1', { ...skills, message: '/review HEAD~1' }),
+      )) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 1)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await command.done
+    const prose = reader(
+      (await h.adapter.sendTurn(
+        h.turn('turn_2', { ...skills, message: 'now ship it' }),
+      )) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 2)
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await prose.done
+    assert.equal(promptText(h, 0), '/review HEAD~1')
+    assert.equal(promptText(h, 1), 'Use the attached skills: acme:deploy.\n\nnow ship it')
+    // The skills are loaded for the command all the same.
+    assert.deepEqual(h.spawned[0]?.skills, ['acme:deploy'])
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('images sent with a slash command go ahead of it, so the command is the last block Claude Code reads', () => {
+  const image = { mediaType: 'image/png', dataBase64: 'AAAA' } as never
+  const command = buildUserMessageContent('/review this screenshot', [image]) as Array<{ type: string }>
+  assert.deepEqual(
+    command.map((block) => block.type),
+    ['image', 'text'],
+  )
+  const prose = buildUserMessageContent('what is /tmp for?', [image]) as Array<{ type: string }>
+  assert.deepEqual(
+    prose.map((block) => block.type),
+    ['text', 'image'],
+  )
+})
+
+/** A turn whose message is `message`, answered by `reply` once the child has it. */
+async function commandTurn(message: string, reply: (h: ReturnType<typeof scriptedHarness>) => void) {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession(h.turn('turn_1'))
+    const turn = reader((await h.adapter.sendTurn(h.turn('turn_1', { message }))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    reply(h)
+    await turn.done
+    return turn.events.filter((event) => event.type !== 'session_updated')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+}
+
+// The shapes Claude Code 2.1.284 sends for `/context`: an assistant message of
+// its own making that nothing streams, then a result that repeats the output.
+const CONTEXT_OUTPUT = '## Context Usage\n\n**Tokens:** 9.7k / 1m (1%)'
+const localTwin = (command: string, text: string) => ({
+  type: 'assistant',
+  uuid: 'twin-1',
+  parent_tool_use_id: null,
+  local_command_source: `<local-command-stdout>${text}</local-command-stdout>`,
+  local_command_run: { command, args: '' },
+  message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text }] },
+})
+
+test('what a local command printed becomes the turn’s output, shown once', async () => {
+  const events = await commandTurn('/context', (h) => {
+    h.emit(localTwin('context', CONTEXT_OUTPUT))
+    h.emit(
+      success({ user_message_uuids: [h.uuidOf(0)], local_command: 'context', result: CONTEXT_OUTPUT, num_turns: 0 }),
+    )
+  })
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'command_output', 'turn_completed'],
+  )
+  assert.deepEqual(events[1]?.payload, { turnId: 'turn_1', command: 'context', output: CONTEXT_OUTPUT })
+})
+
+test('a local command reported only on its result, or as system output, still shows', async () => {
+  const onResult = await commandTurn('/usage', (h) => {
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], local_command: 'usage', result: 'Current session: 6% used' }))
+  })
+  assert.deepEqual(
+    onResult.filter((event) => event.type === 'command_output').map((event) => event.payload),
+    [{ turnId: 'turn_1', command: 'usage', output: 'Current session: 6% used' }],
+  )
+  const asSystem = await commandTurn('/usage', (h) => {
+    h.emit({
+      type: 'system',
+      subtype: 'local_command_output',
+      content: '<local-command-stdout>6% used</local-command-stdout>',
+    })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+  })
+  assert.deepEqual(
+    asSystem.filter((event) => event.type === 'command_output').map((event) => event.payload?.output),
+    ['6% used'],
+  )
+})
+
+test('/compact still marks the compaction, and what it printed is left to that divider', async () => {
+  const events = await commandTurn('/compact', (h) => {
+    h.emit({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'manual', pre_tokens: 180000, post_tokens: 20000 },
+    })
+    h.emit(localTwin('compact', 'Compacted'))
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], local_command: 'compact', result: 'Compacted' }))
+  })
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'context_compacted', 'turn_completed'],
+  )
+  assert.deepEqual(events[1]?.payload, { turnId: 'turn_1', trigger: 'manual', preTokens: 180000, postTokens: 20000 })
+})
+
+test('a /clear typed into the chat leaves a note that the model no longer has what came before', async () => {
+  const events = await commandTurn('/clear', (h) => {
+    h.emit({ type: 'conversation_reset', new_conversation_id: 'fresh', uuid: 'reset-1' })
+    h.emit({ ...init, session_id: 'fresh' })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], session_id: 'fresh' }))
+  })
+  const note = events.find((event) => event.type === 'command_output')
+  assert.equal(note?.payload?.command, 'clear')
+  assert.equal(note?.payload?.adapterNote, true)
+  assert.equal(events.at(-1)?.type, 'turn_completed')
+})
+
+test("a live session's init publishes the folder's command list when it changed, and a push replaces it", async () => {
+  const cwd = '/Users/dev/live-commands'
+  publishConversationCommands({
+    cli: 'claude-code',
+    cwd,
+    commands: [{ name: 'compact', description: 'Free up context', source: 'cli' }],
+  })
+  const published: string[][] = []
+  const stop = onConversationCommandsChanged((catalog) => {
+    if (catalog.cwd === cwd) published.push(catalog.commands.map((command) => command.name))
+  })
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession(h.turn('turn_1', { workspaceRoot: cwd }))
+    const turn = reader(
+      (await h.adapter.sendTurn(h.turn('turn_1', { workspaceRoot: cwd }))) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 1)
+    const liveInit = { ...init, slash_commands: ['compact', 'mcp__docs__summarise', 'color'], skills: [] }
+    h.emit(liveInit)
+    // Every exchange repeats its init; the same names are not news.
+    h.emit(liveInit)
+    h.emit({
+      type: 'system',
+      subtype: 'commands_changed',
+      commands: [
+        { name: 'compact', description: 'Free up context', argumentHint: '', builtin: true },
+        { name: 'fresh', description: 'New', argumentHint: '' },
+      ],
+    })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await turn.done
+    assert.deepEqual(published, [
+      ['compact', 'mcp__docs__summarise'],
+      ['compact', 'fresh'],
+    ])
+    // The known row kept its description through the init.
+    assert.equal(conversationCommandsFor('claude-code', cwd).commands[0]?.description, 'Free up context')
+    // Nothing of it went into the transcript.
+    assert.equal(
+      turn.events.some((event) => JSON.stringify(event).includes('mcp__docs__summarise')),
+      false,
+    )
+  } finally {
+    stop()
+    await h.adapter.disposeAll()
+  }
+})
+
+test("a chat with skills attached keeps its own command list out of the folder's", async () => {
+  const cwd = '/Users/dev/attached-commands'
+  const published: unknown[] = []
+  const stop = onConversationCommandsChanged((catalog) => {
+    if (catalog.cwd === cwd) published.push(catalog)
+  })
+  const h = scriptedHarness()
+  try {
+    const input = h.turn('turn_1', { workspaceRoot: cwd, skills: ['acme:deploy'] })
+    await h.adapter.startSession(input)
+    const turn = reader((await h.adapter.sendTurn(input)) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit({ ...init, slash_commands: ['acme:deploy'] })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await turn.done
+    assert.deepEqual(published, [])
+  } finally {
+    stop()
     await h.adapter.disposeAll()
   }
 })

@@ -652,9 +652,10 @@ title, none above the buttons. See *Hairlines carry the structure*.
   mark and a tinted pill saying the same thing.
 - **No status dots, anywhere** (owner ruling 2026-09-28). A 6px disc has no
   shape, so every tone was the same circle and "working" read like
-  "waiting". A state is a shape-coded glyph in its tone's ink (`status-dot`);
-  something running right now is the working dots (`liveness`), the one
-  "working" mark every surface shares.
+  "waiting". A state is a word, a timer or a shape-coded glyph in its tone's
+  ink (`status-dot`); something running right now is the working mark
+  (`liveness`), the one "working" mark every surface shares, or a spawned
+  agent's character (`agent-glyph`).
 - A status is never text-only with no glyph, nor glyph-only with no accessible
   name.
 - The accent green (forest) and the success green (bright emerald) are held
@@ -672,9 +673,12 @@ title, none above the buttons. See *Hairlines carry the structure*.
   is the tell that one was added by accident. An entrance a *pattern* owns (a
   rail swapping its contents) is not a fourth motion: it composes the same
   duration and easing pair rather than introducing a curve of its own.
-- At most one thing animates at a time, and it means one of exactly two things:
-  *alive right now* (a streaming or running pulse) or *just changed* (a
-  reorder, a just-moved flash). Ambient decoration is not motion, it is noise.
+- Motion means one of two things: *alive right now* (a working mark, a
+  running agent's character, a spinner) or *just changed* (a reorder, a
+  just-moved flash). It may carry a little personality while it says so
+  (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned
+  agent is a small character that moves while it works. What never moves is
+  something at rest — ambient decoration on an idle surface is noise.
 - Motion is never the sole signal of a state change — the accessible name and
   the visible label carry it too.
 - Every animation honors `prefers-reduced-motion: reduce`, including the

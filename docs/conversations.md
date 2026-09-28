@@ -89,6 +89,12 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   send resumes starts under the preset it was left on. The one thing a remote
   command cannot choose is a permanent approval rule, which outlives the
   conversation; that is refused before the runtime sees it.
+- **Starting a chat.** The same grant starts one: `conversation.create` adds a
+  chat agent to one of this machine's workspaces, starts its session on the
+  named CLI (the launcher's model and preset, else this machine's choice for
+  that CLI), and sends the prompt as its first message. It answers once the
+  session is up, with the workspace and agent ids a remote pane follows the
+  chat by. Like every remote command it is audited.
 - **Switching a chat's model.** A desktop that advertises the
   `conversation-models` capability (owner ruling 2026-09-27) lists each chat's
   CLI and the models this machine's own picker offers for it — the CLI's
@@ -161,6 +167,12 @@ Remote band lists each chat on the paired machine as its own row, with the
 presence its phase says: running, needs approval, or done. Opening one makes a
 solo workspace whose pane is the regular chat view, following the conversation
 over the tailnet, with the machine on the tab and above the transcript.
+New chat starts one there too: with Chat agent picked, the machine dropdown
+offers the paired machines, and launching on one asks it to start the chat in
+the chosen project and opens that same pane on it. Skills and attached images
+are this machine's and do not travel yet; the launcher says so rather than
+dropping them. A WSL distribution is still not offered for a chat, which runs
+in the app's own process.
 
 - **The copy is kept.** Main follows over one socket per conversation, shared
   by every window showing it, and keeps the transcript tail with its cursor

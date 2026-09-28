@@ -605,7 +605,7 @@ test('useTerminalSessions', async () => {
   // was killed — nothing in main revisits it, and the stall watch that would have
   // expired the phase is disarmed by the suspend. Observed live 2026-09-10: an
   // agent paused one second after launch sat at `starting`/`working` for 70
-  // minutes, and the sidebar drew its chat bold, with working dots and no idle
+  // minutes, and the sidebar drew its chat bold, with the working mark and no idle
   // clock, the whole time — the row claiming an agent that was not there.
   //
   // So every "is this working" reading is gated on the process being alive, the

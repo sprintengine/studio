@@ -131,7 +131,7 @@ type TailnetPairApprovalResult =
 
 /**
  * What the collect poll answers, plus — for the gateway only — who asked, so
- * an approved collect can carry the asker's reverse grant to the fleet. The
+ * an approved collect can carry the asker's reverse grant to the mesh. The
  * `asker` never reaches the wire.
  */
 export type TailnetCollectOutcome = TailnetPairRequestOutcome & {
@@ -166,7 +166,7 @@ export type TailnetDeviceStore = {
    *
    * The only path that widens an existing pairing locally. Every other write to
    * a device's scopes is a refresh of what the far end says it granted us
-   * (`tailnet-fleet-store.updateScopes`), which can only ever narrow what we
+   * (`tailnet-mesh-store.updateScopes`), which can only ever narrow what we
    * believe; this is the person here deciding a machine they already trust may
    * do more. It replaces rather than merges, so the same call takes a scope
    * away, and it throws on an id it does not hold rather than silently doing

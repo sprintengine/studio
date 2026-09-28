@@ -6,12 +6,12 @@ component is kept under it because modules import it through the SDK. **The
 product draws no status dots** (owner ruling 2026-09-28). A 6px disc has no
 shape channel, so every tone was the same circle, "working" and "waiting"
 looked alike, and a tab could show a dot while the row beside it showed the
-working dots for the same fact.
+working mark for the same fact.
 
 A status is drawn as one of two things:
 
-- **Live work** (a good or accent tone, pulsing) is the **working dots**
-  (`AgentWorkingDots`): three staggered accent dots. This is the only
+- **Live work** (a good or accent tone, pulsing) is the **working mark**
+  (`WorkingMark`, `liveness`): a 3×3 grid of accent cells. This is the only
   "working right now" mark, and the sidebar row, the tabs and the peek card all
   use it.
 - **Every other state** is a **lifecycle glyph** in the tone's ink: the same
@@ -36,7 +36,7 @@ beside text that names the state, or it carries an accessible name itself.
 | `--danger` | Ring with "×" | Failing; needs attention now |
 | `--merged` | Disc with a knocked-out check, merged ink | A landed change |
 | `--accent` | Quarter arc | Identity, not status: "this is the live one" |
-| `--working` | Three dots | Something is running right now |
+| `--working` | The working mark (3×3 grid) | Something is running right now |
 
 Every tone has its own shape, so the states still read in grayscale. The
 colour only reinforces the shape.
@@ -46,7 +46,7 @@ colour only reinforces the shape.
 | State | Treatment |
 |---|---|
 | Rest | The tone's glyph, nothing else |
-| Live, working | `--working`. The three dots rise in turn |
+| Live, working | `--working`. The working mark's cells light in its pattern |
 | Live, waiting | `--pulse` on a warn or danger glyph. A slow breath while it waits on someone (a pairing request, a recording) |
 
 The breath's 1800ms cycle is deliberately off the interaction ramp: those
@@ -66,8 +66,8 @@ its accessible name, not with a dot.
 **Never category colour.** Tones come from the status ramp only. Identity
 belongs to labels and brand marks.
 
-**Animate sparingly.** At most one thing animates at a time. One set of working
-dots means "this one is running"; a column of them is noise.
+**Animate sparingly.** At most one thing animates at a time. One working mark
+means "this one is running"; a column of them is noise.
 
 ## Accessibility
 
@@ -76,6 +76,6 @@ dots means "this one is running"; a column of them is noise.
 - Standing for a state no adjacent text names, it carries `role="img"` and an
   `aria-label` naming the state ("Degraded"), never the colour.
 - Never both: a labelled mark next to the same words is announced twice.
-- Reduced motion stills the working dots (all three stay, so the mark never
-  becomes a dot) and stops the breath. The shape and the accessible name keep
+- Reduced motion holds the working mark on its still frame (the four corners
+  and the centre lit, so the mark never becomes a dot) and stops the breath. The shape and the accessible name keep
   carrying the state.

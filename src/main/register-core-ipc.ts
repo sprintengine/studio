@@ -13,6 +13,7 @@ import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerStudioAreaSkillsIpc } from './ipc/studio-area-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
+import { registerConversationCommandsIpc } from './ipc/conversation-commands-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
@@ -25,7 +26,7 @@ import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
 import { listLiveTerminalSessions } from './terminal-runtime'
-import { registerFleetIpc } from './ipc/fleet-ipc'
+import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
@@ -81,12 +82,17 @@ export type CoreIpcOptions = {
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
 }
 
+/** What registration hands back for the app's shutdown to finish. */
+export type CoreIpcHandles = {
+  conversationCommands: { dispose(): Promise<void> }
+}
+
 export function registerCoreIpc(
   ipcMain: IpcMain,
   services: AppServices,
   diagnosticsEnabled: boolean,
   options: CoreIpcOptions = {},
-): void {
+): CoreIpcHandles {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -113,12 +119,16 @@ export function registerCoreIpc(
     registry: services.workspaceRegistry,
   })
   registerAutomationIpc(ipcMain, services.automationService)
-  registerFleetIpc(ipcMain, services.automationService)
+  registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
   registerCliModelDiscoveryIpc(ipcMain)
+  const conversationCommands = registerConversationCommandsIpc(ipcMain, {
+    userDataDir: app.getPath('userData'),
+    cliRuntimes: () => services.agentLaunchSettings.get().cliRuntimes,
+  })
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
@@ -260,4 +270,5 @@ export function registerCoreIpc(
       return out
     },
   })
+  return { conversationCommands }
 }

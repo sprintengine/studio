@@ -68,7 +68,7 @@ channel, and a list whose every title is already at full strength has
 nothing left to lift.
 
 **One status idiom.** The leading slot takes the system `status-dot` mark for
-live state — a tone's glyph, or the working dots while something runs — or a
+live state — a tone's glyph, or the working mark while something runs — or a
 lifecycle glyph for worklist stages, whichever the surface uses, uniformly.
 Never a bare dot: the product draws no status dots (owner ruling
 2026-09-28). A row whose title already carries its state takes no mark at

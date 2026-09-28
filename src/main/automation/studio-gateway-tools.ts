@@ -2,6 +2,7 @@ import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
 import { EDITOR_MUTATION_TOOL_NAMES } from './editor-tools'
 import type { McpToolContribution } from '../module-host/main-host'
+import { CONVERSATION_MUTATION_TOOL_NAMES } from './conversation-tools'
 import { CONVERSATION_COMMAND_TOOL_NAMES } from './tailnet/tailnet-conversation-stream'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
@@ -30,6 +31,10 @@ const APP_MUTATION_TOOLS = new Set([
   // act on this machine for a remote device exactly as one does, so each
   // attempt lands in the same audit with the device that made it.
   ...CONVERSATION_COMMAND_TOOL_NAMES,
+  // Starting a chat on this machine: the conversation counterpart of
+  // `terminal.create`, on the same `conversation:operate` grant as the
+  // commands above, and audited with the device that asked.
+  ...CONVERSATION_MUTATION_TOOL_NAMES,
   // Configuring who may drive this machine. Classified as mutations so every
   // one of them is audited — minting a pairing code is the most consequential
   // write on this surface. The tailnet listener never serves them at all

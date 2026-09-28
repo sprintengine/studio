@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
 import type {
-  FleetConversation,
-  FleetConversationAccess,
-  FleetConversationKey,
-  FleetConversationLink,
-} from '../../../../../shared/tailnet-fleet'
+  MeshConversation,
+  MeshConversationAccess,
+  MeshConversationKey,
+  MeshConversationLink,
+} from '../../../../../shared/tailnet-mesh'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { TruncatedText } from '../../ui'
 import type { CliRuntimeOption } from '../../ui/CliModelPicker'
@@ -45,8 +45,8 @@ type Props = {
 }
 
 function remoteConversationReadiness(
-  link: FleetConversationLink | null,
-  access: FleetConversationAccess | null,
+  link: MeshConversationLink | null,
+  access: MeshConversationAccess | null,
   machineName: string,
 ): ChatReadiness {
   if (!link) return { kind: 'error', message: `Connecting to ${machineName}.` }
@@ -65,7 +65,7 @@ function remoteConversationReadiness(
  * Null for a machine that does not offer model switching, or a chat whose
  * provider is not a CLI; the chip then shows the model it is on, locked.
  */
-function remoteConversationEngine(thread: FleetConversation | null, modelSwitch: boolean): CliRuntimeOption | null {
+function remoteConversationEngine(thread: MeshConversation | null, modelSwitch: boolean): CliRuntimeOption | null {
   const models = modelSwitch ? thread?.models : undefined
   if (!models) return null
   return {
@@ -77,8 +77,8 @@ function remoteConversationEngine(thread: FleetConversation | null, modelSwitch:
 
 /** The session a remote row stands for, as the chat view reads one: what that machine said it can do. */
 function remoteConversationSession(
-  thread: FleetConversation | null,
-  key: FleetConversationKey,
+  thread: MeshConversation | null,
+  key: MeshConversationKey,
   modelSwitch: boolean,
 ): ConversationSessionSummary {
   const capabilities = thread?.capabilities
@@ -128,13 +128,13 @@ export default function RemoteConversationPanel({
   remoteAgentId,
   title,
 }: Props) {
-  const key = useMemo<FleetConversationKey>(
+  const key = useMemo<MeshConversationKey>(
     () => ({ connectionId, workspaceId: remoteWorkspaceId, agentId: remoteAgentId }),
     [connectionId, remoteWorkspaceId, remoteAgentId],
   )
-  const [link, setLink] = useState<FleetConversationLink | null>(null)
-  const [thread, setThread] = useState<FleetConversation | null>(null)
-  const [listedAccess, setListedAccess] = useState<FleetConversationAccess | null>(null)
+  const [link, setLink] = useState<MeshConversationLink | null>(null)
+  const [thread, setThread] = useState<MeshConversation | null>(null)
+  const [listedAccess, setListedAccess] = useState<MeshConversationAccess | null>(null)
   // The machine advertises model switching and lists this chat's catalog.
   const [listedModelSwitch, setListedModelSwitch] = useState(false)
   const modelSwitch = listedModelSwitch && Boolean(thread?.models)
@@ -179,7 +179,7 @@ export default function RemoteConversationPanel({
   useEffect(() => {
     let cancelled = false
     void window.api
-      .fleetConversationList(connectionId)
+      .meshConversationList(connectionId)
       .then((result) => {
         if (cancelled || !result.ok) return
         setListedAccess(result.access)
@@ -220,7 +220,7 @@ export default function RemoteConversationPanel({
       update,
       workspace: null,
       workspaceRoot: null,
-      sessionRoot: `fleet:${connectionId}`,
+      sessionRoot: `mesh:${connectionId}`,
       readiness,
       session,
       ...(engine ? { engine } : {}),
