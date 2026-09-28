@@ -31,6 +31,8 @@ import type { ConversationProviderListEntry, ConversationProviderModel } from '.
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { ChevronDownIcon } from '../AppIcons'
+import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
@@ -111,13 +113,8 @@ export type { ComposerMenuState } from './agentChat/composerControls'
 export { readinessLabel } from './agentChat/chatStates'
 export type { ChatReadiness } from './agentChat/chatStates'
 
-export {
-  ResolvedDecisions,
-  UserTimelineRow,
-  WorkTimeline,
-  formatStepDuration,
-  isAuthShapedFailure,
-} from './agentChat/timelineRows'
+export { ResolvedDecisions, UserTimelineRow, WorkTimeline, isAuthShapedFailure } from './agentChat/timelineRows'
+export { formatStepDuration } from './agentChat/stepDuration'
 
 export { parseOptionLabel } from './agentChat/pendingDock'
 
@@ -225,6 +222,16 @@ type PendingAction = 'starting' | 'sending' | 'stopping' | null
 // A message committed while the session was busy, waiting for the turn to
 // unlock (D6/1776). Attachments ride along so a queued image is not lost.
 type QueuedTurn = { text: string; attachments: ConversationImageAttachment[]; metadata: ComposerDraftMetadata }
+
+// An error on the composer's line. Most are a sentence and nothing to redo — a
+// refused image, a clipboard write, a search that lost its row. A send that did
+// not go carries the send, so Retry repeats exactly that message and only
+// appears when there is one to repeat.
+type ComposerActionError = string | { message: string; retry: QueuedTurn }
+
+function composerErrorMessage(error: ComposerActionError | null): string | null {
+  return typeof error === 'string' ? error : (error?.message ?? null)
+}
 
 // Fold what the composer holds into the queued turn — the one merge every
 // queueing path makes, whether the message then waits or is sent at once.
@@ -529,7 +536,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Applied once the new value has rendered, so the caret lands in the edited
   // text instead of jumping to the end of it.
   const pendingCaretRef = useRef<number | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<ComposerActionError | null>(null)
   const skillReader = useComposerSkillReader(workspaceRoot)
   const listRef = useRef<LegendListRef | null>(null)
   const conversationKey = `${workspaceId}:${agentId}`
@@ -859,19 +866,20 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Surface session/send action errors (start failure, missing key, IPC error)
   // the same way — these never reach the event stream.
   const lastNotifiedActionErrorRef = useRef<string | null>(null)
+  const actionErrorMessage = composerErrorMessage(actionError)
   useEffect(() => {
-    if (!actionError || actionError === lastNotifiedActionErrorRef.current) return
-    lastNotifiedActionErrorRef.current = actionError
+    if (!actionErrorMessage || actionErrorMessage === lastNotifiedActionErrorRef.current) return
+    lastNotifiedActionErrorRef.current = actionErrorMessage
     publishDiagnosticSync({
       level: 'error',
       source: 'workspace',
       title: `${label} could not start`,
-      message: actionError,
+      message: actionErrorMessage,
       workspaceId,
       workspaceName: workspace?.name,
       agentId,
     })
-  }, [actionError, label, workspaceId, workspace?.name, agentId])
+  }, [actionErrorMessage, label, workspaceId, workspace?.name, agentId])
 
   // A chat agent is named as a terminal agent is — from the shared pool — and
   // never after its model. A chat created before that rule wears its model's
@@ -1004,7 +1012,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setPermissionNotice(null)
       setPending('starting')
       const activeSession = await ensureSession()
+      const thisSend = { text, attachments: turnAttachments, metadata }
       if (!activeSession) {
+        // The session's own failure is already on the line; it is this send's.
+        setActionError((current) => {
+          const message = composerErrorMessage(current)
+          return message ? { message, retry: thisSend } : current
+        })
         sendInFlightRef.current = false
         setSendInFlight(false)
         setPending(null)
@@ -1058,7 +1072,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         // A failed send keeps the mode and effort the user chose. Rolling them
         // back would quietly turn a plan-mode resend into one that can write.
         if (!result.ok) {
-          setActionError(result.message)
+          setActionError({ message: result.message, retry: thisSend })
           setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
           if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
           if (!fromDraft) {
@@ -1080,7 +1094,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           }))
         }
         if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
-        setActionError(err instanceof Error ? err.message : 'Could not send the message.')
+        setActionError({
+          message: err instanceof Error ? err.message : 'Could not send the message.',
+          retry: thisSend,
+        })
       } finally {
         sendInFlightRef.current = false
         setSendInFlight(false)
@@ -1487,6 +1504,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     setActionError(queuedDropNotice(dropped))
     sendQueuedNow(turn)
   }
+  // Esc stops a running turn, as it does in an agent CLI's own terminal. It
+  // gets here only once the composer's pickers and prompt recall have passed
+  // it on, and never while a menu is open over the composer or text in the
+  // transcript is selected: there Esc belongs to what is showing. Nor while a
+  // request waits in the dock: the turn is paused on the person's answer, Esc
+  // reads there as "no", and a stop would throw away the turn it was asked in.
+  const stopsTurnOnEscape = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return false
+    if (!projection.activeTurn || !operate || stopDisabledForPending(pending)) return false
+    if (modelMenuOpen || composerMenu) return false
+    if (projection.entries.some((entry) => entry.kind === 'approval' && entry.status === 'pending')) return false
+    return !window.getSelection()?.toString().trim()
+  }
   const sendNowShortcutLabel = renderKeybinding(
     'Primary+Enter',
     window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux',
@@ -1507,6 +1537,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       })
   }
   const retry = useCallback(() => retryLatestRef.current(), [])
+  // The composer's Retry repeats the send that failed. A failed send hands its
+  // message back to the composer, so when the composer still holds it the retry
+  // goes from there and empties it, as the first attempt did; edited since, the
+  // message goes as it was sent and the edit stays. The images handed back go
+  // with the retry either way, so they leave the composer: left there, the next
+  // send would upload them a second time.
+  const failedSend = typeof actionError === 'object' ? (actionError?.retry ?? null) : null
+  const retryFailedSend = () => {
+    if (!failedSend) return
+    const fromDraft = draft.trim() === failedSend.text
+    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
+    setAttachments((current) => (current === failedSend.attachments ? [] : current))
+  }
   // Only this machine's Claude chat signs in through its CLI; a paired
   // machine's chat would need signing in over there.
   const signInProviderId =
@@ -1804,7 +1847,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs &&
-    oldChrome.rewindEnabled === rewindEnabled
+    oldChrome.rewindEnabled === rewindEnabled &&
+    oldChrome.cli === chatCli
       ? oldChrome
       : {
           assistantName,
@@ -1819,6 +1863,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           checkpointSeqs: stableCheckpointSeqs,
           rewindEnabled,
           onRestoreDraft: restoreDraft,
+          cli: chatCli,
         }
   chromeRef.current = chrome
 
@@ -1904,11 +1949,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     }
   }, [dropActive])
 
-  const composerError =
-    actionError ??
-    persistenceError ??
-    historyError ??
-    (projection.lastError && !hasFailedTurnEntry ? projection.lastError : null)
+  const orphanTurnError = projection.lastError && !hasFailedTurnEntry ? projection.lastError : null
+  const composerError = actionErrorMessage ?? persistenceError ?? historyError ?? orphanTurnError
+  // Retry only where there is something to send again: the send that failed,
+  // or a turn that failed without a transcript entry to carry its own Retry.
+  const composerRetry = actionError
+    ? failedSend
+      ? retryFailedSend
+      : null
+    : !persistenceError && !historyError && orphanTurnError
+      ? retry
+      : null
 
   return (
     <ConversationLinkProvider
@@ -1960,6 +2011,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           aria-live="off"
           aria-busy={!hydrated || loadingEarlier}
           onClickCapture={preserveDisclosurePosition}
+          // A selection of the conversation copies as the markdown it was
+          // rendered from; anything else is the browser's to copy.
+          onCopy={(event) => copySelectionAsMarkdown(event.nativeEvent, event.currentTarget)}
           className="relative min-h-0 flex-1"
         >
           {timelineRows.length === 0 ? (
@@ -2074,7 +2128,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               onClick={jumpToLatest}
               className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
             >
-              {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
+              <ChevronDownIcon className="icon-xs shrink-0" />
+              {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
             </OutlineButton>
           ) : null}
           <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
@@ -2102,9 +2157,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 text={composerError}
                 className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
               />
-              <OutlineButton onClick={retry} disabled={composerDisabled} className="shrink-0">
-                Retry
-              </OutlineButton>
+              {composerRetry ? (
+                <OutlineButton onClick={composerRetry} disabled={composerDisabled} className="shrink-0">
+                  Retry
+                </OutlineButton>
+              ) : null}
             </div>
           ) : null}
 
@@ -2248,6 +2305,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   }
                 }
                 if (handleRecallKeyDown(event)) return
+                if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
+                  event.preventDefault()
+                  void interrupt()
+                  return
+                }
                 if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
                   event.preventDefault()
                   commitComposerNow()

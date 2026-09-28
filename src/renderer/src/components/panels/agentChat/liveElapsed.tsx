@@ -70,3 +70,12 @@ export function formatMessageTime(timestamp: number, now: number = Date.now()): 
   })
   return `${day}, ${clock}`
 }
+
+// The whole instant in the reader's own calendar and clock, for a tooltip:
+// "Sunday, 28 September 2026 at 11:15:02" in en-GB, the local equivalent
+// elsewhere. The visible stamp stays short; this is where the rest lives.
+const MESSAGE_DATE_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' })
+
+export function formatMessageDateTime(timestamp: number): string {
+  return MESSAGE_DATE_TIME.format(new Date(timestamp))
+}

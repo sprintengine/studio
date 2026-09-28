@@ -1,21 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckIcon, CopyIcon } from '../AppIcons'
-import { CloseIconButton, IconButton } from './Buttons'
+import { CloseIconButton } from './Buttons'
+import { CopyGlyphButton } from './CopyGlyphButton'
 import { LifecycleGlyph } from './LifecycleGlyph'
 
 /** Viewport coordinates of the click/cursor the error belongs to. */
 export type CursorAnchor = { x: number; y: number }
-
-type RuntimeClipboardApi = {
-  clipboardWriteText?: (text: string) => Promise<void>
-}
-
-async function writeClipboardText(text: string): Promise<void> {
-  const api = window.api as typeof window.api & RuntimeClipboardApi
-  if (typeof api.clipboardWriteText !== 'function') throw new Error('Clipboard API is unavailable.')
-  await api.clipboardWriteText(text)
-}
 
 // Distance from the cursor to the nearest edge of the box, and the breathing
 // room kept against the viewport edge when clamping.
@@ -66,10 +56,8 @@ export type CursorErrorPopoverProps = {
  */
 export function CursorErrorPopover({ message, anchor, onDismiss, autoDismissMs = 3500 }: CursorErrorPopoverProps) {
   const boxRef = useRef<HTMLDivElement>(null)
-  const copiedTimerRef = useRef<number | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [paused, setPaused] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [placement, setPlacement] = useState<Placement | null>(null)
 
   // Measure once mounted, then clamp horizontally and anchor the edge nearest
@@ -126,25 +114,6 @@ export function CursorErrorPopover({ message, anchor, onDismiss, autoDismissMs =
       window.removeEventListener('mousedown', onPointerDown)
     }
   }, [onDismiss])
-
-  useEffect(
-    () => () => {
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current)
-    },
-    [],
-  )
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await writeClipboardText(message)
-      setCopied(true)
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current)
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200)
-    } catch {
-      // Clipboard denied — the message stays on screen and selectable, so the
-      // user can still copy it by hand. No silent success.
-    }
-  }, [message])
 
   const expandedMaxHeight = placement ? Math.min(placement.maxHeight, EXPANDED_MAX_HEIGHT) : EXPANDED_MAX_HEIGHT
   const caretSide = placement?.placeAbove ? 'down' : 'up'
@@ -215,26 +184,19 @@ export function CursorErrorPopover({ message, anchor, onDismiss, autoDismissMs =
               negative block margin pulls the taller box back into the
               single-line row so the collapsed strip keeps its height. */}
           <div className="flex shrink-0 items-center gap-0.5">
-            <IconButton
-              onClick={(event) => {
-                event.stopPropagation()
-                void handleCopy()
-              }}
-              aria-label={copied ? 'Copied' : 'Copy error'}
+            {/* The shared copy glyph, which stops its own click so copying
+                does not also toggle the box. */}
+            <CopyGlyphButton
+              text={message}
+              label="Copy error"
               className={[
                 '-my-1',
                 // Copy stays hidden until the box is hovered or expanded so the
                 // resting state is just the message; the keyboard reveals it
                 // too, so it is never a target only a pointer can find.
-                expanded || paused ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100',
+                expanded || paused ? 'opacity-100' : 'opacity-0 focus-within:opacity-100',
               ].join(' ')}
-            >
-              {copied ? (
-                <CheckIcon className="size-icon-xs text-[color:var(--tone-good)]" />
-              ) : (
-                <CopyIcon className="size-icon-xs" />
-              )}
-            </IconButton>
+            />
             {expanded ? (
               <CloseIconButton
                 onClick={(event) => {

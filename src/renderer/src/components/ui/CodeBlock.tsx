@@ -1,6 +1,12 @@
-import React, { Component, memo, useEffect, useRef, useState, type ReactNode } from 'react'
-import { GhostButton } from './Buttons'
-import { copyToClipboardWithToast } from '../../utils/copyToClipboardWithToast'
+import React, { Component, memo, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { ChevronDownIcon } from '../AppIcons'
+import { GhostButton, IconButton } from './Buttons'
+import { CopyGlyphButton } from './CopyGlyphButton'
+import { FileTypeGlyph } from './FileTypeGlyph'
+import { Tooltip } from './Tooltip'
+import { TruncatedText } from './TruncatedText'
+import { TerminalPromptGlyph, WrapLinesGlyph } from './CodeBlockGlyphs'
+import { codeBlockTitle, countLines, pastableShellCommand } from './codeBlockModel'
 import {
   cachedCodeLines,
   HIGHLIGHT_LINE_LIMIT,
@@ -16,9 +22,33 @@ export type CodeBlockProps = {
   language?: string
   filename?: string
   streaming?: boolean
-  /** Header actions a surface adds for its own kind of block, set before Wrap and Copy. */
+  /** Header actions a surface adds for its own kind of block, set before the block's own. Glyph buttons at `xs`. */
   actions?: ReactNode
+  /**
+   * Offer "Paste into terminal" on a settled shell block. The block decides
+   * whether it is one (see `pastableShellCommand`) and hands over the command
+   * with its `$ ` / `% ` prompts stripped; the surface decides which terminal it
+   * goes to. The handler must paste, never press Enter — the person runs it.
+   * Leave it unset where no terminal is reachable, and the action is not drawn.
+   */
+  onPasteInTerminal?: (command: string) => void
+  /**
+   * Fold a long settled block to its first lines behind a "Show all" control.
+   * On by default; a surface that already pages its own output turns it off so
+   * the block does not grow a second disclosure.
+   */
+  collapsible?: boolean
 }
+
+/**
+ * A settled block longer than this folds. Twenty lines is about a screenful of
+ * reply at the conversation's width: past it, one block pushes the prose that
+ * explains it out of view.
+ */
+export const COLLAPSE_AFTER_LINES = 20
+
+/** Lines a folded block keeps visible — set in component.css as `12lh`; keep the two together. */
+export const COLLAPSED_LINES = 12
 
 const TokenLine = memo(function TokenLine({ line }: { line: CodeLine }) {
   return (
@@ -32,7 +62,7 @@ const TokenLine = memo(function TokenLine({ line }: { line: CodeLine }) {
   )
 })
 
-function HighlightedSource({ code, language, streaming }: CodeBlockProps) {
+function HighlightedSource({ code, language, streaming }: { code: string; language: string; streaming?: boolean }) {
   const normalized = normalizeCodeLanguage(language)
   const tokenizer = useRef<{ language: string; value: IncrementalCodeTokenizer } | null>(null)
   const [ready, setReady] = useState<string | null>(null)
@@ -87,30 +117,132 @@ class CodeBoundary extends Component<{ children: ReactNode; code: string }, { fa
   }
 }
 
+/**
+ * Marks which horizontal edges of an unwrapped block have code past them, so the
+ * CSS fades exactly those edges. Written straight onto the element rather than
+ * through state: it changes on every scroll event, and a re-render per scroll
+ * frame would re-run the highlighter's line diff for nothing.
+ */
+function useOverflowEdges(ref: React.RefObject<HTMLPreElement | null>, code: string, wrap: boolean) {
+  useEffect(() => {
+    const pre = ref.current
+    if (!pre) return
+    const update = () => markOverflowEdges(pre)
+    pre.addEventListener('scroll', update, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(pre)
+    return () => {
+      pre.removeEventListener('scroll', update)
+      observer?.disconnect()
+    }
+  }, [ref])
+  // When the source or the wrap changes, too: a streamed line can widen the
+  // source without resizing the box, and a wrap toggle changes the answer
+  // without either event firing. Read on the next frame rather than in the
+  // commit, so a burst of streamed tokens costs one layout read, not one each.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (ref.current) markOverflowEdges(ref.current)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [ref, code, wrap])
+}
+
+function markOverflowEdges(pre: HTMLPreElement) {
+  // A pixel of slack: fractional widths leave scrollLeft a hair short of the end.
+  const room = pre.scrollWidth - pre.clientWidth
+  pre.toggleAttribute('data-fade-start', room > 1 && pre.scrollLeft > 1)
+  pre.toggleAttribute('data-fade-end', room > 1 && pre.scrollLeft < room - 1)
+}
+
 export function CodeBlock(props: CodeBlockProps) {
+  const { code, streaming } = props
   const [wrap, setWrap] = useState(false)
+  // A block first seen while it streamed stays open when it settles: folding it
+  // then would pull the lines out from under someone reading them. One that
+  // arrives settled — scrolled back to, reopened — starts folded.
+  const [expanded, setExpanded] = useState(() => Boolean(streaming))
+  const bodyId = useId()
+  const preRef = useRef<HTMLPreElement | null>(null)
+  useOverflowEdges(preRef, code, wrap)
+
+  const title = codeBlockTitle(props.language, props.filename)
+  const lineCount = countLines(code)
+  const foldable = props.collapsible !== false && !streaming && lineCount > COLLAPSE_AFTER_LINES
+  const folded = foldable && !expanded
+  const command = props.onPasteInTerminal ? pastableShellCommand(code, props.language, streaming) : null
+  const onPaste = props.onPasteInTerminal
+
   return (
     <section
       className={`ds-code-block${wrap ? ' ds-code-block--wrap' : ''}`}
-      aria-label={`${props.language || 'Plain text'} code`}
+      aria-label={title.filename ? `${title.languageName} code, ${title.filename}` : `${title.languageName} code`}
+      data-code-block=""
+      data-code-language={normalizeCodeLanguage(title.highlightLanguage) ?? title.languageTag}
     >
-      <div className="ds-code-block__header">
-        <span className="ds-code-block__label">{props.filename || props.language || 'Plain text'}</span>
-        {props.actions}
-        <GhostButton size="xs" aria-label="Wrap code" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
-          Wrap
-        </GhostButton>
-        <GhostButton size="xs" aria-label="Copy code" onClick={() => void copyToClipboardWithToast(props.code)}>
-          Copy
-        </GhostButton>
+      {/* Chrome, not content: a selection copied across the block takes the
+          source and none of this. */}
+      <div className="ds-code-block__header" data-copy-exclude="">
+        <span className="ds-code-block__label">
+          {title.kind ? <FileTypeGlyph kind={title.kind} className="ds-code-block__glyph" /> : null}
+          {title.filename ? (
+            <TruncatedText as="span" text={title.filename} className="ds-code-block__filename" />
+          ) : (
+            <span className="ds-code-block__language">{title.label}</span>
+          )}
+        </span>
+        <div className="ds-code-block__actions" role="group" aria-label="Code actions">
+          {props.actions}
+          {command && onPaste ? (
+            <Tooltip content="Paste into terminal — it runs when you press Enter">
+              <IconButton size="xs" tone="subtle" aria-label="Paste into terminal" onClick={() => onPaste(command)}>
+                <TerminalPromptGlyph className="size-icon-xs" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          <Tooltip content="Wrap lines">
+            <IconButton
+              size="xs"
+              tone="subtle"
+              aria-label="Wrap lines"
+              pressed={wrap}
+              onClick={() => setWrap((value) => !value)}
+            >
+              <WrapLinesGlyph className="size-icon-xs" />
+            </IconButton>
+          </Tooltip>
+          <CopyGlyphButton text={code} label="Copy code" size="xs" tone="subtle" />
+        </div>
       </div>
-      <pre>
-        <CodeBoundary code={props.code}>
-          <HighlightedSource {...props} />
-        </CodeBoundary>
-      </pre>
-      {props.code.split('\n').length > HIGHLIGHT_LINE_LIMIT ? (
-        <div className="ds-code-block__note">Highlighting stopped at 2000 lines</div>
+      {/* Folding clips the box, never the source: every line stays in the DOM,
+          so find-in-page, a selection and the copy glyph all still get it all. */}
+      <div id={bodyId} className="ds-code-block__body" data-folded={folded ? '' : undefined}>
+        <pre ref={preRef}>
+          <CodeBoundary code={code}>
+            <HighlightedSource code={code} language={title.highlightLanguage} streaming={streaming} />
+          </CodeBoundary>
+        </pre>
+      </div>
+      {foldable ? (
+        <div className="ds-code-block__fold" data-copy-exclude="">
+          <GhostButton
+            size="xs"
+            tone="subtle"
+            aria-expanded={!folded}
+            aria-controls={bodyId}
+            onClick={() => setExpanded(folded)}
+          >
+            <ChevronDownIcon
+              className={`size-icon-xs ds-code-block__chevron${folded ? '' : ' ds-code-block__chevron--open'}`}
+            />
+            {folded ? `Show all ${lineCount} lines` : 'Show less'}
+          </GhostButton>
+        </div>
+      ) : null}
+      {lineCount > HIGHLIGHT_LINE_LIMIT ? (
+        <div className="ds-code-block__note" data-copy-exclude="">
+          Highlighting stopped at {HIGHLIGHT_LINE_LIMIT} lines
+        </div>
       ) : null}
     </section>
   )

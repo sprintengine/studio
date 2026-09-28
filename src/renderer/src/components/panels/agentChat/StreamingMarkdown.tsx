@@ -1,6 +1,6 @@
 import { Fragment, memo } from 'react'
 import { splitMarkdownSegments } from '../../../../../shared/conversation/markdownSegments'
-import { renderMarkdown } from '../../../utils/markdown'
+import { markdownRootProps, renderMarkdown } from '../../../utils/markdown'
 
 type MarkdownOptions = Parameters<typeof renderMarkdown>[1]
 
@@ -26,10 +26,13 @@ export function StreamingMarkdown({ source, options }: { source: string; options
   const { frozen, tail } = splitMarkdownSegments(source)
   const segments = tail ? [...frozen, tail] : frozen
   return (
-    <div className="markdown-rendered">
+    <div {...markdownRootProps(options)}>
       {segments.map((segment, index) => (
         <Fragment key={index}>
-          {index > 0 ? ' ' : null}
+          {/* The newline a whole parse leaves between two blocks, so the joined
+              segments are the same markup as the message parsed at once. It is
+              whitespace between block boxes, so it never draws. */}
+          {index > 0 ? '\n' : null}
           <MarkdownSegment source={segment} options={options} frozen={index < frozen.length} />
         </Fragment>
       ))}

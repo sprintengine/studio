@@ -11,16 +11,26 @@ import {
 import { type ReasoningSegment, type TranscriptEntry, type TranscriptToolEntry } from './conversationProjection'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
 import { StoredAttachmentThumbnail } from './storedAttachments'
-import { Badge, TruncatedText, GhostButton, StatusDot, RowButton, OutlineButton, LinkButton, Tooltip } from '../../ui'
+import {
+  Badge,
+  CopyGlyphButton,
+  TruncatedText,
+  GhostButton,
+  StatusDot,
+  RowButton,
+  OutlineButton,
+  LinkButton,
+  Tooltip,
+} from '../../ui'
 import { ConversationFileLink, ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import { stepWentWrong, ToolRow, toolGlyphInk, toolPresentationInput } from './toolRows/ToolRow'
 import { useConversationDisclosure } from './conversationViewState'
 import { presentToolItem, summarizeToolGroup } from '../../../../../shared/conversation/presentation'
 import type { ConversationToolKind } from '../../../../../shared/conversation-runtime'
 import { deriveTurnFold } from './turnFolds'
-import { copyToClipboardWithToast } from '../../../utils/copyToClipboardWithToast'
+import { formatStepDuration } from './stepDuration'
 import { useLiveRowMotion } from './liveVisibility'
-import { formatMessageTime, LiveElapsed } from './liveElapsed'
+import { formatMessageDateTime, formatMessageTime, LiveElapsed } from './liveElapsed'
 import { ReasoningBlock } from './reasoningBlock'
 import { CompactionDivider, TurnMeta } from './turnMeta'
 import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
@@ -28,16 +38,7 @@ import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFil
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel, subagentOutcomeWord } from './subagentResult'
-import React, { useState, useRef } from 'react'
-
-export function formatStepDuration(ms: number): string {
-  if (ms < 950) return `${Math.max(0.1, ms / 1000).toFixed(1)}s`
-  // Rounded once, before it is split: rounding the remainder alone turns
-  // 1m 59.7s into "1m 60s".
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-}
+import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
 // words and stems, so a path or message that merely contains "author" or a
@@ -71,7 +72,28 @@ export type TimelineChrome = {
   // `window.api.platform`: on Windows the chat's login is the native CLI's,
   // which is not the one inside WSL.
   platform?: string
+  // The agent CLI the chat drives ('claude-code', 'codex', …), so a lapsed
+  // login names that CLI's own sign-in command. Absent for a provider that is
+  // not a CLI, which gets the command-free wording.
+  cli?: string | null
 }
+
+// Each CLI's own sign-in, as its maker documents it: what someone types in a
+// terminal to renew the login a chat turn failed on.
+const CLI_SIGN_IN_COMMAND: Readonly<Record<string, string>> = {
+  'claude-code': 'claude auth login',
+  codex: 'codex login',
+  cursor: 'agent login',
+  opencode: 'opencode auth login',
+  grok: 'grok login',
+}
+
+// A message's actions (copy, clock, revert) rest hidden so a read-through is
+// text only. A pointer reveals them over the row, the keyboard reveals them as
+// focus enters the row, and a touch screen, which has no hover to ask with,
+// always shows them.
+const MESSAGE_ACTION_REVEAL =
+  'opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100 pointer-coarse:opacity-100'
 
 export const TimelineRow = React.memo(function TimelineRow({
   row,
@@ -81,7 +103,14 @@ export const TimelineRow = React.memo(function TimelineRow({
   chrome: TimelineChrome
 }) {
   return (
-    <div className="group/conversation" data-conversation-row-kind={row.kind}>
+    <div
+      className="group/conversation"
+      data-conversation-row-kind={row.kind}
+      // A copied stretch of transcript is what was said: the messages. A
+      // compaction marker, a decision record and the live status line are
+      // the view's own furniture, so a selection across them skips them.
+      data-copy-exclude={row.kind === 'user' || row.kind === 'assistant' ? undefined : ''}
+    >
       {row.kind === 'user' ? <UserTimelineRow entry={row.entry} chrome={chrome} /> : null}
       {row.kind === 'assistant' ? (
         <AssistantTurnBlock
@@ -120,7 +149,7 @@ export function UserTimelineRow({
       <MessageAuthorHeading>You said</MessageAuthorHeading>
       <div className="max-w-[76%] rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5">
         {attachments.length > 0 || stored.length > 0 ? (
-          <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
+          <div data-copy-exclude="" className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
             {attachments.map((attachment) => (
               <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-16 w-16" />
             ))}
@@ -130,7 +159,7 @@ export function UserTimelineRow({
           </div>
         ) : null}
         {entry.mentions?.length || entry.skills?.length ? (
-          <div className="mb-2 flex flex-wrap justify-end gap-1.5" aria-label="Attached context">
+          <div data-copy-exclude="" className="mb-2 flex flex-wrap justify-end gap-1.5" aria-label="Attached context">
             {entry.skills?.map((skill) => (
               <Badge key={`skill:${skill}`} ariaLabel={`Skill: ${skill}`}>
                 {skill}
@@ -154,15 +183,13 @@ export function UserTimelineRow({
         ) : null}
         {entry.text ? <UserMessageBody id={entry.id} text={entry.text} /> : null}
       </div>
-      <div className="mt-1 flex items-center justify-end gap-2">
+      <div data-copy-exclude="" className="mt-1 flex items-center justify-end gap-2">
         <MessageTimestamp at={entry.createdAt} />
-        <GhostButton
-          size="inline"
-          className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-          onClick={() => void copyToClipboardWithToast(entry.text)}
-        >
-          Copy
-        </GhostButton>
+        {/* An image-only turn has no words to copy; a button that puts nothing
+            on the clipboard and still says it did is worse than none. */}
+        {entry.text.trim() ? (
+          <CopyGlyphButton size="xs" label="Copy message" text={entry.text} className={MESSAGE_ACTION_REVEAL} />
+        ) : null}
         {chrome?.checkpointsEnabled &&
         entry.seq &&
         chrome.checkpointSeqs?.has(entry.seq) &&
@@ -172,7 +199,7 @@ export function UserTimelineRow({
             reverted={entry.reverted}
             overwritesLaterWork={entry.undoOverwritesLaterWork}
             running={chrome.conversationRunning ?? false}
-            className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+            className={MESSAGE_ACTION_REVEAL}
           />
         ) : null}
         {chrome?.rewindEnabled && chrome.onRestoreDraft ? (
@@ -181,7 +208,7 @@ export function UserTimelineRow({
             running={chrome.conversationRunning ?? false}
             canRestoreFiles={Boolean(chrome.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq))}
             onRestoreDraft={chrome.onRestoreDraft}
-            className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+            className={MESSAGE_ACTION_REVEAL}
           />
         ) : null}
       </div>
@@ -208,16 +235,17 @@ export function shouldCollapseUserMessage(text: string): boolean {
   return text.length > COLLAPSED_USER_MESSAGE_CHARS || text.split('\n').length > COLLAPSED_USER_MESSAGE_LINES
 }
 
-// The bubble keeps its own type rather than the document scale the reply is
-// read at: prose at body size in strong ink, blocks closer together, headings
-// no larger than the text around them, and no margin under the last block.
+// The bubble reads at the reply's own text size, so the two sides of the
+// conversation are one reading scale; what it keeps of its own is the strong
+// ink, blocks closer together, headings no larger than the text around them,
+// and no margin under the last block.
 const USER_MESSAGE_PROSE =
-  '[&_p]:mb-2 [&_p]:text-body [&_p]:leading-normal [&_p]:text-[color:var(--text-strong)] ' +
-  '[&_ul]:mb-2 [&_ul]:space-y-0.5 [&_ul]:text-body [&_ul]:leading-normal [&_ul]:text-[color:var(--text-strong)] ' +
-  '[&_ol]:mb-2 [&_ol]:space-y-0.5 [&_ol]:text-body [&_ol]:leading-normal [&_ol]:text-[color:var(--text-strong)] ' +
-  '[&_h1]:mb-1 [&_h1]:mt-3 [&_h1]:text-body [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-body ' +
-  '[&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-body [&_h4]:mb-1 [&_h4]:mt-3 [&_h4]:text-body ' +
-  '[&_h5]:mb-1 [&_h5]:mt-3 [&_h5]:text-body [&_h6]:mb-1 [&_h6]:mt-3 [&_h6]:text-body ' +
+  '[&_p]:mb-2 [&_p]:text-heading [&_p]:leading-[1.6] [&_p]:text-[color:var(--text-strong)] ' +
+  '[&_ul]:mb-2 [&_ul]:space-y-0.5 [&_ul]:text-heading [&_ul]:leading-[1.6] [&_ul]:text-[color:var(--text-strong)] ' +
+  '[&_ol]:mb-2 [&_ol]:space-y-0.5 [&_ol]:text-heading [&_ol]:leading-[1.6] [&_ol]:text-[color:var(--text-strong)] ' +
+  '[&_h1]:mb-1 [&_h1]:mt-3 [&_h1]:text-heading [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-heading ' +
+  '[&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-heading [&_h4]:mb-1 [&_h4]:mt-3 [&_h4]:text-heading ' +
+  '[&_h5]:mb-1 [&_h5]:mt-3 [&_h5]:text-heading [&_h6]:mb-1 [&_h6]:mt-3 [&_h6]:text-heading ' +
   '[&_.markdown-rendered>:first-child]:mt-0 [&_.markdown-rendered>:last-child]:mb-0'
 
 // The message as markdown, so a pasted fence is highlighted code and a list
@@ -236,7 +264,7 @@ function UserMessageBody({ id, text }: { id: string; text: string }) {
     <div className="min-w-0">
       <div
         data-user-message-collapsed={collapsed ? 'true' : 'false'}
-        className={`min-w-0 text-body text-[color:var(--text-strong)] ${USER_MESSAGE_PROSE} ${
+        className={`min-w-0 text-heading text-[color:var(--text-strong)] ${USER_MESSAGE_PROSE} ${
           collapsed
             ? 'max-h-44 overflow-hidden [mask-image:linear-gradient(to_bottom,black_calc(100%_-_var(--sem-space-xl)),transparent)]'
             : ''
@@ -284,6 +312,14 @@ export function AssistantTurnBlock({
     `fold:${entry.turnId}`,
     !fold?.defaultFolded,
   )
+  const foldRegionId = useId()
+  const proseRef = useRef<HTMLDivElement>(null)
+  // The reply as it was written: the prose between steps and the final text,
+  // in order. Reasoning, steps and decisions are how it got there, not what it
+  // said, so they stay out.
+  const reply = [...(entry.intermediateText?.map((part) => part.text) ?? []), entry.text]
+    .filter((part) => part.trim())
+    .join('\n\n')
   return (
     <div className="pb-6">
       <MessageAuthorHeading>{chrome.assistantName}</MessageAuthorHeading>
@@ -295,60 +331,80 @@ export function AssistantTurnBlock({
           size="inline"
           tone="subtle"
           aria-expanded={workOpen}
+          aria-controls={foldRegionId}
           aria-label={fold.failed ? `${fold.label}, ${fold.failed} failed` : undefined}
           onClick={() => setWorkOpen(!workOpen)}
+          className="group/fold"
         >
           {fold.label}
           {fold.failed ? <span className="text-[color:var(--tone-error)]">· {fold.failed} failed</span> : null}
+          {/* The same turn-to-open chevron every other disclosure in the
+              transcript carries, so the fold reads as one before it is tried. */}
+          <ChevronRightGlyph
+            className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform group-hover/fold:text-[color:var(--text-subtle)] ${workOpen ? 'rotate-90' : ''}`}
+          />
         </GhostButton>
       ) : null}
-      {tools.length > 0 ? (
-        <WorkTimeline
-          tools={fold && !workOpen ? tools.filter((tool) => tool.status === 'running') : tools}
-          live={entry.status === 'streaming'}
-          intermediateText={fold && !workOpen ? undefined : entry.intermediateText}
-          reasoning={fold && !workOpen ? undefined : entry.reasoningSegments}
-          turnId={entry.turnId}
-        />
-      ) : null}
-      {/* Thinking since the last step: the whole turn's when it ran none. */}
-      {(!fold || workOpen) && entry.reasoning.trim() ? (
-        <ReasoningBlock
-          text={entry.reasoning}
-          duration={entry.reasoningDurationMs !== undefined ? formatStepDuration(entry.reasoningDurationMs) : undefined}
-          live={entry.status === 'streaming' && entry.reasoningLive === true}
-          disclosureId={entry.turnId}
-        />
-      ) : null}
+      {/* What the fold opens and closes. A step still running stays in here
+          while the fold is shut, so the region is always drawn. */}
+      <div id={foldRegionId}>
+        {tools.length > 0 ? (
+          <WorkTimeline
+            tools={fold && !workOpen ? tools.filter((tool) => tool.status === 'running') : tools}
+            live={entry.status === 'streaming'}
+            intermediateText={fold && !workOpen ? undefined : entry.intermediateText}
+            reasoning={fold && !workOpen ? undefined : entry.reasoningSegments}
+            turnId={entry.turnId}
+          />
+        ) : null}
+        {/* Thinking since the last step: the whole turn's when it ran none. */}
+        {(!fold || workOpen) && entry.reasoning.trim() ? (
+          <ReasoningBlock
+            text={entry.reasoning}
+            duration={
+              entry.reasoningDurationMs !== undefined ? formatStepDuration(entry.reasoningDurationMs) : undefined
+            }
+            live={entry.status === 'streaming' && entry.reasoningLive === true}
+            disclosureId={entry.turnId}
+          />
+        ) : null}
+      </div>
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? (
         // The pane's full width, as the composer below it: the column's edges
         // are the list's own padding, so prose, code blocks and tool rows all
         // share them with the user's bubble. Selecting in it offers a quote
         // into the composer (quoteSelection).
-        <div className="min-w-0" data-quote-source="">
+        <div ref={proseRef} className="min-w-0" data-quote-source="">
           <ConversationMarkdown text={entry.text} streaming={entry.status === 'streaming'} />
         </div>
       ) : null}
       {entry.status === 'interrupted' ? (
-        <span className="text-micro text-[color:var(--text-subtle)]">Interrupted</span>
+        <span data-copy-exclude="" className="text-micro text-[color:var(--text-subtle)]">
+          Interrupted
+        </span>
       ) : null}
       {entry.status !== 'streaming' ? (
-        <div className="flex items-center gap-2 text-meta text-[color:var(--sem-color-text-muted)]">
+        // The meta line is the view's, not the reply's: a copied turn is its
+        // words, never "42s · 10:15" trailing after them.
+        <div data-copy-exclude="" className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
           {entry.durationMs !== undefined ? <span>{formatStepDuration(entry.durationMs)}</span> : null}
           <TurnMeta entry={entry} modelSwitched={modelSwitched} />
           <MessageTimestamp at={entry.startedAt} />
-          <GhostButton
-            size="inline"
-            className="opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
-            onClick={() =>
-              void copyToClipboardWithToast(
-                [...(entry.intermediateText?.map((part) => part.text) ?? []), entry.text].filter(Boolean).join('\n\n'),
-              )
-            }
-          >
-            Copy
-          </GhostButton>
+          {reply ? (
+            <CopyGlyphButton
+              size="xs"
+              label="Copy reply"
+              text={reply}
+              // The rendered reply beside its markdown, so a paste into a rich
+              // editor keeps the headings, lists and code. Only when the final
+              // text is the whole reply: the prose between steps may be folded
+              // out of the page, and a rich copy missing it would disagree with
+              // the plain one.
+              html={entry.intermediateText?.length ? undefined : () => replyHtml(proseRef.current)}
+              className={MESSAGE_ACTION_REVEAL}
+            />
+          ) : null}
         </div>
       ) : null}
       {entry.status === 'failed' ? <TurnErrorBlock entry={entry} chrome={chrome} /> : null}
@@ -357,17 +413,40 @@ export function AssistantTurnBlock({
       hasTurnChanges(entry.checkpointAvailable, entry.checkpointSummary) &&
       entry.checkpointTurnSeq &&
       entry.checkpointSummary ? (
-        <ChangedFilesCard
-          turnSeq={entry.checkpointTurnSeq}
-          summary={entry.checkpointSummary}
-          running={chrome.conversationRunning ?? false}
-          reverted={entry.reverted}
-          undoTurnSeq={entry.undoRevertSeq}
-          undoOverwritesLaterWork={entry.undoOverwritesLaterWork}
-        />
+        <div data-copy-exclude="">
+          <ChangedFilesCard
+            turnSeq={entry.checkpointTurnSeq}
+            summary={entry.checkpointSummary}
+            running={chrome.conversationRunning ?? false}
+            reverted={entry.reverted}
+            undoTurnSeq={entry.undoRevertSeq}
+            undoOverwritesLaterWork={entry.undoOverwritesLaterWork}
+          />
+        </div>
       ) : null}
     </div>
   )
+}
+
+// The reply's rendered HTML for the clipboard's rich flavour, read off the page
+// at click time rather than rendered twice. The chrome inside the prose (a code
+// block's header, a copy glyph, screen-reader-only words) is not what the agent
+// wrote, so it goes; a file link drawn as a button keeps its words. Classes are
+// the app's own and mean nothing to the editor the paste lands in.
+export function replyHtml(prose: HTMLElement | null): string {
+  if (!prose) return ''
+  const clone = prose.cloneNode(true) as HTMLElement
+  for (const node of clone.querySelectorAll('[data-copy-exclude], [aria-hidden="true"], .sr-only')) node.remove()
+  for (const button of clone.querySelectorAll('button')) {
+    const span = document.createElement('span')
+    span.textContent = button.textContent
+    button.replaceWith(span)
+  }
+  for (const node of clone.querySelectorAll('[class], [style]')) {
+    node.removeAttribute('class')
+    node.removeAttribute('style')
+  }
+  return `<meta charset="utf-8">${clone.innerHTML}`
 }
 
 // Settled steps share a summary disclosure; live work stays outside it.
@@ -462,8 +541,14 @@ export function describeToolGroup(tools: TranscriptToolEntry[]): { kind: Convers
 // groups already says what each run of steps was for. Live work stays outside
 // the fold so what is happening now is always on screen. A failure inside a
 // closed group is the one thing that must not fold away, so the header carries
-// it. Opened, the steps scroll inside a bounded rail rather than pushing the
-// conversation a screen down.
+// it. Opened, the rail is as tall as its steps: each step is one line, and what
+// a step opens is bounded by its own panel, so a cap here only nested a second
+// scroll inside the transcript's and cut steps off with nothing to say more
+// were below.
+//
+// Steps are how the reply was reached, so the whole group is chrome to a copied
+// transcript; a selection made inside one step's output is still the browser's
+// to copy, as it is.
 function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
   const context = useConversationLinkContext()
   const settled = tools.filter((tool) => tool.status !== 'running')
@@ -473,14 +558,17 @@ function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
   const step = (tool: TranscriptToolEntry) => <WorkTimelineStep key={tool.id} tool={tool} />
   const { kind, failed } = describeToolGroup(settled)
   const summary = summarizeToolGroup(settled.map(toolPresentationInput))
+  const railId = useId()
   return (
-    <>
+    <div data-copy-exclude="">
       {settled.length > 1 ? (
         <>
           <RowButton
             density="row"
             className="group/tool-row text-meta"
             aria-expanded={open}
+            // Named only while the rail is drawn: a closed group renders none.
+            aria-controls={open ? railId : undefined}
             aria-label={failed ? `${summary}, ${failed} failed` : undefined}
             onClick={() => setOpen(!open)}
           >
@@ -496,7 +584,7 @@ function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
             />
           </RowButton>
           {open ? (
-            <div className="ml-3 max-h-[min(28rem,60vh)] overflow-y-auto border-l border-[color:var(--border-subtle)] pl-1.5">
+            <div id={railId} className="ml-3 border-l border-[color:var(--border-subtle)] pl-1.5">
               {settled.map(step)}
             </div>
           ) : null}
@@ -505,7 +593,7 @@ function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
         settled.map(step)
       )}
       {running.map(step)}
-    </>
+    </div>
   )
 }
 export function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
@@ -654,20 +742,42 @@ export function TurnErrorBlock({
   const detail = entry.failureDetail ?? entry.failureReason
   const authShaped = isAuthShapedFailure(`${entry.failureReason ?? ''} ${entry.failureDetail ?? ''}`)
   const onSignIn = authShaped ? chrome.onSignIn : undefined
-  const message = authShaped
-    ? `The session could not authenticate — usually a sign your sign-in expired. ${
-        onSignIn
-          ? `Sign in, then retry.${chrome.platform === 'win32' ? ' This signs in Claude Code for Windows, which keeps its own sign-in apart from WSL’s.' : ''}`
-          : 'Run `claude auth login` in a terminal, then retry.'
-      } Your message is kept; retrying resumes the same conversation.`
-    : 'Something went wrong while responding. Your message is kept; retrying resumes the same conversation.'
+  const detailsId = useId()
+  const kept = 'Your message is kept; retrying resumes the same conversation.'
+  // Where Studio cannot open the sign-in itself, the copy names the command of
+  // the CLI this chat drives, set as code so it reads as something to type.
+  // A provider with no known command is told to sign in, not given another
+  // CLI's command that would do nothing for it.
+  const command = chrome.cli ? CLI_SIGN_IN_COMMAND[chrome.cli] : undefined
+  const message: React.ReactNode = !authShaped ? (
+    `Something went wrong while responding. ${kept}`
+  ) : onSignIn ? (
+    `The session could not authenticate — usually a sign your sign-in expired. Sign in, then retry.${
+      chrome.platform === 'win32'
+        ? ` This signs in ${chrome.assistantName} for Windows, which keeps its own sign-in apart from WSL’s.`
+        : ''
+    } ${kept}`
+  ) : command ? (
+    <>
+      The session could not authenticate — usually a sign your sign-in expired. Run{' '}
+      <code className="rounded-xs border border-[color:var(--border-subtle)] bg-[color:var(--bg-active)] px-[0.3em] py-[0.05em] font-mono text-[0.9em] text-[color:var(--text-strong)]">
+        {command}
+      </code>{' '}
+      in a terminal, then retry. {kept}
+    </>
+  ) : (
+    `The session could not authenticate — usually a sign your sign-in expired. Sign in to ${chrome.assistantName} in a terminal, then retry. ${kept}`
+  )
   const signIn = () => {
     if (!onSignIn || signingIn) return
     setSigningIn(true)
     void onSignIn().finally(() => setSigningIn(false))
   }
   return (
-    <div className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
+    <div
+      data-copy-exclude=""
+      className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3"
+    >
       <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
         <StatusDot tone="error" label="Turn failed" />
         {chrome.assistantName} couldn’t finish this turn
@@ -688,6 +798,7 @@ export function TurnErrorBlock({
           <LinkButton
             ink="quiet"
             aria-expanded={showDetails}
+            aria-controls={showDetails ? detailsId : undefined}
             onClick={() => setShowDetails((value) => !value)}
             className="ml-auto"
           >
@@ -696,9 +807,18 @@ export function TurnErrorBlock({
         ) : null}
       </div>
       {showDetails && detail ? (
-        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2 font-mono text-micro leading-[1.6] text-[color:var(--text-subtle)]">
-          {detail}
-        </pre>
+        // The provider's own words are what a bug report or a search needs,
+        // so they copy whole in one press rather than by drag-selecting a
+        // wrapped block.
+        <div id={detailsId} className="relative mt-2.5">
+          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] py-2 pl-3 pr-8 font-mono text-micro leading-[1.6] text-[color:var(--text-subtle)]">
+            {detail}
+          </pre>
+          {/* Placed by its own box: the glyph's wrapper is positioned relative. */}
+          <div className="absolute right-1 top-1">
+            <CopyGlyphButton size="xs" label="Copy error details" text={detail} />
+          </div>
+        </div>
       ) : null}
     </div>
   )
@@ -708,8 +828,10 @@ export function TurnErrorBlock({
 // caller's (a turn block sits them above its prose; an orphan run stands alone).
 export function ResolvedDecisions({ rows, className }: { rows: ConversationDecisionRow[]; className?: string }) {
   if (rows.length === 0) return null
+  // How the turn got its answer, not what it said: out of a copied transcript,
+  // as it is out of the reply's own copy.
   return (
-    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+    <div data-copy-exclude="" className={`flex flex-col gap-2 ${className ?? ''}`}>
       {rows.map((row) =>
         row.kind === 'decision' ? (
           <ResolvedDecisionRow key={row.id} entry={row.entry} />
@@ -852,14 +974,21 @@ function MessageTimestamp({ at }: { at?: number }) {
   if (!Number.isFinite(date.getTime())) return null
   // Muted clears AA at this size in every theme. Opacity reserves the same
   // slot before hover/focus, so revealing the timestamp cannot shift a row.
+  // Not a tab stop of its own: it is read, not operated, and it shows as soon
+  // as focus lands on anything in the message. The tooltip is the full local
+  // date and time, the reading a person checking "when was this" wants; a
+  // screen reader, which cannot hover, is read that full reading in place of
+  // the short one as it passes the row.
+  const full = formatMessageDateTime(at)
   return (
-    <Tooltip content={date.toISOString()}>
-      <span
-        tabIndex={0}
-        className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)] opacity-0 group-hover/conversation:opacity-100 group-focus-within/conversation:opacity-100"
+    <Tooltip content={full}>
+      <time
+        dateTime={date.toISOString()}
+        className={`shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)] ${MESSAGE_ACTION_REVEAL}`}
       >
-        {formatMessageTime(at)}
-      </span>
+        <span aria-hidden="true">{formatMessageTime(at)}</span>
+        <span className="sr-only">{full}</span>
+      </time>
     </Tooltip>
   )
 }

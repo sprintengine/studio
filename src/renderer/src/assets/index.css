@@ -3169,6 +3169,96 @@ body:has([data-selection-pane]:focus-within)
   content: none;
 }
 
+/* A quote's paragraphs take the quote's ink. The paragraph class sets its own
+ * colour, which used to paint over the blockquote's muted one, so the quote
+ * read as body text beside a rule; and its last block's margin is the quote's
+ * edge, not a gap inside the rule. */
+.markdown-rendered blockquote p {
+  color: inherit;
+}
+
+.markdown-rendered blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Numbered markers take tabular figures, so "9." and "10." end on one edge. */
+.markdown-rendered ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The conversation scales' two inks (utils/markdown.tsx → chatScale). Body
+ * prose is one step under the strong ink that headings, `strong` and inline
+ * code take, which is what lets those stand out; a muted block (a reasoning
+ * trace) moves both down a step together and keeps the same contrast inside. */
+.markdown-rendered {
+  --markdown-ink: var(--text-default);
+  --markdown-ink-strong: var(--text-strong);
+}
+
+.markdown-rendered[data-tone="muted"] {
+  --markdown-ink: var(--text-muted);
+  --markdown-ink-strong: var(--text-default);
+}
+
+/* Conversation list rhythm: items a quarter-line apart and a nested list
+ * tucked under its item, so a list reads as one block rather than as a stack
+ * of paragraphs. Markers sit one ink step under the text they number, and a
+ * nested bullet changes shape so its level reads without counting indents. */
+.markdown-rendered[data-density] li + li {
+  margin-top: var(--sem-space-2xs);
+}
+
+.markdown-rendered[data-density] li > :is(ul, ol) {
+  margin-top: var(--sem-space-2xs);
+  margin-bottom: 0;
+}
+
+.markdown-rendered[data-density] li::marker {
+  color: var(--text-muted);
+}
+
+.markdown-rendered[data-density] ul ul:not(.contains-task-list) {
+  list-style-type: circle;
+}
+
+/* A task list has no markers, so its checkboxes take the gutter's place
+ * rather than sitting one empty gutter in from the prose. */
+.markdown-rendered[data-density] .contains-task-list {
+  padding-inline-start: 0;
+}
+
+/* A read's code block opened under its tool step sits in the step's panel slot,
+ * which spaces what it holds; the margins the block keeps between paragraphs of
+ * prose would push it a line away from the row that names the file. Written
+ * here rather than as a utility on the slot: the block's own rule is not in a
+ * cascade layer, so it outranks any utility. */
+[data-tool-step-body] > .ds-code-block {
+  margin-block: 0;
+}
+
+/* A table wider than the pane scrolls inside it, and the edge that hides
+ * columns fades out, so a cut-off table does not read as one that ends there.
+ * utils/markdown.tsx marks which edges hide content; the mask only takes alpha,
+ * so its stops are opacity, not colour. The fade appears and goes with the
+ * scroll position — nothing animates. */
+.markdown-table-scroll[data-overflow-start] {
+  --markdown-fade-start: var(--sem-space-3xl);
+}
+
+.markdown-table-scroll[data-overflow-end] {
+  --markdown-fade-end: var(--sem-space-3xl);
+}
+
+.markdown-table-scroll:is([data-overflow-start], [data-overflow-end]) {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--markdown-fade-start, 0px),
+    black calc(100% - var(--markdown-fade-end, 0px)),
+    transparent
+  );
+}
+
 /* Glass window material (macOS vibrancy; data-window-material="glass" is
  * stamped by the index.html boot script and useAppTheme). The OS composites
  * the frost from the desktop behind the window, so this costs nothing per
