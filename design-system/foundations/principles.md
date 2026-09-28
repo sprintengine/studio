@@ -136,7 +136,7 @@ exceeds one, model the domain again rather than adding chrome.
 | Ceiling | Limit |
 |---|---|
 | Product accents visible per view | 1 |
-| Status idioms | 1 — the 6px dot or a lifecycle glyph, never both |
+| Status idioms | 1 — the status mark or a lifecycle glyph, never both; never a dot |
 | Font families | 2 — `font.family.ui`, `font.family.mono` |
 | Font weights per view | 3 |
 | Font sizes per view | 3, repeating title / body / meta |
@@ -622,7 +622,7 @@ walks. Its anatomy:
    Design. Installed module rows carry no inferred count: a module owns its
    status inside its door until it contributes a notification contract. A
    counted row draws the same corner counter — trailing when the column is
-   expanded, docked on the icon when collapsed — in place of any status dot it
+   expanded, docked on the icon when collapsed — in place of any status mark it
    would otherwise wear (one status idiom per surface), with the row's name in
    its accessible name. Opening a ROW reads its news; opening the section reads
    nothing, and the square keeps counting while the drawer is on screen, the
@@ -648,8 +648,14 @@ title, none above the buttons. See *Hairlines carry the structure*.
 
 - Status reads by **shape first, color second** — every state survives
   grayscale. Healthy, done, and idle render no mark at all.
-- One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot
-  and a tinted pill saying the same thing.
+- One status idiom per surface. A status mark or a lifecycle glyph — never a
+  mark and a tinted pill saying the same thing.
+- **No status dots, anywhere** (owner ruling 2026-09-28). A 6px disc has no
+  shape, so every tone was the same circle and "working" read like
+  "waiting". A state is a word, a timer or a shape-coded glyph in its tone's
+  ink (`status-dot`); something running right now is the working mark
+  (`liveness`), the one "working" mark every surface shares, or a spawned
+  agent's character (`agent-glyph`).
 - A status is never text-only with no glyph, nor glyph-only with no accessible
   name.
 - The accent green (forest) and the success green (bright emerald) are held
@@ -673,8 +679,6 @@ title, none above the buttons. See *Hairlines carry the structure*.
   (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned
   agent is a small character that moves while it works. What never moves is
   something at rest — ambient decoration on an idle surface is noise.
-- Never a status dot. State is a word, a glyph, a timer, a working mark or an
-  agent glyph (ruling 2026-09-28).
 - Motion is never the sole signal of a state change — the accessible name and
   the visible label carry it too.
 - Every animation honors `prefers-reduced-motion: reduce`, including the
@@ -811,7 +815,8 @@ surface rather than patching it.
   selection fill.
 - More than two radii or more than three font weights in one view.
 - A third font family, or a serif anywhere in the product.
-- A badge or tinted pill where a status dot carries the same meaning.
+- A badge or tinted pill where a status mark carries the same meaning.
+- A status dot — a tone-filled disc standing for a state — on any surface.
 - A card inside a card with no containment reason.
 - A hero composition — oversized headline, decorative blob, three-up stat
   row — inside an operational panel.

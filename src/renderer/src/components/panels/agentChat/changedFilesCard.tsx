@@ -20,7 +20,7 @@ import { useConversationLinkContext, type ConversationLinkContext } from './conv
 import { setConversationDisclosures, useConversationDisclosure } from './conversationViewState'
 import { joinTreePath } from '../../../utils/fileTreeEntries'
 import { openFileSurface } from '../../../utils/openFileSurface'
-import { openCheckpointDiffWindow } from '../../auxWindows/openCheckpointDiffWindow'
+import { openGitDiff } from '../../../utils/openGitDiff'
 import { useConversationTransport } from './conversationTransport'
 
 export type TurnChangeSummary = { files: number; addedLines: number; removedLines: number }
@@ -291,6 +291,9 @@ function ChangeTreeNode({
           select(node.path, file)
           if (!file) setOpen(!open)
         }}
+        // A file opens where every other diff in the app does: the diff
+        // viewer, with the turn's files down its side.
+        onDoubleClick={file && openDiff && !file.binary ? () => openDiff(node.path) : undefined}
         // The name slot carries the figures and actions too: the kit's badge is
         // a display-only status letter, and these need two inks and buttons.
         nameSlot={
@@ -408,6 +411,40 @@ async function openChangedFile(context: ConversationLinkContext, path: string) {
   }
 }
 
+// Each open is a new narrowing, so the viewer narrows again to this turn's
+// files even when the person pressed "Show all" on the last one.
+let turnDiffReveals = 0
+
+/**
+ * A turn's changes in the app's diff viewer — the pane or the window, as the
+ * person has chosen for every diff — narrowed to the files the turn touched
+ * and landed on `focus`. The viewer reads the working tree, so each file reads
+ * as it stands now against what is committed — including anything a later turn
+ * or the person did to it since — rather than as this one turn's before/after.
+ */
+async function openTurnInDiffViewer(
+  context: Pick<ConversationLinkContext, 'workspaceId' | 'workspaceRoot'>,
+  turnSeq: number,
+  paths: readonly string[],
+  focus: string,
+): Promise<void> {
+  try {
+    const repoRoot = (await window.api.getGitRepoRoot(context.workspaceRoot).catch(() => null)) || context.workspaceRoot
+    openGitDiff({
+      workspaceId: context.workspaceId,
+      repoRoot,
+      focusPath: joinTreePath(repoRoot, focus),
+      scope: 'unstaged',
+      reveal: { key: `turn-changes:${turnSeq}:${++turnDiffReveals}`, paths: [...paths] },
+    })
+  } catch (failure) {
+    showToast({
+      tone: 'error',
+      title: `Could not open the diff: ${failure instanceof Error ? failure.message : String(failure)}`,
+    })
+  }
+}
+
 export function ChangedFilesCard({
   turnSeq,
   summary,
@@ -450,9 +487,19 @@ export function ChangedFilesCard({
     : undefined
   // Both open this machine's files, so a conversation on another one offers neither.
   const localKey = transport.capabilities.localFiles ? key : undefined
-  const openDiff = localKey
-    ? (path: string) => void openCheckpointDiffWindow({ key: localKey, turnSeq, path })
-    : undefined
+  // Opens in the app's diff viewer, which reads this machine's working tree —
+  // so, like the file itself, only for a conversation on this machine. One on
+  // another machine keeps the inline preview below instead.
+  const openDiff =
+    localKey && context
+      ? (path: string, list = files) =>
+          void openTurnInDiffViewer(
+            context,
+            turnSeq,
+            (list ?? []).map((file) => file.path),
+            path,
+          )
+      : undefined
   const openFile = localKey && context ? (path: string) => void openChangedFile(context, path) : undefined
   async function openTurnDiff() {
     if (!localKey) return
@@ -465,7 +512,7 @@ export function ChangedFilesCard({
         setFiles(list)
       }
       const first = firstChangedFile(changeTree(list.filter((file) => !file.binary)))
-      if (first) openDiff?.(first.path)
+      if (first) openDiff?.(first.path, list)
       else showToast({ tone: 'warn', title: 'This turn changed only binary files; there is no text diff to show' })
     } catch (failure) {
       showToast({
@@ -504,7 +551,9 @@ export function ChangedFilesCard({
     setSelected(path)
     const generation = ++request.current
     setDetail(undefined)
-    if (!file || !context?.agentId) return
+    // Selecting is all a click does where the diff viewer can open the file;
+    // the preview below is for a conversation on another machine only.
+    if (!file || !context?.agentId || openDiff) return
     if (file.binary) {
       setLoading(false)
       setError(undefined)
@@ -540,7 +589,10 @@ export function ChangedFilesCard({
     else if (event.key === 'ArrowUp') next = Math.max(0, index - 1)
     else if (event.key === 'Home') next = 0
     else if (event.key === 'End') next = rows.length - 1
-    else if (event.key === 'Enter' || event.key === ' ') current?.click()
+    else if (event.key === 'Enter' && current && openDiff && isOpenableFile(current.dataset.changePath)) {
+      // Enter is the keyboard's double-click: it opens the file in the viewer.
+      openDiff(current.dataset.changePath!)
+    } else if (event.key === 'Enter' || event.key === ' ') current?.click()
     else if (event.key === 'ArrowRight') {
       if (current?.getAttribute('aria-expanded') === 'false') current.click()
       else if (current?.hasAttribute('aria-expanded')) next = Math.min(rows.length - 1, index + 1)
@@ -554,6 +606,10 @@ export function ChangedFilesCard({
       setSelected(rows[next].dataset.changePath ?? '')
       rows[next].scrollIntoView?.({ block: 'nearest' })
     }
+  }
+  function isOpenableFile(path: string | undefined) {
+    const file = files?.find((item) => item.path === path)
+    return Boolean(file && !file.binary)
   }
   const edits = detail?.patch ? deriveEditHunks({ patch: detail.patch, path: selected }) : []
   return (
@@ -649,7 +705,7 @@ export function ChangedFilesCard({
             </InlineNotice>
           ) : null}
           {edits.map((edit) => (
-            <InlineDiff key={edit.path} edit={edit} onOpen={openDiff ? () => openDiff(edit.path) : undefined} />
+            <InlineDiff key={edit.path} edit={edit} />
           ))}
           {detail?.diff.files.find((file) => file.path === selected)?.binary ? (
             <p>Binary file changed; no text preview is available.</p>

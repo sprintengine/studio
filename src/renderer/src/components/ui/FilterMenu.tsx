@@ -8,7 +8,7 @@ import { FOCUS_RING_CLASS } from './tokens'
 // The shared filter/sort affordance: axis controls collapse behind a single
 // glyph (progressive disclosure) so search stays the only at-rest control in a
 // panel toolbar. Because hiding the controls would also hide that a filter is
-// applied, the trigger marks itself active — accent tint + a 6 px dot, and an
+// applied, the trigger marks itself active — accent tint (no dot: the app draws none) and an
 // accessible name that says so — whenever any axis is off its default.
 //
 // The surface is a `menu` of `group`s of `menuitemradio` options; the checked
@@ -107,13 +107,6 @@ export function FilterMenu({ ariaLabel, groups, className }: FilterMenuProps): J
           ].join(' ')}
         >
           <FilterGlyph />
-          {active ? (
-            <span
-              aria-hidden="true"
-              /* design-tokens-allow: filters-applied marker, not a status dot — the accessible name carries the state */
-              className="absolute -right-px -top-px h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)] ring-2 ring-[color:var(--bg-app)]"
-            />
-          ) : null}
         </button>
       )}
     >

@@ -5,6 +5,7 @@ import type { ConversationSessionSummary } from '../../../../shared/conversation
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { AgentState, Workspace } from '../../types/workspace'
 import type { ConversationPeekIdentity, ConversationPeekStatus } from './ConversationPeekCard'
+import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 
 // What a SIDEBAR ROW knows about the conversations behind it.
 //
@@ -146,6 +147,9 @@ export function rowConversationPeekIdentities(input: {
           pullRequests: session.pullRequests ?? [],
           activeSubagents: session.activeSubagents ?? 0,
           contextUsage: session.contextUsage ?? null,
+          promptCache: session.promptCache ?? null,
+          // A Claude Code agent's prompt is one this app can type `/compact` at.
+          compact: (record?.cli ?? session.cli) === 'claude-code' ? { blocker: terminalCompactBlocker(session) } : null,
         },
       },
       live: session.exitedAt === null,
@@ -177,6 +181,9 @@ export function rowConversationPeekIdentities(input: {
           pullRequests: [],
           activeSubagents: session.backgroundAgents ?? 0,
           contextUsage: null,
+          // A chat compacts from its own composer, where its notice offers it.
+          promptCache: session.promptCache ?? null,
+          compact: null,
         },
       },
       live: phase !== 'completed',

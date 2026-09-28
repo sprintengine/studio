@@ -11,7 +11,7 @@
 // AgentChatView.test.ts so the streaming/approval/interrupt/failure states have
 // node-level coverage without rendering.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   LegendList,
@@ -27,6 +27,7 @@ import type {
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import { apiKeyBillingNotice } from '../../../../shared/conversation/apiKeySource'
+import { PromptCacheComposerNotice } from './agentChat/promptCacheNotice'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
@@ -805,6 +806,30 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     [conversationKey, observeScroll, atBottomRef, isRestoringScroll],
   )
+  // The queued message floats over the foot of the transcript (see
+  // queuedTurnBubble.tsx). Its height is kept as space at the end of the list,
+  // so the last reply can still scroll clear of it, and "Jump to latest" sits
+  // above it rather than on it.
+  const [queuedOverlay, setQueuedOverlay] = useState<HTMLDivElement | null>(null)
+  const [queuedOverlayHeight, setQueuedOverlayHeight] = useState(0)
+  useLayoutEffect(() => {
+    if (!queuedOverlay) {
+      setQueuedOverlayHeight(0)
+      return
+    }
+    const measure = () => setQueuedOverlayHeight(queuedOverlay.offsetHeight)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(queuedOverlay)
+    return () => observer.disconnect()
+  }, [queuedOverlay])
+  // A reader at the end stays at the end as the space opens, so the reply
+  // they were following is not left under the bubble.
+  useEffect(() => {
+    if (queuedOverlayHeight > 0 && atBottomRef.current) void listRef.current?.scrollToEnd({ animated: false })
+  }, [queuedOverlayHeight, atBottomRef])
+
   const jumpToLatest = useCallback(() => {
     void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
     atBottomRef.current = true
@@ -2248,6 +2273,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
+                ListFooterComponent={
+                  queuedOverlayHeight > 0 ? <div aria-hidden="true" style={{ height: queuedOverlayHeight }} /> : null
+                }
               />
             )}
             <TimelineMinimap navigation={turnNavigation} />
@@ -2267,7 +2295,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               <OutlineButton
                 size="xs"
                 onClick={jumpToLatest}
-                className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+                className="absolute -top-10 left-1/2 z-[var(--z-float)] -translate-x-1/2 whitespace-nowrap"
+                style={queuedOverlayHeight > 0 ? { top: `calc(-2.5rem - ${queuedOverlayHeight}px)` } : undefined}
               >
                 <ChevronDownIcon className="icon-xs shrink-0" />
                 {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
@@ -2326,24 +2355,44 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
              * action.
              */}
             {queuedTurn ? (
-              <QueuedTurnBubble
-                text={queuedTurn.text}
-                attachments={queuedTurn.attachments}
-                sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
-                shortcutLabel={sendNowShortcutLabel}
-                onSendNow={() => sendQueuedNow(queuedTurn)}
-                onEdit={() => {
-                  setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
-                  setDraftMetadata({
-                    skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
-                    mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
-                  })
-                  setAttachments((current) =>
-                    [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
-                  )
-                  setQueuedTurn(null)
-                  composerRef.current?.focus()
-                }}
+              <div
+                ref={setQueuedOverlay}
+                className="pointer-events-none absolute inset-x-4 bottom-full z-[var(--z-pane)] pb-2"
+              >
+                <QueuedTurnBubble
+                  text={queuedTurn.text}
+                  attachments={queuedTurn.attachments}
+                  sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
+                  shortcutLabel={sendNowShortcutLabel}
+                  onSendNow={() => sendQueuedNow(queuedTurn)}
+                  onEdit={() => {
+                    setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
+                    setDraftMetadata({
+                      skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
+                      mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
+                    })
+                    setAttachments((current) =>
+                      [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
+                    )
+                    setQueuedTurn(null)
+                    composerRef.current?.focus()
+                  }}
+                />
+              </div>
+            ) : null}
+
+            {/* The prompt cache about to go cold, or gone: what the next message
+              re-sends, and `/compact` — which Claude Code runs as its own
+              command — to shrink it. Only a Claude chat reports a cache, and
+              only a view that can send may offer to compact it. */}
+            {operate && chatCli === 'claude-code' ? (
+              <PromptCacheComposerNotice
+                reading={projection.promptCache}
+                busy={
+                  isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) ||
+                  steeringTurnId !== null
+                }
+                onCompact={() => void sendTurn('/compact')}
               />
             ) : null}
 

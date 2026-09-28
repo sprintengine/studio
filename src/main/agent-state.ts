@@ -7,6 +7,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
 import { parsePullRequestUrl } from '../shared/git/pr-url'
+import { parsePromptCacheReading, type PromptCacheReading } from '../shared/prompt-cache'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './claude-config-dir'
 import { withConfigFileLock, writeFileAtomically } from './config-file-write'
@@ -570,8 +571,8 @@ export type AgentStateFrame = {
 
 // One reading from a session's status line. The numbers are the CLI's own —
 // nothing here is derived, and nothing else from the status-line payload (the
-// transcript path, the repo identity, the rate limits, the prompt cache) is
-// carried: see the forwarder.
+// transcript path, the repo identity, the rate limits, the prompt cache's
+// statistics) is carried: see the forwarder.
 export type AgentStateFrameStatusLine = {
   // 0..100, rounded to a whole percent on the way in: it is rendered as a ring
   // and a number, and a broadcast per hundredth of a percent is a broadcast per
@@ -583,6 +584,9 @@ export type AgentStateFrameStatusLine = {
   linesRemoved?: number
   model?: string
   sessionName?: string
+  // The main conversation's prompt cache, whole: its nulls (nothing cached, a
+  // re-cache size not known yet after a compaction) are part of the reading.
+  promptCache?: PromptCacheReading
 }
 
 // Cap on the two free-text status-line fields. A model display name is a word
@@ -737,6 +741,8 @@ function parseFrameStatusLine(raw: unknown): AgentStateFrameStatusLine | null {
   if (model) statusLine.model = model
   const sessionName = parseStatusLineName(raw.sessionName)
   if (sessionName) statusLine.sessionName = sessionName
+  const promptCache = parsePromptCacheReading(raw.promptCache)
+  if (promptCache) statusLine.promptCache = promptCache
   return Object.keys(statusLine).length > 0 ? statusLine : null
 }
 

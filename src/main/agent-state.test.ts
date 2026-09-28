@@ -673,6 +673,23 @@ test('agent-state', async () => {
     assert.equal(statusOf({ sessionName: 'two\nlines' }), undefined, 'an embedded newline is not a name')
     assert.equal(statusOf({ sessionName: 'nul\u0000' }), undefined, 'a NUL is not a name')
     assert.equal(statusOf({}), undefined, 'an empty reading is no reading')
+    // The prompt cache rides whole, nulls included, and a bad one drops alone.
+    assert.deepEqual(statusOf({ promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 } }), {
+      promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 },
+    })
+    assert.deepEqual(
+      statusOf({ usedPercentage: 4, promptCache: { ttl: '5m', expiresAt: null, recacheTokens: null } }),
+      {
+        usedPercentage: 4,
+        promptCache: { ttl: '5m', expiresAt: null, recacheTokens: null },
+      },
+    )
+    assert.deepEqual(
+      statusOf({ usedPercentage: 4, promptCache: { ttl: 'forever', expiresAt: 'soon' } }),
+      { usedPercentage: 4, promptCache: { ttl: null, expiresAt: null, recacheTokens: null } },
+      'a bad field is unknown, not a reason to keep the last reading',
+    )
+    assert.deepEqual(statusOf({ usedPercentage: 4, promptCache: 'warm' }), { usedPercentage: 4 }, 'not a reading')
     // Every `undefined` above is read off a frame, so each one would also pass if
     // the FRAME had been dropped. It is not: a bad field costs the field only.
     for (const bad of [{ sessionName: 'x'.repeat(9000) }, { usedPercentage: 900, model: 42 }]) {

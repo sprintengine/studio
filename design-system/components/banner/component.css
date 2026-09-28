@@ -1,9 +1,11 @@
 /* Banner — the panel-spanning failure/degradation strip at the top of a
  * panel's content region (src/renderer/src/components/ui/Banner.tsx).
  *
- * Tone rides in the 6px dot and the soft tint — no left tone-bar, ever: a
+ * Tone rides in the status mark and the soft tint — no left tone-bar, ever: a
  * coloured stripe doubles the hairline, breaks the 1px rule, and carries tone
- * by colour alone. The bottom hairline is the strip's only border; the other
+ * by colour alone. The mark is the status-dot component's glyph
+ * (`.ds-status-dot` + the tone's modifier), not a bespoke part: the ring with
+ * "×" on danger, the ring with "!" on warn. The bottom hairline is the strip's only border; the other
  * three edges belong to the panel. */
 
 .ds-banner {
@@ -26,28 +28,15 @@
   background: var(--sem-color-status-warn-soft);
 }
 
+/* The body leads with the status mark — the surface's one status idiom.
+ * Decorative to a reader (the message and the role carry the meaning), shape
+ * to an eye. It is `components/status-dot`, so it brings its own size and
+ * ink; the body's centred flex line is all the placement it needs. */
 .ds-banner-body {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
   min-width: 0;
-}
-
-/* The 6px status dot — the surface's one status idiom. Decorative to a
- * reader (the message and the role carry the meaning), shape to an eye. */
-.ds-banner-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.ds-banner--danger .ds-banner-dot {
-  background: var(--sem-color-status-danger);
-}
-
-.ds-banner--warn .ds-banner-dot {
-  background: var(--sem-color-status-warn);
 }
 
 /* One line. A message that wraps is a paragraph that belongs elsewhere. */

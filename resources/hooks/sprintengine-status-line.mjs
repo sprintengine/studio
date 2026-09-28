@@ -35,9 +35,12 @@
 //     often to be worth retrying, and the next refresh carries a fresher
 //     reading anyway) that runs CONCURRENTLY with the wrapped command, so a
 //     dead socket costs the person nothing but the timeout, in parallel.
-//   * Only the seven numbers and names below ever ride the socket. The payload
-//     also carries the transcript path, the repo identity, the prompt cache and
-//     the person's cwd; none of it is ours to forward from here.
+//   * Only the numbers and names below ever ride the socket: the seven
+//     context, cost and naming readings, and three of the prompt cache's
+//     (its lifetime, when it goes cold, and what a cold resume re-caches). The
+//     payload also carries the transcript path, the repo identity, the rest of
+//     the prompt cache's statistics and the person's cwd; none of it is ours to
+//     forward from here.
 //
 // The frame's `event` is `StatusLine`, which is deliberately in NO manifest's
 // agentStateSpec: a status-line refresh is not a lifecycle event and must move
@@ -287,7 +290,29 @@ function buildStatusLine(payload) {
   // Absent until the session is named by --name, /rename or an AI title.
   const sessionName = name(payload.session_name)
   if (sessionName) statusLine.sessionName = sessionName
+  const promptCache = buildPromptCache(record(payload.prompt_cache))
+  if (promptCache) statusLine.promptCache = promptCache
   return Object.keys(statusLine).length > 0 ? statusLine : null
+}
+
+/**
+ * The main conversation's prompt cache (Claude Code v2.1.251+), reduced to what
+ * the app shows: its lifetime, when it goes cold (epoch SECONDS in the payload,
+ * milliseconds on the socket like every other time there), and how many tokens
+ * the next request re-caches if it has. Absent until the first API response.
+ *
+ * Sent WHOLE, never field by field: `expires_at` is null while nothing is
+ * cached and `recache_tokens_if_cold` is null right after a compaction, and
+ * both nulls are facts the app must not paper over with the previous reading.
+ */
+function buildPromptCache(promptCache) {
+  if (!promptCache) return null
+  const ttl = promptCache.ttl === '5m' || promptCache.ttl === '1h' ? promptCache.ttl : null
+  const expiresAtSeconds = number(promptCache.expires_at)
+  // A cache the CLI says is not warm is cold whatever its expiry says.
+  const expiresAt = promptCache.warm === false || expiresAtSeconds === null ? null : expiresAtSeconds * 1000
+  const recacheTokens = number(promptCache.recache_tokens_if_cold)
+  return { ttl, expiresAt, recacheTokens }
 }
 
 function buildFrame(data, agentId) {

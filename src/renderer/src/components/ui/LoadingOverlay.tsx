@@ -10,8 +10,8 @@ export type LoadingOverlayProps = {
 
 /**
  * Centered loading state, used when a panel has no content to skeleton-render
- * and instead needs to communicate "we're working on it." Pairs a pulsed
- * good-tone dot with one short sentence of context.
+ * and instead needs to communicate "we're working on it." Pairs the working
+ * mark (StatusDot's live good tone) with one short sentence of context.
  */
 export function LoadingOverlay({ label, className }: LoadingOverlayProps) {
   return (
@@ -21,7 +21,7 @@ export function LoadingOverlay({ label, className }: LoadingOverlayProps) {
       className={`flex h-full w-full items-center justify-center ${className ?? ''}`}
     >
       <div className="flex items-center gap-3 text-meta text-[color:var(--text-muted)]">
-        <StatusDot tone="good" pulse size={8} />
+        <StatusDot tone="good" pulse />
         <span>{label}</span>
       </div>
     </div>

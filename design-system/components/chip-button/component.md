@@ -29,7 +29,7 @@ they appear alone, in unlike company, and in numbers the bar could not hold.
 | Chip | `.ds-chip-button` | yes — a `<button>` |
 | Variant | `--outline` / `--overlay` | no |
 | Tone | `--warn` / `--error` | no |
-| Leading mark | — | no — a colour dot, a glyph, sized by the caller |
+| Leading mark | — | no — an identity colour dot or a glyph, sized by the caller. Never a status mark: the tone tints say the chip's state |
 | Label | — | yes, `font.size.micro`, sentence case |
 
 `font.size.micro` and no lower. A chip is a label *about* the thing beside it,
@@ -66,8 +66,8 @@ sits in.
 The tone tints are the one narrow exception to "status is never a pill". The
 condition is that the chip **is the control that sets the state** — the person
 turned bypass on, and the chip is where they turn it off. A chip that merely
-*reports* a state, beside a row that also carries a dot, is the badge/dot
-collision the system rejects on sight.
+*reports* a state, beside a row that also carries a status mark, is the
+two-idioms collision the system rejects on sight.
 
 ## Identity tint
 

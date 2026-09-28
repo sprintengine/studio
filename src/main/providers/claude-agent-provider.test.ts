@@ -586,6 +586,7 @@ test('claude-agent-provider', async () => {
       ['usage_updated', 'turn_completed'],
     )
     assert.equal(success[0]?.payload?.inputTokens, 15)
+    assert.equal(success[0]?.payload?.cachedInputTokens, 5, 'the share the prompt cache served')
     assert.equal(success[0]?.payload?.outputTokens, 3)
     assert.deepEqual(success[1]?.payload, { turnId: 'turn_9', costUsd: 0.025, durationMs: 1234, numTurns: 2 })
 
@@ -1778,6 +1779,38 @@ test('each Claude turn reports the cost it added, not the running total of the l
   // A running total that restarts (a fresh child, or /clear) is all new cost.
   state.turn = { turnId: 'turn_3' }
   assert.equal(result(0.1), 0.1)
+})
+
+test('each main-chain request reports its prompt cache as it starts: size, lifetime and whether anything was cached', () => {
+  const state = mapperState()
+  const start = (usage: Record<string, unknown>, parent?: string) =>
+    mapSdkMessage(state, {
+      type: 'stream_event',
+      session_id: 'native',
+      parent_tool_use_id: parent ?? null,
+      event: { type: 'message_start', message: { usage } },
+    })
+  const [first] = start({
+    input_tokens: 40,
+    cache_creation_input_tokens: 2_000,
+    cache_read_input_tokens: 300_000,
+    cache_creation: { ephemeral_1h_input_tokens: 2_000, ephemeral_5m_input_tokens: 0 },
+  })
+  assert.equal(first?.type, 'usage_updated')
+  assert.deepEqual(first?.payload, {
+    turnId: 'turn_1',
+    promptCache: { ttl: '1h', cached: true, recacheTokens: 302_040 },
+  })
+  // A request that only reads says nothing of the lifetime: it carries over.
+  const [readOnly] = start({ input_tokens: 10, cache_read_input_tokens: 302_040 })
+  assert.deepEqual(readOnly?.payload?.promptCache, { ttl: '1h', cached: true, recacheTokens: 302_050 })
+  // Nothing cached at all is a cold request.
+  const [uncached] = start({ input_tokens: 9_000 })
+  assert.deepEqual(uncached?.payload?.promptCache, { ttl: '1h', cached: false, recacheTokens: 9_000 })
+  // A subagent's requests are its own conversation, with its own cache.
+  assert.deepEqual(start({ input_tokens: 5, cache_read_input_tokens: 5 }, 'task_1'), [])
+  // And a start with no usage reports nothing.
+  assert.deepEqual(start({}), [])
 })
 
 test('a Claude compact boundary marks the transcript with what triggered it and the context it freed', () => {

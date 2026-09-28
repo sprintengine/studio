@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`LifecycleGlyph` takes an optional `style`.** Inline overrides on the
+  glyph's `<svg>` — the host's `StatusDot` now draws a lifecycle shape in its
+  tone's ink and size through it. Additive: a glyph without one is unchanged.
+
 - **`SegmentedControlItem` takes an optional `badge`.** `{ count, label, tone? }`
   draws the kit's count badge after the segment's label and adds `label` to the
   segment's accessible name — for a choice with something waiting behind it.

@@ -19,6 +19,7 @@ import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { conversationCommandsApi } from './api/conversation-commands'
 import { conversationPeekApi } from './api/conversation-peek'
+import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
 import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
@@ -91,6 +92,7 @@ const api = {
   ...conversationApi,
   ...conversationCommandsApi,
   ...conversationPeekApi,
+  ...agentCompactApi,
   ...pullRequestApi,
   ...credentialApi,
   ...designSystemApi,

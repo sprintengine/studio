@@ -112,18 +112,10 @@
   }
   .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
   .rail-glyph:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
-  /* Collapsing the axes hides them; it must never hide that one is applied. */
+  /* Collapsing the axes hides them; it must never hide that one is applied.
+     The accent ink and the accessible name ("… — filters active") say it — no
+     dot on the corner: the product draws no status dots. */
   .rail-glyph[data-active="true"] { color: var(--sem-color-accent-primary); }
-  .rail-glyph[data-active="true"]::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 6px;
-    height: 6px;
-    border-radius: var(--sem-radius-pill);
-    background: var(--sem-color-accent-primary);
-  }
 
   /* 4: the rows. */
   .rail-rows { list-style: none; margin: 0; padding: var(--sem-space-2xs); }
@@ -234,9 +226,10 @@
         </ul>
       </div>
       <p class="pat-caption">
-        Project, view, sort and group all live inside the glyph. It carries the
-        accent dot because a lens is applied — collapsing the axes must never
-        collapse the fact that one is narrowing the list. One group, so no
+        Project, view, sort and group all live inside the glyph. It turns
+        accent, and its name says "filters active", because a lens is applied
+        — collapsing the axes must never collapse the fact that one is
+        narrowing the list. One group, so no
         heading over it.
       </p>
     </div>

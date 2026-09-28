@@ -304,6 +304,7 @@ export type LifecycleGlyphProps = {
   label?: string
   live?: boolean
   className?: string
+  style?: React.CSSProperties
 } & Partial<TooltipChildProps>
 
 export const LifecycleGlyph: (props: LifecycleGlyphProps) => React.ReactElement = hostProvided()

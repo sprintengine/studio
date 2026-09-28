@@ -68,3 +68,13 @@ test('a compaction divider says what triggered it and how much context it freed'
   expect(html).toContain('role="separator"')
   expect(html).toContain('aria-label="Context compacted · automatically · 182k → 24k tokens"')
 })
+
+test('the token line says how much of the input the prompt cache served', () => {
+  expect(
+    turnMetaParts(turn({ inputTokens: 11_300_000, cachedInputTokens: 10_900_000, outputTokens: 47_300 })).tokens,
+  ).toBe('11.3M in · 10.9M cached · 47.3k out')
+  // Nothing cached, or a provider that does not say, reads as before.
+  expect(turnMetaParts(turn({ inputTokens: 52_000, cachedInputTokens: 0, outputTokens: 1_900 })).tokens).toBe(
+    '52k in · 1.9k out',
+  )
+})

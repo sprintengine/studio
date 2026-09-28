@@ -24,6 +24,7 @@ import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
+import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
 import {
@@ -1541,6 +1542,9 @@ export function mapSdkMessage(
     openToolUseIds?: Set<string>
     resumeAt?: string | null
     textSeam?: boolean
+    // The lifetime of the cache the main chain's requests last wrote. A request
+    // that only reads says nothing about it, so it carries over.
+    promptCacheTtl?: PromptCacheTtl | null
     commandOutputShown?: boolean
     compactedInExchange?: boolean
   },
@@ -1653,6 +1657,15 @@ export function mapSdkMessage(
       // subagent's visible work rides its parent-linked tool events below.
       if (message.parent_tool_use_id) break
       const streamEvent = asRecord(message.event)
+      // Each API request of the main chain opens with its usage: how big the
+      // conversation it sent is, and how much of it the cache served or took.
+      // That is the prompt cache's reading (shared/prompt-cache.ts); the
+      // runtime stamps when it goes cold off this event's own time.
+      if (streamEvent?.type === 'message_start') {
+        const promptCache = readRequestPromptCache(state, asRecord(asRecord(streamEvent.message)?.usage))
+        if (promptCache) events.push(eventFor(state, 'usage_updated', { turnId, promptCache }))
+        break
+      }
       // Each thinking block is its own thought. Back-to-back blocks arrive as
       // one reasoning run, so a block's start is a paragraph break in it rather
       // than the two running together mid-sentence.
@@ -1792,6 +1805,9 @@ export function mapSdkMessage(
           eventFor(state, 'usage_updated', {
             turnId,
             inputTokens,
+            // The share of the input the prompt cache served, at a tenth of the
+            // price or less.
+            cachedInputTokens: numberOr(usage.cache_read_input_tokens, 0),
             outputTokens,
             totalTokens: inputTokens + outputTokens,
           }),
@@ -2153,6 +2169,28 @@ function describeSpawnFailure(error: unknown, stderrTail: string): string {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/**
+ * One request's prompt cache, from the usage its `message_start` carries: the
+ * size of the conversation it sent (what a cold resume would write to the cache
+ * again), whether anything was cached at all, and — from which lifetime its
+ * cache WRITE went to — whether the cache lives for five minutes or an hour. A
+ * request that only reads keeps the lifetime the last write reported.
+ */
+function readRequestPromptCache(
+  state: { promptCacheTtl?: PromptCacheTtl | null },
+  usage: Record<string, unknown> | null,
+): { ttl: PromptCacheTtl | null; cached: boolean; recacheTokens: number } | null {
+  if (!usage) return null
+  const written = numberOr(usage.cache_creation_input_tokens, 0)
+  const read = numberOr(usage.cache_read_input_tokens, 0)
+  const recacheTokens = numberOr(usage.input_tokens, 0) + written + read
+  if (recacheTokens <= 0) return null
+  const writes = asRecord(usage.cache_creation)
+  if (numberOr(writes?.ephemeral_1h_input_tokens, 0) > 0) state.promptCacheTtl = '1h'
+  else if (numberOr(writes?.ephemeral_5m_input_tokens, 0) > 0) state.promptCacheTtl = '5m'
+  return { ttl: state.promptCacheTtl ?? null, cached: written + read > 0, recacheTokens }
 }
 
 function numberOr(value: unknown, fallback: number): number {
