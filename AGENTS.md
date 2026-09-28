@@ -51,3 +51,12 @@ Nothing here is enforced by a lint. It is checked when the change is reviewed.
 are built, not edited. Change the `component.md` or the token source and rebuild
 with `node design-system/scripts/build-catalog.mjs`. A hand-edit survives review
 looking correct and is silently reverted by the next build.
+
+## No status dots
+
+The app draws no status dots (owner ruling 2026-09-28). A small disc has no
+shape, so "working", "waiting" and "failed" read alike. Say a state with a
+word, a lifecycle glyph, a timer, the working mark (`ui/WorkingMark.tsx`), or,
+for an agent a conversation spawned, its agent glyph (`ui/AgentGlyph.tsx`).
+`StatusDot` keeps its name because modules import it, but it draws shapes; a
+`rounded-full` bullet added somewhere else is the same dot by another name.
