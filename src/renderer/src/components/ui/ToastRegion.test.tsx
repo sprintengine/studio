@@ -259,7 +259,7 @@ test('ToastRegion', async () => {
     },
   )
 
-  run('an error leaves on its own after 10 s; a warn stays until retracted', () => {
+  run('warn and error leave on their own after 10 s', () => {
     reset()
     withFakeClock((advance) => {
       const mounted = mount()
@@ -271,8 +271,7 @@ test('ToastRegion', async () => {
       assert.match(mounted.innerHTML, /Could not copy/, 'an error outlasts a success')
       advance(1000)
       assert.doesNotMatch(mounted.innerHTML, /Could not copy/, 'and then leaves')
-      advance(60_000)
-      assert.match(mounted.innerHTML, /Connection lost/, 'a warn is a standing condition, never timed')
+      assert.doesNotMatch(mounted.innerHTML, /Connection lost/, 'a warn leaves too; the bell keeps it')
       unmount()
     })
   })

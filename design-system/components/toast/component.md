@@ -72,19 +72,18 @@ Five tones, each deciding color, politeness, and persistence:
 | `--neutral` | `status.neutral` | `status` / `polite`   | 5 s          |
 | `--good`    | `status.good`    | `status` / `polite`   | 5 s          |
 | `--accent`  | `accent.primary` | `status` / `polite`   | 5 s          |
-| `--warn`    | `status.warn`    | `alert` / `assertive` | never        |
+| `--warn`    | `status.warn`    | `alert` / `assertive` | 10 s         |
 | `--danger`  | `status.danger`  | `alert` / `assertive` | 10 s         |
 
-**Warn stays until dismissed or retracted; danger lingers, then leaves**
-(owner ruling 2026-09-28, amending the earlier never-for-both). Every warn
-toast is a standing condition — a lost connection, a pair request — and its
-producer retracts it when the condition clears. A danger toast reports a
-one-off that already failed ("Could not copy to clipboard"); left forever,
-a corner of them is furniture. It stays twice as long as a success, and
-hovering or focusing any toast holds its clock, restarting the full duration
-on leave, so nobody is raced while reading. A persistent success is still
-furniture. (The shipped kit names the danger tone `error`; the class here
-follows the token grammar, `status.danger`.)
+**Every tone leaves on its own** (owner ruling 2026-09-28, amending the
+earlier never-for-warn-and-danger). A toast is not the state: the
+notification bell and the surface behind each report keep what it said, so
+a corner of stale cards is furniture, not safety. Warn and danger stay twice
+as long as a success, and hovering or focusing any toast holds its clock,
+restarting the full duration on leave, so nobody is raced while reading. A
+producer that needs a toast to stay says so with `autoDismissMs: false` (the
+app-update steps). (The shipped kit names the danger tone `error`; the class
+here follows the token grammar, `status.danger`.)
 
 **The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
@@ -152,10 +151,10 @@ under it holding the instruction, or the refusal in `status.danger` ink. It is
 the one toast in the system with a field, and it earns it: the answer IS six
 digits, read off the screen of the machine asking to pair, and every other
 route to typing them (a popover, a settings tab) walks the person away from
-the screen they are reading. The toast never auto-dismisses — a surface
-holding a half-typed code that vanishes on a timer is worse than no surface —
-and the request stays answerable on its own persistent card, so a dismissed
-toast loses nothing. Everything the field cannot express stays on that card:
+the screen they are reading. The toast times out like any warn, but focus in
+the code field holds its clock — a surface holding a half-typed code that
+vanishes on a timer is worse than no surface — and the request stays
+answerable on its own persistent card, so a toast that left loses nothing. Everything the field cannot express stays on that card:
 this variant grants the request's DEFAULT authority and nothing a checkbox
 would have chosen. A second consumer, or a second field, is a modal.
 
@@ -223,8 +222,7 @@ staying the toast's alone.
   out to `size.hit-target-min` with a transparent hit area — the glyph
   shrinks, the target does not.
 - The entrance animation honours `prefers-reduced-motion: reduce`.
-- Warn remains until dismissed or retracted, and every timed toast holds its
-  clock while hovered or focused, so an assistive-tech user navigating into
+- Every toast holds its clock while hovered or focused, so an assistive-tech user navigating into
   one is never raced by a timer.
 
 ## Known drift

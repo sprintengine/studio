@@ -20,18 +20,17 @@ const TOAST_LIVE: Record<Tone, 'polite' | 'assertive'> = {
   error: 'assertive',
 }
 
-// Opinionated auto-dismiss policy. Warn stays until the user dismisses it or
-// its producer retracts it: every warn toast is a standing condition (a lost
-// connection, a pair request) that goes away when the condition does. Error
-// is a one-off report of a thing that already failed, so it lingers twice as
-// long as a success and then leaves (owner ruling 2026-09-28 — a stack of
-// stale "Could not copy" cards is furniture). Hovering or focusing the card
-// holds the clock, so a timed error is never raced while being read.
+// Opinionated auto-dismiss policy. Every tone leaves on its own (owner
+// ruling 2026-09-28 — the notification bell and the surfaces behind each
+// report keep them; a corner of stale cards is furniture). Warn and error
+// linger twice as long as a success, and hovering or focusing the card holds
+// the clock, so nothing is raced while being read. A producer that needs a
+// toast to stay passes `autoDismissMs: false` (the app-update steps do).
 const TOAST_AUTO_DISMISS_MS: Record<Tone, number | false> = {
   neutral: 5000,
   good: 5000,
   accent: 5000,
-  warn: false,
+  warn: 10000,
   error: 10000,
 }
 
