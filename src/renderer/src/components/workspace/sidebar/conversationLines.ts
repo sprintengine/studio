@@ -32,6 +32,18 @@ export function conversationLineText(summary: ConversationSessionSummary): strin
   return summary.lastAssistantText?.trim() || (phase === 'starting' ? 'Starting' : 'Ready')
 }
 
+/**
+ * When a resting chat last finished a turn, for the "how long since" readings
+ * on its sidebar line and its tab. Null while a turn is open or waiting on a
+ * person (those surfaces say working or waiting instead), and for a chat that
+ * has never finished one.
+ */
+export function conversationFinishedAt(summary: ConversationSessionSummary): number | null {
+  const phase = conversationSummaryPhase(summary)
+  if (phase !== 'completed' && phase !== 'failed' && phase !== 'idle') return null
+  return summary.lastTurnEndedAt ?? null
+}
+
 export function conversationPhaseActivity(phase: ConversationPhase): Activity {
   if (phase === 'waiting_for_approval' || phase === 'waiting_for_input') return 'needs-input'
   if (phase === 'failed') return 'failed'

@@ -1,7 +1,12 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
-import { combinedAgentActivity, conversationLineMark, conversationLineText } from './conversationLines'
+import {
+  combinedAgentActivity,
+  conversationFinishedAt,
+  conversationLineMark,
+  conversationLineText,
+} from './conversationLines'
 
 const session = (
   status: ConversationSessionSummary['status'],
@@ -38,4 +43,15 @@ test('a chat line names the CLI it rides, the way a terminal line does', () => {
   const api = conversationLineMark({ providerId: 'openai-compatible-api', modelId: 'model-1' })
   assert.equal(api.cli, null)
   assert.equal(api.tooltip, 'Chat · model-1')
+})
+
+test('a resting chat counts from when its last turn ended, not from its last update', () => {
+  const finished = { ...session('ready', 'Done.'), updatedAt: 900, lastTurnEndedAt: 500 }
+  assert.equal(conversationFinishedAt(finished), 500)
+  assert.equal(conversationFinishedAt({ ...session('failed'), lastTurnEndedAt: 400 }), 400)
+  // A turn in flight or waiting on a person has no finished time to show.
+  assert.equal(conversationFinishedAt({ ...session('active'), lastTurnEndedAt: 500 }), null)
+  assert.equal(conversationFinishedAt({ ...session('awaiting_approval'), lastTurnEndedAt: 500 }), null)
+  // Nothing has finished yet.
+  assert.equal(conversationFinishedAt(session('ready')), null)
 })

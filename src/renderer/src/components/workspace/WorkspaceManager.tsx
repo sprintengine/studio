@@ -42,7 +42,7 @@ import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
-import { combinedAgentActivity } from './sidebar/conversationLines'
+import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -2221,7 +2221,9 @@ export default function WorkspaceManager() {
       }
       row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
-        row.idleSince = Math.max(row.idleSince ?? 0, session.updatedAt)
+        // When its last turn ended; `updatedAt` also moves on a model or
+        // permission change, which is not the chat finishing anything.
+        row.idleSince = Math.max(row.idleSince ?? 0, conversationFinishedAt(session) ?? session.updatedAt)
       }
     }
     return map

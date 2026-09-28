@@ -3,7 +3,7 @@ import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType
 import CliIcon from '../CliIcon'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
-import { conversationLineMark, conversationLineText } from './sidebar/conversationLines'
+import { conversationFinishedAt, conversationLineMark, conversationLineText } from './sidebar/conversationLines'
 import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -3600,7 +3600,11 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               </span>
             </Tooltip>
             <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
-            {index === 0 && rowLines.lines.length === 0 && !flatProject ? statusSeat : null}
+            {index === 0 && rowLines.lines.length === 0 && !flatProject ? (
+              statusSeat
+            ) : !flatProject ? (
+              <ConversationLineSeat session={session} now={now} />
+            ) : null}
           </div>
         )
       })}
@@ -3619,6 +3623,33 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // readings stop opening tooltips underneath it (`RowTooltip`).
   return <RowTooltipsSuppressed.Provider value={hasPeek}>{rowElement}</RowTooltipsSuppressed.Provider>
 })
+
+/**
+ * A chat line's own seat, for a line that does not carry the row's: working
+ * dots while a turn runs, else how long since its last turn finished — what a
+ * terminal line's seat says (TerminalLineView), so a row with a terminal and a
+ * chat can tell you when each one stopped. A chat waiting on a person says so
+ * in its text; the row's gold surface is the mark.
+ */
+function ConversationLineSeat({ session, now }: { session: ConversationSessionSummary; now: number }) {
+  const phase = conversationSummaryPhase(session)
+  const finishedAt = conversationFinishedAt(session)
+  let content: React.ReactNode = null
+  if (phase === 'running' || phase === 'starting') content = <AgentWorkingDots label="Agent working" />
+  else if (finishedAt !== null && formatRelativeMs(finishedAt, now)) {
+    content = (
+      <RowTooltip
+        content={`Finished ${formatRelativeMsAgo(finishedAt, now)} (${new Date(finishedAt).toLocaleString()})`}
+      >
+        <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+          <span aria-hidden="true">{formatRelativeMs(finishedAt, now)}</span>
+          <span className="sr-only">Finished {formatRelativeMsAgo(finishedAt, now)}</span>
+        </span>
+      </RowTooltip>
+    )
+  }
+  return content ? <span className="ml-auto flex h-5 shrink-0 items-center justify-end pl-2">{content}</span> : null
+}
 
 // Memoized: the manager re-renders on every store write it projects, and the
 // sidebar only needs to follow when one of its own props moved. Its rows are

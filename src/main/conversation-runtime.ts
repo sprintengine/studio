@@ -1216,6 +1216,9 @@ export class ConversationRuntime {
       event.type === 'turn_failed'
     )
       session.currentToolTitle = undefined
+    // When the last turn ended, read off the event rather than the clock so
+    // the transcript replay on resume restores the true time, not the resume.
+    if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
     if (event.type === 'turn_completed') session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
     else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
@@ -2146,6 +2149,7 @@ export class ConversationRuntime {
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
+      ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
