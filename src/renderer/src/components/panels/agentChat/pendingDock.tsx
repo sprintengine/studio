@@ -3,7 +3,7 @@
 
 import React, { useRef, useEffect, useState } from 'react'
 import {
-  StatusDot,
+  LifecycleGlyph,
   CopyGlyphButton,
   GhostButton,
   OutlineButton,
@@ -130,12 +130,14 @@ function ArrivalAnnouncement({ text }: { text: string }) {
   )
 }
 
-// The shared card shell docked above the composer: eyebrow row with an earned
-// status dot, content, then a footer of keyboard hints + actions. Question,
+const DOCK_TONE_STATE = { warn: 'needs_input', error: 'failed', accent: 'in_progress' } as const
+
+// The shared card shell docked above the composer: eyebrow row led by the
+// lifecycle glyph of what is being asked, content, then a footer of keyboard hints + actions. Question,
 // permission and plan requests all render inside it so pending asks read as
 // one consistent surface.
 export function DockShell({
-  dotTone,
+  tone,
   eyebrow,
   hints,
   actions,
@@ -144,7 +146,7 @@ export function DockShell({
   ariaLabel,
   children,
 }: {
-  dotTone: 'warn' | 'error' | 'accent'
+  tone: 'warn' | 'error' | 'accent'
   eyebrow: string
   hints?: React.ReactNode
   /**
@@ -174,8 +176,9 @@ export function DockShell({
     >
       <div className="flex items-center gap-2 px-4 pt-2.5">
         {/* Decorative: the eyebrow beside it is the same string, so a labelled
-            dot would announce the state twice. */}
-        <StatusDot tone={dotTone} />
+            glyph would announce the state twice. Waiting on you is a ring with
+            "!", never a dot. */}
+        <LifecycleGlyph state={DOCK_TONE_STATE[tone]} live={false} />
         <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">{eyebrow}</span>
       </div>
       {children}
@@ -358,7 +361,7 @@ export function ConversationPermissionCard({
   }
   return (
     <DockShell
-      dotTone="warn"
+      tone="warn"
       eyebrow={`Permission · ${permissionActionLabel(entry.action)}`}
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
@@ -506,7 +509,7 @@ export function ConversationPlanCard({
   }
   return (
     <DockShell
-      dotTone="warn"
+      tone="warn"
       eyebrow="Plan · Review & approve"
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
@@ -664,7 +667,7 @@ export function ConversationQuestionCard({
   const eyebrow = `Question${question.header ? ` · ${question.header}` : ''} · ${stepIndex + 1} of ${questions.length}`
   return (
     <DockShell
-      dotTone="warn"
+      tone="warn"
       eyebrow={eyebrow}
       containerRef={containerRef}
       onKeyDown={handleKeyDown}

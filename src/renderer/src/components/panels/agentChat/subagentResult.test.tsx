@@ -68,12 +68,14 @@ test('a failed lane says so in the error ink, with the error as its preview', ()
       })}
     />,
   )
-  expect(html).toMatch(/<span class="text-\[color:var\(--tone-error\)\]">failed<\/span> · haiku · 42s/)
+  expect(html).toMatch(/<span class="text-\[color:var\(--tone-error\)\]">Failed after 42s<\/span> · haiku/)
+  expect(html).toContain('agent-glyph--failed')
   expect(html).toContain('aria-label="Error: Agent hit its turn limit."')
 })
 
 test('a running lane has no report yet', () => {
   const html = renderToStaticMarkup(<SubagentLane tool={lane({ status: 'running', output: undefined })} />)
   expect(html).not.toContain('Report:')
-  expect(html).toContain('running')
+  expect(html).toContain('Working · ')
+  expect(html).toContain('agent-glyph--working')
 })

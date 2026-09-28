@@ -3712,6 +3712,10 @@ export default function WorkspaceManager() {
         togglePaneKind(windowActiveWorkspaceId, 'git')
         return true
       }
+      if (commandId === 'panel.agents.toggle' && windowActiveWorkspaceId) {
+        togglePaneKind(windowActiveWorkspaceId, 'agents')
+        return true
+      }
       if (commandId === 'panel.canvas.toggle' && windowActiveWorkspaceId) {
         // The module guard mirrors the command's availability, so a binding that
         // outlived a module being turned off cannot mount a surface that is not

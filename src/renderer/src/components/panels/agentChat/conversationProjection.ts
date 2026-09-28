@@ -235,6 +235,9 @@ export type ConversationProjection = {
   // A provider's note about the live session the person should know, such as
   // a stored session that could not be reopened and was replaced.
   sessionNotice: string | null
+  // What each kind of agent this session can spawn is for, by type name
+  // ('Explore', 'Plan', a custom agent), as the provider described them.
+  agentTypes: Record<string, string>
   // Why this session's turns carry no file checkpoints (too many or too large
   // untracked files), so a missing "Revert" reads as explained, not broken.
   checkpointNotice: string | null
@@ -524,6 +527,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let lastErrorDetail: string | null = null
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
+  const agentTypes: Record<string, string> = {}
   let checkpointNotice: string | null = null
   let promptCache: PromptCacheReading | null = null
   // Reverts still in effect, oldest first. Each covers the turns from its
@@ -606,6 +610,12 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         if (source) apiKeySource = source
         const notice = readString(event.payload, 'notice')
         if (notice) sessionNotice = notice
+        if (Array.isArray(event.payload?.agents))
+          for (const agent of event.payload.agents) {
+            const name = readString(agent as Record<string, unknown>, 'name')
+            const description = readString(agent as Record<string, unknown>, 'description')
+            if (name && description) agentTypes[name] = description
+          }
         const rewoundFrom = readNumber(event.payload, 'rewoundFromSeq')
         if (rewoundFrom !== undefined) {
           rewinds.push({ fromSeq: rewoundFrom, beforeSeq: event.seq ?? highestSeq + 1 })
@@ -1077,6 +1087,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     lastErrorDetail,
     apiKeySource,
     sessionNotice,
+    agentTypes,
     checkpointNotice,
     revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
     promptCache,

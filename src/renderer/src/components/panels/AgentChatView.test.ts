@@ -983,7 +983,12 @@ test('AgentChatView', async () => {
     'both live lanes mount expanded outside the settled work group',
   )
   assert.ok(laneMarkup.includes('aria-busy="true"'), 'the timeline stays live while lanes run')
-  assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
+  assert.equal((laneMarkup.match(/>running</g) ?? []).length, 2, 'running steps carry an accessible status')
+  assert.equal(
+    (laneMarkup.match(/>Working · </g) ?? []).length,
+    2,
+    'a running lane says it is working in words, beside how long it has been',
+  )
 
   // The same fan-out, finished: the settled work folds behind one closed
   // summary line, with no step count, and nothing inside it is on screen.

@@ -80,6 +80,8 @@ export type ConversationTimelineRow =
       stage: ReturnType<typeof activeConversationStage>
       label: string
       startedAt?: number
+      // Agents still working, when the line is counting them.
+      agents?: number
     }
 
 // ── Presentation vocabulary (pure, unit-tested) ─────────────────────────────
@@ -280,6 +282,7 @@ export function deriveConversationTimelineRows(
       stage,
       label,
       startedAt: latestAssistant?.startedAt,
+      ...(stage === 'tool' && runningLanes.length > 0 ? { agents: runningLanes.length } : {}),
     })
   }
 

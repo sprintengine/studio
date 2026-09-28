@@ -16,7 +16,8 @@ import {
   CopyGlyphButton,
   TruncatedText,
   GhostButton,
-  StatusDot,
+  IconButton,
+  LifecycleGlyph,
   RowButton,
   OutlineButton,
   LinkButton,
@@ -39,7 +40,8 @@ import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
-import { SubagentLaneResult, subagentModel, subagentOutcomeWord } from './subagentResult'
+import { SubagentLaneResult, subagentModel } from './subagentResult'
+import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask, useOpenAgentsPane } from './subagentStatus'
 import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -599,15 +601,12 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const visibleChildren = hiddenSteps > 0 ? children.slice(hiddenSteps) : children
   // What the model sent this agent to do; the lane's own steps are the rail
   // beneath it, so the header does not repeat their count.
-  const object = toolObject(tool)
-  const durationMs =
-    tool.startedAt !== undefined && tool.completedAt !== undefined
-      ? Math.max(0, tool.completedAt - tool.startedAt)
-      : undefined
+  const object = laneTask(tool)
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const outcome = subagentOutcomeWord(tool)
+  // "Done in 1m 29s", "Failed after 9s": how it ended and how long it took.
+  const outcome = laneOutcomeWords(tool)
   // The lane header's ink, split from the box: the pressable branch is a kit row
   // (which owns the box, the hover ground and the ring) and the readable twin
   // keeps the shape it always had.
@@ -615,11 +614,9 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${headerInk}`
   const header = (
     <>
-      <span
-        className={`flex shrink-0 self-center ${toolGlyphInk(running ? 'running' : presentToolItem(toolPresentationInput(tool)).tone)}`}
-      >
-        <ToolKindGlyph kind="subagent" />
-      </span>
+      {/* The agent itself: a character that works while it runs and whose
+          face says how it ended. The words beside it say the same. */}
+      <LaneGlyph tool={tool} className="self-center" />
       {expandable ? (
         <ChevronRightGlyph
           className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
@@ -641,39 +638,64 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
       ) : null}
       <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
         {running ? (
-          tool.startedAt !== undefined ? (
-            <LiveElapsed startedAt={tool.startedAt} />
-          ) : (
-            'running'
-          )
+          <span className="text-[color:var(--accent-primary)]">
+            Working{tool.startedAt !== undefined ? ' · ' : ''}
+            {tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : null}
+          </span>
         ) : (
-          // How it ended when that was not plainly finishing, the model it was
-          // asked to run on, and how long it took.
+          // How it ended and how long it took, then the model it was asked to
+          // run on when it named one.
           [
             outcome ? (
-              <span key="outcome" className={outcome === 'failed' ? 'text-[color:var(--tone-error)]' : undefined}>
+              <span
+                key="outcome"
+                className={tool.outputStatus === 'error' ? 'text-[color:var(--tone-error)]' : undefined}
+              >
                 {outcome}
               </span>
             ) : null,
             subagentModel(tool),
-            durationMs !== undefined ? formatStepDuration(durationMs) : null,
           ]
             .filter(Boolean)
             .flatMap((part, index) => (index ? [' · ', part] : [part]))
         )}
       </span>
-      {running ? <span className="sr-only">running</span> : null}
     </>
   )
+  // Hovering or focusing the agent says who it is, how it is doing and what
+  // kind of helper it is (design-system/components/agent-glyph).
+  const card = <AgentCardContent tool={tool} running={running} />
+  const openAgents = useOpenAgentsPane()
   return (
     <div ref={laneRef}>
-      {expandable ? (
-        <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
-          {header}
-        </RowButton>
-      ) : (
-        <div className={headerClass}>{header}</div>
-      )}
+      <div className="group/lane flex min-w-0 items-center">
+        {expandable ? (
+          <Tooltip content={card} multiline placement="bottom" wrapperClassName="block min-w-0 flex-1">
+            <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
+              {header}
+            </RowButton>
+          </Tooltip>
+        ) : (
+          <Tooltip content={card} multiline placement="bottom" wrapperClassName="block min-w-0 flex-1">
+            <div tabIndex={0} className={`${headerClass} focus-visible:focus-ring-inset`}>
+              {header}
+            </div>
+          </Tooltip>
+        )}
+        {/* This agent's own thread, in the Agents tab beside the chat. */}
+        {openAgents ? (
+          <Tooltip content="Open in Agents">
+            <IconButton
+              size="xs"
+              aria-label={`Open ${subagentLaneLabel(tool)} in Agents`}
+              className="shrink-0 opacity-0 focus-visible:opacity-100 group-hover/lane:opacity-100"
+              onClick={() => openAgents(tool.id)}
+            >
+              <OpenInPaneGlyph />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </div>
       {open && expandable ? (
         <div className="ml-2 mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
           {hiddenSteps > 0 ? (
@@ -749,7 +771,7 @@ export function TurnErrorBlock({
       className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3"
     >
       <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
-        <StatusDot tone="error" label="Turn failed" />
+        <LifecycleGlyph state="failed" label="Turn failed" />
         {chrome.assistantName} couldn’t finish this turn
       </div>
       <p className="mb-2.5 mt-1 text-body leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
@@ -836,7 +858,7 @@ export function ResolvedDecisionGroupRow({
         {row.status === 'approved' ? (
           <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
         ) : row.status === 'denied' ? (
-          <StatusDot tone="error" />
+          <CrossGlyph className="icon-xs shrink-0 text-[color:var(--tone-error)]" />
         ) : null}
         {row.label}
       </GhostButton>
@@ -871,7 +893,7 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
       {good ? (
         <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       ) : (
-        <StatusDot tone="error" label="Denied" />
+        <CrossGlyph className="icon-xs shrink-0 text-[color:var(--tone-error)]" label="Denied" />
       )}
       {text}
     </div>
@@ -934,10 +956,16 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
 export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'working' }> }) {
   const ref = useRef<HTMLDivElement>(null)
   useLiveRowMotion(ref, true)
+  const openAgents = useOpenAgentsPane()
   return (
-    <div ref={ref} className="flex gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
+    <div ref={ref} className="flex items-baseline gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
       <span className="chat-shimmer font-medium">{row.label}</span>
       {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
+      {row.agents && openAgents ? (
+        <LinkButton ink="quiet" onClick={() => openAgents(null)}>
+          See agents
+        </LinkButton>
+      ) : null}
     </div>
   )
 }
@@ -964,6 +992,26 @@ function MessageTimestamp({ at }: { at?: number }) {
         <span className="sr-only">{full}</span>
       </time>
     </Tooltip>
+  )
+}
+
+// A window with its side pane drawn in: open this beside the chat.
+function OpenInPaneGlyph() {
+  return (
+    <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7 2v8" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+// The denied twin of CheckGlyph: an answer that was no, in the error ink.
+export function CrossGlyph({ className, label }: { className?: string; label?: string }) {
+  const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" {...a11y}>
+      <path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   )
 }
 
