@@ -204,3 +204,38 @@ test('a chat asking for one of its agents opens the tab on that agent', async ()
     await tab.unmount()
   }
 })
+
+test('an agent’s words sit before the step they lead into, and its report is not said twice', async () => {
+  const { placeAgentMessages } = await import('./AgentsTab')
+  const lane = {
+    kind: 'tool' as const,
+    id: 'lane',
+    turnId: 'turn',
+    name: 'Agent',
+    status: 'done' as const,
+    subagentLane: true,
+    output: 'The router lives in src/router.ts.\n\nIt exports createRouter.',
+    children: [
+      { kind: 'tool' as const, id: 'grep', turnId: 'turn', name: 'Grep', status: 'done' as const, startedAt: 20 },
+      { kind: 'tool' as const, id: 'read', turnId: 'turn', name: 'Read', status: 'done' as const, startedAt: 40 },
+    ],
+    messages: [
+      { at: 10, text: 'Searching for the router.' },
+      { at: 30, text: 'Found a candidate; reading it.' },
+      { at: 50, text: 'One more note.' },
+      { at: 60, text: 'The router lives in src/router.ts.' },
+    ],
+  }
+  expect(placeAgentMessages(lane)).toEqual({
+    beforeSteps: [
+      { text: 'Searching for the router.', beforeToolUseId: 'grep' },
+      { text: 'Found a candidate; reading it.', beforeToolUseId: 'read' },
+    ],
+    afterSteps: ['One more note.'],
+  })
+  // While it works, nothing it said is its report yet.
+  expect(placeAgentMessages({ ...lane, status: 'running' }).afterSteps).toEqual([
+    'One more note.',
+    'The router lives in src/router.ts.',
+  ])
+})

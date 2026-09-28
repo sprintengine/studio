@@ -2020,20 +2020,20 @@ test('a background Claude agent keeps its lane open until it reports, then close
   assert.equal(progress[0]?.payload?.progressSummary, 'Listing the directory')
   assert.deepEqual(progress[0]?.payload?.usage, { totalTokens: 9287, toolUses: 1, durationMs: 6011 })
 
-  // The agent's own last words are its answer.
-  assert.deepEqual(
-    map({
-      type: 'assistant',
-      parent_tool_use_id: 'toolu_bg',
-      message: {
-        content: [
-          { type: 'thinking', thinking: '' },
-          { type: 'text', text: 'There are 2 files.' },
-        ],
-      },
-    }),
-    [],
-  )
+  // The agent's own words go to its thread, and its last ones are its answer.
+  const said = map({
+    type: 'assistant',
+    parent_tool_use_id: 'toolu_bg',
+    message: {
+      content: [
+        { type: 'thinking', thinking: '' },
+        { type: 'text', text: 'There are 2 files.' },
+      ],
+    },
+  })
+  assert.deepEqual(types(said), ['subagent_message'])
+  assert.deepEqual(said[0]?.payload, { parentToolUseId: 'toolu_bg', text: 'There are 2 files.' })
+  assert.equal('turnId' in (said[0]?.payload ?? {}), false, 'an agent speaks outside any turn of the chat')
   assert.deepEqual(
     map({ type: 'system', subtype: 'task_updated', task_id: 'task_bg', patch: { status: 'completed', end_time: 42 } }),
     [],

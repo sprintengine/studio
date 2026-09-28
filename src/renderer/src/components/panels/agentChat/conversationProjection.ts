@@ -71,7 +71,11 @@ export type TranscriptToolEntry = {
   children?: TranscriptToolEntry[]
   // The spawned agent's own state, on a lane the provider reported it for.
   agent?: TranscriptAgentState
+  // What the agent said between its steps, in the order it said it.
+  messages?: TranscriptAgentMessage[]
 }
+
+export type TranscriptAgentMessage = { at: number; text: string; truncated?: boolean }
 
 // Reasoning the model did before a tool call, kept at that point in the turn
 // rather than merged into one block: thinking between steps explains the step
@@ -463,6 +467,7 @@ export type ToolAccumulator = {
   subagentType?: string
   parentToolUseId?: string
   agent?: TranscriptAgentState
+  messages?: TranscriptAgentMessage[]
 }
 
 export const SESSION_STATUS_BY_EVENT: Partial<Record<ConversationEvent['type'], ConversationSessionStatus>> = {
@@ -513,6 +518,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // Agent states reported before their lane's call arrived (paging can split
   // them), applied when it does.
   const pendingAgents = new Map<string, TranscriptAgentState>()
+  const pendingMessages = new Map<string, TranscriptAgentMessage[]>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: ConversationUsage | null = null
   let lastError: string | null = null
@@ -718,6 +724,11 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           subagentType: readString(event.payload, 'subagentType'),
           parentToolUseId: readString(event.payload, 'parentToolUseId'),
         }
+        const pendingMessage = pendingMessages.get(id)
+        if (pendingMessage) {
+          pendingMessages.delete(id)
+          tool.messages = pendingMessage
+        }
         const pendingAgent = pendingAgents.get(id)
         if (pendingAgent) {
           pendingAgents.delete(id)
@@ -786,6 +797,20 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         const tool = toolsById.get(status.toolUseId)
         if (tool) applyAgentState(tool, agent, status.endedAt ?? event.createdAt)
         else pendingAgents.set(status.toolUseId, { ...pendingAgents.get(status.toolUseId), ...agent })
+        break
+      }
+      case 'subagent_message': {
+        const parentToolUseId = readString(event.payload, 'parentToolUseId')
+        const text = readString(event.payload, 'text')
+        if (!parentToolUseId || !text) break
+        const message: TranscriptAgentMessage = {
+          at: event.createdAt,
+          text,
+          ...(event.payload?.truncated === true ? { truncated: true } : {}),
+        }
+        const lane = toolsById.get(parentToolUseId)
+        if (lane) (lane.messages ??= []).push(message)
+        else pendingMessages.set(parentToolUseId, [...(pendingMessages.get(parentToolUseId) ?? []), message])
         break
       }
       case 'approval_requested': {
@@ -1157,6 +1182,7 @@ export function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): Tran
       ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
       ...(children.length > 0 ? { children } : {}),
       ...(tool.agent ? { agent: tool.agent } : {}),
+      ...(tool.messages?.length ? { messages: tool.messages } : {}),
     }
   }
 

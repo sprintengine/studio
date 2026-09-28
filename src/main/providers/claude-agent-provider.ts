@@ -52,6 +52,7 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
+  ConversationSubagentMessagePayload,
   ConversationSubagentState,
   ConversationSubagentStatusPayload,
   ConversationToolOutputPayload,
@@ -247,6 +248,7 @@ const SESSION_SCOPED_EVENT_TYPES = new Set<ConversationEvent['type']>([
   'session_updated',
   'user_message',
   'subagent_status',
+  'subagent_message',
 ])
 
 // A background agent's result belongs to no turn: it closes a lane opened by a
@@ -264,6 +266,7 @@ function ridesSessionChannel(event: ConversationEvent): boolean {
   return (
     event.type === 'session_updated' ||
     event.type === 'subagent_status' ||
+    event.type === 'subagent_message' ||
     (event.type === 'tool_output' && event.payload?.backgroundResult === true)
   )
 }
@@ -1687,10 +1690,18 @@ export function mapSdkMessage(
       const tracked = parentToolUseId ? state.subagents?.get(parentToolUseId) : undefined
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
-        // A background agent's last words are its answer: its spawning call
-        // only ever returned the launch notice.
-        if (tracked && block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-          tracked.lastText = block.text
+        // What an agent says between its steps belongs to its own thread. A
+        // background agent's last words are also its answer: its spawning
+        // call only ever returned the launch notice.
+        if (parentToolUseId && block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          if (tracked) tracked.lastText = block.text
+          const truncated = block.text.length > SUBAGENT_MESSAGE_CHARS
+          const payload: ConversationSubagentMessagePayload = {
+            parentToolUseId,
+            text: truncated ? block.text.slice(0, SUBAGENT_MESSAGE_CHARS) : block.text,
+            ...(truncated ? { truncated } : {}),
+          }
+          events.push(eventFor(state, 'subagent_message', payload))
           continue
         }
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
@@ -2028,6 +2039,10 @@ function readParentToolUseId(message: Record<string, unknown>): string | null {
   const parentToolUseId = message.parent_tool_use_id
   return typeof parentToolUseId === 'string' && parentToolUseId ? parentToolUseId : null
 }
+
+// How much of one block of an agent's own text a transcript event keeps. An
+// agent's report can run long; its whole text is its lane's result.
+const SUBAGENT_MESSAGE_CHARS = 32 * 1024
 
 // Names the CLI exposes for spawning a subagent; installed versions differ, so
 // both are recognized and either one is the header of a lane.

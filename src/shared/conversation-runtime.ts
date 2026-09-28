@@ -46,6 +46,11 @@ export type ConversationEventType =
   // keyed by the tool call that spawned it. Session-scoped: a background agent
   // outlives the turn that launched it, so this carries no turnId.
   | 'subagent_status'
+  // Something a spawned agent said between its steps, keyed by the tool call
+  // that spawned it. Its own record, not a content_delta: an agent's words
+  // belong to its thread, never to the reply of the conversation that spawned
+  // it. Session-scoped for the same reason as subagent_status.
+  | 'subagent_message'
 
 export type ConversationEvent = {
   id: string
@@ -292,6 +297,16 @@ export type ConversationToolOutputPayload = {
 }
 
 export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'
+
+// Payload carried on `subagent_message`: one finished block of an agent's own
+// text, as it said it.
+export type ConversationSubagentMessagePayload = {
+  // The spawning tool call: the lane this belongs to.
+  parentToolUseId: string
+  text: string
+  // The text was longer than a transcript event keeps; this is its beginning.
+  truncated?: boolean
+}
 
 // Payload carried on `subagent_status`: the latest known state of one spawned
 // agent. Each event repeats what it knows; a field it leaves out keeps the
