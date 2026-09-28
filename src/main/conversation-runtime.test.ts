@@ -56,6 +56,7 @@ test('conversation-runtime', async () => {
     await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
     await testToolAfterTurnResultResolvesThroughContinuationChannel()
     await testSendIsRejectedWhileAContinuationTurnIsOpen()
+    await testBackgroundAgentsKeepTheSessionWorkingAndEndWithTheirProcess()
     await testContinuationTurnDoesNotSuppressAnInFlightUserTurn()
     await testSubagentToolEventsKeepTheirParentLink()
     await testStatefulProviderResumeCursorReadFromTranscript()
@@ -686,6 +687,72 @@ test('conversation-runtime', async () => {
       )
       const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
       assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A background agent reports over the session channel after its turn ended.
+  // The session summary counts it as work still running, and a restart marks an
+  // agent the transcript left running as stopped: its process is gone.
+  async function testBackgroundAgentsKeepTheSessionWorkingAndEndWithTheirProcess(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-background-agents-'))
+    try {
+      const capture: {
+        base: MockAdapterSessionInput | null
+        sink: ConversationSessionEventSink | null
+        resolved: Array<{ requestId: string; approved: boolean }>
+      } = { base: null, sink: null, resolved: [] }
+      const start = (runtime: ConversationRuntime) =>
+        runtime.startSession({
+          workspaceRoot,
+          workspaceId: 'workspace',
+          agentId: 'agent',
+          providerId: 'continuation-provider',
+          modelId: 'continuation-model',
+        })
+      const runtime = new TrackedConversationRuntime({
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+        adapters: [createContinuationProvider(capture)],
+      })
+      const events: ConversationEvent[] = []
+      runtime.onEvent((event) => events.push(event))
+      const started = await start(runtime)
+      assert.equal(started.ok, true)
+      if (!started.ok) return
+      const sent = await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'count the files' })
+      assert.equal(sent.ok, true)
+      const base = capture.base!
+      const summary = () => runtime.listSessions({ workspaceId: 'workspace' })
+      capture.sink!(runtimeEvent(base, 'subagent_status', { toolUseId: 'lane-1', status: 'running', background: true }))
+      capture.sink!(
+        runtimeEvent(base, 'subagent_status', { toolUseId: 'lane-2', status: 'running', background: false }),
+      )
+      await waitForEventType(events, 'subagent_status')
+      for (let i = 0; i < 100 && events.filter((event) => event.type === 'subagent_status').length < 2; i += 1)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      const working = summary()
+      assert.equal(working.ok && working.sessions[0]?.backgroundAgents, 1, 'only background agents outlive a turn')
+      assert.equal(working.ok && working.sessions[0]?.status, 'ready', 'the agents open no turn')
+
+      // The app goes away with lane-1 still running; the next start stops it.
+      await shutdownRuntimes()
+      const restarted = new TrackedConversationRuntime({
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+        adapters: [createContinuationProvider(capture)],
+      })
+      const again = await start(restarted)
+      assert.equal(again.ok, true)
+      const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
+      const stopped = persisted.filter(
+        (event) => event.type === 'subagent_status' && event.payload?.status === 'stopped',
+      )
+      assert.deepEqual(stopped.map((event) => event.payload?.toolUseId).sort(), ['lane-1', 'lane-2'])
+      const after = restarted.listSessions({ workspaceId: 'workspace' })
+      assert.equal(after.ok && after.sessions[0]?.backgroundAgents, undefined)
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })

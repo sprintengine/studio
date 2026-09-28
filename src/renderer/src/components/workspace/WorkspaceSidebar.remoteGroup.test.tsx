@@ -89,14 +89,14 @@ test('WorkspaceSidebar.remoteGroup', async () => {
     const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>
       ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown
 
-    const fleetLayout = {
+    const meshLayout = {
       layout: {
         type: 'tabset',
         children: [
           {
             type: 'tab',
-            id: 'fleet-terminal:c1:s1',
-            component: 'fleet-terminal',
+            id: 'mesh-terminal:c1:s1',
+            component: 'mesh-terminal',
             config: { connectionId: 'c1', machineName: 'MacBook Air', remoteSessionId: 's1' },
           },
         ],
@@ -136,7 +136,7 @@ test('WorkspaceSidebar.remoteGroup', async () => {
           ...remoteOrigin,
           checkout: { mode: 'worktree', branch: 'agent/fix', worktreePath: '/Users/me/wt/fix' },
         },
-        layoutModel: fleetLayout,
+        layoutModel: meshLayout,
       }),
       // Born on the Air; its pane has since closed — the mark must survive.
       workspace('w4', 'Delta', null, { remoteOrigin, layoutModel: { layout: { type: 'row', children: [] } } }),

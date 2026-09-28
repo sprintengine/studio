@@ -62,7 +62,7 @@ import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/
 import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { showToast } from '../../store/toastStore'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
-import { AgentWorkingDots } from './AgentWorkingDots'
+import { WorkingMark } from './WorkingMark'
 import { ExtensionIcon } from './ExtensionIcon'
 import { FileTypeGlyph } from './FileTypeGlyph'
 import { TruncatedText } from './index'
@@ -1380,19 +1380,19 @@ export default function CommandPalette({
               )}
               {/* The one part of the palette that is not a search and not
                 instant — an install-and-use round trip — says so at the top of
-                the list, with the kit's working dots (liveness: alive right
+                the list, with the kit's working mark (liveness: alive right
                 now, for an unknown duration). Never beside the query: a note
                 on the field's own line read as part of what was typed. */}
               {actionBusy && (
                 <p role="status" className="flex items-center gap-2 px-4 py-2 text-meta text-[color:var(--text-muted)]">
                   Working
-                  <AgentWorkingDots label="Working" />
+                  <WorkingMark label="Working" />
                 </p>
               )}
               {visible.length === 0 ? (
                 // "No results" is only true once the search that would have
                 // produced them has finished; a failure says what failed instead.
-                // A search in flight is the working dots, not a static ellipsis:
+                // A search in flight is the working mark, not a static ellipsis:
                 // the marker the system already uses for "alive right now".
                 <p
                   role={provided.loading ? 'status' : undefined}
@@ -1403,7 +1403,7 @@ export default function CommandPalette({
                   ) : provided.loading ? (
                     <>
                       Searching
-                      <AgentWorkingDots label="Searching" />
+                      <WorkingMark label="Searching" />
                     </>
                   ) : (
                     'No results'

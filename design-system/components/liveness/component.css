@@ -1,45 +1,103 @@
-/* Liveness — the two marks motion is allowed to make.
+/* Liveness — the working mark and the change pulse.
  *
  * Both animations live here rather than in the consuming component, so the
  * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
  * that animates is the class that carries the guard. */
 
-/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+/* ── working mark: alive right now, unbounded ─────────────────────────────── */
 
-.ds-working-dots {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sem-space-3xs);
-  width: 14px;
+/* A 3×3 grid of cells resting dim; a pattern lights them. Each cell's delay
+ * into its pattern's loop is written by the consumer (--ds-cell-delay), so the
+ * four patterns share one set of cells. */
+.ds-working-mark {
+  display: inline-grid;
   flex: none;
+  grid-template-columns: repeat(3, 3px);
+  grid-auto-rows: 3px;
+  gap: var(--sem-space-3xs);
+  place-content: center;
+  width: 14px;
+  height: 14px;
 }
 
-.ds-working-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: var(--sem-radius-pill);
+.ds-working-mark-cell {
+  /* Softened, never round: a round cell would read as a dot. */
+  border-radius: 0.8px;
   background: var(--sem-color-accent-primary);
-  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+  opacity: 0.16;
+  animation-delay: var(--ds-cell-delay, 0s);
 }
 
-/* Staggered, not synchronised — three dots blinking together read as one
- * flashing mark rather than as movement. */
-.ds-working-dot:nth-child(2) {
-  animation-delay: 0.16s;
+.ds-working-mark--orbit .ds-working-mark-cell {
+  animation: ds-working-mark-orbit 1.2s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--ripple .ds-working-mark-cell {
+  animation: ds-working-mark-ripple 1.3s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--think .ds-working-mark-cell {
+  animation: ds-working-mark-think 1.8s var(--sem-motion-ease-standard) infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+.ds-working-mark--snake .ds-working-mark-cell {
+  animation: ds-working-mark-snake 1.6s linear infinite;
+  animation-delay: var(--ds-cell-delay, 0s);
+}
+/* The edge patterns leave the centre cell at rest. */
+.ds-working-mark .ds-working-mark-cell--still {
+  animation: none;
 }
 
-.ds-working-dot:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes ds-working-dot {
-  0%,
-  100% {
+@keyframes ds-working-mark-orbit {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.75;
+  }
+  30% {
     opacity: 0.3;
   }
-  50% {
+  45%,
+  100% {
+    opacity: 0.16;
+  }
+}
+
+@keyframes ds-working-mark-ripple {
+  0%,
+  70%,
+  100% {
+    opacity: 0.16;
+    transform: scale(0.7);
+  }
+  35% {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ds-working-mark-think {
+  0%,
+  40%,
+  100% {
+    opacity: 0.16;
+  }
+  15% {
+    opacity: 1;
+  }
+}
+
+/* Head plus two tail cells: each edge cell is lit for three of eight steps. */
+@keyframes ds-working-mark-snake {
+  0%,
+  37% {
+    opacity: 1;
+  }
+  37.5%,
+  100% {
+    opacity: 0.16;
   }
 }
 
@@ -66,17 +124,18 @@
   }
 }
 
-/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
- * dot still says "working" — and drops only the movement. */
+/* One guard, every mark. Reduced motion keeps the INFORMATION — one still
+ * frame, the four corners and the centre lit, still says "working" whichever
+ * pattern was picked — and drops only the movement. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-working-dot {
+  .ds-working-mark .ds-working-mark-cell {
     animation: none;
-    opacity: 1;
+    opacity: 0.16;
+    transform: none;
   }
 
-  .ds-working-dot:nth-child(2),
-  .ds-working-dot:nth-child(3) {
-    display: none;
+  .ds-working-mark .ds-working-mark-cell:nth-child(odd) {
+    opacity: 0.9;
   }
 
   .ds-change-pulse {

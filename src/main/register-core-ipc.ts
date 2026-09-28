@@ -25,7 +25,7 @@ import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
 import { listLiveTerminalSessions } from './terminal-runtime'
-import { registerFleetIpc } from './ipc/fleet-ipc'
+import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
@@ -118,7 +118,7 @@ export function registerCoreIpc(
     registry: services.workspaceRegistry,
   })
   registerAutomationIpc(ipcMain, services.automationService)
-  registerFleetIpc(ipcMain, services.automationService)
+  registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)

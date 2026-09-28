@@ -28,7 +28,7 @@ import {
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
-import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
+import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
@@ -144,6 +144,8 @@ import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
 import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
 import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
 import { createTourTools } from './automation/tour-tools'
+import { createConversationTools } from './automation/conversation-tools'
+import { createConversationLaunchService } from './conversation-launch-service'
 import { createAppTourService } from './tours/tour-app'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
@@ -1362,6 +1364,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // Starting a chat in main, for a caller with no window here to start it in
+  // (a paired machine's New chat, `conversation.create`). The record goes
+  // through the sequenced bus like any agent main registers, so every window
+  // and paired device hears about the chat the moment it exists.
+  const conversationLaunchService = createConversationLaunchService({
+    getWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
+    getLaunchSettings: () => agentLaunchSettings.get(),
+    writeAgent: (workspaceId, agentId, agent) =>
+      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
+    startSession: (input) => conversationRuntime.startSession(input),
+    send: (input) => conversationRuntime.sendTurn(input),
+    warn: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
+    },
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1382,12 +1400,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onTailnetEvent(payload)
     },
-    onFleetEvent: (event) => {
+    onMeshEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(FLEET_EVENT_CHANNEL, event)
+        window.webContents.send(MESH_EVENT_CHANNEL, event)
       }
-      tailnetNotifier.onFleetEvent(event)
+      tailnetNotifier.onMeshEvent(event)
     },
     hasWindow: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
@@ -1468,6 +1486,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           hasWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
         }),
+        ...createConversationTools({ launch: (request) => conversationLaunchService.launch(request) }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -1767,7 +1786,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
   void app.whenReady().then(() => {
-    const wake = () => automationService.fleet().onWake()
+    const wake = () => automationService.mesh().onWake()
     powerMonitor.on('resume', wake)
     powerMonitor.on('unlock-screen', wake)
   })

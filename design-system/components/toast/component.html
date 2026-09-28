@@ -40,7 +40,7 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt and stay until dismissed. The buttons feed the live corner region.</p>
+  <p class="demo-label">Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt, then leave after 10 s. The buttons feed the live corner region.</p>
 
   <div class="ds-toast-region demo-parked">
     <div class="ds-toast ds-toast--neutral" role="status" aria-live="polite">
@@ -176,23 +176,22 @@
 <script>
 /* Reference behaviour for the contract in component.md. What must survive a
    framework rewrite is the tone table: role and aria-live chosen by tone,
-   polite tones auto-dismissing at 5 s, warn and danger staying until the
-   user dismisses them — plus the single region and no focus steal. */
-
-const AUTO_DISMISS_MS = 5000
+   polite tones auto-dismissing at 5 s, warn and danger at 10 s, and hover
+   holding the clock — plus the single region and no
+   focus steal. */
 
 const TONES = {
   good: {
     role: 'status',
     live: 'polite',
-    persist: false,
+    dismissMs: 5000,
     title: 'Automation archived',
     description: 'It left the Automations rail; its run history stays.',
   },
   danger: {
     role: 'alert',
     live: 'assertive',
-    persist: true,
+    dismissMs: 10000,
     title: 'Automation failed to start',
     description: 'The agent CLI could not be launched.',
   },
@@ -241,10 +240,13 @@ function announce(tone, scopeNode) {
   toast.append(dot, content, close)
   region.appendChild(toast)
 
-  /* Polite tones leave on their own; warn and danger wait to be dismissed so
-     a failure can never be missed by looking away. No focus is taken either
+  /* Polite tones leave at 5 s, warn and danger at 10 s. Hovering holds the clock and leaving
+     restarts it, so nobody is raced while reading. No focus is taken either
      way — announcement is the live region's job. */
-  if (!spec.persist) toast._timer = window.setTimeout(() => dismiss(toast), AUTO_DISMISS_MS)
+  const arm = () => (toast._timer = window.setTimeout(() => dismiss(toast), spec.dismissMs))
+  toast.addEventListener('pointerenter', () => window.clearTimeout(toast._timer))
+  toast.addEventListener('pointerleave', arm)
+  arm()
 }
 
 for (const button of document.querySelectorAll('[data-toast]')) {

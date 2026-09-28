@@ -57,6 +57,8 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { cliForConversationProvider } from '../../../../shared/conversation-harness'
+import { conversationFinishedAt } from './sidebar/conversationLines'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -75,7 +77,14 @@ import {
   StatusDot,
   type Tone,
   Tooltip,
+  WorkingMark,
 } from '../ui'
+import {
+  canonicalMeshPaneComponent,
+  MESH_CONVERSATION_COMPONENT,
+  MESH_TERMINAL_COMPONENT,
+  meshPaneKind,
+} from '../../../../shared/tailnet-mesh'
 
 const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type: 'row', children: [] } }
 
@@ -122,7 +131,7 @@ const AgentPanel = React.lazy(() => import('../panels/AgentPanel'))
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
+const MeshTerminalPanel = React.lazy(() => import('../panels/MeshTerminalPanel'))
 const RemoteConversationPanel = React.lazy(() => import('../panels/agentChat/RemoteConversationPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
@@ -244,10 +253,11 @@ function timedPanel(component: string, children: React.ReactNode) {
 
 function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined): React.ReactNode {
   if (!session) return null
-  // Active work gets the pulsing green dot. Idle sessions show elapsed idle
-  // time instead, beginning at 1m; sub-minute recency renders blank.
+  // Active work gets the working mark — the one "working" mark the sidebar and
+  // the tab's card already draw. Idle sessions show elapsed idle time instead,
+  // beginning at 1m; sub-minute recency renders blank.
   if (isSessionWorking(session)) {
-    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
+    return <WorkingMark label="Working" seed={session.sessionId} />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
@@ -536,7 +546,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
 
   const factory = useCallback(
     (node: TabNode) => {
-      const component = node.getComponent()
+      // A remote pane saved under its pre-rename name renders as the same pane.
+      const component = canonicalMeshPaneComponent(node.getComponent())
       const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
       const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
       const config = node.getConfig() as
@@ -625,14 +636,14 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         // Fleet panel that used to sit beside it was retired on 2026-09-05 —
         // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
         // default branch's unavailable surface.)
-        case 'fleet-terminal':
+        case MESH_TERMINAL_COMPONENT:
           // A stale tab whose config lost its machine is refused rather than
           // rendered as an empty terminal: there is no session to attach to, and
           // a blank xterm would look like one that simply had no output.
           return config?.connectionId && config.remoteSessionId
             ? timedPanel(
-                'FleetTerminalPanel',
-                <FleetTerminalPanel
+                'MeshTerminalPanel',
+                <MeshTerminalPanel
                   // Scoped by WORKSPACE, not just by the tab's session-derived id:
                   // the tab id is deliberately deterministic per session (dedupe
                   // within a workspace), so the same session opened in a second
@@ -651,7 +662,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             : DISABLED_SURFACE
         // A conversation on another machine, in the regular chat view. Core
         // chrome for the same reason a remote terminal is.
-        case 'fleet-conversation': {
+        case MESH_CONVERSATION_COMPONENT: {
           const remote = config as
             | {
                 connectionId?: string
@@ -1199,7 +1210,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             )
             return
           }
-        } else if (componentId === 'fleet-terminal' || componentId === 'fleet-conversation') {
+        } else if (meshPaneKind(componentId) !== null) {
           // A pane on another machine's terminal wears the shared remote glyph
           // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
           // the same keystroke means different things on two machines, and the
@@ -1240,9 +1251,30 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
                 ? { tone: 'good', pulse: true, label: 'Working' }
                 : agentTabStatusDot(agentSession)
 
-      if (agent?.runtimeKind === 'conversation') {
+      // A chat names the CLI it rides with the same brand mark a terminal
+      // agent's tab wears: which harness is the at-a-glance fact, and chat or
+      // terminal is what the pane itself already shows. The live session's
+      // provider wins over the agent record's, since a chat can switch models
+      // (and with them providers) after launch. A provider that is not a CLI
+      // keeps the chat glyph.
+      const conversationCli =
+        agent?.runtimeKind === 'conversation'
+          ? cliForConversationProvider(conversation?.providerId ?? agent.conversation?.providerId)
+          : null
+      if (agent?.runtimeKind === 'conversation' && conversationCli) {
+        const runtimeLabel = `${labelForCliRuntime(conversationCli)} chat`
         renderValues.leading = (
-          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} aria-label="Chat agent">
+          <span
+            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
+            title={runtimeLabel}
+            aria-label={runtimeLabel}
+          >
+            <CliIcon cli={conversationCli} className={TAB_CHIP_GLYPH_CLASS} />
+          </span>
+        )
+      } else if (agent?.runtimeKind === 'conversation') {
+        renderValues.leading = (
+          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} title="Chat" aria-label="Chat agent">
             <ChatGlyph className={TAB_CHIP_GLYPH_CLASS} />
           </span>
         )
@@ -1302,8 +1334,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         )
       }
 
-      // Recency only when NOT working: an active agent shows the pulsing green
-      // dot instead.
+      // Recency only when NOT working: an active agent shows the working mark
+      // instead.
       //
       // The workspace's persisted keystroke clock is read off the store here
       // rather than subscribed to: it moves on terminal input, and a
@@ -1312,9 +1344,17 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // session's broadcast is what re-runs this callback anyway.
       const lastTerminalActivityAt =
         useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
+      //
+      // A chat has no terminal session and never moves the keystroke clock, so
+      // it counts from when its last turn ended instead, and says "Finished".
+      const conversationFinished = conversation ? conversationFinishedAt(conversation) : null
       const agentRecency = isWorking
         ? null
-        : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
+        : conversation
+          ? conversationFinished !== null
+            ? { at: conversationFinished, source: 'finished' as const }
+            : null
+          : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
       // The chip on the tab and the card's status line each keep their own
       // time (`TabRecencyText`, and the card's `aged` label), so neither
       // freezes at the moment the tab was last drawn.
@@ -1344,9 +1384,15 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         </span>
       ) : null
 
+      // Working wears the working mark, the same mark the sidebar row and the
+      // tab's own card use, so "working" reads one way everywhere.
       const trailing = activityDot ? (
         <>
-          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {activityDot.tone === 'good' && activityDot.pulse ? (
+            <WorkingMark label={activityDot.label} seed={agentSessionId ?? undefined} />
+          ) : (
+            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          )}
           {recencyIndicator}
         </>
       ) : (
@@ -1360,9 +1406,9 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
-      // (Idle / Last activity / Exited) — never a blanket "Idle".
+      // (Idle / Last activity / Exited / Finished) — never a blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
-      // pulsing green dot the tab wears; `attention` is Failed and Paused, which
+      // working mark the tab wears; `attention` is Failed and Paused, which
       // are worth the same weight without claiming motion; every other answer
       // is a chat at rest. The card draws the sidebar's working
       // dots for `working` and never a status dot — the row and the card have

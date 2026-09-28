@@ -1,6 +1,27 @@
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
+import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
 import { conversationSummaryPhase, type ConversationPhase } from '../../../../../shared/conversation/phase'
+import { labelForCliRuntime } from '../newWorkspace/cliRuntimeOptions'
 import type { Activity } from './rowStyle'
+
+/**
+ * What a chat's mark says: the CLI it rides, so a chat line wears the same
+ * provider mark a terminal line does and the two read as the same agent on a
+ * different surface. `cli` is null for a provider that is not a CLI (the
+ * API-key providers), which keep the chat glyph.
+ */
+export function conversationLineMark(
+  summary: Pick<ConversationSessionSummary, 'providerId' | 'modelId' | 'displayName'>,
+): {
+  cli: string | null
+  runtimeLabel: string
+  tooltip: string
+} {
+  const cli = cliForConversationProvider(summary.providerId)
+  const runtimeLabel = cli ? `${labelForCliRuntime(cli)} chat` : 'Chat'
+  const parts = [summary.displayName?.trim(), runtimeLabel, summary.modelId].filter(Boolean)
+  return { cli, runtimeLabel, tooltip: parts.join(' · ') }
+}
 
 export function conversationLineText(summary: ConversationSessionSummary): string {
   const phase = conversationSummaryPhase(summary)
@@ -57,6 +78,18 @@ export function replyPreviewText(markdown: string): string {
     .replace(/[\uE000-\uE07F]/gu, (char) => String.fromCharCode(char.charCodeAt(0) - ESCAPED_BASE))
     .replace(/\s+/gu, ' ')
     .trim()
+}
+
+/**
+ * When a resting chat last finished a turn, for the "how long since" readings
+ * on its sidebar line and its tab. Null while a turn is open or waiting on a
+ * person (those surfaces say working or waiting instead), and for a chat that
+ * has never finished one.
+ */
+export function conversationFinishedAt(summary: ConversationSessionSummary): number | null {
+  const phase = conversationSummaryPhase(summary)
+  if (phase !== 'completed' && phase !== 'failed' && phase !== 'idle') return null
+  return summary.lastTurnEndedAt ?? null
 }
 
 export function conversationPhaseActivity(phase: ConversationPhase): Activity {

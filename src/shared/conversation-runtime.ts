@@ -42,6 +42,10 @@ export type ConversationEventType =
   | 'command_output'
   | 'turn_completed'
   | 'turn_failed'
+  // Where a spawned subagent's run stands (running, finished, failed, stopped),
+  // keyed by the tool call that spawned it. Session-scoped: a background agent
+  // outlives the turn that launched it, so this carries no turnId.
+  | 'subagent_status'
 
 export type ConversationEvent = {
   id: string
@@ -73,6 +77,14 @@ export type ConversationSessionSummary = {
   firstUserText?: string
   lastUserText?: string
   lastAssistantText?: string
+  // Background subagents still running. They keep the conversation working
+  // after its turn has ended, so the sidebar and tab still show activity.
+  backgroundAgents?: number
+  // When the most recent turn completed or failed (the event's own time, so it
+  // survives a resume). Absent until a turn has ended. The sidebar and the tab
+  // count "finished" from this rather than `updatedAt`, which also moves on a
+  // model or permission change.
+  lastTurnEndedAt?: number
   // The preset currently in force, when the session carries one. Absent means
   // the session never set one and the provider passes no permission override,
   // as `none` does. Changing it mid-conversation goes through
@@ -239,7 +251,9 @@ export type ConversationToolStartedPayload = {
   // Set on the tool call that spawns a subagent (Task/Agent). It is the header
   // of a lane whose rows are the tool calls carrying its `toolCallId` as their
   // `parentToolUseId`; its own `tool_output` closes the lane, so the lane's
-  // elapsed time is the span between the two events.
+  // elapsed time is the span between the two events. A background agent's
+  // call returns at once; its lane stays open on `subagent_status` until the
+  // agent itself finishes.
   subagentLane?: boolean
   // The kind of subagent the model asked for ('Explore', 'general-purpose', a
   // custom agent id), when the call names one. Lane label; absent means the
@@ -270,6 +284,37 @@ export type ConversationToolOutputPayload = {
   output: string
   isError: boolean
   parentToolUseId?: string
+  // The result of a background subagent, delivered when the agent finishes,
+  // usually after the turn that launched it has ended. It closes the lane
+  // wherever it started and rides the session channel, so it neither needs
+  // nor opens a turn.
+  backgroundResult?: boolean
+}
+
+export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'
+
+// Payload carried on `subagent_status`: the latest known state of one spawned
+// agent. Each event repeats what it knows; a field it leaves out keeps the
+// value an earlier event reported.
+export type ConversationSubagentStatusPayload = {
+  // The spawning tool call: the lane this status belongs to.
+  toolUseId: string
+  taskId?: string
+  status: ConversationSubagentState
+  // Launched in the background: its spawning call returned at once and the
+  // agent runs on after the turn that launched it.
+  background?: boolean
+  subagentType?: string
+  description?: string
+  // The tool the agent called most recently.
+  lastToolName?: string
+  // A short present-tense line about what the agent is doing, when the
+  // provider generates one.
+  progressSummary?: string
+  usage?: { totalTokens: number; toolUses: number; durationMs: number }
+  // Why a failed or stopped agent ended, when known.
+  error?: string
+  endedAt?: number
 }
 
 // Structured payload shapes carried on `approval_requested` events. `kind`

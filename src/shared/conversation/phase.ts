@@ -29,7 +29,13 @@ export function conversationPhaseNeedsAttention(phase: ConversationPhase): boole
 }
 
 export function conversationSummaryPhase(summary: ConversationSessionSummary): ConversationPhase {
-  if (summary.phase) return summary.phase
+  const phase = summary.phase ?? statusPhase(summary)
+  // Background agents keep working after the turn that launched them ends.
+  if (summary.backgroundAgents && (phase === 'completed' || phase === 'idle')) return 'running'
+  return phase
+}
+
+function statusPhase(summary: ConversationSessionSummary): ConversationPhase {
   return conversationPhaseOf({
     approvalPending: summary.status === 'awaiting_approval',
     failed: summary.status === 'failed',

@@ -628,8 +628,8 @@ export function WorkspaceActions({
       {/* The Remote glyph (remote-sessions-ux / remote-glyph-topbar):
             presence for both directions of the tailnet — who is driving this
             machine, and the machines this Studio drives. Consciously
-            supersedes the Fleet "no rail glyph" ruling for the TOP BAR (epic
-            decision 5); commandRegistry's fleet comment records the same.
+            supersedes the Mesh "no rail glyph" ruling for the TOP BAR (epic
+            decision 5); commandRegistry's mesh comment records the same.
             Hidden while the feature is off and no machine is paired — absent,
             not present-but-empty. */}
       {remoteState.visible ? (

@@ -573,7 +573,7 @@ export default function TerminalView({
     textarea?.addEventListener('focus', reclaimPtySize)
 
     // Non-null for every agent surface; the guard is what keeps a surface that
-    // must not resolve local paths (fleet) from ever registering this provider.
+    // must not resolve local paths (mesh) from ever registering this provider.
     const linkRoots = studioTerminal.linkRoots
     const fileLinkDisposable = linkRoots
       ? term.registerLinkProvider(

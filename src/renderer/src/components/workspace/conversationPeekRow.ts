@@ -175,7 +175,7 @@ export function rowConversationPeekIdentities(input: {
           model: session.modelId,
           fileChanges: [],
           pullRequests: [],
-          activeSubagents: 0,
+          activeSubagents: session.backgroundAgents ?? 0,
           contextUsage: null,
         },
       },

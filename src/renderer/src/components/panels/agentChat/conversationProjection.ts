@@ -14,8 +14,22 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 import { parseConversationMentions, type ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 import { normalizeApiKeySource } from '../../../../../shared/conversation/apiKeySource'
+import { isBackgroundLaunchAck, readSubagentStatus } from '../../../../../shared/conversation/subagents'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
+
+// What is known about the agent a lane spawned, beyond its tool calls.
+// 'unknown' is a background agent from a transcript recorded before its end
+// was reported: it ran, but how it ended was never written down.
+export type TranscriptAgentState = {
+  state: 'running' | 'completed' | 'failed' | 'stopped' | 'unknown'
+  background?: boolean
+  description?: string
+  lastToolName?: string
+  progressSummary?: string
+  usage?: { totalTokens: number; toolUses: number; durationMs: number }
+  error?: string
+}
 
 // One tool call in a turn's work timeline. A call the model made to spawn a
 // background agent (Task/Agent) is a *lane*: `subagentLane` marks it, and the
@@ -55,6 +69,8 @@ export type TranscriptToolEntry = {
   parentToolUseId?: string
   // Tool calls made inside this lane, in the order they started.
   children?: TranscriptToolEntry[]
+  // The spawned agent's own state, on a lane the provider reported it for.
+  agent?: TranscriptAgentState
 }
 
 // Reasoning the model did before a tool call, kept at that point in the turn
@@ -443,6 +459,7 @@ export type ToolAccumulator = {
   subagentLane?: boolean
   subagentType?: string
   parentToolUseId?: string
+  agent?: TranscriptAgentState
 }
 
 export const SESSION_STATUS_BY_EVENT: Partial<Record<ConversationEvent['type'], ConversationSessionStatus>> = {
@@ -490,6 +507,9 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // the lane's own closing output) carry a *different* turnId than the `Task`
   // call that spawned them — lookups must not be scoped to one turn.
   const toolsById = new Map<string, ToolAccumulator>()
+  // Agent states reported before their lane's call arrived (paging can split
+  // them), applied when it does.
+  const pendingAgents = new Map<string, TranscriptAgentState>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: ConversationUsage | null = null
   let lastError: string | null = null
@@ -688,34 +708,74 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           subagentType: readString(event.payload, 'subagentType'),
           parentToolUseId: readString(event.payload, 'parentToolUseId'),
         }
+        const pendingAgent = pendingAgents.get(id)
+        if (pendingAgent) {
+          pendingAgents.delete(id)
+          applyAgentState(tool, pendingAgent, event.createdAt)
+        }
         turn.tools.set(id, tool)
         toolsById.set(id, tool)
         break
       }
       case 'tool_output': {
-        if (!turnId) break
-        const turn = ensureTurn(turnId)
         const id = readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId')
+        // A background agent's result carries no turn: it closes its lane by id.
+        if (!turnId && !id) break
+        const turn = turnId ? ensureTurn(turnId) : undefined
         // A call id closes that exact call wherever it started — a lane opened
         // in an earlier turn closes on the continuation turn that carries its
         // result. Without an id, fall back inside the event's own turn and
-        // lane: a subagent's output must never land on the parent's row.
+        // lane: a subagent's output must never land on the parent's row. An id
+        // whose call is not loaded (an earlier page) only matches a call that
+        // was never given one, never some other call of this turn.
         const parentToolUseId = readString(event.payload, 'parentToolUseId')
+        const unnamed = (tool: ToolAccumulator) => !id || tool.id.startsWith(`${tool.turnId}:`)
         const existing =
           (id && toolsById.get(id)) ||
-          [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
+          [...(turn?.tools.values() ?? [])]
+            .filter((tool) => tool.parentToolUseId === parentToolUseId && unnamed(tool))
+            .at(-1)
+        const output = readString(event.payload, 'preview', 'output', 'text')
+        if (existing?.subagentLane && isBackgroundLaunchAck(output)) {
+          // The launch notice of a background agent is for the model. The lane
+          // stays open for the agent's own report; a transcript that never
+          // recorded one (older versions) can only say it ran in the background.
+          existing.agent = { ...existing.agent, state: existing.agent?.state ?? 'unknown', background: true }
+          if (existing.agent.state === 'unknown') {
+            existing.status = 'done'
+            existing.completedAt = event.createdAt
+          }
+          break
+        }
         if (existing) {
           if (event.payload?.partial !== true) {
             existing.status = 'done'
             existing.completedAt = event.createdAt
           }
-          existing.output = readString(event.payload, 'preview', 'output', 'text') ?? existing.output
+          existing.output = output ?? existing.output
           existing.truncated = readBoolean(event.payload, 'truncated') ?? existing.truncated
           existing.totalBytes = readNumber(event.payload, 'totalBytes') ?? existing.totalBytes
           existing.outputStatus = readToolStatus(event.payload) ?? existing.outputStatus
           existing.exitCode = readNumber(event.payload, 'exitCode') ?? existing.exitCode
           existing.mime = readString(event.payload, 'mime') ?? existing.mime
         }
+        break
+      }
+      case 'subagent_status': {
+        const status = readSubagentStatus(event.payload)
+        if (!status) break
+        const agent: TranscriptAgentState = {
+          state: status.status,
+          ...(status.background !== undefined ? { background: status.background } : {}),
+          ...(status.description ? { description: status.description } : {}),
+          ...(status.lastToolName ? { lastToolName: status.lastToolName } : {}),
+          ...(status.progressSummary ? { progressSummary: status.progressSummary } : {}),
+          ...(status.usage ? { usage: status.usage } : {}),
+          ...(status.error ? { error: status.error } : {}),
+        }
+        const tool = toolsById.get(status.toolUseId)
+        if (tool) applyAgentState(tool, agent, status.endedAt ?? event.createdAt)
+        else pendingAgents.set(status.toolUseId, { ...pendingAgents.get(status.toolUseId), ...agent })
         break
       }
       case 'approval_requested': {
@@ -850,6 +910,8 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           // running; left open its row would pulse forever.
           for (const tool of turn.tools.values()) {
             if (tool.status !== 'running') continue
+            // A background agent outlives the turn that launched it.
+            if (tool.agent?.background && tool.agent.state === 'running') continue
             tool.status = 'done'
             tool.completedAt = event.createdAt
             tool.outputStatus ??= 'stopped'
@@ -1008,6 +1070,21 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   }
 }
 
+// Fold an agent's reported state into its lane. Running only ever updates
+// what the agent is doing: a lane closes on its result or a terminal status,
+// and a late progress report must not reopen one.
+function applyAgentState(tool: ToolAccumulator, agent: TranscriptAgentState, at: number): void {
+  const merged: TranscriptAgentState = { ...tool.agent, ...agent }
+  if (agent.state === 'running' && tool.agent && tool.agent.state !== 'running') merged.state = tool.agent.state
+  tool.agent = merged
+  if (merged.state === 'running') return
+  tool.status = 'done'
+  tool.completedAt = tool.completedAt ?? at
+  if (merged.state === 'failed') tool.outputStatus = 'error'
+  else if (merged.state === 'stopped') tool.outputStatus ??= 'stopped'
+  else tool.outputStatus ??= 'ok'
+}
+
 // Index of which calls hang off which lane, built once per projection over
 // every turn: a subagent's calls can land on a later continuation turn than the
 // `Task` call that spawned them, and they still belong to that lane.
@@ -1068,6 +1145,7 @@ export function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): Tran
       ...(tool.subagentType ? { subagentType: tool.subagentType } : {}),
       ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
       ...(children.length > 0 ? { children } : {}),
+      ...(tool.agent ? { agent: tool.agent } : {}),
     }
   }
 

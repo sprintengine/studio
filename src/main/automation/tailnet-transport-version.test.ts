@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createTailnetFleetService } from './tailnet/tailnet-fleet-service'
-import { createTailnetFleetStore } from './tailnet/tailnet-fleet-store'
+import { createTailnetMeshService } from './tailnet/tailnet-mesh-service'
+import { createTailnetMeshStore } from './tailnet/tailnet-mesh-store'
 import { readRemoteIdentity } from './tailnet/tailnet-remote-client'
 import {
   checkTailnetTransportVersion,
@@ -196,7 +196,7 @@ test('tailnet-transport-version', async () => {
    *
    * Enough of a machine for the reachability supervisor: it authenticates nothing
    * (the token is never checked) because what is under test is which routes the
-   * Fleet decides to dial, not who it is allowed to dial them as.
+   * Mesh decides to dial, not who it is allowed to dial them as.
    */
   async function withFakeMachine(
     capabilities: string[] | null,
@@ -247,8 +247,8 @@ test('tailnet-transport-version', async () => {
 
   check('a machine that does not advertise the change feed stops being dialled for it', async () => {
     await withFakeMachine([], async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-'))
-      const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-mesh-capability-'))
+      const store = createTailnetMeshStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'mac-mini',
         endpoint: `127.0.0.1:${port}`,
@@ -258,15 +258,15 @@ test('tailnet-transport-version', async () => {
         scopes: ['workspace:read'],
         pairedVia: 'link',
       })
-      const fleet = createTailnetFleetService({
+      const mesh = createTailnetMeshService({
         resolveUserDataDir: () => dir,
         createStore: () => store,
         reachabilityIntervalMs: 50,
         reachabilityTimeoutMs: 500,
       })
       try {
-        fleet.start()
-        await fleet.checkReachability()
+        mesh.start()
+        await mesh.checkReachability()
         // Long enough for several retry backoffs, which is what the gate is for:
         // a machine with no events route would otherwise be re-dialled forever.
         await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -282,7 +282,7 @@ test('tailnet-transport-version', async () => {
         // And the machine is still a perfectly good machine otherwise.
         assert.equal(paths.includes('/tailnet/v1/identity'), true)
       } finally {
-        fleet.shutdown()
+        mesh.shutdown()
         rmSync(dir, { recursive: true, force: true })
       }
     })
@@ -290,8 +290,8 @@ test('tailnet-transport-version', async () => {
 
   check('a machine that advertises the change feed is dialled for it', async () => {
     await withFakeMachine(['events'], async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-on-'))
-      const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-mesh-capability-on-'))
+      const store = createTailnetMeshStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'build-box',
         endpoint: `127.0.0.1:${port}`,
@@ -301,15 +301,15 @@ test('tailnet-transport-version', async () => {
         scopes: ['workspace:read'],
         pairedVia: 'link',
       })
-      const fleet = createTailnetFleetService({
+      const mesh = createTailnetMeshService({
         resolveUserDataDir: () => dir,
         createStore: () => store,
         reachabilityIntervalMs: 50,
         reachabilityTimeoutMs: 500,
       })
       try {
-        fleet.start()
-        await fleet.checkReachability()
+        mesh.start()
+        await mesh.checkReachability()
         await new Promise((resolve) => setTimeout(resolve, 1500))
         // The other half of the gate, over the same window: a machine that names
         // the capability keeps being retried, which is the behaviour the gate
@@ -318,7 +318,7 @@ test('tailnet-transport-version', async () => {
         const dials = paths.filter((path) => path === '/tailnet/v1/events').length
         assert.equal(dials >= 2, true, `expected the change feed to be retried, saw ${dials} dials`)
       } finally {
-        fleet.shutdown()
+        mesh.shutdown()
         rmSync(dir, { recursive: true, force: true })
       }
     })
@@ -329,8 +329,8 @@ test('tailnet-transport-version', async () => {
     // capability list did, so a build from that window serves the feed and names
     // nothing — reading that as "no feed" would switch off a feature that works.
     await withFakeMachine(null, async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-silent-'))
-      const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-mesh-capability-silent-'))
+      const store = createTailnetMeshStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'dev-macbook-air',
         endpoint: `127.0.0.1:${port}`,
@@ -340,20 +340,20 @@ test('tailnet-transport-version', async () => {
         scopes: ['workspace:read'],
         pairedVia: 'link',
       })
-      const fleet = createTailnetFleetService({
+      const mesh = createTailnetMeshService({
         resolveUserDataDir: () => dir,
         createStore: () => store,
         reachabilityIntervalMs: 50,
         reachabilityTimeoutMs: 500,
       })
       try {
-        fleet.start()
-        await fleet.checkReachability()
+        mesh.start()
+        await mesh.checkReachability()
         await new Promise((resolve) => setTimeout(resolve, 1500))
         const dials = paths.filter((path) => path === '/tailnet/v1/events').length
         assert.equal(dials >= 2, true, `a silent machine must still be watched, saw ${dials} dials`)
       } finally {
-        fleet.shutdown()
+        mesh.shutdown()
         rmSync(dir, { recursive: true, force: true })
       }
     })

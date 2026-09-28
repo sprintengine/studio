@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 
 import {
-  fleetConversationPresence,
-  fleetConversationSessionId,
-  type FleetBrowse,
-  type FleetConnection,
-  type FleetConversation,
-  type FleetLiveAttachment,
-  type FleetMachineReachability,
-  type FleetTerminal,
-} from '../../../../../shared/tailnet-fleet'
+  meshConversationPresence,
+  meshConversationSessionId,
+  type MeshBrowse,
+  type MeshConnection,
+  type MeshConversation,
+  type MeshLiveAttachment,
+  type MeshMachineReachability,
+  type MeshTerminal,
+} from '../../../../../shared/tailnet-mesh'
 import type { Workspace } from '../../../types/workspace'
 import {
   attachedConversations,
@@ -28,7 +28,7 @@ import { test } from 'vitest'
 test('remoteSessionsModel', async () => {
   // The rules behind the sidebar's remote rows, DOM-free.
 
-  const air: FleetConnection = {
+  const air: MeshConnection = {
     id: 'c1',
     machineName: 'sam-macbook-air',
     endpoint: '100.64.0.5:8471',
@@ -39,9 +39,9 @@ test('remoteSessionsModel', async () => {
     lastConnectedAt: null,
     pairedVia: 'request',
   }
-  const studio: FleetConnection = { ...air, id: 'c2', machineName: 'studio', endpoint: '100.64.0.9:8471' }
+  const studio: MeshConnection = { ...air, id: 'c2', machineName: 'studio', endpoint: '100.64.0.9:8471' }
 
-  const terminal = (over: Partial<FleetTerminal>): FleetTerminal => ({
+  const terminal = (over: Partial<MeshTerminal>): MeshTerminal => ({
     sessionId: 's1',
     kind: 'agent',
     workspaceId: 'rw1',
@@ -57,7 +57,7 @@ test('remoteSessionsModel', async () => {
     ...over,
   })
 
-  const browse = (over: Partial<FleetBrowse>): FleetBrowse => ({
+  const browse = (over: Partial<MeshBrowse>): MeshBrowse => ({
     connectionId: 'c1',
     reachable: true,
     unreachableReason: null,
@@ -85,17 +85,17 @@ test('remoteSessionsModel', async () => {
   const workspace = (id: string, extra: Record<string, unknown>): Workspace =>
     ({ id, name: id, mode: 'standard', folderPath: null, ...extra }) as unknown as Workspace
 
-  const fleetLayout = (connectionId: string, remoteSessionId: string) => ({
+  const meshLayout = (connectionId: string, remoteSessionId: string) => ({
     layout: {
       type: 'tabset',
       children: [
-        { type: 'tab', component: 'fleet-terminal', config: { connectionId, machineName: 'x', remoteSessionId } },
+        { type: 'tab', component: 'mesh-terminal', config: { connectionId, machineName: 'x', remoteSessionId } },
       ],
     },
   })
 
   // ── shouldBrowse ─────────────────────────────────────────────────────────
-  const reach = (over: Partial<FleetMachineReachability>): FleetMachineReachability => ({
+  const reach = (over: Partial<MeshMachineReachability>): MeshMachineReachability => ({
     connectionId: 'c1',
     machineName: 'air',
     checking: false,
@@ -131,7 +131,7 @@ test('remoteSessionsModel', async () => {
       workspaceName: 'relay',
       workspaceRoot: null,
     },
-    layoutModel: fleetLayout('c1', 's2'),
+    layoutModel: meshLayout('c1', 's2'),
   })
   const local = workspace('w3', { folderPath: '/proj' })
   assert.equal(
@@ -151,8 +151,8 @@ test('remoteSessionsModel', async () => {
   )
 
   // ── buildRemoteBand ──────────────────────────────────────────────────────
-  const attachments = new Map<string, FleetLiveAttachment>()
-  const reachability = new Map<string, FleetMachineReachability>([['c1', reach({ reachable: true })]])
+  const attachments = new Map<string, MeshLiveAttachment>()
+  const reachability = new Map<string, MeshMachineReachability>([['c1', reach({ reachable: true })]])
 
   const answered = browse({
     terminals: [
@@ -409,7 +409,7 @@ test('remoteSessionsModel', async () => {
   // A LOCAL chat that happens to hold a pane onto the other machine is not a
   // remote conversation: it is a local chat with a visitor in it, and its own
   // agents' lines are not the other machine's to replace.
-  const visiting = workspace('w9', { folderPath: '/proj', layoutModel: fleetLayout('c1', 's1') })
+  const visiting = workspace('w9', { folderPath: '/proj', layoutModel: meshLayout('c1', 's1') })
   assert.equal(
     buildRemoteBand({
       connections: [air],
@@ -514,7 +514,7 @@ test('remoteSessionsModel', async () => {
 })
 
 test('chats on a paired machine are rows of their own, with the presence their phase says, and open in the chat view', () => {
-  const mini: FleetConnection = {
+  const mini: MeshConnection = {
     id: 'c-mini',
     machineName: 'mac-mini',
     endpoint: 'mac-mini.tail1234.ts.net:8471',
@@ -525,7 +525,7 @@ test('chats on a paired machine are rows of their own, with the presence their p
     lastConnectedAt: null,
     pairedVia: 'request',
   }
-  const chat = (agentId: string, phase: FleetConversation['phase'], title: string): FleetConversation => ({
+  const chat = (agentId: string, phase: MeshConversation['phase'], title: string): MeshConversation => ({
     workspaceId: 'rw1',
     agentId,
     title,
@@ -563,8 +563,8 @@ test('chats on a paired machine are rows of their own, with the presence their p
         children: [
           {
             type: 'tab',
-            component: 'fleet-conversation',
-            config: { connectionId: 'c-mini', remoteSessionId: fleetConversationSessionId('rw1', 'a-done') },
+            component: 'mesh-conversation',
+            config: { connectionId: 'c-mini', remoteSessionId: meshConversationSessionId('rw1', 'a-done') },
           },
         ],
       },
@@ -595,7 +595,7 @@ test('chats on a paired machine are rows of their own, with the presence their p
     ['Profile the importer', 'Rename the store', 'Write the changelog'],
   )
   assert.deepEqual(openSpecOfConversation(conversations[1]).conversation, { workspaceId: 'rw1', agentId: 'a-waiting' })
-  assert.equal(fleetConversationPresence('waiting_for_input'), 'needs-input')
-  assert.equal(fleetConversationPresence('starting'), 'running')
-  assert.equal(fleetConversationPresence('failed'), 'idle')
+  assert.equal(meshConversationPresence('waiting_for_input'), 'needs-input')
+  assert.equal(meshConversationPresence('starting'), 'running')
+  assert.equal(meshConversationPresence('failed'), 'idle')
 })

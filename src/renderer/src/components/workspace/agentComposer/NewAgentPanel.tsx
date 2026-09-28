@@ -2,12 +2,12 @@ import React from 'react'
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
-  FleetBrowse,
-  FleetCheckoutRequest,
-  FleetConnection,
-  FleetWorkspace,
-  FleetWorkspaceCheckout,
-} from '../../../../../shared/tailnet-fleet'
+  MeshBrowse,
+  MeshCheckoutRequest,
+  MeshConnection,
+  MeshWorkspace,
+  MeshWorkspaceCheckout,
+} from '../../../../../shared/tailnet-mesh'
 import type { TailnetScope } from '../../../../../shared/tailnet'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
@@ -173,7 +173,7 @@ export type RemoteNewChatLaunch = {
    * Where the chat runs there (checkout-and-branch-on-remote-create): the
    * workspace's current checkout, or a fresh worktree branched from `baseRef`.
    */
-  checkout: FleetCheckoutRequest
+  checkout: MeshCheckoutRequest
   /**
    * The branch the chat is on, as far as the panel knows before the create:
    * the remote's current branch for its checkout; for a worktree the branch
@@ -182,6 +182,12 @@ export type RemoteNewChatLaunch = {
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
+  /**
+   * Start the CLI there as a chat agent rather than in a terminal: the chat
+   * runs in that machine's conversation runtime, and the pane here follows it.
+   * A chat has no checkout of its own, so `checkout` is always the current one.
+   */
+  conversation?: boolean
 }
 
 /**
@@ -193,15 +199,15 @@ export type RemoteNewChatLaunch = {
 export type MachineAvailability =
   | { state: 'none' }
   | { state: 'loading' }
-  | { state: 'has'; workspace: FleetWorkspace }
+  | { state: 'has'; workspace: MeshWorkspace }
   | { state: 'lacks'; reason: string }
   | { state: 'unreachable'; reason: string }
 
 /** A machine's last browse, stamped so a stale or failed one is asked again. */
-type MachineBrowseEntry = 'loading' | { browse: FleetBrowse; at: number }
+type MachineBrowseEntry = 'loading' | { browse: MeshBrowse; at: number }
 const MACHINE_BROWSE_HOLD_MS = 30_000
 
-function browseOf(entry: MachineBrowseEntry | undefined): FleetBrowse | 'loading' | undefined {
+function browseOf(entry: MachineBrowseEntry | undefined): MeshBrowse | 'loading' | undefined {
   return entry === 'loading' || entry === undefined ? entry : entry.browse
 }
 
@@ -212,7 +218,7 @@ function machineBrowseStale(entry: MachineBrowseEntry | undefined, now = Date.no
 }
 
 /** Which of a machine's workspaces is the repository in hand, if any. */
-export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity | null): FleetWorkspace | null {
+export function machineCopyOf(browse: MeshBrowse, identity: RepositoryIdentity | null): MeshWorkspace | null {
   if (!identity) return null
   const copies = browse.workspaces.filter((workspace) => sameRepository(workspace.repository, identity))
   // A plain checkout over a worktree of the same repository (its worktrees
@@ -224,8 +230,8 @@ export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity 
 }
 
 export function machineAvailabilityOf(
-  machine: FleetConnection,
-  browse: FleetBrowse | 'loading' | undefined,
+  machine: MeshConnection,
+  browse: MeshBrowse | 'loading' | undefined,
   identity: RepositoryIdentity | null,
 ): MachineAvailability {
   if (!identity) return { state: 'none' }
@@ -246,9 +252,9 @@ export function machineAvailabilityOf(
 }
 
 type RemoteTargetState = {
-  connection: FleetConnection
+  connection: MeshConnection
   /** What `workspace.list` served: the machine's open CHATS, not its projects. */
-  workspaces: FleetWorkspace[] | null
+  workspaces: MeshWorkspace[] | null
   /** Those chats folded into the folders they stand in — the list the chip offers. */
   projects: RemoteProject[] | null
   error: string | null
@@ -256,7 +262,7 @@ type RemoteTargetState = {
   /** The scopes the machine reports NOW (the browse refreshes them), for the worktree gate. */
   scopes: TailnetScope[]
   /** The picked project's checkout facts; null until read, or unreadable (see `checkoutError`). */
-  checkout: FleetWorkspaceCheckout | null
+  checkout: MeshWorkspaceCheckout | null
   checkoutError: string | null
 }
 
@@ -269,7 +275,7 @@ type RemoteTargetState = {
 export function remoteWorktreeDisabledReason(target: {
   connection: { machineName: string }
   scopes: readonly TailnetScope[]
-  checkout: FleetWorkspaceCheckout | null
+  checkout: MeshWorkspaceCheckout | null
   checkoutError: string | null
 }): string | null {
   if (!target.scopes.includes('workspace:operate')) {
@@ -296,7 +302,7 @@ export function remoteWorktreeDisabledReason(target: {
  * now starts where the project stands over there — the same promise the local
  * worktree row makes about this disk — so there is nothing to override with.
  */
-function effectiveBaseRefOf(checkout: FleetWorkspaceCheckout | null): string | null {
+function effectiveBaseRefOf(checkout: MeshWorkspaceCheckout | null): string | null {
   if (!checkout?.git) return null
   return checkout.branch ?? checkout.defaultBranch ?? null
 }
@@ -340,7 +346,7 @@ export function defaultNewChatHostId(
 
 // This device first, then paired machines alphabetically — a list that
 // reorders as pairings come and go is one nobody can learn.
-export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
+export function sortMachines(machines: MeshConnection[]): MeshConnection[] {
   return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
 }
 
@@ -495,29 +501,31 @@ export default function NewAgentPanel({
   // The machine dimension (remote-sessions-ux / new-chat-on-a-remote-machine).
   // One dropdown: This device is the default entry, paired machines follow. A
   // remote target swaps the project choice for the machine's own workspaces
-  // (fetched over the audited fleet client) and routes the launch remotely.
-  // Terminal and conversation launches are this machine's only — picking
-  // either resets the target rather than lying about where they would run.
-  const [remoteMachines, setRemoteMachines] = React.useState<FleetConnection[]>([])
+  // (fetched over the audited mesh client) and routes the launch remotely.
+  // A chat agent runs in the chosen machine's own conversation runtime and is
+  // followed from here, as its terminal agents are attached to. A bare
+  // terminal is this machine's only — picking it resets the target rather
+  // than lying about where it would run.
+  const [remoteMachines, setRemoteMachines] = React.useState<MeshConnection[]>([])
   const [remoteTarget, setRemoteTarget] = React.useState<RemoteTargetState | null>(null)
   // What each paired machine holds, read once per machine per door open
   // (one-project-across-machines): the machine dropdown says which machines
   // have the project in hand, and a pick that keeps the project reads its
   // workspace off this rather than asking the machine again.
   const [machineBrowses, setMachineBrowses] = React.useState<Map<string, MachineBrowseEntry>>(() => new Map())
-  const browseMachine = React.useCallback((connection: FleetConnection): Promise<FleetBrowse> => {
+  const browseMachine = React.useCallback((connection: MeshConnection): Promise<MeshBrowse> => {
     setMachineBrowses((current) => {
       const existing = current.get(connection.id)
       return existing && existing !== 'loading' ? current : new Map(current).set(connection.id, 'loading')
     })
     return window.api
-      .fleetBrowse(connection.id)
+      .meshBrowse(connection.id)
       .then((browse) => {
         setMachineBrowses((current) => new Map(current).set(connection.id, { browse, at: Date.now() }))
         return browse
       })
       .catch((error: unknown) => {
-        const failed: FleetBrowse = {
+        const failed: MeshBrowse = {
           connectionId: connection.id,
           reachable: false,
           unreachableReason: error instanceof Error ? error.message : String(error),
@@ -549,7 +557,7 @@ export default function NewAgentPanel({
     let cancelled = false
     const load = (): void => {
       void window.api
-        .fleetListConnections()
+        .meshListConnections()
         .then((connections) => {
           if (cancelled) return
           const sorted = sortMachines(connections)
@@ -565,8 +573,8 @@ export default function NewAgentPanel({
     load()
     // A machine paired or forgotten while the door is open shows up live.
     const unsubscribe =
-      typeof window.api.onFleetEvent === 'function'
-        ? window.api.onFleetEvent((event) => {
+      typeof window.api.onMeshEvent === 'function'
+        ? window.api.onMeshEvent((event) => {
             if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') load()
           })
         : null
@@ -575,7 +583,7 @@ export default function NewAgentPanel({
       unsubscribe?.()
     }
   }, [remoteCapable])
-  const remoteSelectable = remoteCapable && selection.kind !== 'terminal' && selection.kind !== 'conversation'
+  const remoteSelectable = remoteCapable && selection.kind !== 'terminal'
   React.useEffect(() => {
     if (!remoteSelectable) setRemoteTarget(null)
   }, [remoteSelectable])
@@ -632,7 +640,7 @@ export default function NewAgentPanel({
   const localIdentityRead = !workspaceRoot?.trim() || localIdentities.has(folderIdentityKey(workspaceRoot))
   const scopeProjectColor = useProjectColor(remoteTarget || localIdentityRead ? scopeProjectKey : null)
   const pickRemoteMachine = (
-    connection: FleetConnection | null,
+    connection: MeshConnection | null,
     keep: RepositoryIdentity | null = activeIdentity,
   ): void => {
     lastPickedMachineId = connection?.id ?? null
@@ -686,7 +694,7 @@ export default function NewAgentPanel({
         }
         // A gap is a DIFFERENT statement from an empty list: a pairing
         // without workspace:read genuinely cannot list workspaces, and
-        // "no workspaces on that machine" would be false (the FleetGap
+        // "no workspaces on that machine" would be false (the MeshGap
         // contract). Say the real reason instead.
         const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
         if (browse.workspaces.length === 0 && workspaceGap) {
@@ -731,7 +739,7 @@ export default function NewAgentPanel({
     if (!remoteConnectionId || !remotePickedId) return
     let cancelled = false
     void window.api
-      .fleetWorkspaceCheckout(remoteConnectionId, remotePickedId)
+      .meshWorkspaceCheckout(remoteConnectionId, remotePickedId)
       .then((result) => {
         if (cancelled) return
         setRemoteTarget((current) => {
@@ -755,7 +763,7 @@ export default function NewAgentPanel({
   }, [remoteConnectionId, remotePickedId])
   // The ⋯ worktree row is the ONLY worktree control now, local or remote
   // (owner, 2026-09-11), so picking a machine no longer clears it. A worktree
-  // asked for on a remote target travels as `FleetCheckoutRequest.name` — the
+  // asked for on a remote target travels as `MeshCheckoutRequest.name` — the
   // same branch name the local spawn mints its worktree on — and the gate
   // below is what stops one being asked for where the pairing cannot make it.
   const activeBranch = useWorkspaceStore((s) => {
@@ -1025,6 +1033,41 @@ export default function NewAgentPanel({
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
+      if (confirm.kind === 'conversation') {
+        // A chat's skills are this machine's and its images are local files;
+        // neither has a way over yet, so their chips refuse rather than vanish.
+        const strandedChat = [
+          confirm.skills?.length ? 'the skills' : null,
+          images.length > 0 ? 'the attached images' : null,
+        ].filter((entry): entry is string => entry !== null)
+        if (strandedChat.length > 0) {
+          showToast({
+            tone: 'warn',
+            title: 'That chat cannot travel yet',
+            description: `Remove ${strandedChat.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
+          })
+          return
+        }
+        setRemoteLaunching(true)
+        onLaunchRemote({
+          connectionId: remoteTarget.connection.id,
+          machineName: remoteTarget.connection.machineName,
+          remoteWorkspaceId: remoteTarget.picked.workspaceId,
+          remoteWorkspaceName: remoteTarget.picked.name,
+          remoteWorkspaceRoot: remoteTarget.picked.folderPath,
+          prompt: text.trim(),
+          cli: confirm.cli,
+          cliModel: confirm.model ?? null,
+          permissionPreset: effectivePreset,
+          checkout: { mode: 'current' },
+          branch: remoteTarget.checkout?.branch ?? null,
+          remoteRepository: remoteTarget.picked.repository,
+          conversation: true,
+        })
+          .finally(() => setRemoteLaunching(false))
+          .catch(() => {})
+        return
+      }
       if (confirm.kind !== 'general') return
       // What cannot travel must not be silently dropped while its chip is on
       // screen: skills install locally, and MCP servers were synced into the
@@ -1062,7 +1105,7 @@ export default function NewAgentPanel({
       const worktreeBlocked = remoteWorktreeDisabledReason(remoteTarget) !== null
       const worktreeName = confirm.worktree?.name.trim()
       const baseRef = confirm.worktree ? effectiveBaseRefOf(remoteTarget.checkout) : null
-      const checkout: FleetCheckoutRequest =
+      const checkout: MeshCheckoutRequest =
         confirm.worktree && !worktreeBlocked && baseRef
           ? { mode: 'worktree', baseRef, ...(worktreeName ? { name: worktreeName } : {}) }
           : { mode: 'current' }
@@ -1705,9 +1748,9 @@ function MachineScopePicker({
   onOpen,
   projectName,
 }: {
-  machines: FleetConnection[]
-  selected: FleetConnection | null
-  onSelect: (connection: FleetConnection | null) => void
+  machines: MeshConnection[]
+  selected: MeshConnection | null
+  onSelect: (connection: MeshConnection | null) => void
   /** This computer's machines, this one first. One entry (or none) draws the plain "This device" row. */
   localHosts?: ExecutionHostSummary[]
   selectedHostId?: ExecutionHostId
@@ -1715,14 +1758,14 @@ function MachineScopePicker({
   /** Why a machine here cannot be picked right now, or null. */
   hostDisabledReason?: (host: ExecutionHostSummary) => string | null
   /** Whether each machine holds the project in hand (one-project-across-machines); `none` lists it plainly. */
-  availability?: (machine: FleetConnection) => MachineAvailability
+  availability?: (machine: MeshConnection) => MachineAvailability
   onOpen?: () => void
   /** The project in hand, named in the dimmed rows' reasons and the list's heading. */
   projectName?: string | null
 }) {
   const [open, setOpen] = React.useState(false)
-  const availabilityOf = (machine: FleetConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
-  const chosen = (machine: FleetConnection): boolean => {
+  const availabilityOf = (machine: MeshConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
+  const chosen = (machine: MeshConnection): boolean => {
     const state = availabilityOf(machine).state
     return state !== 'lacks' && state !== 'unreachable'
   }
@@ -1887,7 +1930,7 @@ function MachineScopePicker({
 }
 
 /**
- * A remote machine's projects: its workspaces, served over the fleet client.
+ * A remote machine's projects: its workspaces, served over the mesh client.
  * Loading and unreachable states are said plainly — a machine that does not
  * answer keeps its entry with the reason, never a silent empty list.
  */

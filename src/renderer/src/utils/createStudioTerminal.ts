@@ -66,7 +66,7 @@ export type TerminalOscHandlers = Readonly<Record<number, (data: string) => bool
 export type CreateStudioTerminalInput = {
   surface: TerminalSurface
   /**
-   * Closed until the far end says this socket may type (FleetTerminalPanel).
+   * Closed until the far end says this socket may type (MeshTerminalPanel).
    * Named explicitly rather than exposed as a general option bag: a pane that
    * needs to differ from the others should have to say which way, here.
    */
@@ -77,7 +77,7 @@ export type CreateStudioTerminalInput = {
    * terminal without one and none can decide for itself whether it may resolve
    * a local path.
    *
-   * That is not hypothetical. `FleetTerminalPanel` passed no handler at all,
+   * That is not hypothetical. `MeshTerminalPanel` passed no handler at all,
    * and xterm's `OscLinkProvider` falls back to its OWN `defaultActivate` —
    * a browser `confirm()` and a `window.open()`, which this app's
    * `setWindowOpenHandler` turns into `shell.openExternal` — so an http(s)
@@ -183,10 +183,10 @@ export function createStudioTerminal({
 
   // OSC 52 — a program asking the terminal to touch the system clipboard.
   //
-  // Every surface gets it, agent and fleet included: copying is what the
+  // Every surface gets it, agent and mesh included: copying is what the
   // sequence is FOR, and a pane attached to another machine is the canonical
   // case (it is how `ssh` + tmux put a remote buffer on your local clipboard).
-  // The fleet rule the epic sets is about resolving local PATHS, which this
+  // The mesh rule the epic sets is about resolving local PATHS, which this
   // does not do.
   //
   // Registered LAST so its read guard sits in front of every other OSC 52

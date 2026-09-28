@@ -727,7 +727,7 @@ export type WorkspaceWorktree = {
 export type WorkspaceModuleStateBag = Record<string, unknown>
 
 export type WorkspaceRemoteOrigin = {
-  // The paired machine (fleet connection id) the workspace was created on.
+  // The paired machine (mesh connection id) the workspace was created on.
   connectionId: string
   machineName: string
   // The remote gateway's workspace: its id, display name, and folder there.
@@ -739,7 +739,7 @@ export type WorkspaceRemoteOrigin = {
    * (remote-band-in-the-sidebar): how the sidebar's Remote band knows that a
    * session the machine lists is THIS row, and focuses it rather than opening
    * a second attachment. Absent on rows born before the band existed, which
-   * the band matches by the fleet pane still in their layout instead.
+   * the band matches by the mesh pane still in their layout instead.
    */
   sessionId?: string
   /**
@@ -772,7 +772,7 @@ export type Workspace = {
   // Where a remote-born workspace's code and agent actually live
   // (remote-sessions-ux / new-chat-on-a-remote-machine). Set once at creation
   // for a chat started on a paired machine; the sidebar groups and badges by
-  // it, so the row keeps its provenance even after its fleet pane closes.
+  // it, so the row keeps its provenance even after its mesh pane closes.
   // Absent for every local workspace — local is the unmarked default.
   remoteOrigin?: WorkspaceRemoteOrigin | null
   // The machine on this computer the workspace runs on (shared/execution-host):

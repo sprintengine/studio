@@ -16,7 +16,7 @@ import { SCOPE_ROWS, presetFor, scopesForPreset, toggleScope, type ScopePreset }
 // worked, which is not a decision copy should be making.
 //
 // Controlled, and deliberately state-free: the chosen set belongs to whoever
-// will send it (`tailnetOfferPairing`, `fleetRequestPairing`, the approval), so
+// will send it (`tailnetOfferPairing`, `meshRequestPairing`, the approval), so
 // there is no moment where the rows and the button disagree about what is
 // about to be granted.
 

@@ -130,7 +130,7 @@ export function outstandingPairingNote(pairing: { scopes: string[]; expiresAt: s
 
 // The peer list is gone with the peer picker: Settings → Remote now draws ONE
 // merged list from `shared/tailnet-machines.ts`, which is where the rows for
-// paired devices, fleet connections and scanned peers are folded together.
+// paired devices, mesh connections and scanned peers are folded together.
 
 /**
  * A waiting request's secondary line: who is asking, and from where.

@@ -109,7 +109,7 @@ export type TailnetRemoteService = {
   /**
    * Tailscale's name for a tailnet address, or null.
    *
-   * Shared with the Fleet client so a machine this Studio pairs WITH
+   * Shared with the Mesh client so a machine this Studio pairs WITH
    * is labelled by the same resolver — and the same ~5-minute cache — that names
    * the peers driving this one. Two resolvers would mean two `whois` spawns for
    * one question.
@@ -160,7 +160,7 @@ export type TailnetRemoteServiceOptions = {
   onEvent?: (payload: TailnetPushPayload) => void
   /**
    * An approved asker delivered the reverse half of a both-ways pairing
-   * (phase 6): a device it minted for this machine. Wired to the fleet, which
+   * (phase 6): a device it minted for this machine. Wired to the mesh, which
    * stores it as a machine this Studio can drive. The gateway has already
    * checked the grant's endpoint is the asker's own address.
    */
@@ -492,7 +492,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       onPairRequested: () => announcePairRequests(),
       onReverseGrant: (input) => {
         options.onReverseGrant?.(input)
-        // A both-ways pairing lands a machine in the fleet on THIS side without
+        // A both-ways pairing lands a machine in the mesh on THIS side without
         // any window having asked: the audit says so, like any other grant.
         options.onToolCall?.({
           context: {

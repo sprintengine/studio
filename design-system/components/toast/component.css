@@ -6,9 +6,9 @@
  * tone is carried by the 6px dot and the words — never by tinting the
  * surface — so every toast survives greyscale.
  *
- * No shadow, on purpose: no elevation token names the toast (the ramp is
- * popover / drawer / modal) and the shipped toast ships none. The hairline
- * does the separating. */
+ * Elevation is its own token, shadow.toast (owner ruling 2026-09-28): the
+ * button's lit top edge over a drop deeper than a popover's, so the card
+ * reads as sitting on the page rather than printed into it. */
 
 /* The one corner. pointer-events pass through the empty column so the region
  * never blocks the content it floats over; each toast re-enables its own. */
@@ -38,13 +38,13 @@
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
   /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
-   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * blur-and-saturate of the page, with shadow.toast drawing the edge. The
    * toast is the one surface allowed to blur — a corner, not a viewport. */
   /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
   background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
   -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
-  box-shadow: var(--sem-shadow-popover);
+  box-shadow: var(--sem-shadow-toast);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);

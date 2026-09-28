@@ -34,6 +34,7 @@ import {
   mapClaudeCommands,
   sameCommandNames,
 } from '../conversation-commands/claude'
+import { isBackgroundLaunchAck } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
@@ -51,6 +52,8 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
+  ConversationSubagentState,
+  ConversationSubagentStatusPayload,
   ConversationToolOutputPayload,
   ConversationToolStartedPayload,
 } from '../../shared/conversation-runtime'
@@ -119,6 +122,20 @@ type PendingPermissionResolve = (decision: PermissionDecision) => void
 type PendingPermission = {
   turnId: string
   resolve: PendingPermissionResolve
+}
+
+// A spawned agent the child reported through its task messages, keyed by the
+// tool call that spawned it.
+type TrackedSubagent = {
+  taskId: string
+  toolUseId: string
+  background: boolean
+  subagentType?: string
+  description?: string
+  // The agent's latest text: its answer, once it has finished.
+  lastText?: string
+  endedAt?: number
+  error?: string
 }
 
 type ActiveTurn = {
@@ -206,6 +223,8 @@ type SessionState = {
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
+  // Agents the child has running, by spawning tool call.
+  subagents: Map<string, TrackedSubagent>
   // What the child's last init said about its commands: which names are
   // skills and which are bound to the terminal, so a later `commands_changed`
   // push is read the same way. Null until an init has said.
@@ -227,7 +246,27 @@ const SESSION_SCOPED_EVENT_TYPES = new Set<ConversationEvent['type']>([
   'session_closed',
   'session_updated',
   'user_message',
+  'subagent_status',
 ])
+
+// A background agent's result belongs to no turn: it closes a lane opened by a
+// turn that has usually ended, so it must not open a continuation turn.
+function isSessionScopedEvent(event: ConversationEvent): boolean {
+  return (
+    SESSION_SCOPED_EVENT_TYPES.has(event.type) ||
+    (event.type === 'tool_output' && event.payload?.backgroundResult === true)
+  )
+}
+
+// Session-scoped events that still matter between turns and ride the session
+// channel when no turn is open to carry them.
+function ridesSessionChannel(event: ConversationEvent): boolean {
+  return (
+    event.type === 'session_updated' ||
+    event.type === 'subagent_status' ||
+    (event.type === 'tool_output' && event.payload?.backgroundResult === true)
+  )
+}
 
 // Minimal push-based async iterable: producers push/end, one consumer drains.
 class PushStream<T> implements AsyncIterable<T> {
@@ -301,7 +340,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // Post-`result` turn-scoped activity with no open `sendTurn`: open a
       // continuation turn so the event (and any approval it raises) reaches the
       // runtime instead of being dropped. Requires the session channel.
-      if (!openTurn(state) && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
+      if (!openTurn(state) && state.onSessionEvent && !isSessionScopedEvent(event)) {
         ensureContinuationTurn(state)
       }
       const turn = openTurn(state)
@@ -309,9 +348,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         // Events mapped before the continuation turn existed carry no turnId;
         // stamp the continuation id so the runtime attaches them to its mirror.
         turn.queue.push(withContinuationTurnId(event, turn.turnId))
-      } else if (event.type === 'session_updated') {
-        // A resume-cursor update between turns: ride the session channel if it
-        // is open, else buffer for the next turn start.
+      } else if (ridesSessionChannel(event)) {
+        // A resume-cursor update or a background agent's progress between
+        // turns: ride the session channel if it is open, else buffer for the
+        // next turn start.
         if (state.onSessionEvent) state.onSessionEvent(event)
         else state.pendingSessionEvents.push(event)
       }
@@ -411,6 +451,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   function disposeChild(state: SessionState): boolean {
     const hadChild = state.query !== null
+    stopTrackedSubagents(state)
     resolveAllPendingPermissions(state, { approved: false })
     endTurn(state)
     state.pendingSendUuids.clear()
@@ -428,6 +469,23 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
     state.skillPluginDir = null
     return hadChild
+  }
+
+  // Background agents run inside the child: when it goes, they go with it. Say
+  // so, or their lanes would read as working forever.
+  function stopTrackedSubagents(state: SessionState): void {
+    const stopped = Array.from(state.subagents.values())
+    state.subagents.clear()
+    const events = stopped.map((agent) =>
+      eventFor(state, 'subagent_status', {
+        ...subagentStatusFields(agent, 'stopped'),
+        error: 'The agent stopped when its Claude Code process ended.',
+      }),
+    )
+    for (const event of events) {
+      if (state.onSessionEvent) state.onSessionEvent(event)
+      else state.pendingSessionEvents.push(event)
+    }
   }
 
   // Whether the live child runs under the session's recorded preset.
@@ -575,6 +633,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(state.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.modelId } : {}),
       ...(state.reasoningEffort ? { effort: state.reasoningEffort as Options['effort'] } : {}),
       includePartialMessages: true,
+      // A one-line "what it is doing now" for each running agent, forked from
+      // the agent's own context about every 30s; shown on its lane and card.
+      agentProgressSummaries: true,
       permissionMode,
       ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
@@ -638,6 +699,26 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
+    void reportSupportedAgents(state, q)
+  }
+
+  // The agent types this child can spawn, with what each is for, so an agent's
+  // card can say what kind of helper it is (custom agents included).
+  async function reportSupportedAgents(state: SessionState, q: Query): Promise<void> {
+    if (typeof q.supportedAgents !== 'function') return
+    const agents = await q.supportedAgents().catch(() => null)
+    if (!agents || state.query !== q) return
+    deliver(state, [
+      eventFor(state, 'session_updated', {
+        providerSessionId: state.providerSessionId,
+        agents: agents
+          .filter((agent) => typeof agent?.name === 'string' && agent.name)
+          .map((agent) => ({
+            name: agent.name,
+            ...(typeof agent.description === 'string' && agent.description ? { description: agent.description } : {}),
+          })),
+      }),
+    ])
   }
 
   async function handleCanUseTool(
@@ -650,8 +731,28 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       toolUseID?: string
       defaultToNo?: boolean
       suppressAlwaysAllowRule?: boolean
+      matchedAskRule?: unknown
     },
   ): Promise<PermissionResult> {
+    // Bypass means no approval cards, subagents included. The CLI still asks
+    // for some calls under bypassPermissions (an Explore subagent's compound
+    // Bash it can't prove read-only), so answer those here. Two asks still
+    // reach the person: a safety check the CLI marks as not approvable by a
+    // stray keystroke, and one forced by the user's own `permissions.ask`
+    // rule. Questions and plans are answers, not permissions, so they always
+    // show. The preset the child was spawned under decides, matching the
+    // "this reply finishes under the permissions it started with" contract.
+    if (
+      state.spawnedPreset === 'bypass' &&
+      state.mode !== 'plan' &&
+      state.mode !== 'ask' &&
+      toolName !== 'AskUserQuestion' &&
+      toolName !== 'ExitPlanMode' &&
+      !permissionContext?.defaultToNo &&
+      !permissionContext?.matchedAskRule
+    ) {
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being
@@ -802,6 +903,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         interruptedSendUuids: new Set(),
         textSeam: false,
         declinedToolUseIds: new Set(),
+        subagents: new Map(),
         commandSkills: null,
         terminalCommands: null,
         commandOutputShown: false,
@@ -1306,7 +1408,7 @@ function answersOnlyInterrupted(interruptedSendUuids: Set<string>, message: Reco
 // events and events that already carry a turnId are returned unchanged, so the
 // normal per-turn path is a no-op.
 function withContinuationTurnId(event: ConversationEvent, turnId: string): ConversationEvent {
-  if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
+  if (isSessionScopedEvent(event)) return event
   const current = event.payload?.turnId
   if (typeof current === 'string' && current) return event
   return { ...event, payload: { ...event.payload, turnId } }
@@ -1430,6 +1532,7 @@ export function mapSdkMessage(
     turn: { turnId: string } | null
     queryCostUsd?: number
     declinedToolUseIds?: Set<string>
+    subagents?: Map<string, TrackedSubagent>
     lastChainUuid?: string | null
     settledChainUuid?: string | null
     openToolUseIds?: Set<string>
@@ -1521,7 +1624,11 @@ export function mapSdkMessage(
       // The CLI summarised the conversation to free context, on /compact or
       // on its own when the window filled. The transcript marks the seam, since
       // the model no longer sees what came before it verbatim.
-      if (message.subtype !== 'compact_boundary') break
+      if (message.subtype !== 'compact_boundary') {
+        // Spawned agents report through `task_*` system messages.
+        events.push(...mapTaskMessage(state, message))
+        break
+      }
       state.compactedInExchange = true
       const metadata = asRecord(message.compact_metadata)
       const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
@@ -1577,8 +1684,15 @@ export function mapSdkMessage(
         commandOutput(extractResultText(content), readString(asRecord(message.local_command_run)?.command))
         break
       }
+      const tracked = parentToolUseId ? state.subagents?.get(parentToolUseId) : undefined
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
+        // A background agent's last words are its answer: its spawning call
+        // only ever returned the launch notice.
+        if (tracked && block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          tracked.lastText = block.text
+          continue
+        }
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
         const toolInput = asRecord(block.input) ?? {}
         const payload: ConversationToolStartedPayload = {
@@ -1619,6 +1733,9 @@ export function mapSdkMessage(
         const source = asRecord(binary?.source)
         const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined
         const output = extractResultText(block.content)
+        // The notice a background agent's call returns at once is for the
+        // model, not the person; the lane stays open until the agent reports.
+        if (toolUseId && state.subagents?.get(toolUseId)?.background && isBackgroundLaunchAck(output)) continue
         const declined = toolUseId !== undefined && state.declinedToolUseIds?.delete(toolUseId) === true
         const command = commandOutcome(message.tool_use_result, block.is_error === true, output)
         const payload: ConversationToolOutputPayload = {
@@ -1752,6 +1869,131 @@ export function mapSdkMessage(
       break
   }
   return events
+}
+
+// Claude Code reports each spawned agent through `task_*` system messages:
+// started, progress (latest tool, token use, a one-line summary), updated
+// (moved to the background, ended) and a final notification. Only agents are
+// followed; background shells, monitors and ambient watchers are not lanes.
+function mapTaskMessage(
+  state: Parameters<typeof mapSdkMessage>[0],
+  message: Record<string, unknown>,
+): ConversationEvent[] {
+  const subagents = state.subagents
+  if (!subagents) return []
+  const taskId = typeof message.task_id === 'string' ? message.task_id : null
+  if (!taskId) return []
+  const find = (): TrackedSubagent | undefined => {
+    const toolUseId = typeof message.tool_use_id === 'string' ? message.tool_use_id : null
+    if (toolUseId && subagents.has(toolUseId)) return subagents.get(toolUseId)
+    for (const agent of subagents.values()) if (agent.taskId === taskId) return agent
+    return undefined
+  }
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+
+  switch (message.subtype) {
+    case 'task_started': {
+      const toolUseId = text(message.tool_use_id)
+      if (!toolUseId || message.ambient === true || message.skip_transcript === true) return []
+      if (message.task_type !== undefined && message.task_type !== 'local_agent') return []
+      const agent: TrackedSubagent = {
+        taskId,
+        toolUseId,
+        background: message.is_backgrounded === true,
+        subagentType: text(message.subagent_type),
+        description: text(message.description),
+      }
+      subagents.set(toolUseId, agent)
+      return [eventFor(state, 'subagent_status', subagentStatusFields(agent, 'running'))]
+    }
+    case 'task_progress': {
+      const agent = find()
+      if (!agent) return []
+      return [
+        eventFor(state, 'subagent_status', {
+          ...subagentStatusFields(agent, 'running'),
+          ...optional('lastToolName', text(message.last_tool_name)),
+          ...optional('progressSummary', text(message.summary)),
+          ...optional('usage', readTaskUsage(message.usage)),
+        }),
+      ]
+    }
+    case 'task_updated': {
+      const agent = find()
+      const patch = asRecord(message.patch)
+      if (!agent || !patch) return []
+      if (typeof patch.end_time === 'number') agent.endedAt = patch.end_time
+      if (text(patch.error)) agent.error = text(patch.error)
+      // A foreground agent sent to the background keeps running after its
+      // call returns, exactly like one launched there.
+      if (patch.is_backgrounded === true && !agent.background) {
+        agent.background = true
+        return [eventFor(state, 'subagent_status', subagentStatusFields(agent, 'running'))]
+      }
+      return []
+    }
+    case 'task_notification': {
+      const agent = find()
+      if (!agent) return []
+      subagents.delete(agent.toolUseId)
+      const status: ConversationSubagentState =
+        message.status === 'failed' ? 'failed' : message.status === 'stopped' ? 'stopped' : 'completed'
+      const events: ConversationEvent[] = []
+      if (agent.background) {
+        // The answer the model is about to read, and the result the lane has
+        // been waiting for since its call returned the launch notice.
+        const output = agent.lastText ?? text(message.summary) ?? ''
+        const payload: ConversationToolOutputPayload = {
+          toolCallId: agent.toolUseId,
+          toolUseId: agent.toolUseId,
+          output,
+          status: status === 'failed' ? 'error' : status === 'stopped' ? 'stopped' : 'ok',
+          isError: status === 'failed',
+          backgroundResult: true,
+        }
+        events.push(eventFor(state, 'tool_output', payload))
+      }
+      events.push(
+        eventFor(state, 'subagent_status', {
+          ...subagentStatusFields(agent, status),
+          ...optional('usage', readTaskUsage(message.usage)),
+          ...(status === 'completed' ? {} : optional('error', agent.error ?? text(message.summary))),
+        }),
+      )
+      return events
+    }
+    default:
+      return []
+  }
+}
+
+function subagentStatusFields(
+  agent: TrackedSubagent,
+  status: ConversationSubagentState,
+): ConversationSubagentStatusPayload {
+  return {
+    toolUseId: agent.toolUseId,
+    taskId: agent.taskId,
+    status,
+    background: agent.background,
+    ...optional('subagentType', agent.subagentType),
+    ...optional('description', agent.description),
+    ...(status !== 'running' ? optional('endedAt', agent.endedAt) : {}),
+  }
+}
+
+function readTaskUsage(value: unknown): ConversationSubagentStatusPayload['usage'] | undefined {
+  const usage = asRecord(value)
+  if (!usage) return undefined
+  return {
+    totalTokens: numberOr(usage.total_tokens, 0),
+    toolUses: numberOr(usage.tool_uses, 0),
+    durationMs: numberOr(usage.duration_ms, 0),
+  }
+}
+
+function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 }
 
 // The CLI wraps what a local command printed in the tags its own transcript

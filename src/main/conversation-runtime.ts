@@ -23,6 +23,7 @@ import type {
   ConversationSessionActionResult,
   ConversationSessionSummary,
   ConversationSkillRef,
+  ConversationSubagentStatusPayload,
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
@@ -42,6 +43,7 @@ import type {
   ConversationRewindResult,
 } from '../shared/conversation-runtime'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
+import { readSubagentStatus } from '../shared/conversation/subagents'
 import {
   readToolDetail,
   writeToolDetail,
@@ -100,6 +102,8 @@ import {
 } from './conversation-transcript-reader'
 
 type RuntimeSession = ConversationSessionSummary & {
+  // Spawned agents still running, by spawning tool call.
+  runningSubagents: Map<string, ConversationSubagentStatusPayload>
   workspaceRoot: string
   fileScope: string
   activeTurnId: string | null
@@ -402,6 +406,7 @@ export class ConversationRuntime {
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
       toolDetailPaths: new Set(),
+      runningSubagents: new Map(),
       providerTurn: null,
     }
     await this.initializeSequence(input)
@@ -450,6 +455,17 @@ export class ConversationRuntime {
           onBeforeTool: (name) => this.captureBeforeTool(session, name),
         }),
       )
+      // Agents the transcript left running belonged to a process that is gone.
+      for (const agent of Array.from(session.runningSubagents.values()))
+        await this.emit(
+          session,
+          this.eventForSession(session, 'subagent_status', {
+            ...agent,
+            status: 'stopped',
+            error: 'The agent stopped when the conversation closed.',
+          }),
+          {},
+        )
       session.status = 'ready'
       session.phase = 'idle'
       session.updatedAt = this.now()
@@ -1451,6 +1467,9 @@ export class ConversationRuntime {
       session.currentToolTitle = undefined
     // A steered turn's end is not the session's: the work goes on.
     if (event.type === 'turn_completed' && event.payload?.steered === true) return
+    // When the last turn ended, read off the event rather than the clock so
+    // the transcript replay on resume restores the true time, not the resume.
+    if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
     if (event.type === 'turn_completed') session.phase = 'completed'
     else if (event.type === 'turn_failed') session.phase = 'failed'
     else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
@@ -1461,6 +1480,18 @@ export class ConversationRuntime {
       session.phase = 'running'
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    if (event.type === 'subagent_status') {
+      const status = readSubagentStatus(event.payload)
+      if (status?.status === 'running')
+        session.runningSubagents.set(status.toolUseId, {
+          ...session.runningSubagents.get(status.toolUseId),
+          ...status,
+        })
+      else if (status) session.runningSubagents.delete(status.toolUseId)
+      session.backgroundAgents = Array.from(session.runningSubagents.values()).filter(
+        (agent) => agent.background,
+      ).length
+    }
     if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
       // An image-only turn carries no text, and an empty excerpt would pin the
       // chat's "first message" to nothing: the first turn with words keeps it.
@@ -2569,6 +2600,8 @@ export class ConversationRuntime {
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
+      ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
+      ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),

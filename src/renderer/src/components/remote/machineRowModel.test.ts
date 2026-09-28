@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 
-import type { FleetLiveAttachment, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
+import type { MeshLiveAttachment, MeshMachineReachability } from '../../../../shared/tailnet-mesh'
 import {
-  fleetMachinePhase,
+  meshMachinePhase,
   machinePhaseText,
   machineRowAction,
   platformLabel,
@@ -18,7 +18,7 @@ test('machineRowModel', async () => {
 
   const NOW = Date.parse('2026-01-01T12:00:00.000Z')
 
-  const reach = (over: Partial<FleetMachineReachability> = {}): FleetMachineReachability => ({
+  const reach = (over: Partial<MeshMachineReachability> = {}): MeshMachineReachability => ({
     connectionId: 'tnc_1',
     machineName: 'air',
     checking: false,
@@ -30,7 +30,7 @@ test('machineRowModel', async () => {
     ...over,
   })
 
-  const attachment = (over: Partial<FleetLiveAttachment> = {}): FleetLiveAttachment => ({
+  const attachment = (over: Partial<MeshLiveAttachment> = {}): MeshLiveAttachment => ({
     attachId: 'a1',
     connectionId: 'tnc_1',
     machineName: 'air',
@@ -40,23 +40,23 @@ test('machineRowModel', async () => {
     ...over,
   })
 
-  const attachments = new Map<string, FleetLiveAttachment>()
+  const attachments = new Map<string, MeshLiveAttachment>()
 
   assert.deepEqual(
-    fleetMachinePhase('tnc_1', attachments),
+    meshMachinePhase('tnc_1', attachments),
     { phase: 'paired' },
     'no link and no check: paired, nothing more claimed',
   )
   assert.deepEqual(
-    fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ checking: true, checkedAt: null })]])),
+    meshMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ checking: true, checkedAt: null })]])),
     { phase: 'checking' },
   )
-  assert.deepEqual(fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach()]])), {
+  assert.deepEqual(meshMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach()]])), {
     phase: 'reachable',
     checkedAt: NOW - 5_000,
   })
   assert.deepEqual(
-    fleetMachinePhase(
+    meshMachinePhase(
       'tnc_1',
       attachments,
       new Map([['tnc_1', reach({ reachable: false, detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 })]]),
@@ -64,7 +64,7 @@ test('machineRowModel', async () => {
     { phase: 'unreachable', detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 },
   )
   assert.equal(
-    fleetMachinePhase(
+    meshMachinePhase(
       'tnc_1',
       attachments,
       new Map([['tnc_1', reach({ reachable: false, unauthorized: true, detail: 'Unauthorized.' })]]),
@@ -73,9 +73,9 @@ test('machineRowModel', async () => {
   )
   // A live pane outranks a probe that ran a minute ago, revoked included: the
   // link in front of the person is the stronger fact.
-  const live = new Map<string, FleetLiveAttachment>([['a1', attachment()]])
+  const live = new Map<string, MeshLiveAttachment>([['a1', attachment()]])
   assert.equal(
-    fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase,
+    meshMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase,
     'connected',
   )
 

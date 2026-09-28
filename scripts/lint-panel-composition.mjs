@@ -63,7 +63,7 @@ const ALLOW_LIST = new Map([
     'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.',
   ],
   [
-    'FleetTerminalPanel.tsx',
+    'MeshTerminalPanel.tsx',
     'Hosts xterm attached to ANOTHER machine. Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.',
   ],
   [

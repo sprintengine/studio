@@ -42,7 +42,8 @@ import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
-import { combinedAgentActivity } from './sidebar/conversationLines'
+import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
+import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -124,7 +125,7 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
-import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
+import { meshTerminalTabName } from '../panels/mesh/meshModel'
 import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
@@ -296,7 +297,7 @@ const WorkspacePaneColumn = React.lazy(() =>
   import('./pane/WorkspacePaneColumn').then((m) => ({ default: m.WorkspacePaneColumn })),
 )
 // The toast region and its app-level producers (pair requests, the tailnet
-// listener notice, fleet loss/revocation). Nothing it draws exists at first
+// listener notice, mesh loss/revocation). Nothing it draws exists at first
 // paint — the region is empty until something raises a toast, and its producers
 // are subscriptions to events that arrive after boot — so it is fetched with
 // the rest of the deferred shell rather than carried through it.
@@ -2233,7 +2234,9 @@ export default function WorkspaceManager() {
       }
       row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
-        row.idleSince = Math.max(row.idleSince ?? 0, session.updatedAt)
+        // When its last turn ended; `updatedAt` also moves on a model or
+        // permission change, which is not the chat finishing anything.
+        row.idleSince = Math.max(row.idleSince ?? 0, conversationFinishedAt(session) ?? session.updatedAt)
       }
     }
     return map
@@ -3254,16 +3257,16 @@ export default function WorkspaceManager() {
 
   // A chat started on a paired machine (remote-sessions-ux /
   // new-chat-on-a-remote-machine): the agent is created THERE over the
-  // audited fleet client — cli, prompt, model, and preset forwarded verbatim,
+  // audited mesh client — cli, prompt, model, and preset forwarded verbatim,
   // so the remote's own refusals (a scope, a CLI it lacks) surface word for
   // word — and what appears here is a solo workspace whose lone pane is the
-  // fleet attachment onto that session, provenance-badged by the two-line row.
+  // mesh attachment onto that session, provenance-badged by the two-line row.
   // A failure leaves the panel open with the remote's message as a toast; no
   // phantom row.
   // A session on a paired machine, opened from the sidebar's Remote band
   // (remote-sessions-in-the-sidebar): the row that already is that session
   // is focused; any other becomes a solo workspace whose lone pane is the
-  // fleet attachment — the same shape a chat started over there takes,
+  // mesh attachment — the same shape a chat started over there takes,
   // minus the create. Provenance is stamped with the session id so the band
   // recognises the row next time it reads the machine.
   const openRemoteSession = useCallback(
@@ -3305,8 +3308,8 @@ export default function WorkspaceManager() {
         // there; a terminal agent attaches its pty, as it always has.
         seedAgent: spec.conversation
           ? {
-              tabName: fleetTerminalTabName(spec.machineName, spec.title),
-              fleetConversation: {
+              tabName: meshTerminalTabName(spec.machineName, spec.title),
+              meshConversation: {
                 connectionId: spec.connectionId,
                 machineName: spec.machineName,
                 remoteWorkspaceId: spec.conversation.workspaceId,
@@ -3315,8 +3318,8 @@ export default function WorkspaceManager() {
               },
             }
           : {
-              tabName: fleetTerminalTabName(spec.machineName, spec.title),
-              fleet: {
+              tabName: meshTerminalTabName(spec.machineName, spec.title),
+              mesh: {
                 connectionId: spec.connectionId,
                 machineName: spec.machineName,
                 remoteSessionId: spec.sessionId,
@@ -3327,10 +3330,86 @@ export default function WorkspaceManager() {
     [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, workspaceWindowId],
   )
 
-  const confirmRemoteNewChat = useCallback(
+  // A chat agent started on a paired machine: it runs in that machine's
+  // conversation runtime, and what opens here is the same chat pane the Remote
+  // band opens for one of its chats, following it by workspace and agent id.
+  const confirmRemoteNewConversation = useCallback(
     async (launch: RemoteNewChatLaunch): Promise<void> => {
       const created = await window.api
-        .fleetCreateTerminal({
+        .meshCreateConversation({
+          connectionId: launch.connectionId,
+          workspaceId: launch.remoteWorkspaceId,
+          cli: launch.cli,
+          prompt: launch.prompt || undefined,
+          cliModel: launch.cliModel ?? undefined,
+          // As named, either preset: the launcher showed it, and the chat
+          // over there starts on it.
+          permissionPreset: launch.permissionPreset,
+        })
+        .catch((error: unknown): { ok: false; code: string; message: string } => ({
+          ok: false,
+          code: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        }))
+      if (!created.ok) {
+        showToast({
+          tone: 'error',
+          title: `Could not start a chat on ${launch.machineName}`,
+          description: created.message,
+        })
+        return
+      }
+      const remoteSessionId = meshConversationSessionId(created.workspaceId, created.agentId)
+      if (!SOLO_CHAT_TEMPLATE) {
+        showToast({
+          tone: 'error',
+          title: `Started on ${launch.machineName}, but no pane could open`,
+          description: `The Solo layout template is missing. "${created.title}" is listed under Remote in the sidebar.`,
+        })
+        closeNewChatPanel()
+        return
+      }
+      addWorkspace(SOLO_CHAT_TEMPLATE, {
+        name: remoteWorkspaceName(created.title, launch.remoteWorkspaceName),
+        folderPath: null,
+        remoteOrigin: {
+          connectionId: launch.connectionId,
+          machineName: launch.machineName,
+          workspaceId: launch.remoteWorkspaceId,
+          workspaceName: launch.remoteWorkspaceName,
+          workspaceRoot: launch.remoteWorkspaceRoot,
+          // The id the Remote band lists this chat by, so its row is this one.
+          sessionId: remoteSessionId,
+          repository: launch.remoteRepository,
+          checkout: { mode: 'current', branch: launch.branch, worktreePath: null },
+        },
+        windowId: workspaceWindowId,
+        seedAgent: {
+          tabName: meshTerminalTabName(launch.machineName, created.title),
+          meshConversation: {
+            connectionId: launch.connectionId,
+            machineName: launch.machineName,
+            remoteWorkspaceId: created.workspaceId,
+            remoteAgentId: created.agentId,
+            title: created.title,
+          },
+        },
+      })
+      closeNewChatPanel()
+      showToast({
+        tone: 'good',
+        title: `Chat started on ${launch.machineName}`,
+        description: `${created.title} in ${launch.remoteWorkspaceName}${launch.branch ? ` · ${launch.branch}` : ''}`,
+      })
+    },
+    [addWorkspace, closeNewChatPanel, workspaceWindowId],
+  )
+
+  const confirmRemoteNewChat = useCallback(
+    async (launch: RemoteNewChatLaunch): Promise<void> => {
+      if (launch.conversation) return confirmRemoteNewConversation(launch)
+      const created = await window.api
+        .meshCreateTerminal({
           connectionId: launch.connectionId,
           workspaceId: launch.remoteWorkspaceId,
           cli: launch.cli,
@@ -3395,8 +3474,8 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: fleetTerminalTabName(launch.machineName, created.title),
-          fleet: {
+          tabName: meshTerminalTabName(launch.machineName, created.title),
+          mesh: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,
             remoteSessionId: created.sessionId,
@@ -3414,7 +3493,7 @@ export default function WorkspaceManager() {
             : `${created.title} in ${launch.remoteWorkspaceName}${landedBranch ? ` · ${landedBranch}` : ''}`,
       })
     },
-    [addWorkspace, closeNewChatPanel, workspaceWindowId],
+    [addWorkspace, closeNewChatPanel, confirmRemoteNewConversation, workspaceWindowId],
   )
 
   // Optional workspaceId targets a single workspace's panel. The mode-scoped

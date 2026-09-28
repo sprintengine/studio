@@ -189,7 +189,7 @@ export interface SurfaceRailRow {
 
   /** The line ABOVE the title: a small mark, the name of the place the row
    *  belongs to (its project), and a trailing seat that holds the row's clock
-   *  — the working dots and how long, or how long since it rested. The one
+   *  — the working mark and how long, or how long since it rested. The one
    *  line that is the same shape on every row, which is what lets the eye
    *  find the clock without reading the row. */
   context?: { icon?: React.ReactNode; label: string; seat?: React.ReactNode }

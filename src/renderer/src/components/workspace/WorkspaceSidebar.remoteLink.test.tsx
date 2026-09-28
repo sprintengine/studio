@@ -14,7 +14,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
   // `remoteOrigin`, whose whole content is a pane onto a machine that can no
   // longer be reached. They are gated on the LINK — is Tailscale up on this
   // machine — rather than on the listener, which is the inbound half and says
-  // nothing about whether the fleet can be reached.
+  // nothing about whether the mesh can be reached.
   //
   // This mounts the real sidebar because the gate sits in the grouping, and the
   // two rows it has to tell apart (a local chat, a remote-born one) only exist
@@ -95,7 +95,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
     // The tailnet presence bridge, complete — without every one of these the
     // hook stays quiet and the link reads `unknown`, which is a different case.
     onTailnetEvent: () => () => {},
-    onFleetEvent: () => () => {},
+    onMeshEvent: () => () => {},
     tailnetGetStatus: async () => ({
       enabled: true,
       running: tailnetAddress !== null,
@@ -109,9 +109,9 @@ test('WorkspaceSidebar.remoteLink', async () => {
       pairRequests: [],
     }),
     tailnetGetLiveState: async () => ({ revision: 1, devices: [] }),
-    fleetListConnections: async () => [connection],
-    fleetGetLiveState: async () => ({ revision: 1, attachments: [], requests: [], reachability: [] }),
-    fleetBrowse: async () => ({
+    meshListConnections: async () => [connection],
+    meshGetLiveState: async () => ({ revision: 1, attachments: [], requests: [], reachability: [] }),
+    meshBrowse: async () => ({
       connectionId: 'c1',
       reachable: true,
       unreachableReason: null,

@@ -28,6 +28,10 @@
     padding: var(--sem-space-xs) var(--sem-space-sm);
     font-size: var(--sem-font-size-meta);
   }
+  .demo-pattern {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+  }
   .demo-note {
     margin: var(--sem-space-lg) 0 0;
     max-width: 60ch;
@@ -38,14 +42,66 @@
 </head>
 <body>
   <div class="demo-stage">
-    <p class="demo-label">Alive right now — unbounded work on a row that stays readable</p>
+    <p class="demo-label">Alive right now — unbounded work on a row that stays readable. Each chat keeps one of four patterns.</p>
     <div class="demo-row">
-      <span class="ds-working-dots" role="img" aria-label="Agent working">
-        <span class="ds-working-dot" aria-hidden="true"></span>
-        <span class="ds-working-dot" aria-hidden="true"></span>
-        <span class="ds-working-dot" aria-hidden="true"></span>
+      <span class="ds-working-mark ds-working-mark--orbit" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1050ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -900ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -150ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell ds-working-mark-cell--still" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -750ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -300ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -450ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -600ms" aria-hidden="true"></i>
       </span>
       <span>Reviewing the changeset</span>
+      <span class="demo-pattern">orbit</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--ripple" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 120ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 120ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 360ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 240ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 360ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 480ms" aria-hidden="true"></i>
+      </span>
+      <span>Mapping the router</span>
+      <span class="demo-pattern">ripple</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--think" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1000ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 800ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: 400ms" aria-hidden="true"></i>
+      </span>
+      <span>Planning the migration</span>
+      <span class="demo-pattern">think</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-working-mark ds-working-mark--snake" role="img" aria-label="Agent working">
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -200ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell ds-working-mark-cell--still" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -1000ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -400ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -600ms" aria-hidden="true"></i>
+        <i class="ds-working-mark-cell" style="--ds-cell-delay: -800ms" aria-hidden="true"></i>
+      </span>
+      <span>Running the test suite</span>
+      <span class="demo-pattern">snake</span>
     </div>
 
     <p class="demo-label" style="margin-top: var(--sem-space-3xl)">
@@ -63,8 +119,9 @@
 
     <p class="demo-note">
       The pulse is decoration: the count beside it is what actually says three.
-      The dots carry a required label, because "working" is information and a
-      purely visual liveness cue is invisible to a screen reader.
+      The working mark carries a required label, because "working" is information
+      and a purely visual liveness cue is invisible to a screen reader. With
+      reduced motion every pattern holds the same still frame.
     </p>
   </div>
 </body>

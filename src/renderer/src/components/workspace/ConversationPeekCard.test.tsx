@@ -143,14 +143,14 @@ test('ConversationPeekCard', async () => {
   })
 
   // --- The corner: the sidebar's mark and one word (mockup frame 2) ----------
-  run('a working agent wears the sidebar’s own dots and the word, never a status dot', () => {
+  run('a working agent wears the sidebar’s own working mark and the word, never a status dot', () => {
     const markup = card()
-    assert.match(markup, /agent-working-dots/, 'the sidebar’s mark, so the row and the card agree')
+    assert.match(markup, /working-mark/, 'the sidebar’s mark, so the row and the card agree')
     assert.match(markup, />Working</, 'and the word beside it')
     assert.equal(
       /status-dot|animate-pulse/.test(markup),
       false,
-      'a pulsing disc six pixels from the dots would be two vocabularies for one fact',
+      'a pulsing disc six pixels from the mark would be two vocabularies for one fact',
     )
   })
 
@@ -159,13 +159,13 @@ test('ConversationPeekCard', async () => {
     assert.match(markup, />2 running</, 'says what it is doing, not merely that it is doing something')
     assert.equal(markup.includes('>Working<'), false, 'and does not say both')
     assert.match(markup, /aria-label="2 running"/, 'the state travels in words, on the mark')
-    assert.match(markup, /agent-working-dots/, 'the dots stay: it is still working')
+    assert.match(markup, /working-mark/, 'the mark stays: it is still working')
   })
 
-  run('an idle agent drops the dots and takes the quieter ink', () => {
+  run('an idle agent drops the mark and takes the quieter ink', () => {
     const idle = card({ identity: { status: { kind: 'idle', label: 'Idle · 12m' } } })
     assert.match(idle, />Idle · 12m</, 'says how long, not a bare "Idle"')
-    assert.equal(idle.includes('agent-working-dots'), false, 'nothing is running, so nothing moves')
+    assert.equal(idle.includes('working-mark'), false, 'nothing is running, so nothing moves')
     // Read the CORNER's own class attribute, not the whole card: `text.subtle`
     // is on half the markup — the ages, the file glyph, the notes — so a match
     // anywhere would pass whatever ink the corner actually took.
@@ -178,11 +178,11 @@ test('ConversationPeekCard', async () => {
     )
   })
 
-  run('waiting and failed keep their labels and lose their dots', () => {
+  run('waiting and failed keep their labels and lose the mark', () => {
     for (const label of ['Waiting', 'Failed']) {
       const markup = card({ identity: { status: { kind: 'attention', label } } })
       assert.match(markup, new RegExp(`>${label}<`), `${label} still says so`)
-      assert.equal(markup.includes('agent-working-dots'), false, `${label} is not motion`)
+      assert.equal(markup.includes('working-mark'), false, `${label} is not motion`)
     }
   })
 
@@ -197,7 +197,7 @@ test('ConversationPeekCard', async () => {
 
   run('a card with no status at all draws no corner', () => {
     const markup = card({ identity: { status: null } })
-    assert.equal(markup.includes('agent-working-dots'), false)
+    assert.equal(markup.includes('working-mark'), false)
     assert.equal(markup.includes('Working'), false)
   })
 

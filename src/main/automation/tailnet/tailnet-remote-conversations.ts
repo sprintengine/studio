@@ -26,13 +26,13 @@ import type {
 } from '../../../shared/conversation-runtime'
 import { tailnetScopeGrantsAccess, type TailnetScope } from '../../../shared/tailnet'
 import type {
-  FleetConversationAccess,
-  FleetConversationCommandResult,
-  FleetConversationFrame,
-  FleetConversationKey,
-  FleetConversationListResult,
-  FleetLinkState,
-} from '../../../shared/tailnet-fleet'
+  MeshConversationAccess,
+  MeshConversationCommandResult,
+  MeshConversationFrame,
+  MeshConversationKey,
+  MeshConversationListResult,
+  MeshLinkState,
+} from '../../../shared/tailnet-mesh'
 import { asRecord } from '../../../shared/records'
 import type { RemoteConversationCache, RemoteConversationCacheRecord } from './tailnet-remote-conversation-cache'
 import {
@@ -42,7 +42,7 @@ import {
   type TailnetEndpoint,
 } from './tailnet-remote-client'
 
-// Following conversations on another machine: the chat half of the Fleet.
+// Following conversations on another machine: the chat half of the Mesh.
 //
 // The shape is the attached terminal's, on the conversation socket instead of
 // the terminal one. A followed conversation is one socket (that route follows
@@ -106,18 +106,18 @@ export type RemoteConversationsOptions = {
 }
 
 export type RemoteConversations = {
-  list(connectionId: string): Promise<FleetConversationListResult>
+  list(connectionId: string): Promise<MeshConversationListResult>
   follow(input: {
     followId: string
-    key: FleetConversationKey
+    key: MeshConversationKey
     turnLimit?: number
-    emit(frame: FleetConversationFrame): void
+    emit(frame: MeshConversationFrame): void
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }>
   unfollow(followId: string): void
-  loadEarlier(key: FleetConversationKey, beforeCursor: number, turnLimit?: number): Promise<ConversationPageResult>
-  toolDetail(key: FleetConversationKey, toolUseId: string): Promise<ConversationToolDetailResult>
-  turnDiff(key: FleetConversationKey, turnSeq: number, path?: string): Promise<ConversationTurnDiffResult>
-  command(key: FleetConversationKey, command: unknown): Promise<FleetConversationCommandResult>
+  loadEarlier(key: MeshConversationKey, beforeCursor: number, turnLimit?: number): Promise<ConversationPageResult>
+  toolDetail(key: MeshConversationKey, toolUseId: string): Promise<ConversationToolDetailResult>
+  turnDiff(key: MeshConversationKey, turnSeq: number, path?: string): Promise<ConversationTurnDiffResult>
+  command(key: MeshConversationKey, command: unknown): Promise<MeshConversationCommandResult>
   /** Re-dial every follow waiting out a backoff: a lid opening should reconnect at once. */
   onWake(): void
   /** End every follow on a machine and delete what was kept of its conversations. */
@@ -130,7 +130,7 @@ type PendingRequest = { resolve(frame: ResultFrame | { failure: string; code: st
 type PendingCommand = {
   commandId: string
   frame: Extract<ConversationClientFrame, { type: 'command' }>
-  resolve(result: FleetConversationCommandResult): void
+  resolve(result: MeshConversationCommandResult): void
   timer: NodeJS.Timeout | null
   retry: NodeJS.Timeout | null
   sent: boolean
@@ -138,9 +138,9 @@ type PendingCommand = {
 
 type Follow = {
   id: string
-  key: FleetConversationKey
+  key: MeshConversationKey
   turnLimit?: number
-  listeners: Map<string, (frame: FleetConversationFrame) => void>
+  listeners: Map<string, (frame: MeshConversationFrame) => void>
   record: RemoteConversationCacheRecord | null
   /** Characters of each cached event, parallel to `record.page.events`, for the size bound. */
   sizes: number[]
@@ -158,9 +158,9 @@ type Follow = {
   resyncAfterMs: number | null
   released: boolean
   finished: boolean
-  state: FleetLinkState
+  state: MeshLinkState
   detail: string
-  access: FleetConversationAccess | null
+  access: MeshConversationAccess | null
   code?: string
   requests: Map<string, PendingRequest>
   commands: Map<string, PendingCommand>
@@ -170,7 +170,7 @@ type Follow = {
 }
 type SnapshotFrame = Extract<ConversationParsedServerFrame, { type: 'snapshot' }>
 
-const followIdOf = (key: FleetConversationKey) => JSON.stringify([key.connectionId, key.workspaceId, key.agentId])
+const followIdOf = (key: MeshConversationKey) => JSON.stringify([key.connectionId, key.workspaceId, key.agentId])
 
 export function createRemoteConversations(options: RemoteConversationsOptions): RemoteConversations {
   const openSocket = options.openSocket ?? openRemoteConversationSocket
@@ -182,17 +182,17 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   const follows = new Map<string, Follow>()
   const listenerFollow = new Map<string, Follow>()
 
-  const emit = (follow: Follow, frame: FleetConversationFrame): void => {
+  const emit = (follow: Follow, frame: MeshConversationFrame): void => {
     for (const listener of follow.listeners.values()) listener(frame)
   }
-  const linkFrame = (follow: Follow): FleetConversationFrame => ({
+  const linkFrame = (follow: Follow): MeshConversationFrame => ({
     type: 'link',
     state: follow.state,
     detail: follow.detail,
     access: follow.access,
     ...(follow.code ? { code: follow.code } : {}),
   })
-  const link = (follow: Follow, state: FleetLinkState, detail: string, code?: string): void => {
+  const link = (follow: Follow, state: MeshLinkState, detail: string, code?: string): void => {
     follow.state = state
     follow.detail = detail
     follow.code = code
@@ -200,7 +200,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   }
   const machineName = (follow: Follow) =>
     options.resolveConnection(follow.key.connectionId)?.machineName ?? 'that machine'
-  const accessOf = (scopes: readonly TailnetScope[]): FleetConversationAccess | null => {
+  const accessOf = (scopes: readonly TailnetScope[]): MeshConversationAccess | null => {
     const granted = new Set(scopes)
     if (tailnetScopeGrantsAccess(granted, 'conversation:operate')) return 'operate'
     return tailnetScopeGrantsAccess(granted, 'conversation:read') ? 'read' : null
@@ -678,7 +678,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
 
   /** One read on a followed conversation, retried while the far end says it is busy. */
   async function request(
-    key: FleetConversationKey,
+    key: MeshConversationKey,
     build: (requestId: string) => ConversationClientFrame,
   ): Promise<{ ok: true; data: unknown } | { ok: false; code: string; message: string }> {
     const follow = follows.get(followIdOf(key))
@@ -742,8 +742,8 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         }
       // A short-lived socket: a list is a glance, and a follow's socket is
       // scoped to the conversation it follows.
-      let settle: (result: FleetConversationListResult) => void = () => undefined
-      const answered = new Promise<FleetConversationListResult>((resolve) => (settle = resolve))
+      let settle: (result: MeshConversationListResult) => void = () => undefined
+      const answered = new Promise<MeshConversationListResult>((resolve) => (settle = resolve))
       const opened = await openSocket({
         endpoint: connection.endpoint,
         token: connection.token,
@@ -940,7 +940,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
           code: 'conversation_operate_required',
           message: `This pairing may follow conversations on ${machineName(follow)} but not drive them.`,
         }
-      return new Promise<FleetConversationCommandResult>((resolve) => {
+      return new Promise<MeshConversationCommandResult>((resolve) => {
         // A send is answered when its turn ends, which may be long after it
         // started, as it is on the desktop itself. Only the other commands,
         // which are answered at once, are given up on.
@@ -1045,7 +1045,7 @@ function commandRefusal(code: string | undefined, machine: string): string {
 }
 
 /** A conversation key out of untrusted IPC input, or null. */
-export function fleetConversationKeyOf(value: unknown): FleetConversationKey | null {
+export function meshConversationKeyOf(value: unknown): MeshConversationKey | null {
   const record = asRecord(value)
   if (!record) return null
   const { connectionId, workspaceId, agentId } = record
