@@ -66,17 +66,14 @@
   }
 }
 
-/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
- * dot still says "working" — and drops only the movement. */
+/* One guard, both marks. Reduced motion keeps the INFORMATION — the three
+ * dots, stilled at full ink, still say "working" — and drops only the
+ * movement. Never collapsed to one: a single dot is a status dot, which the
+ * product no longer draws. */
 @media (prefers-reduced-motion: reduce) {
   .ds-working-dot {
     animation: none;
     opacity: 1;
-  }
-
-  .ds-working-dot:nth-child(2),
-  .ds-working-dot:nth-child(3) {
-    display: none;
   }
 
   .ds-change-pulse {

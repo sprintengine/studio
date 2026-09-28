@@ -9,8 +9,11 @@ in the product reading as one system.
 - The card itself is the single interactive element (a `<button>` or a row
   with one click target) on `bg.surface` with a `border.subtle` hairline and
   `radius.control`.
-- Leading: an optional 6px status dot (`ds-task-card-dot`). Status only —
-  omit it when the surrounding column or text already states the status.
+- Leading: an optional status mark (`.ds-status-dot` + a tone modifier, from
+  `status-dot`) — the tone's 13px glyph, or the working dots while the task
+  runs. Never a dot: the product draws no status dots (owner ruling
+  2026-09-28). Status only — omit it when the surrounding column or text
+  already states the status.
 - Identifier: mono, tabular numerals, `font.size.meta`, `text.subtle`.
 - Title: `font.size.body` at `font.weight.medium`, truncating to one line.
 - Trailing: display-only meta (age, count) in `text.muted`; never
@@ -21,7 +24,9 @@ in the product reading as one system.
 - Row (shown): one line, identifier and title share the baseline.
 - Card: identifier above the title, title clamps to two lines — same tokens,
   different stacking; rebuild per layout need.
-- Dot tones: default neutral, `--good`, `--warn`, `--danger`.
+- Mark tones: the `status-dot` set — default neutral (ring with a bar),
+  `--good` (check), `--warn` (ring with "!"), `--danger` (ring with "×"), and
+  `--working` for a task running now.
 
 ## States
 
@@ -37,7 +42,7 @@ reserved for the primary action.
 
 ## Usage
 
-- The dot is a status signal, not decoration or category color; done/healthy
+- The mark is a status signal, not decoration or category color; done/healthy
   rows usually carry no mark at all.
 - Do not add a second interactive element inside the card; actions live in a
   context menu or the detail surface.
@@ -49,7 +54,7 @@ reserved for the primary action.
 - Selection is conveyed with `aria-pressed` (or `aria-selected` in list
   semantics), never by the fill alone — assistive technology reads the state
   from the attribute, and the ink lift to `text.primary` carries it visually.
-- Status dots are `aria-hidden` when adjacent text already carries the state;
+- Status marks are `aria-hidden` when adjacent text already carries the state;
   otherwise give them a `role="img"` label.
 
 ## Drift ruling (2026-08-05)

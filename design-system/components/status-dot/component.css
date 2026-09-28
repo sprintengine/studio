@@ -1,52 +1,76 @@
-/* Status dot — the product's one dot: 6px, tone from the status ramp,
- * optionally pulsing while something is genuinely live. Extracted from the
- * shipped StatusDot primitive
- * (src/renderer/src/components/ui/StatusDot.tsx).
+/* Status mark — what the StatusDot primitive draws
+ * (src/renderer/src/components/ui/StatusDot.tsx). The product draws no status
+ * dots: a state is a shape-coded glyph in its tone's ink, and live work is the
+ * three working dots. The class keeps its historical name because the
+ * primitive does.
  *
- * Family contract: one status idiom per surface — the dot OR a lifecycle
- * glyph, never both. Healthy, done, and idle render no dot at all; the dot
- * marks the exceptions. Sized by the same space.xs step the task-card dot
- * uses for the 6px idiom. */
+ * Each glyph is an SVG mask filled with the tone's ink, so a tone is one
+ * colour and one shape — the same shapes LifecycleGlyph draws. Family
+ * contract: healthy, done and idle render no mark at all; the mark is for the
+ * exceptions. */
 
 .ds-status-dot {
   display: inline-block;
   flex: none;
-  width: var(--sem-space-xs);
-  height: var(--sem-space-xs);
-  border-radius: 999px;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
   background: var(--sem-color-status-neutral);
+  -webkit-mask: var(--ds-status-mark) center / contain no-repeat;
+  mask: var(--ds-status-mark) center / contain no-repeat;
+  /* Neutral: a ring with a bar — off, held. */
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='5'/%3E%3Cpath d='M5.6 8h4.8'/%3E%3C/svg%3E");
 }
 
 /* ── Tones ───────────────────────────────────────────────────────────────
- * The status ramp, plus the accent for "this is the live one". No soft
- * variants: a dot is already the smallest signal there is. */
+ * The status ramp, plus the accent for "this is the live one". Each tone
+ * brings its own shape so the states still read in grayscale. */
+
+/* Good: a disc with the check knocked out. */
 .ds-status-dot--good {
   background: var(--sem-color-status-good);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cdefs%3E%3Cmask id='k'%3E%3Crect width='16' height='16' fill='white'/%3E%3Cpath d='M5.5 8.2l1.7 1.7 3.4-3.9' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/mask%3E%3C/defs%3E%3Ccircle cx='8' cy='8' r='5.25' mask='url(%23k)'/%3E%3C/svg%3E");
 }
 
+/* Warn: a ring with "!". */
 .ds-status-dot--warn {
   background: var(--sem-color-status-warn);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='5' stroke-width='1.4'/%3E%3Cpath d='M8 5.3v3.1' stroke-width='1.5'/%3E%3Ccircle cx='8' cy='10.7' r='0.9' fill='black' stroke='none'/%3E%3C/svg%3E");
 }
 
+/* Danger: a ring with "×". */
 .ds-status-dot--danger {
   background: var(--sem-color-status-danger);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='5'/%3E%3Cpath d='M6 6l4 4M10 6l-4 4'/%3E%3C/svg%3E");
 }
 
+/* Merged: the good shape in the merged ink — a landed change. */
 .ds-status-dot--merged {
   background: var(--sem-color-status-merged);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cdefs%3E%3Cmask id='k'%3E%3Crect width='16' height='16' fill='white'/%3E%3Cpath d='M5.5 8.2l1.7 1.7 3.4-3.9' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/mask%3E%3C/defs%3E%3Ccircle cx='8' cy='8' r='5.25' mask='url(%23k)'/%3E%3C/svg%3E");
 }
 
+/* Accent: a held quarter arc on a faint track — "this is the live one". */
 .ds-status-dot--accent {
   background: var(--sem-color-accent-primary);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='5' stroke-opacity='0.22'/%3E%3Cpath d='M8 3a5 5 0 0 1 5 5'/%3E%3C/svg%3E");
+}
+
+/* ── Working ─────────────────────────────────────────────────────────────
+ * Something is running right now: the three working dots, in accent ink —
+ * the app's one "working" mark (AgentWorkingDots). A live good or accent
+ * tone is always drawn this way, never as a pulsing glyph. */
+.ds-status-dot--working {
+  width: 14px;
+  background: var(--sem-color-accent-primary);
+  --ds-status-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 13'%3E%3Ccircle cx='3.5' cy='6.5' r='1.5'/%3E%3Ccircle cx='7' cy='6.5' r='1.5'/%3E%3Ccircle cx='10.5' cy='6.5' r='1.5'/%3E%3C/svg%3E");
+  animation: ds-status-dot-pulse 1200ms ease-in-out infinite;
 }
 
 /* ── Pulse ───────────────────────────────────────────────────────────────
- * Alive right now — a streaming or running process — and nothing else. At
- * most one thing animates at a time; a column of pulsing dots is noise.
- * The 1800ms cycle is deliberately not a step on the interaction ramp:
- * those durations pace responses to input, and this paces a breathing
- * state. The symmetric ease is likewise its own — the standard curve is an
- * arrival curve and reads as a stutter when looped. */
+ * A warn or danger glyph waiting on someone — a pairing request, a recording
+ * — breathes. At most one thing animates at a time. The 1800ms cycle is
+ * deliberately not a step on the interaction ramp: those durations pace
+ * responses to input, and this paces a breathing state. */
 .ds-status-dot--pulse {
   animation: ds-status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
@@ -63,10 +87,11 @@
   }
 }
 
-/* Reduced motion stills the pulse; the tone keeps carrying the state, and
- * the accessible name or adjacent label carries "running". */
+/* Reduced motion stills the breath and the working dots; the shape keeps
+ * carrying the state, and the accessible name or adjacent label says it. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-status-dot--pulse {
+  .ds-status-dot--pulse,
+  .ds-status-dot--working {
     animation: none;
   }
 }

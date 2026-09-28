@@ -1377,15 +1377,12 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         </span>
       ) : null
 
-      // Working wears the working dots, the same mark the sidebar row and the
-      // tab's own card use, so "working" reads one way everywhere.
+      // Working draws as the working dots (StatusDot's live good tone), the
+      // same mark the sidebar row and the tab's own card use, so "working"
+      // reads one way everywhere.
       const trailing = activityDot ? (
         <>
-          {activityDot.tone === 'good' && activityDot.pulse ? (
-            <AgentWorkingDots label={activityDot.label} />
-          ) : (
-            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
-          )}
+          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
           {recencyIndicator}
         </>
       ) : (

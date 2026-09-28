@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Status dot</title>
+<title>Status mark</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
@@ -29,8 +29,8 @@
     border-radius: var(--sem-radius-overlay);
     background: var(--sem-color-bg-surface);
   }
-  /* Rows a dot actually lives in: the dot beside the text that names the
-     state. Note the healthy rows carry no dot at all — that absence is the
+  /* Rows a mark actually lives in: the glyph beside the text that names the
+     state. Note the healthy rows carry no mark at all — that absence is the
      component's most important state. */
   .demo-row {
     display: flex;
@@ -45,7 +45,7 @@
      so the marked rows read as a column of exceptions. */
   .demo-row-spacer {
     flex: none;
-    width: var(--sem-space-xs);
+    width: var(--sem-icon-size-xs);
   }
   .demo-row-state {
     margin-left: auto;
@@ -56,7 +56,7 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — providers: healthy rows carry no dot; the exceptions are what a glance finds. One pulse, on the one thing running.</p>
+  <p class="demo-label">Light — providers: healthy rows carry no mark; the exceptions are what a glance finds, each by its shape. The working dots, on the one thing running.</p>
 
   <div class="demo-pane">
     <div class="demo-row">
@@ -65,7 +65,7 @@
       <span class="demo-row-state">Connected</span>
     </div>
     <div class="demo-row">
-      <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+      <span class="ds-status-dot ds-status-dot--working" aria-hidden="true"></span>
       nightly-deploy
       <span class="demo-row-state">Running</span>
     </div>
@@ -91,7 +91,7 @@
     </div>
   </div>
 
-  <p class="demo-label">Standing alone — no adjacent text names the state, so the dot carries its own label.</p>
+  <p class="demo-label">Standing alone — no adjacent text names the state, so the mark carries its own label.</p>
   <div class="demo-pane">
     <div class="demo-row">
       CI checks
@@ -112,7 +112,7 @@
       <span class="demo-row-state">Connected</span>
     </div>
     <div class="demo-row">
-      <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+      <span class="ds-status-dot ds-status-dot--working" aria-hidden="true"></span>
       nightly-deploy
       <span class="demo-row-state">Running</span>
     </div>

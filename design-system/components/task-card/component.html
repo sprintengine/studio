@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Task card</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../status-dot/component.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
@@ -31,23 +32,23 @@
 <div class="demo-stage" data-mode="light">
   <p class="demo-label">Light</p>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-status-dot" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1487</span>
     <span class="ds-task-card-title">Module SDK epic</span>
     <span class="ds-task-card-trailing">2d</span>
   </button>
   <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
-    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--good" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1450</span>
     <span class="ds-task-card-title">Module registry honored across surfaces</span>
   </button>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1465</span>
     <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
   </button>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1416</span>
     <span class="ds-task-card-title">Worktree diff resolution failed</span>
     <span class="ds-task-card-trailing">1h</span>
@@ -56,23 +57,23 @@
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark</p>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-status-dot" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1487</span>
     <span class="ds-task-card-title">Module SDK epic</span>
     <span class="ds-task-card-trailing">2d</span>
   </button>
   <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
-    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--good" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1450</span>
     <span class="ds-task-card-title">Module registry honored across surfaces</span>
   </button>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1465</span>
     <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
   </button>
   <button type="button" class="ds-task-card">
-    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1416</span>
     <span class="ds-task-card-title">Worktree diff resolution failed</span>
     <span class="ds-task-card-trailing">1h</span>

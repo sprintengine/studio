@@ -2193,7 +2193,9 @@ samp,
   }
 }
 
-/* Status dot pulse — shared keyframe for live indicators.
+/* Status pulse — shared keyframe for live indicators: a status mark waiting on
+ * someone, or a glyph whose process is running. (The name predates the rule
+ * that the app draws no status dots; the class is a breath, not a dot.)
  * Color is overridden inline by the consuming element. Status semantics:
  * emerald #30d158 = running/live, amber #ffbf2f or #f2c45f =
  * needs-input/pending, red #ff787c = failed. The pulse is allowed because it
@@ -2215,8 +2217,8 @@ samp,
 
 /* Agent-working marker — three staggered accent dots on a workspace row while
  * an agent is actively working (AgentWorkingDots). Opacity/translate keyframes
- * only — cheap to composite, no per-frame JS. Reduced motion collapses the
- * marker to one static accent dot below. */
+ * only — cheap to composite, no per-frame JS. Reduced motion stills the three
+ * dots below; it never collapses them to one, which would be a status dot. */
 @keyframes agent-working-dot {
   0%, 60%, 100% {
     opacity: 0.35;
@@ -2242,14 +2244,6 @@ samp,
   .agent-working-dots .agent-working-dot {
     animation: none;
     opacity: 1;
-  }
-  .agent-working-dots .agent-working-dot:nth-child(1),
-  .agent-working-dots .agent-working-dot:nth-child(3) {
-    display: none;
-  }
-  .agent-working-dots .agent-working-dot:nth-child(2) {
-    width: 6px;
-    height: 6px;
   }
 }
 

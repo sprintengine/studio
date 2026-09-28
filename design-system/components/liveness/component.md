@@ -45,7 +45,7 @@ nothing depends on having seen the animation.
 | Rest | no motion at all — both marks are absent or static |
 | Live | dots cycle; the surface around them stays interactive |
 | Changed | one pulse, then rest — never a repeat, never a loop |
-| Reduced motion | dots collapse to a single static accent dot; the pulse does not play |
+| Reduced motion | the dots stand still, all three at full ink — never collapsed to a single dot, which would read as a status dot the product no longer draws; the pulse does not play |
 
 Reduced motion is handled in the stylesheet rather than in each component, so a
 consumer cannot forget it: the same class that animates is the class that
@@ -53,9 +53,11 @@ carries the `prefers-reduced-motion` guard.
 
 ## Accessibility
 
-- The working dots are `role="img"` with a **required** label — "Agent working"
-  is information, and a purely visual liveness cue is invisible to a screen
-  reader.
+- Standing alone, the working dots are `role="img"` with a **required** label
+  — "Agent working" is information, and a purely visual liveness cue is
+  invisible to a screen reader. Beside text that already says it ("Running",
+  "Loading sessions…") they are `aria-hidden`, as every status mark is: the
+  same words announced twice are noise.
 - The change pulse is **decorative only** and takes no ARIA. Whatever changed is
   announced by the thing that actually changed — the badge count, the status
   line — not by the animation.

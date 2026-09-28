@@ -19,7 +19,7 @@ persistent surface the request is also readable behind.
 | ---------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
 | Region     | `.ds-toast-region`                                       | yes — the fixed corner stack at `z.toast`; one per document                 |
 | Surface    | `.ds-toast`                                              | yes — `role` and `aria-live` chosen by tone (below)                         |
-| Tone dot   | `.ds-toast-dot`                                          | yes — the 6px status idiom, `aria-hidden`                                   |
+| Tone mark  | `.ds-toast-mark` + `.ds-status-dot`                      | yes — the tone's status mark (`status-dot`), `aria-hidden`                  |
 | Content    | `.ds-toast-content`                                      | yes — title `.ds-toast-title`, optional description `.ds-toast-description` |
 | Answer row | `.ds-toast-answer` + `.ds-toast-code` + `.ds-toast-help` | no — the answer-in-place variant's one field and its two answers            |
 | Dismiss    | `.ds-toast-dismiss`                                      | no — trailing icon button, `aria-label="Dismiss"`                           |
@@ -58,20 +58,21 @@ utility to those four **kit shells** (`Toast.tsx`, `PointerPopover.tsx`,
 the utility directly, is still a violation — a surface that wants glass asks
 the shell for it.
 
-The tone is carried by the dot's shape-plus-color and by the words — never by
-tinting the surface. A toast that survives greyscale is the test.
+The tone is carried by the status mark's shape-plus-color and by the words —
+never by tinting the surface, and never by a dot: the product draws no status
+dots (owner ruling 2026-09-28). A toast that survives greyscale is the test.
 
 ## Variants
 
 Five tones, each deciding color, politeness, and persistence:
 
-| Tone        | Dot              | Role / live           | Auto-dismiss |
-| ----------- | ---------------- | --------------------- | ------------ |
-| `--neutral` | `status.neutral` | `status` / `polite`   | 5 s          |
-| `--good`    | `status.good`    | `status` / `polite`   | 5 s          |
-| `--accent`  | `accent.primary` | `status` / `polite`   | 5 s          |
-| `--warn`    | `status.warn`    | `alert` / `assertive` | never        |
-| `--danger`  | `status.danger`  | `alert` / `assertive` | never        |
+| Tone        | Mark                                 | Role / live           | Auto-dismiss |
+| ----------- | ------------------------------------ | --------------------- | ------------ |
+| `--neutral` | ring with a bar, `status.neutral`    | `status` / `polite`   | 5 s          |
+| `--good`    | check disc, `status.good`            | `status` / `polite`   | 5 s          |
+| `--accent`  | held quarter arc, `accent.primary`   | `status` / `polite`   | 5 s          |
+| `--warn`    | ring with "!", `status.warn`         | `alert` / `assertive` | never        |
+| `--danger`  | ring with "×", `status.danger`       | `alert` / `assertive` | never        |
 
 **Warn and danger stay until dismissed.** An auto-dismissing error is a
 failure the operator can miss by looking away for five seconds; a persistent
@@ -82,7 +83,7 @@ class here follows the token grammar, `status.danger`.)
 **The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
 carries `.ds-toast-actions` with **Settings** (ghost) and **Update** (primary),
-and `.ds-toast-glyph` — the agent CLI's icon — in place of the tone dot. It
+and `.ds-toast-glyph` — the agent CLI's icon — in place of the tone's mark. It
 stays for one minute, not five seconds and not forever (owner ruling
 2026-09-18): long enough to reach for Update, short enough that an unasked-for
 notice does not sit in the corner until clicked. Missing it loses nothing — the
@@ -98,11 +99,11 @@ step of the update, so the corner always says where the update is:
 
 | Step        | Title                                                                      | Actions                                            |
 | ----------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
-| Found       | "SprintEngine Studio 0.7.0 is available" (accent dot)                      | **Later** (ghost), **Download** (primary)          |
+| Found       | "SprintEngine Studio 0.7.0 is available" (accent mark)                     | **Later** (ghost), **Download** (primary)          |
 | Downloading | "Downloading SprintEngine Studio 0.7.0", the percentage as its description | none                                               |
-| Ready       | "SprintEngine Studio 0.7.0 is ready" (good dot)                            | **Later** (ghost), **Restart to update** (primary) |
+| Ready       | "SprintEngine Studio 0.7.0 is ready" (good mark)                           | **Later** (ghost), **Restart to update** (primary) |
 | Installing  | "Installing update"                                                        | **Restarting…**, busy                              |
-| Refused     | "Update not installed", and why (warn dot)                                 | **Later** (ghost), **Restart to update** (primary) |
+| Refused     | "Update not installed", and why (warn mark)                                | **Later** (ghost), **Restart to update** (primary) |
 
 Nothing downloads until the person presses Download (2026-09-24), unless they
 turned automatic download on in Settings; then the Found and Downloading steps
@@ -210,7 +211,7 @@ staying the toast's alone.
 - A toast **never takes focus**. Announcement is the live region's job;
   stealing focus from the person's task to report on it is the interruption
   the polite/assertive split exists to avoid.
-- The dot is `aria-hidden`; the words carry the tone for a screen reader,
+- The mark is `aria-hidden`; the words carry the tone for a screen reader,
   and shape-plus-color carries it visually — never color alone.
 - The dismiss button carries `aria-label="Dismiss"` and pads its 10px glyph
   out to `size.hit-target-min` with a transparent hit area — the glyph

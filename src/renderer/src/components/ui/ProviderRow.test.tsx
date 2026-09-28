@@ -76,18 +76,26 @@ test('ProviderRow', async () => {
       assert.match(text, /2\.1\.220/, 'a known version renders')
       assert.match(text, /Authenticated as octocat/, 'the state line renders')
 
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]')
-      assert.ok(dot, 'the health dot renders')
+      // The health mark is the tone's status glyph, never a dot (the app draws
+      // no status dots), on a disc of the row's ground.
+      const glyph = host.querySelector('svg[style*="--tone-good"]')
+      assert.ok(glyph, "the health mark renders, in the tone token's ink")
       assert.equal(
-        dot?.getAttribute('aria-hidden'),
-        'true',
-        'the dot is decorative — the state line, not the colour, carries the state',
+        host.querySelector('[style*="background-color"]'),
+        null,
+        'no tone-filled disc: the health mark is a glyph, not a dot',
       )
-      const dotStyle = (dot as HTMLElement).getAttribute('style') ?? ''
-      assert.match(dotStyle, /var\(--tone-good\)/, 'the dot reads its colour from the tone token')
+      const mark = host.querySelector('[data-health]') as HTMLElement
+      assert.equal(mark, glyph!.parentElement, "the glyph sits on the health mark's ground")
+      assert.equal(mark.getAttribute('data-health'), 'good')
+      assert.equal(
+        mark.getAttribute('aria-hidden'),
+        'true',
+        'the mark is decorative — the state line, not the colour, carries the state',
+      )
 
-      // The 2px keyline is what keeps the dot legible against the mark it sits on.
-      assert.match(dot?.className ?? '', /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
+      // The 2px keyline is what keeps the mark legible against the brand mark it sits on.
+      assert.match(mark.className, /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
 
       // No box per row: rows separate by spacing, and by the hover fill where the
       // face is actionable (asserted on the disclosable row below).
@@ -166,7 +174,7 @@ test('ProviderRow', async () => {
       // tracks that fill instead of haloing on it.
       const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
       assert.match(rowBox.className, /hover:bg-\[color:var\(--bg-hover\)\]/)
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+      const dot = host.querySelector('[data-health]') as HTMLElement
       assert.match(dot.className, /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/)
 
       render(<ProviderRow {...BASE} health="good" selected onSelect={() => {}} stateLine="Added — Daily at 02:00" />)
@@ -289,7 +297,7 @@ test('ProviderRow', async () => {
       assert.match(liveFace.className, /hover:bg-\[color:var\(--bg-hover\)\]/, 'an actionable face lights up')
       assert.match(liveFace.className, /cursor-pointer/)
       assert.match(
-        disclosable.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+        disclosable.host.querySelector('[data-health]')?.className ?? '',
         /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/,
         'the keyline follows the fill the face will take',
       )
@@ -300,7 +308,7 @@ test('ProviderRow', async () => {
       assert.doesNotMatch(inertFace.className, /hover:bg-/, 'an inert face makes no hover promise')
       assert.doesNotMatch(inertFace.className, /cursor-pointer/)
       assert.doesNotMatch(
-        inert.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+        inert.host.querySelector('[data-health]')?.className ?? '',
         /group-hover:shadow-/,
         'and its keyline stays on the resting fill',
       )
@@ -369,11 +377,12 @@ test('ProviderRow', async () => {
       assert.equal(control.getAttribute('aria-checked'), 'true', 'enabled and unhealthy render together')
       assert.equal(control.getAttribute('aria-label'), 'Claude enabled')
 
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+      const dot = host.querySelector('[data-health]') as HTMLElement
+      assert.equal(dot.getAttribute('data-health'), 'error')
       assert.match(
-        dot.getAttribute('style') ?? '',
+        dot.querySelector('svg')?.getAttribute('style') ?? '',
         /var\(--tone-error\)/,
-        'the dot still reports the health tone while the switch reports on',
+        'the mark still reports the health tone while the switch reports on',
       )
 
       act(() => {
@@ -546,11 +555,7 @@ test('ProviderRow', async () => {
       // Health omitted: no dot at all. The owner's Agent CLIs list is nine green
       // dots and one that is not, and the fact they came for is not either of them.
       const { host, root } = mount(<ProviderRow {...BASE} stateLine="Ready — /usr/local/bin/claude" />)
-      assert.equal(
-        host.querySelector('span[aria-hidden="true"][style*="background-color"]'),
-        null,
-        'a row with no health draws no dot',
-      )
+      assert.equal(host.querySelector('[data-health]'), null, 'a row with no health draws no dot')
       assert.match(host.textContent ?? '', /Ready/, 'and the state line still carries the state in words')
       unmount(root, host)
     }
@@ -657,7 +662,7 @@ test('ProviderRow', async () => {
         /rounded-/,
         'no radius — the card clips, and a rounded fill inside it is a card in a card',
       )
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement | null
+      const dot = host.querySelector('[data-health]') as HTMLElement | null
       assert.match(
         dot?.className ?? '',
         /--bg-surface-raised/,

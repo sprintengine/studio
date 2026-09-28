@@ -3,8 +3,8 @@
  *
  * Family contract: one region per document, in one corner; the tone decides
  * color, politeness, and persistence (see the table in component.md). The
- * tone is carried by the 6px dot and the words — never by tinting the
- * surface — so every toast survives greyscale.
+ * tone is carried by the status mark's shape and the words — never by
+ * tinting the surface — so every toast survives greyscale.
  *
  * No shadow, on purpose: no elevation token names the toast (the ramp is
  * popover / drawer / modal) and the shipped toast ships none. The hairline
@@ -54,32 +54,15 @@
   animation: ds-toast-enter var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
 }
 
-/* The 6px status idiom, top-aligned with the title's first line. */
-.ds-toast-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-top: var(--sem-space-2xs);
-  border-radius: 50%;
-  background: var(--sem-color-status-neutral);
-}
-
-/* Tone decides the dot; role/aria-live/persistence follow it in the markup —
- * see the table in component.md. */
-.ds-toast--good .ds-toast-dot {
-  background: var(--sem-color-status-good);
-}
-
-.ds-toast--accent .ds-toast-dot {
-  background: var(--sem-color-accent-primary);
-}
-
-.ds-toast--warn .ds-toast-dot {
-  background: var(--sem-color-status-warn);
-}
-
-.ds-toast--danger .ds-toast-dot {
-  background: var(--sem-color-status-danger);
+/* The tone's status mark — components/status-dot, `.ds-status-dot` plus the
+ * tone's modifier (none for neutral), so the toast draws the same glyph a row
+ * would: a ring with a bar, a check, a held arc, a ring with "!", a ring with
+ * "×". Never a dot. This slot only aligns it: the 13px glyph centred on the
+ * title's 15px first line (font.size.meta × font.line.tight). Tone decides
+ * the mark; role/aria-live/persistence follow it in the markup — see the
+ * table in component.md. */
+.ds-toast-mark {
+  margin-top: 1px; /* ds-lint-allow: centres the 13px glyph on the title's 15px line; no space token is one pixel */
 }
 
 .ds-toast-content {
@@ -155,7 +138,7 @@
 
 /* The action-row variant (owner ruling 2026-09-04): ONE toast in
  * the system carries buttons — "Update available: Codex 0.153.3" with
- * Settings and Update — and an agent CLI's glyph in place of the tone dot.
+ * Settings and Update — and an agent CLI's glyph in place of the tone's status mark.
  * Every other toast stays button-free; a second consumer of this variant is a
  * design decision, not a styling choice. Persistence follows the buttons: a
  * toast asking for an action never auto-dismisses. */

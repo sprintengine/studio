@@ -6,6 +6,8 @@
 <title>Provider row</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<!-- The corner health mark is the status-dot component's glyph. -->
+<link rel="stylesheet" href="../status-dot/component.css" />
 <!-- The trailing enablement control is the `switch` component, unchanged. Linked
      so this file also stands alone in a browser; the catalog inlines every
      component's CSS itself and drops this head. -->
@@ -134,7 +136,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">CL</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--good"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -169,7 +171,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">CX</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--good"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -207,7 +209,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">GK</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--danger"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -229,7 +231,7 @@
     </div>
   </div>
 
-  <!-- An update waiting: the corner count on the mark, and no health dot — this
+  <!-- An update waiting: the corner count on the mark, and no health mark — this
        list has picked the count as its one status idiom. The number is 1
        because the count on a ROW says which, not how many. -->
   <div class="ds-provider-row ds-provider-row--disclosable">
@@ -289,7 +291,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">KM</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--warn"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -306,7 +308,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">OC</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -332,7 +334,7 @@
       <div class="ds-provider-row__face">
         <span class="ds-provider-row__mark">
           <span class="demo-mono-mark">git</span>
-          <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+          <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--good"></span></span>
         </span>
         <span class="ds-provider-row__text">
           <span class="ds-provider-row__line">
@@ -347,7 +349,7 @@
       <div class="ds-provider-row__face">
         <span class="ds-provider-row__mark">
           <span class="demo-mono-mark">gh</span>
-          <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+          <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--warn"></span></span>
         </span>
         <span class="ds-provider-row__text">
           <span class="ds-provider-row__line">
@@ -397,7 +399,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">CL</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--good"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -425,7 +427,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">GK</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot ds-status-dot--danger"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -500,7 +502,7 @@
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">OC</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+        <span aria-hidden="true" class="ds-provider-row__health"><span class="ds-status-dot"></span></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">

@@ -8,7 +8,7 @@ import type { BacklogGroup, BacklogSort, BacklogView } from '../../utils/backlog
 // sit in the toolbar as two always-visible dropdowns; they now collapse behind a
 // single glyph (progressive disclosure) so search is the only at-rest control
 // above the list. Because hiding the controls would also hide that a lens/sort
-// is applied, the trigger marks itself active — accent tint + a 6 px dot, and an
+// is applied, the trigger marks itself active — accent tint (no dot: the app draws none) and an
 // accessible name that says so — whenever either axis is off its default.
 //
 // The surface is a `menu` of two `group`s of `menuitemradio` options (View,
@@ -112,17 +112,8 @@ export function BacklogFilterMenu({
           aria-controls={triggerProps['aria-controls']}
           aria-label={active ? 'Filter and sort — filters active' : 'Filter and sort'}
           onClick={togglePopover}
-          // `relative` only: the marker below is positioned against the box.
-          className="relative"
         >
           <FilterGlyph />
-          {active ? (
-            <span
-              aria-hidden="true"
-              /* design-tokens-allow: filters-applied marker, not a status dot — the accessible name carries the state */
-              className="absolute -right-px -top-px h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)] ring-2 ring-[color:var(--bg-app)]"
-            />
-          ) : null}
         </IconButton>
       )}
     >

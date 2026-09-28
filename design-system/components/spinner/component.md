@@ -1,7 +1,10 @@
 # Spinner
 
-The one "working right now" mark: a faint track ring with a 90° accent arc
-rotating through it, at icon scale, beside the thing that is working.
+The "working on this, and it will finish" mark: a faint track ring with a
+90° accent arc rotating through it, at icon scale, beside the thing that is
+working. It is for a bounded wait (a button's action, a task row's run). An
+agent or process that runs for as long as it runs wears the working dots
+(`liveness`) instead.
 Extracted from the source product's `Spinner`
 (`src/renderer/src/components/ui/Spinner.tsx`); the same drawing serves the
 lifecycle glyph's in-progress state, so a spinning task row and a spinning
@@ -20,15 +23,22 @@ Choosing among the three loading idioms:
   this button's submit.
 - **Skeleton** — the panel's incoming *shape* is known; ghost it (see
   `skeleton`).
-- **Loading overlay** — the panel has no shape to promise yet: a pulsing
-  status dot and one sentence, centered.
+- **Loading overlay** — the panel has no shape to promise yet: the working
+  dots and one sentence, centered.
 
-The overlay does not use the spinner because the accent arc means *a live
-process the user can point to* — accent as ink is budgeted for focus and
-genuinely live work. A panel that is merely fetching has no such process to
-name, and a large centered rotating accent mark is the generic-dashboard
-default this system exists to avoid. The pulsing `status.good` dot says
-"alive" at panel scale without spending the accent.
+The overlay does not use the spinner because the rotating arc means *a live
+process the user can point to*, drawn at icon scale beside that process. A
+panel that is merely fetching has no such process to name, and a large
+centered rotating accent mark is the generic-dashboard default this system
+exists to avoid. The overlay shows the **working dots** instead: the status
+mark (`status-dot`, a live good tone) that every other "working right now"
+surface already shows, at their own 14px width. That does spend the accent —
+an honest cost, since fetching is live work — but on three small dots the
+person already reads as "working", not on a panel-sized mark. Until
+2026-09-28 the overlay drew a pulsing 8px `status.good` dot precisely to keep
+the accent unspent; the product draws no status dots now (owner ruling
+2026-09-28), because a pulsing disc had no shape to tell working from
+waiting.
 
 ## Anatomy
 
@@ -43,8 +53,8 @@ Loading overlay:
 | Part | Class | Required |
 |---|---|---|
 | Region | `.ds-loading-overlay` | yes — fills and centers within the panel |
-| Body | `.ds-loading-overlay-body` | yes — dot + label cluster, `space.lg` gap |
-| Dot | `.ds-loading-overlay-dot` | yes — 8px `status.good` dot, pulsing, `aria-hidden` |
+| Body | `.ds-loading-overlay-body` | yes — mark + label cluster, `space.lg` gap |
+| Mark | `.ds-status-dot.ds-status-dot--working` | yes — the working dots from `status-dot`, `aria-hidden` |
 | Label | `.ds-loading-overlay-label` | yes — one sentence, `font.size.meta` in `text.muted` |
 
 ## Variants
@@ -53,14 +63,14 @@ Loading overlay:
 - `ds-spinner--md` — `icon.size.md`, for `size.control.md` contexts. Nothing
   larger: a spinner bigger than an icon is a panel state, and panel states are
   the overlay's job.
-- The overlay has no variants. One dot size, one sentence, centered.
+- The overlay has no variants. One mark, one sentence, centered.
 
 ## States
 
 | State | Treatment |
 |---|---|
-| Live | The arc rotates (spinner) / the dot pulses (overlay), linear and continuous |
-| Reduced motion | Spinner freezes to its at-rest arc; the dot holds steady. The shape and the label still say "working" |
+| Live | The arc rotates (spinner) / the working dots cycle (overlay), continuous |
+| Reduced motion | Spinner freezes to its at-rest arc; the working dots stand still, all three of them. The shape and the label still say "working" |
 | Done | The mark unmounts. No completion flourish |
 
 A frozen spinner still reads: track + arc is the in-progress shape whether or
@@ -93,8 +103,8 @@ broken.
   `role="img"` and an `aria-label` naming the work — never an unlabeled
   moving mark.
 - The overlay region is `role="status"` with `aria-live="polite"`: it
-  announces once, and loading is never assertive. The dot inside it is
-  `aria-hidden` — the sentence is the announcement.
+  announces once, and loading is never assertive. The working dots inside it
+  are `aria-hidden` — the sentence is the announcement.
 - Both honor `prefers-reduced-motion: reduce` in CSS, not in script, so the
   preference works even where no framework mounted.
 - The rotation and pulse are opacity/transform-only animations — cheap to
@@ -102,8 +112,6 @@ broken.
 
 ## Known drift
 
-The spinner's rotation period (900ms) and the dot's pulse period (1800ms) are
-shipped values with no token: they are loops, not transitions, so the three
-`motion.duration.*` steps do not apply. The overlay's 8px dot steps off the
-6px status-dot idiom deliberately — panel scale, not row scale — and that 8px
-exists in `LoadingOverlay.tsx`, not in the tokens.
+The spinner's rotation period (900ms) and the working dots' cycle (1200ms)
+are shipped values with no token: they are loops, not transitions, so the
+three `motion.duration.*` steps do not apply.

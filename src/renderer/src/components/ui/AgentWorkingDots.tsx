@@ -1,15 +1,17 @@
-// AgentWorkingDots — the "an agent is working right now" marker for workspace
-// rows: three staggered accent dots (~12px wide). Motion is pure CSS keyframes
-// (`agent-working-dot` in index.css) — no per-frame JS; reduced motion collapses
-// it to a single static accent dot via the same stylesheet. Use only while work
-// is genuinely live, never as ambient decoration.
-export function AgentWorkingDots({ label }: { label: string }) {
+// AgentWorkingDots — the app's one "working right now" marker: three staggered
+// accent dots (~12px wide), on workspace rows, tabs, and anywhere else a
+// process is live (StatusDot draws it for a live good or accent tone). Motion
+// is pure CSS keyframes (`agent-working-dot` in index.css) — no per-frame JS;
+// reduced motion stills the three dots via the same stylesheet. Use only while
+// work is genuinely live, never as ambient decoration.
+//
+// `label` names the state for a mark that stands alone; omit it when adjacent
+// text already says "working", and the mark is decorative.
+export function AgentWorkingDots({ label, className }: { label?: string; className?: string }) {
   return (
     <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className="agent-working-dots inline-flex w-[14px] shrink-0 items-center justify-center gap-[2px]"
+      {...(label ? { role: 'img', 'aria-label': label, title: label } : { 'aria-hidden': true })}
+      className={`agent-working-dots inline-flex w-[14px] shrink-0 items-center justify-center gap-[2px] ${className ?? ''}`}
     >
       {[0, 1, 2].map((dot) => (
         <span
