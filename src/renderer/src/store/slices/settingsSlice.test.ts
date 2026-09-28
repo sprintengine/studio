@@ -1333,6 +1333,7 @@ test('a stored appearance from before the chat settings hydrates to the chat as 
     windowMaterial: 'solid',
     chatContrast: 100,
     chatWidth: 'full',
+    agentCharacters: true,
   })
 })
 
