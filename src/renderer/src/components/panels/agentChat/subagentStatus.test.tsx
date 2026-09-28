@@ -73,7 +73,8 @@ test('an agent’s card says who it is, how it is doing, and what kind of helper
   expect(working).toContain('Explore agent · Working')
   expect(working).toContain('map the router')
   expect(working).toContain('Fast agent specialized for exploring codebases.')
-  expect(working).not.toContain('Use it when', 'only the first sentence: the rest is written for the model')
+  // Only the first sentence: the rest is written for the model.
+  expect(working).not.toContain('Use it when')
   expect(working).toContain('Now: Reading the route table')
   expect(working).toContain('6 steps · 18k tokens')
 
@@ -88,6 +89,7 @@ test('an agent’s card says who it is, how it is doing, and what kind of helper
     />,
   )
   expect(failed).toContain('Plan agent · Failed after 1m 29s')
-  expect(failed).toContain('works out an approach', 'a built-in type is described even when the session has not')
+  // A built-in type is described even when the session has not described it.
+  expect(failed).toContain('works out an approach')
   expect(failed).toContain('Ran out of turns')
 })
