@@ -3195,6 +3195,80 @@ body:has([data-selection-pane]:focus-within)
   --markdown-ink-strong: var(--text-strong);
 }
 
+/* ── Chat width and chat contrast ───────────────────────────────────────────
+ * The chat's two appearance settings, stamped on <html> by
+ * hooks/useAppTheme.ts (applyChatAppearance) and read only here.
+ *
+ * Width caps the conversation column: the transcript and the composer, one
+ * measure, centred. The cap is drawn as a gutter, not as a narrower box — the
+ * scroller and the composer's row stay pane-wide and pad in to the column, so
+ * the scrollbar and the wheel target stay at the pane's edge and nothing that
+ * positions itself against the pane (the minimap, the jump pill) moves. Full is
+ * the pane itself, which leaves exactly the old inset. */
+:root {
+  --chat-max-width: 100%;
+}
+
+:root[data-chat-width='comfortable'] {
+  --chat-max-width: var(--sem-size-chat-column-comfortable);
+}
+
+:root[data-chat-width='wide'] {
+  --chat-max-width: var(--sem-size-chat-column-wide);
+}
+
+.chat-column-gutter {
+  padding-inline: max(var(--sem-space-xl), calc((100% - var(--chat-max-width)) / 2));
+}
+
+/* Contrast re-tones the chat pane's inks and nothing else — the transcript,
+ * the composer, everything inside [data-chat-pane]; the rail, menus and the
+ * rest of the app keep the theme's. The pane computes its inks from the
+ * theme's under its own names, and its children take the --text-* names from
+ * those, so every chat surface that already says --text-default follows with
+ * no change of its own. Two steps because an ink defined from itself on one
+ * element is a cycle. The pane's own colour is set here too: text with no
+ * colour of its own inherits it.
+ *
+ * Under 100 each ink keeps that share of itself against the chat's own
+ * background, which lowers every step of the ramp together. Over 100 each ink
+ * is pushed toward the far end of the lightness axis — white in a dark theme,
+ * black in a light one, read off the theme's strongest ink so no theme needs
+ * its own target — by the same share, so headings, `strong` and code keep
+ * their lift over body text. With the setting at its default none of this
+ * applies and the inks are the theme's own values, untouched. */
+:root[data-chat-contrast] [data-chat-pane] {
+  --chat-ink-target: oklab(from var(--text-strong) round(l, 1) 0 0);
+  --chat-text-strong: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-strong) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-default: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-default) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-muted: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-muted) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-subtle: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-subtle) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  color: var(--chat-text-default);
+}
+
+:root[data-chat-contrast] [data-chat-pane] > * {
+  --text-strong: var(--chat-text-strong);
+  --text-default: var(--chat-text-default);
+  --text-muted: var(--chat-text-muted);
+  --text-subtle: var(--chat-text-subtle);
+}
+
 .markdown-rendered[data-tone="muted"] {
   --markdown-ink: var(--text-muted);
   --markdown-ink-strong: var(--text-default);

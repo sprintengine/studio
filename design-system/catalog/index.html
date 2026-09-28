@@ -165,6 +165,8 @@
   --sem-size-control-md: 34px;
   --sem-size-control-lg: 40px;
   --sem-size-hit-target-min: 24px;
+  --sem-size-chat-column-comfortable: 768px;
+  --sem-size-chat-column-wide: 1152px;
   --sem-focus-ring-offset: 2px;
   --sem-focus-ring: 2px solid var(--sem-color-border-focus);
   --sem-glass-blur: 12px;
@@ -12442,6 +12444,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes. <strong>Do not:</strong> Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.lg</code><code class="catalog-token-value">40px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The app rail's glyph square: the one control drawn to be found from across the window rather than read in a row. The app rail's section and tool glyphs, and the account + Settings cluster at its foot (owner ruling 2026-09-07: Slack's rail squares are a step above the product's largest control, and that step is what makes them findable). Pairs with icon.size.lg. <strong>Do not:</strong> Anything inside a panel, a row, a toolbar or an overlay — those stop at md. This step exists for one column of window chrome, and a second consumer is a ruling, not a styling choice.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.chat-column.comfortable</code><code class="catalog-token-value">768px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The comfortable conversation column: a reading measure for chat prose at the conversation type scale. max-width of the conversation column (the transcript and the composer together) when the chat width setting is Comfortable. <strong>Do not:</strong> A cap on anything outside the conversation column, or on the scroller itself: the scroller stays pane-wide so its scrollbar sits at the pane edge.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.chat-column.wide</code><code class="catalog-token-value">1152px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The wide conversation column: room for tables and diffs, while a very wide pane still keeps a centred column. max-width of the conversation column (the transcript and the composer together) when the chat width setting is Wide. <strong>Do not:</strong> A cap on anything outside the conversation column, or on the scroller itself.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.blur</code><code class="catalog-token-value">12px</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Backdrop blur radius of the glass surfaces — the toast card, the popover family's glass material, and the command palette's shell. Four kit shells and nothing else: the toast card (owner ruling 2026-09-04, a corner-sized area), the popover family's opt-in glass material (2026-09-07/08), and the command palette's shell (2026-09-10), which holds the terminal repaint pause while it is up so the blur beneath it is computed once rather than on every PTY chunk. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane. <strong>Do not:</strong> Any scrim, drawer, menu, or full-width surface, and any modal other than the palette — blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim; the palette escapes that only by pausing the panes. The conformance lint pins glass to the four shells.</p></div></div>
@@ -12595,6 +12599,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M11.5 10.9V6.2a1.9 1.9 0 0 0-1.9-1.9H7.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M9.6 2.6 7.9 4.3l1.7 1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg><figcaption>pull-request-open</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <path d="M3 9.5h3V13H3V9.5Zm0 0c0-2.5.8-4.2 3-5.5M9.5 9.5h3V13h-3V9.5Zm0 0c0-2.5.8-4.2 3-5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>quote</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
   <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
@@ -24680,7 +24687,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The fifty-seven SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list — and the copy affordance's pair — copy, and the check it confirms with — and the code block's two — wrap-lines, terminal-prompt — and the chat's ten tool-step marks, <code>tool-*</code>) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The fifty-eight SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and the diff tour's four — tour, play, pause, step-list — and the copy affordance's pair — copy, and the check it confirms with — and the code block's two — wrap-lines, terminal-prompt — the chat's ten tool-step marks, <code>tool-*</code>, and the quote mark — quote) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -24755,6 +24762,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>| Kind | Drawing | Asset | |---|---|---| | <code>command</code> | A prompt caret and a cursor line | <code>glyphs/tool-command.svg</code> | | <code>file_read</code> | A page with its corner folded and two lines of text | <code>glyphs/tool-read.svg</code> | | <code>file_edit</code> | A pencil | <code>glyphs/tool-edit.svg</code> | | <code>file_write</code> | The page again, wearing a plus: a file made rather than read | <code>glyphs/tool-write.svg</code> | | <code>search</code> | A magnifier, drawn to this family's grid and weight; <code>glyphs/search.svg</code> stays the search field's 11-grid mark | <code>glyphs/tool-search.svg</code> | | <code>list</code> | A folder | <code>glyphs/tool-list.svg</code> | | <code>web</code> | A globe: rim, meridian, equator | <code>glyphs/tool-web.svg</code> | | <code>mcp</code> | <code>McpGlyph</code>, the plug the capability inventory already wears for MCP — one concept, one drawing, so it has no second asset | — | | <code>subagent</code> | A small robot head | <code>glyphs/tool-subagent.svg</code> | | <code>todo</code> | A checklist: two ticks, two lines | <code>glyphs/tool-todo.svg</code> | | <code>other</code> | A wrench | <code>glyphs/tool-other.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
 <p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MachinesSettingsIcon</code> (a screen with a prompt; Windows only), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines). All at <code>iconStroke</code> so the rail reads as one set.</p>
+<h5>Conversation actions (16-grid — <code>ui/QuoteGlyph.tsx</code>)</h5>
+<p>What a person can do with a stretch of a conversation they have selected. Stroke 1.4, <code>currentColor</code>, drawn at <code>icon-xs</code> beside the action's word in the selection toolbar.</p>
+<p>| Export | Asset | Drawing | |---|---|---| | <code>QuoteGlyph</code> | <code>glyphs/quote.svg</code> | Two opening quotation marks, each a small block with a tail that curls up and forward: &quot;carry these words into what I write next&quot;. Deliberately not a speech bubble — a bubble reads as reply or comment, and pressing it sends nothing; the selection lands in the composer as a markdown blockquote for the person to write under |</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | Inherits the surrounding ink — typically <code>--sem-color-text-muted</code> in a row or toolbar | | Hover / active | The *owning control* shifts its ink and background; the glyph itself defines no hover | | Live | <code>LifecycleGlyph</code> <code>in_progress</code> with <code>live</code> rotates (<code>.ds-glyph--spin</code>). The only animated glyph state, honoring <code>prefers-reduced-motion</code> | | Disabled | Ink drops to <code>--sem-color-text-disabled</code> via the owning control | | Meaning-bearing | <code>role=&quot;img&quot;</code> + <code>aria-label</code> (see Accessibility) | | Decorative | <code>aria-hidden=&quot;true&quot;</code> |</p>
 <h4>Usage</h4>
@@ -37200,6 +37210,19 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         <span class="ds-slider-thumb" aria-hidden="true"></span>
       </div>
     </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-d">Contrast</span><span class="demo-value-name">160%</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-d" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="23" aria-valuenow="15" aria-valuetext="160%" style="--ds-slider-position: 0.6522">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" data-stop="0" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-stop="3" style="--ds-slider-tick: 0.1304"></span>
+          <span class="ds-slider-tick" data-stop="23" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
   </div>
 </div>
 <div class="demo-stage" data-mode="dark">
@@ -37251,6 +37274,19 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         <span class="ds-slider-thumb" aria-hidden="true"></span>
       </div>
     </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-d">Contrast</span><span class="demo-value-name">160%</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-d" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="23" aria-valuenow="15" aria-valuetext="160%" style="--ds-slider-position: 0.6522">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" data-stop="0" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-stop="3" style="--ds-slider-tick: 0.1304"></span>
+          <span class="ds-slider-tick" data-stop="23" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
   </div>
 </div>
 </div>
@@ -37259,12 +37295,14 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>Reach for it when the choice is <strong>ordered and the order is the point</strong>: the ramp itself says that the stop on the right costs more than the stop on the left, which a menu of the same words does not. When the options are unordered, or the person needs to read a description of each, it is a select or radio rows.</p>
 <p>It is also not a segmented control. A segmented strip shows every label at once and is capped at four; a slider shows a *position* and one value name, and stays legible at six or eight stops where the strip has long since run out of row. The other half of that trade is real: a slider makes the person move through the ramp to read it, so a two-stop slider is a switch wearing a track. Three stops is the floor.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-slider</code> | yes — <code>role=&quot;slider&quot;</code>, <code>tabindex=&quot;0&quot;</code>, <code>aria-valuemin</code> / <code>aria-valuemax</code> / <code>aria-valuenow</code> / <code>aria-valuetext</code>, and a name | | Track | <code>.ds-slider-track</code> | yes — <code>aria-hidden</code>; owns the groove and its hairline | | Fill | <code>.ds-slider-fill</code> | yes — inside the track, from the leading end to the thumb's centre | | Tick | <code>.ds-slider-tick</code> | one per stop — <code>aria-hidden</code>, positioned inside the track | | Thumb | <code>.ds-slider-thumb</code> | yes — <code>aria-hidden</code>, a sibling of the track, positioned against the root |</p>
+<p>| Part | Class | Required | |---|---|---| | Root | <code>.ds-slider</code> | yes — <code>role=&quot;slider&quot;</code>, <code>tabindex=&quot;0&quot;</code>, <code>aria-valuemin</code> / <code>aria-valuemax</code> / <code>aria-valuenow</code> / <code>aria-valuetext</code>, and a name | | Track | <code>.ds-slider-track</code> | yes — <code>aria-hidden</code>; owns the groove and its hairline | | Fill | <code>.ds-slider-fill</code> | yes — inside the track, from the leading end to the thumb's centre | | Tick | <code>.ds-slider-tick</code> | one per marked stop (every stop unless the ramp is long, see Ticks) — <code>aria-hidden</code>, positioned inside the track | | Thumb | <code>.ds-slider-thumb</code> | yes — <code>aria-hidden</code>, a sibling of the track, positioned against the root |</p>
 <p>Two custom properties carry the state, set by the consumer as inline styles because they are per-instance data, not design values: <code>--ds-slider-position</code> (0–1) on the root, and <code>--ds-slider-tick</code> (0–1) on each tick. A tick past the thumb marks itself <code>data-reached=&quot;false&quot;</code>; the root at the leading stop marks itself <code>data-at-start=&quot;true&quot;</code>.</p>
 <p>The root is <code>size.control.xs</code> tall and insets <code>space.sm</code> — half the thumb — on both sides, so the track ends exactly where the thumb's centre can reach. That is what puts ticks, fill and thumb in one coordinate space; a track drawn edge to edge leaves the first and last ticks somewhere the thumb never arrives.</p>
 <p>There is no label part and no value part. The name is the consumer's own text (<code>aria-labelledby</code>, or <code>aria-label</code> when the control is genuinely alone), and <strong>the consumer displays the current value's name beside or above the control</strong> — a position alone does not tell anyone what they just picked, and <code>aria-valuetext</code> says it only to a screen reader.</p>
 <h4>Variants</h4>
 <p>None. One height, one thumb, one accent.</p>
+<h4>Ticks</h4>
+<p>By default every stop is a tick, because on a ramp of three to eight named stops the ticks are how a person counts what is there. On a long ramp — a percentage in steps of five, twenty-odd stops — a tick per stop runs together into a dotted line that reads as a defect in the groove and marks nothing. A long ramp therefore marks only the stops worth finding by eye: its ends and its default, or no ticks at all. The stops are unchanged either way; the keys and the pointer still snap to every one, and the value name beside the control still says which one was picked. A marked tick is placed at its stop's own fraction of the ramp, so a sparse set stays in the same coordinate space as the fill and the thumb.</p>
 <p>A continuous variant is a rejected idea, not a missing one: a value with no named stops has nothing to put in the value line above the control, and the person is left reading a number they did not choose in units nobody named. A vertical variant is rejected for the same kind of reason — the ramp reads left-to-right as cheap-to-costly because that is how the rest of the product reads, and a vertical one would need its own convention for which end is more.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | <code>bg.active</code> track with a <code>border.default</code> hairline, <code>accent.primary</code> fill, thumb in <code>text.on-accent</code> | | Leading stop | Nothing filled; the thumb takes <code>text.muted</code>, a neutral ink for the neutral ground it is resting on | | Ticks | <code>text.on-accent</code> at 55% where the fill has reached them, <code>text.disabled</code> past the thumb | | Focus | the shared <code>focus.ring</code> outline at <code>focus.ring-offset</code>, on <code>:focus-visible</code> only | | Disabled | <code>aria-disabled=&quot;true&quot;</code>: 45% opacity, <code>not-allowed</code>, no keyboard or pointer response |</p>
@@ -37277,7 +37315,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <h4>Pointer</h4>
 <p>Pressing anywhere on the strip selects the nearest stop and starts a drag; the value snaps stop to stop while the pointer moves, and the press releases wherever it is let go. The whole <code>size.control.xs</code> strip is the target, not the 8px groove — a 6px-tall hit area is a control that has to be aimed at.</p>
 <h4>Usage</h4>
-<ul><li>Three stops or more. Two is a switch; one is a label.</li><li>The value's name goes next to the control, in the consumer's own type. Stop labels *under* the track are a rejected layout: they cannot fit past four short words, and they force a truncation the position was supposed to avoid.</li><li>Put the cheap, safe, or small end on the left. Every ramp in the product reads the same direction, and a reversed one is read wrong before it is read at all.</li><li>One slider per question, and never a slider beside a select answering the same question in a second shape.</li></ul>
+<ul><li>Three stops or more. Two is a switch; one is a label.</li><li>Past about a dozen stops, mark only the ends and the default (see Ticks).</li><li>The value's name goes next to the control, in the consumer's own type. Stop labels *under* the track are a rejected layout: they cannot fit past four short words, and they force a truncation the position was supposed to avoid.</li><li>Put the cheap, safe, or small end on the left. Every ramp in the product reads the same direction, and a reversed one is read wrong before it is read at all.</li><li>One slider per question, and never a slider beside a select answering the same question in a second shape.</li></ul>
 <h4>Accessibility</h4>
 <ul><li><code>role=&quot;slider&quot;</code> on a real focusable element with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code> — indices into the ramp, not the values themselves — and <code>aria-valuetext</code> carrying the current stop's <strong>name</strong>, which is the thing the person actually chose. Without <code>valuetext</code> a screen reader announces &quot;3&quot;, which is not a level anyone selected.</li><li><code>aria-orientation=&quot;horizontal&quot;</code> is the default and is stated anyway, because the arrow-key mapping depends on it.</li><li>The root carries the name; the track, fill, ticks and thumb are all <code>aria-hidden</code> — they are one control's parts, and announcing them makes the control read as five things.</li><li>Never an interactive descendant. A focusable tick inside a <code>slider</code> breaks the role's contract and puts a second tab stop where a person expects one.</li><li>Disabled is <code>aria-disabled=&quot;true&quot;</code>, not the removal of the tab stop: which stops exist is information even when the ramp cannot be moved.</li><li>The value survives greyscale — the thumb's position, not the fill's hue, is what states it.</li></ul>
 </div>
@@ -37506,6 +37544,19 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/div&gt;
     &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;l-d&quot;&gt;Contrast&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;160%&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;l-d&quot; aria-orientation=&quot;horizontal&quot;
+           aria-valuemin=&quot;0&quot; aria-valuemax=&quot;23&quot; aria-valuenow=&quot;15&quot; aria-valuetext=&quot;160%&quot; style=&quot;--ds-slider-position: 0.6522&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;0&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;3&quot; style=&quot;--ds-slider-tick: 0.1304&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;23&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
@@ -37557,6 +37608,19 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/div&gt;
     &lt;/div&gt;
+    &lt;div class=&quot;demo-field&quot;&gt;
+      &lt;div class=&quot;demo-value&quot;&gt;&lt;span class=&quot;demo-value-axis&quot; id=&quot;d-d&quot;&gt;Contrast&lt;/span&gt;&lt;span class=&quot;demo-value-name&quot;&gt;160%&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;ds-slider&quot; role=&quot;slider&quot; tabindex=&quot;0&quot; aria-labelledby=&quot;d-d&quot; aria-orientation=&quot;horizontal&quot;
+           aria-valuemin=&quot;0&quot; aria-valuemax=&quot;23&quot; aria-valuenow=&quot;15&quot; aria-valuetext=&quot;160%&quot; style=&quot;--ds-slider-position: 0.6522&quot;&gt;
+        &lt;span class=&quot;ds-slider-track&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-slider-fill&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;0&quot; style=&quot;--ds-slider-tick: 0&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;3&quot; style=&quot;--ds-slider-tick: 0.1304&quot;&gt;&lt;/span&gt;
+          &lt;span class=&quot;ds-slider-tick&quot; data-stop=&quot;23&quot; data-reached=&quot;false&quot; style=&quot;--ds-slider-tick: 1&quot;&gt;&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-slider-thumb&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;script&gt;
@@ -37566,6 +37630,8 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   const NAMES = {
     Reasoning: ['Auto', 'Low', 'Medium', 'High', 'Max'],
     Retention: ['7 days', '14 days', '30 days', '90 days'],
+    // A long ramp: twenty-four stops, of which only the ends and the default are ticks.
+    Contrast: Array.from({ length: 24 }, (_, i) =&gt; `${85 + i * 5}%`),
   }
   for (const slider of document.querySelectorAll('.ds-slider')) {
     const axis = document.getElementById(slider.getAttribute('aria-labelledby')).textContent
@@ -37584,7 +37650,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
       slider.toggleAttribute('data-at-start', index === 0)
       if (index === 0) slider.setAttribute('data-at-start', 'true')
       ticks.forEach((tick, i) =&gt; {
-        if (i &lt;= index) tick.removeAttribute('data-reached')
+        // A sparse set names the stop each tick marks; a full set is one per stop.
+        const stop = tick.dataset.stop === undefined ? i : Number(tick.dataset.stop)
+        if (stop &lt;= index) tick.removeAttribute('data-reached')
         else tick.setAttribute('data-reached', 'false')
       })
       readout.textContent = names[index]

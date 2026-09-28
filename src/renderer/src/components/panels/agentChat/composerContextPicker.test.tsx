@@ -170,7 +170,11 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
     expect(picker.trigger).toBeNull()
     await act(async () => root.render(createElement(Harness, { query: 'file', draft: '@file' })))
     expect(picker.trigger).toBeNull()
+    // Esc holds while the person goes on typing into the same token…
     await act(async () => root.render(createElement(Harness, { query: null, draft: '@files' })))
+    expect(picker.trigger).toBeNull()
+    // …and a new token opens the picker again.
+    await act(async () => root.render(createElement(Harness, { query: null, draft: '@files @x' })))
     expect(picker.trigger?.kind).toBe('mention')
     await act(async () => root.render(createElement(Harness, { query: null, draft: '$review', enabled: false })))
     expect(picker.trigger).toBeNull()
@@ -187,5 +191,248 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
       if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
       else Reflect.deleteProperty(globalThis, key)
     }
+  }
+})
+
+// ── The `/` command menu, driven through the hook the chat view uses ─────────
+
+type CommandMenuInput = NonNullable<
+  Parameters<typeof import('./composerContextPicker').useComposerContextPicker>[0]['commandMenu']
+>
+
+const COMMANDS: CommandMenuInput['commands'] = [
+  { name: 'model', description: 'Choose the model', source: 'app' },
+  { name: 'compact', description: 'Summarize the conversation', argumentHint: '[instructions]', source: 'cli' },
+  { name: 'review', description: 'Review a pull request', argumentHint: '[pr-number]', source: 'custom' },
+]
+
+async function mountCommandPicker() {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }
+  Object.assign(globalThis, globals)
+  Object.assign(dom.window, { api: { workspaceSkillsList: async () => ({ ok: true, skills: [] }) } })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useComposerContextPicker } = await import('./composerContextPicker')
+  const onPickCommand = vi.fn()
+  const onOpen = vi.fn()
+  let picker!: ReturnType<typeof useComposerContextPicker>
+  const status = { cliLabel: 'Claude Code', loading: false, answered: true, reportedCount: 2 }
+  function Harness({ draft, commands = true }: { draft: string; commands?: boolean }) {
+    picker = useComposerContextPicker({
+      workspaceRoot: '/Users/dev/project',
+      draft,
+      caret: draft.length,
+      skillsEnabled: true,
+      commandMenu: commands ? { commands: COMMANDS, status, onOpen } : null,
+      onPickSkill: () => undefined,
+      onPickMention: () => undefined,
+      onPickCommand,
+    })
+    return picker.picker
+  }
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const render = (draft: string, commands = true) =>
+    act(async () => root.render(createElement(Harness, { draft, commands })))
+  const key = async (name: string, shiftKey = false) => {
+    const event = {
+      key: name,
+      shiftKey,
+      nativeEvent: { isComposing: false },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as React.KeyboardEvent<HTMLTextAreaElement>
+    let handled = false
+    await act(async () => {
+      handled = picker.handleKeyDown(event)
+    })
+    return handled
+  }
+  const options = () => Array.from(dom.window.document.querySelectorAll('[role="option"]'))
+  const highlighted = () => dom.window.document.querySelector('[role="option"][aria-selected="true"]')
+  return {
+    dom,
+    picker: () => picker,
+    render,
+    key,
+    options,
+    highlighted,
+    onPickCommand,
+    onOpen,
+    async unmount() {
+      await act(async () => root.unmount())
+      dom.window.close()
+      for (const name of Object.keys(globals)) {
+        if (previous[name]) Object.defineProperty(globalThis, name, previous[name])
+        else Reflect.deleteProperty(globalThis, name)
+      }
+    },
+  }
+}
+
+test('/ opens the command menu where the chat has one, and stays literal where it does not', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('/')
+    expect(menu.picker().trigger?.kind).toBe('slash')
+    expect(menu.options().map((row) => row.textContent)).toEqual([
+      expect.stringContaining('/model'),
+      expect.stringContaining('/compact'),
+      expect.stringContaining('/review'),
+    ])
+    expect(menu.onOpen).toHaveBeenCalledOnce()
+    await menu.render('/', false)
+    expect(menu.picker().trigger).toBeNull()
+    expect(menu.options()).toHaveLength(0)
+    expect(menu.picker().comboboxProps).toEqual({})
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('$ still opens the skill picker, and the command menu names it in its footer', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('/')
+    expect(menu.dom.window.document.body.textContent).toContain('$ for Studio skills')
+    await menu.render('please use $rev')
+    expect(menu.picker().trigger?.kind).toBe('skill')
+    expect(menu.dom.window.document.querySelector('[role="menu"][aria-label="Use a skill"]')).not.toBeNull()
+    expect(menu.options()).toHaveLength(0)
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('arrows wrap around the command list', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('/')
+    expect(menu.highlighted()?.textContent).toContain('/model')
+    expect(await menu.key('ArrowUp')).toBe(true)
+    expect(menu.highlighted()?.textContent).toContain('/review')
+    expect(await menu.key('ArrowDown')).toBe(true)
+    expect(menu.highlighted()?.textContent).toContain('/model')
+    expect(await menu.key('ArrowDown')).toBe(true)
+    expect(menu.highlighted()?.textContent).toContain('/compact')
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('Enter and Tab pick the highlighted command, for the token under the caret', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('  /co')
+    expect(await menu.key('Enter')).toBe(true)
+    expect(menu.onPickCommand).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'compact' }), {
+      start: 2,
+      end: 5,
+    })
+    await menu.render('/r')
+    expect(await menu.key('Tab')).toBe(true)
+    expect(menu.onPickCommand).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'review' }), {
+      start: 0,
+      end: 2,
+    })
+    // Shift+Enter is a newline even with the menu open.
+    expect(await menu.key('Enter', true)).toBe(false)
+    expect(menu.onPickCommand).toHaveBeenCalledTimes(2)
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('with no command matching, Enter falls through and the message is sent as typed', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('/zzz')
+    expect(menu.picker().trigger?.kind).toBe('slash')
+    expect(menu.options()).toHaveLength(0)
+    expect(menu.dom.window.document.body.textContent).toContain('No command matches “/zzz”')
+    for (const name of ['Enter', 'Tab', 'ArrowUp', 'ArrowDown']) expect(await menu.key(name)).toBe(false)
+    expect(menu.onPickCommand).not.toHaveBeenCalled()
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('Esc closes the menu until the caret leaves that token', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('/re')
+    expect(await menu.key('Escape')).toBe(true)
+    expect(menu.picker().trigger).toBeNull()
+    await menu.render('/rev')
+    expect(menu.picker().trigger, 'typing on into the same token keeps it shut').toBeNull()
+    // A `/` on a later line would not run, so it opens nothing…
+    await menu.render('/rev\n/')
+    expect(menu.picker().trigger).toBeNull()
+    // …and once the token is gone, a fresh `/` opens the menu again.
+    await menu.render('')
+    await menu.render('/')
+    expect(menu.picker().trigger?.kind).toBe('slash')
+    expect(menu.options().length).toBeGreaterThan(0)
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('the field is the combobox for the command list', async () => {
+  const menu = await mountCommandPicker()
+  try {
+    await menu.render('hello')
+    expect(menu.picker().comboboxProps).toMatchObject({ role: 'combobox', 'aria-expanded': false })
+    expect(menu.picker().comboboxProps['aria-controls']).toBeUndefined()
+    await menu.render('/')
+    await menu.key('ArrowDown')
+    const props = menu.picker().comboboxProps
+    expect(props['aria-expanded']).toBe(true)
+    const listbox = menu.dom.window.document.getElementById(props['aria-controls']!)
+    expect(listbox?.getAttribute('role')).toBe('listbox')
+    expect(props['aria-activedescendant']).toBe(menu.highlighted()?.id)
+    expect(menu.highlighted()?.textContent).toContain('/compact')
+    await menu.render('/zzz')
+    expect(menu.picker().comboboxProps['aria-activedescendant']).toBeUndefined()
+  } finally {
+    await menu.unmount()
+  }
+})
+
+test('the command and skill lists stay open past the frame after they open', async () => {
+  // The popover shell closes a surface whose anchor sits in a hidden subtree,
+  // checked on the frame after any attribute change under <body> — which its
+  // own positioning makes at once.
+  const menu = await mountCommandPicker()
+  const nextFrames = () =>
+    new Promise<void>((resolve) => menu.dom.window.requestAnimationFrame(() => setTimeout(resolve, 20)))
+  try {
+    await menu.render('/')
+    menu.dom.window.document.body.setAttribute('class', 'probe-1')
+    await nextFrames()
+    await menu.render('/')
+    expect(menu.picker().trigger?.kind).toBe('slash')
+    expect(menu.options().length).toBeGreaterThan(0)
+    await menu.render('$')
+    menu.dom.window.document.body.setAttribute('class', 'probe-2')
+    await nextFrames()
+    await menu.render('$')
+    expect(menu.picker().trigger?.kind).toBe('skill')
+    expect(menu.dom.window.document.querySelector('[aria-label="Use a skill"]')).not.toBeNull()
+  } finally {
+    await menu.unmount()
   }
 })

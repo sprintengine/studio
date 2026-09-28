@@ -1843,6 +1843,32 @@
             }
           }
         }
+      },
+      "chat-column": {
+        "comfortable": {
+          "$type": "dimension",
+          "$value": "768px",
+          "$description": "The comfortable conversation column: a reading measure for chat prose at the conversation type scale.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "sizing",
+              "use": "max-width of the conversation column (the transcript and the composer together) when the chat width setting is Comfortable.",
+              "doNotUse": "A cap on anything outside the conversation column, or on the scroller itself: the scroller stays pane-wide so its scrollbar sits at the pane edge."
+            }
+          }
+        },
+        "wide": {
+          "$type": "dimension",
+          "$value": "1152px",
+          "$description": "The wide conversation column: room for tables and diffs, while a very wide pane still keeps a centred column.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "sizing",
+              "use": "max-width of the conversation column (the transcript and the composer together) when the chat width setting is Wide.",
+              "doNotUse": "A cap on anything outside the conversation column, or on the scroller itself."
+            }
+          }
+        }
       }
     },
     "focus": {

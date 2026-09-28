@@ -85,10 +85,18 @@ import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
 import { useComposerRecall } from './agentChat/composerRecall'
 import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
+import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
+import { composerAppCommand } from './agentChat/composerAppCommands'
+import { commandInsertText } from './agentChat/slashCommandMenu'
 import { useConversationSearchJump } from './agentChat/conversationSearchJump'
 import { useTurnNavigation } from './agentChat/turnNavigation'
 import { TimelineMinimap } from './agentChat/TimelineMinimap'
-import { QuoteSelectionToolbar, appendQuoteToDraft } from './agentChat/quoteSelection'
+import {
+  QUOTE_SELECTION_COMMAND,
+  QuoteSelectionToolbar,
+  insertQuoteIntoDraft,
+  quoteSelectionInto,
+} from './agentChat/quoteSelection'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
 import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
@@ -331,6 +339,8 @@ export type MountedChatView = {
   toggleModelPicker: () => void
   cycleEffort?: () => void
   stepTurn?: (direction: -1 | 1) => void
+  /** Quote the document's selection when it is in this view's transcript; whether it was. */
+  quoteSelection?: () => boolean
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
@@ -373,6 +383,8 @@ function onModelPickerPanelCommand(event: Event): void {
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.stepTurn?.(detail.id === 'chat.turn.previous' ? -1 : 1)
   }
+  // The view whose transcript holds the selection answers, whichever has focus.
+  if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
 }
 
 /** Register a mounted chat view as a possible responder; returns the unregister. */
@@ -737,7 +749,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   })
   const turnNavigation = useTurnNavigation({ rows: timelineRows, listRef, jumpToRow })
   const stepTurn = turnNavigation.step
-  useConversationScrollRestore({
+  const { isRestoring: isRestoringScroll } = useConversationScrollRestore({
     memory: scrollMemoryRef.current,
     hydrated,
     searching,
@@ -745,6 +757,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     loadingEarlier,
     rows: timelineRows,
     loadEarlier,
+    scrollRoot: () => transcriptRef.current,
+    // The remembered row is gone: open where a conversation opens anyway, and
+    // follow it from there.
+    fallbackToEnd: () => {
+      void listRef.current?.scrollToEnd({ animated: false })
+      atBottomRef.current = true
+      setAtBottom(true)
+    },
     restore: (index, offset) => {
       const list = listRef.current
       if (!list) return
@@ -770,6 +790,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         element?.clientHeight ?? layoutMeasurement.height,
       )
       const nearBottom = atBottomRef.current
+      // The restore's own jumps are not a place the reader chose; remembering
+      // them would overwrite the position being restored.
+      if (isRestoringScroll()) return
       const state = listRef.current?.getState()
       const rowId = firstVisibleRowRef.current
       const position = rowId ? state?.positionByKey(rowId) : undefined
@@ -779,7 +802,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         atEnd: nearBottom,
       })
     },
-    [conversationKey, observeScroll, atBottomRef],
+    [conversationKey, observeScroll, atBottomRef, isRestoringScroll],
   )
   const jumpToLatest = useCallback(() => {
     void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
@@ -1120,6 +1143,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     ],
   )
 
+  // Set further down, once the model picker and effort control it drives are
+  // known; answers whether it handled the message.
+  const runAppCommandRef = useRef<(text: string, attachments: number) => boolean>(() => false)
   // Composer submit (Enter or the send affordance). Sends immediately when the
   // session is idle; queues the message when a turn is streaming or awaiting
   // approval, so the user gets terminal-style type-ahead without the send
@@ -1128,6 +1154,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const submitComposer = useCallback(() => {
     const text = draft.trim()
     if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
+    // A command Studio answers itself, or one it will not send, is handled
+    // here whatever the turn is doing: it never reaches the CLI or the queue.
+    if (runAppCommandRef.current(text, attachments.length)) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
       const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
       setQueuedTurn(turn)
@@ -1678,6 +1707,24 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (!chatCli) return
     setModelMenuOpen((open) => !open)
   }
+  // A quote (the selection toolbar's, or the quote shortcut's) lands where the
+  // composer's caret was, as a block of its own, and the caret waits on a fresh
+  // line under it. The field keeps its caret while focus is in the transcript.
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const quoteIntoComposer = (markdown: string) => {
+    const field = composerRef.current
+    setDraft((current) => {
+      const next = insertQuoteIntoDraft(current, markdown, field?.selectionEnd ?? current.length)
+      pendingCaretRef.current = next.caret
+      return next.text
+    })
+  }
+  const quoteSelectionRef = useRef<() => boolean>(() => false)
+  quoteSelectionRef.current = () => {
+    const transcript = transcriptRef.current
+    if (!transcript || composerInputDisabled) return false
+    return quoteSelectionInto(transcript, document.getSelection(), quoteIntoComposer)
+  }
   useEffect(
     () =>
       registerMountedChatView({
@@ -1686,11 +1733,18 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         toggleModelPicker: () => toggleModelPickerRef.current(),
         cycleEffort: () => cycleEffortRef.current(),
         stepTurn,
+        quoteSelection: () => quoteSelectionRef.current(),
       }),
     [workspaceId, stepTurn],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
+    if (!keybinding) return null
+    const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
+    return renderKeybinding(keybinding, platform)
+  }, [keybindingSettings])
+  const quoteShortcutLabel = useMemo(() => {
+    const keybinding = getEffectiveKeybindings(QUOTE_SELECTION_COMMAND, keybindingSettings)[0]
     if (!keybinding) return null
     const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
     return renderKeybinding(keybinding, platform)
@@ -1730,6 +1784,27 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not change the model.'))
       .finally(() => setModelChanging(false))
   }
+  runAppCommandRef.current = (text, attachmentCount) => {
+    const action = composerAppCommand(text, {
+      cli: chatCli,
+      models: chatCliOption?.modelSelection?.options ?? [],
+      efforts: capabilities?.reasoningEfforts ?? [],
+      attachments: attachmentCount,
+    })
+    if (!action) return false
+    if (action.kind === 'refuse') {
+      setPermissionNotice(action.notice)
+      return true
+    }
+    clearDraft()
+    setCommandHint(null)
+    if (action.kind === 'model') {
+      if (action.model && conversation && !modelLocked) selectModel(conversation.providerId, action.model)
+      else setModelMenuOpen(true)
+    } else if (action.effort) changeReasoningEffort(action.effort)
+    else cycleEffortRef.current()
+    return true
+  }
 
   // Capabilities are available from the provider catalog before the first turn,
   // then the live session reports the declaration it actually started with.
@@ -1766,6 +1841,27 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     setComposerCaret(range.start)
     detachRecall()
   }
+  // The `/` menu lists what the chat's CLI runs in this folder, plus Studio's
+  // own few. A chat on another machine has no folder here to ask about, so its
+  // menu holds Studio's commands, and the CLI's only once a list for it has
+  // reached this machine.
+  const localCommands = transport.capabilities.composerContext
+  const appCommands = useMemo(
+    () => studioAppCommands({ model: Boolean(chatCli), effort: Boolean(capabilities?.reasoningEfforts?.length) }),
+    [chatCli, capabilities?.reasoningEfforts?.length],
+  )
+  const conversationCommands = useConversationCommands(
+    chatCli,
+    localCommands ? workspaceRoot : (binding.sessionRoot ?? null),
+    { appCommands, discover: localCommands },
+  )
+  const commandCatalog = conversationCommands.catalog
+  const commandMenuAvailable = Boolean(
+    chatCli && (localCommands ? workspaceRoot : conversationCommands.commands.length),
+  )
+  // A picked command's argument hint, shown under the field until the person
+  // types past what the pick left there.
+  const [commandHint, setCommandHint] = useState<{ command: string; hint: string; draft: string } | null>(null)
   const contextPicker = useComposerContextPicker({
     workspaceRoot,
     draft,
@@ -1773,6 +1869,47 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     skillsEnabled: supportsSkills,
     // A file mention names a file on this machine's disk.
     mentionsEnabled: transport.capabilities.composerContext,
+    commandMenu: commandMenuAvailable
+      ? {
+          commands: conversationCommands.commands,
+          status: {
+            cliLabel: chatCliOption?.label ?? providerEntry?.displayName ?? chatCli ?? 'The CLI',
+            loading: conversationCommands.loading,
+            error: commandCatalog?.error,
+            answered: Boolean(commandCatalog?.fetchedAt),
+            reportedCount: commandCatalog?.commands.length ?? 0,
+          },
+          onOpen: conversationCommands.refreshIfStale,
+        }
+      : null,
+    onPickCommand: (command, range) => {
+      // Studio's own commands act here and leave nothing to send. `/model`
+      // leaves focus to the picker it opens, so its token goes without the
+      // caret restore that would pull focus back into the field.
+      if (command.source === 'app') {
+        setCommandHint(null)
+        if (command.name === 'model') {
+          setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
+          setComposerCaret(range.start)
+          detachRecall()
+          setModelMenuOpen(true)
+          return
+        }
+        removeContextTrigger(range)
+        if (command.name === 'effort') cycleEffortRef.current()
+        return
+      }
+      // Everything else is text the CLI expands when the message goes out.
+      // A space already after the token is reused rather than doubled.
+      const text = commandInsertText(command)
+      const end = text.endsWith(' ') && /^\s/u.test(draft.slice(range.end)) ? range.end + 1 : range.end
+      const next = draft.slice(0, range.start) + text + draft.slice(end)
+      setDraft(next)
+      pendingCaretRef.current = range.start + text.length
+      setComposerCaret(range.start + text.length)
+      detachRecall()
+      setCommandHint(command.argumentHint ? { command: command.name, hint: command.argumentHint, draft: next } : null)
+    },
     onPickSkill: (skill, range) => {
       setAttachedSkills([...attachedSkills, skill])
       removeContextTrigger(range)
@@ -2006,6 +2143,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         ) : null}
 
         <div
+          ref={transcriptRef}
           role="log"
           aria-label={`${label} conversation`}
           aria-live="off"
@@ -2071,7 +2209,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               // focus only — a click into the transcript to select text is not
               // a focus change worth drawing, and the UA outline it used to get
               // was neither the kit's colour nor its shape.
-              className={`h-full overflow-y-auto px-4 py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
+              // The gutter, not a narrower list, draws the chat width setting's
+              // column: the scroller stays pane-wide so its scrollbar does too.
+              className={`chat-column-gutter h-full overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
               tabIndex={0}
               contentContainerClassName="space-y-1"
               ListHeaderComponent={
@@ -2108,20 +2248,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           )}
           <TimelineMinimap navigation={turnNavigation} />
           <QuoteSelectionToolbar
-            rootRef={shellRef}
+            rootRef={transcriptRef}
             enabled={!composerInputDisabled}
-            onQuote={(text) => {
-              const next = appendQuoteToDraft(draft, text)
-              setDraft(next)
-              pendingCaretRef.current = next.length
-            }}
+            shortcut={quoteShortcutLabel}
+            onQuote={quoteIntoComposer}
           />
         </div>
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
           {announcement}
         </div>
-        <div className="relative px-4 pb-4 pt-1">
+        <div className="chat-column-gutter relative pb-4 pt-1">
           {!atBottom && timelineRows.length > 0 ? (
             <OutlineButton
               size="xs"
@@ -2247,6 +2384,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               ref={composerRef}
               variant="composer"
               resize="none"
+              {...contextPicker.comboboxProps}
               id={`chat-composer-${agentId}`}
               value={draft}
               onBlur={flushDraft}
@@ -2325,6 +2463,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               disabled={composerInputDisabled}
               className={COMPOSER_CLASS}
             />
+            {/* What the picked command takes after it, until the person types
+                past the pick. Under the field rather than as ghost text in it:
+                a textarea draws no inline decoration, and an overlay would
+                have to track its wrapping and scroll. */}
+            {commandHint && commandHint.draft === draft ? (
+              <p className="truncate px-3 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
+                /{commandHint.command} {commandHint.hint}
+              </p>
+            ) : null}
             {/* Tokens only, never money: a chat runs on the person's CLI
                 subscription, and the SDK's dollar figure is an API-price
                 estimate that reads as a bill. */}
@@ -2483,6 +2630,8 @@ function ChatShell({
     <div
       ref={shellRef}
       {...dropHandlers}
+      // Scopes the chat contrast setting's inks (assets/index.css).
+      data-chat-pane=""
       className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"
     >
       {children}

@@ -75,6 +75,11 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The composer's command lists: the last good one per CLI and folder waits
+  // a moment before it is written, so quit writes what is still pending.
+  conversationCommands?: {
+    dispose(): Promise<void>
+  }
   // The conversation pull request record (epic `pull-request-marks`). It holds
   // a chained write per repository and a watch timer per open pull request, so
   // quit has to settle the writes — a capture in the last seconds before quit
@@ -140,6 +145,7 @@ export function registerAppLifecycle({
   workspaceSyncService,
   removeSessionIntegrations,
   canvasService,
+  conversationCommands,
   pullRequestRecord,
   analytics,
   moduleKernel,
@@ -542,6 +548,7 @@ export function registerAppLifecycle({
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationRuntime?.shutdown()],
       ['canvas', () => canvasService?.dispose()],
+      ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
       // Not when leaving for an update: the new build starts straight away and
       // writes them back, and the installer's time limit is better spent on

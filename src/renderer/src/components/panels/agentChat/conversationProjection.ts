@@ -155,6 +155,21 @@ export type TranscriptEntry =
       answers?: Record<string, string>
     }
   | CompactionEntry
+  | CommandOutputEntry
+
+// What a command the CLI ran by itself printed (`/context`, `/usage`), in the
+// place its turn's reply would be: such a turn has no reply of its own. A
+// note the adapter wrote about a command (`note`) reads as a line, not output.
+export type CommandOutputEntry = {
+  kind: 'commandOutput'
+  id: string
+  turnId?: string
+  /** The command without its slash, when the CLI named it. */
+  command?: string
+  output: string
+  note?: boolean
+  createdAt: number
+}
 
 // The provider summarised the conversation to free context. It sits between
 // the message of the turn it happened in and that turn's reply, or after the
@@ -479,6 +494,9 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   // turn they followed ('' before the first).
   const compactionsInTurn = new Map<string, CompactionEntry[]>()
   const compactionsAfterTurn = new Map<string, CompactionEntry[]>()
+  // Command output by the turn that printed it; one with no turn follows the
+  // last turn, as a compaction between turns does.
+  const commandOutputsInTurn = new Map<string, CommandOutputEntry[]>()
   // "Edit from here": each rewind takes the turns from its message up to the
   // rewind itself out of view. The log keeps them; the provider dropped them.
   const rewinds: Array<{ fromSeq: number; beforeSeq: number }> = []
@@ -762,6 +780,24 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         }
         break
       }
+      case 'command_output': {
+        const output = readString(event.payload, 'output')
+        if (!output) break
+        const command = readString(event.payload, 'command')
+        const entry: CommandOutputEntry = {
+          kind: 'commandOutput',
+          id: event.id,
+          createdAt: event.createdAt,
+          output,
+          ...(turnId ? { turnId } : {}),
+          ...(command ? { command } : {}),
+          ...(readBoolean(event.payload, 'adapterNote') ? { note: true } : {}),
+        }
+        const key = turnId ?? ''
+        if (turnId) ensureTurn(turnId)
+        commandOutputsInTurn.set(key, [...(commandOutputsInTurn.get(key) ?? []), entry])
+        break
+      }
       case 'turn_completed': {
         if (turnId) {
           const turn = ensureTurn(turnId)
@@ -871,6 +907,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     const turn = turns.get(turnId)
     if (!turn) continue
     entries.push(...(compactionsInTurn.get(turnId) ?? []))
+    entries.push(...(commandOutputsInTurn.get(turnId) ?? []))
     entries.push({
       kind: 'assistant',
       turnId: turn.turnId,
@@ -903,6 +940,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     }
     entries.push(...(compactionsAfterTurn.get(turnId) ?? []))
   }
+  entries.push(...(commandOutputsInTurn.get('') ?? []))
   // Optimistic tail: local sends not yet represented by user_message events.
   if (useEventUserTurns) {
     for (const userTurn of userTurns) {

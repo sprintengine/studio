@@ -6,6 +6,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
+import { ChatAppearanceRows } from './ChatAppearanceRows'
 import { effectiveWindowMaterial, type WindowMaterial } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
@@ -1290,6 +1291,7 @@ export default function SettingsPanel({
                   onChange={setChatListView}
                 />
               </SettingsRow>
+              <ChatAppearanceRows />
               {/* Where a file opens (owner ruling 2026-09-25). The editor
                   window is the default: the file on its own, with a tree
                   beside it that says where it lives. The in-app tab stays a

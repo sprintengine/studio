@@ -24,6 +24,16 @@ import { isWslHostId } from '../../shared/execution-host'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
+import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
+import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import {
+  CLAUDE_COMMANDS_CLI,
+  claudeCommandsFromInit,
+  initSkillNames,
+  initTerminalCommands,
+  mapClaudeCommands,
+  sameCommandNames,
+} from '../conversation-commands/claude'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 
 import type {
@@ -196,6 +206,16 @@ type SessionState = {
   // Tool calls this app refused, so their results read as declined rather
   // than as tools that failed on their own.
   declinedToolUseIds: Set<string>
+  // What the child's last init said about its commands: which names are
+  // skills and which are bound to the terminal, so a later `commands_changed`
+  // push is read the same way. Null until an init has said.
+  commandSkills: string[] | null
+  terminalCommands: string[] | null
+  // The exchange has already shown a local command's output (the CLI reports
+  // it more than one way), and whether it compacted, whose divider already
+  // says what `/compact` printed. Both reset when the exchange ends.
+  commandOutputShown: boolean
+  compactedInExchange: boolean
 }
 
 // Event types that belong to a turn (carry a turnId and must be suppressed by
@@ -438,6 +458,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
             state.interruptedSendUuids.clear()
           }
         }
+        if (message.type === 'system') noteCommandList(state, message)
         const forking = state.resumeAt !== null
         const ends = message.type === 'result' && resultEndsExchange(state.pendingSendUuids, message)
         deliver(state, mapSdkMessage(state, message, { exchangeContinues: message.type === 'result' && !ends }))
@@ -479,6 +500,35 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         disposeChild(state)
       }
     }
+  }
+
+  // What the live child says its commands are, for the composer's `/` menu.
+  // The init (sent at the start of every exchange) names them; a
+  // `commands_changed` push replaces them whole. Published only when the list
+  // changed, and never into the transcript: it is the folder's list, not
+  // something that happened in the chat. A chat with skills attached runs its
+  // child on those skills alone (the `skills` option) plus a plugin of its
+  // own, so its list is not the folder's and is kept out of it.
+  function noteCommandList(state: SessionState, message: Record<string, unknown>): void {
+    if (message.subtype !== 'init' && message.subtype !== 'commands_changed') return
+    if (message.subtype === 'init') {
+      state.commandSkills = initSkillNames(message) ?? state.commandSkills
+      state.terminalCommands = initTerminalCommands(message) ?? state.terminalCommands
+    }
+    if (state.skillIds?.length || !state.workspaceRoot) return
+    const known = conversationCommandsFor(CLAUDE_COMMANDS_CLI, state.workspaceRoot)
+    const next =
+      message.subtype === 'init'
+        ? claudeCommandsFromInit(message, known.commands)
+        : Array.isArray(message.commands)
+          ? mapClaudeCommands(message.commands, { skills: state.commandSkills, terminal: state.terminalCommands })
+          : null
+    if (!next) return
+    // An init repeats the same names every exchange; only a change is news.
+    // A push carries descriptions too, so it is taken whenever it arrives.
+    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands))
+      return
+    publishConversationCommands({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, commands: next })
   }
 
   function ensureQuery(state: SessionState): Promise<void> {
@@ -748,6 +798,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         interruptedSendUuids: new Set(),
         textSeam: false,
         declinedToolUseIds: new Set(),
+        commandSkills: null,
+        terminalCommands: null,
+        commandOutputShown: false,
+        compactedInExchange: false,
       }
       sessions.set(input.sessionId, state)
       return [
@@ -817,15 +871,21 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       // The turn is the session's before its message reaches the child, and
       // nothing between the two yields: a steer finds this turn only once the
-      // child has what it joins.
+      // child has what it joins. The note naming the attached skills goes
+      // ahead of prose only: Claude Code runs a message as a slash command
+      // when it starts with `/`, and read after a note it would be prose. The
+      // skills stay loaded for the command either way.
+      const opensWithCommand =
+        leadingCommandFor(input.message, { cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot }) !== null
       if (!turn.queue.closed)
         pushUserMessage(
           state,
           buildUserMessageContent(
-            input.skills?.length
+            input.skills?.length && !opensWithCommand
               ? `Use the attached skills: ${input.skills.map(attachedSkillName).join(', ')}.\n\n${input.message}`
               : input.message,
             input.attachments,
+            opensWithCommand,
           ),
         )
 
@@ -859,7 +919,14 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // here" on it goes back to.
       const sessionId = state.providerSessionId
       const at = state.settledChainUuid
-      pushUserMessage(state, buildUserMessageContent(input.message, input.attachments))
+      pushUserMessage(
+        state,
+        buildUserMessageContent(
+          input.message,
+          input.attachments,
+          leadingCommandFor(input.message, { cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot }) !== null,
+        ),
+      )
       state.lastActivityAt = now()
       return { ok: true, ...(sessionId && at ? { providerCursor: { sessionId, at } } : {}) }
     },
@@ -1151,13 +1218,23 @@ function readPlanText(toolInput: Record<string, unknown>): string {
 // multimodal block array — the text block (when present) followed by one base64
 // `image` block per attachment. Media types are already validated at the IPC
 // boundary, so they are trusted here.
+//
+// A message that opens with a slash command keeps its text last instead:
+// Claude Code runs a block array as a command only when its *last* block is
+// text starting with `/` (read off Claude Code 2.1.284, which checks
+// `content.at(-1)`), so images ahead of it ride along with the command rather
+// than turning it into prose.
 export function buildUserMessageContent(
   message: string,
   attachments: ConversationImageAttachment[] | undefined,
+  // Whether the message runs as a command: the session judges that against the
+  // list its CLI reported, and without one the message's look decides.
+  opensWithCommand = leadingSlashCommand(message) !== null,
 ): SDKUserMessage['message']['content'] {
   if (!attachments || attachments.length === 0) return message
   const blocks: Exclude<SDKUserMessage['message']['content'], string> = []
-  if (message) blocks.push({ type: 'text', text: message })
+  const commandLast = opensWithCommand
+  if (message && !commandLast) blocks.push({ type: 'text', text: message })
   for (const attachment of attachments) {
     blocks.push({
       type: 'image',
@@ -1170,6 +1247,7 @@ export function buildUserMessageContent(
       },
     })
   }
+  if (commandLast) blocks.push({ type: 'text', text: message })
   return blocks
 }
 
@@ -1270,6 +1348,9 @@ async function defaultLoadQuery(): Promise<SdkQueryFunction> {
   return sdk.query
 }
 
+// The `claude` a chat runs, which the command probe runs too.
+export { defaultResolveExecutable as resolveClaudeExecutable }
+
 async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
   const { detectCli } = await import('../cli-runtime-install')
   const detection = await detectCli('claude-code', cliRuntimes?.['claude-code'])
@@ -1302,17 +1383,28 @@ export function stripAnthropicAuthEnv(env: Record<string, string>): Record<strin
   return next
 }
 
+/**
+ * The environment every chat child starts from, before it is marked with the
+ * conversation it belongs to: the terminal's, without the auth that would
+ * take the child off the person's login. The command probe asks with it, so
+ * the CLI it asks sees what a chat's CLI sees.
+ */
+export async function claudeChatBaseEnv(): Promise<Record<string, string>> {
+  // Deferred import keeps terminal-launch (and its transitive electron/pty
+  // imports) out of unit tests that only exercise the mapping logic. It must
+  // be import() — a bare require('../terminal-launch') survives bundling as a
+  // runtime lookup relative to out/main/index.js and fails in the built app.
+  const { getTerminalEnv } = await import('../terminal-launch')
+  return stripAnthropicAuthEnv(getTerminalEnv())
+}
+
 async function defaultBuildEnv(input: {
   workspaceId: string
   agentId: string
   sessionId: string
 }): Promise<Record<string, string>> {
-  // Deferred import keeps terminal-launch (and its transitive electron/pty
-  // imports) out of unit tests that only exercise the mapping logic. It must
-  // be import() — a bare require('../terminal-launch') survives bundling as a
-  // runtime lookup relative to out/main/index.js and fails in the built app.
-  const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')
-  const env = applyAgentIdentityEnv(stripAnthropicAuthEnv(getTerminalEnv()), {
+  const { applyAgentIdentityEnv } = await import('../terminal-launch')
+  const env = applyAgentIdentityEnv(await claudeChatBaseEnv(), {
     workspaceId: input.workspaceId,
     agentId: input.agentId,
   })
@@ -1339,6 +1431,8 @@ export function mapSdkMessage(
     openToolUseIds?: Set<string>
     resumeAt?: string | null
     textSeam?: boolean
+    commandOutputShown?: boolean
+    compactedInExchange?: boolean
   },
   message: Record<string, unknown>,
   // exchangeContinues: a `result` that answers only part of what the child was
@@ -1356,10 +1450,13 @@ export function mapSdkMessage(
   // its point reports its error under a fresh one.
   const messageSessionId = init && typeof message.session_id === 'string' ? message.session_id : null
   // The main chain's newest entry: what the turn's end records as the point a
-  // rewind can fork at. A subagent's messages live in a chain of their own.
+  // rewind can fork at. A subagent's messages live in a chain of their own,
+  // and the copy of a local command's output the CLI makes for its stream is
+  // not an entry of the session at all.
   if (
     (message.type === 'assistant' || message.type === 'user') &&
     !readParentToolUseId(message) &&
+    typeof message.local_command_source !== 'string' &&
     typeof message.uuid === 'string' &&
     message.uuid
   ) {
@@ -1399,12 +1496,29 @@ export function mapSdkMessage(
     events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId }))
   }
 
+  // What a command the CLI ran by itself printed (`/context`, `/usage`…): no
+  // model turn, so no streamed text either. Shown once per exchange whichever
+  // way the CLI reported it. `/compact` prints a line the compaction divider
+  // already says, so a compacting exchange shows the divider alone.
+  const commandOutput = (output: string, command: string | undefined): void => {
+    const text = stripLocalCommandTags(output).trim()
+    if (!text || state.commandOutputShown) return
+    if (command === 'compact' && state.compactedInExchange) return
+    state.commandOutputShown = true
+    events.push(eventFor(state, 'command_output', { turnId, ...(command ? { command } : {}), output: text }))
+  }
+
   switch (message.type) {
     case 'system': {
+      if (message.subtype === 'local_command_output') {
+        if (typeof message.content === 'string') commandOutput(stripLocalCommandTags(message.content), undefined)
+        break
+      }
       // The CLI summarised the conversation to free context, on /compact or
       // on its own when the window filled. The transcript marks the seam, since
       // the model no longer sees what came before it verbatim.
       if (message.subtype !== 'compact_boundary') break
+      state.compactedInExchange = true
       const metadata = asRecord(message.compact_metadata)
       const trigger = metadata?.trigger === 'manual' || metadata?.trigger === 'auto' ? metadata.trigger : undefined
       const preTokens = finiteNumber(metadata?.pre_tokens)
@@ -1452,6 +1566,13 @@ export function mapSdkMessage(
       const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
+      // Claude Code 2.1.284 hands a local command's output over as an
+      // assistant message of its own making (marked by `local_command_source`)
+      // that nothing streams, so it is read here or not at all.
+      if (!parentToolUseId && typeof message.local_command_source === 'string') {
+        commandOutput(extractResultText(content), readString(asRecord(message.local_command_run)?.command))
+        break
+      }
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
@@ -1517,6 +1638,12 @@ export function mapSdkMessage(
       break
     }
     case 'result': {
+      // A result that answers a local command repeats its output: the one
+      // report left when the CLI sent it no other way.
+      if (typeof message.local_command === 'string' && typeof message.result === 'string')
+        commandOutput(message.result, message.local_command)
+      state.commandOutputShown = false
+      state.compactedInExchange = false
       if (options.interrupted) {
         state.openToolUseIds?.clear()
         if (state.lastChainUuid) state.settledChainUuid = state.lastChainUuid
@@ -1603,10 +1730,34 @@ export function mapSdkMessage(
       }
       break
     }
+    case 'conversation_reset': {
+      // `/clear` (typed, since the menu does not offer it) started a new CLI
+      // conversation. The next init names it, and the chat follows it from
+      // there; the transcript says the model no longer has what came before.
+      events.push(
+        eventFor(state, 'command_output', {
+          turnId,
+          command: 'clear',
+          adapterNote: true,
+          output: 'Claude Code started a new conversation. The messages above are no longer in its context.',
+        }),
+      )
+      break
+    }
     default:
       break
   }
   return events
+}
+
+// The CLI wraps what a local command printed in the tags its own transcript
+// keeps it in; the output is what is between them.
+function stripLocalCommandTags(text: string): string {
+  return text.replace(/<\/?local-command-(?:stdout|stderr)>/g, '')
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
 }
 
 // What a shell command's result says about how it ended. The structured
