@@ -18,6 +18,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSubagentStatusPayload,
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
@@ -35,6 +36,7 @@ import type {
   ConversationRevertResult,
 } from '../shared/conversation-runtime'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
+import { readSubagentStatus } from '../shared/conversation/subagents'
 import {
   readToolDetail,
   writeToolDetail,
@@ -84,6 +86,8 @@ import {
 } from './conversation-transcript-reader'
 
 type RuntimeSession = ConversationSessionSummary & {
+  // Spawned agents still running, by spawning tool call.
+  runningSubagents: Map<string, ConversationSubagentStatusPayload>
   workspaceRoot: string
   fileScope: string
   activeTurnId: string | null
@@ -355,6 +359,7 @@ export class ConversationRuntime {
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
       toolDetailPaths: new Set(),
+      runningSubagents: new Map(),
     }
     await this.initializeSequence(input)
     // Excerpts and the replayed history come from the end of the chat, bounded
@@ -397,6 +402,17 @@ export class ConversationRuntime {
           onBeforeTool: (name) => this.captureBeforeTool(session, name),
         }),
       )
+      // Agents the transcript left running belonged to a process that is gone.
+      for (const agent of Array.from(session.runningSubagents.values()))
+        await this.emit(
+          session,
+          this.eventForSession(session, 'subagent_status', {
+            ...agent,
+            status: 'stopped',
+            error: 'The agent stopped when the conversation closed.',
+          }),
+          {},
+        )
       session.status = 'ready'
       session.phase = 'idle'
       session.updatedAt = this.now()
@@ -1229,6 +1245,18 @@ export class ConversationRuntime {
       session.phase = 'running'
     else if (event.type === 'approval_requested')
       session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    if (event.type === 'subagent_status') {
+      const status = readSubagentStatus(event.payload)
+      if (status?.status === 'running')
+        session.runningSubagents.set(status.toolUseId, {
+          ...session.runningSubagents.get(status.toolUseId),
+          ...status,
+        })
+      else if (status) session.runningSubagents.delete(status.toolUseId)
+      session.backgroundAgents = Array.from(session.runningSubagents.values()).filter(
+        (agent) => agent.background,
+      ).length
+    }
     if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
       session.firstUserText ??= event.payload.text.slice(0, 240)
       session.lastUserText = event.payload.text.slice(0, 240)
@@ -2149,6 +2177,7 @@ export class ConversationRuntime {
       firstUserText: session.firstUserText,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
+      ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.

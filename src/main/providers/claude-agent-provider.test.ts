@@ -1897,3 +1897,167 @@ test('a skills plugin left by a process that is gone is swept, one a live proces
     await rm(tempDir, { recursive: true, force: true })
   }
 })
+
+// The sequence Claude Code 2.1 streams for one agent launched in the background
+// (recorded from a real run): the launch notice comes back at once, the turn
+// ends, and the agent reports its progress and its end through task messages.
+test('a background Claude agent keeps its lane open until it reports, then closes it with its answer', () => {
+  const state = { ...mapperState(), subagents: new Map() }
+  const types = (events: ConversationEvent[]) => events.map((event) => event.type)
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+
+  map({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { subagent_type: 'Explore' } }] },
+  })
+  const started = map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    description: 'Count .txt files',
+    task_type: 'local_agent',
+    subagent_type: 'Explore',
+    is_backgrounded: true,
+  })
+  assert.deepEqual(types(started), ['subagent_status'])
+  assert.deepEqual(started[0]?.payload, {
+    toolUseId: 'toolu_bg',
+    taskId: 'task_bg',
+    status: 'running',
+    background: true,
+    subagentType: 'Explore',
+    description: 'Count .txt files',
+  })
+  assert.equal('turnId' in (started[0]?.payload ?? {}), false, 'an agent outlives its turn, so its status carries none')
+
+  // The launch notice is for the model; the lane waits for the agent.
+  const ack = map({
+    type: 'user',
+    parent_tool_use_id: null,
+    message: {
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_bg',
+          content: [
+            { type: 'text', text: 'Async agent launched successfully. (This tool result is internal metadata)' },
+          ],
+        },
+      ],
+    },
+  })
+  assert.deepEqual(ack, [])
+
+  state.turn = null
+  const progress = map({
+    type: 'system',
+    subtype: 'task_progress',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    description: 'Count .txt files',
+    last_tool_name: 'Bash',
+    summary: 'Listing the directory',
+    usage: { total_tokens: 9287, tool_uses: 1, duration_ms: 6011 },
+  })
+  assert.equal(progress[0]?.payload?.lastToolName, 'Bash')
+  assert.equal(progress[0]?.payload?.progressSummary, 'Listing the directory')
+  assert.deepEqual(progress[0]?.payload?.usage, { totalTokens: 9287, toolUses: 1, durationMs: 6011 })
+
+  // The agent's own last words are its answer.
+  assert.deepEqual(
+    map({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_bg',
+      message: {
+        content: [
+          { type: 'thinking', thinking: '' },
+          { type: 'text', text: 'There are 2 files.' },
+        ],
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(
+    map({ type: 'system', subtype: 'task_updated', task_id: 'task_bg', patch: { status: 'completed', end_time: 42 } }),
+    [],
+  )
+  const finished = map({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'task_bg',
+    tool_use_id: 'toolu_bg',
+    status: 'completed',
+    output_file: '/tmp/task_bg.output',
+    summary: '2',
+    usage: { total_tokens: 10065, tool_uses: 1, duration_ms: 7333 },
+  })
+  assert.deepEqual(types(finished), ['tool_output', 'subagent_status'])
+  assert.equal(finished[0]?.payload?.toolUseId, 'toolu_bg')
+  assert.equal(finished[0]?.payload?.output, 'There are 2 files.')
+  assert.equal(finished[0]?.payload?.status, 'ok')
+  assert.equal(finished[0]?.payload?.backgroundResult, true)
+  assert.equal(finished[0]?.payload?.turnId, undefined)
+  assert.equal(finished[1]?.payload?.status, 'completed')
+  assert.equal(finished[1]?.payload?.endedAt, 42)
+  assert.deepEqual(finished[1]?.payload?.usage, { totalTokens: 10065, toolUses: 1, durationMs: 7333 })
+  assert.equal(state.subagents.size, 0)
+})
+
+test('a foreground Claude agent keeps its own result and background shells are not agents', () => {
+  const state = { ...mapperState(), subagents: new Map() }
+  const map = (message: Record<string, unknown>) => mapSdkMessage(state, { session_id: 'native', ...message })
+  map({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: 'task_fg',
+    tool_use_id: 'toolu_fg',
+    task_type: 'local_agent',
+    is_backgrounded: false,
+  })
+  const result = map({
+    type: 'user',
+    parent_tool_use_id: null,
+    message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_fg', content: 'Found it in router.ts' }] },
+  })
+  assert.equal(result[0]?.payload?.output, 'Found it in router.ts')
+  const done = map({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: 'task_fg',
+    tool_use_id: 'toolu_fg',
+    status: 'failed',
+    summary: 'Ran out of turns',
+  })
+  assert.deepEqual(
+    done.map((event) => event.type),
+    ['subagent_status'],
+    'a foreground agent returned its result on its call',
+  )
+  assert.equal(done[0]?.payload?.status, 'failed')
+  assert.equal(done[0]?.payload?.error, 'Ran out of turns')
+
+  assert.deepEqual(
+    map({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'shell',
+      tool_use_id: 'toolu_shell',
+      task_type: 'local_bash',
+      is_backgrounded: true,
+    }),
+    [],
+  )
+  assert.deepEqual(
+    map({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'watch',
+      tool_use_id: 'toolu_watch',
+      task_type: 'local_agent',
+      ambient: true,
+    }),
+    [],
+  )
+})
