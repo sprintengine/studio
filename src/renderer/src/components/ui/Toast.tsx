@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import CliIcon from '../CliIcon'
 import { GhostButton, PrimaryButton } from './Buttons'
 import { Spinner } from './Spinner'
@@ -20,14 +20,19 @@ const TOAST_LIVE: Record<Tone, 'polite' | 'assertive'> = {
   error: 'assertive',
 }
 
-// Opinionated auto-dismiss policy. Warn and error stay until the user
-// dismisses them so the operator never misses a failed precondition.
+// Opinionated auto-dismiss policy. Warn stays until the user dismisses it or
+// its producer retracts it: every warn toast is a standing condition (a lost
+// connection, a pair request) that goes away when the condition does. Error
+// is a one-off report of a thing that already failed, so it lingers twice as
+// long as a success and then leaves (owner ruling 2026-09-28 — a stack of
+// stale "Could not copy" cards is furniture). Hovering or focusing the card
+// holds the clock, so a timed error is never raced while being read.
 const TOAST_AUTO_DISMISS_MS: Record<Tone, number | false> = {
   neutral: 5000,
   good: 5000,
   accent: 5000,
   warn: false,
-  error: false,
+  error: 10000,
 }
 
 type ToastProps = {
@@ -80,27 +85,40 @@ export function Toast({
   useEffect(() => {
     onDismissRef.current = onDismiss
   }, [onDismiss])
+  // Held while the pointer is over the card or focus is inside it; letting
+  // go restarts the full duration rather than leaving a sliver of it.
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const held = hovered || focused
   useEffect(() => {
-    if (resolved === false) return
+    if (resolved === false || held) return
     const id = window.setTimeout(() => onDismissRef.current?.(), resolved)
     return () => window.clearTimeout(id)
-  }, [resolved])
+  }, [resolved, held])
 
   return (
     <div
       role={TOAST_ROLE[tone]}
       aria-live={TOAST_LIVE[tone]}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
+      }}
       className={[
         // toast-enter is defined in src/renderer/src/assets/index.css and is
         // disabled inside the global `prefers-reduced-motion: reduce` rule.
         'toast-enter flex items-start gap-2 rounded-[7px] border px-3 py-2',
         // Glass (owner ruling 2026-09-04):
         // `surface-glass` is bg.surface-raised at glass.opacity over a blur of
-        // the page, with a hairline and shadow.popover to draw the card's
+        // the page, with a hairline and shadow.toast to draw the card's
         // edge over whatever shows through. The toast is the ONE surface
         // allowed to blur — its area is a corner, not a viewport — and the
-        // conformance lint pins the utility to this file.
-        'surface-glass shadow-[var(--shadow-popover)] border-[color:var(--border-default)]',
+        // conformance lint pins the utility to this file. shadow.toast is
+        // the button's lit top edge over a lifted drop (owner ruling
+        // 2026-09-28), so the card reads as sitting ON the page, not in it.
+        'surface-glass shadow-[var(--shadow-toast)] border-[color:var(--border-default)]',
         'text-meta text-[color:var(--text-default)]',
         className ?? '',
       ].join(' ')}

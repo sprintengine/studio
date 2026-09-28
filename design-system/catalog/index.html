@@ -113,6 +113,7 @@
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
+  --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
   --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
@@ -229,6 +230,7 @@
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -288,6 +290,7 @@
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
+  --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
   --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -344,6 +347,7 @@
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
+  --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22);
   --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
   --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
@@ -7989,9 +7993,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * tone is carried by the 6px dot and the words — never by tinting the
  * surface — so every toast survives greyscale.
  *
- * No shadow, on purpose: no elevation token names the toast (the ramp is
- * popover / drawer / modal) and the shipped toast ships none. The hairline
- * does the separating. */
+ * Elevation is its own token, shadow.toast (owner ruling 2026-09-28): the
+ * button's lit top edge over a drop deeper than a popover's, so the card
+ * reads as sitting on the page rather than printed into it. */
 
 /* The one corner. pointer-events pass through the empty column so the region
  * never blocks the content it floats over; each toast re-enables its own. */
@@ -8021,13 +8025,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
   /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
-   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * blur-and-saturate of the page, with shadow.toast drawing the edge. The
    * toast is the one surface allowed to blur — a corner, not a viewport. */
   /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
   background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
   -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
-  box-shadow: var(--sem-shadow-popover);
+  box-shadow: var(--sem-shadow-toast);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -12279,6 +12283,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. In dark mode the value leads with an inset top highlight — the lit edge — because a black drop shadow over a scrimmed near-black ground separates nothing; light mode needs no such line. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.toast</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for the toast card: a 1px lit top edge over a lifted drop, so the corner report reads as sitting above the page it floats over. The toast card only. The inset highlight is the control-raised light source (lit from above); the drop sits between popover and modal because a toast floats over live content with no scrim and no anchor to lean on. <strong>Do not:</strong> Anchored surfaces (shadow.popover) or scrimmed shells (shadow.modal).</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-raised</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a filled control: a 1px lit top edge over a shallow drop. Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface. <strong>Do not:</strong> Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-edge</code><code class="catalog-token-value">inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a bordered neutral control: the quieter half-step below control-raised. Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above. <strong>Do not:</strong> Filled controls — those take shadow.control-raised, which is a full step brighter.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-pressed</code><code class="catalog-token-value">inset 0 1px 2px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The pressed state of any elevated control: the bevel inverts and the drop is gone. Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it. <strong>Do not:</strong> A resting state, and never on a control that carries no resting elevation.</p></div></div>
@@ -39841,7 +39846,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-toast">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt and stay until dismissed. The buttons feed the live corner region.</p>
+  <p class="demo-label">Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt — warn stays until dismissed, danger leaves after 10 s. The buttons feed the live corner region.</p>
 
   <div class="ds-toast-region demo-parked">
     <div class="ds-toast ds-toast--neutral" role="status" aria-live="polite">
@@ -39979,14 +39984,14 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>A toast never carries a question (that is a modal), never carries the only route to an action (a surface that must be acted on is a banner or an inline notice, which stay put), and never dumps the operation's inventory — file counts, hashes, byte sizes are stored, not displayed. The one crack in the first rule is the answer-in-place variant below, held to a single field and a persistent surface the request is also readable behind.</p>
 <h4>Anatomy</h4>
 <p>| Part       | Class                                                    | Required                                                                    | | ---------- | -------------------------------------------------------- | --------------------------------------------------------------------------- | | Region     | <code>.ds-toast-region</code>                                       | yes — the fixed corner stack at <code>z.toast</code>; one per document                 | | Surface    | <code>.ds-toast</code>                                              | yes — <code>role</code> and <code>aria-live</code> chosen by tone (below)                         | | Tone dot   | <code>.ds-toast-dot</code>                                          | yes — the 6px status idiom, <code>aria-hidden</code>                                   | | Content    | <code>.ds-toast-content</code>                                      | yes — title <code>.ds-toast-title</code>, optional description <code>.ds-toast-description</code> | | Answer row | <code>.ds-toast-answer</code> + <code>.ds-toast-code</code> + <code>.ds-toast-help</code> | no — the answer-in-place variant's one field and its two answers            | | Dismiss    | <code>.ds-toast-dismiss</code>                                      | no — trailing icon button, <code>aria-label=&quot;Dismiss&quot;</code>                           |</p>
-<p>The surface is <strong>glass</strong> (owner ruling 2026-09-04): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, a <code>border.default</code> hairline, and <code>shadow.popover</code> drawing the edge over whatever shows through. Where <code>backdrop-filter</code> is unsupported the card is solid <code>bg.surface-raised</code>.</p>
+<p>The surface is <strong>glass</strong> (owner ruling 2026-09-04): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, a <code>border.default</code> hairline, and <code>shadow.toast</code> drawing the edge over whatever shows through — a 1px lit top edge (the button's light source) over a lifted drop, so the card reads as sitting on the page (owner ruling 2026-09-28). Where <code>backdrop-filter</code> is unsupported the card is solid <code>bg.surface-raised</code>.</p>
 <p>The blur ban (<code>principles.md</code>, the modal and drawer specs) exists because a full-viewport scrim re-samples every terminal pane under it every frame; a toast's area is a corner, a fraction of that cost.</p>
 <p><strong>Amended 2026-09-07 (owner ruling): two surfaces blur, not one.</strong> The conversation peek — the hover card that shows what a chat was asked, drawn deliberately over a running terminal — is the second, through <code>PointerPopover</code>'s opt-in <code>material=&quot;glass&quot;</code>. It is a larger area than a toast and this is not pretended otherwise: the ruling accepts that cost for a surface whose whole point is to sit _over_ the app it is describing, while the area argument still holds against the thing it was written for, a full-viewport scrim. <strong>Amended again 2026-09-08:</strong> the trigger-anchored <code>Popover</code> carries the same opt-in, for the composer's skill type-ahead drawn over the transcript being read — the popover spec's &quot;Material&quot; section had already ruled glass a material of the whole popover family, and the anchored shell is that family's engine. <strong>Amended 2026-09-10:</strong> the [command palette](../command-palette/component.md)'s shell is the fourth, and the first at dialog scale over the middle of the window where the terminals are. It is affordable for a reason the earlier three did not have: the palette holds the terminal repaint pause for its lifetime (the hold <code>Modal</code> takes), so the panes beneath it stop invalidating and the blur is computed once rather than on every PTY chunk — which is what the ~10fps measurement actually was. Its scrim stays a plain tone; the area argument still holds against a full-viewport blur. The conformance lint pins the glass utility to those four <strong>kit shells</strong> (<code>Toast.tsx</code>, <code>PointerPopover.tsx</code>, <code>Popover.tsx</code>, <code>CommandPalette.tsx</code>); a product file that blurs, or borrows the utility directly, is still a violation — a surface that wants glass asks the shell for it.</p>
 <p>The tone is carried by the dot's shape-plus-color and by the words — never by tinting the surface. A toast that survives greyscale is the test.</p>
 <h4>Variants</h4>
 <p>Five tones, each deciding color, politeness, and persistence:</p>
-<p>| Tone        | Dot              | Role / live           | Auto-dismiss | | ----------- | ---------------- | --------------------- | ------------ | | <code>--neutral</code> | <code>status.neutral</code> | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--good</code>    | <code>status.good</code>    | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--accent</code>  | <code>accent.primary</code> | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--warn</code>    | <code>status.warn</code>    | <code>alert</code> / <code>assertive</code> | never        | | <code>--danger</code>  | <code>status.danger</code>  | <code>alert</code> / <code>assertive</code> | never        |</p>
-<p><strong>Warn and danger stay until dismissed.</strong> An auto-dismissing error is a failure the operator can miss by looking away for five seconds; a persistent success is furniture. The policy is the point — consumers may override the duration, not the split. (The shipped kit names the danger tone <code>error</code>; the class here follows the token grammar, <code>status.danger</code>.)</p>
+<p>| Tone        | Dot              | Role / live           | Auto-dismiss | | ----------- | ---------------- | --------------------- | ------------ | | <code>--neutral</code> | <code>status.neutral</code> | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--good</code>    | <code>status.good</code>    | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--accent</code>  | <code>accent.primary</code> | <code>status</code> / <code>polite</code>   | 5 s          | | <code>--warn</code>    | <code>status.warn</code>    | <code>alert</code> / <code>assertive</code> | never        | | <code>--danger</code>  | <code>status.danger</code>  | <code>alert</code> / <code>assertive</code> | 10 s         |</p>
+<p><strong>Warn stays until dismissed or retracted; danger lingers, then leaves</strong> (owner ruling 2026-09-28, amending the earlier never-for-both). Every warn toast is a standing condition — a lost connection, a pair request — and its producer retracts it when the condition clears. A danger toast reports a one-off that already failed (&quot;Could not copy to clipboard&quot;); left forever, a corner of them is furniture. It stays twice as long as a success, and hovering or focusing any toast holds its clock, restarting the full duration on leave, so nobody is raced while reading. A persistent success is still furniture. (The shipped kit names the danger tone <code>error</code>; the class here follows the token grammar, <code>status.danger</code>.)</p>
 <p><strong>The action row, two consumers.</strong> Owner ruling 2026-09-04: the CLI-update toast (&quot;Update available: Codex 0.153.3&quot;) carries <code>.ds-toast-actions</code> with <strong>Settings</strong> (ghost) and <strong>Update</strong> (primary), and <code>.ds-toast-glyph</code> — the agent CLI's icon — in place of the tone dot. It stays for one minute, not five seconds and not forever (owner ruling 2026-09-18): long enough to reach for Update, short enough that an unasked-for notice does not sit in the corner until clicked. Missing it loses nothing — the bell and the Settings row carry the same news. Once Update is pressed the toast becomes that update's report, and its buttons go with the question they answered. &quot;Undo&quot; in a toast is still an action on a timer racing its own dismissal and still belongs where the change is visible; a further consumer of the action row is a design decision to record here, not a styling choice.</p>
 <p><strong>The action row's second consumer (owner ruling 2026-09-23, amended 2026-09-24).</strong> The app-update toast is one toast, shown again in place at each step of the update, so the corner always says where the update is:</p>
 <p>| Step        | Title                                                                      | Actions                                            | | ----------- | -------------------------------------------------------------------------- | -------------------------------------------------- | | Found       | &quot;SprintEngine Studio 0.7.0 is available&quot; (accent dot)                      | <strong>Later</strong> (ghost), <strong>Download</strong> (primary)          | | Downloading | &quot;Downloading SprintEngine Studio 0.7.0&quot;, the percentage as its description | none                                               | | Ready       | &quot;SprintEngine Studio 0.7.0 is ready&quot; (good dot)                            | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) | | Installing  | &quot;Installing update&quot;                                                        | <strong>Restarting…</strong>, busy                              | | Refused     | &quot;Update not installed&quot;, and why (warn dot)                                 | <strong>Later</strong> (ghost), <strong>Restart to update</strong> (primary) |</p>
@@ -40005,7 +40010,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p><strong>The dismiss affordance is optional on polite tones, mandatory on persistent ones.</strong> A toast that never auto-dismisses without a dismiss button is a squatter.</p>
 <p><strong>Rebuilding it in a framework:</strong> what must survive is the tone table — the role/live/persistence mapping is the component's actual contract — plus the single region, the hit-target floor on the dismiss button, and the glass staying the toast's alone.</p>
 <h4>Accessibility</h4>
-<ul><li>Politeness follows severity: <code>role=&quot;status&quot;</code> + <code>aria-live=&quot;polite&quot;</code> for neutral, good, and accent; <code>role=&quot;alert&quot;</code> + <code>aria-live=&quot;assertive&quot;</code> for warn and danger. A success must not interrupt; a failure must.</li><li>A toast <strong>never takes focus</strong>. Announcement is the live region's job; stealing focus from the person's task to report on it is the interruption the polite/assertive split exists to avoid.</li><li>The dot is <code>aria-hidden</code>; the words carry the tone for a screen reader, and shape-plus-color carries it visually — never color alone.</li><li>The dismiss button carries <code>aria-label=&quot;Dismiss&quot;</code> and pads its 10px glyph out to <code>size.hit-target-min</code> with a transparent hit area — the glyph shrinks, the target does not.</li><li>The entrance animation honours <code>prefers-reduced-motion: reduce</code>.</li><li>Persistent tones remain until explicitly dismissed, so an assistive-tech user navigating slowly is never raced by a timer.</li></ul>
+<ul><li>Politeness follows severity: <code>role=&quot;status&quot;</code> + <code>aria-live=&quot;polite&quot;</code> for neutral, good, and accent; <code>role=&quot;alert&quot;</code> + <code>aria-live=&quot;assertive&quot;</code> for warn and danger. A success must not interrupt; a failure must.</li><li>A toast <strong>never takes focus</strong>. Announcement is the live region's job; stealing focus from the person's task to report on it is the interruption the polite/assertive split exists to avoid.</li><li>The dot is <code>aria-hidden</code>; the words carry the tone for a screen reader, and shape-plus-color carries it visually — never color alone.</li><li>The dismiss button carries <code>aria-label=&quot;Dismiss&quot;</code> and pads its 10px glyph out to <code>size.hit-target-min</code> with a transparent hit area — the glyph shrinks, the target does not.</li><li>The entrance animation honours <code>prefers-reduced-motion: reduce</code>.</li><li>Warn remains until dismissed or retracted, and every timed toast holds its clock while hovered or focused, so an assistive-tech user navigating into one is never raced by a timer.</li></ul>
 <h4>Known drift</h4>
 <p>None. Both entries that stood here were spent on 2026-08-05 (the menu-row sweep):</p>
 <ul><li>The dismiss target was 20px, under <code>--sem-size-hit-target-min</code>. <code>Toast.tsx</code> now takes its floor from that token directly, keeping the 10px glyph and the flow advance the smaller target had.</li><li>The placement note pointed at the overlay-geometry sweep, which had already shipped.</li></ul>
@@ -40021,9 +40026,9 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
  * tone is carried by the 6px dot and the words — never by tinting the
  * surface — so every toast survives greyscale.
  *
- * No shadow, on purpose: no elevation token names the toast (the ramp is
- * popover / drawer / modal) and the shipped toast ships none. The hairline
- * does the separating. */
+ * Elevation is its own token, shadow.toast (owner ruling 2026-09-28): the
+ * button's lit top edge over a drop deeper than a popover's, so the card
+ * reads as sitting on the page rather than printed into it. */
 
 /* The one corner. pointer-events pass through the empty column so the region
  * never blocks the content it floats over; each toast re-enables its own. */
@@ -40053,13 +40058,13 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-overlay);
   /* Glass (ruling 2026-09-04): bg.surface-raised at glass.opacity over a
-   * blur-and-saturate of the page, with shadow.popover drawing the edge. The
+   * blur-and-saturate of the page, with shadow.toast drawing the edge. The
    * toast is the one surface allowed to blur — a corner, not a viewport. */
   /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
   background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
   -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
-  box-shadow: var(--sem-shadow-popover);
+  box-shadow: var(--sem-shadow-toast);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -40270,7 +40275,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt and stay until dismissed. The buttons feed the live corner region.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt — warn stays until dismissed, danger leaves after 10 s. The buttons feed the live corner region.&lt;/p&gt;
 
   &lt;div class=&quot;ds-toast-region demo-parked&quot;&gt;
     &lt;div class=&quot;ds-toast ds-toast--neutral&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;
@@ -40406,23 +40411,22 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 &lt;script&gt;
 /* Reference behaviour for the contract in component.md. What must survive a
    framework rewrite is the tone table: role and aria-live chosen by tone,
-   polite tones auto-dismissing at 5 s, warn and danger staying until the
-   user dismisses them — plus the single region and no focus steal. */
-
-const AUTO_DISMISS_MS = 5000
+   polite tones auto-dismissing at 5 s, danger at 10 s, warn staying until
+   dismissed, and hover holding the clock — plus the single region and no
+   focus steal. */
 
 const TONES = {
   good: {
     role: 'status',
     live: 'polite',
-    persist: false,
+    dismissMs: 5000,
     title: 'Automation archived',
     description: 'It left the Automations rail; its run history stays.',
   },
   danger: {
     role: 'alert',
     live: 'assertive',
-    persist: true,
+    dismissMs: 10000,
     title: 'Automation failed to start',
     description: 'The agent CLI could not be launched.',
   },
@@ -40471,10 +40475,14 @@ function announce(tone, scopeNode) {
   toast.append(dot, content, close)
   region.appendChild(toast)
 
-  /* Polite tones leave on their own; warn and danger wait to be dismissed so
-     a failure can never be missed by looking away. No focus is taken either
+  /* Polite tones leave at 5 s, danger at 10 s; warn (not demoed here) waits
+     to be dismissed or retracted. Hovering holds the clock and leaving
+     restarts it, so nobody is raced while reading. No focus is taken either
      way — announcement is the live region's job. */
-  if (!spec.persist) toast._timer = window.setTimeout(() =&gt; dismiss(toast), AUTO_DISMISS_MS)
+  const arm = () =&gt; (toast._timer = window.setTimeout(() =&gt; dismiss(toast), spec.dismissMs))
+  toast.addEventListener('pointerenter', () =&gt; window.clearTimeout(toast._timer))
+  toast.addEventListener('pointerleave', arm)
+  arm()
 }
 
 for (const button of document.querySelectorAll('[data-toast]')) {

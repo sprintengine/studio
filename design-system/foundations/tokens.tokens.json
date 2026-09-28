@@ -1052,6 +1052,25 @@
           }
         }
       },
+      "toast": {
+        "$type": "shadow",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)",
+        "$description": "Elevation for the toast card: a 1px lit top edge over a lifted drop, so the corner report reads as sitting above the page it floats over.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "elevation",
+            "use": "The toast card only. The inset highlight is the control-raised light source (lit from above); the drop sits between popover and modal because a toast floats over live content with no scrim and no anchor to lean on.",
+            "doNotUse": "Anchored surfaces (shadow.popover) or scrimmed shells (shadow.modal).",
+            "components": [
+              "toast"
+            ],
+            "modes": {
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75)"
+            }
+          }
+        }
+      },
       "control-raised": {
         "$type": "shadow",
         "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)",

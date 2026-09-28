@@ -71,6 +71,41 @@ test('ToastRegion', async () => {
     })
   }
 
+  // A hand-driven clock over jsdom's window timers: the primitive schedules
+  // through `window.setTimeout`.
+  function withFakeClock(body: (advance: (ms: number) => void) => void): void {
+    const realSetTimeout = dom.window.setTimeout
+    const realClearTimeout = dom.window.clearTimeout
+    type Scheduled = { id: number; at: number; fn: () => void }
+    let clock = 0
+    let nextId = 1
+    const scheduled: Scheduled[] = []
+    dom.window.setTimeout = ((fn: () => void, ms?: number) => {
+      const id = nextId++
+      scheduled.push({ id, at: clock + (ms ?? 0), fn })
+      return id
+    }) as unknown as typeof dom.window.setTimeout
+    dom.window.clearTimeout = ((id?: number) => {
+      const index = scheduled.findIndex((entry) => entry.id === id)
+      if (index !== -1) scheduled.splice(index, 1)
+    }) as unknown as typeof dom.window.clearTimeout
+    const advance = (ms: number): void => {
+      clock += ms
+      for (;;) {
+        const due = scheduled.filter((entry) => entry.at <= clock).sort((a, b) => a.at - b.at)[0]
+        if (!due) return
+        scheduled.splice(scheduled.indexOf(due), 1)
+        act(() => due.fn())
+      }
+    }
+    try {
+      body(advance)
+    } finally {
+      dom.window.setTimeout = realSetTimeout
+      dom.window.clearTimeout = realClearTimeout
+    }
+  }
+
   run('an empty store renders no region at all — not an empty box over the pane', () => {
     reset()
     const mounted = mount()
@@ -96,7 +131,7 @@ test('ToastRegion', async () => {
     assert.match(classes, /pointer-events-none/, 'the wrapper swallows no clicks')
     assert.match(region.innerHTML, /pointer-events-auto/, 'each surface reclaims its own')
     assert.match(region.innerHTML, /surface-glass/, 'the card is the one glass surface (ruling 2026-09-04)')
-    assert.match(region.innerHTML, /shadow-\[var\(--shadow-popover\)\]/, 'its edge is drawn by shadow.popover')
+    assert.match(region.innerHTML, /shadow-\[var\(--shadow-toast\)\]/, 'its edge is drawn by shadow.toast')
     assert.doesNotMatch(region.innerHTML, /bg-\[color:var\(--bg-surface-raised\)\]/, 'no flat fill under the glass')
     assert.doesNotMatch(region.getAttribute('class') ?? '', /surface-glass|shadow/, 'the region draws nothing itself')
     unmount()
@@ -194,37 +229,10 @@ test('ToastRegion', async () => {
     'a second toast arriving does not extend the first one’s life — the clock is keyed on policy, not the callback',
     () => {
       reset()
-      // A hand-driven clock over jsdom's window timers: the primitive schedules
-      // through `window.setTimeout`, and the region hands each toast a fresh
-      // `onDismiss` closure per render — the exact shape that used to restart
-      // every toast's 5 s whenever any toast came or went.
-      const realSetTimeout = dom.window.setTimeout
-      const realClearTimeout = dom.window.clearTimeout
-      type Scheduled = { id: number; at: number; fn: () => void }
-      let clock = 0
-      let nextId = 1
-      const scheduled: Scheduled[] = []
-      const fakeSetTimeout = ((fn: () => void, ms?: number) => {
-        const id = nextId++
-        scheduled.push({ id, at: clock + (ms ?? 0), fn })
-        return id
-      }) as unknown as typeof dom.window.setTimeout
-      const fakeClearTimeout = ((id?: number) => {
-        const index = scheduled.findIndex((entry) => entry.id === id)
-        if (index !== -1) scheduled.splice(index, 1)
-      }) as unknown as typeof dom.window.clearTimeout
-      const advance = (ms: number): void => {
-        clock += ms
-        for (;;) {
-          const due = scheduled.filter((entry) => entry.at <= clock).sort((a, b) => a.at - b.at)[0]
-          if (!due) return
-          scheduled.splice(scheduled.indexOf(due), 1)
-          act(() => due.fn())
-        }
-      }
-      dom.window.setTimeout = fakeSetTimeout
-      dom.window.clearTimeout = fakeClearTimeout
-      try {
+      // The region hands each toast a fresh `onDismiss` closure per render —
+      // the exact shape that used to restart every toast's 5 s whenever any
+      // toast came or went.
+      withFakeClock((advance) => {
         const mounted = mount()
         act(() => {
           showToast({ tone: 'good', title: 'First arrived' })
@@ -247,12 +255,52 @@ test('ToastRegion', async () => {
         assert.doesNotMatch(mounted.innerHTML, /Second arrived/, 'the second left exactly 5 s after it arrived')
         assert.equal(useToastStore.getState().toasts.length, 0)
         unmount()
-      } finally {
-        dom.window.setTimeout = realSetTimeout
-        dom.window.clearTimeout = realClearTimeout
-      }
+      })
     },
   )
+
+  run('an error leaves on its own after 10 s; a warn stays until retracted', () => {
+    reset()
+    withFakeClock((advance) => {
+      const mounted = mount()
+      act(() => {
+        showToast({ tone: 'error', title: 'Could not copy to clipboard' })
+        showToast({ tone: 'warn', title: 'Connection lost' })
+      })
+      advance(9000)
+      assert.match(mounted.innerHTML, /Could not copy/, 'an error outlasts a success')
+      advance(1000)
+      assert.doesNotMatch(mounted.innerHTML, /Could not copy/, 'and then leaves')
+      advance(60_000)
+      assert.match(mounted.innerHTML, /Connection lost/, 'a warn is a standing condition, never timed')
+      unmount()
+    })
+  })
+
+  run('hovering a toast holds its clock; leaving restarts it', () => {
+    reset()
+    withFakeClock((advance) => {
+      const mounted = mount()
+      act(() => {
+        showToast({ tone: 'error', title: 'Screenshot failed' })
+      })
+      const card = mounted.querySelector('[role="alert"]') as HTMLElement
+      advance(8000)
+      act(() => {
+        card.dispatchEvent(new dom.window.MouseEvent('pointerover', { bubbles: true }))
+      })
+      advance(30_000)
+      assert.match(mounted.innerHTML, /Screenshot failed/, 'never raced while being read')
+      act(() => {
+        card.dispatchEvent(new dom.window.MouseEvent('pointerout', { bubbles: true }))
+      })
+      advance(9000)
+      assert.match(mounted.innerHTML, /Screenshot failed/, 'letting go restarts the full duration')
+      advance(1000)
+      assert.doesNotMatch(mounted.innerHTML, /Screenshot failed/)
+      unmount()
+    })
+  })
 
   run('a toast re-shown under its stable id is replaced in place and keeps that id', () => {
     reset()

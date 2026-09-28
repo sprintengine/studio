@@ -492,6 +492,7 @@
   --shadow-drawer: var(--sem-shadow-drawer);
   --shadow-popover: var(--sem-shadow-popover);
   --shadow-modal: var(--sem-shadow-modal);
+  --shadow-toast: var(--sem-shadow-toast);
 
   /* Control elevation — the ONE exception to "nothing in the flow takes a
      shadow", added 2026-09-02. A

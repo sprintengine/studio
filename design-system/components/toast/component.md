@@ -26,7 +26,9 @@ persistent surface the request is also readable behind.
 
 The surface is **glass** (owner ruling 2026-09-04): `bg.surface-raised` at `glass.opacity` over a `backdrop-filter` of
 `glass.blur` and `glass.saturation`, a `border.default` hairline, and
-`shadow.popover` drawing the edge over whatever shows through. Where
+`shadow.toast` drawing the edge over whatever shows through — a 1px lit top
+edge (the button's light source) over a lifted drop, so the card reads as
+sitting on the page (owner ruling 2026-09-28). Where
 `backdrop-filter` is unsupported the card is solid `bg.surface-raised`.
 
 The blur ban (`principles.md`, the modal and drawer specs) exists because a
@@ -71,13 +73,18 @@ Five tones, each deciding color, politeness, and persistence:
 | `--good`    | `status.good`    | `status` / `polite`   | 5 s          |
 | `--accent`  | `accent.primary` | `status` / `polite`   | 5 s          |
 | `--warn`    | `status.warn`    | `alert` / `assertive` | never        |
-| `--danger`  | `status.danger`  | `alert` / `assertive` | never        |
+| `--danger`  | `status.danger`  | `alert` / `assertive` | 10 s         |
 
-**Warn and danger stay until dismissed.** An auto-dismissing error is a
-failure the operator can miss by looking away for five seconds; a persistent
-success is furniture. The policy is the point — consumers may override the
-duration, not the split. (The shipped kit names the danger tone `error`; the
-class here follows the token grammar, `status.danger`.)
+**Warn stays until dismissed or retracted; danger lingers, then leaves**
+(owner ruling 2026-09-28, amending the earlier never-for-both). Every warn
+toast is a standing condition — a lost connection, a pair request — and its
+producer retracts it when the condition clears. A danger toast reports a
+one-off that already failed ("Could not copy to clipboard"); left forever,
+a corner of them is furniture. It stays twice as long as a success, and
+hovering or focusing any toast holds its clock, restarting the full duration
+on leave, so nobody is raced while reading. A persistent success is still
+furniture. (The shipped kit names the danger tone `error`; the class here
+follows the token grammar, `status.danger`.)
 
 **The action row, two consumers.** Owner ruling 2026-09-04: the CLI-update
 toast ("Update available: Codex 0.153.3")
@@ -216,8 +223,9 @@ staying the toast's alone.
   out to `size.hit-target-min` with a transparent hit area — the glyph
   shrinks, the target does not.
 - The entrance animation honours `prefers-reduced-motion: reduce`.
-- Persistent tones remain until explicitly dismissed, so an assistive-tech
-  user navigating slowly is never raced by a timer.
+- Warn remains until dismissed or retracted, and every timed toast holds its
+  clock while hovered or focused, so an assistive-tech user navigating into
+  one is never raced by a timer.
 
 ## Known drift
 
