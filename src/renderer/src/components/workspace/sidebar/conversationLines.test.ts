@@ -1,7 +1,12 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
-import { combinedAgentActivity, conversationLineText, replyPreviewText } from './conversationLines'
+import {
+  combinedAgentActivity,
+  conversationLineMark,
+  conversationLineText,
+  replyPreviewText,
+} from './conversationLines'
 
 const session = (
   status: ConversationSessionSummary['status'],
@@ -74,4 +79,15 @@ test('a reply preview leaves snake_case, stray asterisks and escaped characters 
 
 test('strikethrough and underscore emphasis read as their words', () => {
   assert.equal(replyPreviewText('~~Old~~ plan: __new__ and _quick_.'), 'Old plan: new and quick.')
+})
+
+test('a chat line names the CLI it rides, the way a terminal line does', () => {
+  const claude = conversationLineMark({ providerId: 'claude-agent', modelId: 'default', displayName: 'Mara Quill' })
+  assert.equal(claude.cli, 'claude-code')
+  assert.equal(claude.runtimeLabel, 'Claude Code chat')
+  assert.equal(claude.tooltip, 'Mara Quill · Claude Code chat · default')
+  assert.equal(conversationLineMark({ providerId: 'codex-agent', modelId: 'gpt-5' }).cli, 'codex')
+  const api = conversationLineMark({ providerId: 'openai-compatible-api', modelId: 'model-1' })
+  assert.equal(api.cli, null)
+  assert.equal(api.tooltip, 'Chat · model-1')
 })

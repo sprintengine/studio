@@ -1,6 +1,27 @@
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
+import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
 import { conversationSummaryPhase, type ConversationPhase } from '../../../../../shared/conversation/phase'
+import { labelForCliRuntime } from '../newWorkspace/cliRuntimeOptions'
 import type { Activity } from './rowStyle'
+
+/**
+ * What a chat's mark says: the CLI it rides, so a chat line wears the same
+ * provider mark a terminal line does and the two read as the same agent on a
+ * different surface. `cli` is null for a provider that is not a CLI (the
+ * API-key providers), which keep the chat glyph.
+ */
+export function conversationLineMark(
+  summary: Pick<ConversationSessionSummary, 'providerId' | 'modelId' | 'displayName'>,
+): {
+  cli: string | null
+  runtimeLabel: string
+  tooltip: string
+} {
+  const cli = cliForConversationProvider(summary.providerId)
+  const runtimeLabel = cli ? `${labelForCliRuntime(cli)} chat` : 'Chat'
+  const parts = [summary.displayName?.trim(), runtimeLabel, summary.modelId].filter(Boolean)
+  return { cli, runtimeLabel, tooltip: parts.join(' · ') }
+}
 
 export function conversationLineText(summary: ConversationSessionSummary): string {
   const phase = conversationSummaryPhase(summary)
