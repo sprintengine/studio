@@ -11,6 +11,7 @@ import {
   orderedPendingRequests,
 } from './pendingDock'
 import type { TranscriptEntry } from './conversationProjection'
+import { ConversationLinkProvider } from './conversationLinks'
 
 type Approval = Extract<TranscriptEntry, { kind: 'approval' }>
 const request = (requestId: string, extra: Partial<Approval> = {}): Approval => ({
@@ -403,4 +404,17 @@ test('a plan can be copied, and a long one offers to show in full', () => {
     />,
   )
   expect(long).toContain('Show full plan')
+})
+
+test('a plan waiting for a decision can be opened in the pane from the dock', () => {
+  const entry = request('p', { requestKind: 'plan', plan: '# Move the cache\n\n1. One' })
+  const outside = renderToStaticMarkup(<ConversationPlanCard entry={entry} onApprove={() => undefined} busy={false} />)
+  expect(outside).not.toContain('Open plan')
+  const inside = renderToStaticMarkup(
+    <ConversationLinkProvider workspaceId="ws" agentId="agent" cwd="/repo" workspaceRoot="/repo">
+      <ConversationPlanCard entry={entry} onApprove={() => undefined} busy={false} />
+    </ConversationLinkProvider>,
+  )
+  expect(inside).toContain('Open plan')
+  expect(inside.indexOf('Open plan')).toBeLessThan(inside.indexOf('Approve plan'))
 })

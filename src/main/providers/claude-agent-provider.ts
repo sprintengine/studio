@@ -666,6 +666,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // plan for approval. Everything else is a generic tool-permission card.
     const questions = toolName === 'AskUserQuestion' ? parseAskUserQuestions(toolInput) : null
     const plan = toolName === 'ExitPlanMode' ? readPlanText(toolInput) : null
+    // Claude Code keeps the plan in a file and names it on the request; the
+    // workspace pane opens that file while it still holds this plan.
+    const planFilePath = plan !== null && typeof toolInput.planFilePath === 'string' ? toolInput.planFilePath : null
     const requestPayload: Record<string, unknown> = {
       turnId: turn.turnId,
       requestId,
@@ -684,6 +687,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       kind: questions ? 'question' : plan !== null ? 'plan' : 'tool',
       ...(questions ? { questions } : {}),
       ...(plan !== null ? { plan } : {}),
+      ...(planFilePath ? { planFilePath } : {}),
     }
     turn.queue.push(eventFor(state, 'approval_requested', requestPayload))
 
