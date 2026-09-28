@@ -25,7 +25,8 @@ export function ToastHost() {
 // and the two answers (`PairRequestToastAccept`), because the person reading
 // it is standing in front of the screen showing the digits, and sending them
 // to another surface to type six numbers was the whole friction. Warn, so it
-// persists — and RETRACTED on every terminal phase (approved, denied,
+// lingers (and holds while the code is being typed) — and RETRACTED on every
+// terminal phase (approved, denied,
 // expired, or cancelled because the listener stopped): a toast offering to
 // answer a request that no longer exists would be the one kind of stale this
 // channel exists to prevent. A toast the person already dismissed stays
@@ -80,8 +81,8 @@ export const LISTENER_TOAST_ID = 'tailnet-listener'
  *
  * Quitting Tailscale stands the listener down (tailnet-service's interface
  * heartbeat), and until now the only way to learn that was to open the Remote
- * glyph — a phone would just stop being able to reach this device. Warn, so it
- * persists, and RETRACTED the moment the listener binds again, with the
+ * glyph — a phone would just stop being able to reach this device. Warn, and
+ * RETRACTED the moment the listener binds again, with the
  * recovery announced only if a loss was: the mesh bridge's rule, for the same
  * reason.
  *
@@ -128,8 +129,8 @@ function useMeshToastBridge(): void {
   // Per-connection link memory, so N panes on one machine make one
   // announcement per outage, not N — and recovery is only news after one.
   // The loss toast is keyed by the CONNECTION so recovery RETRACTS it: a
-  // persistent "Reconnecting." standing over a fresh "Reconnected" would
-  // contradict itself, and warn tones never auto-dismiss on their own.
+  // "Reconnecting." standing over a fresh "Reconnected" would contradict
+  // itself.
   const lostConnections = useRef(new Set<string>())
   // Machines that revoked us, announced once each until they answer again.
   const revokedConnections = useRef(new Set<string>())
@@ -190,7 +191,7 @@ function useMeshToastBridge(): void {
       }
       if (event.kind === 'machine-reachability') {
         // Revoked over there is the one reachability answer worth a toast:
-        // it will not fix itself. Warn, so it persists; retracted the moment
+        // it will not fix itself. Warn; retracted the moment
         // the machine answers again (a re-pair), never re-raised per retry.
         const toastId = meshRevokedToastId(event.connectionId)
         if (event.unauthorized) {

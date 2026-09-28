@@ -12,7 +12,7 @@ import type { Tone } from '../components/ui/tokens'
 // bell. A person who missed a toast lost nothing they cannot find, so nothing
 // here survives a reload.
 //
-// Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, error 10s, warn never)
+// Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error 10s)
 // — the store only holds what is showing and removes what was dismissed.
 
 // A button on a toast. TWO toasts carry these: the CLI-update toast (owner
@@ -58,7 +58,7 @@ export type ShowToastInput = {
    * same id replaces the toast in place and keeps the id, so the producer's
    * handle never goes stale. Id-less toasts dedupe on (tone, title) instead.
    * A replaced toast keeps its React key, so a polite tone's auto-dismiss
-   * clock is NOT restarted by a re-show; producers that retract use warn.
+   * clock is NOT restarted by a re-show.
    */
   id?: string
   actions?: ToastAction[]

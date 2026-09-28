@@ -387,7 +387,7 @@ test('accessibility-contracts', async () => {
   expectMatches(toast, /good:\s*'polite'/, 'Toast good uses aria-live="polite"')
   expectMatches(toast, /warn:\s*'assertive'/, 'Toast warn uses aria-live="assertive"')
   expectMatches(toast, /error:\s*'assertive'/, 'Toast error uses aria-live="assertive"')
-  expectMatches(toast, /warn:\s*false/, 'Toast disables auto-dismiss for warn tone')
+  expectMatches(toast, /warn:\s*\d{4,}/, 'Toast gives warn tone a longer finite duration (owner ruling 2026-09-28)')
   expectMatches(toast, /error:\s*\d{4,}/, 'Toast gives error tone a longer finite duration (owner ruling 2026-09-28)')
   expectMatches(toast, /onPointerEnter=\{/, 'Toast holds its dismiss clock while hovered')
   expectMatches(toast, /onFocus=\{/, 'Toast holds its dismiss clock while focus is inside')

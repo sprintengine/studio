@@ -847,6 +847,7 @@ test('settingsSlice', async () => {
     windowMaterial: 'glass',
     chatContrast: 100,
     chatWidth: 'full',
+    agentCharacters: true,
   })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
@@ -854,16 +855,27 @@ test('settingsSlice', async () => {
     windowMaterial: 'glass',
     chatContrast: 100,
     chatWidth: 'full',
+    agentCharacters: true,
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
-    { theme: 'sage', windowMaterial: 'tinted', chatContrast: 100, chatWidth: 'full' },
+    { theme: 'sage', windowMaterial: 'tinted', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'tinted is a stored material in its own right',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'glass', chatContrast: 100, chatWidth: 'full' },
+    { theme: 'sage', windowMaterial: 'glass', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'a persisted appearance predating the material axis hydrates to the glass default',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: false }).agentCharacters,
+    false,
+    'turning the characters off is kept',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: 'no' }).agentCharacters,
+    true,
+    'a malformed value falls back to characters on',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),

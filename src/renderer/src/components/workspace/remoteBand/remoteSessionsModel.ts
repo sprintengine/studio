@@ -46,7 +46,7 @@ export type RemoteBrowseEntry = {
 /**
  * What a remote conversation is doing, in the local rows' vocabulary (owner
  * ruling 2026-09-05: the band reuses the marks local rows already have — the
- * working dots and elapsed, the gold surface for needs-input, a quiet time
+ * working mark and elapsed, the gold surface for needs-input, a quiet time
  * for idle — and invents no dot of its own). `paused` is the one state a
  * local row has no word for: suspended to reclaim memory, resumes on open.
  */

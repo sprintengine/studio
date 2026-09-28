@@ -89,6 +89,7 @@ export function defaultAppearanceSettings(): AppearanceSettings {
     windowMaterial: 'glass',
     chatContrast: DEFAULT_CHAT_CONTRAST,
     chatWidth: DEFAULT_CHAT_WIDTH,
+    agentCharacters: true,
   }
 }
 
@@ -104,6 +105,8 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
     // it takes the defaults, which are the chat as it looked before.
     chatContrast: normalizeChatContrast(candidate.chatContrast),
     chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : defaults.chatWidth,
+    agentCharacters:
+      typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
   }
 }
 
@@ -1080,6 +1083,7 @@ export interface SettingsSliceActions {
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
   setAppearanceChatContrast: (contrast: number) => void
   setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1706,6 +1710,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           chatWidth: width,
+        })
+      }),
+
+    setAppearanceAgentCharacters: (enabled) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          agentCharacters: enabled,
         })
       }),
   }

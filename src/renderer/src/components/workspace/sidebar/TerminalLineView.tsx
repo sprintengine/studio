@@ -6,7 +6,7 @@ import { labelForCliRuntime } from '../newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../../shared/electron-api'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../../utils/relativeTime'
 import { shouldLookUpPullRequests, refreshPullRequestsForLine, PullRequestMark } from '../PullRequestMark'
-import { Tooltip, LinkButton, StatusDot, AgentWorkingDots } from '../../ui'
+import { Tooltip, LinkButton, StatusDot, WorkingMark } from '../../ui'
 import CliIcon from '../../CliIcon'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { BranchChip, RowTooltip, WorkingElapsed } from './rowParts'
@@ -48,7 +48,7 @@ export function TerminalLineView({
   dim?: boolean
   /**
    * The ROW is saying the status somewhere else — the flat stream's project
-   * line, where the clock and the working dots sit at the top-right of every
+   * line, where the clock and the working mark sit at the top-right of every
    * row (all-chats-view). The line then says nothing about time or work: one
    * terminal's dots beside the row's own dots is the same fact twice, six
    * pixels apart (owner, 2026-09-07).
@@ -213,7 +213,7 @@ export function TerminalLineView({
           )}
         </RowTooltip>
       ) : null}
-      {/* The line's own seat: working dots + how long, the failure dot, a
+      {/* The line's own seat: working mark + how long, the failure dot, a
           waiting mark when the row needs to say which line, else how long it
           has sat idle. The seat's min-w is what the row's revealed actions
           reserve (list-row's `data-actions` rule), so revealing never reflows. */}
@@ -236,7 +236,7 @@ export function TerminalLineView({
             ) : null
           ) : line.working ? (
             <>
-              <AgentWorkingDots label="Agent working" />
+              <WorkingMark label="Agent working" seed={line.key} />
               {line.workingSince !== null ? <WorkingElapsed since={line.workingSince} /> : null}
             </>
           ) : line.failed ? (
