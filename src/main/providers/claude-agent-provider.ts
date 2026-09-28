@@ -486,8 +486,28 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       toolUseID?: string
       defaultToNo?: boolean
       suppressAlwaysAllowRule?: boolean
+      matchedAskRule?: unknown
     },
   ): Promise<PermissionResult> {
+    // Bypass means no approval cards, subagents included. The CLI still asks
+    // for some calls under bypassPermissions (an Explore subagent's compound
+    // Bash it can't prove read-only), so answer those here. Two asks still
+    // reach the person: a safety check the CLI marks as not approvable by a
+    // stray keystroke, and one forced by the user's own `permissions.ask`
+    // rule. Questions and plans are answers, not permissions, so they always
+    // show. The preset the child was spawned under decides, matching the
+    // "this reply finishes under the permissions it started with" contract.
+    if (
+      state.spawnedPreset === 'bypass' &&
+      state.mode !== 'plan' &&
+      state.mode !== 'ask' &&
+      toolName !== 'AskUserQuestion' &&
+      toolName !== 'ExitPlanMode' &&
+      !permissionContext?.defaultToNo &&
+      !permissionContext?.matchedAskRule
+    ) {
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being

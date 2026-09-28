@@ -32,6 +32,7 @@ test('claude-agent-provider', async () => {
     await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
+    await testBypassAnswersSubagentAsksButKeepsSafetyAndRuleAsks()
     await testDeniedToolResultReadsAsDeclined()
     await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
     await testExitPlanModeBecomesPlanCard()
@@ -819,6 +820,54 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(deniedEvents.find((event) => event.type === 'approval_resolved')?.payload?.approved, false)
     assert.equal(decisions[1]?.behavior, 'deny')
+  }
+
+  // Under bypass the CLI still asks for some subagent calls (an Explore
+  // agent's compound Bash); those answer themselves. A safety check marked
+  // defaultToNo and an ask forced by the user's own rule still show a card.
+  async function testBypassAnswersSubagentAsksButKeepsSafetyAndRuleAsks(): Promise<void> {
+    const decisions: Array<Record<string, unknown>> = []
+    const { adapter } = createAdapter(async (_userMessage, context) => {
+      const canUseTool = context.options.canUseTool as (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: Record<string, unknown>,
+      ) => Promise<Record<string, unknown>>
+      decisions.push(await canUseTool('Bash', { command: 'cd src; grep -rn x . | head' }, { agentID: 'explore-1' }))
+      decisions.push(await canUseTool('Bash', { command: 'rm -rf /' }, { agentID: 'explore-1', defaultToNo: true }))
+      decisions.push(
+        await canUseTool('Bash', { command: 'git push' }, { matchedAskRule: { source: 'user', toolName: 'Bash' } }),
+      )
+      context.emit({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        session_id: 's1',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+    })
+    await collect(adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
+    const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
+      if (event.type === 'approval_requested')
+        void collect(
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_1',
+            requestId: String(event.payload?.requestId),
+            approved: false,
+          }) as ConversationEvent[],
+        )
+    })
+    const asked = events.filter((event) => event.type === 'approval_requested')
+    assert.deepEqual(
+      asked.map((event) => (event.payload?.input as { command?: string })?.command),
+      ['rm -rf /', 'git push'],
+    )
+    assert.deepEqual(
+      decisions.map((decision) => decision.behavior),
+      ['allow', 'deny', 'deny'],
+    )
+    adapter.disposeAll()
   }
 
   async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promise<void> {
