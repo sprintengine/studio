@@ -319,7 +319,8 @@ export function deriveWorkspaceDisplayActivity(
   return 'idle'
 }
 
-export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited'
+// `finished` is a chat's: when its last turn ended.
+export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited' | 'finished'
 
 export type TabRecencyDisplay = {
   at: number
@@ -369,5 +370,6 @@ export function tabRecencyLabel(source: TabRecencySource): string {
   if (source === 'idle') return 'Idle'
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
+  if (source === 'finished') return 'Finished'
   return 'Exited'
 }

@@ -68,6 +68,11 @@ export type ConversationSessionSummary = {
   firstUserText?: string
   lastUserText?: string
   lastAssistantText?: string
+  // When the most recent turn completed or failed (the event's own time, so it
+  // survives a resume). Absent until a turn has ended. The sidebar and the tab
+  // count "finished" from this rather than `updatedAt`, which also moves on a
+  // model or permission change.
+  lastTurnEndedAt?: number
   // The preset currently in force, when the session carries one. Absent means
   // the session never set one and the provider passes no permission override,
   // as `none` does. Changing it mid-conversation goes through

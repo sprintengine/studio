@@ -58,6 +58,7 @@ import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
+import { conversationFinishedAt } from './sidebar/conversationLines'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -67,6 +68,7 @@ import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import {
+  AgentWorkingDots,
   ContextMenu,
   IconButton,
   LoadingOverlay,
@@ -245,10 +247,11 @@ function timedPanel(component: string, children: React.ReactNode) {
 
 function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined): React.ReactNode {
   if (!session) return null
-  // Active work gets the pulsing green dot. Idle sessions show elapsed idle
-  // time instead, beginning at 1m; sub-minute recency renders blank.
+  // Active work gets the working dots — the one "working" mark the sidebar and
+  // the tab's card already draw. Idle sessions show elapsed idle time instead,
+  // beginning at 1m; sub-minute recency renders blank.
   if (isSessionWorking(session)) {
-    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
+    return <AgentWorkingDots label="Working" />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
@@ -1324,8 +1327,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         )
       }
 
-      // Recency only when NOT working: an active agent shows the pulsing green
-      // dot instead.
+      // Recency only when NOT working: an active agent shows the working dots
+      // instead.
       //
       // The workspace's persisted keystroke clock is read off the store here
       // rather than subscribed to: it moves on terminal input, and a
@@ -1334,9 +1337,17 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // session's broadcast is what re-runs this callback anyway.
       const lastTerminalActivityAt =
         useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
+      //
+      // A chat has no terminal session and never moves the keystroke clock, so
+      // it counts from when its last turn ended instead, and says "Finished".
+      const conversationFinished = conversation ? conversationFinishedAt(conversation) : null
       const agentRecency = isWorking
         ? null
-        : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
+        : conversation
+          ? conversationFinished !== null
+            ? { at: conversationFinished, source: 'finished' as const }
+            : null
+          : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
       // The chip on the tab and the card's status line each keep their own
       // time (`TabRecencyText`, and the card's `aged` label), so neither
       // freezes at the moment the tab was last drawn.
@@ -1366,9 +1377,15 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         </span>
       ) : null
 
+      // Working wears the working dots, the same mark the sidebar row and the
+      // tab's own card use, so "working" reads one way everywhere.
       const trailing = activityDot ? (
         <>
-          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {activityDot.tone === 'good' && activityDot.pulse ? (
+            <AgentWorkingDots label={activityDot.label} />
+          ) : (
+            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          )}
           {recencyIndicator}
         </>
       ) : (
@@ -1382,9 +1399,9 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
-      // (Idle / Last activity / Exited) — never a blanket "Idle".
+      // (Idle / Last activity / Exited / Finished) — never a blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
-      // pulsing green dot the tab wears; `attention` is Failed and Paused, which
+      // working dots the tab wears; `attention` is Failed and Paused, which
       // are worth the same weight without claiming motion; every other answer
       // is a chat at rest. The card draws the sidebar's working
       // dots for `working` and never a status dot — the row and the card have

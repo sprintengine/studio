@@ -1026,7 +1026,12 @@ test('a transcript past the whole-file limit still subscribes, catches up, pages
       }),
     )
     lines.push(
-      JSON.stringify({ ...event(envelope, 'turn_completed', { turnId: `t${turn}` }), id: `c${turn}`, seq: ++seq }),
+      JSON.stringify({
+        ...event(envelope, 'turn_completed', { turnId: `t${turn}` }),
+        id: `c${turn}`,
+        seq: ++seq,
+        createdAt: 1_000 + turn,
+      }),
     )
   }
   await mkdir(dirname(path), { recursive: true })
@@ -1096,6 +1101,7 @@ test('a transcript past the whole-file limit still subscribes, catches up, pages
     const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
     assert.ok(started.ok, 'a long chat still starts')
     assert.equal(started.session.firstUserText, 'Question 0')
+    assert.equal(started.session.lastTurnEndedAt, 1_059, 'the finished time is the last turn’s, not the resume’s')
     assert.equal((await runtime.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })).ok, true)
     const tail = await runtime.readTranscript(key, { all: true, closeOpenTurns: false })
     assert.ok(tail.ok)
