@@ -281,3 +281,87 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
     }
   }
 })
+
+test('two readers of one conversation share its subscription, its events and its earlier pages', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const subscriptions: { receive: (frame: ConversationSessionFrame) => void; dispose: ReturnType<typeof vi.fn> }[] = []
+  const earlier = vi.fn(async (): Promise<ConversationPageResult> => ({
+    ok: true,
+    page: { events: [event(1)], hasMore: false, beforeCursor: null },
+  }))
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        _input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        const dispose = vi.fn()
+        subscriptions.push({ receive, dispose })
+        return dispose
+      },
+      conversationLoadEarlier: earlier,
+    },
+  })
+  function event(seq: number): ConversationEvent {
+    return {
+      seq,
+      id: `event-${seq}`,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      sessionId: 'session',
+      providerId: 'mock',
+      modelId: 'mock',
+      createdAt: seq,
+      type: 'user_message',
+      payload: { text: `message ${seq}` },
+    }
+  }
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession } = await import('./useConversationSession')
+  const hooks: Record<string, ReturnType<typeof useConversationSession>> = {}
+  function Reader({ name }: { name: string }) {
+    hooks[name] = useConversationSession('/Users/dev/shared', 'workspace', 'agent')
+    return null
+  }
+  const chat = createRoot(document.createElement('div'))
+  const pane = createRoot(document.createElement('div'))
+  try {
+    await act(async () => chat.render(createElement(Reader, { name: 'chat' })))
+    await act(async () => {
+      subscriptions[0].receive({ type: 'snapshot', page: { events: [event(2)], hasMore: true, beforeCursor: 2 } })
+      subscriptions[0].receive({ type: 'synchronized', seq: 2 })
+    })
+    // The pane opens on a conversation the chat already holds: no second
+    // subscription, and the events are there at once.
+    await act(async () => pane.render(createElement(Reader, { name: 'pane' })))
+    expect(subscriptions).toHaveLength(1)
+    expect(hooks.pane.hydrated).toBe(true)
+    expect(hooks.pane.events.map((entry) => entry.seq)).toEqual([2])
+    await act(async () => subscriptions[0].receive({ type: 'event', event: event(3) }))
+    expect(hooks.chat.events.map((entry) => entry.seq)).toEqual([2, 3])
+    expect(hooks.pane.events.map((entry) => entry.seq)).toEqual([2, 3])
+    // Either reader pages earlier turns in, for both.
+    await act(async () => hooks.pane.loadEarlier())
+    expect(earlier).toHaveBeenCalledOnce()
+    expect(hooks.chat.events.map((entry) => entry.seq)).toEqual([1, 2, 3])
+    // The subscription outlives the first reader to go, and not the last.
+    await act(async () => pane.unmount())
+    expect(subscriptions[0].dispose).not.toHaveBeenCalled()
+    await act(async () => chat.unmount())
+    expect(subscriptions[0].dispose).toHaveBeenCalledOnce()
+  } finally {
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

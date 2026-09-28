@@ -143,6 +143,18 @@ function BacklogGlyph({ className }: { className?: string }) {
   )
 }
 
+// A little robot, still: the Agents list. The characters that move live on the
+// agents themselves; the kind's own mark stays a plain glyph.
+function AgentsGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <rect x="3" y="5.4" width="10" height="7.8" rx="2.4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 5.4V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M6.2 8.6v1.4M9.8 8.6v1.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 // A page with its lines: a document the pane reads, drawn on the same frame
 // as the Files and Canvas marks.
 function DocumentGlyph({ className }: { className?: string }) {
@@ -172,6 +184,8 @@ export const STATIC_PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
   { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
   { kind: 'canvas', label: 'Canvas', letter: 'C', moduleId: 'canvas', Glyph: CanvasGlyph },
+  // The agents the focused chat sent off to work, running and finished.
+  { kind: 'agents', label: 'Agents', letter: 'A', Glyph: AgentsGlyph },
 ]
 
 // Kinds that are tabs but never offered by the "+" menu or the launcher: a

@@ -16,6 +16,7 @@ import {
   CopyGlyphButton,
   TruncatedText,
   GhostButton,
+  IconButton,
   LifecycleGlyph,
   RowButton,
   OutlineButton,
@@ -40,7 +41,7 @@ import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFil
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
-import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask } from './subagentStatus'
+import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask, useOpenAgentsPane } from './subagentStatus'
 import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -664,21 +665,37 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // Hovering or focusing the agent says who it is, how it is doing and what
   // kind of helper it is (design-system/components/agent-glyph).
   const card = <AgentCardContent tool={tool} running={running} />
+  const openAgents = useOpenAgentsPane()
   return (
     <div ref={laneRef}>
-      {expandable ? (
-        <Tooltip content={card} multiline placement="bottom" wrapperClassName="block">
-          <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
-            {header}
-          </RowButton>
-        </Tooltip>
-      ) : (
-        <Tooltip content={card} multiline placement="bottom" wrapperClassName="block">
-          <div tabIndex={0} className={`${headerClass} focus-visible:focus-ring-inset`}>
-            {header}
-          </div>
-        </Tooltip>
-      )}
+      <div className="group/lane flex min-w-0 items-center">
+        {expandable ? (
+          <Tooltip content={card} multiline placement="bottom" wrapperClassName="block min-w-0 flex-1">
+            <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
+              {header}
+            </RowButton>
+          </Tooltip>
+        ) : (
+          <Tooltip content={card} multiline placement="bottom" wrapperClassName="block min-w-0 flex-1">
+            <div tabIndex={0} className={`${headerClass} focus-visible:focus-ring-inset`}>
+              {header}
+            </div>
+          </Tooltip>
+        )}
+        {/* This agent's own thread, in the Agents tab beside the chat. */}
+        {openAgents ? (
+          <Tooltip content="Open in Agents">
+            <IconButton
+              size="xs"
+              aria-label={`Open ${subagentLaneLabel(tool)} in Agents`}
+              className="shrink-0 opacity-0 focus-visible:opacity-100 group-hover/lane:opacity-100"
+              onClick={() => openAgents(tool.id)}
+            >
+              <OpenInPaneGlyph />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </div>
       {open && expandable ? (
         <div className="ml-2 mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
           {hiddenSteps > 0 ? (
@@ -939,10 +956,16 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
 export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'working' }> }) {
   const ref = useRef<HTMLDivElement>(null)
   useLiveRowMotion(ref, true)
+  const openAgents = useOpenAgentsPane()
   return (
-    <div ref={ref} className="flex gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
+    <div ref={ref} className="flex items-baseline gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
       <span className="chat-shimmer font-medium">{row.label}</span>
       {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
+      {row.agents && openAgents ? (
+        <LinkButton ink="quiet" onClick={() => openAgents(null)}>
+          See agents
+        </LinkButton>
+      ) : null}
     </div>
   )
 }
@@ -969,6 +992,16 @@ function MessageTimestamp({ at }: { at?: number }) {
         <span className="sr-only">{full}</span>
       </time>
     </Tooltip>
+  )
+}
+
+// A window with its side pane drawn in: open this beside the chat.
+function OpenInPaneGlyph() {
+  return (
+    <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7 2v8" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
   )
 }
 

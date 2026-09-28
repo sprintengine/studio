@@ -350,6 +350,17 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'app-menu', command: 'panel.git.toggle' },
   }),
+  // The Agents list is a pane tab like Git: showing → close it, behind → bring
+  // it forward, absent → open it. Unbound, like Canvas; the palette, the pane's
+  // "+" menu and a chat's own agent lanes open it.
+  command({
+    id: 'panel.agents.toggle',
+    title: 'Toggle Agents',
+    category: 'panel',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'workspace-manager', handler: "togglePaneKind(windowActiveWorkspaceId, 'agents')" },
+  }),
   // Canvas is a pane tab like Files and Git, so its toggle reads the same way:
   // showing → close it, present but behind → bring it forward, absent → open
   // it. It ships UNBOUND, because the three letters a whiteboard wants
