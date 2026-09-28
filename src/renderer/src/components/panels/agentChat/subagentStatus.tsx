@@ -1,10 +1,11 @@
 // Where a spawned agent stands, as its lane and the Agents panel show it: the
 // glyph beside it and the words that say working, done, failed or stopped.
 
-import type { JSX } from 'react'
+import { createContext, useContext, type JSX } from 'react'
 import { AgentGlyph, WorkingMark, type AgentGlyphState } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { TranscriptToolEntry } from './conversationProjection'
+import { flattenToolEntries, subagentLaneLabel, toolObject } from './conversationTimeline'
 import { formatStepDuration } from './stepDuration'
 import { ToolKindGlyph } from './toolRows/ToolKindGlyph'
 
@@ -68,5 +69,66 @@ export function LaneMark({
     <span className={`flex shrink-0 ${ink} ${className ?? ''}`}>
       <ToolKindGlyph kind="subagent" />
     </span>
+  )
+}
+
+// What each kind of agent is for, as the session's provider described them
+// ('Explore' → "Fast agent specialized for exploring codebases…"). Provided
+// by the chat around its timeline.
+const SubagentTypesContext = createContext<Record<string, string>>({})
+export const SubagentTypesProvider = SubagentTypesContext.Provider
+
+// Said for the agents every Claude session has, when the session has not (yet)
+// described them itself.
+const BUILT_IN_AGENT_TYPES: Record<string, string> = {
+  Explore: 'A read-only helper that searches the code and reports back.',
+  Plan: 'A read-only helper that works out an approach before anything changes.',
+  'general-purpose': 'A helper that takes on part of the task in parallel, with the same tools as the main agent.',
+}
+
+/** What an agent of this type is for, in a sentence, when anything says. */
+export function useSubagentTypeDescription(type: string | undefined): string | undefined {
+  const described = useContext(SubagentTypesContext)
+  if (!type) return undefined
+  const text = described[type] ?? BUILT_IN_AGENT_TYPES[type]
+  if (!text) return undefined
+  // A provider's description is written for the model choosing an agent and
+  // runs long; its first sentence says what the agent is.
+  const sentence = /^[\s\S]*?[.!?](?=\s|$)/u.exec(text.trim())?.[0] ?? text.trim()
+  return sentence.length > 180 ? `${sentence.slice(0, 179).trimEnd()}…` : sentence
+}
+
+function formatTokens(count: number): string {
+  return count >= 1000 ? `${Math.round(count / 1000)}k tokens` : `${count} tokens`
+}
+
+/**
+ * The card an agent's glyph and name open on hover: which agent, how it is
+ * doing, what it was sent to do, what kind of helper it is, and what it is
+ * doing right now or why it ended.
+ */
+export function AgentCardContent({ tool, running }: { tool: TranscriptToolEntry; running: boolean }): JSX.Element {
+  const description = useSubagentTypeDescription(tool.subagentType)
+  const task = toolObject(tool)
+  const outcome = laneOutcomeWords(tool)
+  const now = tool.agent?.progressSummary ?? (tool.agent?.lastToolName ? `Using ${tool.agent.lastToolName}` : undefined)
+  const steps = tool.agent?.usage?.toolUses ?? flattenToolEntries(tool.children ?? []).length
+  const tokens = tool.agent?.usage?.totalTokens
+  const footer = [steps ? `${steps} ${steps === 1 ? 'step' : 'steps'}` : null, tokens ? formatTokens(tokens) : null]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <>
+      <span className="block font-medium text-[color:var(--text-strong)]">
+        {subagentLaneLabel(tool)} · {running ? 'Working' : outcome}
+      </span>
+      {task ? <span className="block text-[color:var(--text-default)]">{task}</span> : null}
+      {description ? <span className="block">{description}</span> : null}
+      {running && now ? <span className="block">Now: {now}</span> : null}
+      {!running && tool.agent?.error ? (
+        <span className="block text-[color:var(--tone-error)]">{tool.agent.error}</span>
+      ) : null}
+      {footer ? <span className="block text-[color:var(--text-subtle)]">{footer}</span> : null}
+    </>
   )
 }

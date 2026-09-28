@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import type { TranscriptToolEntry } from './conversationProjection'
-import { LaneMark, laneAgentState, laneOutcomeWords } from './subagentStatus'
+import { AgentCardContent, LaneMark, SubagentTypesProvider, laneAgentState, laneOutcomeWords } from './subagentStatus'
 
 const lane = (fields: Partial<TranscriptToolEntry> = {}): TranscriptToolEntry => ({
   kind: 'tool',
@@ -47,4 +47,47 @@ test('an agent is a character, or with characters off the working mark and then 
   const settled = renderToStaticMarkup(<LaneMark tool={lane({ outputStatus: 'error' })} characters={false} />)
   expect(settled).not.toContain('agent-glyph')
   expect(settled).toContain('--tone-error')
+})
+
+test('an agent’s card says who it is, how it is doing, and what kind of helper it is', () => {
+  const working = renderToStaticMarkup(
+    <SubagentTypesProvider
+      value={{ Explore: 'Fast agent specialized for exploring codebases. Use it when you need to find files.' }}
+    >
+      <AgentCardContent
+        tool={lane({
+          status: 'running',
+          subagentType: 'Explore',
+          summary: 'Explore: map the router',
+          agent: {
+            state: 'running',
+            background: true,
+            progressSummary: 'Reading the route table',
+            usage: { totalTokens: 18_400, toolUses: 6, durationMs: 9_000 },
+          },
+        })}
+        running
+      />
+    </SubagentTypesProvider>,
+  )
+  expect(working).toContain('Explore agent · Working')
+  expect(working).toContain('map the router')
+  expect(working).toContain('Fast agent specialized for exploring codebases.')
+  expect(working).not.toContain('Use it when', 'only the first sentence: the rest is written for the model')
+  expect(working).toContain('Now: Reading the route table')
+  expect(working).toContain('6 steps · 18k tokens')
+
+  const failed = renderToStaticMarkup(
+    <AgentCardContent
+      tool={lane({
+        subagentType: 'Plan',
+        outputStatus: 'error',
+        agent: { state: 'failed', error: 'Ran out of turns' },
+      })}
+      running={false}
+    />,
+  )
+  expect(failed).toContain('Plan agent · Failed after 1m 29s')
+  expect(failed).toContain('works out an approach', 'a built-in type is described even when the session has not')
+  expect(failed).toContain('Ran out of turns')
 })

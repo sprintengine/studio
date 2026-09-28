@@ -156,3 +156,21 @@ test('the live projection keeps a lane open through its launch notice and closes
   state = applyEvent(state, ev('subagent_status', { toolUseId: 'lane-1', status: 'completed' }))
   assert.equal(lane()?.agent?.state, 'completed')
 })
+
+test('the session says what each kind of agent it can spawn is for', () => {
+  const { agentTypes } = projectConversation([
+    ev('session_updated', {
+      providerSessionId: 'native',
+      agents: [
+        { name: 'Explore', description: 'Fast agent specialized for exploring codebases.' },
+        { name: 'code-reviewer', description: 'Reviews a diff for bugs.' },
+        { name: 'nameless' },
+        'junk',
+      ],
+    }),
+  ])
+  assert.deepEqual(agentTypes, {
+    Explore: 'Fast agent specialized for exploring codebases.',
+    'code-reviewer': 'Reviews a diff for bugs.',
+  })
+})

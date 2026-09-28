@@ -76,6 +76,7 @@ import {
   syncConversationProjection,
 } from './agentChat/incrementalConversationProjection'
 import { ConversationLinkProvider } from './agentChat/conversationLinks'
+import { SubagentTypesProvider } from './agentChat/subagentStatus'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
 import { useConversationTransport } from './agentChat/conversationTransport'
@@ -2105,510 +2106,516 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       cwd={workspaceRoot ?? ''}
       workspaceRoot={workspaceRoot ?? ''}
     >
-      <ChatShell shellRef={shellRef} dropHandlers={imageDropHandlers}>
-        {/* No title row above the transcript: the tab names the agent, as it
+      <SubagentTypesProvider value={projection.agentTypes}>
+        <ChatShell shellRef={shellRef} dropHandlers={imageDropHandlers}>
+          {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. A remote pane brings its own header. */}
-        {binding.header ?? null}
-        {/* Loading is not a notice — it is the state the screen is in, so it reads
+          {binding.header ?? null}
+          {/* Loading is not a notice — it is the state the screen is in, so it reads
           as the quiet line it is; anything else here is a degraded session. */}
-        {!ready && timelineRows.length > 0 ? (
-          readiness.kind === 'loading' ? (
-            <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">{readinessLabel(readiness)}</p>
-          ) : (
-            <InlineNotice tone="warn" className="mx-3 my-2">
-              {readinessLabel(readiness)}
-            </InlineNotice>
-          )
-        ) : null}
-        {/* Warn only about the CURRENT session: after a restart the replayed
+          {!ready && timelineRows.length > 0 ? (
+            readiness.kind === 'loading' ? (
+              <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">
+                {readinessLabel(readiness)}
+              </p>
+            ) : (
+              <InlineNotice tone="warn" className="mx-3 my-2">
+                {readinessLabel(readiness)}
+              </InlineNotice>
+            )
+          ) : null}
+          {/* Warn only about the CURRENT session: after a restart the replayed
           transcript may carry a previous session's source, but no session is
           live until the next send (which resets the source via
           session_started). Only a source that bills API usage warns: a
           subscription login reports `none`. */}
-        {sessionId !== null && apiKeyBillingNotice(projection.apiKeySource) !== null ? (
-          <InlineNotice tone="warn" className="mx-3 my-2">
-            {apiKeyBillingNotice(projection.apiKeySource)}
-          </InlineNotice>
-        ) : null}
-        {sessionId !== null && projection.sessionNotice !== null ? (
-          <InlineNotice tone="warn" className="mx-3 my-2">
-            {projection.sessionNotice}
-          </InlineNotice>
-        ) : null}
-        {capabilities?.checkpoints === true && projection.checkpointNotice !== null ? (
-          <InlineNotice tone="warn" className="mx-3 my-2">
-            {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
-          </InlineNotice>
-        ) : null}
+          {sessionId !== null && apiKeyBillingNotice(projection.apiKeySource) !== null ? (
+            <InlineNotice tone="warn" className="mx-3 my-2">
+              {apiKeyBillingNotice(projection.apiKeySource)}
+            </InlineNotice>
+          ) : null}
+          {sessionId !== null && projection.sessionNotice !== null ? (
+            <InlineNotice tone="warn" className="mx-3 my-2">
+              {projection.sessionNotice}
+            </InlineNotice>
+          ) : null}
+          {capabilities?.checkpoints === true && projection.checkpointNotice !== null ? (
+            <InlineNotice tone="warn" className="mx-3 my-2">
+              {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
+            </InlineNotice>
+          ) : null}
 
-        <div
-          ref={transcriptRef}
-          role="log"
-          aria-label={`${label} conversation`}
-          aria-live="off"
-          aria-busy={!hydrated || loadingEarlier}
-          onClickCapture={preserveDisclosurePosition}
-          // A selection of the conversation copies as the markdown it was
-          // rendered from; anything else is the browser's to copy.
-          onCopy={(event) => copySelectionAsMarkdown(event.nativeEvent, event.currentTarget)}
-          className="relative min-h-0 flex-1"
-        >
-          {timelineRows.length === 0 ? (
-            !ready ? (
-              <ReadinessState
-                readiness={readiness}
-                canSwitchModel={!modelLocked}
-                onSwitchModel={() => setModelMenuOpen(true)}
+          <div
+            ref={transcriptRef}
+            role="log"
+            aria-label={`${label} conversation`}
+            aria-live="off"
+            aria-busy={!hydrated || loadingEarlier}
+            onClickCapture={preserveDisclosurePosition}
+            // A selection of the conversation copies as the markdown it was
+            // rendered from; anything else is the browser's to copy.
+            onCopy={(event) => copySelectionAsMarkdown(event.nativeEvent, event.currentTarget)}
+            className="relative min-h-0 flex-1"
+          >
+            {timelineRows.length === 0 ? (
+              !ready ? (
+                <ReadinessState
+                  readiness={readiness}
+                  canSwitchModel={!modelLocked}
+                  onSwitchModel={() => setModelMenuOpen(true)}
+                />
+              ) : supportsTools ? (
+                <EmptyChatState
+                  assistantName={assistantName}
+                  onSuggestion={(text) => {
+                    setDraft(text)
+                    composerRef.current?.focus()
+                  }}
+                />
+              ) : (
+                // Model providers are a plain chat — no tool contract to explain.
+                <div className="flex h-full items-center justify-center">
+                  <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
+                    No messages yet. Send a prompt to start the conversation.
+                  </p>
+                </div>
+              )
+            ) : (
+              <LegendList
+                ref={listRef}
+                data={timelineRows}
+                dataKey={conversationKey}
+                renderItem={({ item }) => (
+                  <ConversationRowFrame
+                    key={item.id}
+                    id={item.id}
+                    live={
+                      hydrated &&
+                      (item.kind === 'user'
+                        ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
+                        : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
+                    }
+                    seen={animatedRowIds.current}
+                    flash={flashRowId === item.id}
+                    onFlashEnd={clearFlash}
+                  >
+                    <TimelineRow key={item.id} row={item} chrome={chrome} />
+                  </ConversationRowFrame>
+                )}
+                keyExtractor={(row) => row.id}
+                getItemType={(row) => row.kind}
+                recycleItems
+                estimatedItemSize={120}
+                // A tab stop so the transcript scrolls from the keyboard, ringed
+                // the way every focusable scroll container in the kit is: inset
+                // (an outward ring is clipped at the pane's edge) and on keyboard
+                // focus only — a click into the transcript to select text is not
+                // a focus change worth drawing, and the UA outline it used to get
+                // was neither the kit's colour nor its shape.
+                // The gutter, not a narrower list, draws the chat width setting's
+                // column: the scroller stays pane-wide so its scrollbar does too.
+                className={`chat-column-gutter h-full overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
+                tabIndex={0}
+                contentContainerClassName="space-y-1"
+                ListHeaderComponent={
+                  hasMore ? (
+                    <div className="flex justify-center pb-3">
+                      <OutlineButton
+                        size="xs"
+                        busy={loadingEarlier}
+                        disabled={loadingEarlier}
+                        onClick={() => {
+                          void loadEarlier().catch(() => undefined)
+                        }}
+                      >
+                        {loadingEarlier ? 'Loading earlier…' : 'Load earlier'}
+                      </OutlineButton>
+                    </div>
+                  ) : null
+                }
+                aria-live="off"
+                onScroll={handleLogScroll}
+                onFirstVisibleItemChanged={({ key }) => {
+                  firstVisibleRowRef.current = key
+                }}
+                initialScrollAtEnd={scrollMemoryRef.current?.atEnd ?? true}
+                initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
+                maintainVisibleContentPosition={{ data: true, size: true }}
+                maintainScrollAtEnd={
+                  atBottom && !followPaused
+                    ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
+                    : false
+                }
+                anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />
-            ) : supportsTools ? (
-              <EmptyChatState
-                assistantName={assistantName}
-                onSuggestion={(text) => {
-                  setDraft(text)
+            )}
+            <TimelineMinimap navigation={turnNavigation} />
+            <QuoteSelectionToolbar
+              rootRef={transcriptRef}
+              enabled={!composerInputDisabled}
+              shortcut={quoteShortcutLabel}
+              onQuote={quoteIntoComposer}
+            />
+          </div>
+
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {announcement}
+          </div>
+          <div className="chat-column-gutter relative pb-4 pt-1">
+            {!atBottom && timelineRows.length > 0 ? (
+              <OutlineButton
+                size="xs"
+                onClick={jumpToLatest}
+                className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+              >
+                <ChevronDownIcon className="icon-xs shrink-0" />
+                {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
+              </OutlineButton>
+            ) : null}
+            <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
+            <ConversationPendingDock
+              pendingApprovals={pendingApprovalEntries}
+              workspaceRoot={workspaceRoot ?? undefined}
+              workspaceName={workspace?.name}
+              onApprove={resolveApproval}
+              // Read-only: the pending requests are shown, not answerable.
+              busy={respondingRequestId !== null || !operate}
+            />
+
+            {/*
+             * A turn failure renders as a structured error block in the transcript
+             * (with its own Retry), so here we only restate text for action errors
+             * that never reach the transcript (start/send/IPC) — plus the orphan
+             * case: a turn_failed that attached to no turn (no turnId while nothing
+             * was streaming) sets lastError without a failed transcript entry, and
+             * must still surface somewhere in the chat.
+             */}
+            {composerError ? (
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <TruncatedText
+                  as="span"
+                  text={composerError}
+                  className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
+                />
+                {composerRetry ? (
+                  <OutlineButton onClick={composerRetry} disabled={composerDisabled} className="shrink-0">
+                    Retry
+                  </OutlineButton>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/*
+             * A permission change the provider recorded but cannot apply to the turn
+             * already streaming (1808). Information, not a failure: the pill already
+             * shows the new preset, and this says when it starts applying.
+             */}
+            {permissionNotice ? (
+              <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
+                {permissionNotice}
+              </p>
+            ) : null}
+
+            {/*
+             * Queued message: the user typed ahead and committed while the turn
+             * was busy. It auto-sends the moment the session unlocks; Send now
+             * hands it to the running turn (or stops the turn, where the provider
+             * cannot take it mid-turn), and Edit takes it back into the composer.
+             * Kept truthful so a queued turn is never a silent, invisible pending
+             * action.
+             */}
+            {queuedTurn ? (
+              <QueuedTurnBubble
+                text={queuedTurn.text}
+                attachments={queuedTurn.attachments}
+                sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
+                shortcutLabel={sendNowShortcutLabel}
+                onSendNow={() => sendQueuedNow(queuedTurn)}
+                onEdit={() => {
+                  setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
+                  setDraftMetadata({
+                    skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
+                    mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
+                  })
+                  setAttachments((current) =>
+                    [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
+                  )
+                  setQueuedTurn(null)
                   composerRef.current?.focus()
                 }}
               />
-            ) : (
-              // Model providers are a plain chat — no tool contract to explain.
-              <div className="flex h-full items-center justify-center">
-                <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
-                  No messages yet. Send a prompt to start the conversation.
-                </p>
-              </div>
-            )
-          ) : (
-            <LegendList
-              ref={listRef}
-              data={timelineRows}
-              dataKey={conversationKey}
-              renderItem={({ item }) => (
-                <ConversationRowFrame
-                  key={item.id}
-                  id={item.id}
-                  live={
-                    hydrated &&
-                    (item.kind === 'user'
-                      ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
-                      : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
-                  }
-                  seen={animatedRowIds.current}
-                  flash={flashRowId === item.id}
-                  onFlashEnd={clearFlash}
-                >
-                  <TimelineRow key={item.id} row={item} chrome={chrome} />
-                </ConversationRowFrame>
-              )}
-              keyExtractor={(row) => row.id}
-              getItemType={(row) => row.kind}
-              recycleItems
-              estimatedItemSize={120}
-              // A tab stop so the transcript scrolls from the keyboard, ringed
-              // the way every focusable scroll container in the kit is: inset
-              // (an outward ring is clipped at the pane's edge) and on keyboard
-              // focus only — a click into the transcript to select text is not
-              // a focus change worth drawing, and the UA outline it used to get
-              // was neither the kit's colour nor its shape.
-              // The gutter, not a narrower list, draws the chat width setting's
-              // column: the scroller stays pane-wide so its scrollbar does too.
-              className={`chat-column-gutter h-full overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
-              tabIndex={0}
-              contentContainerClassName="space-y-1"
-              ListHeaderComponent={
-                hasMore ? (
-                  <div className="flex justify-center pb-3">
-                    <OutlineButton
-                      size="xs"
-                      busy={loadingEarlier}
-                      disabled={loadingEarlier}
-                      onClick={() => {
-                        void loadEarlier().catch(() => undefined)
-                      }}
-                    >
-                      {loadingEarlier ? 'Loading earlier…' : 'Load earlier'}
-                    </OutlineButton>
-                  </div>
-                ) : null
-              }
-              aria-live="off"
-              onScroll={handleLogScroll}
-              onFirstVisibleItemChanged={({ key }) => {
-                firstVisibleRowRef.current = key
-              }}
-              initialScrollAtEnd={scrollMemoryRef.current?.atEnd ?? true}
-              initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
-              maintainVisibleContentPosition={{ data: true, size: true }}
-              maintainScrollAtEnd={
-                atBottom && !followPaused
-                  ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
-                  : false
-              }
-              anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
-            />
-          )}
-          <TimelineMinimap navigation={turnNavigation} />
-          <QuoteSelectionToolbar
-            rootRef={transcriptRef}
-            enabled={!composerInputDisabled}
-            shortcut={quoteShortcutLabel}
-            onQuote={quoteIntoComposer}
-          />
-        </div>
+            ) : null}
 
-        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-          {announcement}
-        </div>
-        <div className="chat-column-gutter relative pb-4 pt-1">
-          {!atBottom && timelineRows.length > 0 ? (
-            <OutlineButton
-              size="xs"
-              onClick={jumpToLatest}
-              className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+            {/*
+             * Composer: a single rounded field that holds the textarea and a footer
+             * control row (model chip + permission chip + send), so the input reads
+             * as one surface. The model lives here — picked before the first
+             * message, then locked. While an approval card is pending the disabled
+             * placeholder says why the composer is waiting.
+             */}
+            <div
+              className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+                dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+              }`}
             >
-              <ChevronDownIcon className="icon-xs shrink-0" />
-              {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
-            </OutlineButton>
-          ) : null}
-          <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
-          <ConversationPendingDock
-            pendingApprovals={pendingApprovalEntries}
-            workspaceRoot={workspaceRoot ?? undefined}
-            workspaceName={workspace?.name}
-            onApprove={resolveApproval}
-            // Read-only: the pending requests are shown, not answerable.
-            busy={respondingRequestId !== null || !operate}
-          />
-
-          {/*
-           * A turn failure renders as a structured error block in the transcript
-           * (with its own Retry), so here we only restate text for action errors
-           * that never reach the transcript (start/send/IPC) — plus the orphan
-           * case: a turn_failed that attached to no turn (no turnId while nothing
-           * was streaming) sets lastError without a failed transcript entry, and
-           * must still surface somewhere in the chat.
-           */}
-          {composerError ? (
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <TruncatedText
-                as="span"
-                text={composerError}
-                className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
-              />
-              {composerRetry ? (
-                <OutlineButton onClick={composerRetry} disabled={composerDisabled} className="shrink-0">
-                  Retry
-                </OutlineButton>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/*
-           * A permission change the provider recorded but cannot apply to the turn
-           * already streaming (1808). Information, not a failure: the pill already
-           * shows the new preset, and this says when it starts applying.
-           */}
-          {permissionNotice ? (
-            <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
-              {permissionNotice}
-            </p>
-          ) : null}
-
-          {/*
-           * Queued message: the user typed ahead and committed while the turn
-           * was busy. It auto-sends the moment the session unlocks; Send now
-           * hands it to the running turn (or stops the turn, where the provider
-           * cannot take it mid-turn), and Edit takes it back into the composer.
-           * Kept truthful so a queued turn is never a silent, invisible pending
-           * action.
-           */}
-          {queuedTurn ? (
-            <QueuedTurnBubble
-              text={queuedTurn.text}
-              attachments={queuedTurn.attachments}
-              sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
-              shortcutLabel={sendNowShortcutLabel}
-              onSendNow={() => sendQueuedNow(queuedTurn)}
-              onEdit={() => {
-                setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
-                setDraftMetadata({
-                  skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
-                  mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
-                })
-                setAttachments((current) => [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
-                setQueuedTurn(null)
-                composerRef.current?.focus()
-              }}
-            />
-          ) : null}
-
-          {/*
-           * Composer: a single rounded field that holds the textarea and a footer
-           * control row (model chip + permission chip + send), so the input reads
-           * as one surface. The model lives here — picked before the first
-           * message, then locked. While an approval card is pending the disabled
-           * placeholder says why the composer is waiting.
-           */}
-          <div
-            className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
-              dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
-            }`}
-          >
-            {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
+              {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
               can never strand the overlay over a composer that stopped accepting
               images. */}
-            {dropActive && imagesEnabled ? (
-              // Opaque, not a scrim: the field's own text ghosting through the
-              // drop state reads as a rendering artifact rather than a state.
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
-                Drop to attach
-              </div>
-            ) : null}
-            {contextPicker.picker}
-            <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
-            <ComposerContextChips
-              skills={supportsSkills ? attachedSkills : []}
-              mentions={draftMetadata.mentions}
-              onRemoveSkill={(id) => setAttachedSkills(attachedSkills.filter((skill) => skill.id !== id))}
-              onRemoveMention={(mention) =>
-                setDraftMetadata((current) => ({
-                  ...current,
-                  mentions: current.mentions.filter((entry) => entry !== mention),
-                }))
-              }
-              onOpenSkill={skillReader.openSkill}
-            />
-            <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
-              Message {label}
-            </label>
-            <Textarea
-              ref={composerRef}
-              variant="composer"
-              resize="none"
-              {...contextPicker.comboboxProps}
-              id={`chat-composer-${agentId}`}
-              value={draft}
-              onBlur={flushDraft}
-              onPaste={(event) => {
-                // A pasted screenshot only exists as a clipboard item; a text
-                // paste reports no image and falls through to the default —
-                // unless the text is only paths to images outside the
-                // workspace, which attach instead.
-                if (!imagesEnabled) return
-                const files = imageFilesFromDataTransfer(event.clipboardData)
-                if (files.length > 0) {
-                  event.preventDefault()
-                  void attachFiles(files)
-                  return
+              {dropActive && imagesEnabled ? (
+                // Opaque, not a scrim: the field's own text ghosting through the
+                // drop state reads as a rendering artifact rather than a state.
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                  Drop to attach
+                </div>
+              ) : null}
+              {contextPicker.picker}
+              <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
+              <ComposerContextChips
+                skills={supportsSkills ? attachedSkills : []}
+                mentions={draftMetadata.mentions}
+                onRemoveSkill={(id) => setAttachedSkills(attachedSkills.filter((skill) => skill.id !== id))}
+                onRemoveMention={(mention) =>
+                  setDraftMetadata((current) => ({
+                    ...current,
+                    mentions: current.mentions.filter((entry) => entry !== mention),
+                  }))
                 }
-                const text = event.clipboardData.getData('text/plain')
-                const paths = pastedImagePaths(
-                  text,
-                  transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
-                )
-                if (!paths) return
-                event.preventDefault()
-                const field = event.currentTarget
-                void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
-              }}
-              onChange={(event) => {
-                detachRecall()
-                const value = event.target.value
-                setDraft(value)
-                setComposerCaret(event.target.selectionStart)
-              }}
-              onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
-              onContextMenu={(event) => void openComposerMenu(event)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) return
-                if (contextPicker.handleKeyDown(event)) return
-                if (
-                  event.key === 'Backspace' &&
-                  event.currentTarget.selectionStart === 0 &&
-                  event.currentTarget.selectionEnd === 0
-                ) {
-                  if (draftMetadata.mentions.length) {
+                onOpenSkill={skillReader.openSkill}
+              />
+              <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
+                Message {label}
+              </label>
+              <Textarea
+                ref={composerRef}
+                variant="composer"
+                resize="none"
+                {...contextPicker.comboboxProps}
+                id={`chat-composer-${agentId}`}
+                value={draft}
+                onBlur={flushDraft}
+                onPaste={(event) => {
+                  // A pasted screenshot only exists as a clipboard item; a text
+                  // paste reports no image and falls through to the default —
+                  // unless the text is only paths to images outside the
+                  // workspace, which attach instead.
+                  if (!imagesEnabled) return
+                  const files = imageFilesFromDataTransfer(event.clipboardData)
+                  if (files.length > 0) {
                     event.preventDefault()
-                    setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                    void attachFiles(files)
                     return
                   }
-                  if (supportsSkills && attachedSkills.length) {
+                  const text = event.clipboardData.getData('text/plain')
+                  const paths = pastedImagePaths(
+                    text,
+                    transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
+                  )
+                  if (!paths) return
+                  event.preventDefault()
+                  const field = event.currentTarget
+                  void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
+                }}
+                onChange={(event) => {
+                  detachRecall()
+                  const value = event.target.value
+                  setDraft(value)
+                  setComposerCaret(event.target.selectionStart)
+                }}
+                onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
+                onContextMenu={(event) => void openComposerMenu(event)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return
+                  if (contextPicker.handleKeyDown(event)) return
+                  if (
+                    event.key === 'Backspace' &&
+                    event.currentTarget.selectionStart === 0 &&
+                    event.currentTarget.selectionEnd === 0
+                  ) {
+                    if (draftMetadata.mentions.length) {
+                      event.preventDefault()
+                      setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                      return
+                    }
+                    if (supportsSkills && attachedSkills.length) {
+                      event.preventDefault()
+                      setAttachedSkills(attachedSkills.slice(0, -1))
+                      return
+                    }
+                    if (attachments.length) {
+                      event.preventDefault()
+                      setAttachments((current) => current.slice(0, -1))
+                      return
+                    }
+                  }
+                  if (handleRecallKeyDown(event)) return
+                  if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
                     event.preventDefault()
-                    setAttachedSkills(attachedSkills.slice(0, -1))
+                    void interrupt()
                     return
                   }
-                  if (attachments.length) {
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
                     event.preventDefault()
-                    setAttachments((current) => current.slice(0, -1))
+                    commitComposerNow()
                     return
                   }
-                }
-                if (handleRecallKeyDown(event)) return
-                if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
-                  event.preventDefault()
-                  void interrupt()
-                  return
-                }
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-                  event.preventDefault()
-                  commitComposerNow()
-                  return
-                }
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  submitComposer()
-                }
-              }}
-              placeholder={composerPlaceholder}
-              rows={1}
-              disabled={composerInputDisabled}
-              className={COMPOSER_CLASS}
-            />
-            {/* What the picked command takes after it, until the person types
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    submitComposer()
+                  }
+                }}
+                placeholder={composerPlaceholder}
+                rows={1}
+                disabled={composerInputDisabled}
+                className={COMPOSER_CLASS}
+              />
+              {/* What the picked command takes after it, until the person types
                 past the pick. Under the field rather than as ghost text in it:
                 a textarea draws no inline decoration, and an overlay would
                 have to track its wrapping and scroll. */}
-            {commandHint && commandHint.draft === draft ? (
-              <p className="truncate px-3 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
-                /{commandHint.command} {commandHint.hint}
-              </p>
-            ) : null}
-            {/* Tokens only, never money: a chat runs on the person's CLI
+              {commandHint && commandHint.draft === draft ? (
+                <p className="truncate px-3 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
+                  /{commandHint.command} {commandHint.hint}
+                </p>
+              ) : null}
+              {/* Tokens only, never money: a chat runs on the person's CLI
                 subscription, and the SDK's dollar figure is an API-price
                 estimate that reads as a bill. */}
-            {contextLength ? (
-              <div className="flex items-center justify-end gap-2 px-3 pb-1">
-                <ContextMeter used={usedTokens} total={contextLength} />
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
-              <div className="flex min-w-0 items-center gap-1">
-                {imagesEnabled ? (
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        const files = Array.from(event.target.files ?? [])
-                        // Clearing lets the same file be picked twice in a row.
-                        event.target.value = ''
-                        void attachFiles(files)
-                      }}
+              {contextLength ? (
+                <div className="flex items-center justify-end gap-2 px-3 pb-1">
+                  <ContextMeter used={usedTokens} total={contextLength} />
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+                <div className="flex min-w-0 items-center gap-1">
+                  {imagesEnabled ? (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          const files = Array.from(event.target.files ?? [])
+                          // Clearing lets the same file be picked twice in a row.
+                          event.target.value = ''
+                          void attachFiles(files)
+                        }}
+                      />
+                      <Tooltip content="Attach an image" placement="top">
+                        <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
+                          <PaperclipGlyph className="icon-sm" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  ) : null}
+                  {supportsSkills ? (
+                    <ComposerSkillsPicker
+                      workspaceRoot={workspaceRoot}
+                      skills={attachedSkills}
+                      onSkillsChange={setAttachedSkills}
                     />
-                    <Tooltip content="Attach an image" placement="top">
-                      <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
-                        <PaperclipGlyph className="icon-sm" />
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                ) : null}
-                {supportsSkills ? (
-                  <ComposerSkillsPicker
-                    workspaceRoot={workspaceRoot}
-                    skills={attachedSkills}
-                    onSkillsChange={setAttachedSkills}
-                  />
-                ) : null}
-                {chatCli ? (
-                  <EnginePickerChip
-                    cli={chatCli}
-                    options={chatPickerOptions}
-                    model={chatModel}
-                    reasoning={reasoningEffort}
-                    open={modelMenuOpen}
-                    onOpenChange={setModelMenuOpen}
-                    placement="top-start"
-                    shortcutLabel={modelPickerShortcutLabel}
-                    onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
-                    onSelectModel={(_cli, next) =>
-                      selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
-                    }
-                    onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
-                    {...(modelLocked && modelSwitch
-                      ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
-                      : {})}
-                    permissions={() =>
-                      permissionsEditable ? (
-                        <PermissionFooter
-                          cli={chatCli}
-                          preset={permissionPreset}
-                          disabled={permissionChanging}
-                          disabledReasons={permissionDisabledReasons}
-                          onSelect={(next) => {
-                            // Close on pick like every other picker here: a refusal
-                            // rolls the preset back and writes the reason to the
-                            // composer error line, which an open popover would
-                            // sit on top of.
-                            setModelMenuOpen(false)
-                            void changePermissionPreset(next)
-                          }}
-                        />
-                      ) : null
-                    }
-                  />
+                  ) : null}
+                  {chatCli ? (
+                    <EnginePickerChip
+                      cli={chatCli}
+                      options={chatPickerOptions}
+                      model={chatModel}
+                      reasoning={reasoningEffort}
+                      open={modelMenuOpen}
+                      onOpenChange={setModelMenuOpen}
+                      placement="top-start"
+                      shortcutLabel={modelPickerShortcutLabel}
+                      onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
+                      onSelectModel={(_cli, next) =>
+                        selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
+                      }
+                      onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
+                      {...(modelLocked && modelSwitch
+                        ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
+                        : {})}
+                      permissions={() =>
+                        permissionsEditable ? (
+                          <PermissionFooter
+                            cli={chatCli}
+                            preset={permissionPreset}
+                            disabled={permissionChanging}
+                            disabledReasons={permissionDisabledReasons}
+                            onSelect={(next) => {
+                              // Close on pick like every other picker here: a refusal
+                              // rolls the preset back and writes the reason to the
+                              // composer error line, which an open popover would
+                              // sit on top of.
+                              setModelMenuOpen(false)
+                              void changePermissionPreset(next)
+                            }}
+                          />
+                        ) : null
+                      }
+                    />
+                  ) : (
+                    // A provider that is not a CLI (an API-key provider) has no
+                    // picker of this kind; its model is shown, not chosen.
+                    <TruncatedText
+                      as="span"
+                      text={currentModelLabel}
+                      className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
+                    />
+                  )}
+                </div>
+                {projection.activeTurn && !operate ? null : projection.activeTurn ? (
+                  <ComposerActionButton
+                    tone="neutral"
+                    ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
+                    onClick={() => void interrupt()}
+                    disabled={stopDisabledForPending(pending)}
+                  >
+                    <StopGlyph className="icon-sm shrink-0" />
+                  </ComposerActionButton>
                 ) : (
-                  // A provider that is not a CLI (an API-key provider) has no
-                  // picker of this kind; its model is shown, not chosen.
-                  <TruncatedText
-                    as="span"
-                    text={currentModelLabel}
-                    className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
-                  />
+                  <ComposerActionButton
+                    tone="accent"
+                    ariaLabel={sendAction.label}
+                    onClick={submitComposer}
+                    disabled={sendAction.disabled}
+                  >
+                    <SendArrowGlyph className="icon-sm shrink-0" />
+                  </ComposerActionButton>
                 )}
               </div>
-              {projection.activeTurn && !operate ? null : projection.activeTurn ? (
-                <ComposerActionButton
-                  tone="neutral"
-                  ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
-                  onClick={() => void interrupt()}
-                  disabled={stopDisabledForPending(pending)}
-                >
-                  <StopGlyph className="icon-sm shrink-0" />
-                </ComposerActionButton>
-              ) : (
-                <ComposerActionButton
-                  tone="accent"
-                  ariaLabel={sendAction.label}
-                  onClick={submitComposer}
-                  disabled={sendAction.disabled}
-                >
-                  <SendArrowGlyph className="icon-sm shrink-0" />
-                </ComposerActionButton>
-              )}
+              {/*
+               * Right-click menu (1793): Send plus the standard editing actions, so
+               * committing a turn is not limited to Enter and the button. Rendered
+               * only while open — it positions itself at the click point.
+               */}
+              {composerMenu ? (
+                <ComposerContextMenu
+                  menu={composerMenu}
+                  send={sendAction}
+                  editable={!composerInputDisabled}
+                  onSend={submitComposer}
+                  onCut={() => {
+                    const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                    void writeClipboardText(selected).then((written) => {
+                      if (written) replaceComposerSelection(composerMenu, '')
+                      else setActionError('Could not cut to the clipboard.')
+                    })
+                  }}
+                  onCopy={() => {
+                    const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                    void writeClipboardText(selected).then((written) => {
+                      if (!written) setActionError('Could not copy to the clipboard.')
+                    })
+                  }}
+                  onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
+                  onClose={() => setComposerMenu(null)}
+                />
+              ) : null}
             </div>
-            {/*
-             * Right-click menu (1793): Send plus the standard editing actions, so
-             * committing a turn is not limited to Enter and the button. Rendered
-             * only while open — it positions itself at the click point.
-             */}
-            {composerMenu ? (
-              <ComposerContextMenu
-                menu={composerMenu}
-                send={sendAction}
-                editable={!composerInputDisabled}
-                onSend={submitComposer}
-                onCut={() => {
-                  const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                  void writeClipboardText(selected).then((written) => {
-                    if (written) replaceComposerSelection(composerMenu, '')
-                    else setActionError('Could not cut to the clipboard.')
-                  })
-                }}
-                onCopy={() => {
-                  const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                  void writeClipboardText(selected).then((written) => {
-                    if (!written) setActionError('Could not copy to the clipboard.')
-                  })
-                }}
-                onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
-                onClose={() => setComposerMenu(null)}
-              />
-            ) : null}
           </div>
-        </div>
-      </ChatShell>
+        </ChatShell>
+      </SubagentTypesProvider>
       {skillReader.reader}
     </ConversationLinkProvider>
   )

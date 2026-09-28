@@ -40,7 +40,7 @@ import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFil
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
-import { LaneGlyph, laneOutcomeWords } from './subagentStatus'
+import { AgentCardContent, LaneGlyph, laneOutcomeWords } from './subagentStatus'
 import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -661,14 +661,23 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
       </span>
     </>
   )
+  // Hovering or focusing the agent says who it is, how it is doing and what
+  // kind of helper it is (design-system/components/agent-glyph).
+  const card = <AgentCardContent tool={tool} running={running} />
   return (
     <div ref={laneRef}>
       {expandable ? (
-        <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
-          {header}
-        </RowButton>
+        <Tooltip content={card} multiline placement="bottom" wrapperClassName="block">
+          <RowButton density="row" aria-expanded={open} onClick={() => setOpen(!open)} className={headerInk}>
+            {header}
+          </RowButton>
+        </Tooltip>
       ) : (
-        <div className={headerClass}>{header}</div>
+        <Tooltip content={card} multiline placement="bottom" wrapperClassName="block">
+          <div tabIndex={0} className={`${headerClass} focus-visible:focus-ring-inset`}>
+            {header}
+          </div>
+        </Tooltip>
       )}
       {open && expandable ? (
         <div className="ml-2 mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
