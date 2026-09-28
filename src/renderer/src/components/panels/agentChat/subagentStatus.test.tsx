@@ -1,7 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import type { TranscriptToolEntry } from './conversationProjection'
-import { AgentCardContent, LaneMark, SubagentTypesProvider, laneAgentState, laneOutcomeWords } from './subagentStatus'
+import {
+  AgentCardContent,
+  LaneMark,
+  SubagentTypesProvider,
+  laneAgentState,
+  laneOutcomeWords,
+  laneTask,
+} from './subagentStatus'
 
 const lane = (fields: Partial<TranscriptToolEntry> = {}): TranscriptToolEntry => ({
   kind: 'tool',
@@ -92,4 +99,13 @@ test('an agent’s card says who it is, how it is doing, and what kind of helper
   // A built-in type is described even when the session has not described it.
   expect(failed).toContain('works out an approach')
   expect(failed).toContain('Ran out of turns')
+})
+
+test('an agent’s task is its call’s summary, else the description the call gave it, else its own', () => {
+  expect(laneTask(lane({ summary: 'Agent: map the router' }))).toBe('map the router')
+  expect(laneTask(lane({ input: { description: 'Read a.txt and b.txt', subagent_type: 'Explore' } }))).toBe(
+    'Read a.txt and b.txt',
+  )
+  expect(laneTask(lane({ agent: { state: 'running', description: 'Count the files' } }))).toBe('Count the files')
+  expect(laneTask(lane())).toBe('')
 })
