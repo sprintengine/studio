@@ -20,6 +20,7 @@ import {
   type MeshLiveState,
   type MeshMachineReachability,
   type MeshPairRequestPhase,
+  type MeshCreateConversationResult,
   type MeshCreateTerminalResult,
   type MeshGap,
   type MeshPairResult,
@@ -208,6 +209,19 @@ export type TailnetMeshService = {
     /** Where the chat runs there (checkout-and-branch-on-remote-create); the current checkout when absent. */
     checkout?: unknown
   }): Promise<MeshCreateTerminalResult>
+  /**
+   * Start a chat agent in a remote workspace (`conversation:operate`). The
+   * chat runs there, in that machine's conversation runtime; a pane here
+   * follows it over the conversation stream by the ids this returns.
+   */
+  createConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    cli?: unknown
+    prompt?: unknown
+    cliModel?: unknown
+    permissionPreset?: unknown
+  }): Promise<MeshCreateConversationResult>
   /**
    * One remote workspace's checkout facts — branch, trunk, branches,
    * worktrees — over `workspace.checkout` (workspace:read). A pairing that
@@ -1343,6 +1357,69 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
   }
 
+  async function createConversation(input: {
+    connectionId: unknown
+    workspaceId?: unknown
+    cli?: unknown
+    prompt?: unknown
+    cliModel?: unknown
+    permissionPreset?: unknown
+  }): Promise<MeshCreateConversationResult> {
+    const connection = connectionFor(input.connectionId)
+    if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+    if (typeof input.workspaceId !== 'string' || !input.workspaceId) {
+      return { ok: false, code: 'invalid_arguments', message: 'Name the remote workspace to start the chat in.' }
+    }
+    // Forwarded verbatim, as a terminal launch is: the remote validates every
+    // field, and its refusal reaches the caller word for word.
+    const answer = await callRemoteTool({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      tool: 'conversation.create',
+      args: {
+        workspaceId: input.workspaceId,
+        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+        ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+        ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
+        ...(typeof input.permissionPreset === 'string' && input.permissionPreset
+          ? { permissionPreset: input.permissionPreset }
+          : {}),
+      },
+      // Starting a chat starts its CLI over there; a healthy slow start is not a failure.
+      timeoutMs: 60_000,
+    })
+    if (!answer.ok) {
+      // A machine on a build from before `conversation.create` does not have
+      // the tool; say that rather than pass on the gateway's bare refusal.
+      if (answer.code === 'rpc_error' && /Unknown tool/u.test(answer.message)) {
+        return {
+          ok: false,
+          code: answer.code,
+          message: `${connection.machineName} cannot start chat agents yet. Update SprintEngine Studio there, or start a terminal agent.`,
+        }
+      }
+      return { ok: false, code: answer.code, message: answer.message }
+    }
+    const conversation = asRecord(answer.value.conversation)
+    const workspaceId = typeof conversation?.workspaceId === 'string' ? conversation.workspaceId : ''
+    const agentId = typeof conversation?.agentId === 'string' ? conversation.agentId : ''
+    if (!workspaceId || !agentId) {
+      return {
+        ok: false,
+        code: 'unreadable_result',
+        message: 'That machine started the chat but did not say which one it is, so it cannot be opened.',
+      }
+    }
+    return {
+      ok: true,
+      workspaceId,
+      agentId,
+      title: typeof conversation?.name === 'string' && conversation.name ? conversation.name : 'Chat',
+      providerId: typeof conversation?.providerId === 'string' ? conversation.providerId : '',
+      modelId: typeof conversation?.modelId === 'string' ? conversation.modelId : '',
+    }
+  }
+
   async function attachTerminal(input: {
     attachId: string
     connectionId: unknown
@@ -1707,6 +1784,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     },
     browse,
     createTerminal,
+    createConversation,
     workspaceCheckout,
     attachTerminal,
 

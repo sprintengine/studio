@@ -4,6 +4,7 @@ import {
   meshTerminalEventChannel,
   MESH_ATTACH_TERMINAL_CHANNEL,
   MESH_BROWSE_CHANNEL,
+  MESH_CREATE_CONVERSATION_CHANNEL,
   MESH_CREATE_TERMINAL_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
   MESH_DETACH_TERMINAL_CHANNEL,
@@ -116,6 +117,17 @@ export function registerMeshIpc(ipcMain: IpcMain, service: AutomationService): v
       cliModel: record.cliModel,
       permissionPreset: record.permissionPreset,
       checkout: record.checkout,
+    })
+  })
+  ipcMain.handle(MESH_CREATE_CONVERSATION_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input) ?? {}
+    return service.mesh().createConversation({
+      connectionId: record.connectionId,
+      workspaceId: record.workspaceId,
+      cli: record.cli,
+      prompt: record.prompt,
+      cliModel: record.cliModel,
+      permissionPreset: record.permissionPreset,
     })
   })
   ipcMain.handle(MESH_WORKSPACE_CHECKOUT_CHANNEL, (_event, input: unknown) => {

@@ -139,6 +139,8 @@ import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
 import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
 import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
 import { createTourTools } from './automation/tour-tools'
+import { createConversationTools } from './automation/conversation-tools'
+import { createConversationLaunchService } from './conversation-launch-service'
 import { createAppTourService } from './tours/tour-app'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
@@ -1296,6 +1298,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // Starting a chat in main, for a caller with no window here to start it in
+  // (a paired machine's New chat, `conversation.create`). The record goes
+  // through the sequenced bus like any agent main registers, so every window
+  // and paired device hears about the chat the moment it exists.
+  const conversationLaunchService = createConversationLaunchService({
+    getWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
+    getLaunchSettings: () => agentLaunchSettings.get(),
+    writeAgent: (workspaceId, agentId, agent) =>
+      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
+    startSession: (input) => conversationRuntime.startSession(input),
+    send: (input) => conversationRuntime.sendTurn(input),
+    warn: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
+    },
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1402,6 +1420,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           hasWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
         }),
+        ...createConversationTools({ launch: (request) => conversationLaunchService.launch(request) }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),

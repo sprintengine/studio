@@ -216,6 +216,15 @@ export type MeshCreateTerminalResult =
   | { ok: true; sessionId: string; workspaceId: string; agentId: string; title: string; checkout: MeshCreatedCheckout }
   | { ok: false; code: string; message: string }
 
+/**
+ * A chat agent started on a paired machine (`conversation.create`). The chat
+ * is known there by its workspace and agent ids, which is what a pane follows
+ * it by; `title` is the agent's name there.
+ */
+export type MeshCreateConversationResult =
+  | { ok: true; workspaceId: string; agentId: string; title: string; providerId: string; modelId: string }
+  | { ok: false; code: string; message: string }
+
 /** Terminal access a set of granted scopes carries, in the Mesh's vocabulary. */
 export function meshTerminalAccess(scopes: readonly TailnetScope[]): MeshTerminalAccess {
   if (scopes.includes('terminal:control')) return 'control'
@@ -389,6 +398,8 @@ export const MESH_FORGET_CHANNEL = 'mesh:forget'
 export const TAILNET_FORGET_MACHINE_CHANNEL = 'tailnet:forget-machine'
 export const MESH_BROWSE_CHANNEL = 'mesh:browse'
 export const MESH_CREATE_TERMINAL_CHANNEL = 'mesh:create-terminal'
+/** Start a chat agent on a paired machine, over its `conversation.create`. */
+export const MESH_CREATE_CONVERSATION_CHANNEL = 'mesh:create-conversation'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const MESH_WORKSPACE_CHECKOUT_CHANNEL = 'mesh:workspace-checkout'
 export const MESH_ATTACH_TERMINAL_CHANNEL = 'mesh:attach-terminal'

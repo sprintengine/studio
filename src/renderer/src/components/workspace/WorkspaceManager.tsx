@@ -42,6 +42,7 @@ import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
 import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
@@ -3310,8 +3311,84 @@ export default function WorkspaceManager() {
     [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, workspaceWindowId],
   )
 
+  // A chat agent started on a paired machine: it runs in that machine's
+  // conversation runtime, and what opens here is the same chat pane the Remote
+  // band opens for one of its chats, following it by workspace and agent id.
+  const confirmRemoteNewConversation = useCallback(
+    async (launch: RemoteNewChatLaunch): Promise<void> => {
+      const created = await window.api
+        .meshCreateConversation({
+          connectionId: launch.connectionId,
+          workspaceId: launch.remoteWorkspaceId,
+          cli: launch.cli,
+          prompt: launch.prompt || undefined,
+          cliModel: launch.cliModel ?? undefined,
+          // As named, either preset: the launcher showed it, and the chat
+          // over there starts on it.
+          permissionPreset: launch.permissionPreset,
+        })
+        .catch((error: unknown): { ok: false; code: string; message: string } => ({
+          ok: false,
+          code: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        }))
+      if (!created.ok) {
+        showToast({
+          tone: 'error',
+          title: `Could not start a chat on ${launch.machineName}`,
+          description: created.message,
+        })
+        return
+      }
+      const remoteSessionId = meshConversationSessionId(created.workspaceId, created.agentId)
+      if (!SOLO_CHAT_TEMPLATE) {
+        showToast({
+          tone: 'error',
+          title: `Started on ${launch.machineName}, but no pane could open`,
+          description: `The Solo layout template is missing. "${created.title}" is listed under Remote in the sidebar.`,
+        })
+        closeNewChatPanel()
+        return
+      }
+      addWorkspace(SOLO_CHAT_TEMPLATE, {
+        name: remoteWorkspaceName(created.title, launch.remoteWorkspaceName),
+        folderPath: null,
+        remoteOrigin: {
+          connectionId: launch.connectionId,
+          machineName: launch.machineName,
+          workspaceId: launch.remoteWorkspaceId,
+          workspaceName: launch.remoteWorkspaceName,
+          workspaceRoot: launch.remoteWorkspaceRoot,
+          // The id the Remote band lists this chat by, so its row is this one.
+          sessionId: remoteSessionId,
+          repository: launch.remoteRepository,
+          checkout: { mode: 'current', branch: launch.branch, worktreePath: null },
+        },
+        windowId: workspaceWindowId,
+        seedAgent: {
+          tabName: meshTerminalTabName(launch.machineName, created.title),
+          meshConversation: {
+            connectionId: launch.connectionId,
+            machineName: launch.machineName,
+            remoteWorkspaceId: created.workspaceId,
+            remoteAgentId: created.agentId,
+            title: created.title,
+          },
+        },
+      })
+      closeNewChatPanel()
+      showToast({
+        tone: 'good',
+        title: `Chat started on ${launch.machineName}`,
+        description: `${created.title} in ${launch.remoteWorkspaceName}${launch.branch ? ` · ${launch.branch}` : ''}`,
+      })
+    },
+    [addWorkspace, closeNewChatPanel, workspaceWindowId],
+  )
+
   const confirmRemoteNewChat = useCallback(
     async (launch: RemoteNewChatLaunch): Promise<void> => {
+      if (launch.conversation) return confirmRemoteNewConversation(launch)
       const created = await window.api
         .meshCreateTerminal({
           connectionId: launch.connectionId,
@@ -3397,7 +3474,7 @@ export default function WorkspaceManager() {
             : `${created.title} in ${launch.remoteWorkspaceName}${landedBranch ? ` · ${landedBranch}` : ''}`,
       })
     },
-    [addWorkspace, closeNewChatPanel, workspaceWindowId],
+    [addWorkspace, closeNewChatPanel, confirmRemoteNewConversation, workspaceWindowId],
   )
 
   // Optional workspaceId targets a single workspace's panel. The mode-scoped

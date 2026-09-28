@@ -4,6 +4,7 @@ import {
   meshTerminalEventChannel,
   MESH_ATTACH_TERMINAL_CHANNEL,
   MESH_BROWSE_CHANNEL,
+  MESH_CREATE_CONVERSATION_CHANNEL,
   MESH_CREATE_TERMINAL_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
   MESH_DETACH_TERMINAL_CHANNEL,
@@ -20,6 +21,7 @@ import {
   type MeshAttachResult,
   type MeshBrowse,
   type MeshConnection,
+  type MeshCreateConversationResult,
   type MeshCreateTerminalResult,
   type MeshCheckoutRequest,
   type MeshWorkspaceCheckoutResult,
@@ -91,6 +93,15 @@ export const meshApi = {
     checkout?: MeshCheckoutRequest
   }): Promise<MeshCreateTerminalResult> =>
     ipcRenderer.invoke(MESH_CREATE_TERMINAL_CHANNEL, input) as Promise<MeshCreateTerminalResult>,
+  meshCreateConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    cli?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: string
+  }): Promise<MeshCreateConversationResult> =>
+    ipcRenderer.invoke(MESH_CREATE_CONVERSATION_CHANNEL, input) as Promise<MeshCreateConversationResult>,
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<MeshWorkspaceCheckoutResult> =>
     ipcRenderer.invoke(MESH_WORKSPACE_CHECKOUT_CHANNEL, {
       connectionId,
@@ -203,6 +214,7 @@ export const meshApi = {
   | 'meshForget'
   | 'meshBrowse'
   | 'meshCreateTerminal'
+  | 'meshCreateConversation'
   | 'meshWorkspaceCheckout'
   | 'meshAttachTerminal'
   | 'meshDetachTerminal'

@@ -110,6 +110,7 @@ import type {
   MeshAttachResult,
   MeshBrowse,
   MeshConnection,
+  MeshCreateConversationResult,
   MeshCreateTerminalResult,
   MeshCheckoutRequest,
   MeshWorkspaceCheckoutResult,
@@ -766,6 +767,18 @@ export type ElectronApi = {
      */
     checkout?: MeshCheckoutRequest
   }) => Promise<MeshCreateTerminalResult>
+  /**
+   * Start a chat agent in a workspace on a paired machine (`conversation:operate`
+   * there), and get the ids a chat pane here follows it by.
+   */
+  meshCreateConversation: (input: {
+    connectionId: string
+    workspaceId: string
+    cli?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: string
+  }) => Promise<MeshCreateConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**

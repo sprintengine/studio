@@ -182,6 +182,12 @@ export type RemoteNewChatLaunch = {
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
+  /**
+   * Start the CLI there as a chat agent rather than in a terminal: the chat
+   * runs in that machine's conversation runtime, and the pane here follows it.
+   * A chat has no checkout of its own, so `checkout` is always the current one.
+   */
+  conversation?: boolean
 }
 
 /**
@@ -498,8 +504,10 @@ export default function NewAgentPanel({
   // One dropdown: This device is the default entry, paired machines follow. A
   // remote target swaps the project choice for the machine's own workspaces
   // (fetched over the audited mesh client) and routes the launch remotely.
-  // Terminal and conversation launches are this machine's only — picking
-  // either resets the target rather than lying about where they would run.
+  // A chat agent runs in the chosen machine's own conversation runtime and is
+  // followed from here, as its terminal agents are attached to. A bare
+  // terminal is this machine's only — picking it resets the target rather
+  // than lying about where it would run.
   const [remoteMachines, setRemoteMachines] = React.useState<MeshConnection[]>([])
   const [remoteTarget, setRemoteTarget] = React.useState<RemoteTargetState | null>(null)
   // What each paired machine holds, read once per machine per door open
@@ -577,7 +585,7 @@ export default function NewAgentPanel({
       unsubscribe?.()
     }
   }, [remoteCapable])
-  const remoteSelectable = remoteCapable && selection.kind !== 'terminal' && selection.kind !== 'conversation'
+  const remoteSelectable = remoteCapable && selection.kind !== 'terminal'
   React.useEffect(() => {
     if (!remoteSelectable) setRemoteTarget(null)
   }, [remoteSelectable])
@@ -1004,6 +1012,41 @@ export default function NewAgentPanel({
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
+      if (confirm.kind === 'conversation') {
+        // A chat's skills are this machine's and its images are local files;
+        // neither has a way over yet, so their chips refuse rather than vanish.
+        const strandedChat = [
+          confirm.skills?.length ? 'the skills' : null,
+          images.length > 0 ? 'the attached images' : null,
+        ].filter((entry): entry is string => entry !== null)
+        if (strandedChat.length > 0) {
+          showToast({
+            tone: 'warn',
+            title: 'That chat cannot travel yet',
+            description: `Remove ${strandedChat.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
+          })
+          return
+        }
+        setRemoteLaunching(true)
+        onLaunchRemote({
+          connectionId: remoteTarget.connection.id,
+          machineName: remoteTarget.connection.machineName,
+          remoteWorkspaceId: remoteTarget.picked.workspaceId,
+          remoteWorkspaceName: remoteTarget.picked.name,
+          remoteWorkspaceRoot: remoteTarget.picked.folderPath,
+          prompt: text.trim(),
+          cli: confirm.cli,
+          cliModel: confirm.model ?? null,
+          permissionPreset: effectivePreset,
+          checkout: { mode: 'current' },
+          branch: remoteTarget.checkout?.branch ?? null,
+          remoteRepository: remoteTarget.picked.repository,
+          conversation: true,
+        })
+          .finally(() => setRemoteLaunching(false))
+          .catch(() => {})
+        return
+      }
       if (confirm.kind !== 'general') return
       // What cannot travel must not be silently dropped while its chip is on
       // screen: skills install locally, MCP servers were synced into the LOCAL

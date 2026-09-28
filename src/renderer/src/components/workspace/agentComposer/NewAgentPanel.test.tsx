@@ -1637,6 +1637,55 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check('a chat agent can run on a paired machine, and launches there as a chat', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        terminalAccess: 'full',
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+        terminals: [],
+        gaps: [],
+      })
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        initialSelection: { kind: 'conversation' },
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      assert.ok(machineTrigger(view), 'the machine dropdown is offered for a chat agent')
+      await pickMachine(view, 'Air')
+      assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'and a paired machine can be picked')
+      const textarea = view.container.querySelector('textarea')!
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(textarea, 'fix the build')
+        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        textarea.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+      })
+      await settle()
+      assert.equal(view.launches.length, 0, 'nothing starts on this machine')
+      assert.equal(remoteLaunches.length, 1, 'the chat travels')
+      const launch = remoteLaunches[0]!
+      assert.equal(launch.conversation, true, 'as a chat, not a terminal agent')
+      assert.equal(launch.cli, 'claude-code')
+      assert.equal(launch.prompt, 'fix the build')
+      assert.equal(launch.remoteWorkspaceId, 'w1')
+      assert.deepEqual(launch.checkout, { mode: 'current' }, 'a chat has no worktree of its own')
+      view.unmount()
+    })
+
     await check(
       'a remote target offers both presets and launches on the one the launcher shows, bypass included',
       async () => {
