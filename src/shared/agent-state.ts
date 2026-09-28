@@ -159,11 +159,8 @@ export type AgentState = {
   // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
-  // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
-  // transient spawn-UI state; the launch boundary prepends the debug directive
-  // to the initial prompt when true. Not persisted-by-default UI: defaults off
-  // each spawn, but recorded on the agent so the launch path can read it.
-  debugMode?: boolean
+  // (A `debugMode` flag sat here until Debug Mode was removed on 2026-09-28.
+  // Agents persisted before then may still carry it; nothing reads it.)
   cliStartupPrompt?: string
   // Last user edit to renderer-owned per-agent config (name, cliStartupPrompt,
   // …), stamped when a window sends a `workspace.update_agent` command. The

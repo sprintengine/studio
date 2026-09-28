@@ -119,8 +119,6 @@ export type NewAgentPanelProps = {
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
   permissionPreset: CliPermissionPreset
-  debugMode: boolean
-  onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
   onLaunch: (launch: NewAgentLaunch) => void
   /** MCP servers picked before the panel opened (a connector's own "New chat"); still removable. */
@@ -372,8 +370,6 @@ export default function NewAgentPanel({
   onBrowseProject,
   initialSelection,
   permissionPreset,
-  debugMode,
-  onChangeDebugMode,
   onLaunch,
   initialMcpServers,
   onClose,
@@ -1031,8 +1027,8 @@ export default function NewAgentPanel({
       const confirm = composer.buildConfirm(selection)
       if (confirm.kind !== 'general') return
       // What cannot travel must not be silently dropped while its chip is on
-      // screen: skills install locally, MCP servers were synced into the LOCAL
-      // workspace config, and debug drives the local state machine.
+      // screen: skills install locally, and MCP servers were synced into the
+      // LOCAL workspace config.
       // Images too: a local path means nothing on another machine, and there
       // is no upload path to the remote today (uploading them into the remote
       // environment is the future path; until it exists the refusal names them
@@ -1044,7 +1040,6 @@ export default function NewAgentPanel({
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
         confirm.mcpServers?.length ? 'the MCP servers' : null,
-        debugMode ? 'debug mode' : null,
         images.length > 0 ? 'the attached images' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
@@ -1389,21 +1384,25 @@ export default function NewAgentPanel({
           <div className="flex items-start gap-2">
             {/* The prompt caret as an SVG glyph, not a text character: a
                 character picks up the font's rendering and the guard's
-                emoji-as-icon rule for a reason. */}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
-            >
-              <path
-                d="M5.5 3.5 10 8l-4.5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+                emoji-as-icon rule for a reason. A chat is not a terminal, so
+                it gets no caret; the model picker below already says what
+                answers. */}
+            {isChatLaunch ? null : (
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
+              >
+                <path
+                  d="M5.5 3.5 10 8l-4.5 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
             {/* Grows with its content (field-sizing: content) from the two-row
                 floor to a ceiling, then scrolls — a box that showed two lines
                 of a six-line prompt was hiding what the person was about to
@@ -1540,14 +1539,6 @@ export default function NewAgentPanel({
                 />
               </span>
             ) : null}
-            {debugMode ? (
-              <AttachmentChip
-                glyph={<DebugGlyph />}
-                label="Debug"
-                removeLabel="Turn debug mode off"
-                onRemove={() => onChangeDebugMode(false)}
-              />
-            ) : null}
 
             {/* Always rendered, whatever is selected: this menu is the only way
                 to change WHAT is being launched, so hiding it for a terminal
@@ -1592,8 +1583,6 @@ export default function NewAgentPanel({
                   // the menu spec's rule for a choice that stays true tomorrow.
                   worktreeAvailable={remoteTarget ? remoteTarget.picked !== null : workspaceIsGitRepo}
                   worktreeReason={remoteTarget ? remoteWorktreeDisabledReason(remoteTarget) : null}
-                  debugMode={debugMode}
-                  onToggleDebug={() => onChangeDebugMode(!debugMode)}
                 />
               </Popover>
             }
@@ -1687,20 +1676,6 @@ function BranchGlyph() {
       <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
       <circle cx="11.5" cy="6" r="1.75" stroke="currentColor" strokeWidth="1.3" />
       <path d="M4.5 5.25v5.5M11.5 7.75c0 2-1.5 3-4 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function DebugGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--accent-primary)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="5" y="5" width="6" height="7" rx="3" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M2.5 7.5h2.5M11 7.5h2.5M2.5 11h2.5M11 11h2.5M8 2.5V5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
     </svg>
   )
 }
@@ -2054,8 +2029,6 @@ function MoreMenu({
   onChangeWorktree,
   worktreeAvailable,
   worktreeReason,
-  debugMode,
-  onToggleDebug,
 }: {
   selection: AgentComposerSelection
   /** Whether the Chat agent row is offered (the roster has it). */
@@ -2073,8 +2046,6 @@ function MoreMenu({
    * exist here. Null when the worktree can be asked for.
    */
   worktreeReason?: string | null
-  debugMode: boolean
-  onToggleDebug: () => void
 }) {
   const worktreeRef = React.useRef<HTMLInputElement>(null)
 
@@ -2154,19 +2125,8 @@ function MoreMenu({
               />
             </div>
           </div>
-          <div className={MENU_DIVIDER_CLASS} role="separator" />
         </>
       ) : null}
-
-      <MenuRow
-        selected={debugMode}
-        label="Debug mode"
-        // Not about debugging the agent: it hands the agent the debug skill's
-        // state machine to find a bug in YOUR software, instrumenting the code
-        // and removing every tag before it finishes.
-        hint="The agent instruments your code, works the debug loop, then cleans up"
-        onClick={onToggleDebug}
-      />
     </>
   )
 }

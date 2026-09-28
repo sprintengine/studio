@@ -3,7 +3,7 @@ import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
-import { runBootDiscovery } from './boot-discovery'
+import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
@@ -111,12 +111,19 @@ type RegisterAppLifecycleOptions = {
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
   /**
-   * Opens the gate on the boot jobs nothing on screen needs (the plugin-home
-   * copy, the git probe, the first plugin install into open workspaces).
-   * Called once the main window reveals, so they never compete with the
-   * renderer's first load.
+   * Opens the gate on the boot jobs nothing on screen needs (the git probe and
+   * the rest). Called once the main window reveals, so they never compete with
+   * the renderer's first load. It also starts the workspace sync, should
+   * `prepareWorkspacesAtBoot` not have.
    */
   startDeferredBootJobs?: () => void
+  /**
+   * The workspace sync: the launcher, the app's plugin home, and the pass over
+   * every known workspace (the Studio skills chosen, the retired ones taken
+   * out). Started as the loading screen goes up; the reveal waits for it for at
+   * most `BOOT_WORKSPACE_SYNC_BUDGET_MS`, and it carries on past that.
+   */
+  prepareWorkspacesAtBoot?: () => Promise<unknown>
 }
 
 // How long after boot CLI detection settles the first model discovery pass
@@ -141,6 +148,7 @@ export function registerAppLifecycle({
   backgroundMode,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
+  prepareWorkspacesAtBoot,
   onAgentAttentionReady,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
@@ -275,9 +283,31 @@ export function registerAppLifecycle({
         startBootJobsAfterReveal()
       },
     })
+    // The workspace sync, while the plate is up. The reveal waits for whichever
+    // comes first of the sync finishing and its budget running out — never
+    // longer — and the sync keeps going in the background past the budget,
+    // exactly as it ran before it moved here. BootReveal's own hard timeout
+    // still stands over all of it.
+    const workspacesPrepared = prepareWorkspacesAtBoot
+      ? settleWithin(prepareWorkspacesAtBoot(), BOOT_WORKSPACE_SYNC_BUDGET_MS)
+      : Promise.resolve('settled' as const)
+    void workspacesPrepared.then((outcome) => {
+      markStartup('main.workspaces-prepared')
+      if (outcome === 'timed-out') {
+        void writeDiagnosticLog({
+          level: 'info',
+          source: 'workspace',
+          title: 'Workspace sync continued after startup',
+          message: `Preparing workspaces took longer than ${BOOT_WORKSPACE_SYNC_BUDGET_MS / 1000} s, so the app opened and it carried on in the background.`,
+        }).catch(() => undefined)
+      }
+    })
+
     // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
     // reveal that has already happened.
-    ipcMain.once('app:boot-complete', () => bootReveal.trigger())
+    ipcMain.once('app:boot-complete', () => {
+      void workspacesPrepared.then(() => bootReveal.trigger())
+    })
     // A renderer that dies before its first frame never sends the signal, and
     // the window it was going to reveal is hidden. The timeout inside
     // createBootReveal is the only thing between that and a Force Quit, so cover
@@ -289,6 +319,7 @@ export function registerAppLifecycle({
     // probe delays a warmed cache and never the app.
     void runBootDiscovery({
       onProgress: sendSplashProgress,
+      ...(prepareWorkspacesAtBoot ? { prepareWorkspaces: () => workspacesPrepared } : {}),
       // The one detection of this machine's CLIs a launch makes (Re-check in
       // Settings is the only other), with the commands the person set, so the
       // renderer's first read is answered from it. What it finds schedules the

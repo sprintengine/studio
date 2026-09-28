@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,6 +8,9 @@ import { join } from 'node:path'
 import type { LoadedPlugin } from '../shared/plugin-manifest'
 import {
   BUILTIN_SKILLS,
+  BUILTIN_SKILLS_RESOURCE_DIR,
+  pruneRetiredBuiltinSkillCopies,
+  RETIRED_BUILTIN_SKILL_IDS,
   createBuiltinSkillManager,
   ensureSkillInstalled,
   findModuleSkill,
@@ -14,8 +19,8 @@ import {
   resolveSkillById,
   setDefaultSkillManager,
   unregisterModuleSkills,
+  writeManagedSkillManifest,
 } from './builtin-skills'
-import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 import { test } from 'vitest'
 
 test('builtin-skills', async () => {
@@ -90,11 +95,11 @@ test('builtin-skills', async () => {
   }
 
   async function main(): Promise<void> {
-    // The directory is named from the constants `builtinSkillSourceRoot()` builds
-    // it from, not spelled again here: the skills moved into the bundled
-    // marketplace with the studio-marketplace ruling (2026-09-06), and a path
-    // written out by hand would go on passing after the next move.
-    const shipped = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID, 'skills')
+    // The directory is named from the constant `builtinSkillSourceRoot()` builds
+    // it from, not spelled again here: the skills have moved twice (into the
+    // marketplace on 2026-09-06, out again on 2026-09-28), and a path written
+    // out by hand would go on passing after the next move.
+    const shipped = join(process.cwd(), 'resources', BUILTIN_SKILLS_RESOURCE_DIR)
     for (const skill of BUILTIN_SKILLS) {
       const realSkill = await readFile(join(shipped, skill.id, 'SKILL.md'), 'utf-8')
       assert.match(realSkill, new RegExp(`name:\\s*${skill.id}`))
@@ -239,92 +244,17 @@ test('builtin-skills', async () => {
 
     const manager = createBuiltinSkillManager({ sourceRoot, listPlugins: () => loadedPlugins })
     const listed = await manager.list()
+    // The one a prompt invokes; the workflow skills and `debug` are retired.
     assert.deepEqual(
       listed.map((skill) => skill.id),
-      [
-        'workspace-knowledge',
-        'knowledge-grill',
-        'debug',
-        'behavior-first-testing',
-        'prototype',
-        'architecture-deepening',
-        'handoff',
-        'backlog',
-        'frontend-design',
-      ],
+      ['backlog'],
     )
-
-    const missing = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
-    assert.equal(missing.ok, true)
-    assert.equal(missing.ok && missing.status, 'missing')
-
-    const installed = await manager.install(workspaceRoot, 'workspace-knowledge')
-    assert.equal(installed.ok, true)
-    assert.equal(installed.ok && installed.status, 'installed')
-
-    const installedStatus = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
-    assert.equal(installedStatus.ok, true)
-    assert.equal(installedStatus.ok && installedStatus.status, 'installed')
-
-    const debugInstalled = await manager.install(workspaceRoot, 'debug')
-    assert.equal(debugInstalled.ok, true)
-    assert.equal(debugInstalled.ok && debugInstalled.status, 'installed')
     assert.equal(
-      await readFile(join(workspaceRoot, '.agents', 'skills', 'debug', 'SKILL.md'), 'utf-8'),
-      'version one\n',
+      (await manager.getStatus(workspaceRoot, 'debug')).ok,
+      false,
+      'debug is no longer a skill this installer knows',
     )
-    // Debug Mode delivers the full skill to the agent, so `debug` opts into
-    // all-native targets (like backlog): it installs to .agents PLUS every native
-    // CLI harness, not just .agents. This is what lets the spawn-time /debug
-    // invocation resolve to a present skill in the CLI's own skill dir.
-    for (const dir of ['.claude', '.pi']) {
-      assert.equal(
-        await readFile(join(workspaceRoot, dir, 'skills', 'debug', 'SKILL.md'), 'utf-8'),
-        'version one\n',
-        `debug installs to ${dir}/skills/debug`,
-      )
-    }
-    const debugTargets = await manager.getStatus(workspaceRoot, 'debug')
-    assert.equal(debugTargets.ok && debugTargets.status, 'installed')
-    assert.equal(
-      debugTargets.ok && debugTargets.targets.length,
-      5,
-      'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell); zai dedupes into the claude path',
-    )
-    // Regression (skill-picker Install EEXIST): claude-code and zai render the
-    // same .claude destination — exactly one path-bearing target may survive.
-    const debugClaudePath = join(workspaceRoot, '.claude', 'skills', 'debug')
-    assert.equal(
-      debugTargets.ok && debugTargets.targets.filter((target) => target.destinationPath === debugClaudePath).length,
-      1,
-      'duplicate plugin install paths dedupe to one target',
-    )
-
     await writeAllSkillSources(sourceRoot, 'version two\n')
-    const updateAvailable = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
-    assert.equal(updateAvailable.ok, true)
-    assert.equal(updateAvailable.ok && updateAvailable.status, 'update-available')
-
-    const updated = await manager.install(workspaceRoot, 'workspace-knowledge')
-    assert.equal(updated.ok, true)
-    assert.equal(updated.ok && updated.status, 'updated')
-    assert.equal(
-      await readFile(join(workspaceRoot, '.agents', 'skills', 'workspace-knowledge', 'SKILL.md'), 'utf-8'),
-      'version two\n',
-    )
-
-    await writeFile(
-      join(workspaceRoot, '.agents', 'skills', 'workspace-knowledge', 'SKILL.md'),
-      'local edit\n',
-      'utf-8',
-    )
-    const modified = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
-    assert.equal(modified.ok, true)
-    assert.equal(modified.ok && modified.status, 'modified')
-
-    const blocked = await manager.install(workspaceRoot, 'workspace-knowledge')
-    assert.equal(blocked.ok, false)
-    assert.equal(!blocked.ok && blocked.status, 'modified')
 
     // Multi-target skills install one managed copy for .agents plus each native
     // CLI plugin adapter. Prompt-shim and unsupported adapters are reported but
@@ -353,6 +283,14 @@ test('builtin-skills', async () => {
     const backlogStatus = await manager.getStatus(workspaceRoot, 'backlog')
     assert.equal(backlogStatus.ok, true)
     assert.equal(backlogStatus.ok && backlogStatus.status, 'installed')
+    // Regression (skill-picker Install EEXIST): claude-code and zai render the
+    // same .claude destination — exactly one path-bearing target may survive.
+    const backlogClaudePath = join(workspaceRoot, '.claude', 'skills', 'backlog')
+    assert.equal(
+      backlogStatus.ok && backlogStatus.targets.filter((target) => target.destinationPath === backlogClaudePath).length,
+      1,
+      'duplicate plugin install paths dedupe to one target',
+    )
 
     // A modified copy in one harness is skipped, not a block on the others.
     await writeFile(join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'), 'local claude edit\n', 'utf-8')
@@ -381,33 +319,6 @@ test('builtin-skills', async () => {
     assert.equal(
       await readFile(join(workspaceRoot, '.pi', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
       'version three\n',
-    )
-
-    // frontend-design is Claude-only: harnesses: ['claude'] resolves a
-    // single native target and installs into .claude alone. This is the install
-    // half of the wizard's "non-Claude sessions get no design skill" guarantee —
-    // a non-Claude CLI never receives the skill files.
-    const designSkillMissing = await manager.getStatus(workspaceRoot, 'frontend-design')
-    assert.equal(designSkillMissing.ok, true)
-    assert.equal(designSkillMissing.ok && designSkillMissing.status, 'missing')
-    assert.deepEqual(
-      designSkillMissing.ok && designSkillMissing.targets.map((target) => target.harness),
-      ['claude'],
-      'frontend-design targets exactly the Claude harness',
-    )
-
-    const designSkillInstalled = await manager.install(workspaceRoot, 'frontend-design')
-    assert.equal(designSkillInstalled.ok, true)
-    assert.equal(designSkillInstalled.ok && designSkillInstalled.status, 'installed')
-    assert.equal(
-      await readFile(join(workspaceRoot, '.claude', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
-      'version three\n',
-      'frontend-design installs into the Claude skill dir',
-    )
-    await assert.rejects(
-      readFile(join(workspaceRoot, '.agents', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
-      /ENOENT/,
-      'frontend-design must not fan out to .agents or any non-Claude harness',
     )
 
     await testModuleOwnedSkills()
@@ -500,7 +411,7 @@ test('builtin-skills', async () => {
     assert.throws(
       () =>
         registerModuleSkills('impostor', [
-          { id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+          { id: 'backlog', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
         ]),
       /is a built-in skill/,
     )
@@ -509,7 +420,7 @@ test('builtin-skills', async () => {
       () =>
         registerModuleSkills('other', [
           { id: 'fine', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
-          { id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+          { id: 'backlog', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
         ]),
       /is a built-in skill/,
     )
@@ -543,4 +454,44 @@ test('builtin-skills', async () => {
   })
 
   await suiteRun
+})
+
+test('the retired skills are taken out of a workspace, but only the untouched, uncommitted copies this app wrote', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-retired-skills-'))
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, stdio: 'ignore' })
+  git('init', '-q')
+  git('config', 'user.email', 'test@example.com')
+  git('config', 'user.name', 'Test')
+  // A copy exactly as the installer leaves one: the bytes, then the marker.
+  const managedCopy = async (harnessDir: string, skillId: string): Promise<string> => {
+    const dir = join(workspace, harnessDir, 'skills', skillId)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), `# ${skillId}\n`, 'utf-8')
+    await writeManagedSkillManifest({ destinationDir: dir, skill: { id: skillId, version: '1.0.0' }, sourceHash: 'x' })
+    return dir
+  }
+  assert.ok(RETIRED_BUILTIN_SKILL_IDS.includes('frontend-design'))
+  const untouched = await managedCopy('.claude', 'frontend-design')
+  const inAgents = await managedCopy('.agents', 'workspace-knowledge')
+  // Debug Mode's skill, which every Debug Mode launch copied in.
+  assert.ok(RETIRED_BUILTIN_SKILL_IDS.includes('debug'))
+  const debugCopy = await managedCopy('.codex', 'debug')
+  const edited = await managedCopy('.agents', 'prototype')
+  await writeFile(join(edited, 'SKILL.md'), '# my own notes\n', 'utf-8')
+  const committed = await managedCopy('.agents', 'handoff')
+  git('add', '--', join('.agents', 'skills', 'handoff'))
+  git('commit', '-q', '-m', 'commit a copy')
+  // Installed from a catalogue, not by this app: another marker entirely.
+  const chosen = join(workspace, '.agents', 'skills', 'knowledge-grill')
+  await mkdir(chosen, { recursive: true })
+  await writeFile(join(chosen, 'SKILL.md'), '# chosen\n', 'utf-8')
+  // A skill that still ships is never this function's business.
+  const live = await managedCopy('.agents', 'backlog')
+
+  const removed = await pruneRetiredBuiltinSkillCopies(workspace)
+  assert.deepEqual(removed.sort(), [debugCopy, inAgents, untouched].sort())
+  for (const kept of [edited, committed, chosen, live]) {
+    assert.equal(existsSync(join(kept, 'SKILL.md')), true, `${kept} stays`)
+  }
+  assert.deepEqual(await pruneRetiredBuiltinSkillCopies(workspace), [], 'and a second pass finds nothing to do')
 })

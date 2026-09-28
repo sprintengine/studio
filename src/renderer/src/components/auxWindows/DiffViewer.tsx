@@ -68,6 +68,7 @@ import { useFileHunks } from './useFileHunks'
 import { isTourItem } from './tours/tourModel'
 import { TourMenu } from './tours/TourMenu'
 import { useTourPlayer, useTourState, type TourHostState } from './tours/useTourMode'
+import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
 import {
   DEFAULT_DIFF_EDITOR_PREFS,
   diffEditorOptions,
@@ -1685,6 +1686,13 @@ export function DiffViewer({
         {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
         {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
       </Toolbar>
+
+      {/* Below the toolbar, not above it: the region keeps one band above its
+          toolbar. Shown until the person answers it once. */}
+      <StudioSkillSuggestion
+        skillId="studio-diff-tours"
+        className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+      />
 
       {/* THE FIRST CONTENT ROW, not a second chrome band. It names the two
           things being compared and carries this file's include box; hide the

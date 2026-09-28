@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-06T12:00:00Z",
+  "updatedAt": "2026-09-28T12:00:00Z",
   "cards": [
     {
       "slug": "power-your-reviews",
@@ -15,34 +15,6 @@
         {
           "verb": "install.module",
           "id": "review"
-        }
-      ]
-    },
-    {
-      "slug": "design-system-your-app-follows",
-      "kind": "skill",
-      "title": "Give your app a design system it actually follows",
-      "dek": "The agent reads the UI you already have, pulls out the colours and spacing you keep repeating by hand, writes them down as tokens — then fails the build when something drifts.",
-      "credit": "Design skill",
-      "art": "tokens",
-      "publishedAt": "2026-09-03",
-      "go": [
-        {
-          "verb": "require.cli",
-          "cli": "claude-code"
-        },
-        {
-          "verb": "install.skill",
-          "source": "github:sprintengine/studio-releases",
-          "id": "studio-skills/skills/frontend-design"
-        },
-        {
-          "verb": "open.chat",
-          "prompt": "Read the UI this repository already has, pull out the colours and spacing it repeats by hand, and write them down as a design-system bundle the build can check.",
-          "skills": [
-            "frontend-design"
-          ],
-          "send": true
         }
       ]
     }

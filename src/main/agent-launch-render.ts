@@ -1,7 +1,5 @@
-import { applyDebugDirective } from '../shared/debug-directive'
 import type { AgentCli, CliRuntimeSettings, ColorScheme, CliPermissionPreset } from '../shared/electron-api'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
-import { resolveSkillInvocation } from '../shared/skill-invocation'
 
 import { getPluginById } from './plugin-registry-instance'
 import { launchArgvExceedsBudget, measureLaunchArgv, type LaunchArgBudget } from './launch-arg-budget'
@@ -35,19 +33,6 @@ export function cliTakesLaunchPlugins(cli: string): boolean {
   return Array.isArray(args) && args.length > 0
 }
 
-const DEBUG_SKILL_ID = 'debug'
-
-// Resolves the CLI-native explicit invocation for the debug skill from the
-// plugin manifest (e.g. "/debug" for Claude Code, "Use $debug." for Codex), or
-// undefined when the plugin does not natively support skills (so Debug Mode
-// falls back to the inline directive alone). Debug Mode prepends this so the
-// skill is triggered through the CLI's first-class mechanism; the spawn path
-// ensure-installs the skill (see terminal-runtime) so the invocation always
-// resolves to a skill that is actually present.
-export function resolveDebugSkillInvocation(plugin: LoadedPlugin): string | undefined {
-  return resolveSkillInvocation(plugin.manifest.skillIntegration, DEBUG_SKILL_ID)
-}
-
 // Resolves the effective command override for a launch, and the machine it is
 // for. Uses the plugin-id key only; a blank command means "use the manifest
 // binary".
@@ -64,10 +49,6 @@ export type AgentLaunchRenderInput = {
   cli: AgentCli
   sessionId: string
   resume?: boolean
-  // The workspace this launch runs in, so Debug Mode's directive names the
-  // sidecar directory that workspace actually uses. Absent leaves the current
-  // name, which is right for a launch with no workspace behind it.
-  workspaceRoot?: string
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: CliPermissionPreset
@@ -78,10 +59,6 @@ export type AgentLaunchRenderInput = {
   // so unset/default levels leave the launch argv unchanged. Claude Code
   // declares no default, so every explicitly picked level renders there.
   cliReasoning?: string
-  // Orthogonal Debug Mode flag. When true the launch boundary prepends the debug
-  // directive to the initial prompt; it never affects permission/session/model
-  // flags (the orthogonality invariant). See applyDebugDirective.
-  debugMode?: boolean
   // Host light/dark scheme to launch the CLI matching the app surface. Consumed
   // only by manifests declaring themeSelection (today: Claude Code); undefined
   // leaves the CLI on its own configured theme.
@@ -141,8 +118,8 @@ export type RenderedAgentLaunch = {
   // declare no `launch.env`. The caller injects these into the spawned PTY env
   // (and the WSL bootstrap) — they are intentionally NOT folded into argv.
   env: Record<string, string>
-  // The first message this launch carries, Debug Mode's directive included:
-  // what `{{prompt}}` renders, or what an overflowed launch still owes the CLI.
+  // The first message this launch carries: what `{{prompt}}` renders, or what
+  // an overflowed launch still owes the CLI.
   // Undefined for a launch with nothing to say.
   prompt?: string
 }
@@ -161,17 +138,6 @@ function resolveLaunchPlugin(cli: AgentCli): LoadedPlugin {
   return plugin
 }
 
-// Debug Mode is applied here, at the single render boundary every spawn path
-// converges on, so the directive (led by the CLI-native skill invocation when
-// the plugin supports it) lands in the rendered prompt for any CLI. Only touched
-// when debugMode is set, preserving an undefined prompt (and thus the no-prompt
-// argv shape) for ordinary launches.
-function launchPrompt(input: AgentLaunchRenderInput, plugin: LoadedPlugin): string | undefined {
-  return input.debugMode
-    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
-    : input.initialPrompt
-}
-
 /**
  * What `{{prompt}}` renders when the prompt went to a file: one line, in the
  * person's voice because it stands where their message would have, pointing at
@@ -183,7 +149,7 @@ export function promptFileNote(promptFile: string): string {
 
 export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAgentLaunch {
   const plugin = resolveLaunchPlugin(input.cli)
-  const prompt = launchPrompt(input, plugin)
+  const prompt = input.initialPrompt
   const rendered = renderWithPlugin(input, plugin, renderedPromptToken(input, prompt))
   return { ...rendered, prompt }
 }
@@ -361,7 +327,7 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   const { budget } = options
   const log = options.log ?? defaultPlanLog
   const plugin = resolveLaunchPlugin(input.cli)
-  const prompt = launchPrompt(input, plugin)
+  const prompt = input.initialPrompt
   const overBudget = (argv: string[]): boolean => launchArgvExceedsBudget(argv, budget)
   const render = (candidate: AgentLaunchRenderInput): RenderedAgentLaunch => ({
     ...renderWithPlugin(candidate, plugin, renderedPromptToken(candidate, prompt)),
@@ -559,15 +525,9 @@ export function argvToPosixShellCommand(argv: string[]): string {
  * above, it would re-render the preview on every keystroke, and on the CLIs that
  * pass it as argv it would bury the flags the line exists to show. `binary` is
  * the resolved command; callers show it plus `args`.
- *
- * `debugMode` is absent from the input for the same reason, and it is the
- * orthogonality invariant showing through: debug mode prepends a directive to
- * the PROMPT and never touches a flag, so on a prompt-free preview it has
- * nothing to say — and rendering it anyway would print a multi-line directive
- * into a one-line receipt. The row's own Debug chip carries that state.
  */
 export function renderAgentLaunchPreview(
-  input: Omit<AgentLaunchRenderInput, 'sessionId' | 'resume' | 'initialPrompt' | 'debugMode'>,
+  input: Omit<AgentLaunchRenderInput, 'sessionId' | 'resume' | 'initialPrompt'>,
 ): { binary: string; args: string[]; display: string } {
   const { argv, binary } = renderAgentLaunchArgv({
     ...input,
@@ -577,7 +537,6 @@ export function renderAgentLaunchPreview(
     sessionId: 'preview',
     resume: false,
     initialPrompt: undefined,
-    debugMode: false,
   })
   // argv[0] is the binary; the receipt shows the command name and its flags.
   const args = argv.slice(1)

@@ -109,7 +109,7 @@ export type CardAction =
   // within it. `source` is a source id as src/shared/skills.ts mints them:
   // `github:owner/name` or `local:<absolute path>` — `builtin` is gone. For a
   // skill, `id` is a `ScannedSkill.id`, which is the skill directory's path
-  // relative to its source (`studio-skills/skills/debug`).
+  // relative to its source (`skills/engineering/prototype`).
   | { verb: 'install.skill'; source: string; id: string }
   // For a plugin, `id` is the plugin's name in its source's marketplace
   // manifest. The card carries nothing else: `installPlugin` also wants

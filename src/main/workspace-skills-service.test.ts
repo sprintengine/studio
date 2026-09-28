@@ -69,17 +69,11 @@ test('workspace-skills-service', async () => {
     const backlogDir = await writeSkillDir(workspaceRoot, '.agents', 'backlog')
     const backlogBuiltin = BUILTIN_SKILLS.find((skill) => skill.id === 'backlog')
     assert.ok(backlogBuiltin)
+    // Installed builtin with a stale manifest version → update-available.
+    // (`backlog` is the only built-in now; `debug` was one until Debug Mode went.)
     await writeFile(
       join(backlogDir, '.sprintengine-skill.json'),
-      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: backlogBuiltin.version }),
-      'utf-8',
-    )
-
-    // Installed builtin with a stale manifest version → update-available.
-    const debugDir = await writeSkillDir(workspaceRoot, '.claude', 'debug')
-    await writeFile(
-      join(debugDir, '.sprintengine-skill.json'),
-      JSON.stringify({ id: 'debug', source: 'sprintengine-builtin', version: '0.0.1' }),
+      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: '0.0.1' }),
       'utf-8',
     )
 
@@ -110,19 +104,15 @@ test('workspace-skills-service', async () => {
     const backlog = byId.get('backlog')
     assert.ok(backlog)
     assert.equal(backlog.source, 'builtin')
-    assert.equal(backlog.installState, 'installed')
+    assert.equal(backlog.installState, 'update-available')
     // No SKILL.md written → BUILTIN_SKILLS metadata fallback.
     assert.equal(backlog.name, backlogBuiltin.name)
-
-    const debug = byId.get('debug')
-    assert.ok(debug)
-    assert.equal(debug.installState, 'update-available')
 
     // Every builtin appears exactly once; uninstalled ones are 'available'.
     for (const builtin of BUILTIN_SKILLS) {
       const entries = skills.filter((skill) => skill.id === builtin.id)
       assert.equal(entries.length, 1, `builtin ${builtin.id} listed once`)
-      if (builtin.id !== 'backlog' && builtin.id !== 'debug') {
+      if (builtin.id !== 'backlog') {
         assert.equal(entries[0].installState, 'available')
       }
     }

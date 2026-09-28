@@ -41,7 +41,6 @@ export type TerminalSpawnPayload = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
-  debugMode?: boolean
   cliModel?: string
   // Reasoning-effort level for CLIs declaring reasoningSelection; travels with
   // cliModel. Unset means the CLI's own default effort, with no flag passed.
@@ -57,9 +56,8 @@ export type TerminalSpawnPayload = {
   connectorLaunch?: boolean
   // Skill-at-spawn (the composer's "+ Skill" attachment): the builtin skill to
   // install into the working directory at spawn so the prefilled invocation
-  // resolves to a present skill. Generalizes the debug-skill install (which
-  // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
-  // connector MCP coupling. Unset for ordinary spawns.
+  // resolves to a present skill. Best-effort, non-blocking, and carries none of
+  // the connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
   // Set only by the main-process AgentLaunchService: the launch
   // decisions it made, retained on the session and surfaced on its snapshot so

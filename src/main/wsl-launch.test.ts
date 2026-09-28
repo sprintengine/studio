@@ -280,7 +280,6 @@ function launchInWsl(cwd: string, sessionId: string, target: WslTarget): ReturnT
     undefined,
     undefined,
     undefined,
-    false,
     undefined,
     undefined,
     undefined,

@@ -80,6 +80,18 @@ export type StudioPluginServiceOptions = {
   whenLaunchPluginsSettled?: () => Promise<unknown>
   /** Every loaded CLI's agent-state spec, so the tidy keeps a reporter another CLI still runs. */
   listAgentStateSpecs?: () => readonly PluginAgentStateSpec[]
+  /**
+   * The area skills the person opted into (shared/studio-area-skills.ts), read
+   * at every install. Part of the memo, so a change reaches every workspace at
+   * its next pass. Absent ⇒ none, which is the default.
+   */
+  resolveEnabledSkillDirs?: () => readonly string[]
+  /**
+   * Take out the copies of skills the app no longer ships
+   * (`pruneRetiredBuiltinSkillCopies`), as part of the same pass. Returns what
+   * it removed. Absent ⇒ nothing is pruned.
+   */
+  pruneRetiredSkillCopies?: (workspaceRoot: string) => Promise<string[]>
   logDiagnostic?: (input: { level: 'warning' | 'info'; title: string; message: string; details?: string }) => void
 }
 
@@ -104,6 +116,12 @@ type StudioPluginInstallRecord = {
    * would fire the reporter for every event, forever.
    */
   launchPluginsActive: boolean
+  /**
+   * The opted-in skills this install wrote, joined. Compared before the memo
+   * is trusted, like `launchPluginsActive`: a skill switched on or off in
+   * Settings is a different install, not the one remembered.
+   */
+  skillChoice: string
 }
 
 export type StudioPluginService = {
@@ -126,6 +144,18 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
   const chains = new Map<string, Promise<void>>()
   let cachedVersion: string | null = null
   let cachedAcknowledgement: string | null = null
+
+  function enabledSkillDirs(): readonly string[] {
+    return options.resolveEnabledSkillDirs?.() ?? []
+  }
+
+  function isCurrent(record: StudioPluginInstallRecord | undefined): boolean {
+    return (
+      record !== undefined &&
+      record.launchPluginsActive === (options.resolveLaunchPluginsActive?.() ?? false) &&
+      record.skillChoice === enabledSkillDirs().join(',')
+    )
+  }
 
   function warn(title: string, message: string, details?: string): void {
     options.logDiagnostic?.({ level: 'warning', title, message, ...(details ? { details } : {}) })
@@ -217,7 +247,8 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     await options.whenLaunchPluginsSettled?.().catch(() => undefined)
     const launchPluginsActive = options.resolveLaunchPluginsActive?.() ?? false
     const key = `${version}::${workspaceRoot}`
-    if (done.get(key)?.launchPluginsActive === launchPluginsActive) return
+    if (isCurrent(done.get(key))) return
+    const skillDirs = enabledSkillDirs()
 
     // The migration runs BEFORE every early return below. A workspace written
     // to by an older release holds a hook that now fires beside the one the
@@ -236,6 +267,19 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
           details: removed.join(', '),
         })
       }
+    }
+
+    // Skills the app no longer ships, which an earlier build copied in. Also
+    // before the early returns: a copy is a standing instruction to every agent
+    // that reads it, whether or not this build can install anything.
+    const retired = (await options.pruneRetiredSkillCopies?.(workspaceRoot).catch(() => [])) ?? []
+    if (retired.length > 0) {
+      options.logDiagnostic?.({
+        level: 'info',
+        title: 'Workspace tidied',
+        message: 'Skills SprintEngine Studio no longer ships were removed from this workspace.',
+        details: retired.join(', '),
+      })
     }
 
     const templateRoot = options.resolveTemplateRoot()
@@ -260,6 +304,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       agentStateReporterSourcePath: reporter,
       hooksAcknowledged: acknowledged,
       registerWithClaude: !launchPluginsActive,
+      enabledSkillDirs: skillDirs,
       tokens: {
         nodeCommand: options.resolveNodeCommand(),
         bridgeScriptPath: options.resolveBridgeScriptPath(),
@@ -281,6 +326,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       hookSettingsPath: result.hookSettingsPath,
       installedAt: new Date().toISOString(),
       launchPluginsActive,
+      skillChoice: skillDirs.join(','),
     })
   }
 
@@ -290,11 +336,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     // Synchronous fast path. Every accepted registry event runs a pass over
     // every known root, so the settled case has to cost nothing — not a chain
     // link, not a stat.
-    if (
-      cachedVersion !== null &&
-      cachedVersion !== '' &&
-      done.get(`${cachedVersion}::${root}`)?.launchPluginsActive === (options.resolveLaunchPluginsActive?.() ?? false)
-    ) {
+    if (cachedVersion !== null && cachedVersion !== '' && isCurrent(done.get(`${cachedVersion}::${root}`))) {
       return
     }
     if (!existsSync(root)) return

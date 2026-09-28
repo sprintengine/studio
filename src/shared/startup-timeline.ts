@@ -23,6 +23,7 @@ export type StartupMarkId =
   | 'main.splash-shown'
   | 'main.window-created'
   | 'main.reveal'
+  | 'main.workspaces-prepared'
   | 'main.discovery-settled'
   | 'renderer.navigation-start'
   | 'renderer.script-start'
@@ -51,6 +52,11 @@ const STARTUP_MARKS: readonly StartupMarkSpec[] = [
   { id: 'renderer.third-party-modules-settled', label: 'third-party renderer modules settled', source: 'renderer' },
   { id: 'renderer.root-rendered', label: 'React root render returned', source: 'renderer' },
   { id: 'renderer.first-paint', label: 'renderer first paint (boot-complete sent)', source: 'renderer' },
+  {
+    id: 'main.workspaces-prepared',
+    label: 'workspace sync settled, or its loading-screen budget ran out',
+    source: 'main',
+  },
   { id: 'main.reveal', label: 'splash closed, main window revealed', source: 'main' },
   { id: 'renderer.module-wiring-settled', label: 'deferred store/module wiring settled', source: 'renderer' },
   { id: 'main.discovery-settled', label: 'boot discovery settled (CLI, editors, updates)', source: 'main' },

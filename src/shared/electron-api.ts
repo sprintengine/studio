@@ -171,6 +171,8 @@ import type {
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -404,6 +406,7 @@ import type {
   PluginRegistryListResult,
   StudioPluginStatus,
 } from './ipc/studio-plugin'
+import type { StudioAreaSkillChoices, StudioAreaSkillId } from './studio-area-skills'
 import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
@@ -929,6 +932,19 @@ export type ElectronApi = {
    * holds. Read-only — the built-in plugin has no Install and no Remove.
    */
   studioPluginStatus: (input: { workspaceRoot: string | null }) => Promise<StudioPluginStatus>
+  /**
+   * The built-in plugin's area skills, opted into one by one and machine-wide
+   * (shared/studio-area-skills.ts). A change installs into, or takes out of,
+   * every workspace, and is pushed through `onStudioAreaSkillsChanged`.
+   */
+  studioAreaSkillsGet: () => Promise<StudioAreaSkillChoices>
+  studioAreaSkillsSetEnabled: (input: {
+    skillId: StudioAreaSkillId
+    enabled: boolean
+  }) => Promise<StudioAreaSkillChoices>
+  /** Turn a surface's suggestion down; the skill stays a switch in Settings. */
+  studioAreaSkillsDismiss: (input: { skillId: StudioAreaSkillId }) => Promise<StudioAreaSkillChoices>
+  onStudioAreaSkillsChanged: (cb: (choices: StudioAreaSkillChoices) => void) => () => void
   pluginsList: () => Promise<PluginRegistryListResult>
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
@@ -968,6 +984,9 @@ export type ElectronApi = {
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
+  // The line a plain terminal on this machine runs to sign a chat's CLI back
+  // in, resolved to the executable the conversation provider runs.
+  conversationProviderSignIn: (input: ConversationProviderSignInInput) => Promise<ConversationProviderSignInResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>

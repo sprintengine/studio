@@ -77,6 +77,7 @@ import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
 import { useConversationTransport } from './agentChat/conversationTransport'
+import { openCliSignInTerminal } from './agentChat/cliSignIn'
 import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
 import { latestReplyTurnId } from './agentChat/turnFolds'
 import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
@@ -846,11 +847,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       source: 'workspace',
       title: `${label} turn failed`,
       message,
+      ...(projection.lastErrorDetail && projection.lastErrorDetail !== message
+        ? { details: projection.lastErrorDetail }
+        : {}),
       workspaceId,
       workspaceName: workspace?.name,
       agentId,
     })
-  }, [projection.lastError, label, workspaceId, workspace?.name, agentId])
+  }, [projection.lastError, projection.lastErrorDetail, label, workspaceId, workspace?.name, agentId])
 
   // Surface session/send action errors (start failure, missing key, IPC error)
   // the same way — these never reach the event stream.
@@ -1503,6 +1507,26 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       })
   }
   const retry = useCallback(() => retryLatestRef.current(), [])
+  // Only this machine's Claude chat signs in through its CLI; a paired
+  // machine's chat would need signing in over there.
+  const signInProviderId =
+    transport.kind === 'local' && cliForConversationProvider(conversation?.providerId) === 'claude-code'
+      ? conversation?.providerId
+      : undefined
+  const signIn = useCallback(async () => {
+    if (!signInProviderId) return
+    try {
+      const result = await openCliSignInTerminal({
+        workspaceId,
+        providerId: signInProviderId,
+        cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+      })
+      if (!result.ok) setActionError(result.message)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not open the sign-in terminal.')
+    }
+  }, [signInProviderId, workspaceId, cliRuntimes])
+  const onSignIn = signInProviderId ? signIn : undefined
 
   // "Edit from here" went back to before a message: it returns to the
   // composer ahead of anything already typed there, with what it carried.
@@ -1776,6 +1800,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     oldChrome.retryTurnId === lastFailedTurnId &&
     oldChrome.onRetry === retry &&
     oldChrome.retryDisabled === composerDisabled &&
+    oldChrome.onSignIn === onSignIn &&
     oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
     oldChrome.conversationRunning === projection.activeTurn &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs &&
@@ -1787,6 +1812,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           retryTurnId: lastFailedTurnId,
           onRetry: retry,
           retryDisabled: composerDisabled,
+          onSignIn,
+          platform: window.api.platform,
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,

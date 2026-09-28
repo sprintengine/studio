@@ -10,6 +10,7 @@ import {
   ensureAgentIntegrationHome,
   LAUNCH_STATUS_LINE_REL,
   pruneAgentIntegrationHomes,
+  type EnsureAgentIntegrationHomeOptions,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
@@ -22,6 +23,7 @@ import {
   appLaunchPluginsActive,
   launchCarriesAppPluginsFor,
   setLaunchPluginDirsResolver,
+  setLaunchSkillPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
@@ -59,7 +61,9 @@ import {
   createBuiltinSkillManager,
   ensureSkillInstalled,
   setDefaultSkillManager,
-  setLaunchDeliversBundledSkillsResolver,
+  setLaunchDeliversBundledSkillResolver,
+  pruneRetiredBuiltinSkillCopies,
+  BUILTIN_SKILLS_RESOURCE_DIR,
 } from './builtin-skills'
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
@@ -101,6 +105,7 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
 import { readInstallId } from './telemetry/install-id'
@@ -265,8 +270,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     invalidate: (workspaceRoot, harnessId) => capabilityWatcher.invalidate(workspaceRoot, harnessId),
   })
 
-  // Declared before terminalRuntime so the runtime can ensure-install skills
-  // (Debug Mode) at spawn. Reads loaded CLI plugins to compute native targets.
+  // Declared before terminalRuntime so the runtime can ensure-install a skill
+  // at spawn. Reads loaded CLI plugins to compute native targets.
   const builtinSkillManager = createBuiltinSkillManager({
     listPlugins: () => getPluginRegistry().loaded(),
   })
@@ -281,6 +286,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `resolveLaunchInjectsPlugins` closes over it: the launch flag and the
   // workspace installer must read one value, never two that can disagree.
   let agentIntegrationPluginDirs: string[] = []
+  // The one-skill plugins in that copy, by skill id (`launchSkillPluginDir`).
+  let agentIntegrationSkillPluginDirs: Record<string, string> = {}
   // The status-line forwarder inside that copy. Separate from the directories
   // because a status line is not a plugin component — no plugin can declare
   // one — so it travels in the launch's `--settings` document instead.
@@ -342,8 +349,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       env: { SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
     }
   }
-  // Bundled skills arrive in the `studio-skills` directory of that same copy.
-  setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
+  // A bundled skill arrives as a plugin of its own, in that same copy, on the
+  // launch whose prompt invokes it — when the copy on the launch's machine
+  // holds it. The launch builder reads the same map (`pluginDirsForLaunch`).
+  setLaunchDeliversBundledSkillResolver((cli, skillId, hostId, integration) => {
+    if (!launchCarriesAppPlugins(cli, hostId, integration)) return false
+    const host = hostRegistry().get(hostId)
+    const available =
+      host.kind === 'wsl'
+        ? ((integration === undefined ? host.agentIntegration() : integration)?.skillPluginDirs ?? {})
+        : agentIntegrationSkillPluginDirs
+    return Object.hasOwn(available, skillId)
+  })
   const listAgentStateSpecs = () =>
     getPluginRegistry()
       .loaded()
@@ -377,6 +394,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Which of the built-in plugin's area skills agents get: none until the
+  // person opts in, from a surface's suggestion or from Settings, and then in
+  // every workspace (shared/studio-area-skills.ts). Read by every plugin copy
+  // (this machine's launch home, each WSL distribution's) and the workspace
+  // installer; a change re-runs them.
+  const studioAreaSkillStore = createStudioAreaSkillStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
   // WSL machines: each distribution's helper relays its agents' hook frames,
   // their MCP connections and PATH changes back here (hosts/wsl-helper-*.ts).
   // Configured on every platform because it costs nothing; only Windows ever
@@ -394,6 +423,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
       statusLineSourcePath: getBundledStatusLineForwarderPath(),
+      enabledSkillDirs: studioAreaSkillStore.enabledSkillDirs(),
+      launchSkillsSourceRoot: getBundledResourceDir(BUILTIN_SKILLS_RESOURCE_DIR),
     }),
     automationSocketPath: () => resolveAutomationSocketPath(app.getPath('userData')),
     ingestAgentStateLine: (line) => agentStateService.ingestLine(line),
@@ -406,16 +437,45 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
-  // Boot jobs that nothing on screen needs — the plugin-home copy, the git
-  // probe, the first plugin install into open workspaces — wait for the main
-  // window to reveal, so they do not compete with the renderer's first load.
-  // The lifecycle opens the gate on reveal; an agent launch opens it early,
-  // because a launch has to wait for the plugin home rather than race it.
+  // Boot jobs that nothing on screen needs — the git probe and the rest — wait
+  // for the main window to reveal, so they do not compete with the renderer's
+  // first load. The lifecycle opens the gate on reveal; an agent launch opens
+  // it early.
   let openBootJobsGate: () => void = () => undefined
   const bootJobsGate = new Promise<void>((resolve) => {
     openBootJobsGate = resolve
   })
-  const startDeferredBootJobs = (): void => openBootJobsGate()
+  // The workspace sync — the launcher, the plugin home and the pass over every
+  // known workspace — runs while the loading screen is up instead (owner,
+  // 2026-09-28: it "should happen when the user opens the application"). The
+  // lifecycle opens this gate as the plate goes up and waits a bounded time for
+  // the pass (`prepareWorkspacesAtBoot`); the reveal, and an agent launch, open
+  // it too, so nothing depends on the lifecycle having asked.
+  let openWorkspaceSyncGate: () => void = () => undefined
+  const workspaceSyncGate = new Promise<void>((resolve) => {
+    openWorkspaceSyncGate = resolve
+  })
+  const startDeferredBootJobs = (): void => {
+    openWorkspaceSyncGate()
+    openBootJobsGate()
+  }
+
+  const agentIntegrationHomeOptions = (): EnsureAgentIntegrationHomeOptions => ({
+    templateRoot: getBundledStudioPluginRoot(),
+    reporterSourcePath: getBundledAgentStateReporterPath(),
+    // The forwarder the launch names in its `--settings` status line: it is
+    // how the app reads context usage, cost and lines changed for a session.
+    statusLineSourcePath: getBundledStatusLineForwarderPath(),
+    userDataDir: app.getPath('userData'),
+    tokens: {
+      nodeCommand: process.execPath,
+      bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+      userDataDir: app.getPath('userData'),
+      agentStateSocketPath: agentStateService.getSocketPath(),
+    },
+    enabledSkillDirs: studioAreaSkillStore.enabledSkillDirs(),
+    launchSkillsSourceRoot: getBundledResourceDir(BUILTIN_SKILLS_RESOURCE_DIR),
+  })
 
   // The app's own plugin, materialised ONCE for this build under the profile's
   // userData directory and handed to every launch that can take it
@@ -424,7 +484,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `whenAgentLaunchReady`), and a build whose copy failed falls back to the
   // workspace installer instead of losing agent state.
   const agentIntegrationReady = (async () => {
-    await bootJobsGate
+    await workspaceSyncGate
     // The Studio launcher every hook and gateway entry runs, pointed at this
     // build — before any launch, because a launch writes commands that name
     // it. Then, in the background, the one-time list of what earlier builds
@@ -473,20 +533,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       })
     })
     await launcherWritten
-    const home = await ensureAgentIntegrationHome({
-      templateRoot: getBundledStudioPluginRoot(),
-      reporterSourcePath: getBundledAgentStateReporterPath(),
-      // The forwarder the launch names in its `--settings` status line: it is
-      // how the app reads context usage, cost and lines changed for a session.
-      statusLineSourcePath: getBundledStatusLineForwarderPath(),
-      userDataDir: app.getPath('userData'),
-      tokens: {
-        nodeCommand: process.execPath,
-        bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-        userDataDir: app.getPath('userData'),
-        agentStateSocketPath: agentStateService.getSocketPath(),
-      },
-    })
+    const home = await ensureAgentIntegrationHome(agentIntegrationHomeOptions())
     if (!home.ok) {
       void writeDiagnosticLog({
         level: 'warning',
@@ -498,6 +545,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return
     }
     agentIntegrationPluginDirs = home.home.pluginDirs
+    agentIntegrationSkillPluginDirs = home.home.skillPluginDirs
     agentIntegrationStatusLinePath = join(home.home.root, LAUNCH_STATUS_LINE_REL)
     // Old versions are only safe to delete here: a CLI reads a plugin directory
     // as it starts, and every agent this app launches dies with the app, so no
@@ -505,6 +553,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     await pruneAgentIntegrationHomes(app.getPath('userData'), home.home.version)
   })()
   setLaunchPluginDirsResolver(() => agentIntegrationPluginDirs)
+  setLaunchSkillPluginDirsResolver(() => agentIntegrationSkillPluginDirs)
   setLaunchStatusLineScriptResolver(() => agentIntegrationStatusLinePath)
 
   // The app's own plugin, installed into every workspace it opens. Declared
@@ -526,6 +575,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // keeps agent state working rather than losing it.
     resolveLaunchPluginsActive: () => appLaunchPluginsActive(agentIntegrationPluginDirs),
     whenLaunchPluginsSettled: () => agentIntegrationReady,
+    resolveEnabledSkillDirs: () => studioAreaSkillStore.enabledSkillDirs(),
+    pruneRetiredSkillCopies: pruneRetiredBuiltinSkillCopies,
     listAgentStateSpecs,
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -800,8 +851,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           },
         ),
       ),
-    // Debug Mode: make the `debug` skill present in the session CLI's native
-    // skill dir before launch. Check-first so already-installed workspaces skip
+    // Skill-at-spawn: make the skill the launch's prompt invokes present in the
+    // session CLI's native skill dir before launch. Check-first so already-installed workspaces skip
     // the rewrite; install only fills missing or stale native targets. A CLI
     // whose launch carries the skill in the app's plugin directory gets no copy.
     ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, launch) => {
@@ -1592,7 +1643,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // loaded plugin manifests.
           listPlugins: () => getPluginRegistry().loaded(),
           // backlog.work ensures the Backlog skill exists in the CLI's native dir
-          // before launch (same getStatus → install seam as Debug Mode). Reports
+          // before launch (the same getStatus → install seam as a spawn). Reports
           // whether the skill is now present; a false result is non-fatal. Asked
           // of the machine the agent will run on: a WSL machine is prepared
           // first (the launch that follows waits for the same), so its answer
@@ -1673,15 +1724,43 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     )
   })
   // The pass over the roots the registry already holds runs once the app's own
-  // plugin copy has settled (itself a boot job, started after the reveal), so
-  // it installs the arrangement launches will actually use. Each install also
-  // waits for that copy on its own, which is what keeps an install triggered
-  // by an early registry event from writing the old arrangement.
-  void agentIntegrationReady.then(() =>
+  // plugin copy has settled, so it installs the arrangement launches will
+  // actually use. Each install also waits for that copy on its own, which is
+  // what keeps an install triggered by an early registry event from writing the
+  // old arrangement. Both start while the loading screen is up (see
+  // `prepareWorkspacesAtBoot`); whatever the plate's budget does not cover
+  // simply carries on after the reveal.
+  const bootWorkspacePass = agentIntegrationReady.then(() =>
     studioPluginService.ensureInstalledForRoots(
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
     ),
   )
+  void bootWorkspacePass.catch(() => undefined)
+  const prepareWorkspacesAtBoot = (): Promise<void> => {
+    openWorkspaceSyncGate()
+    return bootWorkspacePass
+  }
+  // A Studio skill switched on or off reaches the next agent launched: the
+  // plugin home the launch passes is brought in line, then every known
+  // workspace (the choice is machine-wide). A session already running keeps
+  // the skills it started with.
+  studioAreaSkillStore.onChange(() => {
+    void (async () => {
+      await agentIntegrationReady
+      if (agentIntegrationPluginDirs.length > 0) await ensureAgentIntegrationHome(agentIntegrationHomeOptions())
+      await studioPluginService.ensureInstalledForRoots(
+        uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
+      )
+    })().catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Studio skills not updated',
+        message: 'The choice is saved and applies the next time a workspace is opened.',
+        details: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    })
+  })
   // Staying paired across sleep (phase 4): waking re-checks every paired
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
@@ -1785,6 +1864,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   return {
     removeSessionIntegrations,
     startDeferredBootJobs,
+    prepareWorkspacesAtBoot,
     agentConfigImportService,
     agentStateService,
     browserManager,
@@ -1815,6 +1895,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     setTourAttention: tours.setAttention,
     builtinSkillManager,
     studioPluginService,
+    studioAreaSkillStore,
     conversationRuntime,
     githubTokenStore,
     logMainPerfEvent,

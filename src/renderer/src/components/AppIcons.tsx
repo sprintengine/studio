@@ -622,6 +622,29 @@ export function ModulesSettingsIcon({ className }: IconProps) {
   )
 }
 
+// A tray with a tick over it: the Settled chats tab holds the chats someone
+// called done — the tick is the row's own Settle mark, the tray is where it
+// went.
+export function SettledChatsSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 13.5h4.2l1.3 2.5h5l1.3-2.5H20v4.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.5 7.5l2.5 2.5 4.5-5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 // A screen with a prompt in it: the Machines tab is about the machines on THIS
 // computer that run a workspace's shells (this PC, and its WSL distributions).
 export function MachinesSettingsIcon({ className }: IconProps) {

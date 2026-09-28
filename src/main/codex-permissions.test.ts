@@ -84,7 +84,6 @@ test('Windows YOLO preserves quoted prompts, host context and reasoning through 
     { command: 'C:\\agent bin\\codex.exe' },
     'bypass',
     'gpt-5.6-sol',
-    false,
     'high',
     { contextText },
     'dark',
@@ -123,7 +122,6 @@ test.skipIf(process.platform !== 'win32')(
         { command: shim },
         'bypass',
         undefined,
-        false,
         'high',
         { contextText: 'Use "project" rules.' },
       )

@@ -18,9 +18,21 @@ import { formatElapsedMs } from '../../../utils/relativeTime'
 // separating one group from another, so the row renders only when the folder
 // has rows to separate from its active ones.
 //
-// Two shelves use it — Settled (rest) and Snoozed (sleep, 2026-09-10). They are
-// the same line with a different word, and one component is what keeps them
-// reading as the same kind of thing.
+// Snoozed (sleep, 2026-09-10) is the shelf that uses it; Settled had one too
+// until settled chats moved to Settings ▸ Settled chats (owner, 2026-09-28).
+//
+// It sits in the background (owner, 2026-09-28): the rows it folds away are
+// ones the person has said "not now" about, so the line counting them is never
+// the kit row's `text.default`. The label rests at `text.subtle` — the quiet
+// row's title tier — at the smaller `text-meta` step, and the count and the
+// chevron go one step further down to `text.disabled`. Under the pointer or
+// keyboard focus the label lifts to `text.default`, the same lift a quiet row's
+// title takes, so reaching for it is never reading dim text.
+//
+// The ink is on the spans, not the button: RowButton's resting `text.default`
+// and a caller's `text-*` on one element are resolved by stylesheet order, not
+// class order. The group is named (`group/shelf`) so hovering the folder
+// section around it, which is a `group` of its own, does not lift it.
 export function ShelfFoldRow({
   label,
   count,
@@ -49,13 +61,13 @@ export function ShelfFoldRow({
         aria-expanded={expanded}
         aria-controls={controlsId}
         // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file); flush drops to 10px, which is the same sum for a flat-stream row
-        className={`min-w-0 flex-1 select-none ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta`}
+        className={`group/shelf min-w-0 flex-1 select-none ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta`}
       >
         <svg
           viewBox="0 0 16 16"
           fill="none"
           aria-hidden="true"
-          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform group-hover/shelf:text-[color:var(--text-subtle)] group-focus-visible/shelf:text-[color:var(--text-subtle)] ${
             expanded ? '' : '-rotate-90'
           }`}
         >
@@ -67,8 +79,12 @@ export function ShelfFoldRow({
             strokeLinejoin="round"
           />
         </svg>
-        <span className="truncate">{label}</span>
-        <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+        <span className="truncate text-[color:var(--text-subtle)] group-hover/shelf:text-[color:var(--text-default)] group-focus-visible/shelf:text-[color:var(--text-default)]">
+          {label}
+        </span>
+        <span className="tabular-nums text-[color:var(--text-disabled)] group-hover/shelf:text-[color:var(--text-subtle)] group-focus-visible/shelf:text-[color:var(--text-subtle)]">
+          {count}
+        </span>
       </RowButton>
     </div>
   )

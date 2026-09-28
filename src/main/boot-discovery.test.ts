@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { SplashProgress } from '../shared/electron-api'
-import { runBootDiscovery } from './boot-discovery'
+import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { test } from 'vitest'
 
 test('boot-discovery', async () => {
@@ -114,4 +114,76 @@ test('boot-discovery', async () => {
   const suiteRun = main()
 
   await suiteRun
+})
+
+test('the loading screen says it is preparing workspaces while the sync runs, and only when there is one', async () => {
+  let finish!: () => void
+  const sync = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const seen: SplashProgress[] = []
+  const done = runBootDiscovery({
+    detectClis: async () => undefined,
+    detectEditors: async () => undefined,
+    checkUpdates: async () => undefined,
+    prepareWorkspaces: () => sync,
+    onProgress: (update) => seen.push({ ...update }),
+  })
+  // Let the three instant legs settle; the sync is still running.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(seen[seen.length - 1], { status: 'Preparing your workspaces…', progress: 3 / 4 })
+  finish()
+  await done
+  assert.deepEqual(seen[seen.length - 1], { status: '', progress: 1 })
+
+  const without: SplashProgress[] = []
+  await runBootDiscovery({
+    detectClis: async () => undefined,
+    detectEditors: async () => undefined,
+    onProgress: (update) => without.push({ ...update }),
+  })
+  assert.equal(
+    without.some((update) => update.status === 'Preparing your workspaces…'),
+    false,
+    'no sync handed in: no step on the plate',
+  )
+})
+
+test('the reveal waits for the workspace sync only up to its budget, and the sync is not cut short', async () => {
+  // Timers driven by hand, so the budget is a step, not a wall-clock wait.
+  const pending: Array<{ handler: () => void; ms: number; cleared: boolean }> = []
+  const timers = {
+    setTimer: (handler: () => void, ms: number) => {
+      const timer = { handler, ms, cleared: false }
+      pending.push(timer)
+      return timer
+    },
+    clearTimer: (handle: unknown) => {
+      ;(handle as { cleared: boolean }).cleared = true
+    },
+  }
+
+  // Finishes first: settled, and the budget timer is cleared.
+  assert.equal(await settleWithin(Promise.resolve(), BOOT_WORKSPACE_SYNC_BUDGET_MS, timers), 'settled')
+  assert.equal(pending[0]?.ms, BOOT_WORKSPACE_SYNC_BUDGET_MS)
+  assert.equal(pending[0]?.cleared, true)
+
+  // A failure has settled too; waiting longer on it buys nothing.
+  assert.equal(await settleWithin(Promise.reject(new Error('disk')), 10, timers), 'settled')
+
+  // Outlasts the budget: timed out, while the work itself carries on.
+  let finished = false
+  let finish!: () => void
+  const slow = new Promise<void>((resolve) => {
+    finish = resolve
+  }).then(() => {
+    finished = true
+  })
+  const outcome = settleWithin(slow, BOOT_WORKSPACE_SYNC_BUDGET_MS, timers)
+  pending[pending.length - 1]?.handler()
+  assert.equal(await outcome, 'timed-out')
+  finish()
+  await slow
+  assert.equal(finished, true, 'the sync finishes in the background after the reveal')
+  assert.ok(BOOT_WORKSPACE_SYNC_BUDGET_MS <= 5_000, 'a few seconds at most, like the quit removal')
 })

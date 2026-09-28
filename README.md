@@ -121,7 +121,7 @@ The app is meant to be built on rather than only used.
   and signed bundles.
 - **The studio's own agent-facing surface** — the `sprintengine-studio` plugin
   the app installs into every workspace it opens, the stdio bridge to the
-  running app, and the skills that teach an agent to drive it — is documented in
+  running app, and the opt-in skills that teach an agent to drive it — is documented in
   [resources/studio-plugin/README.md](resources/studio-plugin/README.md).
 
 Both kinds of extension are built against

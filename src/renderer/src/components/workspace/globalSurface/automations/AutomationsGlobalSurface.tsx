@@ -32,6 +32,7 @@ import { AutomationEditor } from '../../../panels/AutomationsPanel/AutomationEdi
 import { useAutomationsController } from '../../../panels/AutomationsPanel/useAutomationsController'
 import { isEngineUnreachable, type EditorState } from '../../../panels/AutomationsPanel/automationsFormat'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
+import { StudioSkillSuggestion } from '../../../studioSkills/StudioSkillSuggestion'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { AutomationsRail } from './AutomationsRail'
@@ -584,6 +585,10 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     >
       <div className="flex h-full min-h-0">
         <div className="min-h-0 min-w-0 flex-1">
+          <StudioSkillSuggestion
+            skillId="studio-automations"
+            className="border-b border-[color:var(--border-subtle)] px-6 py-2"
+          />
           {actionError ? (
             <div className="px-6 pt-4">
               <InlineNotice tone="error" action={<GhostButton onClick={clearActionError}>Dismiss</GhostButton>}>

@@ -17,13 +17,23 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 
-import { LAUNCH_REPORTER_REL, LAUNCH_STATUS_LINE_REL, launchPluginDirs } from '../agent-integration-home'
+import {
+  LAUNCH_REPORTER_REL,
+  LAUNCH_STATUS_LINE_REL,
+  launchPluginDirs,
+  launchSkillPluginDir,
+  writeLaunchSkillPlugins,
+} from '../agent-integration-home'
 import { materialiseStudioPluginInto, readStudioPluginTemplate } from '../skills/studio-plugin'
 
 export type WslPluginSources = {
   templateRoot: string | null
   reporterSourcePath: string | null
   statusLineSourcePath: string | null
+  /** The Studio skills the person opted into; the copy carries only these. */
+  enabledSkillDirs: readonly string[]
+  /** The bundled skills a launch can ask for, each written as a plugin of its own; null for none. */
+  launchSkillsSourceRoot?: string | null
 }
 
 export type WslPluginTokens = {
@@ -45,6 +55,8 @@ export type WslPluginCopy = {
   /** Where the copy lands in the distribution. */
   root: string
   pluginDirs: string[]
+  /** The one-skill plugins in the copy, by skill id, as Linux paths. */
+  skillPluginDirs: Record<string, string>
   statusLineScriptPath: string | null
 }
 
@@ -129,8 +141,19 @@ export async function buildWslPluginCopy(
         agentStateSocketPath: tokens.agentStateSocketPath,
       },
       neuterHooks: false,
+      skillDirs: sources.enabledSkillDirs,
     })
     if (!materialised.ok) return null
+    const skillPluginDirs: Record<string, string> = {}
+    if (sources.launchSkillsSourceRoot) {
+      const written = await writeLaunchSkillPlugins(destination, sources.launchSkillsSourceRoot).catch(() => ({}))
+      for (const skillId of Object.keys(written)) {
+        skillPluginDirs[skillId] = posixJoin(
+          root,
+          posixRel(relative(destination, launchSkillPluginDir(destination, skillId))),
+        )
+      }
+    }
     const files = new Map<string, Buffer>()
     for (const path of await walk(destination)) {
       const rel = posixRel(relative(destination, path))
@@ -155,6 +178,7 @@ export async function buildWslPluginCopy(
       tree,
       root,
       pluginDirs: launchPluginDirs(root).map(posixRel),
+      skillPluginDirs,
       statusLineScriptPath: statusLine ? posixJoin(root, posixRel(LAUNCH_STATUS_LINE_REL)) : null,
     }
   } finally {
