@@ -166,6 +166,9 @@ export type TranscriptEntry =
       requestKind?: ConversationApprovalKind
       questions?: ConversationQuestion[]
       plan?: string
+      // Where the agent keeps that plan, when it keeps one (Claude Code's plan
+      // file). Only ever a path on the machine the agent ran on.
+      planFilePath?: string
       // Answers chosen when a question card resolved (question → answer), so
       // the resolved card keeps showing what was picked — including on replay.
       answers?: Record<string, string>
@@ -330,6 +333,17 @@ function readCheckpointSummary(
   )
     return undefined
   return { files: values.files, addedLines: values.addedLines, removedLines: values.removedLines }
+}
+
+// A plan request names the agent's plan file on its payload; one recorded
+// before it did still carries the path inside the tool input Claude Code sent.
+function readPlanFilePath(payload: Record<string, unknown> | undefined): string | undefined {
+  const named = readString(payload, 'planFilePath')
+  if (named) return named
+  const input = payload?.input
+  return input && typeof input === 'object' && !Array.isArray(input)
+    ? readString(input as Record<string, unknown>, 'planFilePath')
+    : undefined
 }
 
 function readJson(payload: Record<string, unknown> | undefined, key: string): ConversationJsonValue | undefined {
@@ -792,6 +806,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           requestKind,
           questions: requestKind === 'question' ? readQuestions(event.payload) : undefined,
           plan: requestKind === 'plan' ? (readString(event.payload, 'plan') ?? '') : undefined,
+          planFilePath: requestKind === 'plan' ? readPlanFilePath(event.payload) : undefined,
         })
         approvalOrder.push(requestId)
         if (turnId) ensureTurn(turnId).approvals.push(requestId)

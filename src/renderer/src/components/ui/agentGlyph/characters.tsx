@@ -44,7 +44,10 @@ const LINE = {
 const INK = { fill: 'currentColor' } as const
 
 const octopusLegs = (
-  <path {...LINE} d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3" />
+  <path
+    {...LINE}
+    d="M3.6 9.4q-.3 2.6-1.6 3.3M5.8 9.8q.2 2.8-.9 3.9M8 10v3.9M10.2 9.8q-.2 2.8.9 3.9M12.4 9.4q.3 2.6 1.6 3.3"
+  />
 )
 const catWhiskers = <path {...LINE} d="M1.6 9.8l2.4.4M1.8 11.8l2.4-.6M14.4 9.8l-2.4.4M14.2 11.8l-2.4-.6" />
 const elfHat = (
@@ -84,10 +87,7 @@ export const AGENT_CHARACTERS: Record<AgentCharacterId, AgentCharacter> = {
   blob: {
     name: 'Bubble',
     body: (
-      <path
-        {...BODY}
-        d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z"
-      />
+      <path {...BODY} d="M8 3.2c3.1 0 5.1 2.6 5.1 5.9 0 2.6-1.6 4.1-5.1 4.1s-5.1-1.5-5.1-4.1C2.9 5.8 4.9 3.2 8 3.2z" />
     ),
     working: (
       <g className="agent-glyph__eyes">
@@ -123,10 +123,7 @@ export const AGENT_CHARACTERS: Record<AgentCharacterId, AgentCharacter> = {
     name: 'Owl',
     body: (
       <>
-        <path
-          {...BODY}
-          d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z"
-        />
+        <path {...BODY} d="M3.4 4.6l2 1.1q2.6-.9 5.2 0l2-1.1q.7 2.4.2 4.9-.6 4.3-4.8 4.3T3.2 9.5q-.5-2.5.2-4.9z" />
         <circle {...LINE} cx="6.2" cy="8.3" r="1.55" />
         <circle {...LINE} cx="9.8" cy="8.3" r="1.55" />
         <path {...LINE} d="M7.4 10.4L8 11.2l.6-.8" />
@@ -245,7 +242,8 @@ export function doneEyes([left, right, y]: AgentCharacter['eyes']): JSX.Element 
 
 /** Crossed-out eyes: x x. */
 export function failedEyes([left, right, y]: AgentCharacter['eyes'], size = 0.7): JSX.Element {
-  const cross = (x: number) => `M${x - size} ${y - size}l${2 * size} ${2 * size}M${x + size} ${y - size}l${-2 * size} ${2 * size}`
+  const cross = (x: number) =>
+    `M${x - size} ${y - size}l${2 * size} ${2 * size}M${x + size} ${y - size}l${-2 * size} ${2 * size}`
   return <path {...LINE} d={cross(left) + cross(right)} />
 }
 

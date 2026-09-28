@@ -22,6 +22,7 @@ import { withoutNoNewlineMarkers } from './toolRows/ToolRow'
 import { deriveEditHunks } from '../../../../../shared/conversation/editHunks'
 import { asRecord } from '../../../../../shared/records'
 import { useConversationTransport } from './conversationTransport'
+import { OpenPlanButton, usePlanOpener } from './planCard'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
 import {
   approvalFilePath,
@@ -491,6 +492,7 @@ export function ConversationPlanCard({
     'A plan is ready for review. Shift+Tab from the message box to review it.',
   )
   const plan = entry.plan?.trim() ?? ''
+  const openPlan = usePlanOpener()
   // A plan past a screenful gets a taller box and a way to read it whole; the
   // dock itself still stops at 60% of the window and scrolls.
   const long = plan.length > 900 || plan.split('\n').length > 20
@@ -524,6 +526,9 @@ export function ConversationPlanCard({
       }
       actions={
         <>
+          {/* Read it as a document in the pane, decide here: the dock keeps
+              the answer beside the composer while the plan gets the room. */}
+          {plan && openPlan ? <OpenPlanButton onOpen={() => openPlan(plan, entry.planFilePath)} /> : null}
           <GhostButton onClick={() => onApprove(entry.requestId, false)} disabled={busy}>
             Keep planning
           </GhostButton>
