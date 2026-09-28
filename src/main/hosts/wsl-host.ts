@@ -174,11 +174,21 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   const settings = () => deps.readSettings(id)
   const toNativePath = (hostPath: string) => wslToWindowsPath(hostPath, { distro })
 
-  // Per running helper: what `home` said, and the plugin copy it holds.
-  let prepared: { info: WslHelperInfo; home: HostHome; plugin: WslPluginCopy | null; launcherReady: boolean } | null =
-    null
-  // The preparation in flight, and the helper it is for.
-  let preparing: { info: WslHelperInfo; done: Promise<void> } | null = null
+  // Per running helper: what `home` said, and the plugin copy it holds — for
+  // the Studio skills chosen when it was made (`skills`). A skill switched on
+  // or off since is a different copy, so the next launch prepares again.
+  let prepared: {
+    info: WslHelperInfo
+    skills: string
+    home: HostHome
+    plugin: WslPluginCopy | null
+    launcherReady: boolean
+  } | null = null
+  // The preparation in flight, and the helper and skill choice it is for.
+  let preparing: { info: WslHelperInfo; skills: string; done: Promise<void> } | null = null
+  const skillChoice = (): string => (wslHelperEnvironment()?.pluginSources().enabledSkillDirs ?? []).join(',')
+  const isPrepared = (info: WslHelperInfo | null): boolean =>
+    info !== null && prepared?.info === info && prepared.skills === skillChoice()
 
   async function readHome(): Promise<HostHome> {
     // The first `home` after a start waits on the login-shell read, which has
@@ -252,7 +262,8 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   }
 
   function prepareFor(info: WslHelperInfo): Promise<void> {
-    if (preparing?.info === info) return preparing.done
+    const skills = skillChoice()
+    if (preparing?.info === info && preparing.skills === skills) return preparing.done
     const done = (async () => {
       const home = await readHome()
       // The launcher and its pointer, before anything that names them is
@@ -262,9 +273,9 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
       // that CLI falls back to the workspace install, so a failure here is
       // not the launch's failure.
       const plugin = await ensurePluginCopy(info).catch(() => null)
-      if (helper.info() === info) prepared = { info, home, plugin, launcherReady }
+      if (helper.info() === info) prepared = { info, skills, home, plugin, launcherReady }
     })()
-    const entry = { info, done }
+    const entry = { info, skills, done }
     preparing = entry
     void done
       .finally(() => {
@@ -282,10 +293,9 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
   async function prepare(): Promise<void> {
     for (let round = 0; round < MAX_PREPARE_ROUNDS; round += 1) {
       const info = await helper.start()
-      if (prepared?.info === info) return
+      if (isPrepared(info)) return
       await prepareFor(info)
-      const current = helper.info()
-      if (current && prepared?.info === current) return
+      if (isPrepared(helper.info())) return
     }
     throw new WslSetupError(`The WSL helper for ${distro} kept restarting while it was being set up.`, {
       fatal: false,
@@ -309,6 +319,7 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
         ...(launcher ? { launcher } : {}),
       },
       pluginDirs: prepared.plugin?.pluginDirs ?? [],
+      skillPluginDirs: prepared.plugin?.skillPluginDirs ?? {},
       statusLineScriptPath: prepared.plugin?.statusLineScriptPath ?? null,
       studioMcpEntry: {
         ...(launcher

@@ -205,19 +205,42 @@ export function setLaunchPluginDirsResolver(resolver: (() => string[]) | null): 
  * app-services agrees, so the two can never each think the other registers the
  * hook.
  */
-function pluginDirsForLaunch(cli: AgentCli, target: HostLaunchTarget): string[] {
+function pluginDirsForLaunch(cli: AgentCli, target: HostLaunchTarget, skills: readonly string[] = []): string[] {
   if (target.kind === 'wsl') {
     const dirs = target.integration?.pluginDirs ?? []
-    return dirs.length > 0 && cliTakesLaunchPlugins(cli) ? [...dirs] : []
+    if (dirs.length === 0 || !cliTakesLaunchPlugins(cli)) return []
+    return [...dirs, ...skillDirsFor(skills, target.integration?.skillPluginDirs ?? {})]
   }
   let dirs: string[]
+  let skillDirs: Record<string, string>
   try {
     dirs = launchPluginDirsResolver?.() ?? []
+    skillDirs = launchSkillPluginDirsResolver?.() ?? {}
   } catch {
     return []
   }
   if (!launchCarriesAppPluginsFor(cli, dirs)) return []
-  return target.kind === 'posix' ? dirs : dirs.map((dir) => wslToWindowsPath(dir))
+  const all = [...dirs, ...skillDirsFor(skills, skillDirs)]
+  return target.kind === 'posix' ? all : all.map((dir) => wslToWindowsPath(dir))
+}
+
+/** The one-skill plugins a launch that invokes `skills` adds, in the order asked, each once. */
+function skillDirsFor(skills: readonly string[], available: Record<string, string>): string[] {
+  const dirs: string[] = []
+  for (const skill of new Set(skills)) {
+    const dir = Object.hasOwn(available, skill) ? available[skill] : undefined
+    if (dir) dirs.push(dir)
+  }
+  return dirs
+}
+
+// The one-skill plugins in this machine's copy, by skill id (see
+// `launchSkillPluginDir`). Published beside the plugin directories, and empty
+// until that copy lands — a launch then falls back to the workspace install.
+let launchSkillPluginDirsResolver: (() => Record<string, string>) | null = null
+
+export function setLaunchSkillPluginDirsResolver(resolver: (() => Record<string, string>) | null): void {
+  launchSkillPluginDirsResolver = resolver
 }
 
 /**
@@ -1378,13 +1401,13 @@ function buildWslShellScript(
   cliModel?: string,
   memoryRootPath?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false,
   providerLaunchEnv?: Record<string, string>,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   host: WslLaunchTarget = DEFAULT_WSL_TARGET,
   planOptions: AgentLaunchPlanOptions = { budget: launchArgBudgetFor('wsl') },
   onPlan?: (plan: PlannedAgentLaunch) => void,
+  launchSkills: readonly string[] = [],
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
   const merged = collectLaunchContributionMerge({
@@ -1410,11 +1433,10 @@ function buildWslShellScript(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       undefined,
       hostContext,
-      pluginDirsForLaunch(cli, host),
+      pluginDirsForLaunch(cli, host, launchSkills),
       launchSettingsForLaunch(cli, cwd, host),
       planOptions,
       onPlan,
@@ -1493,7 +1515,6 @@ export function getShellLaunchConfig(
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false,
   cliAuthToken?: string,
   cliReasoning?: string,
   // Absolute binary path resolved by the spawn pre-flight; see
@@ -1506,7 +1527,16 @@ export function getShellLaunchConfig(
   // What else the host context says about this launch. `editorTools`: the
   // session is an agent bound to a workspace, so it can open files and diffs
   // for the person through the app's gateway.
-  hostContextOptions: { editorTools?: boolean } = {},
+  hostContextOptions: {
+    editorTools?: boolean
+    /**
+     * The bundled skills this launch's prompt invokes (a Backlog handoff's
+     * `backlog`). A launch that takes the app's plugin
+     * directories is handed each as a plugin of its own; see
+     * `bundledSkillDeliveredAtLaunch`, which answers from the same copy.
+     */
+    launchSkills?: readonly string[]
+  } = {},
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -1562,7 +1592,6 @@ export function getShellLaunchConfig(
     cliPermissionPreset,
     cliModel,
     cliReasoning,
-    debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
     ...hostContextRenderInputs(hostContext, launchHost.kind === 'posix' ? null : launchHost.kind, [
@@ -1597,10 +1626,9 @@ export function getShellLaunchConfig(
         cliRuntime,
         cliPermissionPreset,
         cliModel,
-        debugMode,
         cliReasoning,
         windowsHostContext,
-        pluginDirsForLaunch(cli, launchHost),
+        pluginDirsForLaunch(cli, launchHost, hostContextOptions.launchSkills),
         launchSettingsForLaunch(cli, cwd, launchHost),
         launchPlanOptions(launchHost, sessionId, cwd),
         (plan) => {
@@ -1642,7 +1670,6 @@ export function getShellLaunchConfig(
         cliModel,
         memoryRootPath,
         managedMcpEnv,
-        debugMode,
         providerLaunchEnv,
         cliReasoning,
         hostContextRenderInputs(hostContext, 'wsl', [cwd, memoryRootPath]),
@@ -1651,6 +1678,7 @@ export function getShellLaunchConfig(
         (plan) => {
           promptDelivery = plan.promptDelivery
         },
+        hostContextOptions.launchSkills,
       ),
     )
     return {
@@ -1681,11 +1709,10 @@ export function getShellLaunchConfig(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       resolvedBinaryPath,
       hostContextRenderInputs(hostContext, null, []),
-      pluginDirsForLaunch(cli, launchHost),
+      pluginDirsForLaunch(cli, launchHost, hostContextOptions.launchSkills),
       launchSettingsForLaunch(cli, cwd, launchHost),
       launchPlanOptions(launchHost, sessionId, cwd),
       (plan) => {
@@ -1827,7 +1854,6 @@ export function buildNativeAgentLaunchPowerShellScript(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: CliPermissionPreset = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   pluginDirs: string[] = [],
@@ -1846,7 +1872,6 @@ export function buildNativeAgentLaunchPowerShellScript(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       hostContext,
       getColorScheme(),
@@ -1860,13 +1885,11 @@ export function buildNativeAgentLaunchPowerShellScript(
       cli,
       sessionId,
       resume,
-      workspaceRoot: cwd,
       initialPrompt,
       cliRuntime,
       cliPermissionPreset,
       cliModel,
       cliReasoning,
-      debugMode,
       colorScheme: getColorScheme(),
       pluginDirs,
       ...(launchSettings ? { launchSettings } : {}),
@@ -1919,7 +1942,6 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: CliPermissionPreset = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   colorScheme?: 'light' | 'dark',
@@ -1932,13 +1954,11 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     cli: 'codex' as const,
     sessionId,
     resume,
-    workspaceRoot: cwd,
     initialPrompt,
     cliRuntime,
     cliPermissionPreset,
     cliModel,
     cliReasoning,
-    debugMode,
     colorScheme,
     ...hostContext,
   }
@@ -1994,7 +2014,6 @@ function buildAgentLaunchCommand(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: CliPermissionPreset = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   resolvedBinaryPath?: string,
   hostContext: HostContextRenderInputs = {},
@@ -2013,7 +2032,6 @@ function buildAgentLaunchCommand(
       cliPermissionPreset,
       cliModel,
       cliReasoning,
-      debugMode,
       colorScheme: getColorScheme(),
       resolvedBinaryPath,
       pluginDirs,

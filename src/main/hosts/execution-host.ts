@@ -100,6 +100,11 @@ export type HostAgentIntegration = {
   commandRuntime: AgentStateCommandRuntime
   /** `--plugin-dir` arguments for the app's plugin copy; empty when it is not there. */
   pluginDirs: string[]
+  /**
+   * One more `--plugin-dir` each, by skill id, for a launch whose prompt
+   * invokes that bundled skill (`launchSkillPluginDir`). Absent: none.
+   */
+  skillPluginDirs?: Record<string, string>
   /** The status-line forwarder inside that copy, or null. */
   statusLineScriptPath: string | null
   /**

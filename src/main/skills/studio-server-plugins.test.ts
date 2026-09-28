@@ -29,7 +29,7 @@ import { join, resolve } from 'node:path'
 
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { parseMcpServers } from './scan-plugins'
-import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID } from './studio-plugin'
+import { STUDIO_PLUGIN_ID } from './studio-plugin'
 import { test } from 'vitest'
 
 test('studio-server-plugins', async () => {
@@ -65,7 +65,7 @@ test('studio-server-plugins', async () => {
    * of ours packaging somebody else's MCP server, and gets the server rules
    * below as well as the skill rule.
    */
-  const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID])
+  const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID])
 
   async function skillDirsOf(pluginDir: string): Promise<string[]> {
     const entries = await readdir(join(pluginDir, 'skills'), { withFileTypes: true }).catch(() => null)
@@ -101,11 +101,10 @@ test('studio-server-plugins', async () => {
     const inTree = manifest.plugins.filter((entry) => entry.source.startsWith('./'))
     assert.equal(inTree.length, manifest.plugins.length, 'every plugin in our own marketplace is in this tree')
 
-    // Ours leads and the workflow skills follow it; the servers come after both.
+    // Ours leads; the servers come after it.
     // Held here as well as in studio-plugin.test.ts because this is the file that
     // adds rows to that list, and the order is what the catalogues draw.
     assert.equal(manifest.plugins[0]?.name, STUDIO_PLUGIN_ID, 'ours leads the listing')
-    assert.equal(manifest.plugins[1]?.name, STUDIO_SKILLS_PLUGIN_ID, 'the workflow skills come second')
     let serverPlugins = 0
     for (const entry of manifest.plugins) {
       const dir = entry.source.slice(2)

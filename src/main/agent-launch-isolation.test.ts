@@ -34,18 +34,19 @@ import {
   ensureSkillInstalled,
   registerModuleSkills,
   setDefaultSkillManager,
-  setLaunchDeliversBundledSkillsResolver,
+  setLaunchDeliversBundledSkillResolver,
   unregisterModuleSkills,
 } from './builtin-skills'
 import { removeManagedStudioGatewayFromClaudeWorkspace } from './mcp-config-service'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { createStudioPluginService } from './studio-plugin-service'
+import { STUDIO_AREA_SKILLS } from '../shared/studio-area-skills'
 import { applyAgentIdentityEnv } from './terminal-launch'
 
 const RESOURCES = resolve(process.cwd(), 'resources')
 const REPORTER_SOURCE = join(RESOURCES, 'hooks', 'sprintengine-agent-state.mjs')
 const STATUS_LINE_SOURCE = join(RESOURCES, 'hooks', 'sprintengine-status-line.mjs')
-const STUDIO_SKILLS_SOURCE = join(RESOURCES, 'studio-plugin', 'studio-skills', 'skills')
+const STUDIO_SKILLS_SOURCE = join(RESOURCES, 'builtin-skills')
 const TEMPLATE_ROOT = join(RESOURCES, 'studio-plugin')
 
 async function bundledSpec(id: string): Promise<PluginAgentStateSpec> {
@@ -204,26 +205,29 @@ test('a launch-injected CLI tidies the workspace instead of installing into it',
 
 // ── Skills ──────────────────────────────────────────────────────────────────
 
-test('every bundled skill ships in the plugin directory the launch carries', async () => {
-  const shipped = await readdir(STUDIO_SKILLS_SOURCE)
-  for (const skill of BUILTIN_SKILLS) {
-    assert.ok(shipped.includes(skill.id), `${skill.id} must be in studio-skills, or a launch would not carry it`)
-  }
+test('the bundled skill is the one a prompt invokes, and ships where the launch plugins are written from', async () => {
+  const shipped = (await readdir(STUDIO_SKILLS_SOURCE)).sort()
+  assert.deepEqual(
+    BUILTIN_SKILLS.map((skill) => skill.id),
+    ['backlog'],
+    'backlog (the Backlog handoff), and nothing a prompt does not invoke',
+  )
+  assert.deepEqual(shipped, ['backlog'], 'and no retired skill — debug included — is left in the bundle')
 })
 
 test('a bundled skill is not copied for a CLI whose launch carries it, and still is for one that does not', async () => {
   const { root, workspace } = await scratch('skills')
   setDefaultSkillManager(createBuiltinSkillManager({ sourceRoot: STUDIO_SKILLS_SOURCE, listPlugins: () => [] }))
-  setLaunchDeliversBundledSkillsResolver((cli) => cli === 'claude-code')
+  setLaunchDeliversBundledSkillResolver((cli) => cli === 'claude-code')
   try {
-    assert.deepEqual(await ensureSkillInstalled(workspace, 'debug', { cli: 'claude-code' }), {
+    assert.deepEqual(await ensureSkillInstalled(workspace, 'backlog', { cli: 'claude-code' }), {
       ok: true,
       status: 'delivered-at-launch',
     })
     assert.deepEqual(await readdir(workspace), [], 'a Claude launch leaves the repository as it found it')
 
-    assert.equal((await ensureSkillInstalled(workspace, 'debug', { cli: 'codex' })).ok, true)
-    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'debug', 'SKILL.md')), true)
+    assert.equal((await ensureSkillInstalled(workspace, 'backlog', { cli: 'codex' })).ok, true)
+    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'backlog', 'SKILL.md')), true)
 
     // A module's skill lives in the module, not in the plugin directory, so it
     // has no launch-scoped route and is copied whatever the CLI.
@@ -237,7 +241,28 @@ test('a bundled skill is not copied for a CLI whose launch carries it, and still
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'isolation-probe', 'SKILL.md')), true)
   } finally {
     unregisterModuleSkills('isolation')
-    setLaunchDeliversBundledSkillsResolver(null)
+    setLaunchDeliversBundledSkillResolver(null)
+    setDefaultSkillManager(null)
+  }
+})
+
+test('a launch is asked about the skill by id: one it is not handed is still copied', async () => {
+  // The copy on a machine can be missing the skill's plugin (a copy
+  // half-written by an earlier run). The answer is per skill, so a Claude
+  // launch that will not carry it still gets it in the workspace.
+  const { workspace } = await scratch('skills-per-skill')
+  setDefaultSkillManager(createBuiltinSkillManager({ sourceRoot: STUDIO_SKILLS_SOURCE, listPlugins: () => [] }))
+  const asked: string[] = []
+  setLaunchDeliversBundledSkillResolver((_cli, skillId) => {
+    asked.push(skillId)
+    return false
+  })
+  try {
+    assert.equal((await ensureSkillInstalled(workspace, 'backlog', { cli: 'claude-code' })).status, 'installed')
+    assert.equal(asked[0], 'backlog')
+    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'backlog', 'SKILL.md')), true)
+  } finally {
+    setLaunchDeliversBundledSkillResolver(null)
     setDefaultSkillManager(null)
   }
 })
@@ -272,30 +297,22 @@ test("another CLI's launch-time install leaves out the directory Claude now gets
   const { workspace } = await scratch('skills-fanout')
   const plugins = [nativeSkillPlugin('claude-code', 'claude', '.claude'), nativeSkillPlugin('codex', 'codex', '.codex')]
   setDefaultSkillManager(createBuiltinSkillManager({ sourceRoot: STUDIO_SKILLS_SOURCE, listPlugins: () => plugins }))
-  setLaunchDeliversBundledSkillsResolver((cli) => cli === 'claude-code')
+  setLaunchDeliversBundledSkillResolver((cli) => cli === 'claude-code')
   try {
-    // Debug Mode on a Codex launch: `debug` is all-native, so it used to land in
+    // A Backlog handoff on a Codex launch: `backlog` is all-native, so it used to land in
     // every CLI's directory, `.claude/skills` included.
-    assert.equal((await ensureSkillInstalled(workspace, 'debug', { cli: 'codex' })).ok, true)
-    assert.equal(existsSync(join(workspace, '.codex', 'skills', 'debug', 'SKILL.md')), true)
-    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'debug', 'SKILL.md')), true)
+    assert.equal((await ensureSkillInstalled(workspace, 'backlog', { cli: 'codex' })).ok, true)
+    assert.equal(existsSync(join(workspace, '.codex', 'skills', 'backlog', 'SKILL.md')), true)
+    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'backlog', 'SKILL.md')), true)
     assert.equal(existsSync(join(workspace, '.claude')), false, 'no copy for the CLI whose launch carries it')
-
-    // A Claude-only skill asked for on a Codex launch has nowhere left to go,
-    // which is an answer, not an error.
-    assert.deepEqual(await ensureSkillInstalled(workspace, 'frontend-design', { cli: 'codex' }), {
-      ok: true,
-      status: 'installed',
-    })
-    assert.equal(existsSync(join(workspace, '.claude')), false)
 
     // Where the launch cannot carry the plugin (the copy failed, or Windows),
     // the fan-out is exactly what it was.
-    setLaunchDeliversBundledSkillsResolver(() => false)
-    assert.equal((await ensureSkillInstalled(workspace, 'debug', { cli: 'codex' })).ok, true)
-    assert.equal(existsSync(join(workspace, '.claude', 'skills', 'debug', 'SKILL.md')), true)
+    setLaunchDeliversBundledSkillResolver(() => false)
+    assert.equal((await ensureSkillInstalled(workspace, 'backlog', { cli: 'codex' })).ok, true)
+    assert.equal(existsSync(join(workspace, '.claude', 'skills', 'backlog', 'SKILL.md')), true)
   } finally {
-    setLaunchDeliversBundledSkillsResolver(null)
+    setLaunchDeliversBundledSkillResolver(null)
     setDefaultSkillManager(null)
   }
 })
@@ -308,14 +325,14 @@ test("whether a launch carries the bundled skills is asked of the launch's machi
   const plugins = [nativeSkillPlugin('claude-code', 'claude', '.claude'), nativeSkillPlugin('codex', 'codex', '.codex')]
   setDefaultSkillManager(createBuiltinSkillManager({ sourceRoot: STUDIO_SKILLS_SOURCE, listPlugins: () => plugins }))
   const asked: Array<{ cli: string; hostId: string | null | undefined; integration: unknown }> = []
-  setLaunchDeliversBundledSkillsResolver((cli, hostId, integration) => {
+  setLaunchDeliversBundledSkillResolver((cli, _skillId, hostId, integration) => {
     asked.push({ cli, hostId, integration })
     return cli === 'claude-code' && hostId === 'wsl:Ubuntu' && integration !== null
   })
-  const integration = { pluginDirs: ['/home/dev/.local/share/sprintengine-studio/0.4.0/plugin-x/studio-skills'] }
+  const integration = { pluginDirs: ['/home/dev/.local/share/sprintengine-studio/0.4.0/plugin-x/sprintengine-studio'] }
   try {
     assert.deepEqual(
-      await ensureSkillInstalled(workspace, 'debug', {
+      await ensureSkillInstalled(workspace, 'backlog', {
         cli: 'claude-code',
         hostId: 'wsl:Ubuntu',
         integration: integration as never,
@@ -326,15 +343,15 @@ test("whether a launch carries the bundled skills is asked of the launch's machi
     assert.deepEqual(await readdir(workspace), [], 'the WSL launch carries it: nothing is copied')
 
     // The same CLI on this PC: its launch carries nothing, so the skill is copied.
-    assert.equal((await ensureSkillInstalled(workspace, 'debug', { cli: 'claude-code', hostId: 'local' })).ok, true)
-    assert.equal(existsSync(join(workspace, '.claude', 'skills', 'debug', 'SKILL.md')), true)
+    assert.equal((await ensureSkillInstalled(workspace, 'backlog', { cli: 'claude-code', hostId: 'local' })).ok, true)
+    assert.equal(existsSync(join(workspace, '.claude', 'skills', 'backlog', 'SKILL.md')), true)
 
     // A Codex launch on the WSL machine leaves out `.claude`, which that
     // machine's Claude launches carry, asking with the same machine.
     const other = (await scratch('skills-machine-codex')).workspace
     assert.equal(
       (
-        await ensureSkillInstalled(other, 'debug', {
+        await ensureSkillInstalled(other, 'backlog', {
           cli: 'codex',
           hostId: 'wsl:Ubuntu',
           integration: integration as never,
@@ -342,19 +359,19 @@ test("whether a launch carries the bundled skills is asked of the launch's machi
       ).ok,
       true,
     )
-    assert.equal(existsSync(join(other, '.codex', 'skills', 'debug', 'SKILL.md')), true)
+    assert.equal(existsSync(join(other, '.codex', 'skills', 'backlog', 'SKILL.md')), true)
     assert.equal(existsSync(join(other, '.claude')), false)
     assert.ok(asked.some((entry) => entry.cli === 'claude-code' && entry.hostId === 'wsl:Ubuntu'))
 
     // A helper that was not up when the launch was prepared: no copy there.
     const third = (await scratch('skills-machine-down')).workspace
     assert.equal(
-      (await ensureSkillInstalled(third, 'debug', { cli: 'claude-code', hostId: 'wsl:Ubuntu', integration: null }))
+      (await ensureSkillInstalled(third, 'backlog', { cli: 'claude-code', hostId: 'wsl:Ubuntu', integration: null }))
         .status,
       'installed',
     )
   } finally {
-    setLaunchDeliversBundledSkillsResolver(null)
+    setLaunchDeliversBundledSkillResolver(null)
     setDefaultSkillManager(null)
   }
 })
@@ -488,6 +505,9 @@ async function serviceHarness(label: string) {
       resolveUserDataDir: () => userData,
       resolveAgentStateSocketPath: () => join(userData, 'agent-state.sock'),
       listHarnesses: async (): Promise<SkillHarness[]> => ['agents', 'claude'],
+      // Every Studio skill switched on: these cases are about WHERE skills go
+      // for each launch route, which needs some to go.
+      resolveEnabledSkillDirs: () => STUDIO_AREA_SKILLS.map((skill) => skill.id),
     },
   }
 }

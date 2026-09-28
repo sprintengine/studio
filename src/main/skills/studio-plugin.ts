@@ -16,9 +16,12 @@
 //
 //   - The materialised plugin under `.sprintengine/`, which is the app-owned
 //     per-workspace directory the agent-state reporter already lives in.
-//   - The skills, copied into every harness's skill directory through the
-//     ordinary skill installer, so each copy carries a provenance marker and
-//     Sync can tell an app-shipped copy from someone's own edit.
+//   - The area skills the person opted into (shared/studio-area-skills.ts —
+//     none, until they choose), copied into every harness's skill directory
+//     through the ordinary skill installer, so each copy carries a provenance
+//     marker and Sync can tell an app-shipped copy from someone's own edit. A
+//     skill not chosen is left out of the materialised copy too, and a copy an
+//     earlier build wrote is taken back out.
 //   - The agent-state hook, merged into `.claude/settings.local.json` — the
 //     path the claude-code manifest names — for the event set the plugin's OWN
 //     `hooks/hooks.json` declares. The plugin is the declaration; the merge is
@@ -40,17 +43,18 @@
 // launch-scoped route remain. docs/agent-launch-isolation.md has the inventory.
 //
 // There is no uninstall of THIS plugin. It is built in: the catalogue offers
-// no Remove for it, and a workspace that has had its skills deleted by hand
-// gets them back the next time it is opened.
+// no Remove for it, and a workspace that has had its bridge or hook deleted by
+// hand gets them back the next time it is opened. Its area skills are the
+// exception — each is a switch in Settings, and off is the default.
 
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
 import { STUDIO_MCP_SERVER_ID } from '../../shared/product-identity'
 import { buildLauncherMcpServer, usableLocalLauncherRef, type StudioLauncherRef } from '../integrations/launcher'
-import { hostIdForPath, recordIntegrationWrite } from '../integrations/ledger'
+import { hostIdForPath, integrationLedger, recordIntegrationWrite } from '../integrations/ledger'
 
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import type { SkillHarness } from '../../shared/skills'
@@ -78,20 +82,11 @@ export { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
  */
 export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
 
-/**
- * The marketplace's OTHER plugin: the workflow skills the app ships, which
- * moved here out of `resources/skills` (studio-marketplace ruling, 2026-09-06)
- * so one source answers for them in every catalogue.
- *
- * They are a plugin of their own rather than more skills inside
- * `sprintengine-studio`, for two reasons. Every skill under that plugin is
- * copied into every workspace the app opens, and twelve general-purpose
- * workflow skills are a choice a person makes per workspace, not a manual the
- * bridge needs. And `builtin-skills.ts` already owns those directories —
- * installing them a second time from here would put two installers, with two
- * provenance markers, on the same paths.
- */
-export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
+// The marketplace carried a second plugin, `studio-skills` — the workflow
+// skills the app shipped — from 2026-09-06 until 2026-09-28, when it was
+// removed: every Claude launch was handed it whole. The one of those skills a
+// prompt still invokes (`backlog`) lives in `resources/builtin-skills` and
+// reaches only the launch that invokes it (builtin-skills.ts).
 
 /** The marketplace that lists it. */
 export const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
@@ -338,11 +333,13 @@ async function materialiseStudioPlugin(input: {
   template: StudioPluginTemplate
   workspaceRoot: string
   tokens: StudioPluginTokens
+  skillDirs: readonly string[]
 }): Promise<{ ok: true; root: string } | { ok: false; message: string }> {
   return materialiseStudioPluginInto({
     template: input.template,
     destination: resolve(input.workspaceRoot, STUDIO_PLUGIN_WORKSPACE_DIR),
     tokens: input.tokens,
+    skillDirs: input.skillDirs,
     // A workspace copy is loaded by Claude Code natively AND registered by hand
     // in that workspace's settings, so its declaration is blanked to keep the
     // reporter from firing twice. The app-owned copy behind `--plugin-dir` is
@@ -366,6 +363,12 @@ export async function materialiseStudioPluginInto(input: {
   tokens: StudioPluginTokens
   /** Blank the copy's `hooks/hooks.json` — see `neuterMaterialisedHooks`. */
   neuterHooks: boolean
+  /**
+   * The area skills the copy carries — the ones the person opted into
+   * (shared/studio-area-skills.ts). A CLI loads every skill in a plugin it is
+   * handed, so a skill left in the copy is a skill every agent sees.
+   */
+  skillDirs: readonly string[]
 }): Promise<{ ok: true; root: string } | { ok: false; message: string }> {
   const destination = input.destination
   const staging = `${destination}.${process.pid}.tmp`
@@ -373,6 +376,7 @@ export async function materialiseStudioPluginInto(input: {
     await rm(staging, { recursive: true, force: true })
     await mkdir(dirname(destination), { recursive: true })
     await copyTree(input.template.root, staging, input.tokens)
+    await removeUnchosenSkills(staging, input.skillDirs)
     if (input.neuterHooks) await neuterMaterialisedHooks(staging)
     await rm(destination, { recursive: true, force: true })
     await rename(staging, destination)
@@ -381,6 +385,53 @@ export async function materialiseStudioPluginInto(input: {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     return { ok: false, message: `The SprintEngine Studio plugin could not be written: ${describe(error)}` }
   }
+}
+
+/** Take every skill the person has not opted into out of a copy being staged. */
+async function removeUnchosenSkills(marketplaceRoot: string, keep: readonly string[]): Promise<void> {
+  const skillsRoot = join(marketplaceRoot, STUDIO_PLUGIN_ID, 'skills')
+  const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => null)
+  const wanted = new Set(keep)
+  for (const entry of entries ?? []) {
+    if (!entry.isDirectory() || wanted.has(entry.name)) continue
+    await rm(join(skillsRoot, entry.name), { recursive: true, force: true })
+  }
+}
+
+/**
+ * Bring an already-materialised copy's skills in line with the person's
+ * choice, without rewriting the rest of it.
+ *
+ * For the app-owned copy the launch passes as `--plugin-dir`: it is written
+ * once per version, and a choice made in Settings has to reach the next agent
+ * launched, not the next version. Skills carry no tokens (substitution is for
+ * the JSON files), so a skill added here is the template's bytes. Each lands by
+ * rename, so a CLI starting mid-sync reads a skill whole or not at all.
+ */
+export async function syncMaterialisedStudioSkills(input: {
+  template: StudioPluginTemplate
+  /** The marketplace root of the copy. */
+  root: string
+  skillDirs: readonly string[]
+}): Promise<void> {
+  const skillsRoot = join(input.root, STUDIO_PLUGIN_ID, 'skills')
+  const shipped = await listStudioPluginSkillDirs(input.template)
+  const wanted = new Set(input.skillDirs)
+  await mkdir(skillsRoot, { recursive: true })
+  for (const dirName of shipped) {
+    const target = join(skillsRoot, dirName)
+    if (!wanted.has(dirName)) {
+      await rm(target, { recursive: true, force: true })
+      continue
+    }
+    if (existsSync(join(target, 'SKILL.md'))) continue
+    const staging = `${target}.${process.pid}.tmp`
+    await rm(staging, { recursive: true, force: true })
+    await cp(join(input.template.pluginDir, 'skills', dirName), staging, { recursive: true })
+    await rm(target, { recursive: true, force: true })
+    await rename(staging, target)
+  }
+  await removeUnchosenSkills(input.root, input.skillDirs)
 }
 
 /**
@@ -583,6 +634,12 @@ export type StudioPluginInstallOptions = {
    */
   registerWithClaude: boolean
   /**
+   * The area skills the person opted into (shared/studio-area-skills.ts). Only
+   * these are copied, and a copy of any other skill this app wrote is taken
+   * back out. Empty is the default: the bridge and the hook still install.
+   */
+  enabledSkillDirs: readonly string[]
+  /**
    * The Studio launcher the hook and gateway written here run (see
    * `integrations/launcher.ts`). Absent: this machine's, under the home
    * directory. Tests pass one under a temporary home.
@@ -651,10 +708,22 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
   // other harnesses only take its skills, which carry no tokens and so are
   // byte-identical in the template — so it is not written, and a copy an
   // earlier build left behind (absolute machine paths and all) is removed.
+  const shippedSkillDirs = await listStudioPluginSkillDirs(template)
+  if (shippedSkillDirs.length === 0) {
+    return { ok: false, message: 'The SprintEngine Studio plugin ships no skills in this build.' }
+  }
+  const chosen = new Set(options.enabledSkillDirs)
+  const skillDirs = shippedSkillDirs.filter((dirName) => chosen.has(dirName))
+
   let materialisedRoot = ''
   let skillsSourceRoot: string
   if (options.registerWithClaude) {
-    const materialised = await materialiseStudioPlugin({ template, workspaceRoot, tokens: options.tokens })
+    const materialised = await materialiseStudioPlugin({
+      template,
+      workspaceRoot,
+      tokens: options.tokens,
+      skillDirs,
+    })
     if (!materialised.ok) return materialised
     materialisedRoot = materialised.root
     skillsSourceRoot = join(materialised.root, STUDIO_PLUGIN_ID, 'skills')
@@ -678,10 +747,6 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
   }
 
   const warnings: string[] = []
-  const skillDirs = await listStudioPluginSkillDirs(template)
-  if (skillDirs.length === 0) {
-    return { ok: false, message: 'The SprintEngine Studio plugin ships no skills in this build.' }
-  }
 
   // Skills go through the ordinary installer so a bundle cannot reach outside
   // its own directory and every copy carries provenance. Read from the
@@ -713,10 +778,12 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
       })),
     )
   }
-  if (copied.length === 0) {
+  // Only a failure when something was chosen and none of it landed: with
+  // nothing chosen, the bridge and the hook are the whole install.
+  if (skillDirs.length > 0 && copied.length === 0) {
     return { ok: false, message: warnings[0] ?? 'No SprintEngine Studio skill could be copied into this workspace.' }
   }
-  warnings.push(...(await pruneUnshippedStudioSkills(workspaceRoot, skillDirs)))
+  warnings.push(...(await pruneStudioSkillCopies(workspaceRoot, skillDirs)))
 
   // The hook, from the plugin's own declaration. Skipped when Claude Code loads
   // the plugin itself — it would then register these same hooks, and two
@@ -787,21 +854,26 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
 }
 
 /**
- * Remove the copies an earlier version of this plugin installed and this build
- * no longer ships (`studio-sprints`, once the sprint tools were deleted): a
- * copy left behind tells every agent that reads it to call tools that no
- * longer exist, and nothing else would ever take it out.
+ * Remove every copy this plugin wrote that the workspace should no longer
+ * hold: a skill the person has not opted into (every area skill an earlier
+ * build installed unasked, and one switched off since), and one this build no
+ * longer ships (`studio-sprints`, once the sprint tools were deleted). A copy
+ * left behind is a standing instruction to every agent that reads it, and
+ * nothing else would ever take it out.
  *
  * Only a directory whose provenance marker names this plugin is touched — a
  * person's own skill, or one another source installed under the same name,
- * carries a different marker (or none) and stays. Every harness directory is
- * swept, not only the ones this install targets, because the harness set can
- * shrink between versions and the stale copy would then sit where no install
- * looks. Returns warnings for the removals that failed.
+ * carries a different marker (or none) and stays. So does one the repository
+ * committed, the way the quit removal leaves it (integrations/remove-integrations.ts):
+ * deleting it would leave the checkout modified, and it is the project's now.
+ * Every harness directory is swept, not only the ones this install targets,
+ * because the harness set can shrink between versions and the stale copy would
+ * then sit where no install looks. Returns warnings for the removals that failed.
  */
-async function pruneUnshippedStudioSkills(workspaceRoot: string, shipped: readonly string[]): Promise<string[]> {
-  const keep = new Set(shipped)
+async function pruneStudioSkillCopies(workspaceRoot: string, keepDirs: readonly string[]): Promise<string[]> {
+  const keep = new Set(keepDirs)
   const warnings: string[] = []
+  const removed: string[] = []
   for (const harnessDir of new Set(Object.values(SKILL_HARNESS_DIR))) {
     const skillsRoot = join(workspaceRoot, harnessDir, 'skills')
     const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => null)
@@ -810,16 +882,35 @@ async function pruneUnshippedStudioSkills(workspaceRoot: string, shipped: readon
       const directory = join(skillsRoot, entry.name)
       const provenance = await readSkillProvenance(directory)
       if (provenance?.sourceId !== STUDIO_PLUGIN_SOURCE_ID) continue
+      if (await gitTracksPath(skillsRoot, entry.name)) continue
       try {
         await rm(directory, { recursive: true, force: true })
+        removed.push(directory)
       } catch (error) {
-        warnings.push(
-          `${join(harnessDir, 'skills', entry.name)} is no longer shipped and could not be removed: ${describe(error)}`,
-        )
+        warnings.push(`${join(harnessDir, 'skills', entry.name)} could not be removed: ${describe(error)}`)
       }
     }
   }
+  if (removed.length > 0) {
+    // Gone, so the quit removal has nothing left to do for them.
+    const gone = new Set(removed)
+    void integrationLedger()
+      ?.forgetWhere((entry) => entry.kind === 'skill-copy' && gone.has(entry.path))
+      .catch(() => undefined)
+  }
   return warnings
+}
+
+/**
+ * Whether git tracks anything under `name` in `cwd`. Fails closed, like the
+ * quit removal's own check: any answer but "not a repository" or an empty
+ * listing counts as tracked, because the wrong guess deletes committed files.
+ */
+export async function gitTracksPath(cwd: string, name: string): Promise<boolean> {
+  const result = await runGitCommand(cwd, ['ls-files', '--', name]).catch(() => null)
+  if (!result) return true
+  if (result.ok) return result.stdout.trim() !== ''
+  return !/not a git repository/iu.test(`${result.stderr}\n${result.message ?? ''}`)
 }
 
 // ── Claude Code settings ────────────────────────────────────────────────────

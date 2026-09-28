@@ -24,14 +24,14 @@ export function plainSkillInvocation(skillId: string): string {
 }
 
 /**
- * The CLI-native explicit invocation for a skill (e.g. `/debug` / `/handoff`
- * for Claude, `Use $debug.` / `Use $handoff.` for Codex), read from a plugin's
- * declared skill-invocation template with `{{skillId}}` substituted.
- * Undefined when the plugin declares no native skill support or no explicit
- * template, so callers fall back to the plain directive/instruction.
+ * The CLI-native explicit invocation for a skill (e.g. `/backlog` for Claude,
+ * `Use $backlog.` for Codex), read from a plugin's declared skill-invocation
+ * template with `{{skillId}}` substituted. Undefined when the plugin declares
+ * no native skill support or no explicit template, so callers fall back to the
+ * plain directive/instruction.
  *
- * Node-free and shared so the main-process debug launch (resolveDebugSkillInvocation)
- * and the renderer connector-chat seed resolve invocations through one contract.
+ * Node-free and shared so main-process launches and the renderer
+ * connector-chat seed resolve invocations through one contract.
  * The parameter is the `{ support, invocation }` shape common to both
  * PluginSkillIntegration (main manifest) and PluginSkillCatalog (renderer list).
  */

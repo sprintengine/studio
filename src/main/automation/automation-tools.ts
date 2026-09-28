@@ -468,6 +468,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     worktreeName?: string
     worktreeBaseRef?: string
     host?: ExecutionHostId
+    /** A bundled skill the prompt invokes; the launch carries it (see `launchSkills`). */
+    spawnSkillId?: string
   }): Promise<
     | {
         workspace: Workspace
@@ -517,6 +519,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       connectorId: plan.connectorId,
       worktreePath,
       ...(plan.host ? { host: plan.host } : {}),
+      ...(plan.spawnSkillId ? { spawnSkillId: plan.spawnSkillId } : {}),
     })
     if (!launched.ok) return failure(launched.code, launched.message)
     const { agentId, sessionId } = launched
@@ -1825,6 +1828,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         permissionPreset: options.permissionPreset,
         worktreeRequested: options.worktreeRequested,
         worktreeName: options.worktreeName,
+        // The launch carries the skill its `/backlog` invocation names; the
+        // ensure above wrote nothing for a launch that does.
+        spawnSkillId: BACKLOG_SKILL_ID,
       })
       if (!('agentId' in launched)) return launched
 

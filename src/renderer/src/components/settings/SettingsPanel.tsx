@@ -39,6 +39,7 @@ import { MachinesSettingsTab } from './MachinesSettingsTab'
 import { SettledChatsSettingsTab } from './SettledChatsSettingsTab'
 import { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } from './AgentClisSection'
 import { ConversationApprovalSettings } from './ConversationApprovalSettings'
+import { StudioSkillsSettings } from './StudioSkillsSettings'
 import {
   agentsMachines,
   lastAgentsMachine,
@@ -1545,6 +1546,7 @@ export default function SettingsPanel({
             updateBadgeClis={updateBadges.clis[agentsMachine.id] ?? NO_UPDATE_BADGE_CLIS}
           />
 
+          <StudioSkillsSettings />
           <TextGenerationSettingsSection />
           <ConversationApprovalSettings />
 

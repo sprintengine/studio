@@ -82,8 +82,6 @@ test('a send-after-ready launch owes nothing on resume, with nothing to say, or 
   for (const cli of ['kimi-code', 'muse'] as AgentCli[]) {
     for (const input of [
       { cli, sessionId: 'sid', resume: true, initialPrompt: PROMPT },
-      // Debug Mode would otherwise conjure a message on a resume.
-      { cli, sessionId: 'sid', resume: true, debugMode: true },
       { cli, sessionId: 'sid' },
       { cli, sessionId: 'sid', initialPrompt: '  \n ' },
     ] satisfies AgentLaunchRenderInput[]) {
@@ -99,13 +97,6 @@ test('a send-after-ready launch owes nothing on resume, with nothing to say, or 
   }
 })
 
-test("Debug Mode's directive is typed in with the message on a new launch", () => {
-  const expected = renderAgentLaunchArgv({ cli: 'kimi-code', sessionId: 's', initialPrompt: PROMPT, debugMode: true })
-  const planned = plan({ cli: 'kimi-code', sessionId: 's', initialPrompt: PROMPT, debugMode: true })
-  assert.deepEqual(planned.promptDelivery, { kind: 'input', text: expected.prompt })
-  assert.ok(expected.prompt && expected.prompt.length > PROMPT.length)
-})
-
 test("Kimi Code's typed launch turns its startup update prompt off, and only that launch", () => {
   assert.deepEqual(plan({ cli: 'kimi-code', sessionId: 's', initialPrompt: PROMPT }).typedPromptEnv, {
     KIMI_CODE_NO_AUTO_UPDATE: '1',
@@ -115,7 +106,7 @@ test("Kimi Code's typed launch turns its startup update prompt off, and only tha
   assert.deepEqual(renderAgentLaunchArgv({ cli: 'kimi-code', sessionId: 's', initialPrompt: PROMPT }).env, {})
 })
 
-function launch(cli: AgentCli, prompt: string | undefined, target?: Parameters<typeof getShellLaunchConfig>[15]) {
+function launch(cli: AgentCli, prompt: string | undefined, target?: Parameters<typeof getShellLaunchConfig>[14]) {
   const cwd = join(temp, `workspace-${cli}`)
   mkdirSync(cwd, { recursive: true })
   return getShellLaunchConfig(
@@ -130,7 +121,6 @@ function launch(cli: AgentCli, prompt: string | undefined, target?: Parameters<t
     undefined,
     undefined,
     undefined,
-    false,
     undefined,
     undefined,
     undefined,
@@ -193,7 +183,6 @@ test('a native Windows Kimi Code launch does the same in its PowerShell script',
     { command: '' },
     'none',
     undefined,
-    false,
     undefined,
     {},
     [],

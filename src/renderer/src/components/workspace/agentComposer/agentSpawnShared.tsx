@@ -1,8 +1,6 @@
 // Imported from the concrete module rather than the `../../ui` barrel to keep
 // this hookless module free of the barrel's whole component graph.
 import type React from 'react'
-import { Tooltip } from '../../ui/Tooltip'
-import { ChipButton } from '../../ui/ChipButton'
 import { MenuOption } from '../../ui/MenuOption'
 import { PresetDialGlyph, UnlockedGlyph } from '../../AppIcons'
 import type { CliPermissionPreset } from '../../../types/workspace'
@@ -231,27 +229,6 @@ export function PermissionPresetMenuRows({
         )
       })}
     </>
-  )
-}
-
-// The error-tone Debug Mode toggle in the picker's mode row. An independent
-// on/off control sitting beside the permission-preset group — it does not
-// change the selected preset. State is signalled by the literal "DEBUG" label
-// and aria-pressed, not by color alone, so it reads for non-color users and AT.
-export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChange: (next: boolean) => void }) {
-  return (
-    <Tooltip
-      content="Debug mode drives the agent through a file-backed debugging state machine: reproduce, form hypotheses, instrument, then remove all instrumentation before finishing. Works best with the Bypass permission preset."
-      placement="bottom"
-      wrapperClassName="ml-auto inline-flex"
-    >
-      {/* The permission chips' toggle, in the error tone: a thrown DEBUG keeps
-          its own tint, because a state that went neutral would stop saying what
-          it says. Quiet until thrown, so it does not shout from the row. */}
-      <ChipButton tone={active ? 'error' : 'subtle'} pressed={active} onClick={() => onChange(!active)}>
-        DEBUG
-      </ChipButton>
-    </Tooltip>
   )
 }
 

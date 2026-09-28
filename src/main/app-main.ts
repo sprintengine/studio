@@ -321,6 +321,7 @@ registerAppLifecycle({
   updateService: services.updateService,
   checkPluginSourceUpdates: () => services.skillsService.checkSourceUpdates(),
   startDeferredBootJobs: services.startDeferredBootJobs,
+  prepareWorkspacesAtBoot: services.prepareWorkspacesAtBoot,
   backgroundMode: {
     isEnabled: () => services.backgroundModeStore.isEnabled(),
     readStatus: () => services.readBackgroundStatus(),

@@ -27,9 +27,6 @@ export type PluginAvailabilityResult =
 // withholds argv and a hand-written preview of the flags would drift the first
 // time a manifest changed. The prompt is never part of it: it is on screen a
 // line above, and re-rendering per keystroke would bury the flags.
-// No `debugMode`: it prepends a directive to the PROMPT and never touches a
-// flag, so on a prompt-free preview it has nothing to add — and rendering it
-// would put a multi-line directive in a one-line receipt.
 export type AgentLaunchPreviewInput = {
   cli: AgentCli
   cliModel?: string

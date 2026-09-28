@@ -589,10 +589,6 @@ export default function WorkspaceManager() {
   // this any more — it is the fallback a CLI nobody has set resolves to, and
   // Settings is where it is changed.
   const agentSpawnPermissionPreset = lastAgentSpawnPermissionPreset
-  // Debug Mode is intentionally transient and never persisted (unlike the
-  // permission preset): it defaults off and resets off after each spawn, so a
-  // debug agent never silently leaves the next unrelated spawn in debug.
-  const [agentSpawnDebugMode, setAgentSpawnDebugMode] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [viewMenuTick, setViewMenuTick] = useState(0)
@@ -1273,6 +1269,10 @@ export default function WorkspaceManager() {
       // The effort of that same row. Same contract as the model: present on the
       // confirm, `null` for the CLI's own default.
       selectedReasoning?: string | null,
+      // A bundled skill the startup prompt already invokes (the Backlog
+      // handoff's `/backlog <item>`): the launch carries it, and nothing is
+      // parked at the prompt the way an attached skill's invocation is.
+      promptSkillId?: string,
     ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
       const chosenCli = cli && cli.trim() ? cli.trim() : null
       // A plain New chat rides the app's remembered CLI unless the caller named
@@ -1289,7 +1289,7 @@ export default function WorkspaceManager() {
       }
       // Ride the remembered model when it belongs to the spawning CLI. Seeded via
       // an agentPatch (no tabName, so the layout is untouched). The patch always
-      // carries the composer's permission preset and debug mode.
+      // carries the composer's permission preset.
       const cliModel =
         selectedModel !== undefined
           ? (selectedModel ?? undefined)
@@ -1307,12 +1307,12 @@ export default function WorkspaceManager() {
             ...(cliModel ? { cliModel } : {}),
             ...(cliReasoning ? { cliReasoning } : {}),
             cliPermissionPreset: resolveCliPermissionPreset(templateAgentCli, agentSpawnPermissionPreset),
-            debugMode: agentSpawnDebugMode,
             ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
             ...skillsSpawnAgentPatch(
               skills ?? [],
               pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration,
             ),
+            ...(promptSkillId ? { spawnSkillId: promptSkillId } : {}),
           },
         },
       })
@@ -1320,7 +1320,6 @@ export default function WorkspaceManager() {
       // app's own agent, so the CLI it was started on is the answer every surface
       // without a remembered CLI of its own falls back to.
       if (chosenCli) setLastSelectedCli(chosenCli)
-      if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
       // agent. Read back rather than guessed: the id is the template's, not one
@@ -1332,7 +1331,6 @@ export default function WorkspaceManager() {
     },
     [
       agentCliCatalog,
-      agentSpawnDebugMode,
       agentSpawnPermissionPreset,
       createSoloChatWorkspace,
       openSettingsOverlay,
@@ -2410,7 +2408,6 @@ export default function WorkspaceManager() {
       // those agree, which is exactly why the drift would ship unnoticed.
       // `createNewChat` reads it the same way, for the same reason.
       cliPermissionPreset: resolveCliPermissionPreset(spawnCli, agentSpawnPermissionPreset),
-      debugMode: agentSpawnDebugMode,
       cliStartupPrompt: placement?.prompt || undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
@@ -2421,7 +2418,6 @@ export default function WorkspaceManager() {
       ),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
-    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
   // Spawn a chat agent in the active standard workspace: the CLI the launcher's
@@ -3067,7 +3063,16 @@ export default function WorkspaceManager() {
           ? pluginCatalogEntries.find((entry) => entry.id === request.cli)?.skillIntegration
           : undefined,
       })
-      const started = createNewChat(request.workspaceRoot, request.cli, undefined, prompt, undefined, request.model)
+      const started = createNewChat(
+        request.workspaceRoot,
+        request.cli,
+        undefined,
+        prompt,
+        undefined,
+        request.model,
+        undefined,
+        BACKLOG_SKILL_ID,
+      )
       // A launch that never happened (no installed CLI, missing solo template) has
       // already said so through its own route; there is no agent to link to.
       if (!started) return
@@ -3933,8 +3938,6 @@ export default function WorkspaceManager() {
           conversationWorkspaceSupported={conversationSpawnEnabled}
           initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
-          debugMode={agentSpawnDebugMode}
-          onChangeDebugMode={setAgentSpawnDebugMode}
           onLaunch={({ prompt, ...confirm }) => runComposerSpawnRef.current(confirm, { tabId, prompt, agentName })}
           onClose={() => {
             if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
@@ -3942,13 +3945,7 @@ export default function WorkspaceManager() {
         />
       </React.Suspense>
     ),
-    [
-      windowActiveWorkspaceId,
-      conversationSpawnEnabled,
-      agentSpawnPermissionPreset,
-      agentSpawnDebugMode,
-      lastNewChatAgent,
-    ],
+    [windowActiveWorkspaceId, conversationSpawnEnabled, agentSpawnPermissionPreset, lastNewChatAgent],
   )
 
   const startLogin = async () => {
@@ -4462,8 +4459,6 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              debugMode={agentSpawnDebugMode}
-                              onChangeDebugMode={setAgentSpawnDebugMode}
                               onLaunch={({ prompt, ...confirm }) => {
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
                                 void confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
