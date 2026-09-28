@@ -16,7 +16,7 @@ import {
   CopyGlyphButton,
   TruncatedText,
   GhostButton,
-  StatusDot,
+  LifecycleGlyph,
   RowButton,
   OutlineButton,
   LinkButton,
@@ -39,7 +39,8 @@ import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
-import { SubagentLaneResult, subagentModel, subagentOutcomeWord } from './subagentResult'
+import { SubagentLaneResult, subagentModel } from './subagentResult'
+import { LaneGlyph, laneOutcomeWords } from './subagentStatus'
 import React, { useId, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -600,14 +601,11 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // What the model sent this agent to do; the lane's own steps are the rail
   // beneath it, so the header does not repeat their count.
   const object = toolObject(tool)
-  const durationMs =
-    tool.startedAt !== undefined && tool.completedAt !== undefined
-      ? Math.max(0, tool.completedAt - tool.startedAt)
-      : undefined
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const outcome = subagentOutcomeWord(tool)
+  // "Done in 1m 29s", "Failed after 9s": how it ended and how long it took.
+  const outcome = laneOutcomeWords(tool)
   // The lane header's ink, split from the box: the pressable branch is a kit row
   // (which owns the box, the hover ground and the ring) and the readable twin
   // keeps the shape it always had.
@@ -615,11 +613,9 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${headerInk}`
   const header = (
     <>
-      <span
-        className={`flex shrink-0 self-center ${toolGlyphInk(running ? 'running' : presentToolItem(toolPresentationInput(tool)).tone)}`}
-      >
-        <ToolKindGlyph kind="subagent" />
-      </span>
+      {/* The agent itself: a character that works while it runs and whose
+          face says how it ended. The words beside it say the same. */}
+      <LaneGlyph tool={tool} className="self-center" />
       {expandable ? (
         <ChevronRightGlyph
           className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
@@ -641,28 +637,28 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
       ) : null}
       <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
         {running ? (
-          tool.startedAt !== undefined ? (
-            <LiveElapsed startedAt={tool.startedAt} />
-          ) : (
-            'running'
-          )
+          <span className="text-[color:var(--accent-primary)]">
+            Working{tool.startedAt !== undefined ? ' · ' : ''}
+            {tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : null}
+          </span>
         ) : (
-          // How it ended when that was not plainly finishing, the model it was
-          // asked to run on, and how long it took.
+          // How it ended and how long it took, then the model it was asked to
+          // run on when it named one.
           [
             outcome ? (
-              <span key="outcome" className={outcome === 'failed' ? 'text-[color:var(--tone-error)]' : undefined}>
+              <span
+                key="outcome"
+                className={tool.outputStatus === 'error' ? 'text-[color:var(--tone-error)]' : undefined}
+              >
                 {outcome}
               </span>
             ) : null,
             subagentModel(tool),
-            durationMs !== undefined ? formatStepDuration(durationMs) : null,
           ]
             .filter(Boolean)
             .flatMap((part, index) => (index ? [' · ', part] : [part]))
         )}
       </span>
-      {running ? <span className="sr-only">running</span> : null}
     </>
   )
   return (
@@ -749,7 +745,7 @@ export function TurnErrorBlock({
       className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3"
     >
       <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
-        <StatusDot tone="error" label="Turn failed" />
+        <LifecycleGlyph state="failed" label="Turn failed" />
         {chrome.assistantName} couldn’t finish this turn
       </div>
       <p className="mb-2.5 mt-1 text-body leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
@@ -836,7 +832,7 @@ export function ResolvedDecisionGroupRow({
         {row.status === 'approved' ? (
           <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
         ) : row.status === 'denied' ? (
-          <StatusDot tone="error" />
+          <CrossGlyph className="icon-xs shrink-0 text-[color:var(--tone-error)]" />
         ) : null}
         {row.label}
       </GhostButton>
@@ -871,7 +867,7 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
       {good ? (
         <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       ) : (
-        <StatusDot tone="error" label="Denied" />
+        <CrossGlyph className="icon-xs shrink-0 text-[color:var(--tone-error)]" label="Denied" />
       )}
       {text}
     </div>
@@ -960,6 +956,16 @@ function MessageTimestamp({ at }: { at?: number }) {
         <span className="sr-only">{full}</span>
       </time>
     </Tooltip>
+  )
+}
+
+// The denied twin of CheckGlyph: an answer that was no, in the error ink.
+export function CrossGlyph({ className, label }: { className?: string; label?: string }) {
+  const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" {...a11y}>
+      <path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   )
 }
 
