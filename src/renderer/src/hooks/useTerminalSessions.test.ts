@@ -716,6 +716,8 @@ test('useTerminalSessions', async () => {
     assert.equal(pickAgentTabRecency(null, null, null), null)
     assert.equal(tabRecencyLabel('persisted'), 'Last activity')
     assert.equal(tabRecencyLabel('exited'), 'Exited')
+    // A chat's recency is the time alone, with no word before it.
+    assert.equal(tabRecencyLabel('finished'), '')
   }
 
   /** A delta that carries these sessions whole, lists included. */

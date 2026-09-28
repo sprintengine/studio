@@ -319,7 +319,8 @@ export function deriveWorkspaceDisplayActivity(
   return 'idle'
 }
 
-// `finished` is a chat's: when its last turn ended.
+// `finished` is a chat's: when its last turn ended. It has no word — a chat
+// reads as the time alone ("3m"), on the tab, the card and the sidebar.
 export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited' | 'finished'
 
 export type TabRecencyDisplay = {
@@ -370,6 +371,6 @@ export function tabRecencyLabel(source: TabRecencySource): string {
   if (source === 'idle') return 'Idle'
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
-  if (source === 'finished') return 'Finished'
+  if (source === 'finished') return ''
   return 'Exited'
 }

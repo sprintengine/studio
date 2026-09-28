@@ -259,11 +259,14 @@ function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatu
   )
 }
 
-/** "Paused · 2m" once a minute has passed, else the plain label, on a clock of its own. */
+/**
+ * "Paused · 2m" once a minute has passed, else the plain label, on a clock of
+ * its own. An age with no label of its own (a chat's) is the time alone: "2m".
+ */
 function LabelWithAge({ label, aged }: { label: string; aged: { label: string; since: number } }) {
   const now = useRelativeNow()
   const age = formatRelativeMs(aged.since, now)
-  return <>{age ? `${aged.label} · ${age}` : label}</>
+  return <>{age ? (aged.label ? `${aged.label} · ${age}` : age) : label}</>
 }
 
 /**

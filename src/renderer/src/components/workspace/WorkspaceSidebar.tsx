@@ -3539,12 +3539,10 @@ function ConversationLineSeat({ session, now }: { session: ConversationSessionSu
   if (phase === 'running' || phase === 'starting') content = <AgentWorkingDots label="Agent working" />
   else if (finishedAt !== null && formatRelativeMs(finishedAt, now)) {
     content = (
-      <RowTooltip
-        content={`Finished ${formatRelativeMsAgo(finishedAt, now)} (${new Date(finishedAt).toLocaleString()})`}
-      >
+      <RowTooltip content={`${formatRelativeMsAgo(finishedAt, now)} (${new Date(finishedAt).toLocaleString()})`}>
         <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
           <span aria-hidden="true">{formatRelativeMs(finishedAt, now)}</span>
-          <span className="sr-only">Finished {formatRelativeMsAgo(finishedAt, now)}</span>
+          <span className="sr-only">{formatRelativeMsAgo(finishedAt, now)}</span>
         </span>
       </RowTooltip>
     )

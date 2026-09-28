@@ -273,8 +273,8 @@ function TabRecencyText({ at, label }: { at: number; label: string }): React.Rea
   return (
     <span
       className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`}
-      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`}
+      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`.trim()}
+      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`.trim()}
     >
       {text}
     </span>
@@ -1339,7 +1339,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
       //
       // A chat has no terminal session and never moves the keystroke clock, so
-      // it counts from when its last turn ended instead, and says "Finished".
+      // it counts from when its last turn ended instead, as the time alone.
       const conversationFinished = conversation ? conversationFinishedAt(conversation) : null
       const agentRecency = isWorking
         ? null
@@ -1396,7 +1396,8 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
-      // (Idle / Last activity / Exited / Finished) — never a blanket "Idle".
+      // (Idle / Last activity / Exited, or a chat's bare time) — never a
+      // blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
       // working dots the tab wears; `attention` is Failed and Paused, which
       // are worth the same weight without claiming motion; every other answer
