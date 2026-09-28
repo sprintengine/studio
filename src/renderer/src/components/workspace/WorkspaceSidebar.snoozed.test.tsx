@@ -232,6 +232,22 @@ test('WorkspaceSidebar.snoozed', async () => {
       assert.ok(shelfBody, 'the shelf row controls a real node')
       assert.equal(shelfBody.hidden, true, 'and that node is hidden while closed')
       assert.equal(foldRow('Settled'), null, 'a folder with nothing at rest grows no Settled shelf')
+      // The shelf sits in the background (owner, 2026-09-28): its word is a
+      // quiet row's `text.subtle`, never the kit row's `text.default`, and its
+      // count a step under that — lifting to readable ink when reached for.
+      const [shelfLabel, shelfCount] = [...shelf.querySelectorAll('span')]
+      assert.match(shelfLabel.className, /(^|\s)text-\[color:var\(--text-subtle\)\]/, 'the word rests at text.subtle')
+      assert.match(
+        shelfLabel.className,
+        /group-hover\/shelf:text-\[color:var\(--text-default\)\]/,
+        'and lifts on hover',
+      )
+      assert.match(
+        shelfLabel.className,
+        /group-focus-visible\/shelf:text-\[color:var\(--text-default\)\]/,
+        'and on keyboard focus',
+      )
+      assert.match(shelfCount.className, /(^|\s)text-\[color:var\(--text-disabled\)\]/, 'the count a step further down')
 
       act(() => {
         shelf.click()
