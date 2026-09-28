@@ -14,6 +14,7 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 import { parseConversationMentions, type ConversationMentionRef } from '../../../../../shared/conversation/mentions'
 import { normalizeApiKeySource } from '../../../../../shared/conversation/apiKeySource'
+import { applyPromptCacheEvent, type PromptCacheReading } from '../../../../../shared/prompt-cache'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -116,6 +117,8 @@ export type TranscriptEntry =
       numTurns?: number
       // Tokens the provider reported for this turn alone.
       inputTokens?: number
+      // The share of `inputTokens` the prompt cache served.
+      cachedInputTokens?: number
       outputTokens?: number
       // Credential source in force when the turn ended, so a cost is shown only
       // for a turn that billed API usage — replayed history included.
@@ -203,6 +206,10 @@ export type ConversationProjection = {
   checkpointNotice: string | null
   // The checkpoint the most recent revert still in effect went back to.
   revertedAfterSeq: number | null
+  // The conversation's prompt cache, from the provider's per-request reports:
+  // the same fold main's runtime makes (applyPromptCacheEvent). Null for a
+  // provider that reports none.
+  promptCache: PromptCacheReading | null
 }
 
 // The image references a `user_message` recorded. Anything malformed is left
@@ -379,6 +386,7 @@ export type TurnAccumulator = {
   durationMs?: number
   numTurns?: number
   inputTokens?: number
+  cachedInputTokens?: number
   outputTokens?: number
   apiKeySource?: string
   checkpointTurnSeq?: number
@@ -468,6 +476,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
   let checkpointNotice: string | null = null
+  let promptCache: PromptCacheReading | null = null
   // Reverts still in effect, oldest first. Each covers the turns from its
   // checkpoint up to the revert itself: a turn sent after a revert started from
   // the reverted files and is not undone by it. An undo removes its revert.
@@ -527,6 +536,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
 
     const turnId = readString(event.payload, 'turnId')
     if (turnId && event.seq !== undefined && !turnStartSeq.has(turnId)) turnStartSeq.set(turnId, event.seq)
+    promptCache = applyPromptCacheEvent(promptCache, event)
     switch (event.type) {
       case 'session_started': {
         // Each session binds credentials afresh; a previous session's reported
@@ -733,6 +743,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
         if (turnId) {
           const turn = ensureTurn(turnId)
           turn.inputTokens = readNumber(event.payload, 'inputTokens') ?? turn.inputTokens
+          turn.cachedInputTokens = readNumber(event.payload, 'cachedInputTokens') ?? turn.cachedInputTokens
           turn.outputTokens = readNumber(event.payload, 'outputTokens') ?? turn.outputTokens
         }
         break
@@ -890,6 +901,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
       durationMs: turn.durationMs,
       numTurns: turn.numTurns,
       inputTokens: turn.inputTokens,
+      cachedInputTokens: turn.cachedInputTokens,
       outputTokens: turn.outputTokens,
       apiKeySource: turn.apiKeySource,
       checkpointTurnSeq: turn.checkpointTurnSeq,
@@ -952,6 +964,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     sessionNotice,
     checkpointNotice,
     revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
+    promptCache,
   }
 }
 

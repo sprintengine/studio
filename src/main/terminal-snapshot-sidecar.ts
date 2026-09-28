@@ -10,6 +10,7 @@ import type {
   SessionPrompt,
   TerminalKind,
 } from '../shared/electron-api'
+import type { PromptCacheReading } from '../shared/prompt-cache'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -91,6 +92,10 @@ export type TerminalSnapshotSidecar = {
   // an app restart still says so. Read back through parseSessionContextUsage —
   // untrusted input like the rest of this file.
   contextUsage?: SessionContextUsage
+  // The prompt cache's last reading, so a parked session still goes cold on
+  // time and still says what resuming it re-caches. Read back through
+  // parsePromptCacheReading.
+  promptCache?: PromptCacheReading
   // Exactly one of these carries the painted content: `snapshot` is a
   // headless-xterm serialized screen (replays faithfully, incl. alt-screen
   // TUIs); `rawReplay` is the retained pty byte stream captured on the quit

@@ -73,6 +73,10 @@ export type ConversationSessionSummary = {
   // count "finished" from this rather than `updatedAt`, which also moves on a
   // model or permission change.
   lastTurnEndedAt?: number
+  // The main conversation's prompt cache, as its provider's last request left
+  // it: when it goes cold and what a cold resume re-caches
+  // (shared/prompt-cache.ts). Absent for a provider that reports no cache.
+  promptCache?: import('./prompt-cache').PromptCacheReading
   // The preset currently in force, when the session carries one. Absent means
   // the session never set one and the provider passes no permission override,
   // as `none` does. Changing it mid-conversation goes through

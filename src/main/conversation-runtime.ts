@@ -58,6 +58,7 @@ import type {
   ConversationRenameInput,
 } from '../shared/conversation-index'
 import { presentToolItem } from '../shared/conversation/presentation'
+import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
 import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
@@ -1391,6 +1392,10 @@ export class ConversationRuntime {
   }
 
   private updateExcerpts(session: RuntimeSession, event: ConversationEvent): void {
+    // The prompt cache, from the requests the provider saw start (and reset by
+    // a compaction) — the same fold the chat's own projection makes.
+    const promptCache = applyPromptCacheEvent(session.promptCache ?? null, event)
+    if (promptCache) session.promptCache = promptCache
     if ((event.type === 'session_started' || event.type === 'session_updated') && event.payload?.capabilities)
       session.capabilities = {
         ...session.capabilities,
@@ -2530,6 +2535,7 @@ export class ConversationRuntime {
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      ...(session.promptCache ? { promptCache: session.promptCache } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),

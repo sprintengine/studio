@@ -278,6 +278,9 @@ export function createCodexConversationProvider(
       const usage = record(record(params.tokenUsage).last)
       emit(state, 'usage_updated', {
         inputTokens: usage.inputTokens,
+        // The share of the input OpenAI's prompt cache served. Codex reports no
+        // cache lifetime, so this is all a chat on it can say about its cache.
+        cachedInputTokens: usage.cachedInputTokens,
         outputTokens: usage.outputTokens,
         totalTokens: usage.totalTokens,
       })

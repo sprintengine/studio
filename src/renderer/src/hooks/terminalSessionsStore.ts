@@ -157,6 +157,13 @@ function getTerminalSessionSignatureRow(session: TerminalSessionSnapshot) {
     // re-stamped on every poll whether or not anything was read, so including
     // it would repaint every window on every backoff tick.
     session.pullRequests?.map((pr) => `${pr.url}:${pr.state}:${pr.isDraft}:${pr.title}`).join('|') ?? '',
+    // The prompt cache, for the same reason as the context reading: its status
+    // line refresh lands on its own, often after the turn's end has already
+    // settled everything else, and without this term the tab and the card keep
+    // the previous turn's cache — "expired 40m ago" on one that was just warmed.
+    session.promptCache
+      ? `${session.promptCache.ttl}:${session.promptCache.expiresAt}:${session.promptCache.recacheTokens}`
+      : '',
   ]
 }
 

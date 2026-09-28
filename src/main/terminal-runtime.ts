@@ -144,6 +144,7 @@ import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import type { TerminalSessionDeltaEntry, TerminalSessionsDelta } from '../shared/ipc/terminal'
+import { parsePromptCacheReading } from '../shared/prompt-cache'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -1436,6 +1437,8 @@ function writeTerminalSnapshotSidecar(
     // The context reading rides the same sidecar and for the same reason: a
     // parked chat that says nothing about how full it is looks like a fresh one.
     ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
+    // And the prompt cache, so the parked session goes cold on time.
+    ...(session.promptCache ? { promptCache: session.promptCache } : {}),
     // The prompts, for the same reason again: they are the peek's only source,
     // and a parked chat with none here has nothing to show until its agent's
     // prompt store is read.
@@ -1487,6 +1490,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     observedCheckout: parseObservedCheckout(sidecar.observedCheckout) ?? undefined,
     fileChanges: parseSessionFileChanges(sidecar.fileChanges),
     contextUsage: parseSessionContextUsage(sidecar.contextUsage),
+    promptCache: parsePromptCacheReading(sidecar.promptCache) ?? undefined,
     peekPrompts: parseSessionPrompts(sidecar.prompts),
     lastTurnEndedAt: typeof sidecar.lastTurnEndedAt === 'number' ? sidecar.lastTurnEndedAt : null,
     replaySnapshot: snapshot,
@@ -2760,10 +2764,10 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // lifecycle event and must move no phase. Folding it before the drop is what
   // makes the reading arrive at all.
   //
-  // Only a change in the whole-percent reading counts as a change worth
-  // broadcasting; the cost and line counts move on every refresh and nothing
-  // renders them yet.
-  const contextUsageChanged = frame.statusLine ? recordSessionStatusLine(session, frame.statusLine, frame.ts) : false
+  // Only a change in the whole-percent reading or in the prompt cache counts as
+  // a change worth broadcasting; the cost and line counts move on every
+  // refresh and nothing renders them yet.
+  const statusLineChanged = frame.statusLine ? recordSessionStatusLine(session, frame.statusLine, frame.ts) : false
   // A pull request the agent just opened, handed to the record in the same
   // place and for the same reason as the two folds above: it arrives on a
   // `PostToolUse`, and a frame dropped as stale or held back by the PHASE guard
@@ -2802,7 +2806,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // end still has to publish an edit or a context reading: they are rendered,
   // and this is the only place they would be.
   const publishLedgerChange = (): void => {
-    if ((ledgerChanged || contextUsageChanged) && terminals.get(session.sessionId) === session) {
+    if ((ledgerChanged || statusLineChanged) && terminals.get(session.sessionId) === session) {
       broadcastTerminalSessionsChanged(session)
     }
   }
@@ -2974,7 +2978,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
       cliSessionIdChanged ||
       promptChanged ||
       ledgerChanged ||
-      contextUsageChanged ||
+      statusLineChanged ||
       backgroundWorkChanged) &&
     terminals.get(session.sessionId) === session
   ) {
@@ -3908,7 +3912,7 @@ function writeTerminalInput(sessionId: string, data: string): void {
   if (data.startsWith('\x1b[200~') && session.deferredPrompt?.holdPaste(data)) return
 
   try {
-    recordTerminalInput(session, startedAt)
+    recordTerminalInput(session, startedAt, data)
     // `lastInputAt` is not worth a broadcast of its own per keystroke; it goes
     // out with the next one, as it always has.
     markTerminalSessionChanged(session)

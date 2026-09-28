@@ -1421,6 +1421,11 @@ export type ElectronApi = {
   // runtime that reports nothing, or no record at all, because the card is
   // required to say so rather than look broken. See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
+  // Compact a terminal agent's conversation: `/compact` at its prompt, once
+  // main has checked the prompt is Claude Code's, waiting and empty
+  // (terminalCompactBlocker in shared/prompt-cache.ts). Offered as its prompt
+  // cache expires, so the next message re-sends a summary rather than all of it.
+  compactAgentSession: (sessionId: string) => Promise<{ ok: true } | { ok: false; message: string }>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
   // than ~60s. The pull requests themselves arrive as a fresh

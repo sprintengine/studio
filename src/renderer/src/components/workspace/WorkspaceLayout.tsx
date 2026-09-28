@@ -59,6 +59,8 @@ import type { ConversationSessionSummary } from '../../../../shared/conversation
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { conversationFinishedAt } from './sidebar/conversationLines'
+import { PromptCacheMark } from './PromptCacheMark'
+import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -1377,16 +1379,23 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         </span>
       ) : null
 
+      // The conversation's prompt cache: a chat's from its runtime, a
+      // terminal's from its own status line. The tab marks it once it is about
+      // to go cold or has, since an open tab is the chat most likely to be
+      // resumed; its card says what that costs and offers to compact.
+      const agentPromptCache = conversation?.promptCache ?? agentSession?.promptCache ?? null
+
       // Working draws as the working dots (StatusDot's live good tone), the
       // same mark the sidebar row and the tab's own card use, so "working"
       // reads one way everywhere.
-      const trailing = activityDot ? (
+      const trailing = (
         <>
-          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {activityDot ? (
+            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          ) : null}
           {recencyIndicator}
+          <PromptCacheMark reading={agentPromptCache} working={isWorking} />
         </>
-      ) : (
-        recencyIndicator
       )
 
       // Everything needed to identify this agent, surfaced in the hover/focus
@@ -1452,6 +1461,13 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
           pullRequests: agentSnapshot?.pullRequests ?? [],
           activeSubagents: agentSnapshot?.activeSubagents ?? 0,
           contextUsage: agentSnapshot?.contextUsage ?? null,
+          promptCache: agentPromptCache,
+          // Only a Claude Code terminal can be sent `/compact` from the card; a
+          // chat compacts from its own composer.
+          compact:
+            agentSnapshot && agent?.runtimeKind !== 'conversation' && agent?.cli === 'claude-code'
+              ? { blocker: terminalCompactBlocker(agentSnapshot) }
+              : null,
         },
       }
 

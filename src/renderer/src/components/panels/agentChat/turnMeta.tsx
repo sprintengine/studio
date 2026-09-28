@@ -38,7 +38,11 @@ export function turnMetaParts(entry: AssistantEntry): TurnMetaParts {
   const parts: TurnMetaParts = {}
   if (entry.modelId) parts.model = formatTurnModel(entry.modelId)
   if (entry.inputTokens !== undefined || entry.outputTokens !== undefined) {
-    parts.tokens = `${formatTokenCount(entry.inputTokens ?? 0)} in · ${formatTokenCount(entry.outputTokens ?? 0)} out`
+    // The cached share, where the provider reports one: most of a long turn's
+    // input is the conversation re-read from the prompt cache at a fraction of
+    // the price, and "11.3M in" alone reads as 11.3M tokens paid in full.
+    const cached = entry.cachedInputTokens ? ` · ${formatTokenCount(entry.cachedInputTokens)} cached` : ''
+    parts.tokens = `${formatTokenCount(entry.inputTokens ?? 0)} in${cached} · ${formatTokenCount(entry.outputTokens ?? 0)} out`
   }
   if (entry.costUsd !== undefined && entry.costUsd > 0 && apiKeyBillingNotice(entry.apiKeySource) !== null) {
     parts.cost = entry.costUsd < 0.01 ? '<$0.01' : `$${entry.costUsd.toFixed(2)}`

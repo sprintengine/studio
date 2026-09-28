@@ -103,6 +103,25 @@ test('a turn keeps its own token counts and the credential source it ended under
   expect(second.outputTokens).toBe(20)
 })
 
+test('the chat’s prompt cache and each turn’s cached share come off its usage reports', () => {
+  const projection = projectConversation([
+    event('turn_started', 1, { turnId: 't1' }),
+    event('usage_updated', 2, { turnId: 't1', promptCache: { ttl: '1h', cached: true, recacheTokens: 310_000 } }),
+    event('usage_updated', 3, { turnId: 't1', inputTokens: 12_000, cachedInputTokens: 11_000, outputTokens: 800 }),
+    event('turn_completed', 4, { turnId: 't1' }),
+  ])
+  // Cold one lifetime after the request was seen to start: the same fold
+  // main's runtime makes.
+  expect(projection.promptCache).toEqual({ ttl: '1h', expiresAt: 2 + 60 * 60_000, recacheTokens: 310_000 })
+  // A report carrying only the cache leaves the turn's counts alone.
+  expect(assistantOf(projection.entries)).toMatchObject({
+    inputTokens: 12_000,
+    cachedInputTokens: 11_000,
+    outputTokens: 800,
+  })
+  expect(projectConversation([event('turn_started', 1, { turnId: 't1' })]).promptCache).toBeNull()
+})
+
 test('a compaction sits between its turn’s message and reply, or after the turn it followed', () => {
   const projection = projectConversation([
     event('user_message', 0, { turnId: 't1', text: 'First' }),

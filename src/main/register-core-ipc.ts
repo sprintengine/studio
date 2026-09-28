@@ -18,6 +18,7 @@ import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
 import { registerCredentialIpc } from './ipc/credential-ipc'
 import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
+import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -229,6 +230,18 @@ export function registerCoreIpc(
   // The conversation peek reads a terminal session, so it registers alongside
   // the runtime that owns one rather than with the core surfaces.
   registerConversationPeekIpc(ipcMain, services.conversationPeek)
+
+  // Compacting a terminal agent types at its prompt, so it registers beside
+  // the runtime that owns the session and goes through the control plane that
+  // owns typing at one.
+  registerAgentCompactIpc(ipcMain, {
+    findTerminal: (sessionId) =>
+      services.terminalRuntime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId) ?? null,
+    sendPrompt: async (sessionId, text, precondition) => {
+      const result = await services.agentControlPlane.send({ sessionId }, text, { submit: true, precondition })
+      return result.ok ? { ok: true } : { ok: false, message: result.message }
+    },
+  })
 
   // Same reason: the pull request marks are read off a terminal session's
   // observed checkout, so their one refresh channel registers beside the
