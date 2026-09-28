@@ -174,3 +174,38 @@ test('the session says what each kind of agent it can spawn is for', () => {
     'code-reviewer': 'Reviews a diff for bugs.',
   })
 })
+
+test('what an agent says is kept on its lane, never in the reply of the chat that spawned it', () => {
+  const projection = projectConversation([
+    ev('turn_started', { turnId: 'turn-1' }),
+    ev('content_delta', { turnId: 'turn-1', text: 'Sending an agent.' }),
+    ev('tool_started', { turnId: 'turn-1', toolCallId: 'lane-1', tool: 'Agent', subagentLane: true }),
+    ev('subagent_message', { parentToolUseId: 'lane-1', text: 'Looking for the router first.' }),
+    ev('subagent_message', { parentToolUseId: 'lane-1', text: 'Found it.', truncated: true }),
+    ev('subagent_message', { parentToolUseId: 'lane-on-an-earlier-page', text: 'Lost?' }),
+  ])
+  const reply = projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(
+    reply?.kind === 'assistant' ? `${reply.intermediateText?.[0]?.text ?? ''}${reply.text}` : '',
+    'Sending an agent.',
+  )
+  const lane = projection.entries.find((entry): entry is TranscriptToolEntry => entry.kind === 'tool')
+  assert.deepEqual(
+    lane?.messages?.map((message) => [message.text, message.truncated ?? false]),
+    [
+      ['Looking for the router first.', false],
+      ['Found it.', true],
+    ],
+  )
+
+  // Words that arrive before their lane is loaded join it once it is.
+  const [late] = tools([
+    ev('subagent_message', { parentToolUseId: 'lane-2', text: 'Early words.' }),
+    ev('turn_started', { turnId: 'turn-2' }),
+    ev('tool_started', { turnId: 'turn-2', toolCallId: 'lane-2', tool: 'Agent', subagentLane: true }),
+  ])
+  assert.deepEqual(
+    late?.messages?.map((message) => message.text),
+    ['Early words.'],
+  )
+})

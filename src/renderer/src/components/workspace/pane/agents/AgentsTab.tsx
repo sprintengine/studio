@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { EmptyState, GhostButton, InlineNotice, PanelHeader, RowButton, Spinner, TruncatedText } from '../../../ui'
 import { useLocalChatBinding, type ChatBinding } from '../../../panels/agentChat/chatBinding'
-import { ConversationLinkProvider } from '../../../panels/agentChat/conversationLinks'
+import { ConversationLinkProvider, ConversationMarkdown } from '../../../panels/agentChat/conversationLinks'
 import {
   projectConversation,
   type TranscriptEntry,
@@ -37,6 +37,30 @@ export function collectAgentLanes(entries: TranscriptEntry[]): TranscriptToolEnt
   }
   for (const entry of entries) if (entry.kind === 'tool') walk(entry)
   return lanes
+}
+
+/**
+ * Where an agent's own words go in its thread: each before the first step it
+ * started after, as a turn's prose sits before the tools it explains, and the
+ * rest after the last step. The last thing a finished agent says is its report,
+ * which the thread shows as the report, so it is not said twice.
+ */
+export function placeAgentMessages(lane: TranscriptToolEntry): {
+  beforeSteps: { text: string; beforeToolUseId: string }[]
+  afterSteps: string[]
+} {
+  const steps = lane.children ?? []
+  const beforeSteps: { text: string; beforeToolUseId: string }[] = []
+  const afterSteps: string[] = []
+  for (const message of lane.messages ?? []) {
+    const next = steps.find((step) => step.startedAt !== undefined && step.startedAt > message.at)
+    if (next) beforeSteps.push({ text: message.text, beforeToolUseId: next.id })
+    else afterSteps.push(message.text)
+  }
+  const report = lane.output?.trim()
+  const last = afterSteps.at(-1)?.trim()
+  if (lane.status !== 'running' && report && last && report.startsWith(last.slice(0, 200))) afterSteps.pop()
+  return { beforeSteps, afterSteps }
 }
 
 function formatTokens(count: number): string {
@@ -252,6 +276,7 @@ function AgentThread({ lane, onBack }: { lane: TranscriptToolEntry; onBack: () =
   const tokens = lane.agent?.usage?.totalTokens
   const stepCount = lane.agent?.usage?.toolUses ?? flattenToolEntries(steps).length
   const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
+  const { beforeSteps, afterSteps } = placeAgentMessages(lane)
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-2">
       <GhostButton size="inline" tone="subtle" align="start" onClick={onBack}>
@@ -306,13 +331,18 @@ function AgentThread({ lane, onBack }: { lane: TranscriptToolEntry; onBack: () =
       <h3 className="mt-4 px-2 pb-1 text-micro font-medium text-[color:var(--text-subtle)]">Steps</h3>
       {steps.length > 0 ? (
         <div className="px-1">
-          <WorkTimeline tools={steps} live={running} />
+          <WorkTimeline tools={steps} live={running} intermediateText={beforeSteps} />
         </div>
-      ) : (
+      ) : afterSteps.length === 0 ? (
         <p className="px-2 text-meta text-[color:var(--text-subtle)]">
           {running ? 'No steps yet — it is still getting started.' : 'It took no steps of its own.'}
         </p>
-      )}
+      ) : null}
+      {afterSteps.map((text, index) => (
+        <div key={index} className="mb-2 min-w-0 px-2 text-body">
+          <ConversationMarkdown text={text} />
+        </div>
+      ))}
       {!running ? (
         <>
           <h3 className="mt-4 px-2 pb-1 text-micro font-medium text-[color:var(--text-subtle)]">Report</h3>
