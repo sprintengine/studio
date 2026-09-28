@@ -8,6 +8,8 @@ import {
 
 import type {
   ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
   ConversationCliRuntimeOverrides,
   ConversationPageResult,
   ConversationEvent,
@@ -68,6 +70,7 @@ import { presentToolItem } from '../shared/conversation/presentation'
 import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
+import { ConversationPlanStore } from './conversation-plan-store'
 import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
@@ -165,6 +168,7 @@ type ProviderTurn = {
 type ConversationRuntimeOptions = {
   approvalRules?: ConversationApprovalRuleStore
   attachmentStore?: ConversationAttachmentStore
+  planStore?: ConversationPlanStore
   resolveSkills?: ConversationSkillsResolver
   adapters?: ConversationProviderAdapter[]
   secretStore?: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
@@ -239,6 +243,7 @@ export class ConversationRuntime {
   private readonly checkpoints = new ConversationCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
   private readonly attachmentStore: ConversationAttachmentStore
+  private readonly planStore: ConversationPlanStore
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly deletingTranscripts = new Set<string>()
   private readonly startingTranscripts = new Set<string>()
@@ -313,6 +318,7 @@ export class ConversationRuntime {
     this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
     this.approvalRules = options.approvalRules ?? new ConversationApprovalRuleStore()
     this.attachmentStore = options.attachmentStore ?? new ConversationAttachmentStore()
+    this.planStore = options.planStore ?? new ConversationPlanStore()
     // Startup-time epoch (not randomId — tests inject deterministic id
     // sequences that must not be consumed by construction).
     this.eventEpoch = this.now().toString(36)
@@ -1801,6 +1807,11 @@ export class ConversationRuntime {
     return this.attachmentStore.read(ref)
   }
 
+  /** A proposed plan as a file the workspace pane can open (conversation-plan-store). */
+  planDocument(input: ConversationPlanDocumentInput): Promise<ConversationPlanDocumentResult> {
+    return this.planStore.document(input)
+  }
+
   /** Explicit deletion removes the paired detail store as well as the transcript. */
   async listThreads(input: ConversationWorkspaceKey) {
     try {
@@ -1894,6 +1905,7 @@ export class ConversationRuntime {
       await this.threadIndex.delete(input)
       await this.checkpoints.deleteConversation(input)
       await this.attachmentStore.deleteConversation(input)
+      await this.planStore.deleteConversation(input)
       const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
       await this.receiptWrites.get(receiptsPath)
       await removeConversationStorage(input.workspaceRoot, receiptsPath)

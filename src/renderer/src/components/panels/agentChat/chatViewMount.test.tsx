@@ -486,6 +486,41 @@ function runningTurnSend() {
   return { sendTurn, calls, release: () => release() }
 }
 
+test('a queued message floats over the transcript instead of taking a band of its own', async () => {
+  const turn = runningTurnSend()
+  const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })
+  try {
+    await chat.act(async () => chat.type('Investigate the flaky test'))
+    await chat.act(async () => chat.enter())
+    const localTurnId = turn.calls[0]?.localTurnId
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 't1', text: 'x', localTurnId }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't1' }) })
+    })
+    await chat.act(async () => chat.type('Use the staging config'))
+    await chat.act(async () => chat.enter())
+    const group = chat.host.querySelector<HTMLElement>('[aria-label="Queued message"]')!
+    const overlay = group.parentElement!
+    // Out of the dock's flow and above it, so the transcript runs on behind it.
+    expect(overlay.className).toContain('absolute')
+    expect(overlay.className).toContain('bottom-full')
+    // The empty width passes the pointer through to the transcript; the bubble
+    // and its actions take it, and are solid so the text behind stays behind.
+    expect(overlay.className).toContain('pointer-events-none')
+    expect(group.className).toContain('pointer-events-none')
+    const [bubble, actions] = [...group.children] as HTMLElement[]
+    for (const part of [bubble!, actions!]) {
+      expect(part.className).toContain('pointer-events-auto')
+      expect(part.className).toContain('bg-[color:var(--bg-surface)]')
+    }
+    await chat.act(async () => chat.button('Send now')!.click())
+    expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
+  } finally {
+    turn.release()
+    await chat.unmount()
+  }
+})
+
 test('a message queued behind a running turn is handed to it with Send now', async () => {
   const turn = runningTurnSend()
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })

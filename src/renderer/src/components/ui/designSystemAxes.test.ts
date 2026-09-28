@@ -227,7 +227,9 @@ test('designSystemAxes', async () => {
       // app's one toast region (remote-sessions-ux / toast-host-region).
       // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted
       // with its door (a70ba0931).
-      'components/panels': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+      // 6 → 5, 2026-09-28: the chat's Jump to latest moved onto the ladder
+      // when the queued message began floating over the transcript.
+      'components/panels': 5,
       'components/ui': 1,
       'components/memory': 1,
       'components/auxWindows': 1,

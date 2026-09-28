@@ -180,3 +180,16 @@ test('a reply marks the model switch from the reply before it, and only then', (
   const again = deriveConversationTimelineRows(projection.entries, projection.activeTurn, rows)
   expect(again.every((row, index) => row === rows[index])).toBe(true)
 })
+
+test('a plan request keeps the file the agent holds it in, including one recorded before the payload named it', () => {
+  const planOf = (payload: Record<string, unknown>) =>
+    projectConversation([
+      event('turn_started', 1, { turnId: 't1' }),
+      event('approval_requested', 2, { turnId: 't1', requestId: 'r1', kind: 'plan', plan: '# Plan', ...payload }),
+    ]).entries.find((entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval')
+  expect(planOf({ planFilePath: '/Users/dev/.claude/plans/a.md' })?.planFilePath).toBe('/Users/dev/.claude/plans/a.md')
+  expect(planOf({ input: { plan: '# Plan', planFilePath: '/Users/dev/.claude/plans/b.md' } })?.planFilePath).toBe(
+    '/Users/dev/.claude/plans/b.md',
+  )
+  expect(planOf({})?.planFilePath).toBeUndefined()
+})

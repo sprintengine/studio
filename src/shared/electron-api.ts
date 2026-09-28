@@ -183,6 +183,8 @@ import type {
   ConversationToolDetailResult,
   ConversationAttachmentInput,
   ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -1024,6 +1026,10 @@ export type ElectronApi = {
   // The bytes of an image a sent turn carried, by the store reference its
   // `user_message` recorded — for a bubble replayed after a restart.
   conversationAttachment: (input: ConversationAttachmentInput) => Promise<ConversationAttachmentResult>
+  // A plan the agent proposed, as a file the workspace pane can open: the
+  // agent's own plan file while it still holds that plan, otherwise a copy in
+  // app data.
+  conversationPlanDocument: (input: ConversationPlanDocumentInput) => Promise<ConversationPlanDocumentResult>
   conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
   conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
   conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>

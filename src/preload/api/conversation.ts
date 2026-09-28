@@ -42,6 +42,8 @@ import type {
   ConversationToolDetailResult,
   ConversationAttachmentInput,
   ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -154,6 +156,10 @@ type ConversationIpcRenderer = {
   invoke(channel: 'conversation:transcript', input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   invoke(channel: 'conversation:tool-detail', input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
   invoke(channel: 'conversation:attachment', input: ConversationAttachmentInput): Promise<ConversationAttachmentResult>
+  invoke(
+    channel: 'conversation:plan-document',
+    input: ConversationPlanDocumentInput,
+  ): Promise<ConversationPlanDocumentResult>
   invoke(channel: 'conversation:events:subscribe'): Promise<{ ok: true; subscriptionId: string }>
   invoke(
     channel: 'conversation:events:unsubscribe',
@@ -237,6 +243,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:tool-detail', input),
     conversationAttachment: (input: ConversationAttachmentInput): Promise<ConversationAttachmentResult> =>
       renderer.invoke('conversation:attachment', input),
+    conversationPlanDocument: (input: ConversationPlanDocumentInput): Promise<ConversationPlanDocumentResult> =>
+      renderer.invoke('conversation:plan-document', input),
     conversationLoadEarlier: (input: ConversationLoadEarlierInput): Promise<ConversationPageResult> =>
       renderer.invoke('conversation:session:earlier', input),
     onConversationSession: (
@@ -318,6 +326,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationTranscript'
     | 'conversationToolDetail'
     | 'conversationAttachment'
+    | 'conversationPlanDocument'
     | 'conversationLoadEarlier'
     | 'conversationTurnDiff'
     | 'conversationRevertToTurn'

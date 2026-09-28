@@ -3278,7 +3278,7 @@ body:has([data-selection-pane]:focus-within)
 /* A highlighted tab's selected underline keeps its user-chosen hue (the inset
    box-shadow rules above); suppress the accent ::after so two underlines never
    stack. */
-.flexlayout__layout .flexlayout__tab_button[class*='tab-highlight-'].flexlayout__tab_button--selected::after {
+.flexlayout__layout .flexlayout__tab_button[class*="tab-highlight-"].flexlayout__tab_button--selected::after {
   display: none;
 }
 
