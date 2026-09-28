@@ -73,8 +73,8 @@ When a row is both attention states, needs-input wins. Both hold until the
 person opens the row and clear the moment it becomes the selected one.
 
 Both are colour **plus words**: the trailing slot or a visually-hidden clause
-says "needs input" / "finished" in text. Never a dot or a chip beside an
-otherwise quiet row — that was ruled out twice (2026-09-04): the one state that
+says "needs input" / "finished" in text. Never a status mark or a chip beside
+an otherwise quiet row — that was ruled out twice (2026-09-04): the one state that
 wants the person to look must not be the quietest thing on the row.
 
 A row **entering** either state plays `.ds-list-row-flash` once: the "just

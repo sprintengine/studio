@@ -1,8 +1,9 @@
 import React from 'react'
 
 import { Badge, type MarkBadge } from './Badge'
+import { StatusDot } from './StatusDot'
 import { Switch } from './Switch'
-import { FOCUS_RING_CLASS, STATUS_TONE_COLOR_VAR, type StatusTone } from './tokens'
+import { FOCUS_RING_CLASS, type StatusTone } from './tokens'
 
 // ProviderRow — the one two-line anatomy for a *provider*: something the app
 // talks to that can be present-or-absent, healthy-or-not, and configured
@@ -134,6 +135,11 @@ const DOT_KEYLINE_RESTING_CARD = 'shadow-[0_0_0_2px_var(--bg-surface-raised)]'
 const DOT_KEYLINE_SELECTED = 'shadow-[0_0_0_2px_var(--bg-selected)]'
 // design-tokens-allow: same zero-blur keyline, tracking the hover fill.
 const DOT_KEYLINE_HOVER = 'group-hover:shadow-[0_0_0_2px_var(--bg-hover)]'
+// The same grounds as fills, under the glyph: its ring is open in the middle.
+const DOT_GROUND_RESTING = 'bg-[color:var(--bg-surface)]'
+const DOT_GROUND_RESTING_CARD = 'bg-[color:var(--bg-surface-raised)]'
+const DOT_GROUND_SELECTED = 'bg-[color:var(--bg-selected)]'
+const DOT_GROUND_HOVER = 'group-hover:bg-[color:var(--bg-hover)]'
 
 function DisclosureChevron({ expanded }: { expanded: boolean }) {
   return (
@@ -209,22 +215,28 @@ export function ProviderRow({
         ].join(' ')}
       >
         {icon}
-        {/* The 6px health dot, docked on the mark's corner. aria-hidden: the
-            state line carries the meaning, so the colour is never the only
-            thing saying it. Absent `health`, the row draws none — see rule 4. */}
+        {/* The health mark, docked on the mark's corner: the tone's status
+            glyph (the app draws no status dots) on a disc of the row's own
+            ground, so the brand mark does not show through its ring.
+            Decorative: the state line carries the meaning, so the colour is
+            never the only thing saying it. Absent `health`, the row draws
+            none — see rule 4. */}
         {health ? (
           <span
             aria-hidden="true"
+            data-health={health}
             className={[
-              'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
+              'absolute -left-1 -top-1 flex size-2.5 items-center justify-center rounded-full',
               // Tracks the fill the face will actually take. A face that no
               // longer paints a hover fill must not ring its dot in the hover
               // colour either, or the keyline halos on a surface-coloured row.
-              disclosable || selectable ? DOT_KEYLINE_HOVER : '',
+              disclosable || selectable ? `${DOT_KEYLINE_HOVER} ${DOT_GROUND_HOVER}` : '',
               selected ? DOT_KEYLINE_SELECTED : inCard ? DOT_KEYLINE_RESTING_CARD : DOT_KEYLINE_RESTING,
+              selected ? DOT_GROUND_SELECTED : inCard ? DOT_GROUND_RESTING_CARD : DOT_GROUND_RESTING,
             ].join(' ')}
-            style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
-          />
+          >
+            <StatusDot tone={health} size={10} />
+          </span>
         ) : null}
         {/* The corner count, on the opposite corner from the dot so a surface
             that somehow wants both still reads as two marks rather than one

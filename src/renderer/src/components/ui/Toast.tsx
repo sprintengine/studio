@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import CliIcon from '../CliIcon'
 import { GhostButton, PrimaryButton } from './Buttons'
 import { Spinner } from './Spinner'
-import { TONE_COLOR_VAR, type Tone } from './tokens'
+import { StatusDot } from './StatusDot'
+import type { Tone } from './tokens'
 
 const TOAST_ROLE: Record<Tone, 'status' | 'alert'> = {
   neutral: 'status',
@@ -125,12 +126,8 @@ export function Toast({
       {cli ? (
         <CliIcon cli={cli} className="mt-px size-icon-sm shrink-0 text-[color:var(--text-default)]" />
       ) : (
-        <span
-          aria-hidden="true"
-          // design-tokens-allow: canonical tone bullet inside Toast; intentionally not delegated to StatusDot because Toast's bullet sits inline with text and uses the same TONE_COLOR_VAR lookup
-          className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
-        />
+        // The tone's status mark, by shape: the app draws no status dots.
+        <StatusDot tone={tone} className="mt-px" />
       )}
       <div className="min-w-0 flex-1">
         <div className="font-medium leading-tight text-[color:var(--text-strong)]">{title}</div>

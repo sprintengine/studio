@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
 import CliIcon from '../CliIcon'
+import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { conversationFinishedAt, conversationLineMark, conversationLineText } from './sidebar/conversationLines'
@@ -3502,10 +3503,27 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             </Tooltip>
             <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
             {index === 0 && rowLines.lines.length === 0 && !flatProject ? (
-              statusSeat
+              <>
+                {/* A chat with no finished turn to rest on (running, waiting on
+                    a person, brand new) has no idle cache to mark. */}
+                <PromptCacheMark
+                  reading={session.promptCache}
+                  working={conversationFinishedAt(session) === null}
+                  includeCold={false}
+                />
+                {statusSeat}
+              </>
             ) : !flatProject ? (
               <ConversationLineSeat session={session} now={now} />
-            ) : null}
+            ) : (
+              // The flat list's row says when; the line says only the cache
+              // about to go cold.
+              <PromptCacheMark
+                reading={session.promptCache}
+                working={conversationFinishedAt(session) === null}
+                includeCold={false}
+              />
+            )}
           </div>
         )
       })}
@@ -3541,17 +3559,20 @@ function ConversationLineSeat({ session, now }: { session: ConversationSessionSu
     content = <WorkingMark label="Agent working" seed={session.agentId} />
   else if (finishedAt !== null && formatRelativeMs(finishedAt, now)) {
     content = (
-      <RowTooltip
-        content={`Finished ${formatRelativeMsAgo(finishedAt, now)} (${new Date(finishedAt).toLocaleString()})`}
-      >
-        <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
-          <span aria-hidden="true">{formatRelativeMs(finishedAt, now)}</span>
-          <span className="sr-only">Finished {formatRelativeMsAgo(finishedAt, now)}</span>
-        </span>
-      </RowTooltip>
+      <>
+        <PromptCacheMark reading={session.promptCache} working={false} includeCold={false} />
+        <RowTooltip content={`${formatRelativeMsAgo(finishedAt, now)} (${new Date(finishedAt).toLocaleString()})`}>
+          <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+            <span aria-hidden="true">{formatRelativeMs(finishedAt, now)}</span>
+            <span className="sr-only">{formatRelativeMsAgo(finishedAt, now)}</span>
+          </span>
+        </RowTooltip>
+      </>
     )
   }
-  return content ? <span className="ml-auto flex h-5 shrink-0 items-center justify-end pl-2">{content}</span> : null
+  return content ? (
+    <span className="ml-auto flex h-5 shrink-0 items-center justify-end gap-1 pl-2">{content}</span>
+  ) : null
 }
 
 // Memoized: the manager re-renders on every store write it projects, and the

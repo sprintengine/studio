@@ -8,6 +8,7 @@ import type { ObservedCheckout } from '../observed-checkout'
 import type { AgentExecutionMode, CliPermissionPreset } from './agent-runtime'
 import type { AgentCli } from './conversations'
 import type { McpSettings } from './mcp'
+import type { PromptCacheReading } from '../prompt-cache'
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -210,6 +211,10 @@ export type TerminalSessionSnapshot = {
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
+  // `lastInputAt` without the focus reports and query answers the terminal
+  // sends on its own: when something was last typed or pasted. Absent from a
+  // main that predates it.
+  lastKeyInputAt?: number | null
   lastVisibleAt: number | null
   // When the agent's last turn ended — the hook-reported Stop, epoch ms. Kept
   // apart from `activity`, which the reaper's suspend and the quit path
@@ -262,6 +267,11 @@ export type TerminalSessionSnapshot = {
   // for a moment afterwards, and "not known right now" is not "empty", so the
   // last known reading stands until a real one replaces it.
   contextUsage: SessionContextUsage | null
+  // The main conversation's prompt cache, from the same status line: when it
+  // goes cold and what a cold resume re-caches. Null (or absent, from a main
+  // that predates it) for a session whose CLI reports none; surfaces derive
+  // warm / expiring / cold from it and a clock (shared/prompt-cache.ts).
+  promptCache?: PromptCacheReading | null
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number

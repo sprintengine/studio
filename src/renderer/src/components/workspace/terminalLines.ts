@@ -10,6 +10,7 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { agentCheckoutOf, agentCheckoutProbePath } from './agentCheckout'
 import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
 import { checkoutPathFor } from './useSidebarGitSummaries'
+import type { PromptCacheReading } from '../../../../shared/prompt-cache'
 
 // The sidebar row's terminal lines (sidebar-lists-every-terminal): one line
 // per live terminal under the row's title — its CLI mark (whose tooltip
@@ -314,6 +315,12 @@ export type TerminalLine = {
   idleSince: number | null
   /** Words for the idle time's sr-only sentence: "Idle", or "Paused" for a paused remote row. */
   idleLabel: string
+  /**
+   * The session's prompt cache, from its own status line: the line marks it in
+   * the last minutes before it goes cold. Absent for a line with no local
+   * session behind it (a remote pane, a paired machine's row).
+   */
+  promptCache?: PromptCacheReading | null
 }
 
 export type TerminalLinesWorkspace = Pick<
@@ -428,6 +435,7 @@ function lineOfSession(
     // one — but both draw nothing, which is what decision 3 asks for.
     pullRequests: session.pullRequests ?? [],
     ...recencyOf(session),
+    promptCache: session.promptCache ?? null,
   }
 }
 

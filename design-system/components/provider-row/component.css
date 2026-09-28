@@ -102,7 +102,7 @@
 
 /* The count docked on the mark's TOP-RIGHT: the badge component's corner
  * species, on a list row rather than on a rail square. The opposite corner
- * from the health dot, so a surface that draws both reads as two marks rather
+ * from the health mark, so a surface that draws both reads as two marks rather
  * than one smudge — though a list should be drawing one or the other (see
  * component.md, "One status idiom").
  *
@@ -115,50 +115,48 @@
   border-color: var(--sem-color-bg-surface);
 }
 
-/* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
- * whatever fill is behind the row. Without the keyline the dot reads as a stain
- * on the logo; with a keyline hard-coded to the resting surface it halos the
- * moment the row takes its hover fill, so all three fills are named.
+/* Health, docked on the mark's corner: the tone's status mark
+ * (components/status-dot — the glyph, never a dot) at 10px, on a small disc
+ * of whatever fill is behind the row, ringed by a 2px keyline in the same
+ * fill. Without the disc the brand mark shows through the glyph's ring and it
+ * reads as a stain on the logo; with a ground hard-coded to the resting
+ * surface it halos the moment the row takes its hover fill, so all three
+ * fills are named.
  *
  * It is decorative by contract — the state line says the state in words. */
 .ds-provider-row__health {
   position: absolute;
-  top: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
-  left: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
-  width: 6px;
-  height: 6px;
+  top: -4px; /* ds-lint-allow: the mark overhangs its 22px brand mark by its own keyline */
+  left: -4px; /* ds-lint-allow: the mark overhangs its 22px brand mark by its own keyline */
+  display: flex;
   border-radius: 999px;
+  background: var(--sem-color-bg-surface);
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
 }
 
-/* In a card the resting ground is the raised tone; a keyline in the app
+/* One step under the inline glyph size: a corner mark is subordinate to the
+ * 22px brand mark it sits on. The shape still reads at 10px — that is what
+ * the glyph vocabulary is drawn for. */
+.ds-provider-row__health > .ds-status-dot {
+  width: 10px;
+  height: 10px;
+}
+
+/* In a card the resting ground is the raised tone; a disc in the app
  * surface's colour would halo on it. */
 .ds-provider-row--in-card .ds-provider-row__health {
+  background: var(--sem-color-bg-surface-raised);
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface-raised);
 }
 
 .ds-provider-row--disclosable > .ds-provider-row__face:hover .ds-provider-row__health {
+  background: var(--sem-color-bg-hover);
   box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
 }
 
 .ds-provider-row--selected .ds-provider-row__health {
+  background: var(--sem-color-bg-selected);
   box-shadow: 0 0 0 2px var(--sem-color-bg-selected);
-}
-
-.ds-provider-row__health--good {
-  background: var(--sem-color-status-good);
-}
-
-.ds-provider-row__health--warn {
-  background: var(--sem-color-status-warn);
-}
-
-.ds-provider-row__health--danger {
-  background: var(--sem-color-status-danger);
-}
-
-.ds-provider-row__health--neutral {
-  background: var(--sem-color-status-neutral);
 }
 
 .ds-provider-row__text {

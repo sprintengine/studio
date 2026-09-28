@@ -10,6 +10,7 @@ import { Tooltip, LinkButton, StatusDot, WorkingMark } from '../../ui'
 import CliIcon from '../../CliIcon'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { BranchChip, RowTooltip, WorkingElapsed } from './rowParts'
+import { PromptCacheMark } from '../PromptCacheMark'
 
 /**
  * One terminal's line under a row's title (sidebar-lists-every-terminal):
@@ -226,14 +227,18 @@ export function TerminalLineView({
           {rowOwnsStatus ? (
             // The row's own seat has said it. All that is left for the line is
             // the mark that says which terminal is waiting, on a row that has
-            // more than one — and the words, always.
+            // more than one — and the words, always. And the prompt cache about
+            // to go cold, which is this line's alone: the row's seat says when,
+            // not what it will cost.
             line.needsInput ? (
               disambiguate ? (
                 <StatusDot tone="warn" pulse label="Needs your input" />
               ) : (
                 <span className="sr-only">Needs your input</span>
               )
-            ) : null
+            ) : (
+              <PromptCacheMark reading={line.promptCache} working={line.working} includeCold={false} />
+            )
           ) : line.working ? (
             <>
               <WorkingMark label="Agent working" seed={line.key} />
@@ -250,16 +255,23 @@ export function TerminalLineView({
               <span className="sr-only">Needs your input</span>
             )
           ) : idleText ? (
-            <RowTooltip
-              content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}
-            >
-              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
-                <span aria-hidden="true">{idleText}</span>
-                <span className="sr-only">
-                  {line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}
+            <>
+              {/* Before the idle time: the cache about to go cold is the one
+                  thing on this seat that will not wait. A cache already gone
+                  is not marked here — on every old chat in the list it would
+                  be decoration — but the card says so. */}
+              <PromptCacheMark reading={line.promptCache} working={false} includeCold={false} />
+              <RowTooltip
+                content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}
+              >
+                <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                  <span aria-hidden="true">{idleText}</span>
+                  <span className="sr-only">
+                    {line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}
+                  </span>
                 </span>
-              </span>
-            </RowTooltip>
+              </RowTooltip>
+            </>
           ) : null}
         </span>
         {seatOverlay}

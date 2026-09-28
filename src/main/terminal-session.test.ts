@@ -341,6 +341,23 @@ test('terminal-session', async () => {
     assert.equal(recordSessionStatusLine(session, { usedPercentage: 3 }, 400), true)
     assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 }, 'the next real reading replaces it')
 
+    // The prompt cache is news whenever it moves, and rides the snapshot. It
+    // is replaced WHOLE: right after a /compact the CLI reports the re-cache
+    // size as unknown, and the size before the compaction must not survive it.
+    const cache = { ttl: '1h' as const, expiresAt: 5_000_000, recacheTokens: 310_000 }
+    const cached = createSession({ startedAt: 0 })
+    assert.equal(recordSessionStatusLine(cached, { promptCache: cache }, 100), true, 'a first cache reading is news')
+    assert.deepEqual(getTerminalSnapshot(cached).promptCache, cache)
+    assert.equal(recordSessionStatusLine(cached, { promptCache: { ...cache } }, 200), false, 'the same cache is not')
+    assert.equal(recordSessionStatusLine(cached, { totalCostUsd: 2 }, 300), false)
+    assert.deepEqual(cached.promptCache, cache, 'a reading with no cache keeps the last one')
+    assert.equal(
+      recordSessionStatusLine(cached, { promptCache: { ttl: '1h', expiresAt: null, recacheTokens: null } }, 400),
+      true,
+    )
+    assert.deepEqual(cached.promptCache, { ttl: '1h', expiresAt: null, recacheTokens: null })
+    assert.equal(getTerminalSnapshot(createSession({ startedAt: 0 })).promptCache, null, 'none reported is null')
+
     // Out of order: a status-line process is spawned per refresh, so they can
     // finish in any order, and an older reading carries older facts.
     assert.equal(recordSessionStatusLine(session, { usedPercentage: 71, totalCostUsd: 0.1 }, 350), false)
@@ -450,6 +467,25 @@ test('terminal-session', async () => {
 
     assert.equal(session.lastInputAt, 225)
     assert.equal(session.lastOutputAt, 100)
+    // What the terminal sends on its own — focus in and out, answers to the
+    // CLI's queries — is input, but not typing: only typing can leave a draft.
+    recordTerminalInput(session, 230, 'hi')
+    assert.equal(session.lastKeyInputAt, 230)
+    for (const report of [
+      '\x1b[I',
+      '\x1b[O',
+      '\x1b[?1;2c',
+      '\x1b[>0;276;0c',
+      '\x1b[12;40R',
+      '\x1b[0n',
+      '\x1b[O\x1b[I',
+    ]) {
+      recordTerminalInput(session, 300, report)
+      assert.equal(session.lastKeyInputAt, 230, `${JSON.stringify(report)} is not typing`)
+    }
+    assert.equal(session.lastInputAt, 300, 'though it is still input')
+    recordTerminalInput(session, 310, '\x1b[A')
+    assert.equal(session.lastKeyInputAt, 310, 'an arrow key is a key')
     assert.deepEqual(session.activity, { kind: 'working', since: 100 })
   }
 

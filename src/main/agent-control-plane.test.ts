@@ -210,6 +210,22 @@ test('agent-control-plane', async () => {
     assert.equal(harness.writes[1].data, '\r', 'the CR is dispatched on its own, not inside the paste')
   })
 
+  run('a send’s precondition is checked in the queue, right before typing, and can stop it', async () => {
+    const harness = makeHarness()
+    let blocker: string | null = 'Something may be typed at the agent’s prompt.'
+    const refused = await harness.plane.send('session-1', '/compact', { precondition: () => blocker })
+    assert.deepEqual(refused, {
+      ok: false,
+      sessionId: 'session-1',
+      reason: 'unsupported',
+      message: 'Something may be typed at the agent’s prompt.',
+    })
+    assert.equal(harness.writes.length, 0, 'nothing is typed')
+    blocker = null
+    assert.equal((await harness.plane.send('session-1', '/compact', { precondition: () => blocker })).ok, true)
+    assert.equal(harness.writes.length, 2)
+  })
+
   run('send with submit false pre-fills the prompt and sends no carriage return', async () => {
     const harness = makeHarness()
     const result = await harness.plane.send('session-1', 'draft', { submit: false })

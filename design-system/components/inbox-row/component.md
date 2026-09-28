@@ -23,14 +23,14 @@ the second part of the `patterns/list-surface` anatomy these rows sit under.
 | Part | Class | Required |
 |---|---|---|
 | Row | `.ds-inbox-row` | yes — a `<button>` when interactive, a `<div>` when display-only |
-| Leading | `.ds-inbox-row-leading` | no — a `status-dot` (default) or a lifecycle glyph; one idiom per surface |
+| Leading | `.ds-inbox-row-leading` | no — a `status-dot` status mark (default) or a lifecycle glyph; one idiom per surface |
 | Text block | `.ds-inbox-row-text` | yes |
 | Title | `.ds-inbox-row-title` | yes — `font.size.body` at `font.weight.medium`, one line, truncates |
 | Supporting | `.ds-inbox-row-supporting` | no — one line, `font.size.meta`, `text.muted`, truncates |
 | Trailing | `.ds-inbox-row-trailing` | no — timestamp or count, tabular `font.size.micro`; display-only, never interactive |
 
 Rows align to the top (`flex-start`), not the center: the leading mark
-belongs to the first line, and a two-line row with a centered dot floats it
+belongs to the first line, and a two-line row with a centered mark floats it
 between the lines. Insets are `space.sm` block, `space.lg` inline.
 
 Search field parts: `.ds-inbox-search` (the visible border box),
@@ -67,10 +67,12 @@ never `text.primary` — the lift to `text.primary` is selection's second
 channel, and a list whose every title is already at full strength has
 nothing left to lift.
 
-**One status idiom.** The leading slot takes the system `status-dot` for
-live state or a lifecycle glyph for worklist stages — whichever the surface
-uses, uniformly. A row whose title already carries its state takes no mark
-at all.
+**One status idiom.** The leading slot takes the system `status-dot` mark for
+live state — a tone's glyph, or the working mark while something runs — or a
+lifecycle glyph for worklist stages, whichever the surface uses, uniformly.
+Never a bare dot: the product draws no status dots (owner ruling
+2026-09-28). A row whose title already carries its state takes no mark at
+all.
 
 **Trailing is display-only.** The row itself is the `<button>`; nesting a
 control inside it is invalid HTML. An inbox-row has no revealed-action host

@@ -382,7 +382,7 @@ test('premiumFeelSeam', async () => {
       assert.equal(geometry(stateLine, 'font-size', utilities).pixels, 12, 'the state line is meta')
       assert.equal(geometry(mark, 'width', utilities).pixels, 22, 'the brand mark box is icon-lg')
       assert.equal(geometry(mark, 'height', utilities).pixels, 22)
-      assert.equal(geometry(dot, 'width', utilities).pixels, 6, 'the health dot is 6px')
+      assert.equal(geometry(dot, 'width', utilities).pixels, 10, 'the health mark is a 10px glyph, not a 6px dot')
       assert.equal(geometry(chevronGlyph, 'width', utilities).pixels, 13, 'the chevron glyph is icon-xs')
       assert.equal(
         geometry(chevronButton, 'width', utilities).pixels,

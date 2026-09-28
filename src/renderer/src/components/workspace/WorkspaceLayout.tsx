@@ -59,6 +59,8 @@ import type { ConversationSessionSummary } from '../../../../shared/conversation
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { conversationFinishedAt } from './sidebar/conversationLines'
+import { PromptCacheMark } from './PromptCacheMark'
+import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -279,8 +281,8 @@ function TabRecencyText({ at, label }: { at: number; label: string }): React.Rea
   return (
     <span
       className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`}
-      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`}
+      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`.trim()}
+      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`.trim()}
     >
       {text}
     </span>
@@ -1346,7 +1348,7 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
       //
       // A chat has no terminal session and never moves the keystroke clock, so
-      // it counts from when its last turn ended instead, and says "Finished".
+      // it counts from when its last turn ended instead, as the time alone.
       const conversationFinished = conversation ? conversationFinishedAt(conversation) : null
       const agentRecency = isWorking
         ? null
@@ -1384,19 +1386,26 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
         </span>
       ) : null
 
+      // The conversation's prompt cache: a chat's from its runtime, a
+      // terminal's from its own status line. The tab marks it once it is about
+      // to go cold or has, since an open tab is the chat most likely to be
+      // resumed; its card says what that costs and offers to compact.
+      const agentPromptCache = conversation?.promptCache ?? agentSession?.promptCache ?? null
+
       // Working wears the working mark, the same mark the sidebar row and the
       // tab's own card use, so "working" reads one way everywhere.
-      const trailing = activityDot ? (
+      const trailing = (
         <>
-          {activityDot.tone === 'good' && activityDot.pulse ? (
-            <WorkingMark label={activityDot.label} seed={agentSessionId ?? undefined} />
-          ) : (
-            <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
-          )}
+          {activityDot ? (
+            activityDot.tone === 'good' && activityDot.pulse ? (
+              <WorkingMark label={activityDot.label} seed={agentSessionId ?? undefined} />
+            ) : (
+              <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+            )
+          ) : null}
           {recencyIndicator}
+          <PromptCacheMark reading={agentPromptCache} working={isWorking} />
         </>
-      ) : (
-        recencyIndicator
       )
 
       // Everything needed to identify this agent, surfaced in the hover/focus
@@ -1406,12 +1415,13 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
-      // (Idle / Last activity / Exited / Finished) — never a blanket "Idle".
+      // (Idle / Last activity / Exited, or a chat's bare time) — never a
+      // blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
       // working mark the tab wears; `attention` is Failed and Paused, which
       // are worth the same weight without claiming motion; every other answer
       // is a chat at rest. The card draws the sidebar's working
-      // dots for `working` and never a status dot — the row and the card have
+      // mark for `working` and never a status dot — the row and the card have
       // to say "working" the same way (mockup frame 2).
       const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
         ? {
@@ -1461,6 +1471,13 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
           pullRequests: agentSnapshot?.pullRequests ?? [],
           activeSubagents: agentSnapshot?.activeSubagents ?? 0,
           contextUsage: agentSnapshot?.contextUsage ?? null,
+          promptCache: agentPromptCache,
+          // Only a Claude Code terminal can be sent `/compact` from the card; a
+          // chat compacts from its own composer.
+          compact:
+            agentSnapshot && agent?.runtimeKind !== 'conversation' && agent?.cli === 'claude-code'
+              ? { blocker: terminalCompactBlocker(agentSnapshot) }
+              : null,
         },
       }
 
