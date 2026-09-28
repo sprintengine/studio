@@ -241,6 +241,24 @@ test('AgentChatView', async () => {
   ])
   assert.equal(assistant(denied.entries, T1).status, 'failed')
   assert.equal(denied.lastError, 'approval_denied', 'a real failure surfaces an actionable error')
+  assert.equal(denied.lastErrorDetail, null, 'a failure without a message has no detail')
+
+  // --- a provider failure keeps its full message for the diagnostics log ----
+
+  const providerFailed = projectConversation([
+    ev('turn_started', { turnId: T1 }),
+    ev('turn_failed', {
+      turnId: T1,
+      reason: 'provider',
+      message: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+    }),
+  ])
+  assert.equal(providerFailed.lastError, 'provider')
+  assert.equal(
+    providerFailed.lastErrorDetail,
+    'Failed to authenticate: OAuth session expired and could not be refreshed',
+    'the log gets the provider message, not only its short code',
+  )
 
   // --- interruption is not an error (explicit turnId variant) ---------------
 

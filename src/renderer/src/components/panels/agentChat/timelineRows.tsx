@@ -39,9 +39,13 @@ export function formatStepDuration(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
-// Auth-shaped turn failures get a `claude login` hint in the error block.
+// Auth-shaped turn failures get a sign-in action in the error block. Whole
+// words and stems, so a path or message that merely contains "author" or a
+// number with 401 in it is not read as a lapsed login.
 export function isAuthShapedFailure(reason: string | undefined): boolean {
-  return Boolean(reason && /auth|login|oauth|credential|401|expired|api key/i.test(reason))
+  return Boolean(
+    reason && /authenticat|unauthori[sz]ed|\bauth\b|log ?in|oauth|credential|\b401\b|expired|api key/i.test(reason),
+  )
 }
 
 // Chrome the timeline rows need from the component: who is speaking, how to
@@ -60,6 +64,13 @@ export type TimelineChrome = {
   // where that puts the message once it has: back into the composer.
   rewindEnabled?: boolean
   onRestoreDraft?: (draft: EditFromHereDraft) => void
+  // Opens a terminal running the chat CLI's own sign-in. Absent where Studio
+  // cannot run it: another machine's chat, or a provider that signs in with a
+  // key rather than the CLI's login.
+  onSignIn?: () => Promise<void>
+  // `window.api.platform`: on Windows the chat's login is the native CLI's,
+  // which is not the one inside WSL.
+  platform?: string
 }
 
 export const TimelineRow = React.memo(function TimelineRow({
@@ -639,11 +650,22 @@ export function TurnErrorBlock({
   chrome: TimelineChrome
 }) {
   const [showDetails, setShowDetails] = useState(false)
+  const [signingIn, setSigningIn] = useState(false)
   const detail = entry.failureDetail ?? entry.failureReason
   const authShaped = isAuthShapedFailure(`${entry.failureReason ?? ''} ${entry.failureDetail ?? ''}`)
+  const onSignIn = authShaped ? chrome.onSignIn : undefined
   const message = authShaped
-    ? 'The session could not authenticate — usually a sign your sign-in expired. Run `claude login` in a terminal, then retry. Your message is kept; retrying resumes the same conversation.'
+    ? `The session could not authenticate — usually a sign your sign-in expired. ${
+        onSignIn
+          ? `Sign in, then retry.${chrome.platform === 'win32' ? ' This signs in Claude Code for Windows, which keeps its own sign-in apart from WSL’s.' : ''}`
+          : 'Run `claude auth login` in a terminal, then retry.'
+      } Your message is kept; retrying resumes the same conversation.`
     : 'Something went wrong while responding. Your message is kept; retrying resumes the same conversation.'
+  const signIn = () => {
+    if (!onSignIn || signingIn) return
+    setSigningIn(true)
+    void onSignIn().finally(() => setSigningIn(false))
+  }
   return (
     <div className="mt-1 max-w-[68ch] rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
       <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
@@ -652,6 +674,11 @@ export function TurnErrorBlock({
       </div>
       <p className="mb-2.5 mt-1 text-body leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
       <div className="flex items-center gap-2">
+        {onSignIn ? (
+          <OutlineButton size="sm" onClick={signIn} disabled={signingIn}>
+            Sign in
+          </OutlineButton>
+        ) : null}
         {chrome.retryTurnId === entry.turnId ? (
           <OutlineButton size="sm" onClick={chrome.onRetry} disabled={chrome.retryDisabled}>
             Retry

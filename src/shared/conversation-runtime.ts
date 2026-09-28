@@ -113,6 +113,16 @@ export type ConversationProvidersListInput = {
   cliRuntimes?: ConversationCliRuntimeOverrides
 }
 
+// Signing a chat's CLI back in after its login lapsed: the line a plain
+// terminal on this machine runs, resolved to the executable the provider runs.
+export type ConversationProviderSignInInput = {
+  providerId: string
+  cliRuntimes?: ConversationCliRuntimeOverrides
+}
+
+export type ConversationProviderSignInResult =
+  { ok: true; commandLine: string; cwd: string; platform: string } | { ok: false; message: string }
+
 export type ConversationTranscriptInput = {
   workspaceRoot: string
   workspaceId: string

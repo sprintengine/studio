@@ -171,6 +171,8 @@ import type {
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -968,6 +970,9 @@ export type ElectronApi = {
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
+  // The line a plain terminal on this machine runs to sign a chat's CLI back
+  // in, resolved to the executable the conversation provider runs.
+  conversationProviderSignIn: (input: ConversationProviderSignInInput) => Promise<ConversationProviderSignInResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>

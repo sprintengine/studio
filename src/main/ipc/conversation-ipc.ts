@@ -25,6 +25,8 @@ import type {
   ConversationImageAttachment,
   ConversationInterruptInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
   ConversationRespondToRequestInput,
@@ -63,6 +65,7 @@ import {
 import { ConversationRuntime } from '../conversation-runtime'
 import { ConversationSessionApi } from '../conversation-session-api'
 import { detectCli } from '../cli-runtime-install'
+import { resolveConversationSignIn } from '../conversation-sign-in'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
@@ -80,6 +83,7 @@ export type ConversationIpcHandlers = {
   deleteThread?(input: ConversationTranscriptInput): Promise<{ ok: true } | { ok: false; message: string }>
   listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
+  resolveSignIn?(input: ConversationProviderSignInInput): Promise<ConversationProviderSignInResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
   setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
   clearSecret(input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>
@@ -185,6 +189,9 @@ export function createConversationIpcHandlers(
         getProviderById: getConversationProviderById,
         resolveSecret: (providerId) => secretStore.resolveSecret(providerId),
       })
+    },
+    resolveSignIn(input: ConversationProviderSignInInput): Promise<ConversationProviderSignInResult> {
+      return resolveConversationSignIn(input)
     },
     getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> {
       return secretStore.getStatus(input.providerId)
@@ -469,6 +476,27 @@ export function registerConversationIpc(
       if (!parsed.ok) return parsed
       try {
         return await handlers.listProviderModels(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'conversation:providers:sign-in',
+    async (_, input: unknown): Promise<ConversationProviderSignInResult> => {
+      const parsed = parseProviderInput(input)
+      if (!parsed.ok) return parsed
+      const cliRuntimes = isRecord(input) ? input.cliRuntimes : undefined
+      if (cliRuntimes !== undefined && !isRecord(cliRuntimes))
+        return { ok: false, message: 'cliRuntimes must be an object.' }
+      try {
+        return (
+          (await handlers.resolveSignIn?.({
+            providerId: parsed.input.providerId,
+            ...(cliRuntimes ? { cliRuntimes: cliRuntimes as ConversationProviderSignInInput['cliRuntimes'] } : {}),
+          })) ?? { ok: false, message: 'Sign-in is unavailable.' }
+        )
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }

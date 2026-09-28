@@ -188,6 +188,9 @@ export type ConversationProjection = {
   entries: TranscriptEntry[]
   usage: ConversationUsage | null
   lastError: string | null
+  // The failure's full provider message (payload `message`); lastError is
+  // often only its short code ('provider'), which says nothing in a log.
+  lastErrorDetail: string | null
   // Credential source the CLI child reported on init ('none' = subscription
   // login, the guaranteed path). Anything else means the session is billing
   // outside the subscription and the chat must say so.
@@ -461,6 +464,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: ConversationUsage | null = null
   let lastError: string | null = null
+  let lastErrorDetail: string | null = null
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
   let checkpointNotice: string | null = null
@@ -805,7 +809,10 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
             if (approval?.status === 'pending') approval.status = 'cancelled'
           }
         }
-        if (!interrupted) lastError = reason ?? 'The turn failed.'
+        if (!interrupted) {
+          lastError = reason ?? 'The turn failed.'
+          lastErrorDetail = readString(event.payload, 'message') ?? null
+        }
         break
       }
       default:
@@ -940,6 +947,7 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
     entries,
     usage,
     lastError,
+    lastErrorDetail,
     apiKeySource,
     sessionNotice,
     checkpointNotice,

@@ -34,6 +34,8 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -104,6 +106,10 @@ type ConversationIpcRenderer = {
     channel: 'conversation:providers:models',
     input: ConversationProviderModelsInput,
   ): Promise<ConversationProviderModelsResult>
+  invoke(
+    channel: 'conversation:providers:sign-in',
+    input: ConversationProviderSignInInput,
+  ): Promise<ConversationProviderSignInResult>
   invoke(
     channel: 'conversation:secrets:status',
     input: ConversationSecretStatusInput,
@@ -199,6 +205,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
       renderer.invoke('conversation:providers:models', input),
+    conversationProviderSignIn: (input: ConversationProviderSignInInput): Promise<ConversationProviderSignInResult> =>
+      renderer.invoke('conversation:providers:sign-in', input),
     conversationSecretStatus: (input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> =>
       renderer.invoke('conversation:secrets:status', input),
     conversationSecretSet: (input: ConversationSecretSetInput): Promise<ConversationSecretSetResult> =>
@@ -295,6 +303,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationRename'
     | 'conversationDelete'
     | 'conversationProviderModels'
+    | 'conversationProviderSignIn'
     | 'conversationSecretStatus'
     | 'conversationSecretSet'
     | 'conversationSecretClear'
