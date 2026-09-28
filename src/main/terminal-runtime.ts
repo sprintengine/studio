@@ -167,10 +167,9 @@ type TerminalRuntimeOptions = {
     integration?: HostAgentIntegration | null
   }): Promise<{ ok: true } | { ok: false; message: string }>
   // Ensures a built-in skill is installed into the workspace before an agent
-  // launches. Debug Mode uses this to guarantee the `debug` skill is present in
-  // the session CLI's native skill dir so the injected invocation resolves to a
-  // real skill. Best-effort: the caller swallows failures and falls back to the
-  // always-present inline directive. `cli` is the agent about to launch: a
+  // launches, so a prefilled invocation of it (a Backlog handoff's `/backlog`)
+  // resolves to a real skill. Best-effort: the caller swallows failures and
+  // the prompt still states what to do. `cli` is the agent about to launch: a
   // bundled skill its launch carries in the app's own plugin directory is not
   // copied into the workspace at all (see `ensureSkillInstalled`). `launch` is
   // the machine the agent runs on and what it said when the launch was
@@ -3113,8 +3112,8 @@ function armDeferredPrompt(session: TerminalSession, text: string, personText: s
         ...(outcome.kind === 'delivered' ? { via: outcome.via, atMs: outcome.atMs } : { reason: outcome.reason }),
       })
       // The hand-back is what the person wrote, not what the launch would have
-      // typed: that also carries Debug Mode's directive and, for a CLI whose host
-      // context rides the prompt, the whole host-context document.
+      // typed: for a CLI whose host context rides the prompt, that also carries
+      // the whole host-context document.
       if (outcome.kind === 'abandoned')
         reportUndeliveredPrompt(session, personText?.trim() ? personText : text, outcome.reason)
     },
@@ -3389,7 +3388,6 @@ async function spawnTerminalFromIpc(
     worktreeId,
     worktreePath,
     cliPermissionPreset = 'none',
-    debugMode = false,
     cliModel,
     cliReasoning,
     memoryRootPath,
@@ -3631,32 +3629,12 @@ async function spawnTerminalFromIpc(
       }
     }
 
-    // Debug Mode delivers the `debug` skill's full state-machine contract by
-    // ensuring it is installed into the session CLI's native skill dir before
-    // launch, so the injected /debug invocation resolves to a present skill.
-    // Best-effort: a failure falls back to the always-present inline directive
-    // rather than blocking the spawn.
-    if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
-      try {
-        await ensureBuiltinSkillInstalled(workingDirectory, 'debug', agentCli, {
-          hostId: host.id,
-          integration: hostIntegration,
-        })
-      } catch (error) {
-        logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
-          sessionId,
-          cli,
-          message: getErrorMessage(error),
-        })
-      }
-    }
-
     // Skill-at-spawn: install the attached builtin skill (the composer's
-    // "+ Skill" attachment, or a scheduled automation's skill) into the
-    // working directory so the prefilled invocation resolves to a present
-    // skill. Independent of connector isolation — only connector launches get
-    // the MCP-config exclusion below. Best-effort like the debug install — a
-    // failure is logged and never blocks the spawn.
+    // "+ Skill" attachment, a Backlog handoff, or a scheduled automation's
+    // skill) into the working directory so the prefilled invocation resolves
+    // to a present skill. Independent of connector isolation — only connector
+    // launches get the MCP-config exclusion below. Best-effort: a failure is
+    // logged and never blocks the spawn.
     if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
       try {
         await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId, agentCli, {
@@ -3748,14 +3726,20 @@ async function spawnTerminalFromIpc(
           memoryRootPath,
           memoryRelativeRoot,
           undefined,
-          debugMode,
           cliAuthToken,
           cliReasoning,
           resolvedBinaryPath,
           launchFor,
-          // An agent bound to a workspace reaches the editor tools through its
-          // gateway connection, so its host context says when to use them.
-          { editorTools: Boolean(workspaceId && agentId) },
+          {
+            // An agent bound to a workspace reaches the editor tools through its
+            // gateway connection, so its host context says when to use them.
+            editorTools: Boolean(workspaceId && agentId),
+            // The bundled skill this launch's prompt invokes, the one ensured
+            // above: a launch that takes the app's plugin directories is handed
+            // it as a plugin of its own, and the install above wrote nothing
+            // for it (`delivered-at-launch`).
+            launchSkills: spawnSkillId ? [spawnSkillId] : [],
+          },
         )
     unownedLaunchPromptPath = launchPromptPath
     // A WSL launch's startup script (and host-context file) are written inside

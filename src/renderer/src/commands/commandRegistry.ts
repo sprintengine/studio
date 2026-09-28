@@ -118,6 +118,44 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'chat.effort.cycle' },
   }),
+  // Step through a conversation one prompt at a time — the chat's reading of
+  // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it
+  // takes the same chords. The terminal's pair sits on the more specific
+  // `terminal` scope and wins inside a terminal; here, in an editable target
+  // (the composer), ⌘⇧↑/↓ stays the text field's select-to-start/end.
+  command({
+    id: 'chat.turn.previous',
+    title: 'Jump to Previous Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowUp'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.previous' },
+  }),
+  command({
+    id: 'chat.turn.next',
+    title: 'Jump to Next Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowDown'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.next' },
+  }),
+  // Quote what is selected in a conversation's transcript into its composer,
+  // as the selection toolbar's Quote does. `>` is markdown's quote marker and
+  // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is
+  // what the dispatcher matches, so the chord is written unshifted. Outside
+  // editable targets only: the selection it acts on is in the transcript, and
+  // focus is there with it.
+  command({
+    id: 'chat.quoteSelection',
+    title: 'Quote Selection in Reply',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+.'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.quoteSelection' },
+  }),
   command({
     id: 'workspace.close',
     title: 'Close Workspace',

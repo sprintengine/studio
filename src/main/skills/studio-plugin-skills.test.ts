@@ -135,7 +135,7 @@ test('studio-plugin-skills', async () => {
     }
     const toolManual = await readFile(join(SKILLS_ROOT, 'studio-backlog', SKILL_ENTRY_FILE), 'utf8')
     const workflow = await readFile(
-      resolve(process.cwd(), 'resources', 'studio-plugin', 'studio-skills', 'skills', 'backlog', SKILL_ENTRY_FILE),
+      resolve(process.cwd(), 'resources', 'builtin-skills', 'backlog', SKILL_ENTRY_FILE),
       'utf8',
     )
     assert.notEqual(section(toolManual), '', 'studio-backlog must carry an "## Item body" section')

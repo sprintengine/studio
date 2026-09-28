@@ -31,6 +31,15 @@ export type ConversationEventType =
   | 'approval_requested'
   | 'approval_resolved'
   | 'usage_updated'
+  // The provider summarised the conversation to free context (payload:
+  // `trigger` 'manual' | 'auto', `preTokens`, `postTokens`). Additive: a
+  // client that does not know it skips it, as the wire validator allows.
+  | 'context_compacted'
+  // What a command the CLI ran without the model printed (`/context`,
+  // `/usage`; payload: `output`, `command` without its slash). `adapterNote:
+  // true` marks a line the adapter wrote about the command instead, such as a
+  // `/clear` having started a new conversation. Additive, as above.
+  | 'command_output'
   | 'turn_completed'
   | 'turn_failed'
   // Where a spawned subagent's run stands (running, finished, failed, stopped),
@@ -121,6 +130,16 @@ export type ConversationProvidersListInput = {
   cliRuntimes?: ConversationCliRuntimeOverrides
 }
 
+// Signing a chat's CLI back in after its login lapsed: the line a plain
+// terminal on this machine runs, resolved to the executable the provider runs.
+export type ConversationProviderSignInInput = {
+  providerId: string
+  cliRuntimes?: ConversationCliRuntimeOverrides
+}
+
+export type ConversationProviderSignInResult =
+  { ok: true; commandLine: string; cwd: string; platform: string } | { ok: false; message: string }
+
 export type ConversationTranscriptInput = {
   workspaceRoot: string
   workspaceId: string
@@ -131,9 +150,10 @@ export type ConversationTranscriptResult = { ok: true; events: ConversationEvent
 
 // An image the user attached to a turn, carried live to a vision-capable
 // provider as a base64 content block. `dataBase64` is the raw base64 payload
-// (no data: URI prefix); `mediaType` is the image MIME type. v1 is live-only:
-// attachments reach the provider on the turn they are sent but are not
-// persisted to or replayed from the JSONL transcript.
+// (no data: URI prefix); `mediaType` is the image MIME type. The bytes never
+// enter the JSONL transcript: main copies them into the app-data attachment
+// store and the `user_message` event records a `ConversationStoredImageAttachment`
+// for each, which a replayed bubble reads back by reference.
 export type ConversationImageAttachment = {
   id: string
   mediaType: string
@@ -141,6 +161,22 @@ export type ConversationImageAttachment = {
   name?: string
   byteLength: number
 }
+
+// An attached image as the transcript remembers it. `ref` is relative to the
+// app-data attachment store (`<conversation>/<file>`), never a filesystem path:
+// the only way to its bytes is `conversationAttachment`, which resolves it
+// inside that store and nowhere else.
+export type ConversationStoredImageAttachment = {
+  id: string
+  mediaType: string
+  name?: string
+  byteLength: number
+  ref: string
+}
+
+export type ConversationAttachmentInput = { ref: string }
+export type ConversationAttachmentResult =
+  { ok: true; mediaType: string; dataBase64: string } | { ok: false; message: string }
 
 export type ConversationSendTurnInput = {
   mentions?: import('./conversation/mentions').ConversationMentionRef[]
@@ -154,10 +190,16 @@ export type ConversationSendTurnInput = {
   // back on the persisted `user_message` event so the projection can replace
   // the optimistic entry with the authoritative one deterministically.
   localTurnId?: string
-  // Images attached to this turn. Live-only in v1 and honored only by
-  // vision-capable providers (currently the claude-agent provider); other
-  // providers ignore them, so no image block is ever sent to them.
+  // Images attached to this turn. Honored only by vision-capable providers
+  // (currently the claude-agent provider); other providers ignore them, so no
+  // image block is ever sent to them. Main keeps a copy in the attachment store
+  // so the replayed bubble can show them; the model sees them on this turn only.
   attachments?: ConversationImageAttachment[]
+  // Deliver into the turn that is running instead of waiting for it to end.
+  // Honored where the provider declares `capabilities.steer`; the running
+  // turn closes where the message lands, and the reply carries on as this
+  // one's.
+  steer?: boolean
 }
 
 export type ConversationInterruptInput = {
@@ -375,6 +417,13 @@ export type ConversationCapabilities = {
   // The provider reads `@path` in a prompt as a reference to that workspace
   // file and opens it itself, so a mention can be passed as `@path`.
   atMentions?: boolean
+  // The provider takes a user message into a turn it is already running
+  // (`steer` on a send). Without it, sending now means stopping the turn first.
+  steer?: boolean
+  // The provider can take the conversation back to before one of its user
+  // messages, dropping that message and everything after it from its own
+  // context ("Edit from here"). Without it the action is not offered.
+  rewind?: boolean
 }
 export type ConversationCheckpointFile = {
   path: string
@@ -406,6 +455,14 @@ export type ConversationRevertResult =
       kept?: string[]
     }
   | { ok: false; message: string; changed?: true }
+/**
+ * Take the conversation back to before the user message at `turnSeq`: that
+ * message and every turn after it leave the provider's context and the
+ * transcript's view. Files are not touched; a caller that wants them back
+ * reverts the turn's checkpoint first.
+ */
+export type ConversationRewindInput = { key: ConversationKey; turnSeq: number }
+export type ConversationRewindResult = { ok: true } | { ok: false; message: string }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
 export type ConversationApprovalRulesResult =
   | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }

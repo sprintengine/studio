@@ -245,17 +245,14 @@ test('WorkspaceSidebar.allChats', async () => {
       // Order is the clock's here, so there is no order to drag a row into.
       assert.equal(rowFor('Bravo').getAttribute('draggable'), 'false', 'no drag-to-reorder in the stream')
 
-      // One shelf for the whole stream, not one per project.
+      // Resting chats are off the stream entirely (owner, 2026-09-28): no
+      // Settled shelf at its foot, and Delta is nowhere on the rail —
+      // Settings ▸ Settled chats is where it is found.
       const shelf = [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].filter((button) =>
         button.textContent?.startsWith('Settled'),
       )
-      assert.equal(shelf.length, 1, 'one Settled shelf at the foot of the stream')
-      assert.match(shelf[0].textContent ?? '', /Settled\s*1/, 'holding the resting chats of every project')
-      act(() => {
-        shelf[0].click()
-      })
-      await settle()
-      assert.ok(rowNames().includes('Delta'), 'opening it shows them')
+      assert.equal(shelf.length, 0, 'no Settled shelf at the foot of the stream')
+      assert.equal(rowNames().includes('Delta'), false, 'and the resting chat is not drawn')
 
       // Back to the tree, and the headers come back.
       chooseView('projects')

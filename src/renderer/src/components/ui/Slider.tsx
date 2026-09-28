@@ -40,6 +40,7 @@ export function Slider({
   ariaLabel,
   ariaLabelledBy,
   disabled = false,
+  ticks = 'all',
   className,
 }: {
   /** The ramp, cheapest first. Three or more; a shorter ramp is the wrong control. */
@@ -51,6 +52,13 @@ export function Slider({
   ariaLabel?: string
   ariaLabelledBy?: string
   disabled?: boolean
+  /**
+   * Which stops are drawn as ticks: every one (the default), none, or the
+   * listed stop indices. A long ramp — a percentage in steps of five — marks
+   * every stop so densely that the track reads as a dotted line, so it marks
+   * the few stops worth finding (its ends, its default) or none.
+   */
+  ticks?: 'all' | 'none' | ReadonlyArray<number>
   className?: string
 }): JSX.Element | null {
   const rootRef = React.useRef<HTMLDivElement | null>(null)
@@ -59,6 +67,12 @@ export function Slider({
 
   const index = Math.max(0, Math.min(max, value))
   const position = max === 0 ? 0 : index / max
+  const marked =
+    ticks === 'all'
+      ? stops.map((_, i) => i)
+      : ticks === 'none'
+        ? []
+        : [...new Set(ticks)].filter((i) => Number.isInteger(i) && i >= 0 && i <= max).sort((a, b) => a - b)
 
   const commit = (next: number) => {
     if (disabled) return
@@ -151,9 +165,9 @@ export function Slider({
         className="relative h-2 flex-1 rounded-full bg-[color:var(--bg-active)] shadow-[inset_0_0_0_1px_var(--border-default)]"
       >
         <span className="slider-fill absolute inset-y-0 left-0 rounded-full bg-[color:var(--accent-primary)]" />
-        {stops.map((stop, i) => (
+        {marked.map((i) => (
           <span
-            key={stop.id}
+            key={stops[i]!.id}
             // Ticks take the ink of what they are lying on — the accent's own
             // foreground where the fill has reached them, the disabled ink
             // past the thumb. One colour reads as a defect on half the ramp.

@@ -1,7 +1,18 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test, expect } from 'vitest'
-import { ConversationLinkProvider, ConversationMarkdown, splitProseLinkToken } from './conversationLinks'
+import {
+  ConversationLinkProvider,
+  ConversationMarkdown,
+  splitConversationText,
+  splitProseLinkToken,
+} from './conversationLinks'
+import { conversationImageSource } from './ConversationImage'
+import {
+  ConversationTransportProvider,
+  useConversationTransport,
+  type ConversationTransport,
+} from './conversationTransport'
 
 function render(text: string) {
   return renderToStaticMarkup(
@@ -97,4 +108,163 @@ test('a file path is an inline link at the text’s own size, showing the whole 
   expect(html).toContain('aria-label="Open src/renderer/src/app/main.ts:12"')
   expect(html).toContain('>src/renderer/src/app/main.ts:12</button>')
   expect(html).not.toContain('<svg')
+})
+
+test('a quoted path with spaces is one link, its quotes left as text around it', () => {
+  const path = '/var/folders/x/Screenshot 2026-09-27 at 22.41.31.png'
+  expect(splitConversationText(`Saved to '${path}'.`)).toEqual([
+    { token: 'Saved' },
+    ' ',
+    { token: 'to' },
+    ' ',
+    "'",
+    { token: path },
+    "'",
+    '.',
+  ])
+  expect(splitConversationText(`Open "./My Notes.md" or ~/x.ts`)).toEqual([
+    { token: 'Open' },
+    ' ',
+    '"',
+    { token: './My Notes.md' },
+    '"',
+    ' ',
+    { token: 'or' },
+    ' ',
+    { token: '~/x.ts' },
+  ])
+  const html = render(`Saved to '${path}'.`)
+  expect(html).toContain(`aria-label="Open ${path}"`)
+  expect(html).toContain(`&#x27;<button`)
+  expect(html).toContain(`</button>&#x27;.`)
+})
+
+test('a path with backslash-escaped spaces is one link that keeps the text as written', () => {
+  expect(splitConversationText('Edit /Users/dev/My\\ File.ts, then run.')).toEqual([
+    { token: 'Edit' },
+    ' ',
+    { token: '/Users/dev/My File.ts', label: '/Users/dev/My\\ File.ts' },
+    ',',
+    ' ',
+    { token: 'then' },
+    ' ',
+    { token: 'run' },
+    '.',
+  ])
+  const html = render('Edit /Users/dev/My\\ File.ts next.')
+  expect(html).toContain('aria-label="Open /Users/dev/My File.ts"')
+  expect(html).toContain('>/Users/dev/My\\ File.ts</button>')
+  // The same path in inline code, quoted or escaped, is one link too.
+  expect(render("`'/Users/dev/My File.ts'`")).toContain('aria-label="Open /Users/dev/My File.ts"')
+  expect(render('`/Users/dev/My\\ File.ts`')).toContain('aria-label="Open /Users/dev/My File.ts"')
+})
+
+test('quotes that do not wrap a path are prose, and apostrophes stay words', () => {
+  expect(splitConversationText("it's 'not a path' here")).toEqual([
+    { token: "it's" },
+    ' ',
+    "'",
+    { token: 'not' },
+    ' ',
+    { token: 'a' },
+    ' ',
+    { token: 'path' },
+    "'",
+    ' ',
+    { token: 'here' },
+  ])
+  expect(render("Don't touch '/Users/dev/app.ts' yet.")).toContain('aria-label="Open /Users/dev/app.ts"')
+})
+
+function RemoteFiles({ children }: { children: React.ReactNode }) {
+  const local = useConversationTransport()
+  const remote: ConversationTransport = {
+    ...local,
+    kind: 'remote',
+    capabilities: { ...local.capabilities, localFiles: false },
+  }
+  return <ConversationTransportProvider value={remote}>{children}</ConversationTransportProvider>
+}
+
+test('an image in a reply is shown: a data URL directly, a local path once it is read, a web one on request', () => {
+  // A web image would be a request to a host the reply chose, made on render;
+  // it waits for a click and names the host it would load from.
+  const web = render('![The chart](https://example.com/chart.png)')
+  expect(web).not.toContain('<img')
+  expect(web).toContain('[Image: The chart] · load from example.com')
+  expect(render('![dot](data:image/png;base64,iVBORw0KGgo=)')).toContain('src="data:image/png;base64,iVBORw0KGgo="')
+  // A local file is read through main after mount; until then its alt text holds the place.
+  const local = render('![Screenshot](<./shots/Screen Shot.png>)')
+  expect(local).not.toContain('<img')
+  expect(local).toContain('Screenshot')
+  // A script or an unknown scheme is never a source.
+  for (const src of ['javascript:void(0)', 'data:text/html;base64,PHA+', 'ftp://example.com/a.png']) {
+    const html = render(`![bad](${src})`)
+    expect(html, src).not.toContain('<img')
+    expect(html, src).toContain('[Image: bad]')
+  }
+})
+
+test('an image path from another machine says where it is instead of loading', () => {
+  const html = renderToStaticMarkup(
+    <RemoteFiles>
+      <ConversationLinkProvider workspaceId="workspace" workspaceRoot="/workspace/app" cwd="/workspace/app">
+        <ConversationMarkdown text="![Screenshot](/Users/dev/Desktop/shot.png)" />
+      </ConversationLinkProvider>
+    </RemoteFiles>,
+  )
+  expect(html).toContain('[Image: Screenshot]')
+  expect(html).toContain('the image is not on this machine')
+})
+
+test('an image source is classified before anything is loaded', () => {
+  expect(conversationImageSource('https://example.com/a.png')).toEqual({
+    kind: 'web',
+    url: 'https://example.com/a.png',
+  })
+  expect(conversationImageSource('shots/My%20Shot.png')).toEqual({ kind: 'path', path: 'shots/My Shot.png' })
+  expect(conversationImageSource('file:///Users/dev/a%20b.png')).toEqual({ kind: 'path', path: '/Users/dev/a b.png' })
+  expect(conversationImageSource('file:///C:/shots/a.png')).toEqual({ kind: 'path', path: 'C:/shots/a.png' })
+  expect(conversationImageSource('C:\\shots\\a.png')).toEqual({ kind: 'path', path: 'C:\\shots\\a.png' })
+  expect(conversationImageSource('src/app.ts')).toBeNull()
+  expect(conversationImageSource('javascript:void(0)')).toBeNull()
+})
+
+test('a finished shell block offers to paste itself into a terminal; other blocks do not', () => {
+  expect(render('```bash\nnpm test\n```')).toContain('aria-label="Paste into terminal"')
+  expect(render('```zsh\nls -la\n```')).toContain('aria-label="Paste into terminal"')
+  expect(render('```ts\nconst a = 1\n```')).not.toContain('aria-label="Paste into terminal"')
+  expect(render('```\nnpm test\n```')).not.toContain('aria-label="Paste into terminal"')
+  const remote = renderToStaticMarkup(
+    <RemoteFiles>
+      <ConversationLinkProvider workspaceId="workspace" workspaceRoot="/workspace/app" cwd="/workspace/app">
+        <ConversationMarkdown text={'```bash\nnpm test\n```'} />
+      </ConversationLinkProvider>
+    </RemoteFiles>,
+  )
+  expect(remote).not.toContain('aria-label="Paste into terminal"')
+})
+
+test('a shell block goes in whole only where the shell takes a bracketed paste, and never runs', async () => {
+  const { terminalPastePlan } = await import('./ConversationCodeBlock')
+  expect(terminalPastePlan('npm test\nnpm run build', true)).toEqual({
+    kind: 'paste',
+    data: '\u001b[200~npm test\nnpm run build\u001b[201~',
+  })
+  // Without one, a newline would run what came before it.
+  expect(terminalPastePlan('npm test', false)).toEqual({ kind: 'type', data: 'npm test' })
+  expect(terminalPastePlan('npm test\nnpm run build', false)).toEqual({ kind: 'copy' })
+})
+
+test('the shell turning bracketed paste on is seen even when the toggle arrives in pieces', async () => {
+  const { bracketedPasteTracker } = await import('./ConversationCodeBlock')
+  const track = bracketedPasteTracker()
+  expect(track('Last login: Sun Sep 27\r\n')).toBe(false)
+  expect(track('dev@mac-mini project % \u001b[?20')).toBe(false)
+  expect(track('04h')).toBe(true)
+  expect(track('more prompt text')).toBe(true)
+  // A command that ran from an rc file turns it off; the next prompt, back on.
+  const later = bracketedPasteTracker()
+  expect(later('\u001b[?2004h\u001b[?2004l')).toBe(false)
+  expect(later('$ \u001b[?2004h')).toBe(true)
 })

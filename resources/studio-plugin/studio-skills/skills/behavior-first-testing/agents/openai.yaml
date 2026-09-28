@@ -1,4 +1,0 @@
-interface:
-  display_name: "Behavior First Testing"
-  short_description: "Guide behavior-first test development."
-  default_prompt: "Use $behavior-first-testing to add focused behavior-first coverage."

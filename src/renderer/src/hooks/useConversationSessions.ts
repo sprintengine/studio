@@ -2,7 +2,9 @@
 // (chat) agents have no PTY snapshot, so their status comes from the main
 // ConversationRuntime. The list is fetched once and refreshed when a
 // status-relevant conversation event arrives (streaming deltas are ignored —
-// they are per-token and never change session status).
+// they are per-token and never change session status). A user message counts:
+// it is what the chat's title is taken from, and it lands before the
+// provider's first event, which may take a while to arrive.
 
 import { useEffect, useState } from 'react'
 
@@ -13,6 +15,7 @@ const STATUS_EVENT_TYPES: ReadonlySet<ConversationEventType> = new Set<Conversat
   'session_ready',
   'session_updated',
   'session_closed',
+  'user_message',
   'turn_started',
   'tool_started',
   'tool_output',

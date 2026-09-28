@@ -4,19 +4,13 @@
     "name": "SprintEngine Studio",
     "url": "https://github.com/sprintengine"
   },
-  "description": "What SprintEngine Studio publishes: the plugin it installs into every workspace it opens, and the workflow skills it ships.",
+  "description": "What SprintEngine Studio publishes: the plugin it installs into every workspace it opens.",
   "plugins": [
     {
       "name": "sprintengine-studio",
       "source": "./sprintengine-studio",
       "description": "Drive SprintEngine Studio from an agent: backlog, automations, workspaces and terminals, review.",
       "version": "1.1.0"
-    },
-    {
-      "name": "studio-skills",
-      "source": "./studio-skills",
-      "description": "The workflow skills SprintEngine Studio ships: backlog, debug, prototype, review guide, handoff, knowledge, and the rest.",
-      "version": "1.0.0"
     }
   ]
 }

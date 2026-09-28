@@ -1,4 +1,0 @@
-interface:
-  display_name: "Frontend Design"
-  short_description: "Craft calm, deliberate HTML mockups and design-system bundles."
-  default_prompt: "Use $frontend-design to raise the craft of this mockup or design-system bundle."

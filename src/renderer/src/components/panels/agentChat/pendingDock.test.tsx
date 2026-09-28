@@ -6,6 +6,8 @@ import {
   approvalOutsideWorkspace,
   ConversationPendingDock,
   ConversationPermissionCard,
+  ConversationPlanCard,
+  ConversationQuestionCard,
   orderedPendingRequests,
 } from './pendingDock'
 import type { TranscriptEntry } from './conversationProjection'
@@ -227,4 +229,178 @@ test('queue navigation preserves question answers, resolves selected ids, and de
       else Reflect.deleteProperty(globalThis, key)
     }
   }
+})
+
+// Mounts `ui` in a fresh DOM after `prepare` has set the page up (a focused
+// composer, say), and hands the document to `check`.
+async function mountDock(
+  prepare: (document: Document) => void,
+  ui: React.ReactElement,
+  check: (document: Document, act: (run: () => void) => Promise<void>) => void | Promise<void>,
+) {
+  const dom = new JSDOM(
+    '<!doctype html><body><textarea aria-label="Composer"></textarea><div id="root"></div></body>',
+    {
+      url: 'http://localhost',
+      pretendToBeVisual: true,
+    },
+  )
+  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'IS_REACT_ACT_ENVIRONMENT']
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(dom.window.document.getElementById('root')!)
+  try {
+    prepare(dom.window.document)
+    await act(async () => root.render(ui))
+    await check(dom.window.document, (run) => act(async () => run()))
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of keys) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+}
+
+test('a request that arrives while the composer has focus leaves focus there and announces itself', async () => {
+  const onApprove = vi.fn()
+  let composer: HTMLTextAreaElement
+  await mountDock(
+    (document) => {
+      composer = document.querySelector('textarea')!
+      composer.focus()
+    },
+    <ConversationPermissionCard entry={request('typing')} onApprove={onApprove} busy={false} />,
+    async (document, act) => {
+      expect(document.activeElement).toBe(composer)
+      expect(
+        [...document.querySelectorAll('[role="status"]')].some((status) =>
+          status.textContent?.includes('Permission request'),
+        ),
+      ).toBe(true)
+      // An Enter meant for the message goes to the message, not the card.
+      await act(() =>
+        composer.dispatchEvent(
+          new document.defaultView!.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        ),
+      )
+      expect(onApprove).not.toHaveBeenCalled()
+      // Once the card has focus, its own shortcuts work.
+      const card = document.querySelector<HTMLElement>('[role="group"]')!
+      await act(() => card.focus())
+      await act(() =>
+        card.dispatchEvent(
+          new document.defaultView!.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        ),
+      )
+      expect(onApprove).toHaveBeenCalledWith('typing', true, undefined, 'once')
+    },
+  )
+})
+
+test('a request that arrives with nothing focused takes focus so its shortcuts work at once', async () => {
+  await mountDock(
+    () => undefined,
+    <ConversationPlanCard
+      entry={request('plan', { requestKind: 'plan', plan: 'Do it' })}
+      onApprove={vi.fn()}
+      busy={false}
+    />,
+    (document) => {
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Plan approval')
+      expect([...document.querySelectorAll('[role="status"]')].every((status) => !status.textContent)).toBe(true)
+    },
+  )
+})
+
+test('a question arriving mid-sentence in a text field does not take focus either', async () => {
+  let field: HTMLInputElement
+  await mountDock(
+    (document) => {
+      field = document.createElement('input')
+      document.body.prepend(field)
+      field.focus()
+    },
+    <ConversationQuestionCard
+      requestId="q"
+      questions={[{ question: 'Pick one', options: [{ label: 'A', description: '' }], multiSelect: false }]}
+      onAnswer={vi.fn()}
+      busy={false}
+    />,
+    (document) => expect(document.activeElement).toBe(field),
+  )
+})
+
+test('a multi-line command keeps its lines in the permission card and can be copied', () => {
+  const html = renderToStaticMarkup(
+    <ConversationPermissionCard
+      entry={request('multi', { input: { command: 'npm test \\\n  --reporter=dot\ncd app && npm run build' } })}
+      onApprove={() => undefined}
+      busy={false}
+    />,
+  )
+  const document = new JSDOM(html).window.document
+  const pre = document.querySelector('pre')
+  expect(pre?.textContent).toBe('npm test \\\n  --reporter=dot\ncd app && npm run build')
+  expect(pre?.className).toContain('whitespace-pre-wrap')
+  expect(document.querySelector('[aria-label="Copy command"]')).not.toBeNull()
+})
+
+test('a question renders its markdown, and its options their inline marks', () => {
+  const html = renderToStaticMarkup(
+    <ConversationQuestionCard
+      requestId="q"
+      questions={[
+        {
+          question: 'Which **scale** should replies use?',
+          header: 'Scale',
+          options: [{ label: '**Compact** (Recommended)', description: 'Body stays at `13px`.' }],
+          multiSelect: false,
+        },
+      ]}
+      onAnswer={() => undefined}
+      busy={false}
+    />,
+  )
+  const document = new JSDOM(html).window.document
+  expect(html).not.toContain('**')
+  expect([...document.querySelectorAll('strong')].map((node) => node.textContent)).toEqual(['scale', 'Compact'])
+  expect(document.querySelector('[role="radio"] code')?.textContent).toBe('13px')
+  expect(document.querySelector('[aria-label^="Other answer for"]')?.getAttribute('aria-label')).toBe(
+    'Other answer for: Which scale should replies use?',
+  )
+})
+
+test('a plan can be copied, and a long one offers to show in full', () => {
+  const short = renderToStaticMarkup(
+    <ConversationPlanCard
+      entry={request('p', { requestKind: 'plan', plan: '1. One\n2. Two' })}
+      onApprove={() => undefined}
+      busy={false}
+    />,
+  )
+  expect(short).toContain('aria-label="Copy plan"')
+  expect(short).not.toContain('Show full plan')
+  const long = renderToStaticMarkup(
+    <ConversationPlanCard
+      entry={request('p', {
+        requestKind: 'plan',
+        plan: Array.from({ length: 30 }, (_, index) => `${index + 1}. Step`).join('\n'),
+      })}
+      onApprove={() => undefined}
+      busy={false}
+    />,
+  )
+  expect(long).toContain('Show full plan')
 })

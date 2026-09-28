@@ -17,6 +17,12 @@ import {
   type ClaudeAgentProviderAdapter,
 } from './claude-agent-provider'
 import type { MockAdapterTurnInput } from './mock-conversation-provider'
+import { ConversationRuntime } from '../conversation-runtime'
+import {
+  conversationCommandsFor,
+  onConversationCommandsChanged,
+  publishConversationCommands,
+} from '../conversation-commands/registry'
 import { test } from 'vitest'
 
 test('claude-agent-provider', async () => {
@@ -326,6 +332,7 @@ test('claude-agent-provider', async () => {
       ANTHROPIC_API_KEY: 'sk-ant-inherited',
       ANTHROPIC_AUTH_TOKEN: 'third-party-token',
       ANTHROPIC_BASE_URL: 'https://api.z.ai',
+      CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: '3',
       SPRINTENGINE_WORKSPACE_ID: 'workspace',
     })
     for (const key of STRIPPED_ANTHROPIC_AUTH_ENV_KEYS) assert.equal(key in stripped, false)
@@ -391,6 +398,17 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(keyedInit[0]?.payload?.apiKeySource, 'ANTHROPIC_API_KEY')
 
+    // The source is written to the transcript unredacted, so a value outside
+    // the SDK's labels is dropped instead of carried.
+    const oddInit = mapSdkMessage(state, {
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sdk-session-1',
+      model: 'sonnet',
+      apiKeySource: 'sk-ant-not-a-label',
+    })
+    assert.deepEqual(oddInit, [])
+
     const text = mapSdkMessage(state, {
       type: 'stream_event',
       session_id: 'sdk-session-1',
@@ -413,6 +431,17 @@ test('claude-agent-provider', async () => {
     assert.deepEqual(
       thinking.map((event) => event.type),
       ['reasoning_delta'],
+    )
+    // A new thinking block opens a new paragraph of the run.
+    const blockStart = mapSdkMessage(state, {
+      type: 'stream_event',
+      session_id: 'sdk-session-1',
+      parent_tool_use_id: null,
+      event: { type: 'content_block_start', index: 2, content_block: { type: 'thinking', thinking: '' } },
+    })
+    assert.deepEqual(
+      blockStart.map((event) => [event.type, event.payload?.text]),
+      [['reasoning_delta', '\n\n']],
     )
 
     // Subagent text must not leak into the parent's streaming bubble.
@@ -654,6 +683,7 @@ test('claude-agent-provider', async () => {
     let capturedContent: unknown
     const { adapter } = createAdapter((userMessage, context) => {
       capturedContent = (userMessage.message as { content: unknown }).content
+      context.emit({ type: 'system', subtype: 'init', session_id: 's-img' })
       context.emit({
         type: 'result',
         subtype: 'success',
@@ -795,7 +825,7 @@ test('claude-agent-provider', async () => {
     )
     assert.deepEqual(
       approvedEvents.map((event) => event.type),
-      ['turn_started', 'approval_requested', 'approval_resolved', 'session_updated', 'usage_updated', 'turn_completed'],
+      ['turn_started', 'approval_requested', 'approval_resolved', 'usage_updated', 'turn_completed'],
     )
     assert.equal(approvedEvents[2]?.payload?.approved, true)
     assert.equal(decisions[0]?.behavior, 'allow')
@@ -1159,7 +1189,7 @@ test('claude-agent-provider', async () => {
     )
     assert.deepEqual(
       events.map((event) => event.type),
-      ['turn_started', 'session_updated', 'content_delta'],
+      ['turn_started', 'content_delta'],
     )
   }
 
@@ -1742,6 +1772,23 @@ test('each Claude turn reports the cost it added, not the running total of the l
   assert.equal(result(0.1), 0.1)
 })
 
+test('a Claude compact boundary marks the transcript with what triggered it and the context it freed', () => {
+  const state = mapperState()
+  const [compacted] = mapSdkMessage(state, {
+    type: 'system',
+    subtype: 'compact_boundary',
+    session_id: 'native',
+    compact_metadata: { trigger: 'auto', pre_tokens: 182_000, post_tokens: 24_000, preserved_segment: {} },
+  })
+  assert.equal(compacted?.type, 'context_compacted')
+  assert.deepEqual(compacted?.payload, { turnId: 'turn_1', trigger: 'auto', preTokens: 182_000, postTokens: 24_000 })
+  // A boundary the CLI stamps without its metadata still marks the seam.
+  const [bare] = mapSdkMessage(state, { type: 'system', subtype: 'compact_boundary', session_id: 'native' })
+  assert.deepEqual(bare?.payload, { turnId: 'turn_1' })
+  // Other system messages carry nothing the transcript shows.
+  assert.deepEqual(mapSdkMessage(state, { type: 'system', subtype: 'status', session_id: 'native' }), [])
+})
+
 test('Claude shell results say whether a command was declined, stopped or exited non-zero', () => {
   const state = mapperState()
   const output = (id: string, block: Record<string, unknown>, structured?: Record<string, unknown>) =>
@@ -2060,4 +2107,642 @@ test('a foreground Claude agent keeps its own result and background shells are n
     }),
     [],
   )
+})
+
+/**
+ * A stand-in SDK driven from the test: every prompt the child reads is
+ * recorded, and `emit` plays a message out of the child when the test says so.
+ */
+function scriptedHarness() {
+  const prompts: Record<string, unknown>[] = []
+  const spawned: Record<string, unknown>[] = []
+  const interrupts: unknown[] = []
+  const pending: Record<string, unknown>[] = []
+  let wake = null as (() => void) | null
+  let ended = false
+  const query = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
+    spawned.push(params.options)
+    void (async () => {
+      for await (const message of params.prompt) prompts.push(message)
+    })()
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!ended) {
+          if (!pending.length) await new Promise<void>((resolve) => (wake = resolve))
+          while (pending.length) yield pending.shift()!
+        }
+      },
+      // As the CLI does, the child goes on after an interrupt: it still plays
+      // out the tail of the exchange it was stopped in.
+      interrupt: async (options?: unknown) => {
+        interrupts.push(options)
+      },
+      setPermissionMode: async () => undefined,
+    }
+  }
+  const adapter = createClaudeAgentProvider({
+    loadQuery: (async () => query) as never,
+    resolveExecutable: async () => '/fake/bin/claude',
+    buildEnv: () => ({ PATH: '/usr/bin' }),
+  })
+  const emit = (message: Record<string, unknown>) => {
+    pending.push({ session_id: 'native', ...message })
+    wake?.()
+  }
+  const turn = (turnId: string, overrides: Partial<MockAdapterTurnInput> = {}): MockAdapterTurnInput => ({
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: CLAUDE_AGENT_PROVIDER_ID,
+    modelId: 'sonnet',
+    workspaceRoot: '/Users/dev/app',
+    turnId,
+    requestId: `approval_${turnId}`,
+    message: 'hello',
+    ...overrides,
+  })
+  // The id each prompt was sent with, which a result names to say it answered it.
+  const uuidOf = (index: number) => String(prompts[index]?.uuid)
+  return { adapter, prompts, spawned, interrupts, emit, turn, uuidOf }
+}
+
+/** Read a turn's stream in the background, so the test can act between its events. */
+function reader(stream: AsyncIterable<ConversationEvent>) {
+  const events: ConversationEvent[] = []
+  const done = (async () => {
+    for await (const event of stream) events.push(event)
+  })()
+  return { events, done }
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10))
+/** Wait for the child to have read `count` prompts: spawning it is several awaits deep. */
+async function promptsRead(prompts: unknown[], count: number): Promise<void> {
+  for (let attempt = 0; prompts.length < count && attempt < 200; attempt++) await settle()
+  assert.equal(prompts.length, count)
+}
+const textDelta = (text: string) => ({
+  type: 'stream_event',
+  event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
+})
+const init = { type: 'system', subtype: 'init' }
+const success = (extra: Record<string, unknown>) => ({ type: 'result', subtype: 'success', is_error: false, ...extra })
+const turnScoped = (events: ConversationEvent[]) =>
+  events.filter((event) => event.type !== 'session_updated').map((event) => [event.type, event.payload?.turnId])
+
+/** Start a session and a first turn, and wait for the child to have its message. */
+async function running(h: ReturnType<typeof scriptedHarness>, onSessionEvent?: (event: ConversationEvent) => void) {
+  await h.adapter.startSession({ ...h.turn('turn_1'), ...(onSessionEvent ? { onSessionEvent } : {}) })
+  const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+  await promptsRead(h.prompts, 1)
+  h.emit(init)
+  return first
+}
+
+test('a message steered in while a Claude tool runs is folded into the running turn, which ends on its one result', async () => {
+  const h = scriptedHarness()
+  try {
+    const continued: ConversationEvent[] = []
+    const first = await running(h, (event) => continued.push(event))
+    h.emit({ type: 'assistant', uuid: 'reply-1', message: { content: [{ type: 'text', text: 'Running the tests' }] } })
+    h.emit({
+      type: 'assistant',
+      uuid: 'call-1',
+      message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Bash', input: { command: 'npm test' } }] },
+    })
+    await settle()
+    // A different mode would respawn the child on an ordinary send; a steer
+    // never does, or the work it redirects would be lost.
+    const steered = await h.adapter.steer({ ...h.turn('turn_1', { mode: 'ask' }), message: 'use the staging file' })
+    // Going back to before the message lands before the call that is still
+    // waiting for its result, not on it.
+    assert.deepEqual(steered, { ok: true, providerCursor: { sessionId: 'native', at: 'reply-1' } })
+    await promptsRead(h.prompts, 2)
+    assert.match(JSON.stringify(h.prompts[1]), /use the staging file/)
+    assert.notEqual(h.uuidOf(0), h.uuidOf(1))
+    h.emit({
+      type: 'user',
+      uuid: 'result-1',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'ok' }] },
+    })
+    h.emit(textDelta('Switching to staging'))
+    // The CLI takes the message in at the tool round and answers both at once.
+    h.emit(success({ user_message_uuids: [h.uuidOf(0), h.uuidOf(1)], total_cost_usd: 0.2 }))
+    await first.done
+
+    assert.equal(h.spawned.length, 1, 'the steer reused the running child')
+    assert.deepEqual(turnScoped(first.events), [
+      ['turn_started', 'turn_1'],
+      ['tool_started', 'turn_1'],
+      ['tool_output', 'turn_1'],
+      ['content_delta', 'turn_1'],
+      ['turn_completed', 'turn_1'],
+    ])
+    assert.equal(first.events.at(-1)?.payload?.costUsd, 0.2)
+    // The turn is over, so nothing is steered into it any more, and what the
+    // child does next reaches the session channel rather than a closed stream.
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'late' })).ok, false)
+    h.emit(textDelta('A background task finished'))
+    await settle()
+    assert.deepEqual(
+      continued.map((event) => event.type),
+      ['turn_started', 'content_delta'],
+    )
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a message steered in while Claude writes its last reply keeps the turn open for the result that answers it', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    h.emit(textDelta('Done. '))
+    await settle()
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'also add a test' })).ok, true)
+    await promptsRead(h.prompts, 2)
+    // No tool round was left to take it in: the CLI answers the first message,
+    // then starts an exchange of its own for the steered one.
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], queued_turn_count: 0, total_cost_usd: 0.1 }))
+    await settle()
+    assert.equal(
+      first.events.some((event) => event.type === 'turn_completed'),
+      false,
+      'the first result answers only the first message',
+    )
+    h.emit(init)
+    h.emit(textDelta('Added the test.'))
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)], result_index: 1, total_cost_usd: 0.25 }))
+    await first.done
+
+    const completed = first.events.filter((event) => event.type === 'turn_completed')
+    assert.equal(completed.length, 1)
+    assert.equal(completed[0]?.payload?.costUsd, 0.25, 'both exchanges are counted once, at the end')
+    assert.equal(
+      first.events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.payload?.text)
+        .join(''),
+      // The second reply starts a paragraph of its own rather than running on.
+      'Done. \n\nAdded the test.',
+    )
+    assert.ok(first.events.every((event) => event.type === 'session_updated' || event.payload?.turnId === 'turn_1'))
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('two messages steered into one Claude turn are answered together, and the turn waits for that', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    h.emit(textDelta('Done.'))
+    await settle()
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'also lint' })).ok, true)
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'and format' })).ok, true)
+    await promptsRead(h.prompts, 3)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], queued_turn_count: 0 }))
+    await settle()
+    assert.equal(first.events.filter((event) => event.type === 'turn_completed').length, 0)
+    // The CLI merges both into one entry and one result, which names only the
+    // last of them where it predates the full list.
+    h.emit(init)
+    h.emit(success({ user_message_uuid: h.uuidOf(2) }))
+    await first.done
+    assert.equal(first.events.filter((event) => event.type === 'turn_completed').length, 1)
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a Claude turn takes no steer before its own message has reached the child', async () => {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession(h.turn('turn_1'))
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    // The child is still being started: there is nothing yet to join.
+    assert.deepEqual(await h.adapter.steer({ ...h.turn('turn_1'), message: 'too early' }), {
+      ok: false,
+      message: 'The agent is not working on that turn any more.',
+    })
+    await promptsRead(h.prompts, 1)
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_9'), message: 'another turn' })).ok, false)
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'now' })).ok, true)
+    await promptsRead(h.prompts, 2)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0), h.uuidOf(1)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('stopping a Claude turn cancels a steered message the CLI has not taken in yet', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    h.emit(textDelta('Almost done'))
+    await settle()
+    assert.equal((await h.adapter.steer({ ...h.turn('turn_1'), message: 'also add a test' })).ok, true)
+    const stopped = (await h.adapter.interrupt(h.turn('turn_1'))) as ConversationEvent[]
+    await first.done
+    assert.deepEqual(h.interrupts, [{ cancelQueued: true }])
+    assert.equal(stopped[0]?.type, 'turn_failed')
+    assert.equal(stopped[0]?.payload?.reason, 'interrupted')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+/** What the CLI plays out after an interrupt: the rest of the reply, its note, and a failed result. */
+function emitInterruptedTail(h: ReturnType<typeof scriptedHarness>, uuids: string[], totalCostUsd: number) {
+  h.emit(textDelta(' 3, 4'))
+  h.emit({
+    type: 'assistant',
+    uuid: 'cut-reply',
+    message: { content: [{ type: 'text', text: 'Counting: 1, 2, 3, 4' }] },
+  })
+  h.emit({
+    type: 'user',
+    uuid: 'cut-note',
+    message: { content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+  })
+  h.emit({
+    type: 'result',
+    subtype: 'error_during_execution',
+    is_error: true,
+    user_message_uuids: uuids,
+    usage: { input_tokens: 10, output_tokens: 5 },
+    total_cost_usd: totalCostUsd,
+  })
+}
+
+test('what a stopped Claude exchange still plays out reaches no turn, and its cost goes to the next one', async () => {
+  const h = scriptedHarness()
+  try {
+    const continued: ConversationEvent[] = []
+    const first = await running(h, (event) => continued.push(event))
+    h.emit(textDelta('Counting: 1, 2,'))
+    await settle()
+    await h.adapter.interrupt(h.turn('turn_1'))
+    await first.done
+    emitInterruptedTail(h, [h.uuidOf(0)], 0.011)
+    await settle()
+    assert.deepEqual(
+      continued.filter((event) => event.type !== 'session_updated'),
+      [],
+      'no continuation turn is opened for the tail',
+    )
+
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    h.emit(init)
+    h.emit(textDelta('Hi'))
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)], total_cost_usd: 0.015 }))
+    await second.done
+    const completed = second.events.find((event) => event.type === 'turn_completed')
+    assert.equal(completed?.payload?.costUsd, 0.015, 'the stopped exchange is paid for by the next turn')
+    // The tail still moved the session on: the next turn ends past it.
+    assert.deepEqual(completed?.payload?.providerCursor, { sessionId: 'native', at: 'cut-note' })
+
+    const third = reader((await h.adapter.sendTurn(h.turn('turn_3'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 3)
+    h.emit(init)
+    h.emit(success({ user_message_uuids: [h.uuidOf(2)], total_cost_usd: 0.02 }))
+    await third.done
+    const costs = third.events.filter((event) => event.type === 'turn_completed').map((event) => event.payload?.costUsd)
+    assert.equal(costs.length, 1)
+    assert.ok(Math.abs(Number(costs[0]) - 0.005) < 1e-9, 'and only once')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a message sent right after a Stop is answered in its own turn, which the stopped result does not end', async () => {
+  const h = scriptedHarness()
+  try {
+    const continued: ConversationEvent[] = []
+    const first = await running(h, (event) => continued.push(event))
+    h.emit(textDelta('Counting: 1, 2,'))
+    await settle()
+    // Stop and send: the new message is on its way before the CLI has played
+    // out what it was stopped in.
+    await h.adapter.interrupt(h.turn('turn_1'))
+    await first.done
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    emitInterruptedTail(h, [h.uuidOf(0)], 0.011)
+    await settle()
+    assert.deepEqual(turnScoped(second.events), [['turn_started', 'turn_2']], 'the new turn is still open')
+
+    h.emit(init)
+    h.emit(textDelta('BANANA'))
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)], total_cost_usd: 0.02 }))
+    await second.done
+    assert.deepEqual(turnScoped(second.events), [
+      ['turn_started', 'turn_2'],
+      ['content_delta', 'turn_2'],
+      ['turn_completed', 'turn_2'],
+    ])
+    assert.equal(second.events.find((event) => event.type === 'content_delta')?.payload?.text, 'BANANA')
+    assert.equal(second.events.at(-1)?.payload?.costUsd, 0.02)
+    assert.deepEqual(
+      continued.filter((event) => event.type !== 'session_updated'),
+      [],
+    )
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a Stop after a message steered into the last reply leaves no stray turn and no failed session', async () => {
+  const h = scriptedHarness()
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'claude-stop-runtime-'))
+  const runtime = new ConversationRuntime({
+    adapters: [h.adapter],
+    getProviderById: () => undefined,
+    secretStore: { getStatus: async () => ({ ok: false, message: 'unused' }) },
+  })
+  try {
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: CLAUDE_AGENT_PROVIDER_ID,
+      modelId: 'sonnet',
+    })
+    assert.ok(started.ok)
+    const sessionId = started.session.sessionId
+    const events: ConversationEvent[] = []
+    runtime.onEvent((event) => events.push(event))
+    const sent = runtime.sendTurn({ sessionId, message: 'count to ten' })
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    h.emit(textDelta('Counting: 1, 2,'))
+    await settle()
+    // A steer settles with the stream it joined.
+    const steered = runtime.sendTurn({ sessionId, message: 'in French', steer: true })
+    await promptsRead(h.prompts, 2)
+    assert.equal((await runtime.interrupt({ sessionId })).ok, true)
+    assert.equal((await sent).ok, true)
+    assert.equal((await steered).ok, true)
+    // The CLI names both messages as the ones its stopped exchange answered.
+    emitInterruptedTail(h, [h.uuidOf(0), h.uuidOf(1)], 0.011)
+    await settle()
+    await settle()
+    const turnIds = new Set(events.map((event) => event.payload?.turnId).filter(Boolean))
+    assert.equal(
+      Array.from(turnIds).some((turnId) => String(turnId).includes('_cont_')),
+      false,
+      'no continuation turn',
+    )
+    assert.deepEqual(
+      events.filter((event) => event.type === 'turn_failed').map((event) => event.payload?.reason),
+      ['interrupted'],
+    )
+    const listed = runtime.listSessions({ workspaceId: 'workspace' })
+    assert.ok(listed.ok)
+    assert.equal(listed.sessions[0]?.status, 'ready')
+  } finally {
+    await runtime.shutdown().catch(() => undefined)
+    await h.adapter.disposeAll()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a failed Claude result that names only messages nothing waits on does not end the running turn', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    await h.adapter.interrupt(h.turn('turn_1'))
+    await first.done
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    // The new exchange has begun before the stopped one's result arrived.
+    h.emit(init)
+    h.emit({ type: 'result', subtype: 'error_during_execution', is_error: true, user_message_uuids: [h.uuidOf(0)] })
+    await settle()
+    assert.equal(
+      second.events.some((event) => event.type === 'turn_failed' || event.type === 'turn_completed'),
+      false,
+    )
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await second.done
+    assert.equal(second.events.at(-1)?.type, 'turn_completed')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+// ── Slash commands ──────────────────────────────────────────────────────────
+
+/** The text the child was handed for prompt `index`. */
+const promptText = (h: ReturnType<typeof scriptedHarness>, index: number) =>
+  (h.prompts[index]?.message as { content: unknown } | undefined)?.content
+
+test('a slash command reaches Claude Code as the message itself, with no skill note ahead of it', async () => {
+  const h = scriptedHarness()
+  try {
+    const skills = { skills: ['acme:deploy'] }
+    await h.adapter.startSession(h.turn('turn_1'))
+    const command = reader(
+      (await h.adapter.sendTurn(
+        h.turn('turn_1', { ...skills, message: '/review HEAD~1' }),
+      )) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 1)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await command.done
+    const prose = reader(
+      (await h.adapter.sendTurn(
+        h.turn('turn_2', { ...skills, message: 'now ship it' }),
+      )) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 2)
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await prose.done
+    assert.equal(promptText(h, 0), '/review HEAD~1')
+    assert.equal(promptText(h, 1), 'Use the attached skills: acme:deploy.\n\nnow ship it')
+    // The skills are loaded for the command all the same.
+    assert.deepEqual(h.spawned[0]?.skills, ['acme:deploy'])
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('images sent with a slash command go ahead of it, so the command is the last block Claude Code reads', () => {
+  const image = { mediaType: 'image/png', dataBase64: 'AAAA' } as never
+  const command = buildUserMessageContent('/review this screenshot', [image]) as Array<{ type: string }>
+  assert.deepEqual(
+    command.map((block) => block.type),
+    ['image', 'text'],
+  )
+  const prose = buildUserMessageContent('what is /tmp for?', [image]) as Array<{ type: string }>
+  assert.deepEqual(
+    prose.map((block) => block.type),
+    ['text', 'image'],
+  )
+})
+
+/** A turn whose message is `message`, answered by `reply` once the child has it. */
+async function commandTurn(message: string, reply: (h: ReturnType<typeof scriptedHarness>) => void) {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession(h.turn('turn_1'))
+    const turn = reader((await h.adapter.sendTurn(h.turn('turn_1', { message }))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    reply(h)
+    await turn.done
+    return turn.events.filter((event) => event.type !== 'session_updated')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+}
+
+// The shapes Claude Code 2.1.284 sends for `/context`: an assistant message of
+// its own making that nothing streams, then a result that repeats the output.
+const CONTEXT_OUTPUT = '## Context Usage\n\n**Tokens:** 9.7k / 1m (1%)'
+const localTwin = (command: string, text: string) => ({
+  type: 'assistant',
+  uuid: 'twin-1',
+  parent_tool_use_id: null,
+  local_command_source: `<local-command-stdout>${text}</local-command-stdout>`,
+  local_command_run: { command, args: '' },
+  message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text }] },
+})
+
+test('what a local command printed becomes the turn’s output, shown once', async () => {
+  const events = await commandTurn('/context', (h) => {
+    h.emit(localTwin('context', CONTEXT_OUTPUT))
+    h.emit(
+      success({ user_message_uuids: [h.uuidOf(0)], local_command: 'context', result: CONTEXT_OUTPUT, num_turns: 0 }),
+    )
+  })
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'command_output', 'turn_completed'],
+  )
+  assert.deepEqual(events[1]?.payload, { turnId: 'turn_1', command: 'context', output: CONTEXT_OUTPUT })
+})
+
+test('a local command reported only on its result, or as system output, still shows', async () => {
+  const onResult = await commandTurn('/usage', (h) => {
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], local_command: 'usage', result: 'Current session: 6% used' }))
+  })
+  assert.deepEqual(
+    onResult.filter((event) => event.type === 'command_output').map((event) => event.payload),
+    [{ turnId: 'turn_1', command: 'usage', output: 'Current session: 6% used' }],
+  )
+  const asSystem = await commandTurn('/usage', (h) => {
+    h.emit({
+      type: 'system',
+      subtype: 'local_command_output',
+      content: '<local-command-stdout>6% used</local-command-stdout>',
+    })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+  })
+  assert.deepEqual(
+    asSystem.filter((event) => event.type === 'command_output').map((event) => event.payload?.output),
+    ['6% used'],
+  )
+})
+
+test('/compact still marks the compaction, and what it printed is left to that divider', async () => {
+  const events = await commandTurn('/compact', (h) => {
+    h.emit({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'manual', pre_tokens: 180000, post_tokens: 20000 },
+    })
+    h.emit(localTwin('compact', 'Compacted'))
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], local_command: 'compact', result: 'Compacted' }))
+  })
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'context_compacted', 'turn_completed'],
+  )
+  assert.deepEqual(events[1]?.payload, { turnId: 'turn_1', trigger: 'manual', preTokens: 180000, postTokens: 20000 })
+})
+
+test('a /clear typed into the chat leaves a note that the model no longer has what came before', async () => {
+  const events = await commandTurn('/clear', (h) => {
+    h.emit({ type: 'conversation_reset', new_conversation_id: 'fresh', uuid: 'reset-1' })
+    h.emit({ ...init, session_id: 'fresh' })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)], session_id: 'fresh' }))
+  })
+  const note = events.find((event) => event.type === 'command_output')
+  assert.equal(note?.payload?.command, 'clear')
+  assert.equal(note?.payload?.adapterNote, true)
+  assert.equal(events.at(-1)?.type, 'turn_completed')
+})
+
+test("a live session's init publishes the folder's command list when it changed, and a push replaces it", async () => {
+  const cwd = '/Users/dev/live-commands'
+  publishConversationCommands({
+    cli: 'claude-code',
+    cwd,
+    commands: [{ name: 'compact', description: 'Free up context', source: 'cli' }],
+  })
+  const published: string[][] = []
+  const stop = onConversationCommandsChanged((catalog) => {
+    if (catalog.cwd === cwd) published.push(catalog.commands.map((command) => command.name))
+  })
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession(h.turn('turn_1', { workspaceRoot: cwd }))
+    const turn = reader(
+      (await h.adapter.sendTurn(h.turn('turn_1', { workspaceRoot: cwd }))) as AsyncIterable<ConversationEvent>,
+    )
+    await promptsRead(h.prompts, 1)
+    const liveInit = { ...init, slash_commands: ['compact', 'mcp__docs__summarise', 'color'], skills: [] }
+    h.emit(liveInit)
+    // Every exchange repeats its init; the same names are not news.
+    h.emit(liveInit)
+    h.emit({
+      type: 'system',
+      subtype: 'commands_changed',
+      commands: [
+        { name: 'compact', description: 'Free up context', argumentHint: '', builtin: true },
+        { name: 'fresh', description: 'New', argumentHint: '' },
+      ],
+    })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await turn.done
+    assert.deepEqual(published, [
+      ['compact', 'mcp__docs__summarise'],
+      ['compact', 'fresh'],
+    ])
+    // The known row kept its description through the init.
+    assert.equal(conversationCommandsFor('claude-code', cwd).commands[0]?.description, 'Free up context')
+    // Nothing of it went into the transcript.
+    assert.equal(
+      turn.events.some((event) => JSON.stringify(event).includes('mcp__docs__summarise')),
+      false,
+    )
+  } finally {
+    stop()
+    await h.adapter.disposeAll()
+  }
+})
+
+test("a chat with skills attached keeps its own command list out of the folder's", async () => {
+  const cwd = '/Users/dev/attached-commands'
+  const published: unknown[] = []
+  const stop = onConversationCommandsChanged((catalog) => {
+    if (catalog.cwd === cwd) published.push(catalog)
+  })
+  const h = scriptedHarness()
+  try {
+    const input = h.turn('turn_1', { workspaceRoot: cwd, skills: ['acme:deploy'] })
+    await h.adapter.startSession(input)
+    const turn = reader((await h.adapter.sendTurn(input)) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit({ ...init, slash_commands: ['acme:deploy'] })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await turn.done
+    assert.deepEqual(published, [])
+  } finally {
+    stop()
+    await h.adapter.disposeAll()
+  }
 })

@@ -61,3 +61,12 @@ test('a late continuation turn does not take over as the reply that stays open',
   expect(latestReplyTurnId([reply('legacy')])).toBe('legacy')
   expect(latestReplyTurnId([])).toBeUndefined()
 })
+
+test('a fold counts the steps inside it that went wrong', () => {
+  expect(deriveTurnFold(entry, tools, false)?.failed).toBe(0)
+  const failed: TranscriptToolEntry[] = [
+    { ...tools[0], toolKind: 'command', exitCode: 2 },
+    { ...tools[1], outputStatus: 'error' },
+  ]
+  expect(deriveTurnFold(entry, failed, false)?.failed).toBe(2)
+})

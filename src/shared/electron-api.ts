@@ -172,6 +172,8 @@ import type {
   ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -179,6 +181,8 @@ import type {
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
+  ConversationAttachmentInput,
+  ConversationAttachmentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -187,6 +191,8 @@ import type {
   ConversationTurnDiffResult,
   ConversationRevertInput,
   ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
@@ -224,6 +230,8 @@ export type {
 } from './version-control'
 import type { SprintEngineAuthState } from './ipc/account'
 import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
+import type { ConversationCommandsRequest } from './ipc/conversation-commands'
+import type { ConversationCommandCatalog } from './conversation/commands'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -360,7 +368,6 @@ import type {
   MemoryPreviewResult,
   MemoryRootStatus,
 } from './ipc/memory'
-import type { IntegrationRemovalOptions, IntegrationRemovalPlan, IntegrationRemovalReport } from './integration-removal'
 import type { WorkspaceBackupPayload, WorkspaceBackupReadResult } from './ipc/workspace-backup'
 import type {
   AgentSkillWriteInput,
@@ -402,6 +409,7 @@ import type {
   PluginRegistryListResult,
   StudioPluginStatus,
 } from './ipc/studio-plugin'
+import type { StudioAreaSkillChoices, StudioAreaSkillId } from './studio-area-skills'
 import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
@@ -936,12 +944,19 @@ export type ElectronApi = {
    * holds. Read-only — the built-in plugin has no Install and no Remove.
    */
   studioPluginStatus: (input: { workspaceRoot: string | null }) => Promise<StudioPluginStatus>
-  /** What Studio wrote outside its own data, grouped for the Remove integrations confirmation. */
-  integrationsPlan: (options: IntegrationRemovalOptions) => Promise<IntegrationRemovalPlan>
-  /** Take it back out, and say what happened to each entry. */
-  integrationsRemove: (options: IntegrationRemovalOptions) => Promise<IntegrationRemovalReport>
-  /** Quit Studio after a removal, so nothing writes an integration back before the uninstall. */
-  integrationsQuitApp: () => Promise<void>
+  /**
+   * The built-in plugin's area skills, opted into one by one and machine-wide
+   * (shared/studio-area-skills.ts). A change installs into, or takes out of,
+   * every workspace, and is pushed through `onStudioAreaSkillsChanged`.
+   */
+  studioAreaSkillsGet: () => Promise<StudioAreaSkillChoices>
+  studioAreaSkillsSetEnabled: (input: {
+    skillId: StudioAreaSkillId
+    enabled: boolean
+  }) => Promise<StudioAreaSkillChoices>
+  /** Turn a surface's suggestion down; the skill stays a switch in Settings. */
+  studioAreaSkillsDismiss: (input: { skillId: StudioAreaSkillId }) => Promise<StudioAreaSkillChoices>
+  onStudioAreaSkillsChanged: (cb: (choices: StudioAreaSkillChoices) => void) => () => void
   pluginsList: () => Promise<PluginRegistryListResult>
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
@@ -981,6 +996,9 @@ export type ElectronApi = {
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
+  // The line a plain terminal on this machine runs to sign a chat's CLI back
+  // in, resolved to the executable the conversation provider runs.
+  conversationProviderSignIn: (input: ConversationProviderSignInInput) => Promise<ConversationProviderSignInResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>
@@ -1003,9 +1021,15 @@ export type ElectronApi = {
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
   conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
+  // The bytes of an image a sent turn carried, by the store reference its
+  // `user_message` recorded — for a bubble replayed after a restart.
+  conversationAttachment: (input: ConversationAttachmentInput) => Promise<ConversationAttachmentResult>
   conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
   conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
   conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
+  // Take the conversation back to before one of its user messages ("Edit from
+  // here"); gated on the provider's `rewind` capability.
+  conversationRewindToTurn: (input: ConversationRewindInput) => Promise<ConversationRewindResult>
   conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
   conversationThreads: (input: ConversationWorkspaceKey) => Promise<ConversationThreadsResult>
   conversationSearch: (input: ConversationSearchInput) => Promise<ConversationSearchResult>
@@ -1289,6 +1313,10 @@ export type ElectronApi = {
   // produced, whoever asked, and returns the unsubscribe.
   cliModelsDiscover: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
   onCliModelsChanged: (cb: (result: CliModelDiscoveryResult) => void) => () => void
+  // A chat composer's slash commands for one CLI in one folder, and every
+  // list main hears afterwards (src/main/conversation-commands).
+  conversationCommands: (input: ConversationCommandsRequest) => Promise<ConversationCommandCatalog>
+  onConversationCommandsChanged: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

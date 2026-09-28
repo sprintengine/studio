@@ -417,3 +417,32 @@ export function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string,
 
 // getTerminalSessionsSignature moved to ../../hooks/useTerminalSessions to avoid
 // an import cycle (the hook now uses it internally to dedupe no-op broadcasts).
+
+// The prompts a chat agent's sessions have not yet offered to the auto-titler,
+// in the order they were sent. A chat has no `UserPromptSubmit` hook, so its
+// runtime summary is the one place that knows what the person asked — whether
+// they typed it here, or it came from a paired device through the same runtime.
+//
+// The first message goes before the last so a chat reopened after a restart is
+// named after what it was started for, not whatever it was last asked. The
+// store action no-ops once a name is locked and skips a prompt with no usable
+// title (filler, an image-only turn's empty text), so a later message still
+// gets its turn; this only has to avoid offering the same text twice.
+// `offered` holds the last text offered per session and is updated in place.
+export function conversationTitleOffers(
+  sessions: readonly ConversationSessionSummary[],
+  offered: Map<string, string>,
+): Array<{ workspaceId: string; prompt: string }> {
+  const offers: Array<{ workspaceId: string; prompt: string }> = []
+  for (const session of sessions) {
+    const previous = offered.get(session.sessionId)
+    const candidates = previous === undefined ? [session.firstUserText, session.lastUserText] : [session.lastUserText]
+    for (const text of candidates) {
+      if (typeof text !== 'string' || !text.trim()) continue
+      if (text === offered.get(session.sessionId)) continue
+      offered.set(session.sessionId, text)
+      offers.push({ workspaceId: session.workspaceId, prompt: text })
+    }
+  }
+  return offers
+}

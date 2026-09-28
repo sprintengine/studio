@@ -8,7 +8,7 @@ test('NewAgentPanel', async () => {
   // because the acceptance is about what a person sees and presses:
   //
   //   1. the row shows what a launch usually changes — engine and access — while
-  //      role, worktree, reasoning and debug stay behind the ⋯ menu until set;
+  //      role, worktree and reasoning stay behind the ⋯ menu until set;
   //   2. the invocation main renders rides Start's hover, not a line of chrome;
   //   3. Start hands the host a confirm plus the typed prompt — and creates
   //      nothing itself;
@@ -295,8 +295,6 @@ test('NewAgentPanel', async () => {
             workspaceId: 'ws-1',
             initialSelection: { kind: 'general' },
             permissionPreset: 'none',
-            debugMode: false,
-            onChangeDebugMode: () => {},
             onLaunch: (launch: Record<string, unknown>) => launches.push(launch),
             onClose: () => {
               closes += 1
@@ -355,7 +353,7 @@ test('NewAgentPanel', async () => {
 
       assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
       assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
-      assert.ok(!/debug/i.test(text), 'nor is debug')
+      assert.ok(!/debug/i.test(text), 'and Debug Mode is gone entirely')
 
       // The command line is not printed under the box any more.
       assert.ok(!text.includes(PREVIEW_DISPLAY), 'the invocation is not a line of chrome')
@@ -385,7 +383,6 @@ test('NewAgentPanel', async () => {
         'none',
         'and forwarded the approval preset, so the line moves when the chip does',
       )
-      assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
 
       view.unmount()
 
@@ -442,7 +439,7 @@ test('NewAgentPanel', async () => {
     //     things. The Role control left with the identity picker it belonged to;
     //     reasoning effort moved into the model's own picker, where it is a
     //     property of the model.
-    await check('the ⋯ menu holds worktree and debug, and nothing else', async () => {
+    await check('the ⋯ menu holds the launch kind and worktree, and nothing else', async () => {
       seedStore()
       const view = await render()
       const more = [...view.container.querySelectorAll('button')].find(
@@ -456,15 +453,13 @@ test('NewAgentPanel', async () => {
       const menuText = menu?.textContent ?? ''
       assert.ok(menuText.includes('Worktree'), 'worktree is a row')
       assert.ok(menuText.includes('Off'), 'showing its current value')
-      assert.ok(menuText.includes('Debug mode'), 'and debug')
+      assert.ok(!/debug/i.test(menuText), 'Debug Mode is gone from the menu')
       // The kind of thing being launched lives here too — the only surface that
       // starts a plain shell or a conversation agent.
       assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
       assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
       assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
       assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
-      // Debug is about the user's software, not the agent.
-      assert.ok(/instruments your code/i.test(menuText), `debug says what it actually does; got: ${menuText}`)
 
       // Worktree expands in place to type its branch — the click that turns it on
       // is the click that starts typing.
@@ -698,6 +693,19 @@ test('NewAgentPanel', async () => {
         'the picked CLI maps onto its conversation provider; its own default model asks for none',
       )
       view.unmount()
+    })
+
+    await check('a chat prompt has no terminal caret; a CLI launch keeps it', async () => {
+      const caret = (view: Awaited<ReturnType<typeof render>>) =>
+        view.container.querySelector('textarea')!.parentElement!.querySelector(':scope > svg')
+      seedStore()
+      const chatView = await render({ initialSelection: { kind: 'conversation' } })
+      assert.equal(caret(chatView), null, 'a chat is not a terminal')
+      chatView.unmount()
+      seedStore()
+      const cliView = await render({ initialSelection: { kind: 'general' } })
+      assert.ok(caret(cliView), 'a CLI launch still reads as a prompt')
+      cliView.unmount()
     })
 
     await check('with no CLI that can run as a chat, Chat agent offers the install route', async () => {
@@ -2761,6 +2769,51 @@ test('NewAgentPanel', async () => {
         textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
       })
       assert.equal(readNewChatDraft('win-1'), null, 'the tab-strip host has no draft')
+      view.unmount()
+    })
+
+    // ── Pasting an image's path ───────────────────────────────────────────────
+    // A screenshot tool puts the file's path on the clipboard, and that file is
+    // a temporary copy cleared minutes later: the paste reads the bytes then,
+    // and only an unreadable one is left as the text it was.
+    await check('an outside image path attaches; a project one or an unreadable one stays text', async () => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const readPaths: string[] = []
+      api.readImageDataUrl = async (path: string) => {
+        readPaths.push(path)
+        if (path.includes('gone')) throw new Error('ENOENT: no such file or directory')
+        return 'data:image/png;base64,iVBORw0K'
+      }
+      const view = await render()
+      const textarea = view.container.querySelector('textarea')!
+      const paste = async (text: string) => {
+        const event = new dom.window.Event('paste', { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'clipboardData', {
+          value: { items: [], files: [], types: ['text/plain'], getData: () => text },
+        })
+        await act(async () => {
+          textarea.dispatchEvent(event)
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+        return event
+      }
+      const attached = await paste("'/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'")
+      assert.equal(attached.defaultPrevented, true)
+      assert.deepEqual(readPaths, ['/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'])
+      assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'the image is on the box, not its path')
+      assert.equal(textarea.value, '')
+
+      await paste('/Users/dev/gone.png')
+      assert.equal(textarea.value, '/Users/dev/gone.png', 'an unreadable path is typed after all')
+      assert.match(view.container.textContent ?? '', /Could not attach gone\.png: the file no longer exists\./)
+
+      // An image of the project itself is a file the agent can open: the path
+      // is what the prompt is about, so it is typed like any other text.
+      readPaths.length = 0
+      const inProject = await paste('/proj/public/logo.png')
+      assert.equal(inProject.defaultPrevented, false, 'a project path is left to the default paste')
+      assert.deepEqual(readPaths, [])
+      delete api.readImageDataUrl
       view.unmount()
     })
 

@@ -6,6 +6,7 @@
 // fixture would keep passing while it did.
 
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -27,13 +28,17 @@ import {
   STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT,
   STUDIO_PLUGIN_SOURCE_ID,
   STUDIO_PLUGIN_WORKSPACE_DIR,
-  STUDIO_SKILLS_PLUGIN_ID,
   stripTemplateComments,
   studioClaudePluginKey,
   substituteStudioPluginTokens,
   type StudioPluginTokens,
 } from './studio-plugin'
 import { test } from 'vitest'
+import { STUDIO_AREA_SKILLS } from '../../shared/studio-area-skills'
+
+// Every area skill switched on: what an install wrote before they were opt-in,
+// and what the tests below that are about something else still assert on.
+const ALL_STUDIO_SKILLS = STUDIO_AREA_SKILLS.map((skill) => skill.id)
 
 test('stripTemplateComments drops $comment at every depth and leaves the rest alone', () => {
   const stripped = JSON.parse(
@@ -112,15 +117,13 @@ test('studio-plugin', async () => {
         `${entry.name} is listed at ${entry.source}, which holds no plugin manifest`,
       )
     }
-    // The workflow skills are the marketplace's OTHER plugin, and they are here:
-    // they moved out of `resources/skills` so one source answers for them in
-    // every catalogue (studio-marketplace ruling, 2026-09-06).
-    const workflow = await readdir(join(TEMPLATE_ROOT, STUDIO_SKILLS_PLUGIN_ID, 'skills'), { withFileTypes: true })
-    assert.equal(
-      workflow.filter((entry) => entry.isDirectory()).length,
-      9,
-      'the nine workflow skills ship inside the marketplace',
+    // Ours is the only plugin the marketplace holds. A `studio-skills` bundle
+    // sat beside it until 2026-09-28, and every Claude launch was handed it.
+    assert.deepEqual(
+      marketplace.plugins.map((entry) => entry.name),
+      [STUDIO_PLUGIN_ID],
     )
+    assert.equal(existsSync(join(TEMPLATE_ROOT, 'studio-skills')), false, 'nor is the bundle in the tree')
     // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
     // particular: the root `.gitignore` entry for the generated workspace config
     // is unanchored and matched this one too, which would have shipped a plugin
@@ -133,19 +136,10 @@ test('studio-plugin', async () => {
       )
     }
     const dirs = await listStudioPluginSkillDirs(read.template)
-    assert.equal(dirs.length >= 4, true, 'one skill per area: backlog, automations, workspaces, design system')
-    // …and ONLY those. The workflow skills live in the marketplace beside this
-    // plugin, not inside it, precisely so a workspace open does not install
-    // twelve general-purpose skills nobody asked for — and so `builtin-skills.ts`
-    // stays the one installer that owns those directories.
-    const workflowIds = new Set(workflow.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
-    for (const dirName of dirs) {
-      assert.equal(
-        workflowIds.has(dirName),
-        false,
-        `${dirName} is a workflow skill and must not install with the plugin`,
-      )
-    }
+    // One per area, and ONLY those: each is a switch in Settings, and nothing a
+    // prompt invokes (`debug`, `backlog`) is among them — `builtin-skills.ts`
+    // owns those, and hands them only to the launch that invokes them.
+    assert.deepEqual(dirs, [...STUDIO_AREA_SKILLS.map((skill) => skill.id)].sort())
   }
 
   async function aMissingTemplateIsNamedNotGuessed(): Promise<void> {
@@ -192,6 +186,7 @@ test('studio-plugin', async () => {
   async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents', 'claude'],
@@ -345,6 +340,7 @@ test('studio-plugin', async () => {
     )
 
     const first = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -355,6 +351,7 @@ test('studio-plugin', async () => {
     })
     assert.ok(first.ok, first.ok ? '' : first.message)
     const second = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -400,6 +397,7 @@ test('studio-plugin', async () => {
   async function anUnacknowledgedInstallStillShipsTheSkills(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -423,6 +421,7 @@ test('studio-plugin', async () => {
     const path = resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
     await writeFile(path, '{ "permissions": ', 'utf8')
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -445,6 +444,7 @@ test('studio-plugin', async () => {
   async function aMissingReporterStopsTheInstallBeforeItRegistersAnything(): Promise<void> {
     const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-noreporter-'))
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -463,6 +463,7 @@ test('studio-plugin', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-gone-'))
     await rm(workspace, { recursive: true, force: true })
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -474,6 +475,7 @@ test('studio-plugin', async () => {
     assert.equal(result.ok, false)
     assert.match(result.ok ? '' : result.message, /no longer exists/)
     const blank = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: '   ',
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -488,6 +490,7 @@ test('studio-plugin', async () => {
   async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     const first = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -500,6 +503,7 @@ test('studio-plugin', async () => {
     const victim = join(workspace, '.agents', 'skills', first.skillDirNames[0])
     await rm(victim, { recursive: true, force: true })
     const second = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -527,6 +531,7 @@ test('studio-plugin', async () => {
       agentStateReporterSourcePath: reporter,
       hooksAcknowledged: true,
       registerWithClaude: true,
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
     }
     const first = await installStudioPlugin(options)
     assert.ok(first.ok, first.ok ? '' : first.message)
@@ -576,6 +581,7 @@ test('studio-plugin', async () => {
   async function aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       // What the service passes once launch injection is live: the claude harness
@@ -669,6 +675,7 @@ test('studio-plugin', async () => {
 
     const { workspace, reporter } = await workspaceAndReporter()
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -700,6 +707,7 @@ test('studio-plugin', async () => {
       agentStateReporterSourcePath: reporter,
       hooksAcknowledged: true,
       registerWithClaude: true,
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
     }
     const path = resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)
     await mkdir(join(workspace, '.claude'), { recursive: true })
@@ -720,6 +728,7 @@ test('studio-plugin', async () => {
   async function everyMaterialisedFileIsFreeOfTokens(): Promise<void> {
     const { workspace, reporter } = await workspaceAndReporter()
     const result = await installStudioPlugin({
+      enabledSkillDirs: ALL_STUDIO_SKILLS,
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
       harnesses: ['agents'],
@@ -805,8 +814,106 @@ test('studio-plugin', async () => {
     assert.equal(studioPluginRowMatches(installed!, 'telegram'), false)
   }
 
+  async function skillDirsUnder(root: string): Promise<string[]> {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+  }
+
+  async function nothingChosenInstallsTheBridgeAndHookButNoSkill(): Promise<void> {
+    // The default on a fresh machine: an agent reaches the app, and is told
+    // nothing about how to use it until the person opts in.
+    const { workspace, reporter } = await workspaceAndReporter()
+    const result = await installStudioPlugin({
+      workspaceRoot: workspace,
+      templateRoot: TEMPLATE_ROOT,
+      harnesses: ['agents', 'claude'],
+      tokens: tokens(workspace),
+      agentStateReporterSourcePath: reporter,
+      hooksAcknowledged: true,
+      registerWithClaude: true,
+      enabledSkillDirs: [],
+    })
+    assert.ok(result.ok, result.ok ? '' : result.message)
+    assert.deepEqual(result.skillDirNames, [])
+    assert.deepEqual(await skillDirsUnder(join(workspace, SKILL_HARNESS_DIR.agents, 'skills')), [])
+    assert.deepEqual(await skillDirsUnder(join(workspace, SKILL_HARNESS_DIR.claude, 'skills')), [])
+    // The copy Claude Code loads natively carries no skill either…
+    assert.deepEqual(await skillDirsUnder(join(result.root, STUDIO_PLUGIN_ID, 'skills')), [])
+    // …but still carries the bridge, and the hook is still registered.
+    assert.equal(existsSync(join(result.root, STUDIO_PLUGIN_ID, '.mcp.json')), true)
+    assert.notEqual(result.hookSettingsPath, '')
+    await rm(workspace, { recursive: true, force: true })
+  }
+
+  async function onlyTheChosenSkillsInstall(): Promise<void> {
+    const { workspace, reporter } = await workspaceAndReporter()
+    const result = await installStudioPlugin({
+      workspaceRoot: workspace,
+      templateRoot: TEMPLATE_ROOT,
+      harnesses: ['agents'],
+      tokens: tokens(workspace),
+      agentStateReporterSourcePath: reporter,
+      hooksAcknowledged: true,
+      registerWithClaude: true,
+      // A name this build does not ship is ignored rather than failing the rest.
+      enabledSkillDirs: ['studio-backlog', 'studio-sprints'],
+    })
+    assert.ok(result.ok, result.ok ? '' : result.message)
+    assert.deepEqual(result.skillDirNames, ['studio-backlog'])
+    assert.deepEqual(await skillDirsUnder(join(workspace, SKILL_HARNESS_DIR.agents, 'skills')), ['studio-backlog'])
+    assert.deepEqual(await skillDirsUnder(join(result.root, STUDIO_PLUGIN_ID, 'skills')), ['studio-backlog'])
+    await rm(workspace, { recursive: true, force: true })
+  }
+
+  async function switchingOffTakesOnlyStudiosOwnUncommittedCopiesOut(): Promise<void> {
+    // The migration: a workspace an earlier build filled with every area skill,
+    // opened by a build where the person has chosen none. Studio's copies go —
+    // except one the repository committed, which is the project's now and
+    // whose removal would leave the checkout modified.
+    const { workspace, reporter } = await workspaceAndReporter()
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, stdio: 'ignore' })
+    git('init', '-q')
+    git('config', 'user.email', 'test@example.com')
+    git('config', 'user.name', 'Test')
+    const options = {
+      workspaceRoot: workspace,
+      templateRoot: TEMPLATE_ROOT,
+      harnesses: ['agents'] as const,
+      tokens: tokens(workspace),
+      agentStateReporterSourcePath: reporter,
+      hooksAcknowledged: true,
+      registerWithClaude: true,
+    }
+    const before = await installStudioPlugin({ ...options, enabledSkillDirs: ALL_STUDIO_SKILLS })
+    assert.ok(before.ok, before.ok ? '' : before.message)
+    const skillsRoot = join(workspace, SKILL_HARNESS_DIR.agents, 'skills')
+    const committed = join(skillsRoot, 'studio-canvas')
+    git('add', '--', join(SKILL_HARNESS_DIR.agents, 'skills', 'studio-canvas'))
+    git('commit', '-q', '-m', 'commit one Studio skill')
+    const usersOwn = join(skillsRoot, 'my-skill')
+    await mkdir(usersOwn, { recursive: true })
+    await writeFile(join(usersOwn, 'SKILL.md'), '---\nname: my-skill\n---\nmine\n', 'utf8')
+
+    const after = await installStudioPlugin({ ...options, enabledSkillDirs: ['studio-backlog'] })
+    assert.ok(after.ok, after.ok ? '' : after.message)
+    assert.deepEqual(after.warnings, [])
+    assert.deepEqual(
+      await skillDirsUnder(skillsRoot),
+      ['my-skill', 'studio-backlog', 'studio-canvas'],
+      'the chosen skill, the committed copy and the person’s own skill stay; every other Studio copy goes',
+    )
+    assert.equal((await readSkillProvenance(committed))?.sourceId, STUDIO_PLUGIN_SOURCE_ID)
+    await rm(workspace, { recursive: true, force: true })
+  }
+
   async function main(): Promise<void> {
     await theTemplateShipsAndNamesItself()
+    await nothingChosenInstallsTheBridgeAndHookButNoSkill()
+    await onlyTheChosenSkillsInstall()
+    await switchingOffTakesOnlyStudiosOwnUncommittedCopiesOut()
     await aMissingTemplateIsNamedNotGuessed()
     tokensAreSplicedSafely()
     aPluginDeclaringTwoCommandsIsRefused()

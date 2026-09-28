@@ -139,7 +139,6 @@ test('a Windows Codex launch script built on a plan carries no oversized argumen
     { command: '' },
     'none',
     undefined,
-    false,
     undefined,
     {},
     undefined,
@@ -191,7 +190,6 @@ test('no bundled CLI renders an argument over the platform budget, whatever it i
           sessionId: 'sid',
           resume,
           initialPrompt: prompt,
-          debugMode: true,
           contextFile: '/Users/dev/.config/sprintengine/host-context/sid.md',
           contextText,
         }
@@ -270,20 +268,6 @@ test('OpenCode takes an overflowed message as a documented file attachment, with
   assert.equal(unwritable.plan.overBudget, true)
 })
 
-test("Debug Mode's directive travels with the typed-in message", () => {
-  const prompt = pastedLog(200 * 1024)
-  const expected = renderAgentLaunchArgv({
-    cli: 'claude-code',
-    sessionId: 's',
-    initialPrompt: prompt,
-    debugMode: true,
-  }).prompt
-  const { plan } = silentPlan({ cli: 'claude-code', sessionId: 's', initialPrompt: prompt, debugMode: true }, LINUX)
-  assert.equal(plan.promptDelivery.kind, 'input')
-  assert.equal(plan.promptDelivery.kind === 'input' && plan.promptDelivery.text, expected)
-  assert.ok(expected && expected.length > prompt.length)
-})
-
 test("Grok's first message rides the command line after `--`, and an oversized one is typed in with updates off", () => {
   // A bare `grok version` runs the subcommand; with `--` in front the TUI opens
   // with it as the prompt (verified against 1.0.41), so a one-word message never
@@ -318,7 +302,7 @@ test('a resumed Claude Code session with a long message types it in too', () => 
 const SESSION_DIR = '/home/dev/.local/share/sprintengine-studio/sessions/abc123def456'
 const PID_DIR = '/run/user/1000/sprintengine/abc123def456/sessions'
 
-function launch(cwd: string, prompt: string, target?: Parameters<typeof getShellLaunchConfig>[15]) {
+function launch(cwd: string, prompt: string, target?: Parameters<typeof getShellLaunchConfig>[14]) {
   return getShellLaunchConfig(
     cwd,
     'sid-overflow',
@@ -331,7 +315,6 @@ function launch(cwd: string, prompt: string, target?: Parameters<typeof getShell
     undefined,
     undefined,
     undefined,
-    false,
     undefined,
     undefined,
     undefined,

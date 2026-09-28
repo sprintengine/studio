@@ -66,8 +66,9 @@ function defaultEnv(): Record<string, string> {
 }
 
 // An input stream with no turns in it. It ends when the probe is torn down, so
-// the SDK's reader is not left awaiting forever after close().
-function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
+// the SDK's reader is not left awaiting forever after close(). The command
+// probe (conversation-commands/claude.ts) asks its question the same way.
+export function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
   const ended = new Promise<void>((resolve) => {
     if (signal.aborted) resolve()
     else signal.addEventListener('abort', () => resolve(), { once: true })

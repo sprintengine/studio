@@ -10,9 +10,10 @@ import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
-import { registerIntegrationsIpc } from './ipc/integrations-ipc'
+import { registerStudioAreaSkillsIpc } from './ipc/studio-area-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
 import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
+import { registerConversationCommandsIpc } from './ipc/conversation-commands-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
@@ -80,12 +81,17 @@ export type CoreIpcOptions = {
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
 }
 
+/** What registration hands back for the app's shutdown to finish. */
+export type CoreIpcHandles = {
+  conversationCommands: { dispose(): Promise<void> }
+}
+
 export function registerCoreIpc(
   ipcMain: IpcMain,
   services: AppServices,
   diagnosticsEnabled: boolean,
   options: CoreIpcOptions = {},
-): void {
+): CoreIpcHandles {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -118,6 +124,10 @@ export function registerCoreIpc(
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
   registerCliModelDiscoveryIpc(ipcMain)
+  const conversationCommands = registerConversationCommandsIpc(ipcMain, {
+    userDataDir: app.getPath('userData'),
+    cliRuntimes: () => services.agentLaunchSettings.get().cliRuntimes,
+  })
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
@@ -127,7 +137,7 @@ export function registerCoreIpc(
   registerAuthIpc(ipcMain, services.sprintengineAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
-  registerIntegrationsIpc(ipcMain, services.integrationRemoval, () => app.quit())
+  registerStudioAreaSkillsIpc(ipcMain, services.studioAreaSkillStore)
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)
@@ -247,4 +257,5 @@ export function registerCoreIpc(
       return out
     },
   })
+  return { conversationCommands }
 }

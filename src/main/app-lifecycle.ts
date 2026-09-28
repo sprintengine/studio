@@ -3,7 +3,7 @@ import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
-import { runBootDiscovery } from './boot-discovery'
+import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
 import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
@@ -62,11 +62,22 @@ type RegisterAppLifecycleOptions = {
     /** Persist the debounced workspace registry write before the app exits. */
     flush(): Promise<void>
   }
+  /**
+   * Takes back out the hooks, MCP entries and launcher the app writes into
+   * repositories and CLI configuration, which it writes again when next needed:
+   * so deleting the app leaves none of them behind. Once no agent is running.
+   */
+  removeSessionIntegrations?: () => Promise<void>
   // The Canvas pane's service: it holds a board mid-write (temp file, then a
   // rename), a directory watcher per open board, and a hidden worker window.
   // Quitting between those two fs calls would leave a stray temp file in the
   // person's project, so its own dispose waits for the write to land.
   canvasService?: {
+    dispose(): Promise<void>
+  }
+  // The composer's command lists: the last good one per CLI and folder waits
+  // a moment before it is written, so quit writes what is still pending.
+  conversationCommands?: {
     dispose(): Promise<void>
   }
   // The conversation pull request record (epic `pull-request-marks`). It holds
@@ -105,12 +116,19 @@ type RegisterAppLifecycleOptions = {
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
   /**
-   * Opens the gate on the boot jobs nothing on screen needs (the plugin-home
-   * copy, the git probe, the first plugin install into open workspaces).
-   * Called once the main window reveals, so they never compete with the
-   * renderer's first load.
+   * Opens the gate on the boot jobs nothing on screen needs (the git probe and
+   * the rest). Called once the main window reveals, so they never compete with
+   * the renderer's first load. It also starts the workspace sync, should
+   * `prepareWorkspacesAtBoot` not have.
    */
   startDeferredBootJobs?: () => void
+  /**
+   * The workspace sync: the launcher, the app's plugin home, and the pass over
+   * every known workspace (the Studio skills chosen, the retired ones taken
+   * out). Started as the loading screen goes up; the reveal waits for it for at
+   * most `BOOT_WORKSPACE_SYNC_BUDGET_MS`, and it carries on past that.
+   */
+  prepareWorkspacesAtBoot?: () => Promise<unknown>
 }
 
 // How long after boot CLI detection settles the first model discovery pass
@@ -125,7 +143,9 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  removeSessionIntegrations,
   canvasService,
+  conversationCommands,
   pullRequestRecord,
   analytics,
   moduleKernel,
@@ -134,6 +154,7 @@ export function registerAppLifecycle({
   backgroundMode,
   checkPluginSourceUpdates,
   startDeferredBootJobs,
+  prepareWorkspacesAtBoot,
   onAgentAttentionReady,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
@@ -268,9 +289,31 @@ export function registerAppLifecycle({
         startBootJobsAfterReveal()
       },
     })
+    // The workspace sync, while the plate is up. The reveal waits for whichever
+    // comes first of the sync finishing and its budget running out — never
+    // longer — and the sync keeps going in the background past the budget,
+    // exactly as it ran before it moved here. BootReveal's own hard timeout
+    // still stands over all of it.
+    const workspacesPrepared = prepareWorkspacesAtBoot
+      ? settleWithin(prepareWorkspacesAtBoot(), BOOT_WORKSPACE_SYNC_BUDGET_MS)
+      : Promise.resolve('settled' as const)
+    void workspacesPrepared.then((outcome) => {
+      markStartup('main.workspaces-prepared')
+      if (outcome === 'timed-out') {
+        void writeDiagnosticLog({
+          level: 'info',
+          source: 'workspace',
+          title: 'Workspace sync continued after startup',
+          message: `Preparing workspaces took longer than ${BOOT_WORKSPACE_SYNC_BUDGET_MS / 1000} s, so the app opened and it carried on in the background.`,
+        }).catch(() => undefined)
+      }
+    })
+
     // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
     // reveal that has already happened.
-    ipcMain.once('app:boot-complete', () => bootReveal.trigger())
+    ipcMain.once('app:boot-complete', () => {
+      void workspacesPrepared.then(() => bootReveal.trigger())
+    })
     // A renderer that dies before its first frame never sends the signal, and
     // the window it was going to reveal is hidden. The timeout inside
     // createBootReveal is the only thing between that and a Force Quit, so cover
@@ -282,6 +325,7 @@ export function registerAppLifecycle({
     // probe delays a warmed cache and never the app.
     void runBootDiscovery({
       onProgress: sendSplashProgress,
+      ...(prepareWorkspacesAtBoot ? { prepareWorkspaces: () => workspacesPrepared } : {}),
       // The one detection of this machine's CLIs a launch makes (Re-check in
       // Settings is the only other), with the commands the person set, so the
       // renderer's first read is answered from it. What it finds schedules the
@@ -454,10 +498,13 @@ export function registerAppLifecycle({
   //  4. What the terminal legs fed: captured pull requests. Then the chat
   //     sessions' own stop, the canvas's in-flight write, and the registry
   //     once more for anything the legs above changed.
-  //  5. What costs nothing if lost: the WSL helpers (they exit when this
+  //  5. The integrations the app writes into repositories, now that no agent
+  //     it launched is left to run them (a cut-short removal resumes next quit).
+  //  6. What costs nothing if lost: the WSL helpers (they exit when this
   //     process's end closes their stdin), telemetry's network send, and the
   //     module kernel's own shutdown.
   let shutdownRun: Promise<void> | null = null
+  let leavingForUpdate = false
   // Who hears about each leg as it finishes: "Restart to update" passes one in,
   // which drives the progress window and the diagnostics timings. Joined late
   // (the shutdown already running), it still hears the legs that are left.
@@ -501,7 +548,12 @@ export function registerAppLifecycle({
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationRuntime?.shutdown()],
       ['canvas', () => canvasService?.dispose()],
+      ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
+      // Not when leaving for an update: the new build starts straight away and
+      // writes them back, and the installer's time limit is better spent on
+      // the legs after this one.
+      ['integrations', () => (leavingForUpdate ? undefined : removeSessionIntegrations?.())],
       // Each WSL helper is told to shut down (it would also go on its own when
       // this process's end closes its stdin).
       ['WSL helpers', () => hostRegistry().dispose()],
@@ -559,6 +611,7 @@ export function registerAppLifecycle({
   })
 
   updateService.setPrepareForInstall(async (report) => {
+    if (!shutdownRun) leavingForUpdate = true
     const run = runShutdown(report)
     let bounded: NodeJS.Timeout | undefined
     await Promise.race([

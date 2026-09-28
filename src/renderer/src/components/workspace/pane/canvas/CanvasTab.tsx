@@ -12,6 +12,7 @@ import { CanvasBoardPicker } from './CanvasBoardPicker'
 import { CanvasExportDialog } from './CanvasExportDialog'
 import { canvasExportedToast, type CanvasBoardExporter, type CanvasExportFormats } from './canvasExport'
 import { canvasPushMatchesBoard, shouldApplyCanvasPush } from './canvasSync'
+import { StudioSkillSuggestion } from '../../../studioSkills/StudioSkillSuggestion'
 
 // The Canvas tab: the board's lifecycle, the board actions, and the picker a
 // tab with no board yet shows.
@@ -257,48 +258,58 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   // the space the editor already spends: the board actions are items at
   // the top of its own menu, and an agent's presence is a badge in its
   // top-right corner.
+  //
+  // The one line allowed above it is the Canvas skill's offer, shown until the
+  // person answers it once (StudioSkillSuggestion); the host is measured, so the
+  // editor takes the height back when it goes.
   return (
-    <div ref={hostRef} className="relative h-full w-full bg-[color:var(--bg-app)]">
-      {state.kind === 'error' ? (
-        <EmptyState
-          title="This board could not be opened"
-          body={state.message}
-          action={<PrimaryButton onClick={() => setAttempt((n) => n + 1)}>Try again</PrimaryButton>}
-        />
-      ) : state.kind === 'loading' || !sized ? (
-        <SuspenseFallback label="Opening the board" />
-      ) : (
-        // `se-canvas` is the wrapper canvasTheme.css maps the editor's own
-        // variables onto our tokens under. Keyed on the board so switching to
-        // another one builds a new editor rather than re-pointing this one:
-        // the scene, the undo stack and the viewport all belong to a board.
-        <div className="se-canvas absolute inset-0">
-          <React.Suspense fallback={<SuspenseFallback label="Loading the canvas" />}>
-            <CanvasEditor
-              key={path}
-              workspaceId={workspaceId}
-              path={path}
-              initial={state.board}
-              name={name}
-              theme={theme}
-              active={active}
-              presence={presence}
-              onSwitchBoard={switchBoard}
-              onRevealFile={workspaceRoot ? revealFile : null}
-              onCopyPath={copyPath}
-              onExport={openExport}
-            />
-          </React.Suspense>
-        </div>
-      )}
-      <CanvasExportDialog
-        open={exportOpen}
-        boardName={name}
-        pending={exportPending}
-        error={exportError}
-        onCancel={cancelExport}
-        onExport={(formats) => void runExport(formats)}
+    <div className="flex h-full w-full flex-col">
+      <StudioSkillSuggestion
+        skillId="studio-canvas"
+        className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
       />
+      <div ref={hostRef} className="relative min-h-0 w-full flex-1 bg-[color:var(--bg-app)]">
+        {state.kind === 'error' ? (
+          <EmptyState
+            title="This board could not be opened"
+            body={state.message}
+            action={<PrimaryButton onClick={() => setAttempt((n) => n + 1)}>Try again</PrimaryButton>}
+          />
+        ) : state.kind === 'loading' || !sized ? (
+          <SuspenseFallback label="Opening the board" />
+        ) : (
+          // `se-canvas` is the wrapper canvasTheme.css maps the editor's own
+          // variables onto our tokens under. Keyed on the board so switching to
+          // another one builds a new editor rather than re-pointing this one:
+          // the scene, the undo stack and the viewport all belong to a board.
+          <div className="se-canvas absolute inset-0">
+            <React.Suspense fallback={<SuspenseFallback label="Loading the canvas" />}>
+              <CanvasEditor
+                key={path}
+                workspaceId={workspaceId}
+                path={path}
+                initial={state.board}
+                name={name}
+                theme={theme}
+                active={active}
+                presence={presence}
+                onSwitchBoard={switchBoard}
+                onRevealFile={workspaceRoot ? revealFile : null}
+                onCopyPath={copyPath}
+                onExport={openExport}
+              />
+            </React.Suspense>
+          </div>
+        )}
+        <CanvasExportDialog
+          open={exportOpen}
+          boardName={name}
+          pending={exportPending}
+          error={exportError}
+          onCancel={cancelExport}
+          onExport={(formats) => void runExport(formats)}
+        />
+      </div>
     </div>
   )
 }

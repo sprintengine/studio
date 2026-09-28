@@ -9,6 +9,7 @@ import type {
   ConversationToolDetailResult,
   ConversationJsonValue,
 } from '../shared/conversation-runtime'
+import { normalizeApiKeySource } from '../shared/conversation/apiKeySource'
 
 const MAX_DETAIL_BYTES = 5 * 1024 * 1024
 const HEAD_BYTES = 1024 * 1024
@@ -22,11 +23,19 @@ export function toolOutputStreamPath(detailPath: string): string {
   return detailPath.replace(/\.json$/, '.output')
 }
 
-/** The same key-based redaction applies to transcript envelopes and tool details. */
+/**
+ * The same key-based redaction applies to transcript envelopes and tool details.
+ * `apiKeySource` names where a credential came from, never the credential.
+ * Redacted, it read back from disk as a source the chat did not know, and the
+ * API-key warning showed on every session reloaded from its transcript.
+ */
 export function redactConversationValue<T>(value: T): T {
   return JSON.parse(
     JSON.stringify(value, (key, entry) => {
-      if (key === 'inputTokens' || key === 'outputTokens' || key === 'totalTokens') return entry
+      // A count of tokens is a number and never a credential: usage and the
+      // compaction row's before/after sizes all end in `Tokens`.
+      if (/tokens$/i.test(key) && typeof entry === 'number') return entry
+      if (key === 'apiKeySource') return normalizeApiKeySource(entry) ?? '[redacted]'
       return /secret|token|api[-_]?key|authorization/i.test(key) ? '[redacted]' : entry
     }),
   ) as T

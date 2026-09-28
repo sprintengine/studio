@@ -93,6 +93,11 @@ test('app-lifecycle', async () => {
           order.push('analytics.shutdown')
         },
       },
+      // A plain quit's, once no agent the app launched is left to run what it
+      // takes out; never an update's.
+      removeSessionIntegrations: async () => {
+        order.push('integrations.remove')
+      },
       // REVIEW FIX (finding 8). The record was created with the app and never
       // flushed or disposed: a pull request captured in the last seconds before
       // quit was lost with the unwritten store, and its watch timers outlived
@@ -150,6 +155,7 @@ test('app-lifecycle', async () => {
       'conversation.shutdown',
       'canvas.dispose',
       'workspaceSync.flush',
+      // Not the integrations' removal: the new build writes them straight back.
       'analytics.shutdown',
     ])
 

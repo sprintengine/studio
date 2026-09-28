@@ -6,6 +6,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
+import { ChatAppearanceRows } from './ChatAppearanceRows'
 import { effectiveWindowMaterial, type WindowMaterial } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
@@ -36,8 +37,10 @@ import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MachinesSettingsTab } from './MachinesSettingsTab'
+import { SettledChatsSettingsTab } from './SettledChatsSettingsTab'
 import { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } from './AgentClisSection'
 import { ConversationApprovalSettings } from './ConversationApprovalSettings'
+import { StudioSkillsSettings } from './StudioSkillsSettings'
 import {
   agentsMachines,
   lastAgentsMachine,
@@ -79,6 +82,7 @@ import {
   ModulesSettingsIcon,
   RemoteSettingsIcon,
   MachinesSettingsIcon,
+  SettledChatsSettingsIcon,
   FolderPlusIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
@@ -88,7 +92,6 @@ import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry
 import { TicketTrackersTab } from './TicketTrackersTab'
 import { UpdateChannelSettings } from './UpdateChannelSettings'
 import { AppVersionRow } from './AppVersionRow'
-import { RemoveIntegrationsSection } from './RemoveIntegrationsSection'
 import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
 import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
@@ -126,6 +129,7 @@ type SettingsTabId =
   | 'profile'
   | 'appearance'
   | 'shortcuts'
+  | 'settled-chats'
   | 'modules'
   | 'github'
   | 'trackers'
@@ -151,6 +155,9 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'profile', label: 'Profile', icon: ProfileSettingsIcon },
   { id: 'appearance', label: 'Appearance', icon: AppearanceSettingsIcon },
   { id: 'shortcuts', label: 'Shortcuts', icon: ShortcutsSettingsIcon },
+  // The chats the sidebar no longer draws once they come to rest (owner,
+  // 2026-09-28): the Settled shelf moved here.
+  { id: 'settled-chats', label: 'Settled chats', icon: SettledChatsSettingsIcon },
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
   // Windows only: this PC and its WSL distributions, each a machine a
@@ -172,7 +179,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 // restate the rail's own grouping. Module-contributed
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
-  { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
+  { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts', 'settled-chats'] },
   { label: 'agents', ids: ['agents', 'providers', 'machines'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
   { label: 'companion', ids: ['remote'] },
@@ -205,6 +212,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'profile' ||
     value === 'appearance' ||
     value === 'shortcuts' ||
+    value === 'settled-chats' ||
     value === 'modules' ||
     value === 'github' ||
     value === 'trackers' ||
@@ -641,6 +649,18 @@ export default function SettingsPanel({
   // the next cog press would reopen on the tab you left rather than the one you
   // asked for. Harmless in the other chromes, which never read it.
   const doorBack = useSurfaceBackNav(onClose)
+  // Settled chats' Open: the chat becomes the active one and Settings gets out
+  // of the way. `setActiveWorkspace` clears the routed surfaces itself; the
+  // explicit close is what clears the request that opened this modal, so the
+  // next cog press does not reopen on this tab.
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  const openSettledChat = useCallback(
+    (id: string) => {
+      setActiveWorkspace(id)
+      onClose()
+    },
+    [setActiveWorkspace, onClose],
+  )
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -1271,6 +1291,7 @@ export default function SettingsPanel({
                   onChange={setChatListView}
                 />
               </SettingsRow>
+              <ChatAppearanceRows />
               {/* Where a file opens (owner ruling 2026-09-25). The editor
                   window is the default: the file on its own, with a tree
                   beside it that says where it lives. The in-app tab stays a
@@ -1373,8 +1394,6 @@ export default function SettingsPanel({
               />
             ) : null}
           </SettingCard>
-
-          <RemoveIntegrationsSection />
         </div>
       ) : null}
 
@@ -1529,6 +1548,7 @@ export default function SettingsPanel({
             updateBadgeClis={updateBadges.clis[agentsMachine.id] ?? NO_UPDATE_BADGE_CLIS}
           />
 
+          <StudioSkillsSettings />
           <TextGenerationSettingsSection />
           <ConversationApprovalSettings />
 
@@ -1631,6 +1651,8 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'shortcuts' ? <KeyboardShortcutsTab /> : null}
+
+      {activeSettingsTab === 'settled-chats' ? <SettledChatsSettingsTab onOpenChat={openSettledChat} /> : null}
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 

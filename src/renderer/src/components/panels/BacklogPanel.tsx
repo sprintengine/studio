@@ -141,6 +141,7 @@ import {
   EpicProgressMeter,
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
 import type {
   BacklogItemAction,
   BacklogItemActionContext,
@@ -1815,6 +1816,11 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
         {newPlanButton}
         {backlogOverflow}
       </div>
+
+      <StudioSkillSuggestion
+        skillId="studio-backlog"
+        className="shrink-0 border-b border-[color:var(--border-subtle)] px-3 py-2"
+      />
 
       {actionError ? (
         <div className="shrink-0 px-3 py-2">

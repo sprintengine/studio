@@ -1,10 +1,14 @@
 import { createContext, useContext } from 'react'
 
 import type {
+  ConversationAttachmentInput,
+  ConversationAttachmentResult,
   ConversationInterruptInput,
   ConversationLoadEarlierInput,
   ConversationPageResult,
   ConversationRespondToRequestInput,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationSendTurnInput,
   ConversationSessionFrame,
   ConversationSessionSummary,
@@ -63,6 +67,11 @@ export type ConversationTransportCapabilities = {
    * would be worse than none.
    */
   reportsPreset: boolean
+  /**
+   * Hand a message to a turn that is running (a steer), where the provider
+   * takes one. Without it, sending a queued message now stops the turn first.
+   */
+  steer: boolean
 }
 
 /** What an action answers: the local session API's result, or a remote command's. */
@@ -84,6 +93,18 @@ export type ConversationTransport = {
   setPermissionPreset(input: ConversationSetPermissionInput): Promise<ConversationTransportResult>
   /** Switch a running session's model; absent where the transport cannot. */
   setModel?(input: ConversationSetModelInput): Promise<ConversationTransportResult>
+  /**
+   * A sent image by the reference its `user_message` recorded. Absent for a
+   * remote conversation: the images are in the other machine's store, so a
+   * bubble there shows its images only while the send that carried them is live.
+   */
+  attachment?(input: ConversationAttachmentInput): Promise<ConversationAttachmentResult>
+  /**
+   * Take the conversation back to before one of its user messages ("Edit
+   * from here"). Absent where the transport cannot; offered only where the
+   * provider declares `rewind` as well.
+   */
+  rewind?(input: ConversationRewindInput): Promise<ConversationRewindResult>
 }
 
 const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
@@ -97,6 +118,7 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   localFiles: true,
   optimisticTurns: true,
   reportsPreset: true,
+  steer: true,
 }
 
 /** The conversation IPC, read off `window.api` at call time so a test's stub is the one used. */
@@ -112,6 +134,8 @@ const localConversationTransport: ConversationTransport = {
   respond: (input) => window.api.conversationSessionRespondToRequest(input),
   setPermissionPreset: (input) => window.api.conversationSessionSetPermission(input),
   setModel: (input) => window.api.conversationSessionSetModel(input),
+  attachment: (input) => window.api.conversationAttachment(input),
+  rewind: (input) => window.api.conversationRewindToTurn(input),
 }
 
 const ConversationTransportContext = createContext<ConversationTransport>(localConversationTransport)
@@ -152,6 +176,9 @@ export function createRemoteConversationTransport(input: {
       localFiles: false,
       optimisticTurns: false,
       reportsPreset: false,
+      // The Fleet's send carries the message alone; a steer would need the
+      // wire to say so, so a remote Send now stops the turn and sends after.
+      steer: false,
     },
     subscribe: (subscription, cb) =>
       window.api.onMeshConversationSession({ key, turnLimit: subscription.turnLimit }, (frame) => {

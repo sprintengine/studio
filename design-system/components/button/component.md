@@ -106,6 +106,42 @@ square is most of the square.
 is the shape a count or a "?" takes beside a heading, where a filled square would
 read as a control the heading does not have.
 
+### The copy glyph
+
+`CopyGlyphButton` is the icon step with one behaviour built in, and it is the
+only copy affordance: a code block's header, a message's action row, a table's
+footer and an error box all take it, and none of them spells the word "Copy". A
+word costs a label's width in chrome that repeats down a whole transcript, and
+it reads as a second action beside the content rather than a property of it.
+
+- **Idle** — the `copy` glyph on an icon step: `--icon-xs` (24px, with a 13px
+  glyph) in a dense header, the default `sm` (26px, 16px glyph) in a toolbar.
+  Neutral ink, the family's hover.
+- **Confirmed** — on a copy that *landed*, the glyph swaps to `check` in
+  `status.good` ink and holds for **1200ms**, then swaps back. No transition: it
+  is a state flip, and the hold is a timer rather than motion, so it takes no
+  duration token. A click while confirmed does nothing — the clipboard already
+  holds it, and re-arming would hold the check for as long as someone clicks.
+- **Failed** — never the check. The failure goes to the shared toast ("Could not
+  copy to clipboard"), because a copy that did not land must not look like one
+  that did. Success does **not** toast: the swap already happened under the
+  pointer, and a corner toast would be the same news twice, far from the eye.
+
+Accessibility: the accessible name is the label ("Copy code") and it never
+changes — renaming a focused button to "Copied" reads as a different control.
+The confirmation is announced instead, through a visually hidden, always-present
+polite live region whose text becomes "Copied". The tooltip carries the same
+label, as on every icon-only control.
+
+The whole control carries `data-copy-exclude`. It sits inside rendered
+conversation content, and the selection serialiser drops any subtree so marked,
+so a selection dragged across a code block copies the code and not its chrome.
+Its click does not bubble: a copy glyph lives in rows and cards that toggle on
+click, and copying something must not also collapse it.
+
+With an `html` flavour it writes `text/html` beside `text/plain`, and falls back
+to the plain text alone where the rich write is refused.
+
 ### Window caption buttons
 
 `ds-caption-button` — the window's own minimise, maximise/restore and close, on
@@ -294,7 +330,9 @@ entry, and the numbers here come from the tokens.
 `DangerButton`, `GhostButton`, `OutlineButton`, `IconButton`, `MediaButton`,
 `CaptionButton` and `CloseIconButton` — the last being the canonical close
 affordance named under Variants, exported separately so no surface has to re-pick
-the glyph or the label.
+the glyph or the label. `CopyGlyphButton`
+(`src/renderer/src/components/ui/CopyGlyphButton.tsx`) is the copy glyph above,
+built on `IconButton` for the same reason.
 
 The five shapes this family deliberately does **not** absorb each have an entry
 of their own, and each says why: [row-button](../row-button/component.md),

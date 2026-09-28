@@ -37,10 +37,8 @@ const PLUGIN_COPY: WslPluginCopy = {
   digest: 'ab'.repeat(32),
   tree: 'plugin-abc123def456',
   root: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456`,
-  pluginDirs: [
-    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio`,
-    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/studio-skills`,
-  ],
+  pluginDirs: [`${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio`],
+  skillPluginDirs: { backlog: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/launch-skills/backlog` },
   statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio/hooks/status-line.mjs`,
 }
 
@@ -316,6 +314,9 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
     '/home/dev/repo/x.mjs',
   )
   assert.deepEqual(integration.pluginDirs, PLUGIN_COPY.pluginDirs)
+  // The one-skill plugins travel with it, so a WSL launch that invokes
+  // `/backlog` is handed the distribution's own copy of that skill.
+  assert.deepEqual(integration.skillPluginDirs, PLUGIN_COPY.skillPluginDirs)
   // Hooks and the gateway run the distribution's own launcher, never the
   // pinned Node or this version's payload folder, which an update prunes.
   assert.deepEqual(integration.commandRuntime.launcher, {

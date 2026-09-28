@@ -11,6 +11,7 @@ import type {
   ConversationSetPermissionInput,
   ConversationTurnDiffInput,
   ConversationRevertInput,
+  ConversationRewindInput,
   ConversationListSessionsInput,
   ConversationToolDetailInput,
 } from '../shared/conversation-runtime'
@@ -30,6 +31,9 @@ export class ConversationSessionApi {
   }
   revertToTurn(input: ConversationRevertInput) {
     return this.runtime.revertToTurn(input)
+  }
+  rewindToTurn(input: ConversationRewindInput) {
+    return this.runtime.rewindToTurn(input)
   }
 
   subscribe(

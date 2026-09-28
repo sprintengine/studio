@@ -401,3 +401,54 @@ test('incremental deltas are substantially cheaper than full refolds', () => {
   const foldMs = performance.now() - start
   assert.ok(foldMs >= incrementalMs * 20, `incremental ${incrementalMs.toFixed(1)}ms, fold ${foldMs.toFixed(1)}ms`)
 })
+
+test('an interrupt without a turn id closes the open reasoning run in the incremental fold too', () => {
+  const events = [
+    event('user_message', 1, { turnId: 'a', text: 'Go' }),
+    event('turn_started', 2, { turnId: 'a' }),
+    event('turn_completed', 3, { turnId: 'a' }),
+    event('user_message', 4, { turnId: 'b', text: 'Again' }),
+    event('turn_started', 5, { turnId: 'b' }),
+    event('reasoning_delta', 6, { turnId: 'b', text: 'think' }),
+    event('turn_failed', 7, { reason: 'interrupted' }),
+    // A straggler after the interrupt must not count the thinking again.
+    event('content_delta', 9, { turnId: 'b', text: 'late' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), item.type)
+  }
+  const assistant = state.projection.entries.find((entry) => entry.kind === 'assistant' && entry.turnId === 'b')
+  assert.equal(assistant?.kind === 'assistant' && assistant.reasoningDurationMs, 10)
+})
+
+test('a second stretch of thinking after prose is live and starts its own paragraph', () => {
+  const events = [
+    event('turn_started', 1, { turnId: 'a' }),
+    event('reasoning_delta', 2, { turnId: 'a', text: 'Read the plan.' }),
+    event('content_delta', 3, { turnId: 'a', text: 'Here is the plan.' }),
+    event('reasoning_delta', 4, { turnId: 'a', text: 'Now the edge' }),
+    event('reasoning_delta', 5, { turnId: 'a', text: ' cases.' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  const live: (boolean | undefined)[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), item.type)
+    const entry = state.projection.entries.find((candidate) => candidate.kind === 'assistant')
+    live.push(entry?.kind === 'assistant' ? entry.reasoningLive : undefined)
+  }
+  assert.deepEqual(live, [undefined, true, undefined, true, true])
+  const assistant = state.projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(assistant?.kind === 'assistant' && assistant.reasoning, 'Read the plan.\n\nNow the edge cases.')
+  assert.equal(assistant?.kind === 'assistant' && assistant.reasoningDurationMs, 10)
+  const settled = applyEvent(state, event('turn_completed', 6, { turnId: 'a' }))
+  const done = settled.projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(done?.kind === 'assistant' && done.reasoningLive, undefined)
+  assert.equal(done?.kind === 'assistant' && done.reasoningDurationMs, 30)
+})

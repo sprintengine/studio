@@ -3170,6 +3170,170 @@ body:has([data-selection-pane]:focus-within)
   content: none;
 }
 
+/* A quote's paragraphs take the quote's ink. The paragraph class sets its own
+ * colour, which used to paint over the blockquote's muted one, so the quote
+ * read as body text beside a rule; and its last block's margin is the quote's
+ * edge, not a gap inside the rule. */
+.markdown-rendered blockquote p {
+  color: inherit;
+}
+
+.markdown-rendered blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Numbered markers take tabular figures, so "9." and "10." end on one edge. */
+.markdown-rendered ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The conversation scales' two inks (utils/markdown.tsx → chatScale). Body
+ * prose is one step under the strong ink that headings, `strong` and inline
+ * code take, which is what lets those stand out; a muted block (a reasoning
+ * trace) moves both down a step together and keeps the same contrast inside. */
+.markdown-rendered {
+  --markdown-ink: var(--text-default);
+  --markdown-ink-strong: var(--text-strong);
+}
+
+/* ── Chat width and chat contrast ───────────────────────────────────────────
+ * The chat's two appearance settings, stamped on <html> by
+ * hooks/useAppTheme.ts (applyChatAppearance) and read only here.
+ *
+ * Width caps the conversation column: the transcript and the composer, one
+ * measure, centred. The cap is drawn as a gutter, not as a narrower box — the
+ * scroller and the composer's row stay pane-wide and pad in to the column, so
+ * the scrollbar and the wheel target stay at the pane's edge and nothing that
+ * positions itself against the pane (the minimap, the jump pill) moves. Full is
+ * the pane itself, which leaves exactly the old inset. */
+:root {
+  --chat-max-width: 100%;
+}
+
+:root[data-chat-width='comfortable'] {
+  --chat-max-width: var(--sem-size-chat-column-comfortable);
+}
+
+:root[data-chat-width='wide'] {
+  --chat-max-width: var(--sem-size-chat-column-wide);
+}
+
+.chat-column-gutter {
+  padding-inline: max(var(--sem-space-xl), calc((100% - var(--chat-max-width)) / 2));
+}
+
+/* Contrast re-tones the chat pane's inks and nothing else — the transcript,
+ * the composer, everything inside [data-chat-pane]; the rail, menus and the
+ * rest of the app keep the theme's. The pane computes its inks from the
+ * theme's under its own names, and its children take the --text-* names from
+ * those, so every chat surface that already says --text-default follows with
+ * no change of its own. Two steps because an ink defined from itself on one
+ * element is a cycle. The pane's own colour is set here too: text with no
+ * colour of its own inherits it.
+ *
+ * Under 100 each ink keeps that share of itself against the chat's own
+ * background, which lowers every step of the ramp together. Over 100 each ink
+ * is pushed toward the far end of the lightness axis — white in a dark theme,
+ * black in a light one, read off the theme's strongest ink so no theme needs
+ * its own target — by the same share, so headings, `strong` and code keep
+ * their lift over body text. With the setting at its default none of this
+ * applies and the inks are the theme's own values, untouched. */
+:root[data-chat-contrast] [data-chat-pane] {
+  --chat-ink-target: oklab(from var(--text-strong) round(l, 1) 0 0);
+  --chat-text-strong: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-strong) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-default: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-default) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-muted: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-muted) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  --chat-text-subtle: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--text-subtle) var(--chat-contrast-keep, 100%), var(--agent-surface)),
+    var(--chat-ink-target) var(--chat-contrast-boost, 0%)
+  );
+  color: var(--chat-text-default);
+}
+
+:root[data-chat-contrast] [data-chat-pane] > * {
+  --text-strong: var(--chat-text-strong);
+  --text-default: var(--chat-text-default);
+  --text-muted: var(--chat-text-muted);
+  --text-subtle: var(--chat-text-subtle);
+}
+
+.markdown-rendered[data-tone="muted"] {
+  --markdown-ink: var(--text-muted);
+  --markdown-ink-strong: var(--text-default);
+}
+
+/* Conversation list rhythm: items a quarter-line apart and a nested list
+ * tucked under its item, so a list reads as one block rather than as a stack
+ * of paragraphs. Markers sit one ink step under the text they number, and a
+ * nested bullet changes shape so its level reads without counting indents. */
+.markdown-rendered[data-density] li + li {
+  margin-top: var(--sem-space-2xs);
+}
+
+.markdown-rendered[data-density] li > :is(ul, ol) {
+  margin-top: var(--sem-space-2xs);
+  margin-bottom: 0;
+}
+
+.markdown-rendered[data-density] li::marker {
+  color: var(--text-muted);
+}
+
+.markdown-rendered[data-density] ul ul:not(.contains-task-list) {
+  list-style-type: circle;
+}
+
+/* A task list has no markers, so its checkboxes take the gutter's place
+ * rather than sitting one empty gutter in from the prose. */
+.markdown-rendered[data-density] .contains-task-list {
+  padding-inline-start: 0;
+}
+
+/* A read's code block opened under its tool step sits in the step's panel slot,
+ * which spaces what it holds; the margins the block keeps between paragraphs of
+ * prose would push it a line away from the row that names the file. Written
+ * here rather than as a utility on the slot: the block's own rule is not in a
+ * cascade layer, so it outranks any utility. */
+[data-tool-step-body] > .ds-code-block {
+  margin-block: 0;
+}
+
+/* A table wider than the pane scrolls inside it, and the edge that hides
+ * columns fades out, so a cut-off table does not read as one that ends there.
+ * utils/markdown.tsx marks which edges hide content; the mask only takes alpha,
+ * so its stops are opacity, not colour. The fade appears and goes with the
+ * scroll position — nothing animates. */
+.markdown-table-scroll[data-overflow-start] {
+  --markdown-fade-start: var(--sem-space-3xl);
+}
+
+.markdown-table-scroll[data-overflow-end] {
+  --markdown-fade-end: var(--sem-space-3xl);
+}
+
+.markdown-table-scroll:is([data-overflow-start], [data-overflow-end]) {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--markdown-fade-start, 0px),
+    black calc(100% - var(--markdown-fade-end, 0px)),
+    transparent
+  );
+}
+
 /* Glass window material (macOS vibrancy; data-window-material="glass" is
  * stamped by the index.html boot script and useAppTheme). The OS composites
  * the frost from the desktop behind the window, so this costs nothing per

@@ -25,6 +25,8 @@ import type {
   ConversationImageAttachment,
   ConversationInterruptInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
   ConversationRespondToRequestInput,
@@ -39,6 +41,7 @@ import type {
   ConversationTranscriptResult,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
+  ConversationAttachmentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -47,6 +50,8 @@ import type {
   ConversationTurnDiffResult,
   ConversationRevertInput,
   ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
@@ -60,6 +65,7 @@ import {
 import { ConversationRuntime } from '../conversation-runtime'
 import { ConversationSessionApi } from '../conversation-session-api'
 import { detectCli } from '../cli-runtime-install'
+import { resolveConversationSignIn } from '../conversation-sign-in'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
 import { listOpenAiCompatibleModels } from '../providers/openai-compatible-provider'
 import { getSharedCredentialStore } from '../secret-store'
@@ -77,6 +83,7 @@ export type ConversationIpcHandlers = {
   deleteThread?(input: ConversationTranscriptInput): Promise<{ ok: true } | { ok: false; message: string }>
   listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
   listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
+  resolveSignIn?(input: ConversationProviderSignInInput): Promise<ConversationProviderSignInResult>
   getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
   setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
   clearSecret(input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>
@@ -90,6 +97,7 @@ export type ConversationIpcHandlers = {
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
+  readAttachment?(ref: string): Promise<ConversationAttachmentResult>
   subscribe?(
     input: ConversationSubscribeInput,
     listener: (frame: ConversationSessionFrame) => void,
@@ -97,6 +105,7 @@ export type ConversationIpcHandlers = {
   loadEarlier?(input: ConversationLoadEarlierInput): Promise<ConversationPageResult>
   getTurnDiff?(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
   revertToTurn?(input: ConversationRevertInput): Promise<ConversationRevertResult>
+  rewindToTurn?(input: ConversationRewindInput): Promise<ConversationRewindResult>
   listApprovalRules?(): Promise<ConversationApprovalRulesResult>
   revokeApprovalRule?(ruleId: string): Promise<ConversationApprovalRuleRevokeResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
@@ -181,6 +190,9 @@ export function createConversationIpcHandlers(
         resolveSecret: (providerId) => secretStore.resolveSecret(providerId),
       })
     },
+    resolveSignIn(input: ConversationProviderSignInInput): Promise<ConversationProviderSignInResult> {
+      return resolveConversationSignIn(input)
+    },
     getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult> {
       return secretStore.getStatus(input.providerId)
     },
@@ -217,6 +229,9 @@ export function createConversationIpcHandlers(
     readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
       return runtime.readTranscript(input)
     },
+    readAttachment(ref) {
+      return runtime.readAttachment(ref)
+    },
     getToolDetail(input) {
       return runtime.getToolDetail(input)
     },
@@ -237,6 +252,9 @@ export function createConversationIpcHandlers(
     },
     revertToTurn(input) {
       return sessions.revertToTurn(input)
+    },
+    rewindToTurn(input) {
+      return sessions.rewindToTurn(input)
     },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
@@ -369,6 +387,18 @@ export function registerConversationIpc(
       }) ?? { ok: false, message: 'Checkpoints are unavailable.' }
     )
   })
+  ipcMain.handle('conversation:turn:rewind', async (_, input: unknown): Promise<ConversationRewindResult> => {
+    if (!isRecord(input) || !Number.isSafeInteger(input.turnSeq) || Number(input.turnSeq) < 1)
+      return { ok: false, message: 'The message to edit is required.' }
+    const key = parseTranscriptInput(input.key)
+    if (!key.ok) return key
+    return (
+      handlers.rewindToTurn?.({ key: key.input, turnSeq: Number(input.turnSeq) }) ?? {
+        ok: false,
+        message: 'Editing an earlier message is unavailable.',
+      }
+    )
+  })
   ipcMain.handle('conversation:session:subscribe', (event, input: unknown) => {
     if (!isRecord(input) || typeof input.subscriptionId !== 'string' || !isRecord(input.key))
       return { ok: false, message: 'Subscription identity is required.' }
@@ -446,6 +476,27 @@ export function registerConversationIpc(
       if (!parsed.ok) return parsed
       try {
         return await handlers.listProviderModels(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'conversation:providers:sign-in',
+    async (_, input: unknown): Promise<ConversationProviderSignInResult> => {
+      const parsed = parseProviderInput(input)
+      if (!parsed.ok) return parsed
+      const cliRuntimes = isRecord(input) ? input.cliRuntimes : undefined
+      if (cliRuntimes !== undefined && !isRecord(cliRuntimes))
+        return { ok: false, message: 'cliRuntimes must be an object.' }
+      try {
+        return (
+          (await handlers.resolveSignIn?.({
+            providerId: parsed.input.providerId,
+            ...(cliRuntimes ? { cliRuntimes: cliRuntimes as ConversationProviderSignInInput['cliRuntimes'] } : {}),
+          })) ?? { ok: false, message: 'Sign-in is unavailable.' }
+        )
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
@@ -588,6 +639,13 @@ export function registerConversationIpc(
         message: 'Tool details are unavailable.',
       }
     )
+  })
+
+  // A sent image, read back for a replayed bubble. The reference is resolved
+  // inside the attachment store only; this is not a general file read.
+  ipcMain.handle('conversation:attachment', async (_, input: unknown): Promise<ConversationAttachmentResult> => {
+    if (!isRecord(input) || typeof input.ref !== 'string') return { ok: false, message: 'ref is required.' }
+    return handlers.readAttachment?.(input.ref) ?? { ok: false, message: 'Attachments are unavailable.' }
   })
 
   ipcMain.handle('conversation:transcript', async (_, input: unknown): Promise<ConversationTranscriptResult> => {
@@ -790,6 +848,8 @@ function parseSendTurnInput(
     return { ok: false, message: 'Invalid reasoning effort.' }
   if (input.mode !== undefined && !['default', 'plan', 'ask'].includes(String(input.mode)))
     return { ok: false, message: 'Invalid conversation mode.' }
+  if (input.steer !== undefined && typeof input.steer !== 'boolean')
+    return { ok: false, message: 'steer must be a boolean when present.' }
   let attachments: ConversationImageAttachment[] | undefined
   const mentions = input.mentions === undefined ? undefined : parseConversationMentions(input.mentions)
   if (mentions === null) return { ok: false, message: 'Mention references are invalid.' }
@@ -821,6 +881,7 @@ function parseSendTurnInput(
       ...(Array.isArray(input.skills) ? { skills: input.skills as ConversationSendTurnInput['skills'] } : {}),
       ...(typeof input.reasoningEffort === 'string' ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.mode ? { mode: input.mode as ConversationSendTurnInput['mode'] } : {}),
+      ...(input.steer === true ? { steer: true } : {}),
     },
   }
 }

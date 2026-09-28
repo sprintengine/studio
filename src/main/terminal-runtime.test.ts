@@ -177,7 +177,6 @@ test('terminal-runtime', async () => {
       await assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule)
       await assertFlowControlPausesThePtyWhileThePaneFallsBehind(runtimeModule)
       await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
-      await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
       await assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule)
       await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
       await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
@@ -4891,58 +4890,6 @@ test('terminal-runtime', async () => {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
-  // Debug Mode is a guaranteed mode, not a discretionary skill: the spawn path must
-  // ensure-install the `debug` skill into the session workspace before launch (so
-  // the injected /debug invocation resolves to a present skill), and must NOT touch
-  // skills when debug is off. Asserts both the gating and the (workspaceRoot,
-  // skillId) the runtime requests.
-  async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-debug-install-'))
-    mockPty.spawnCalls = []
-    mockSender.sent = []
-    const ensureCalls: Array<{ workspaceRoot: string; skillId: string; cli?: string }> = []
-
-    const runtime = runtimeModule.createTerminalRuntime({
-      diagnosticsEnabled: false,
-      logMainPerfEvent: () => undefined,
-      ensureBuiltinSkillInstalled: async (root, skillId, cli) => {
-        ensureCalls.push({ workspaceRoot: root, skillId, cli })
-      },
-    })
-
-    const spawnAgent = async (sessionId: string, debugMode: boolean): Promise<void> => {
-      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId,
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        cli: 'codex',
-        kind: 'agent',
-        shellOnly: false,
-        workspaceId: 'ws-debug',
-        agentId: sessionId,
-        visible: false,
-        debugMode,
-        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-      })
-      assert.equal(result.ok, true, JSON.stringify(result))
-    }
-
-    // Debug off: the spawn must not ensure-install anything.
-    await spawnAgent('session-debug-off', false)
-    assert.deepEqual(ensureCalls, [], 'debug off must not ensure-install any skill')
-
-    // Debug on: ensure-install the debug skill into the session workspace root.
-    await spawnAgent('session-debug-on', true)
-    assert.deepEqual(
-      ensureCalls,
-      // The CLI rides along: the installer skips the workspace copy for a CLI
-      // whose launch carries the skill in the app's own plugin directory.
-      [{ workspaceRoot, skillId: 'debug', cli: 'codex' }],
-      'debug on ensure-installs the debug skill into the session workspace before launch',
-    )
-  }
-
   // spawnSkillId gates the skill install and connectorLaunch gates MCP isolation
   // — the worktree MCP-config git-exclude here (and the unlisted-server prune) —
   // and the two are orthogonal. A skill-only spawn must NOT exclude, a connector
@@ -5493,8 +5440,7 @@ test('terminal-runtime', async () => {
       assert.ok(!logged[0]?.includes('Refactor the parser'), 'the log records that it happened, not the text')
 
       // With no window open (an automation, background mode) it waits in main
-      // for the next window, and what comes back is what the person wrote, not
-      // the Debug Mode directive the launch would have typed with it.
+      // for the next window, and what comes back is what the person wrote.
       mockPty.spawnCalls = []
       mockSender.sent = []
       await withNoWindows(async () => {
@@ -5505,7 +5451,6 @@ test('terminal-runtime', async () => {
           cwd: workspaceRoot,
           cli: 'kimi-code',
           initialPrompt: 'Write the release notes',
-          debugMode: true,
           kind: 'agent',
           shellOnly: false,
           workspaceId: 'ws-kimi',

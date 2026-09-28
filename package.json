@@ -102,6 +102,13 @@
         ]
       },
       {
+        "from": "resources/builtin-skills",
+        "to": "builtin-skills",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/icon.png",
         "to": "icon.png"
       },
