@@ -475,6 +475,22 @@ export default function CommandPalette({
               onClose()
             },
           },
+          // The agents the focused chat sent off to work: running, finished,
+          // and each one's own steps.
+          ...(panelCommandEnabled('panel.agents.toggle')
+            ? [
+                {
+                  id: 'panel.agents.toggle',
+                  label: 'Toggle Agents',
+                  searchLabel: 'Agents',
+                  shortcut: shortcutFor('panel.agents.toggle'),
+                  run: () => {
+                    onRunCommand('panel.agents.toggle')
+                    onClose()
+                  },
+                },
+              ]
+            : []),
           // Canvas has no rail glyph either, so this row and the pane's "+"
           // menu are its entry points. Availability-gated the same way, and run
           // through the shell rather than `togglePaneKind` directly: the

@@ -25,6 +25,7 @@ const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
   'backlog',
   'canvas',
   'document',
+  'agents',
 ]
 
 // Kinds a workspace opens at most once: opening them again focuses the tab
@@ -34,7 +35,13 @@ const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
 // may hold several boards at once, but only ONE tab per board. Its identity is
 // the board path rather than the kind, so `canvasTabKey` below is what the
 // opener and the normalizer both dedupe on.
-const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set(['files', 'diff', 'git', 'backlog'])
+const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
+  'files',
+  'diff',
+  'git',
+  'backlog',
+  'agents',
+])
 
 /**
  * What makes one Canvas tab the same tab as another: its board.

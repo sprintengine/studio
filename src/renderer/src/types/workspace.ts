@@ -616,7 +616,8 @@ export type WorkspaceGitPanelState = {
 // Backlog. Tabs are a plain per-workspace record rather than a FlexLayout
 // tabset because the pane mixes kinds FlexLayout used to scatter across two
 // exclusive rails.
-export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas' | 'document'
+export type WorkspacePaneTabKind =
+  'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas' | 'document' | 'agents'
 
 export type WorkspacePaneTab = {
   id: string

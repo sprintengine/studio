@@ -4,6 +4,9 @@
 import { createContext, useContext, type JSX } from 'react'
 import { AgentGlyph, WorkingMark, type AgentGlyphState } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { openAgentsPane } from '../../workspace/pane/agents/agentsPaneFocus'
+import { useConversationLinkContext } from './conversationLinks'
+import { useConversationTransport } from './conversationTransport'
 import type { TranscriptToolEntry } from './conversationProjection'
 import { flattenToolEntries, subagentLaneLabel, toolObject } from './conversationTimeline'
 import { formatStepDuration } from './stepDuration'
@@ -147,4 +150,17 @@ export function AgentCardContent({ tool, running }: { tool: TranscriptToolEntry;
       {footer ? <span className="block text-[color:var(--text-subtle)]">{footer}</span> : null}
     </>
   )
+}
+
+/**
+ * Opens this chat's Agents tab, on one agent when given its lane. Null where
+ * the tab cannot follow: a chat on another machine, which the tab has no
+ * session of its own for.
+ */
+export function useOpenAgentsPane(): ((laneId: string | null) => void) | null {
+  const context = useConversationLinkContext()
+  const transport = useConversationTransport()
+  if (transport.kind !== 'local' || !context?.workspaceId || !context.agentId) return null
+  const { workspaceId, agentId } = context
+  return (laneId) => openAgentsPane(workspaceId, agentId, laneId)
 }
