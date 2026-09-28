@@ -695,6 +695,19 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    await check('a chat prompt has no terminal caret; a CLI launch keeps it', async () => {
+      const caret = (view: Awaited<ReturnType<typeof render>>) =>
+        view.container.querySelector('textarea')!.parentElement!.querySelector(':scope > svg')
+      seedStore()
+      const chatView = await render({ initialSelection: { kind: 'conversation' } })
+      assert.equal(caret(chatView), null, 'a chat is not a terminal')
+      chatView.unmount()
+      seedStore()
+      const cliView = await render({ initialSelection: { kind: 'general' } })
+      assert.ok(caret(cliView), 'a CLI launch still reads as a prompt')
+      cliView.unmount()
+    })
+
     await check('with no CLI that can run as a chat, Chat agent offers the install route', async () => {
       seedStore({
         plugins: [{ id: 'kimi-code', displayName: 'Kimi Code', source: 'bundled', version: 1, binary: 'kimi' }],

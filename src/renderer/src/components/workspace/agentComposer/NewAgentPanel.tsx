@@ -1384,21 +1384,25 @@ export default function NewAgentPanel({
           <div className="flex items-start gap-2">
             {/* The prompt caret as an SVG glyph, not a text character: a
                 character picks up the font's rendering and the guard's
-                emoji-as-icon rule for a reason. */}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
-            >
-              <path
-                d="M5.5 3.5 10 8l-4.5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+                emoji-as-icon rule for a reason. A chat is not a terminal, so
+                it gets no caret; the model picker below already says what
+                answers. */}
+            {isChatLaunch ? null : (
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
+              >
+                <path
+                  d="M5.5 3.5 10 8l-4.5 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
             {/* Grows with its content (field-sizing: content) from the two-row
                 floor to a ceiling, then scrolls — a box that showed two lines
                 of a six-line prompt was hiding what the person was about to
