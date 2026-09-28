@@ -876,8 +876,12 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
       {text}
     </div>
   )
+  // A plan card spans the conversation column like a reply does; the reading
+  // measure is for the one-line records, and a plan held to it sat in the left
+  // half of a wide chat.
+  const measure = entry.requestKind === 'plan' && entry.plan?.trim() ? '' : 'max-w-[68ch] '
   return (
-    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-4">
+    <div className={`${measure}border-l-2 border-[color:var(--border-default)] py-0.5 pl-4`}>
       {entry.requestKind === 'question' && entry.questions?.length ? (
         <div className="space-y-2">
           {entry.questions.map((question) => {
@@ -899,7 +903,7 @@ export function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry,
       ) : (
         <div>
           {entry.requestKind === 'plan' && entry.plan?.trim() ? (
-            <ResolvedPlanCard requestId={entry.requestId} plan={entry.plan} />
+            <ResolvedPlanCard plan={entry.plan} planFilePath={entry.planFilePath} />
           ) : (
             <div className="text-meta leading-5 text-[color:var(--text-muted)]">
               {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}

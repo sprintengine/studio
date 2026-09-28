@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { BROWSER_MAX_RECENT_URLS } from '../../../../shared/browser'
 import { normalizeBrowserViewport } from '../../../../shared/browser-devices'
 import { canvasBoardKeyPath, canvasBoardName, normalizeCanvasPath } from '../../../../shared/canvas/paths'
+import { isAbsoluteFilePath } from '../../../../shared/paths'
 import type {
   Workspace,
   WorkspaceId,
@@ -23,6 +24,7 @@ const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
   'git',
   'backlog',
   'canvas',
+  'document',
 ]
 
 // Kinds a workspace opens at most once: opening them again focuses the tab
@@ -50,6 +52,16 @@ function canvasTabKey(tab: Pick<WorkspacePaneTab, 'canvas'>): string {
 }
 
 /**
+ * What makes one Document tab the same tab as another: its file, folded where
+ * the filesystem folds it. Opening a plan that is already up focuses it.
+ */
+function documentTabKey(tab: Pick<WorkspacePaneTab, 'document'>): string {
+  const path = tab.document?.path ?? ''
+  const platform = rendererPlatform()
+  return platform === 'darwin' || platform === 'win32' ? path.toLowerCase() : path
+}
+
+/**
  * The platform, as the preload reports it. Read per call and defaulted rather
  * than captured: this module is loaded by tests that have no preload, and a
  * case-sensitive answer there is the conservative one.
@@ -62,6 +74,7 @@ function rendererPlatform(): string {
 const MAX_PANE_TABS = 24
 const MAX_TITLE_LENGTH = 200
 const MAX_URL_LENGTH = 2048
+const MAX_DOCUMENT_PATH_LENGTH = 4096
 
 // The floating player's bounds. The default is the spec's 360x240; the floor is
 // small enough to park out of the way and still read a page, the ceiling keeps
@@ -138,6 +151,13 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     const path = normalizeCanvasPath(String((raw.canvas as { path?: unknown }).path ?? ''))
     if (path.ok) tab.canvas = { path: path.value }
   }
+  if (tab.kind === 'document') {
+    // A document tab reads one file and has no picker to fall back to, so a
+    // tab without a usable path is dropped rather than kept empty.
+    const path = raw.document && typeof raw.document === 'object' ? (raw.document as { path?: unknown }).path : null
+    if (typeof path !== 'string' || !isAbsoluteFilePath(path) || path.length > MAX_DOCUMENT_PATH_LENGTH) return null
+    tab.document = { path }
+  }
   if (tab.kind === 'diff' && raw.diff && typeof raw.diff === 'object') {
     const focusPath = typeof raw.diff.focusPath === 'string' && raw.diff.focusPath ? raw.diff.focusPath : null
     const focusKind = raw.diff.focusKind === 'staged' || raw.diff.focusKind === 'unstaged' ? raw.diff.focusKind : null
@@ -181,6 +201,7 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
   const seenIds = new Set<string>()
   const seenSingletons = new Set<WorkspacePaneTabKind>()
   const canvasBoardTabs = new Map<string, string>()
+  const documentTabs = new Map<string, string>()
   // Where a dropped duplicate's active-ness goes: the tab that survived for the
   // same board. Falling back to the first tab in the strip would drop the
   // person somewhere they did not ask to be, on a board they did not name.
@@ -203,6 +224,15 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
         continue
       }
       canvasBoardTabs.set(key, tab.id)
+    }
+    if (tab.kind === 'document') {
+      const key = documentTabKey(tab)
+      const survivor = documentTabs.get(key)
+      if (survivor !== undefined) {
+        replacedBy.set(tab.id, survivor)
+        continue
+      }
+      documentTabs.set(key, tab.id)
     }
     seenIds.add(tab.id)
     tabs.push(tab)
@@ -371,6 +401,8 @@ type WorkspacePaneOpenInput = {
   diff?: WorkspacePaneTab['diff']
   /** Canvas only: the board to open. Omitted, the tab opens on the picker. */
   canvas?: WorkspacePaneTab['canvas']
+  /** Document only: the file to read. A document tab is not opened without one. */
+  document?: WorkspacePaneTab['document']
   // Whether the new (or found) tab becomes the active one and the pane opens.
   // Default true; an agent opening a background tab passes false.
   activate?: boolean
@@ -476,7 +508,9 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
           ? pane.tabs.find((tab) => tab.kind === input.kind)
           : input.kind === 'canvas'
             ? pane.tabs.find((tab) => tab.kind === 'canvas' && canvasTabKey(tab) === canvasTabKey(input))
-            : undefined
+            : input.kind === 'document'
+              ? pane.tabs.find((tab) => tab.kind === 'document' && documentTabKey(tab) === documentTabKey(input))
+              : undefined
         if (existing) {
           if (input.title !== undefined) existing.title = input.title
           if (input.diff !== undefined) {
@@ -493,6 +527,7 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
           opened = existing.id
         } else {
           if (pane.tabs.length >= MAX_PANE_TABS) return
+          if (input.kind === 'document' && !input.document) return
           const tab: WorkspacePaneTab = { id: nanoid(8), kind: input.kind }
           if (input.title) tab.title = input.title
           if (input.kind === 'browser' && input.url) tab.url = input.url
@@ -505,6 +540,7 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
             // ("Canvas") for a tab that has no board yet.
             tab.title ??= canvasBoardName(input.canvas.path)
           }
+          if (input.kind === 'document' && input.document) tab.document = input.document
           pane.tabs.push(tab)
           opened = tab.id
         }

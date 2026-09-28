@@ -166,6 +166,17 @@ export type ConversationAttachmentInput = { ref: string }
 export type ConversationAttachmentResult =
   { ok: true; mediaType: string; dataBase64: string } | { ok: false; message: string }
 
+// A plan the agent proposed, as a file the workspace pane can open. `plan` is
+// the text the transcript recorded; `planFilePath` is the agent's own copy
+// when it keeps one on this machine (Claude Code's plan file). The result is
+// that file when it still holds this plan, otherwise a copy in app data.
+export type ConversationPlanDocumentInput = ConversationKey & {
+  plan: string
+  title?: string
+  planFilePath?: string
+}
+export type ConversationPlanDocumentResult = { ok: true; path: string } | { ok: false; message: string }
+
 export type ConversationSendTurnInput = {
   mentions?: import('./conversation/mentions').ConversationMentionRef[]
   reasoningEffort?: string

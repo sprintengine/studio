@@ -42,6 +42,8 @@ import type {
   ConversationToolDetailInput,
   ConversationToolDetailResult,
   ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
   ConversationSubscribeInput,
   ConversationLoadEarlierInput,
   ConversationSessionFrame,
@@ -98,6 +100,7 @@ export type ConversationIpcHandlers = {
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
   readAttachment?(ref: string): Promise<ConversationAttachmentResult>
+  planDocument?(input: ConversationPlanDocumentInput): Promise<ConversationPlanDocumentResult>
   subscribe?(
     input: ConversationSubscribeInput,
     listener: (frame: ConversationSessionFrame) => void,
@@ -231,6 +234,9 @@ export function createConversationIpcHandlers(
     },
     readAttachment(ref) {
       return runtime.readAttachment(ref)
+    },
+    planDocument(input) {
+      return runtime.planDocument(input)
     },
     getToolDetail(input) {
       return runtime.getToolDetail(input)
@@ -646,6 +652,27 @@ export function registerConversationIpc(
   ipcMain.handle('conversation:attachment', async (_, input: unknown): Promise<ConversationAttachmentResult> => {
     if (!isRecord(input) || typeof input.ref !== 'string') return { ok: false, message: 'ref is required.' }
     return handlers.readAttachment?.(input.ref) ?? { ok: false, message: 'Attachments are unavailable.' }
+  })
+
+  // A proposed plan, as a file the workspace pane opens. The agent's own plan
+  // file is only ever answered with when it still holds this text; otherwise
+  // the text is copied into app data (conversation-plan-store).
+  ipcMain.handle('conversation:plan-document', async (_, input: unknown): Promise<ConversationPlanDocumentResult> => {
+    const key = parseTranscriptInput(input)
+    if (!key.ok) return key
+    if (!isRecord(input) || typeof input.plan !== 'string') return { ok: false, message: 'plan is required.' }
+    const title = typeof input.title === 'string' ? input.title : undefined
+    const planFilePath = typeof input.planFilePath === 'string' ? input.planFilePath : undefined
+    try {
+      return (
+        (await handlers.planDocument?.({ ...key.input, plan: input.plan, title, planFilePath })) ?? {
+          ok: false,
+          message: 'Plans are unavailable.',
+        }
+      )
+    } catch (err) {
+      return { ok: false, message: formatError(err) }
+    }
   })
 
   ipcMain.handle('conversation:transcript', async (_, input: unknown): Promise<ConversationTranscriptResult> => {

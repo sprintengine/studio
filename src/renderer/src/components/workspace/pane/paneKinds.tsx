@@ -143,6 +143,22 @@ function BacklogGlyph({ className }: { className?: string }) {
   )
 }
 
+// A page with its lines: a document the pane reads, drawn on the same frame
+// as the Files and Canvas marks.
+function DocumentGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M4.5 2h4.8L12 4.7v7.8a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 3 12.5v-9A1.5 1.5 0 0 1 4.5 2z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M5.5 8h5M5.5 10.5h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 // The five general-purpose kinds first, in the order below; Backlog is
 // ours alone and goes last so the shared five keep the low chord numbers.
 // Its letter is L (back-L-og) because B is Browser's. Canvas follows it, on
@@ -156,6 +172,13 @@ export const STATIC_PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
   { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
   { kind: 'canvas', label: 'Canvas', letter: 'C', moduleId: 'canvas', Glyph: CanvasGlyph },
+]
+
+// Kinds that are tabs but never offered by the "+" menu or the launcher: a
+// Document tab is always opened ON a file someone handed it (a plan an agent
+// proposed), and an empty one would have nothing to pick from.
+const TAB_ONLY_PANE_KINDS: readonly PaneKindDefinition[] = [
+  { kind: 'document', label: 'Document', letter: '', Glyph: DocumentGlyph },
 ]
 
 // The list one pane offers: the shell's own kinds, then the rows modules
@@ -190,10 +213,11 @@ export function composePaneKinds(
 }
 
 // A tab's own row. Only ever asked about TAB kinds (a contributed row opens a
-// modal and never becomes a tab), so the static list is the whole answer.
+// modal and never becomes a tab), so the static lists are the whole answer.
 export function paneKindDefinition(kind: PaneLaunchKind): PaneKindDefinition {
   return (
-    STATIC_PANE_KINDS.find((definition) => definition.kind === kind) ?? {
+    STATIC_PANE_KINDS.find((definition) => definition.kind === kind) ??
+    TAB_ONLY_PANE_KINDS.find((definition) => definition.kind === kind) ?? {
       kind,
       label: kind,
       letter: kind[0]?.toUpperCase() ?? '',
