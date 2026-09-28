@@ -1906,7 +1906,7 @@ samp,
  * sink at once — two metaphors for one click. Spelled as `:not()` here rather
  * than as an `active:scale-100` utility at the call site because this rule is
  * three classes deep and would outrank any utility trying to cancel it. */
-.interactive:active:not(:disabled):not([aria-disabled='true']):not(.control-raised):not(.control-edge) {
+.interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
   transform: scale(0.97);
 }
 
@@ -1926,17 +1926,17 @@ samp,
   box-shadow: var(--shadow-control-edge);
 }
 
-.control-raised:active:not(:disabled):not([aria-disabled='true']),
+.control-raised:active:not(:disabled):not([aria-disabled="true"]),
 .control-raised[data-pressed]:not(:disabled),
-.control-edge:active:not(:disabled):not([aria-disabled='true']),
+.control-edge:active:not(:disabled):not([aria-disabled="true"]),
 .control-edge[data-pressed]:not(:disabled) {
   box-shadow: var(--shadow-control-pressed);
 }
 
 .control-raised:disabled,
-.control-raised[aria-disabled='true'],
+.control-raised[aria-disabled="true"],
 .control-edge:disabled,
-.control-edge[aria-disabled='true'] {
+.control-edge[aria-disabled="true"] {
   box-shadow: none;
 }
 
@@ -1959,7 +1959,7 @@ samp,
   transition-timing-function: var(--motion-ease);
 }
 
-.switch-track[aria-checked='true'] .switch-thumb {
+.switch-track[aria-checked="true"] .switch-thumb {
   translate: 18px 0;
 }
 
@@ -1969,7 +1969,7 @@ samp,
   .switch-track:active:not(:disabled) .switch-thumb {
     width: 15px;
   }
-  .switch-track[aria-checked='true']:active:not(:disabled) .switch-thumb {
+  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb {
     translate: 15px 0;
   }
 }
@@ -2013,7 +2013,7 @@ samp,
  * the switch's full-strength off-thumb ink: the leading stop is the ramp at
  * rest, and --text-strong made the quietest state on the control the loudest
  * mark on it. */
-[data-slider='true'][data-at-start] .slider-thumb {
+[data-slider="true"][data-at-start] .slider-thumb {
   background: var(--text-muted);
 }
 
@@ -2249,7 +2249,7 @@ samp,
   transform: translate3d(100%, 0, 0);
   will-change: transform;
 }
-.settings-overlay-panel[data-state='open'] {
+.settings-overlay-panel[data-state="open"] {
   transform: translate3d(0, 0, 0);
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2277,7 +2277,7 @@ samp,
   will-change: transform;
   box-shadow: var(--shadow-drawer);
 }
-.drawer-panel[data-state='open'] {
+.drawer-panel[data-state="open"] {
   transform: translate3d(0, 0, 0);
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2885,7 +2885,7 @@ samp,
   .slider-thumb {
     transition: none;
   }
-  .interactive:active:not(:disabled):not([aria-disabled='true']):not(.control-raised):not(.control-edge) {
+  .interactive:active:not(:disabled):not([aria-disabled="true"]):not(.control-raised):not(.control-edge) {
     transform: none;
   }
 }
@@ -2916,11 +2916,11 @@ samp,
  * An unmarked list is a single-pane surface: it never rests. Marking a pane
  * whose fill is painted on a wrapper around the row rather than on the row that
  * carries the ARIA state does nothing — the rebinding lands on the row. */
-[data-selection-pane='auto']:not(:focus-within)
-  :is([aria-current='true'], [aria-current='page'], [aria-selected='true']),
+[data-selection-pane="auto"]:not(:focus-within)
+  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]),
 body:has([data-selection-pane]:focus-within)
-  [data-selection-pane='primary']:not(:focus-within)
-  :is([aria-current='true'], [aria-current='page'], [aria-selected='true']) {
+  [data-selection-pane="primary"]:not(:focus-within)
+  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
   --selection-edge: transparent;
@@ -2936,7 +2936,7 @@ body:has([data-selection-pane]:focus-within)
  *
  * Marked on the group, never guessed from position: a rail has at most one
  * outer-context group, and which one it is belongs to the surface. */
-[data-rail-group='outer-context'] :is([aria-current='true'], [aria-current='page'], [aria-selected='true']) {
+[data-rail-group="outer-context"] :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
   --bg-selected: var(--bg-selected-resting);
   --text-strong: var(--text-default);
   --selection-edge: transparent;
@@ -3809,8 +3809,8 @@ body:has([data-selection-pane]:focus-within)
  * is one ground painted once on body with the canvas layers see-through above
  * it — an opaque gradient rather than the OS frost — so every chrome fill here
  * has the same job there, tinting the ground instead of covering it. */
-:root[data-window-material='glass'],
-:root[data-window-material='tinted'] {
+:root[data-window-material="glass"],
+:root[data-window-material="tinted"] {
   --bg-canvas: transparent;
   /* The top band is a canvas layer, not a stacking one: nothing scrolls under
      it, so it paints nothing and inherits the OS frost, and the frost runs
@@ -3850,15 +3850,15 @@ body:has([data-selection-pane]:focus-within)
  * a scope and not a second block of :root overrides. Nothing stacks: a row
  * wears one of these at a time, so it is one alpha step over the body tint,
  * the same budget --bg-field spends. */
-:root[data-window-material='glass'] .window-chrome,
-:root[data-window-material='tinted'] .window-chrome {
+:root[data-window-material="glass"] .window-chrome,
+:root[data-window-material="tinted"] .window-chrome {
   --bg-surface-raised: var(--bg-chrome-raised);
   --bg-hover: var(--bg-chrome-hover);
   --bg-active: var(--bg-chrome-active);
   --bg-selected: var(--bg-chrome-selected);
   --bg-selected-resting: var(--bg-chrome-selected-resting);
 }
-:root[data-window-material='glass'] body {
+:root[data-window-material="glass"] body {
   background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);
 }
 /* The window's top 36px band, as one piece. Four strips sit on that line — the
@@ -3871,8 +3871,8 @@ body:has([data-selection-pane]:focus-within)
  * --bg-chrome-bar, so whatever that token is set to above, the band is one
  * continuous thing rather than four tiles — and at `transparent` it is exactly
  * one layer (body's tint) over the OS frost, with nothing stacked on it. */
-:root[data-window-material='glass'] .chrome-bar,
-:root[data-window-material='tinted'] .chrome-bar {
+:root[data-window-material="glass"] .chrome-bar,
+:root[data-window-material="tinted"] .chrome-bar {
   background-color: var(--bg-chrome-bar);
 }
 
@@ -3903,9 +3903,9 @@ body:has([data-selection-pane]:focus-within)
  * there is no edge to find at any stop or at the end. It is written once as
  * --tinted-feather against two per-element inputs, the ink and its peak
  * share, and each element that wears it sets those two. */
-:root[data-window-material='tinted'] body,
-:root[data-window-material='tinted'] .material-brand-wash::before,
-:root[data-window-material='tinted'] .material-brand-wash::after {
+:root[data-window-material="tinted"] body,
+:root[data-window-material="tinted"] .material-brand-wash::before,
+:root[data-window-material="tinted"] .material-brand-wash::after {
   --tinted-feather:
     color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 100%), transparent) 0%,
     color-mix(in srgb, var(--tinted-feather-ink) calc(var(--tinted-feather-peak) * 97.6%), transparent) 10%,
@@ -3931,7 +3931,7 @@ body:has([data-selection-pane]:focus-within)
  *    small moves the ground by one 8-bit step per tens of pixels, which keeps
  *    the chrome's text at its contrast and is also why the wash does not
  *    band. */
-:root[data-window-material='tinted'] body {
+:root[data-window-material="tinted"] body {
   --tinted-feather-ink: var(--text-strong);
   --tinted-feather-peak: var(--sem-tinted-wash);
   background-color: var(--bg-app);
@@ -3957,24 +3957,24 @@ body:has([data-selection-pane]:focus-within)
  *    mark's own stacking context (--z-behind). It rides on the mark rather
  *    than on its button so it follows the mark wherever the row puts it and
  *    goes with it when the row is too narrow to show it. */
-:root[data-window-material='tinted'] .material-brand-wash {
+:root[data-window-material="tinted"] .material-brand-wash {
   position: relative;
   isolation: isolate;
 }
-:root[data-window-material='tinted'] .material-brand-wash::before,
-:root[data-window-material='tinted'] .material-brand-wash::after {
+:root[data-window-material="tinted"] .material-brand-wash::before,
+:root[data-window-material="tinted"] .material-brand-wash::after {
   content: '';
   position: absolute;
   inset: calc(var(--sem-tinted-brand-reach) * -0.4) calc(var(--sem-tinted-brand-reach) * -1);
   z-index: var(--z-behind);
   pointer-events: none;
 }
-:root[data-window-material='tinted'] .material-brand-wash::before {
+:root[data-window-material="tinted"] .material-brand-wash::before {
   --tinted-feather-ink: var(--text-strong);
   --tinted-feather-peak: var(--sem-tinted-brand-ink);
   background-image: radial-gradient(ellipse 36% 50% at 36% 50%, var(--tinted-feather));
 }
-:root[data-window-material='tinted'] .material-brand-wash::after {
+:root[data-window-material="tinted"] .material-brand-wash::after {
   --tinted-feather-ink: var(--accent-primary);
   --tinted-feather-peak: var(--sem-tinted-brand);
   background-image: radial-gradient(ellipse 36% 50% at 64% 50%, var(--tinted-feather));
@@ -3985,11 +3985,11 @@ body:has([data-selection-pane]:focus-within)
  *    Said here rather than left to how the engine treats a gradient under
  *    forced colours. */
 @media (forced-colors: active) {
-  :root[data-window-material='tinted'] body {
+  :root[data-window-material="tinted"] body {
     background-image: none;
   }
-  :root[data-window-material='tinted'] .material-brand-wash::before,
-  :root[data-window-material='tinted'] .material-brand-wash::after {
+  :root[data-window-material="tinted"] .material-brand-wash::before,
+  :root[data-window-material="tinted"] .material-brand-wash::after {
     content: none;
   }
 }
