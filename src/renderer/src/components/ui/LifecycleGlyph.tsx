@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import type { CSSProperties, JSX } from 'react'
 import type { TooltipChildProps } from './Tooltip'
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
@@ -6,9 +6,9 @@ import type { LifecycleState } from '../../../../shared/lifecycle-state'
 // module's own task states. State reads by shape (ring / dashed / spinner / inner-dot /
 // "!" / check / slash / "×"), never by color alone — color only reinforces.
 //
-// The 6 px StatusDot stays the app's "live right now" idiom; this glyph carries
-// the richer lifecycle that a worklist needs, replacing per-row status dots
-// there.
+// It is also what StatusDot draws: the app has no status dots, so a status
+// tone is one of these shapes in that tone's ink, and a live one is the working
+// mark.
 // Domain-agnostic: callers map their own status enum to a LifecycleState. The
 // union is declared on a core shared path (`src/shared/lifecycle-state.ts`) so
 // main-process and shared code can name a state without importing the
@@ -42,6 +42,7 @@ export function LifecycleGlyph({
   label,
   live = true,
   className,
+  style,
   ...rest
 }: {
   state: LifecycleState
@@ -52,6 +53,8 @@ export function LifecycleGlyph({
   /** Extra classes — merged after the base, e.g. a `translate-y-*` nudge to
    *  align the 16px glyph against baseline-set text. */
   className?: string
+  /** Inline overrides — StatusDot sets the size and the tone's ink here. */
+  style?: CSSProperties
 } & Partial<TooltipChildProps>): JSX.Element {
   const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
 
@@ -121,6 +124,7 @@ export function LifecycleGlyph({
       fill="none"
       {...a11y}
       {...rest}
+      style={style}
       className={`icon-sm shrink-0 ${spin} ${TONE[state]} ${className ?? ''}`}
     >
       {shapes}

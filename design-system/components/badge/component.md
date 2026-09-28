@@ -9,7 +9,7 @@ The small display-only label or count chip: a tone-carrying word ("draft",
 with count-badge styling reinvented per surface. This entry replaces those
 with one primitive: `font.size.micro`/`meta` type on `radius.chip`, tones
 drawn from the `status.*-soft` fills with their matching ink, never
-interactive, and never a second status idiom beside a status dot that already
+interactive, and never a second status idiom beside a status mark that already
 says the same thing.
 
 ## As shipped
@@ -41,8 +41,8 @@ box-shadow ring would hold the box at exactly 16px, but the token lint's
 `no-glow-shadow` rule forbids that spelling — and every counter this replaces
 already used a border.
 
-Never interactive, and never a second status idiom beside a `status-dot` that
-already says the same thing. A badge carrying meaning takes an `ariaLabel` (a
+Never interactive, and never a second status idiom beside a `status-dot` mark
+that already says the same thing. A badge carrying meaning takes an `ariaLabel` (a
 bare "3" tells a screen reader nothing); one that merely repeats adjacent text
 is marked `decorative` so it is not read twice.
 
@@ -57,7 +57,7 @@ rather than the app ground the default ring assumes.
 Extensions drawer's rows each wear the news that belongs to them, trailing the
 label when the column is expanded and docked on the icon's corner — ringed in
 `bg.canvas`, the column's ground — when it is collapsed. It replaces the row's
-status dot while it shows (one status idiom per surface; the count is the one
+status mark while it shows (one status idiom per surface; the count is the one
 that says how much), and its accessible name carries the row's name and what
 is counted ("Design: 2 new"), because the row beside it
 names a place, not the news. The app rail's square above the drawer is the sum
@@ -71,10 +71,10 @@ pip: a plugin installed at a commit its source has moved past (and, until
 below for where that one went). The number is usually 1, and on a row that is
 the point — a rail square's count is a quantity, a row's is a pointer, and the
 number is what makes it a pip rather than one more status colour. It **replaces
-the row's health dot** rather than joining it (`provider-row`, "One status
+the row's health mark** rather than joining it (`provider-row`, "One status
 idiom"): the owner opened a list of ten agent CLIs from an update notification
-and could not tell which row it was about, because all ten dots were the same
-green. Its ring is `bg.surface`, the ground those lists sit on, and its
+and could not tell which row it was about, because all ten rows wore the same
+green health mark. Its ring is `bg.surface`, the ground those lists sit on, and its
 accessible name carries the row's name and the version it is behind ("Codex —
 update available: 0.153.4").
 
@@ -110,7 +110,7 @@ number is never the whole message and colour is never the only signal.
 On the CLI row the count sits beside the button that answers it rather than on
 the mark: the row wears one count, next to the one thing that clears it, and a
 person who arrived from the gear follows the number to the action. It still
-**replaces** the row's health dot (`provider-row`, "One status idiom").
+**replaces** the row's health mark (`provider-row`, "One status idiom").
 
 The app update's count holds through every step update-service reports —
 available, downloading, downloaded, installing — and through a download that

@@ -123,7 +123,7 @@ test('changed files load on disclosure and the tree supports one-tab-stop naviga
   }
 })
 
-test('a small change set shows its tree at once, with figures, folder totals and diff actions', async () => {
+test('a small change set shows its tree at once, and its files open in the app diff viewer', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   Object.assign(globalThis, {
@@ -134,22 +134,29 @@ test('a small change set shows its tree at once, with figures, folder totals and
     Node: dom.window.Node,
     IS_REACT_ACT_ENVIRONMENT: true,
   })
-  const opened: Array<{ params: { checkpoint: string } }> = []
+  const opened: Array<{ kind: string; params: Record<string, string> }> = []
+  const turnDiffs: unknown[] = []
   Object.assign(dom.window, {
     api: {
       platform: 'darwin',
-      conversationTurnDiff: async () => ({
-        ok: true,
-        diff: {
-          files: [
-            { path: 'src/main/a.ts', status: 'modified', addedLines: 3, removedLines: 1, binary: false },
-            { path: 'src/main/b.ts', status: 'added', addedLines: 4, removedLines: 0, binary: false },
-            { path: 'README.md', status: 'modified', addedLines: 1, removedLines: 2, binary: false },
-          ],
-          submodulesExcluded: true,
-        },
-      }),
-      openAuxWindow: async (input: { params: { checkpoint: string } }) => {
+      // The workspace is a folder inside its repository: the viewer opens on
+      // the repository, and the files are found from its top level.
+      getGitRepoRoot: async () => '/workspace',
+      conversationTurnDiff: async (input: unknown) => (
+        turnDiffs.push(input),
+        {
+          ok: true,
+          diff: {
+            files: [
+              { path: 'src/main/a.ts', status: 'modified', addedLines: 3, removedLines: 1, binary: false },
+              { path: 'src/main/b.ts', status: 'added', addedLines: 4, removedLines: 0, binary: false },
+              { path: 'README.md', status: 'modified', addedLines: 1, removedLines: 2, binary: false },
+            ],
+            submodulesExcluded: true,
+          },
+        }
+      ),
+      openAuxWindow: async (input: { kind: string; params: Record<string, string> }) => {
         opened.push(input)
       },
     },
@@ -159,6 +166,9 @@ test('a small change set shows its tree at once, with figures, folder totals and
   const { ChangedFilesCard } = await import('./changedFilesCard')
   const { ConversationLinkProvider } = await import('./conversationLinks')
   const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const diffOpensInWindow = useWorkspaceStore.getState().diffOpensInWindow
+  useWorkspaceStore.setState({ diffOpensInWindow: true })
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
@@ -192,12 +202,43 @@ test('a small change set shows its tree at once, with figures, folder totals and
     expect(rows()).toEqual(['src/main, 7 added, 1 removed', 'README.md, modified, 1 added, 2 removed'])
     await act(async () => button('Expand all folders')!.click())
     expect(rows()).toHaveLength(4)
+    const loads = turnDiffs.length
+    const row = (label: string) =>
+      Array.from(host.querySelectorAll<HTMLElement>('[role="treeitem"]')).find((item) =>
+        item.getAttribute('aria-label')?.startsWith(label),
+      )!
+    // A click selects; it loads no inline diff and opens nothing.
+    await act(async () => row('src/main/b.ts').click())
+    expect(turnDiffs).toHaveLength(loads)
+    expect(opened).toHaveLength(0)
+    expect(host.querySelector('[role="tree"]')?.getAttribute('aria-activedescendant')).toContain('b.ts')
+    // A double-click opens it in the diff viewer; Enter is the keyboard's way.
+    await act(async () => {
+      row('src/main/b.ts').dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
+    })
+    await act(async () => {
+      host
+        .querySelector('[role="tree"]')!
+        .dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
     await act(async () => button('Open README.md in diff viewer')!.click())
     // The turn's diff opens on the first file in the order the tree shows.
     await act(async () => button('Open diff')!.click())
-    expect(opened.map((input) => JSON.parse(input.params.checkpoint).path)).toEqual(['README.md', 'src/main/a.ts'])
-    expect(JSON.parse(opened[0].params.checkpoint).turnSeq).toBe(2)
+    expect(opened.every((input) => input.kind === 'diff')).toBe(true)
+    expect(opened.map((input) => input.params.focusPath)).toEqual([
+      '/workspace/src/main/b.ts',
+      '/workspace/src/main/b.ts',
+      '/workspace/README.md',
+      '/workspace/src/main/a.ts',
+    ])
+    // Each opens on the repository, narrowed to exactly the turn's files, and
+    // each is a new narrowing so "Show all" on one does not stick to the next.
+    expect(opened[0].params.repoRoot).toBe('/workspace')
+    expect(JSON.parse(opened[0].params.revealPaths)).toEqual(['src/main/a.ts', 'src/main/b.ts', 'README.md'])
+    expect(new Set(opened.map((input) => input.params.revealKey)).size).toBe(4)
+    expect(opened.some((input) => 'checkpoint' in input.params)).toBe(false)
   } finally {
+    useWorkspaceStore.setState({ diffOpensInWindow })
     await act(async () => root.unmount())
     dom.window.close()
     for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT']) {

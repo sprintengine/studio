@@ -1529,3 +1529,41 @@ test('a running preview that shows nothing new is not written again', async () =
     await f.cleanup()
   }
 })
+
+test('a chat’s prompt cache survives a restart: resumed from the transcript, it goes cold when it really did', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'conversation-cache-'))
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const path = workspaceSidecarPath(workspaceRoot, 'conversations', 'workspace', 'agent.jsonl')
+  const envelope = { ...key, sessionId: 'old', providerId: 'mock-provider', modelId: 'mock-model' }
+  const at = 1_700_000_000_000
+  const lines = [
+    { ...event(envelope, 'session_started', { providerSessionId: 'native-1' }), id: 'e0', seq: 1 },
+    { ...event(envelope, 'user_message', { turnId: 't0', text: 'Question' }), id: 'u0', seq: 2 },
+    {
+      ...event(envelope, 'usage_updated', {
+        turnId: 't0',
+        promptCache: { ttl: '1h', cached: true, recacheTokens: 310_000 },
+      }),
+      id: 'p0',
+      seq: 3,
+      createdAt: at,
+    },
+    { ...event(envelope, 'turn_completed', { turnId: 't0' }), id: 'c0', seq: 4, createdAt: at + 5_000 },
+  ]
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, lines.map((line) => JSON.stringify(line)).join('\n') + '\n')
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+  })
+  try {
+    const started = await runtime.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' })
+    assert.ok(started.ok)
+    // One lifetime after the request was seen to start — the transcript's
+    // time, not the resume's.
+    assert.deepEqual(started.session.promptCache, { ttl: '1h', expiresAt: at + 60 * 60_000, recacheTokens: 310_000 })
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+})

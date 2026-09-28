@@ -172,8 +172,14 @@ second answer to the same question, drawn on a different grid, and the folder
 status enum it keyed off is now `FolderStatus` in the shared layer with no
 glyph family of its own.
 
-One status idiom per surface: a surface shows the 6 px `StatusDot` *or* a
-`LifecycleGlyph`, never both.
+`StatusDot` draws from this same vocabulary: the product draws no status dots
+(owner ruling 2026-09-28), so a status tone maps onto a lifecycle shape —
+danger to `failed`'s ×, warn to `needs_input`'s !, good and merged to `done`'s
+check, neutral to `blocked`'s bar, accent to `in_progress`'s held arc — and a
+live good or accent tone is the working mark (`components/liveness`). One
+status idiom per surface still holds: a surface speaks in status tones
+(`StatusDot`) *or* in lifecycle states (`LifecycleGlyph`), never both, or the
+same shapes turn up twice saying two different things.
 
 ### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
 
@@ -406,7 +412,7 @@ carries its kind as `data-tool-glyph`.
 wrench for anything it does not know. The row owns the ink: the quietest text
 ink at rest, the accent (pulsing) while the step runs, the error tone when it
 failed — so the mark doubles as the step's status and the row needs no second
-status dot.
+status mark.
 
 | Kind | Drawing | Asset |
 |---|---|---|
@@ -459,7 +465,7 @@ selection toolbar.
 ## Usage
 
 - **Pick the family by the question, then the glyph by the table.** Never
-  answer a lifecycle question with a status dot *and* a glyph, or an identity
+  answer a lifecycle question with a status mark *and* a glyph, or an identity
   question with an action icon.
 - **Size from the ramp, nothing else.** Rails and toolbars at `sm`; chips and
   inline-with-meta at `xs`; button-paired and panel-header at `md`;

@@ -27,6 +27,7 @@ import type {
 } from '../../../../shared/conversation-runtime'
 import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
 import { apiKeyBillingNotice } from '../../../../shared/conversation/apiKeySource'
+import { PromptCacheComposerNotice } from './agentChat/promptCacheNotice'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
@@ -2374,6 +2375,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 }}
               />
             </div>
+          ) : null}
+
+          {/* The prompt cache about to go cold, or gone: what the next message
+              re-sends, and `/compact` — which Claude Code runs as its own
+              command — to shrink it. Only a Claude chat reports a cache, and
+              only a view that can send may offer to compact it. */}
+          {operate && chatCli === 'claude-code' ? (
+            <PromptCacheComposerNotice
+              reading={projection.promptCache}
+              busy={
+                isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) ||
+                steeringTurnId !== null
+              }
+              onCompact={() => void sendTurn('/compact')}
+            />
           ) : null}
 
           {/*

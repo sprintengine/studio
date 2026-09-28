@@ -601,7 +601,7 @@
             "com.sprintengine": {
               "seeded": true,
               "role": "status",
-              "use": "Idle or unknown status dots and inline status copy.",
+              "use": "Idle or unknown status marks (the ring with a bar) and inline status copy.",
               "doNotUse": "Button fills, chrome tints, or category coding \u2014 status only.",
               "modes": {
                 "light": "{ref.color.gray-500}",
@@ -618,7 +618,7 @@
             "com.sprintengine": {
               "seeded": true,
               "role": "status",
-              "use": "Completion and health marks: done discs, success dots.",
+              "use": "Completion and health marks: the done disc with its knocked-out check, in rows and status marks alike.",
               "doNotUse": "Anything decorative; never retune toward the accent green.",
               "modes": {
                 "light": "{ref.color.emerald-700}",
@@ -1545,13 +1545,12 @@
         "$extensions": {
           "com.sprintengine": {
             "role": "shape",
-            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
+            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
             "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",
-              "switch",
-              "status-dot"
+              "switch"
             ]
           }
         }

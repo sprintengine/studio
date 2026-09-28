@@ -2314,7 +2314,9 @@ samp,
   }
 }
 
-/* Status dot pulse — shared keyframe for live indicators.
+/* Status pulse — shared keyframe for live indicators: a status mark waiting on
+ * someone, or a glyph whose process is running. (The name predates the rule
+ * that the app draws no status dots; the class is a breath, not a dot.)
  * Color is overridden inline by the consuming element. Status semantics:
  * emerald #30d158 = running/live, amber #ffbf2f or #f2c45f =
  * needs-input/pending, red #ff787c = failed. The pulse is allowed because it

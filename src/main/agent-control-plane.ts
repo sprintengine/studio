@@ -149,6 +149,14 @@ export type ControlPlaneSendOptions = {
   confirmTimeoutMs?: number
   /** Gap between the pasted text and the carriage return that submits it. */
   submitDelayMs?: number
+  /**
+   * Checked INSIDE the session's queue, immediately before the text is typed:
+   * a reason the send must not happen now, or null. For a send whose safety
+   * depends on the prompt as it stands (compacting types `/compact` at an
+   * empty prompt), a check made before the send is queued can be stale by the
+   * time the send before it in the queue has finished.
+   */
+  precondition?: () => string | null
 }
 
 export type ControlPlaneReadOptions = {
@@ -596,6 +604,8 @@ export class AgentControlPlane {
         message: `Agent session ${sessionId} is no longer running.`,
       }
     }
+    const blocked = options.precondition?.()
+    if (blocked) return { ok: false, sessionId, reason: 'unsupported', message: blocked }
 
     const pasted = this.writeTerminal(sessionId, bracketedTerminalPaste(text))
     if (!pasted.ok) return pasted

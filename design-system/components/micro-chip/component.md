@@ -59,9 +59,9 @@ have. It is display-only, and the row underneath owns every state.
 **One fact, one chip, at the end of the row.** It trails the label it
 qualifies. Two micro chips on one row is a row that wants a column.
 
-**Never a second status idiom.** If the row already carries a status dot or a
+**Never a second status idiom.** If the row already carries a status mark or a
 lifecycle glyph, this chip must be saying something *else* — "Default" beside
-a running dot is fine, "Active" beside it is the duplicate the principles
+the working mark is fine, "Active" beside them is the duplicate the principles
 reject on sight.
 
 **Never interactive.** No `onClick`, no `role="button"`, no dismiss ✕. A chip

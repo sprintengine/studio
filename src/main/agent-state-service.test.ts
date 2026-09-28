@@ -1627,6 +1627,18 @@ test('agent-state-service', async () => {
           current_usage: { input_tokens: 8500, output_tokens: 1200 },
         },
         rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 } },
+        prompt_cache: {
+          warm: true,
+          caching_observed: true,
+          ttl: '1h',
+          expires_at: 1_738_429_200,
+          hit_ratio: 0.91,
+          misses: 2,
+          miss_recache_tokens: 310_200,
+          last_miss_at: 1_738_425_230,
+          last_miss_cause: { causes: ['ttl_expired_5m'] },
+          recache_tokens_if_cold: 45_000,
+        },
       }
 
       const runStatusLine = (options: {
@@ -1695,12 +1707,19 @@ test('agent-state-service', async () => {
           linesRemoved: 23,
           model: 'Opus',
           sessionName: 'hook ledger',
+          // The payload's epoch seconds arrive as milliseconds, like every
+          // other time on the socket.
+          promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 },
         },
         'only the reading rides the socket — never the transcript path, the cwd or the rate limits',
       )
       assert.ok(
-        !slFrames[0].includes('transcript') && !slFrames[0].includes('rate_limits') && !slFrames[0].includes('/repo'),
-        'the forwarder must not leak the rest of the payload',
+        !slFrames[0].includes('transcript') &&
+          !slFrames[0].includes('rate_limits') &&
+          !slFrames[0].includes('/repo') &&
+          !slFrames[0].includes('hit_ratio') &&
+          !slFrames[0].includes('ttl_expired_5m'),
+        'the forwarder must not leak the rest of the payload, the cache statistics included',
       )
 
       // A null used_percentage (before the first API call, and again right after a
@@ -1713,12 +1732,17 @@ test('agent-state-service', async () => {
         payload: {
           ...statusLinePayload,
           context_window: { ...statusLinePayload.context_window, used_percentage: null },
+          prompt_cache: { ...statusLinePayload.prompt_cache, warm: false, recache_tokens_if_cold: null },
         },
       })
       await waitFor(() => slFrames.length >= 2)
       const compacted = JSON.parse(slFrames[1]) as { statusLine?: Record<string, unknown> }
       assert.equal(compacted.statusLine?.usedPercentage, undefined, 'a null percentage is omitted, not zeroed')
       assert.equal(compacted.statusLine?.contextWindowSize, 200_000, 'the rest of the reading still rides')
+      // The cache rides WHOLE: a cache the CLI says is cold has no expiry, and
+      // an unknown re-cache size (right after a compaction) is sent as unknown
+      // rather than left to the previous reading.
+      assert.deepEqual(compacted.statusLine?.promptCache, { ttl: '1h', expiresAt: null, recacheTokens: null })
 
       // --wrap: the person's own command runs with the SAME stdin bytes, and its
       // stdout is what Claude paints.

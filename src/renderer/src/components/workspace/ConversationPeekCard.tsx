@@ -1,6 +1,8 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 
 import CliIcon from '../CliIcon'
+import type { PromptCacheReading } from '../../../../shared/prompt-cache'
+import { PromptCacheCardLine } from './PromptCacheMark'
 import { Badge, ContextRing, IconButton, LinkButton, Skeleton, Tooltip, TruncatedText, WorkingMark } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs } from '../../utils/relativeTime'
@@ -110,6 +112,18 @@ export type ConversationPeekAgent = {
   pullRequests: BranchPullRequest[]
   /** Context-window usage, or null when nothing has reported any. Null draws no ring. */
   contextUsage: SessionContextUsage | null
+  /**
+   * The conversation's prompt cache, or null when nothing reports one. Draws a
+   * line under the badges while the agent is at rest: how long the cache has
+   * left, or what the next message re-sends now that it has gone.
+   */
+  promptCache?: PromptCacheReading | null
+  /**
+   * Whether this card can compact the conversation (`/compact` at a Claude
+   * Code agent's prompt), with the reason it cannot right now; null where
+   * there is no such action here.
+   */
+  compact?: { blocker: string | null } | null
 }
 
 export type ConversationPeekIdentity = {
@@ -268,11 +282,14 @@ function LiveCorner({
   )
 }
 
-/** "Paused · 2m" once a minute has passed, else the plain label, on a clock of its own. */
+/**
+ * "Paused · 2m" once a minute has passed, else the plain label, on a clock of
+ * its own. An age with no label of its own (a chat's) is the time alone: "2m".
+ */
 function LabelWithAge({ label, aged }: { label: string; aged: { label: string; since: number } }) {
   const now = useRelativeNow()
   const age = formatRelativeMs(aged.since, now)
-  return <>{age ? `${aged.label} · ${age}` : label}</>
+  return <>{age ? (aged.label ? `${aged.label} · ${age}` : age) : label}</>
 }
 
 /**
@@ -629,6 +646,13 @@ export function ConversationPeekCard({
           </span>
         ) : null}
       </div>
+
+      <PromptCacheCardLine
+        sessionId={agent.sessionId}
+        reading={agent.promptCache}
+        working={identity.status?.kind === 'working'}
+        compact={agent.compact ?? null}
+      />
 
       <ChangedFiles
         changes={agent.fileChanges}

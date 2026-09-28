@@ -31,18 +31,20 @@
     border-radius: var(--sem-radius-overlay);
     background: var(--sem-color-bg-surface);
   }
-  /* A ghost list row: dot + title-and-meta column, sized like the real row it
-     stands in for. Composition belongs to the consumer, so it lives in the
-     demo, not in component.css. */
+  /* A ghost list row: leading mark + title-and-meta column, sized like the
+     real row it stands in for. Composition belongs to the consumer, so it
+     lives in the demo, not in component.css. */
   .demo-row {
     display: flex;
     align-items: center;
     gap: var(--sem-space-md);
     padding: var(--sem-space-xs) 0;
   }
-  .demo-row-dot {
-    width: 6px;
-    height: 6px;
+  /* The leading status mark's slot: the glyph's 13px (icon.size.xs) box,
+     round because the glyphs are drawn on a ring. */
+  .demo-row-mark {
+    width: var(--sem-icon-size-xs);
+    height: var(--sem-icon-size-xs);
     border-radius: 50%;
   }
   .demo-row-text {
@@ -95,21 +97,21 @@
     <span role="status" class="sr-only">Loading sessions…</span>
     <div aria-hidden="true">
       <div class="demo-row">
-        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="ds-skeleton demo-row-mark"></div>
         <div class="demo-row-text">
           <div class="ds-skeleton demo-line-title" style="width: 62%"></div>
           <div class="ds-skeleton demo-line-meta" style="width: 34%"></div>
         </div>
       </div>
       <div class="demo-row">
-        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="ds-skeleton demo-row-mark"></div>
         <div class="demo-row-text">
           <div class="ds-skeleton demo-line-title" style="width: 48%"></div>
           <div class="ds-skeleton demo-line-meta" style="width: 41%"></div>
         </div>
       </div>
       <div class="demo-row">
-        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="ds-skeleton demo-row-mark"></div>
         <div class="demo-row-text">
           <div class="ds-skeleton demo-line-title" style="width: 71%"></div>
           <div class="ds-skeleton demo-line-meta" style="width: 28%"></div>
@@ -135,14 +137,14 @@
     <span role="status" class="sr-only">Loading sessions…</span>
     <div aria-hidden="true">
       <div class="demo-row">
-        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="ds-skeleton demo-row-mark"></div>
         <div class="demo-row-text">
           <div class="ds-skeleton demo-line-title" style="width: 62%"></div>
           <div class="ds-skeleton demo-line-meta" style="width: 34%"></div>
         </div>
       </div>
       <div class="demo-row">
-        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="ds-skeleton demo-row-mark"></div>
         <div class="demo-row-text">
           <div class="ds-skeleton demo-line-title" style="width: 48%"></div>
           <div class="ds-skeleton demo-line-meta" style="width: 41%"></div>
