@@ -302,7 +302,7 @@ test('WorkspaceSidebar.allChats', async () => {
                 sessionId: 'conversation-1',
                 workspaceId: 'w1',
                 agentId: 'conversation-agent',
-                providerId: 'provider-1',
+                providerId: 'claude-agent',
                 modelId: 'model-1',
                 status: 'awaiting_approval',
                 createdAt: now - MINUTE,
@@ -317,7 +317,10 @@ test('WorkspaceSidebar.allChats', async () => {
       const alpha = rowFor('Alpha')
       assert.equal(alpha.querySelectorAll('[data-peek-session]').length, 2, 'one terminal and one chat head')
       assert.ok(alpha.textContent?.includes('Needs approval'), 'the chat line states what is pending')
-      assert.ok(alpha.querySelector('[aria-label="Chat agent"]'), 'the chat head has its own glyph')
+      assert.ok(
+        alpha.querySelector('[aria-label="Claude Code chat"]'),
+        'the chat head wears the mark of the CLI it rides',
+      )
     } finally {
       act(() => {
         root.unmount()

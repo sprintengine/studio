@@ -57,6 +57,7 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
@@ -1240,9 +1241,30 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
                 ? { tone: 'good', pulse: true, label: 'Working' }
                 : agentTabStatusDot(agentSession)
 
-      if (agent?.runtimeKind === 'conversation') {
+      // A chat names the CLI it rides with the same brand mark a terminal
+      // agent's tab wears: which harness is the at-a-glance fact, and chat or
+      // terminal is what the pane itself already shows. The live session's
+      // provider wins over the agent record's, since a chat can switch models
+      // (and with them providers) after launch. A provider that is not a CLI
+      // keeps the chat glyph.
+      const conversationCli =
+        agent?.runtimeKind === 'conversation'
+          ? cliForConversationProvider(conversation?.providerId ?? agent.conversation?.providerId)
+          : null
+      if (agent?.runtimeKind === 'conversation' && conversationCli) {
+        const runtimeLabel = `${labelForCliRuntime(conversationCli)} chat`
         renderValues.leading = (
-          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} aria-label="Chat agent">
+          <span
+            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
+            title={runtimeLabel}
+            aria-label={runtimeLabel}
+          >
+            <CliIcon cli={conversationCli} className={TAB_CHIP_GLYPH_CLASS} />
+          </span>
+        )
+      } else if (agent?.runtimeKind === 'conversation') {
+        renderValues.leading = (
+          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} title="Chat" aria-label="Chat agent">
             <ChatGlyph className={TAB_CHIP_GLYPH_CLASS} />
           </span>
         )

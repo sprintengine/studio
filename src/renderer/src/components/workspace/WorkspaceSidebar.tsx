@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
+import CliIcon from '../CliIcon'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
-import { conversationLineText } from './sidebar/conversationLines'
+import { conversationLineMark, conversationLineText } from './sidebar/conversationLines'
 import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -3573,21 +3574,36 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           />
         )
       })}
-      {visibleConversations.map((session, index) => (
-        <div
-          key={session.sessionId}
-          data-peek-session={session.sessionId}
-          className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'}`}
-        >
-          <Tooltip content={`${session.displayName ?? 'Chat'} · ${session.modelId}`} placement="bottom">
-            <span role="img" aria-label="Chat agent" className="flex shrink-0 items-center">
-              <ChatGlyph className="icon-xs" />
-            </span>
-          </Tooltip>
-          <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
-          {index === 0 && rowLines.lines.length === 0 && !flatProject ? statusSeat : null}
-        </div>
-      ))}
+      {visibleConversations.map((session, index) => {
+        const mark = conversationLineMark(session)
+        return (
+          <div
+            key={session.sessionId}
+            data-peek-session={session.sessionId}
+            className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'}`}
+          >
+            <Tooltip content={mark.tooltip} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+              {/* The same ringed provider mark a terminal line wears
+                  (TerminalLineView), so a chat and a terminal running the same
+                  CLI say so in the same place; a provider that is not a CLI
+                  keeps the chat glyph inside the same ring. */}
+              <span
+                role="img"
+                aria-label={mark.runtimeLabel}
+                className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
+              >
+                {mark.cli ? (
+                  <CliIcon cli={mark.cli} className="icon-xs" />
+                ) : (
+                  <ChatGlyph className="icon-xs text-[color:var(--text-muted)]" />
+                )}
+              </span>
+            </Tooltip>
+            <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
+            {index === 0 && rowLines.lines.length === 0 && !flatProject ? statusSeat : null}
+          </div>
+        )
+      })}
       {rowLines.overflow > 0 ? (
         <div
           className={`flex h-5 items-center text-micro ${

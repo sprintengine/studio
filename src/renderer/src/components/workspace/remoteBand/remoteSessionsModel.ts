@@ -1,4 +1,5 @@
 import type { RepositoryIdentity } from '../../../../../shared/repository-identity'
+import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
 import {
   fleetConversationPresence,
   fleetConversationSessionId,
@@ -295,7 +296,7 @@ function remoteChatRowOf(
     kind: 'chat',
     remoteAgentId: conversation.agentId,
     title: conversation.title || 'Conversation',
-    cli: conversation.providerId || null,
+    cli: cliForConversationProvider(conversation.providerId),
     workspaceId: conversation.workspaceId,
     workspaceName: remoteWorkspace?.name ?? null,
     workspaceRoot: remoteWorkspace?.folderPath ?? null,

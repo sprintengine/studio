@@ -3,6 +3,7 @@
 // focused on layout, IPC, and state coordination. Nothing in this module reaches into the store directly;
 // every function takes its data via arguments.
 
+import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { isStarred } from '../../utils/highlight'
 import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
@@ -238,8 +239,8 @@ export function getSessionItems(
         agentId: summary.agentId,
         terminalId: null,
         label: agent?.name || conversationAgentFallbackLabel(summary.agentId),
-        // The claude-agent provider rides the Claude Code CLI; use its icon.
-        cli: summary.providerId === 'claude-agent' ? 'claude-code' : '',
+        // A chat provider rides a CLI; wear that CLI's icon.
+        cli: cliForConversationProvider(summary.providerId) ?? '',
         // The runtime session state is authoritative (it observes the provider
         // stream directly), so it reads as a hook-grade signal.
         status,
