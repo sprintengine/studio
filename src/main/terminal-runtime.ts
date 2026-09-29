@@ -107,19 +107,6 @@ import {
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 import { TerminalReplayBuffer } from './terminal-replay-buffer'
-import {
-  splitTerminalAttachFrame,
-  TERMINAL_REMOTE_CATCH_UP_BUDGET_BYTES,
-  TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
-  TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES,
-  TERMINAL_REMOTE_TRANSPORT_LOW_WATER_BYTES,
-  type TerminalAttachFrame,
-  type TerminalAttachResult,
-  type TerminalAttachScope,
-  type TerminalAttachTransport,
-  type TerminalRemoteHost,
-  type TerminalStreamPosition,
-} from './terminal-remote-attach'
 import type { SubtreeLiveReason, SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
@@ -128,8 +115,6 @@ import {
   TERMINAL_FLOW_HIGH_WATERMARK,
   TERMINAL_FLOW_LOW_WATERMARK,
   TERMINAL_FLOW_STALL_RESUME_MS,
-  type TerminalOutputExtent,
-  type TerminalOutputSink,
 } from './terminal-output-buffer'
 import {
   explainSessionReapDecision,
@@ -309,13 +294,9 @@ type TerminalRuntime = {
   // plane's pattern wait asks this every 100 ms, and joining a multi-megabyte
   // scrollback each time was the whole cost of a wait.
   readTerminalOutputSince(sessionId: string, cursor: number): { text: string; cursor: number } | undefined
-  // Watch-and-type access for remote transports. The tailnet
-  // listener's terminal WebSocket is its only caller today; it is a port, not a
-  // capability grant — the transport still has to prove a scoped device.
-  remoteHost: TerminalRemoteHost
   // Fires once per coalesced sessions broadcast — the same beat the windows
-  // hear — so a main-process consumer (the tailnet listener's change push)
-  // never polls the session list. Carries nothing: the listener reads.
+  // hear — so a main-process consumer (the launched-agent reconcile) never
+  // polls the session list. Carries nothing: the listener reads.
   subscribeSessionsChanged(listener: () => void): () => void
   // Send the pending sessions broadcast now. The quit path and the tests
   // that read the wire synchronously are its callers.
@@ -402,8 +383,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   onPullRequestCaptured = options.onPullRequestCaptured
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
-  remoteTerminalViewers.clear()
-  remoteTerminalSinkLists.clear()
   logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
@@ -421,7 +400,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     ingestAgentStateFrame,
     readTerminalOutput,
     readTerminalOutputSince,
-    remoteHost: terminalRemoteHost,
     subscribeSessionsChanged(listener) {
       terminalSessionsChangedListeners.add(listener)
       return () => terminalSessionsChangedListeners.delete(listener)
@@ -495,374 +473,12 @@ function sendTerminalEvent(sender: Electron.WebContents, channel: string, payloa
   }
 }
 
-// Remote viewers of a session's output, keyed sessionId → viewerId.
-// The renderer's WebContents is still the sender the session itself holds; these
-// are ADDITIONAL senders, each with its own flush gate, its own byte bound, and
-// its own catch-up state, so one viewer's slowness or hidden-ness never reaches
-// another. Empty for every session nobody remote is attached to, which is the
-// normal case and costs one Map lookup per output batch.
-//
-// A viewer is tracked by POSITION: the stream offset of the last byte it was
-// sent (see TerminalStreamPosition). Whatever it misses — withheld while its
-// link was behind, cut from a batch at the pending bound, or lost with a socket
-// and asked for again on the next attach — is the retained stream from that
-// offset on, and is sent as ordinary output appended to what the client already
-// shows. Only when that tail is no longer retained, or is larger than a repaint,
-// is the viewer sent the whole window again. It used to be sent the whole
-// window every time: megabytes over the link it had just proved slow, and a
-// pane that redrew its history from the top.
-type RemoteTerminalViewer = {
-  transport: TerminalAttachTransport
-  scope: TerminalAttachScope
-  /** Stream offset just past the last byte this viewer was sent, by replay, catch-up or output. */
-  sentOffset: number
-  /**
-   * Set when the transport's queue passed the high water. Output is withheld
-   * until it drains below the low water, then the viewer is caught up from
-   * `sentOffset` in one frame.
-   */
-  behind: boolean
-  /** Polls a viewer that is behind, so one that drains while the session is quiet is still caught up. */
-  drainTimer: NodeJS.Timeout | null
-  /** When the current run of polls began; the poll stops after {@link REMOTE_VIEWER_DRAIN_WATCH_MS}. */
-  drainWatchStartedAt: number | null
-  /**
-   * How much of the transport's queue is the last replay or catch-up still
-   * draining. Only bytes queued beyond it count as falling behind: a long
-   * session's replay alone exceeds the high water, and counting it made every
-   * replay cause the next resync — a remote pane repainting its whole history
-   * on a loop. It only ever shrinks, following the queue down as the link
-   * drains.
-   */
-  replayBacklogBytes: number
-  /** Built once at attach rather than per output chunk. */
-  sink?: TerminalOutputSink
-}
-
-/** How often a viewer that fell behind is checked for having drained. */
-const REMOTE_VIEWER_DRAIN_POLL_MS = 100
-/**
- * How long a quiet session keeps polling a viewer that does not drain. A peer
- * that stopped reading on a half-open connection would otherwise be polled
- * until the socket finally closes; past this, the next output batch is what
- * checks it again.
- */
-const REMOTE_VIEWER_DRAIN_WATCH_MS = 5 * 60 * 1000
-
-const remoteTerminalViewers = new Map<string, Map<string, RemoteTerminalViewer>>()
-// The sinks per session, rebuilt only when a viewer attaches or detaches: this
-// is asked once per pty chunk, and the answer is almost always "none".
-const remoteTerminalSinkLists = new Map<string, readonly TerminalOutputSink[]>()
-const NO_REMOTE_SINKS: readonly TerminalOutputSink[] = []
-
-function remoteTerminalSinks(sessionId: string): readonly TerminalOutputSink[] {
-  return remoteTerminalSinkLists.get(sessionId) ?? NO_REMOTE_SINKS
-}
-
-function refreshRemoteTerminalSinks(sessionId: string): void {
-  const viewers = remoteTerminalViewers.get(sessionId)
-  if (!viewers || viewers.size === 0) {
-    remoteTerminalSinkLists.delete(sessionId)
-    return
-  }
-  remoteTerminalSinkLists.set(
-    sessionId,
-    [...viewers.values()].map((viewer) => (viewer.sink ??= remoteTerminalSink(sessionId, viewer))),
-  )
-}
-
-function remoteTerminalSink(sessionId: string, viewer: RemoteTerminalViewer): TerminalOutputSink {
-  return {
-    id: viewer.transport.viewerId,
-    // A remote viewer's gate is its OWN socket, never the local pane's
-    // visibility: watching an agent from a laptop must not require the desktop
-    // tab to be on screen, and a closed socket must not keep buffering.
-    shouldForward: () => viewer.transport.isOpen(),
-    forward: (data, extent) => forwardToRemoteViewer(sessionId, viewer, data, extent),
-    pendingLimitBytes: TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
-    // No throttle notice and no drop hook: a batch whose head was cut at the
-    // bound no longer starts at this viewer's position, which the forward
-    // sees, and it is caught up from the retained stream instead — so a marker
-    // in the stream would be a lie about what it now shows.
-  }
-}
-
-/** Bytes the viewer's transport holds beyond its last replay or catch-up. */
-function remoteViewerLag(viewer: RemoteTerminalViewer): number {
-  const queued = viewer.transport.queuedBytes()
-  viewer.replayBacklogBytes = Math.min(viewer.replayBacklogBytes, queued)
-  return queued - viewer.replayBacklogBytes
-}
-
-function forwardToRemoteViewer(
-  sessionId: string,
-  viewer: RemoteTerminalViewer,
-  data: string,
-  extent: TerminalOutputExtent,
-): void {
-  // Already sent: a replay or catch-up taken after this batch was queued
-  // carried it. This is what makes attach race-free — the viewer's sink is
-  // subscribed before its replay is taken, and anything queued behind the
-  // replay is dropped here by position rather than painted twice.
-  if (extent.endOffset <= viewer.sentOffset) return
-  // The pty NEVER waits on a socket. A transport that has stopped draining is
-  // sent nothing more until it has worked most of its queue off, and is then
-  // caught up from where it stopped; the local renderer and the process itself
-  // are untouched either way.
-  if (!viewer.behind && remoteViewerLag(viewer) > TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES) viewer.behind = true
-  if (viewer.behind) {
-    if (remoteViewerLag(viewer) > TERMINAL_REMOTE_TRANSPORT_LOW_WATER_BYTES) {
-      watchRemoteViewerDrain(sessionId, viewer)
-      return
-    }
-    catchUpRemoteViewer(sessionId, viewer)
-    return
-  }
-  // A batch that does not start where this viewer stands lost its head at the
-  // pending bound. The retained stream still has it.
-  if (extent.endOffset - extent.bytes !== viewer.sentOffset) {
-    catchUpRemoteViewer(sessionId, viewer)
-    return
-  }
-  sendToRemoteViewer(viewer, { type: 'output', data, position: extent.endOffset })
-  viewer.sentOffset = extent.endOffset
-}
-
-/**
- * Poll a viewer that is behind until it drains. Without this a viewer that
- * fell behind on the last burst before a quiet spell would stay behind — and
- * its pane stale — until the session next printed something.
- */
-function watchRemoteViewerDrain(sessionId: string, viewer: RemoteTerminalViewer): void {
-  if (viewer.drainTimer) return
-  viewer.drainWatchStartedAt ??= Date.now()
-  viewer.drainTimer = setTimeout(() => {
-    viewer.drainTimer = null
-    if (!viewer.behind || !viewer.transport.isOpen()) return
-    if (remoteTerminalViewers.get(sessionId)?.get(viewer.transport.viewerId) !== viewer) return
-    if (remoteViewerLag(viewer) > TERMINAL_REMOTE_TRANSPORT_LOW_WATER_BYTES) {
-      if (Date.now() - (viewer.drainWatchStartedAt ?? 0) >= REMOTE_VIEWER_DRAIN_WATCH_MS) {
-        viewer.drainWatchStartedAt = null
-        return
-      }
-      watchRemoteViewerDrain(sessionId, viewer)
-      return
-    }
-    catchUpRemoteViewer(sessionId, viewer)
-  }, REMOTE_VIEWER_DRAIN_POLL_MS)
-  viewer.drainTimer.unref?.()
-}
-
-function stopWatchingRemoteViewerDrain(viewer: RemoteTerminalViewer): void {
-  if (viewer.drainTimer) clearTimeout(viewer.drainTimer)
-  viewer.drainTimer = null
-  viewer.drainWatchStartedAt = null
-}
-
-/**
- * The retained output after stream offset `from`, or null when the viewer has
- * to be repainted instead:
- *   - the session is suspended or showing its frozen snapshot, which is a
- *     different thing from the stream and has no live continuation;
- *   - `from` is not a point in this stream — cut from the head already, or
- *     past the end (a stream that restarted under the same id);
- *   - the tail is larger than a repaint would be worth.
- */
-function remoteCatchUp(session: TerminalSession, from: number): string | null {
-  if (session.suspended || session.replaySnapshot) return null
-  if (session.output.endOffset - from > TERMINAL_REMOTE_CATCH_UP_BUDGET_BYTES) return null
-  return session.output.readFrom(from)
-}
-
-/** Send a viewer everything past its position, or the whole window when that is gone. */
-function catchUpRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer): void {
-  viewer.behind = false
-  stopWatchingRemoteViewerDrain(viewer)
-  const session = terminals.get(sessionId)
-  if (!session) return
-  const tail = remoteCatchUp(session, viewer.sentOffset)
-  if (tail === null) {
-    sendReplayToRemoteViewer(viewer, session, 'resync')
-    return
-  }
-  const position = session.output.endOffset
-  if (tail) {
-    sendToRemoteViewer(viewer, { type: 'output', data: tail, position })
-    viewer.replayBacklogBytes = viewer.transport.queuedBytes()
-  }
-  viewer.sentOffset = position
-}
-
-/** Every frame to a remote viewer goes through the chunker, so none can exceed the wire's cap. */
-function sendToRemoteViewer(viewer: RemoteTerminalViewer, frame: TerminalAttachFrame): void {
-  for (const part of splitTerminalAttachFrame(frame)) viewer.transport.send(part)
-}
-
-/**
- * The whole window, positioned at the end of the stream, with what it leaves
- * queued recorded as the backlog the viewer is draining. A suspended session
- * prefers its faithful screen snapshot, as the local reveal path does; the
- * stream's end offset is where that snapshot was taken, since nothing is
- * appended behind one.
- */
-function sendReplayToRemoteViewer(
-  viewer: RemoteTerminalViewer,
-  session: TerminalSession,
-  reason: 'attach' | 'resync',
-): void {
-  const data = session.replaySnapshot ?? materializeTerminalReplay(session)
-  const position = session.output.endOffset
-  sendToRemoteViewer(viewer, { type: 'replay', data, reason, stream: session.output.streamId, position })
-  viewer.sentOffset = position
-  viewer.replayBacklogBytes = viewer.transport.queuedBytes()
-}
-
-/** Tell every remote viewer of this session that nothing more is coming, and drop them. */
-function endRemoteTerminalViewers(sessionId: string, reason: string): void {
-  const viewers = remoteTerminalViewers.get(sessionId)
-  if (!viewers) return
-  remoteTerminalViewers.delete(sessionId)
-  refreshRemoteTerminalSinks(sessionId)
-  for (const viewer of viewers.values()) {
-    stopWatchingRemoteViewerDrain(viewer)
-    terminalOutput.discard(sessionId, viewer.transport.viewerId)
-    if (viewer.transport.isOpen()) viewer.transport.send({ type: 'ended', reason })
-  }
-}
-
-/**
- * Send every viewer still behind what it missed, without waiting for its link
- * to drain: the session will print nothing more, so there is no later batch
- * to catch it up on, and what follows (the exit line, or a repaint from the
- * settled screen) must not arrive ahead of the output it ends.
- */
-function catchUpRemoteViewersNow(sessionId: string): void {
-  const viewers = remoteTerminalViewers.get(sessionId)
-  if (!viewers) return
-  for (const viewer of viewers.values()) {
-    if (viewer.behind && viewer.transport.isOpen()) catchUpRemoteViewer(sessionId, viewer)
-  }
-}
-
-function notifyRemoteTerminalExit(sessionId: string, exitCode: number): void {
-  catchUpRemoteViewersNow(sessionId)
-  const viewers = remoteTerminalViewers.get(sessionId)
-  if (!viewers) return
-  for (const viewer of viewers.values()) {
-    if (viewer.transport.isOpen()) viewer.transport.send({ type: 'exit', exitCode })
-  }
-}
-
-function attachRemoteTerminalViewer(input: {
-  sessionId: string
-  scope: TerminalAttachScope
-  transport: TerminalAttachTransport
-  resume?: TerminalStreamPosition
-}): TerminalAttachResult {
-  const session = terminals.get(input.sessionId)
-  if (!session || session.isDisposed) {
-    return {
-      ok: false,
-      code: 'unknown_terminal',
-      message: `No terminal session "${input.sessionId}" is open in this app. Call terminal.list for the sessions it holds.`,
-    }
-  }
-  const viewer: RemoteTerminalViewer = {
-    transport: input.transport,
-    scope: input.scope,
-    sentOffset: session.output.endOffset,
-    behind: false,
-    drainTimer: null,
-    drainWatchStartedAt: null,
-    replayBacklogBytes: 0,
-  }
-  // Subscribed FIRST, then sent where it stands. Output queued for this viewer
-  // from here on is positioned, so whatever the replay or catch-up below
-  // already carries is dropped when its batch flushes (forwardToRemoteViewer),
-  // and nothing printed in between can fall into a gap.
-  const viewers = remoteTerminalViewers.get(input.sessionId) ?? new Map<string, RemoteTerminalViewer>()
-  remoteTerminalViewers.set(input.sessionId, viewers)
-  viewers.set(input.transport.viewerId, viewer)
-  refreshRemoteTerminalSinks(input.sessionId)
-
-  // A client that says where its screen stands, in THIS stream, is sent only
-  // what it has not seen — a laptop waking from sleep appends the minutes it
-  // missed instead of repainting the session from the top. Anything else, or a
-  // point no longer retained, is the full replay a fresh attach gets.
-  const resume = input.resume
-  const tail = resume && resume.stream === session.output.streamId ? remoteCatchUp(session, resume.position) : null
-  // Read with the tail, before anything is sent: output landing while the
-  // frames go out belongs to the batches after it, not to this catch-up.
-  const position = session.output.endOffset
-  if (resume && tail !== null) {
-    input.transport.send({ type: 'resumed', stream: resume.stream, position: resume.position })
-    if (tail) sendToRemoteViewer(viewer, { type: 'output', data: tail, position })
-    viewer.sentOffset = position
-    viewer.replayBacklogBytes = input.transport.queuedBytes()
-  } else {
-    sendReplayToRemoteViewer(viewer, session, 'attach')
-  }
-
-  const detach = (): void => {
-    stopWatchingRemoteViewerDrain(viewer)
-    const current = remoteTerminalViewers.get(input.sessionId)
-    if (!current) return
-    current.delete(input.transport.viewerId)
-    terminalOutput.discard(input.sessionId, input.transport.viewerId)
-    if (current.size === 0) remoteTerminalViewers.delete(input.sessionId)
-    refreshRemoteTerminalSinks(input.sessionId)
-  }
-
-  const requireControl = (verb: string): { ok: false; code: string; message: string } | null =>
-    input.scope === 'control'
-      ? null
-      : {
-          ok: false,
-          code: 'terminal_control_required',
-          message: `This connection is attached to watch only, so it cannot ${verb}. Re-pair the device with the terminal control scope.`,
-        }
-
-  return {
-    ok: true,
-    attachment: {
-      sessionId: input.sessionId,
-      scope: input.scope,
-      session: getTerminalSnapshot(session),
-      write: (data) => {
-        const refused = requireControl('type into this terminal')
-        if (refused) return refused
-        const live = terminals.get(input.sessionId)
-        if (!live || !isTerminalProcessAlive(live)) {
-          return { ok: false, code: 'terminal_not_live', message: 'This terminal has no running process to type into.' }
-        }
-        // The SAME write path local input uses, so remote and local keystrokes
-        // cannot interleave mid-sequence by taking different routes into the pty.
-        writeTerminalInput(input.sessionId, data)
-        return { ok: true }
-      },
-      resize: (cols, rows) => {
-        const refused = requireControl('resize this terminal')
-        if (refused) return refused
-        safeResizeTerminal(input.sessionId, cols, rows)
-        return { ok: true }
-      },
-      detach,
-    },
-  }
-}
-
-const terminalRemoteHost: TerminalRemoteHost = {
-  listSessions: () => [...terminals.values()].filter((session) => !session.isDisposed).map(getTerminalSnapshot),
-  attach: attachRemoteTerminalViewer,
-}
-
 const terminalOutput = createTerminalOutputBuffer({
   getSession: (sessionId) => terminals.get(sessionId),
   sendTerminalEvent,
   recordDataBatch: (session, cause, chunkCount, byteCount) => {
     terminalDiagnostics.recordDataBatch(session, cause, chunkCount, byteCount)
   },
-  resolveExtraSinks: remoteTerminalSinks,
   flowControl: {
     highWatermark: TERMINAL_FLOW_HIGH_WATERMARK,
     lowWatermark: TERMINAL_FLOW_LOW_WATERMARK,
@@ -1064,9 +680,8 @@ function flushTerminalSessionsBroadcast(): void {
       }
     }
   }
-  // Main-process listeners hear the same beat the windows do: the tailnet
-  // listener turns it into one small "terminals changed" push to paired
-  // devices, which is what lets them stop polling terminal.list.
+  // Main-process listeners hear the same beat the windows do, so none of them
+  // has to poll the session list.
   for (const listener of terminalSessionsChangedListeners) {
     try {
       listener()
@@ -1128,7 +743,7 @@ function setTerminalVisible(
   } else if (shouldReplay) {
     // A fresh pane shown without a hidden→visible edge: the replay below holds
     // whatever batch was queued for the pane it replaces.
-    terminalOutput.discardRenderer(sessionId)
+    terminalOutput.discard(sessionId)
   }
   recordTerminalVisibility(session, visible)
   // A pane going hidden or coming back has nothing in flight worth waiting on:
@@ -1278,10 +893,6 @@ export function suspendTerminal(sessionId: string): void {
   // the scrollback can be replayed for the painted view.
   terminalOutput.flush(sessionId, 'dispose')
   terminalOutput.forgetSession(sessionId)
-  // The local view stays painted and resumes on a keystroke; a remote viewer
-  // has no such affordance, so end its stream with the reason instead of
-  // leaving it watching a pty that has been killed.
-  endRemoteTerminalViewers(sessionId, 'This terminal was paused to reclaim memory. Reattach after it resumes.')
   clearTerminalIdleTimer(session)
   // A suspend kills the pty without going through the exited/failed activity
   // transition (the onExit branch returns early), so clear the stall timer here
@@ -1340,7 +951,7 @@ export function suspendTerminal(sessionId: string): void {
 // its own is settled, but its tab stays open on its last screen and the agent
 // control plane can still read what it printed, synchronously. So, as suspend
 // does, render that screen once and let the raw stream behind it go: every
-// reveal, reattach and remote attach already prefers `replaySnapshot`, and
+// reveal and reattach already prefers `replaySnapshot`, and
 // `readTerminalOutput` / `readTerminalOutputSince` answer from it once the
 // stream is released. Until the render lands the raw stream serves every read,
 // and a failed render keeps it as the fallback.
@@ -1574,10 +1185,6 @@ function disposeTerminal(sessionId: string): void {
   cleanupHostContextFile(session.launchPromptPath)
   discardHostLaunchFiles(session)
   terminalOutput.flush(sessionId, 'dispose')
-  // Say so rather than leaving remote viewers on a stream that will never speak
-  // again: dispose means gone, and a resume respawns under this same id, which
-  // a stale attachment would silently start narrating.
-  endRemoteTerminalViewers(sessionId, 'This terminal was closed.')
   terminalDiagnostics.clear(sessionId)
   // The spawn-armed stall timer would otherwise hold the session object alive
   // up to 90s past dispose (its fire is a guaranteed no-op, but the reference
@@ -2191,7 +1798,6 @@ async function disposeAllTerminals(): Promise<void> {
     cleanupHostContextFile(session.hostContextPath)
     cleanupHostContextFile(session.launchPromptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
-    endRemoteTerminalViewers(session.sessionId, 'SprintEngine Studio is shutting down on this machine.')
     terminalDiagnostics.clear(session.sessionId)
     clearTerminalIdleTimer(session)
     clearAgentStallTimer(session)
@@ -3282,9 +2888,6 @@ function attachTerminalSession(
     cleanupHostContextFile(terminalSession.launchPromptPath)
     discardHostLaunchFiles(terminalSession)
     terminalOutput.flush(sessionId, 'exit')
-    // Before the screen is settled and the exit is announced, so a remote
-    // viewer's last output lands above its exit line and not after it.
-    catchUpRemoteViewersNow(sessionId)
     if (terminals.get(sessionId) === terminalSession) terminalOutput.forgetSession(sessionId)
     // Durable freeze-the-view, self-exit path: an agent whose pty ends on its own
     // (an automation run finishing, a CLI crashing) was never suspended and never
@@ -3358,9 +2961,6 @@ function attachTerminalSession(
     if (!terminalSession.isDisposed) {
       sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, event.exitCode)
     }
-    // Remote viewers stay attached: the session survives a self-exit, painted,
-    // so the stream reports the exit code rather than dropping the socket.
-    notifyRemoteTerminalExit(sessionId, event.exitCode)
   })
 
   if (initialInput) {
@@ -3440,7 +3040,7 @@ async function spawnTerminalFromIpc(
     // The replay already holds whatever was queued for the old pane and not yet
     // sent; sending that batch after it would print its tail twice. And the new
     // pane starts with nothing in flight.
-    terminalOutput.discardRenderer(sessionId)
+    terminalOutput.discard(sessionId)
     terminalOutput.resetRendererFlow(sessionId)
     noteRendererCaughtUp(existingSession)
     if (replay) {

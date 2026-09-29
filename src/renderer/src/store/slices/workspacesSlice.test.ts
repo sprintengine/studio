@@ -683,7 +683,7 @@ test('workspacesSlice', async () => {
     let found: SeededTab | undefined
     const visit = (node: { component?: unknown; children?: unknown[] } | undefined) => {
       if (!node || found) return
-      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'mesh-terminal') {
+      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'mesh-conversation') {
         found = node as SeededTab
         return
       }
@@ -769,20 +769,33 @@ test('workspacesSlice', async () => {
   assert.equal(firstTab({ layoutModel: swapped } as never)?.component, 'terminal')
   assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 
-  // The mesh seed (remote-sessions-ux / new-chat-on-a-remote-machine): the lone
-  // agent tab becomes a mesh-terminal pane onto a session on another machine —
-  // no local agent, the addMeshTerminalTab id convention so a later open
-  // focuses this pane instead of attaching twice.
+  // The remote conversation seed (remote-sessions-ux / new-chat-on-a-remote-machine):
+  // the lone agent tab becomes a chat pane onto a conversation on another
+  // machine — no local agent, and an id keyed on the remote workspace and agent
+  // so a later open focuses this pane instead of opening a second one.
   const remote = applySoloChatSeed(seedSource, {
     tabName: 'Air · Rook',
-    mesh: { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' },
+    meshConversation: {
+      connectionId: 'conn-1',
+      machineName: 'Air',
+      remoteWorkspaceId: 'ws two',
+      remoteAgentId: 'agent-2',
+      title: 'Rook',
+    },
   })
   const remoteTab = firstTab({ layoutModel: remote } as never) as
     { component?: string; id?: string; name?: string; config?: Record<string, unknown> } | undefined
-  assert.equal(remoteTab?.component, 'mesh-terminal')
-  assert.equal(remoteTab?.id, 'mesh-terminal:conn-1:session%20two')
+  assert.equal(remoteTab?.component, 'mesh-conversation')
+  assert.equal(remoteTab?.id, 'mesh-conversation:conn-1:ws%20two:agent-2')
   assert.equal(remoteTab?.name, 'Air · Rook')
-  assert.deepEqual(remoteTab?.config, { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' })
+  assert.deepEqual(remoteTab?.config, {
+    connectionId: 'conn-1',
+    machineName: 'Air',
+    remoteWorkspaceId: 'ws two',
+    remoteAgentId: 'agent-2',
+    remoteSessionId: 'conversation:ws two:agent-2',
+    title: 'Rook',
+  })
   assert.equal(
     firstTab({ layoutModel: seedSource } as never)?.component,
     'agent',

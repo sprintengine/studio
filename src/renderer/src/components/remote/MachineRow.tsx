@@ -4,7 +4,7 @@ import type { TailnetScope } from '../../../../shared/tailnet'
 import type { TailnetMachine } from '../../../../shared/tailnet-machines'
 import { relativeSeen } from '../../../../shared/tailnet-machines'
 import { GhostButton, LinkButton, MicroChip, OutlineButton, Popover, SettingCard, deviceGlyphFor } from '../ui'
-import { missingScopes, terminalGapNote } from './scopePickerModel'
+import { conversationGapNote, missingScopes } from './scopePickerModel'
 import { platformLabel } from './machineRowModel'
 
 // One machine in Settings → Remote (remote-settings-rebuild), whichever
@@ -180,7 +180,7 @@ function ScopesPopover({
 }) {
   const granted = machine.inbound?.scopes ?? []
   const missing = missingScopes(granted)
-  const note = terminalGapNote(granted)
+  const note = conversationGapNote(granted)
   const outbound = machine.outbound?.scopes ?? null
   const differs = outbound !== null && !sameScopes(outbound, granted)
   const shown = machine.inbound ? granted : (outbound ?? [])

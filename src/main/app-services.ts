@@ -1409,10 +1409,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     hasWindow: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
-    // Terminal streaming for the tailnet listener: the runtime's own
-    // multi-viewer port, so a paired device watches the same pty the local
-    // window does rather than a second copy of it.
-    resolveTerminalHost: () => terminalRuntime.remoteHost,
     resolveConversationHost: () =>
       createConversationGatewayHost(
         conversationRuntime,
@@ -1535,14 +1531,21 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             return {
               async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
                 const roots = workspaceRoots()
-                const include = input.include?.filter((entry): entry is MobileSnapshotCollection =>
-                  (mobileSnapshotCollections as readonly string[]).includes(entry),
-                )
+                // An empty or absent `include` is the default set. A named one is
+                // served exactly, retired names included: they select nothing, so
+                // a read that names only a retired collection gets an empty
+                // snapshot rather than silently widening to every collection.
+                const include =
+                  input.include && input.include.length > 0
+                    ? input.include.filter((entry): entry is MobileSnapshotCollection =>
+                        (mobileSnapshotCollections as readonly string[]).includes(entry),
+                      )
+                    : undefined
                 const snapshot = await snapshotService.readSnapshot({
                   desktopSessionId,
                   workspaceRoots: roots,
                   commands: gatewayCommands,
-                  ...(include && include.length > 0 ? { include } : {}),
+                  ...(include ? { include } : {}),
                 })
                 const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
@@ -1717,15 +1720,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
-  // The change feed (2026-09-05): paired devices used to poll terminal.list
-  // and workspace.list every thirty seconds; now the runtime's own coalesced
-  // sessions beat, and the registry's accepted events, become one small push
-  // each, and a device re-reads only when told to. Both are throttled in the
-  // listener, so a burst here is one push there.
-  terminalRuntime.subscribeSessionsChanged(() => automationService.notifyTerminalsChanged())
   // A live launched session whose agent is missing from its workspace is
   // adopted, so a launch-time write that did not land is not the end of it.
   terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
+  // The change feed (2026-09-05): paired devices used to poll workspace.list
+  // every thirty seconds; now the registry's accepted events become one small
+  // push, throttled in the listener so a burst here is one push there, and a
+  // device re-reads only when told to.
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
   // A conversation's row on another machine shows its phase: running, waiting
   // on a person, done. The events that move it (never a token of a reply)

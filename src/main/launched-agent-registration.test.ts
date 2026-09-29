@@ -16,9 +16,9 @@ import { createWorkspaceSyncService } from './workspace-sync-service'
 // The host is the source of truth for what runs on it. These cases compose
 // main the way app-services does — the real registry, the real sync bus, the
 // real launch service, and the registration between them — over a fake
-// terminal runtime, and drive launches through the doors a paired machine and
-// an MCP client use. No window exists anywhere in this harness, which is the
-// point: the registry must learn about the agent without one.
+// terminal runtime, and drive launches through the gateway tools an MCP client
+// calls. No window exists anywhere in this harness, which is the point: the
+// registry must learn about the agent without one.
 
 function sessionOf(overrides: Partial<TerminalSessionSnapshot>): TerminalSessionSnapshot {
   return {
@@ -125,9 +125,8 @@ function host() {
   })
   const launchService = withLaunchedAgentRegistration(composed, registration)
 
-  // The gateway tools a paired machine and an MCP client call, over the same
-  // main-owned services. Only what `terminal.create`, `agent.launch` and
-  // `workspace.list` read.
+  // The gateway tools an MCP client calls, over the same main-owned services.
+  // Only what `agent.launch`, `terminal.create` and `workspace.list` read.
   const backends: Partial<AutomationBackends> = {
     getWorkspaceSyncSnapshot: () => workspaceSync.getSnapshot(),
     listTerminalSessions: () => sessions,
@@ -150,14 +149,23 @@ function agentIdsOf(h: ReturnType<typeof host>): string[] {
   return Object.keys(h.registry.getRecord(h.workspaceId)?.agents ?? {}).sort()
 }
 
-test('an agent a paired machine opens with terminal.create is in the host registry, and announced', async () => {
+/** Launch through the gateway's `agent.launch`, and read back the agent and the session it runs in. */
+async function launchOverGateway(h: ReturnType<typeof host>): Promise<{ agentId: string; sessionId: string }> {
+  const launched = await tool(h.tools, 'agent.launch').handler({ workspaceId: h.workspaceId })
+  assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
+  const { agent } = launched.structuredContent as {
+    agent: { agentId: string; terminal: { sessionId: string } | null }
+  }
+  assert.ok(agent.terminal, 'the launch answers with the session it confirmed')
+  return { agentId: agent.agentId, sessionId: agent.terminal.sessionId }
+}
+
+test('an agent launched through the gateway is in the host registry, and announced', async () => {
   const h = host()
   const before = h.announced.length
-  const created = await tool(h.tools, 'terminal.create').handler({ workspaceId: h.workspaceId })
-  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
-  const { agentId, sessionId } = created.structuredContent as { agentId: string; sessionId: string }
+  const { agentId, sessionId } = await launchOverGateway(h)
 
-  assert.deepEqual(agentIdsOf(h), ['agent-1', agentId].sort(), 'the workspace lists the remote agent beside its own')
+  assert.deepEqual(agentIdsOf(h), ['agent-1', agentId].sort(), 'the workspace lists the launched agent beside its own')
   const agent = h.registry.getRecord(h.workspaceId)!.agents[agentId]!
   assert.equal(agent.cli, 'claude-code')
   assert.ok(agent.name && agent.name !== agentId, 'it carries the name the launch chose, like a local agent')
@@ -169,10 +177,40 @@ test('an agent a paired machine opens with terminal.create is in the host regist
     .find((event) => event.type === 'workspace.agents_updated' && event.payload.agentId === agentId)
   assert.ok(broadcast, 'every window and every paired device is told at once')
 
-  // The listing a paired machine reads says the same.
+  // The listing a client reads says the same.
   const listed = await tool(h.tools, 'workspace.list').handler({})
   const workspaces = (listed.structuredContent as { workspaces: Array<{ id: string; agentIds: string[] }> }).workspaces
   assert.deepEqual(workspaces.find((workspace) => workspace.id === h.workspaceId)?.agentIds.sort(), agentIdsOf(h))
+})
+
+test('an agent a local MCP client opens with terminal.create is in the host registry, and announced', async () => {
+  const h = host()
+  const before = h.announced.length
+  const created = await tool(h.tools, 'terminal.create').handler({ workspaceId: h.workspaceId })
+  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+  const { agentId, sessionId, terminal } = created.structuredContent as {
+    agentId: string
+    sessionId: string
+    terminal: { sessionId: string }
+  }
+  assert.equal(sessionId, terminal.sessionId, 'the top-level session id is the session the launch confirmed')
+
+  assert.deepEqual(agentIdsOf(h), ['agent-1', agentId].sort(), 'the workspace lists the new agent beside its own')
+  const agent = h.registry.getRecord(h.workspaceId)!.agents[agentId]!
+  assert.equal(agent.cliSessionId, sessionId, 'a window opening it attaches to the running session')
+  assert.equal(agent.cliHasLaunched, true, 'and never spawns a second process beside it')
+  assert.ok(
+    h.announced
+      .slice(before)
+      .some((event) => event.type === 'workspace.agents_updated' && event.payload.agentId === agentId),
+    'every window is told at once',
+  )
+
+  // terminal.list reads the same session back, as an agent.
+  const listed = await tool(h.tools, 'terminal.list').handler({ workspaceId: h.workspaceId, kind: 'agent' })
+  const terminals = (listed.structuredContent as { terminals: Array<{ sessionId: string; agentId: string | null }> })
+    .terminals
+  assert.ok(terminals.some((row) => row.sessionId === sessionId && row.agentId === agentId))
 })
 
 test('agent.launch over MCP registers the agent too', async () => {
@@ -202,8 +240,7 @@ test('the registration persists with the registry like any other agent', async (
 
 test('a launch registers once, however many doors report it', async () => {
   const h = host()
-  const created = await tool(h.tools, 'terminal.create').handler({ workspaceId: h.workspaceId })
-  const { agentId, sessionId } = created.structuredContent as { agentId: string; sessionId: string }
+  const { agentId, sessionId } = await launchOverGateway(h)
   const writes = () =>
     h.announced.filter((event) => event.type === 'workspace.agents_updated' && event.payload.agentId === agentId).length
   assert.equal(writes(), 1)
@@ -298,8 +335,7 @@ test('a suspended launched session is not adopted, as no window would reveal it'
 
 test('an agent removed from its workspace while its session lives is not added back', async () => {
   const h = host()
-  const created = await tool(h.tools, 'terminal.create').handler({ workspaceId: h.workspaceId })
-  const { agentId } = created.structuredContent as { agentId: string }
+  const { agentId } = await launchOverGateway(h)
   // Another window or device removes it (or moves it to another workspace)
   // while its process keeps running.
   const closed = h.workspaceSync.dispatch({

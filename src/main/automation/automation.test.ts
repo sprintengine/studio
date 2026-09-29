@@ -307,7 +307,7 @@ test('automation', async () => {
     ])
   }
 
-  // The list a remote client reads before attaching to one of these.
+  // The list an agent or MCP client on this machine reads to see what runs.
   // It reports liveness honestly — a paused agent is not running but is not gone
   // — and carries the hook-reported phase with its provenance, so a caller can
   // tell an authoritative "waiting for you" from an output-timing guess.
@@ -396,7 +396,7 @@ test('automation', async () => {
     assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
     // Git facts are read for RUNNING sessions only: a paused or exited chat gets
     // null rather than the checkout's present numbers (the sidebar's own rule),
-    // and a network read never fans git out to every checkout ever held.
+    // and a list never fans git out to every checkout ever held.
     assert.equal(listed[1].git, null, 'a paused session carries no git line')
     assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
     // Paused is its own answer: not running, not gone.
@@ -418,12 +418,12 @@ test('automation', async () => {
     assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'invalid_kind')
   }
 
-  // The facts a remote row needs to say what the sidebar says. Every one is
-  // additive and null/zero when unknown, so a client built before them reads the
-  // row unchanged — which is why they are asserted as VALUES here rather than by
-  // shape: `lastTurnEndedAt` in particular was read by the phone for a whole epic
-  // while this projection never sent it, and a shape assertion would not have
-  // caught that.
+  // The facts a row needs to say what the sidebar says. Every one is additive
+  // and null/zero when unknown, so a caller built before them reads the row
+  // unchanged — which is why they are asserted as VALUES here rather than by
+  // shape: `lastTurnEndedAt` in particular was read by a client for a whole
+  // epic while this projection never sent it, and a shape assertion would not
+  // have caught that.
   async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Promise<void> {
     const sessions = [
       {
@@ -496,7 +496,7 @@ test('automation', async () => {
       }
     ).terminals
 
-    // The field the phone has been reading and never receiving.
+    // The field a client once read and never received.
     assert.equal(listed[0].lastTurnEndedAt, 44, 'a finished turn reports when it finished')
     assert.equal(listed[1].lastTurnEndedAt, null, 'a shell that never took a turn says null, not zero')
 
@@ -507,7 +507,7 @@ test('automation', async () => {
     assert.equal(listed[1].activeSubagents, 0, 'no subagents is zero, so a caller can count without a guard')
 
     // The hue is the shared hash of the REPOSITORY key, so this row is the same
-    // degree on the phone, on this desktop, and on a paired machine's clone.
+    // degree in this list as in the desktop's own sidebar.
     assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/sprintengine'))
     assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
 
@@ -880,10 +880,9 @@ test('automation', async () => {
     assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
   }
 
-  // Opening a terminal on THIS machine from wherever the call came from.
-  // The session id is the deliverable — the caller attaches to it immediately —
-  // and the workspace can be named without an id, because the terminal scope tier
-  // is granted separately from the one that may call workspace.list.
+  // Opening an agent terminal on this machine for a local caller. The session
+  // id is the deliverable — the caller follows the session it just opened — and
+  // the workspace can be named the way the person names it, without an id.
   async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise<void> {
     const byId = launchHarness()
     const created = await tool(byId.tools, 'terminal.create').handler({ workspaceId: 'ws-1', prompt: 'go' })
@@ -895,7 +894,7 @@ test('automation', async () => {
       permissionPreset: string
       terminal: { sessionId: string; kind: string; processAlive: boolean; cli: string | null }
     }
-    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id to attach to, not a search hint')
+    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id, not a search hint')
     assert.equal(payload.workspaceId, 'ws-1')
     assert.equal(payload.terminal.sessionId, 'sess-1')
     assert.equal(payload.terminal.processAlive, true, 'success is a live session, not a launch call returning')
@@ -906,8 +905,7 @@ test('automation', async () => {
     assert.equal(byId.requests[0].worktreePath, undefined)
     assert.equal(byId.requests[0].connectorId, undefined)
 
-    // A workspace named rather than identified — the path a device holding only
-    // the terminal scopes has to use, since workspace.list is closed to it.
+    // A workspace named rather than identified.
     const byName = launchHarness()
     const named = await tool(byName.tools, 'terminal.create').handler({ workspaceName: 'workspace ws-1' })
     assert.equal(named.isError, undefined, JSON.stringify(named.structuredContent))
@@ -3266,7 +3264,7 @@ test('automation', async () => {
             }
             return {
               unchanged: false as const,
-              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [], automations: [] },
+              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [] },
             }
           },
           dispatchCommand: async () => {
@@ -3276,6 +3274,9 @@ test('automation', async () => {
       }),
     )
 
+    // Phones built before automations left the wire ask for them on every read.
+    // The retired name is accepted and forwarded, and the bridge serves nothing
+    // for it, rather than failing every read those phones make.
     const full = await tool(tools, 'workspace.snapshot').handler({ include: ['automations', 'backlog'] })
     assert.equal(full.isError, undefined)
     const fullBody = full.structuredContent as { unchanged: boolean; snapshot: { snapshotVersion: string } }

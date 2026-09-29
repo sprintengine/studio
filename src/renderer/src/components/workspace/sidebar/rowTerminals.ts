@@ -6,9 +6,9 @@ import { meshPanesOf, meshMachineNamesOf } from './folderGroups'
 
 /**
  * The panes this workspace's layout mounts FROM other machines: one entry per
- * mesh-terminal tab, with the machine it names and the CLI mark if the tab
- * carries one. The layout JSON is the one durable record of a remote
- * attachment, so a walk of it — not a live socket — is what says a workspace
+ * remote conversation tab, with the machine it names and the CLI mark if the
+ * tab carries one. The layout JSON is the one durable record of a remote
+ * pane, so a walk of it — not a live socket — is what says a workspace
  * is remote-flavoured even while the peer sleeps. Each pane is an open
  * terminal for the row's head stack, exactly as a local live session is.
  */

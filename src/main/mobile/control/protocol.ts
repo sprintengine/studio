@@ -74,7 +74,7 @@ export function unsupportedMobileControlProtocolVersion(
   return `mobile-control protocol version ${saw} is not supported; this build speaks ${speaks}`
 }
 
-export type MobileControlCommandType = 'snapshot.request' | 'backlog.update' | 'backlog.create' | 'automations.control'
+export type MobileControlCommandType = 'snapshot.request' | 'backlog.update' | 'backlog.create'
 
 /**
  * The error codes this desktop emits. The phone validates the code against its
@@ -88,9 +88,6 @@ export type MobileControlErrorCode =
   | 'command_expired'
   | 'duplicate_idempotency_key'
   | 'stale_snapshot'
-  // The automations controller answers `runNow` on a run already in flight with
-  // it (command.ts).
-  | 'task_not_ready'
   | 'path_not_allowed'
   | 'internal_error'
 
@@ -114,9 +111,23 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
   payload: Payload
 }
 
-/** Snapshot collections a read may scope down to. Both ship by default. */
-export const mobileSnapshotCollections = ['backlog', 'automations'] as const
+/** Snapshot collections a read may scope down to. Every one ships by default. */
+export const mobileSnapshotCollections = ['backlog'] as const
 export type MobileSnapshotCollection = (typeof mobileSnapshotCollections)[number]
+
+/**
+ * Collection names this wire no longer serves, still accepted in a read's
+ * `include` and answered with nothing.
+ *
+ * Automations left the phone on 2026-09-29 (owner ruling), without a version
+ * bump (docs/compatibility.md). Phones built before that ask for
+ * `['backlog', 'automations']` on every read; refusing the retired name would
+ * fail every one of those reads, which is exactly the break a bump exists to
+ * announce. Accepting it and sending no `automations` member is a snapshot
+ * those phones already read: the member was optional, and absent whenever a
+ * desktop had no automations to show.
+ */
+export const retiredMobileSnapshotCollections = ['automations'] as const
 
 export type SnapshotRequestCommand = MobileControlCommandBase<
   'snapshot.request',
@@ -159,36 +170,7 @@ export type BacklogCreateCommand = MobileControlCommandBase<
   }
 >
 
-/**
- * What the phone may do to one automation. Deliberately not a boolean toggle:
- * `AutomationStatus` has three states and `blocked` is engine-owned, so there is
- * no action that sets it — the phone can only enable, pause, or fire a run.
- *
- * `runNow` is accepted by the engine ONLY for a `schedule` trigger with no run in
- * flight (`engine.runNow` rejects anything else with `unsupported_trigger` /
- * `in_flight`). The desktop enforces that; the phone gates the affordance on the
- * same facts so it never draws a button guaranteed to fail.
- */
-export type MobileControlAutomationAction = 'enable' | 'pause' | 'runNow'
-
-/**
- * Control one desktop automation. `workspacePath` carries the workspace token
- * (`ws_…`) the phone reads off the automation's `projectKey`, exactly as the
- * backlog commands do: absolute paths never leave the desktop, so it resolves
- * the token back to a root it already knows (`resolveWorkspaceIdToRoot`) and
- * fails closed with `path_not_allowed` when nothing matches.
- */
-export type AutomationsControlCommand = MobileControlCommandBase<
-  'automations.control',
-  {
-    workspacePath: string
-    automationId: string
-    action: MobileControlAutomationAction
-  }
->
-
-export type MobileControlCommand =
-  SnapshotRequestCommand | BacklogUpdateCommand | BacklogCreateCommand | AutomationsControlCommand
+export type MobileControlCommand = SnapshotRequestCommand | BacklogUpdateCommand | BacklogCreateCommand
 
 export type MobileControlBacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 export type MobileControlBacklogItemType = 'epic' | 'feature' | 'bug' | 'mockup' | 'spike'
@@ -237,74 +219,6 @@ export interface MobileControlBacklogWorkspaceSnapshot {
   epics?: MobileControlBacklogEpicSnapshot[]
 }
 
-// Terminal and in-flight states of one automation run (`AutomationRunStatus`,
-// src/shared/automations/contracts.ts). Closed on purpose: unlike a trigger
-// kind, run status is engine-owned and cannot be extended by a provider.
-export type MobileControlAutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped'
-
-// One past run of an automation. Bounded and lossy by design: the phone monitors
-// runs, it does not inspect them, so touched files, commands, prompts and worktree
-// paths stay off the wire. `summary` and `blockedReason` are truncated by the
-// producer to `automationRunTextMaxChars`.
-export interface MobileControlAutomationRunSummary {
-  runId: string
-  status: MobileControlAutomationRunStatus
-  /**
-   * Present once the run leaves `queued`. The phone needs it to age-qualify a
-   * `running` run: a permission-blocked run sits `running` for hours until a
-   * sweep fails it, so elapsed time is the only signal that separates healthy
-   * progress from a stuck run.
-   */
-  startedAt?: string
-  completedAt?: string
-  blockedReason?: string
-  summary?: string
-}
-
-// One automation, projected for a read-only monitor. Nothing about the action,
-// condition, prompt, worktree or connector rides this wire — the phone watches
-// automations; the desktop authors them.
-export interface MobileControlAutomationSnapshot {
-  automationId: string
-  /** The repo this automation belongs to, as a workspace token. */
-  projectKey?: string
-  name: string
-  /**
-   * `AutomationStatus` (contracts.ts). Three states, not a boolean: `blocked` is
-   * a real state the engine puts an automation into, and it must render as itself
-   * rather than collapsing into "off".
-   */
-  status: 'enabled' | 'paused' | 'blocked'
-  /**
-   * `AutomationDefinition.trigger.kind`. An OPEN string — trigger kinds are
-   * provider-registered, so a closed union here would make any third-party
-   * trigger unreadable to the phone. Known kinds today: `schedule`, `webhook`.
-   */
-  triggerKind: string
-  /**
-   * Human-readable cadence ("Every 30 min", "Daily 09:00 IST"), PRE-RENDERED by the
-   * desktop: trigger `config` is provider-owned, and the phone must never parse it.
-   */
-  cadence?: string
-  nextRunAt?: string
-  lastRunAt?: string
-  lastRunStatus?: MobileControlAutomationRunStatus
-  /**
-   * True while a run of this automation is `queued` or `running`.
-   *
-   * The phone gates the run-now affordance on `triggerKind === "schedule"` AND
-   * this being falsy, because `engine.runNow` rejects a second run with
-   * `in_flight`. It is a field of its own rather than something inferred from
-   * `recentRuns`, whose absence is ambiguous: the producer also omits it for an
-   * automation that has never run, which is precisely when run-now IS allowed.
-   * `lastRunStatus` cannot answer it either: `lastRunId` is only stamped once a
-   * run finishes, so it never names the run in flight.
-   */
-  runInFlight?: boolean
-  /** Newest first, capped at `automationRecentRunsMax` by the producer. */
-  recentRuns?: MobileControlAutomationRunSummary[]
-}
-
 /**
  * A web page on this desktop that a phone can actually open.
  *
@@ -340,37 +254,12 @@ export interface MobileControlSnapshot {
   // into a phone that can no longer read snapshots at all.
   commands?: string[]
   backlog?: MobileControlBacklogWorkspaceSnapshot[]
-  // Flat across the desktop's automations store, grouped by each entry's
-  // `projectKey` the way `backlog` groups by repo. Capped by construction —
-  // see `automationsPerProjectMax`.
-  automations?: MobileControlAutomationSnapshot[]
   // Dev servers this desktop publishes on the tailnet, so the phone has a door
   // to them. Additive and omitted when there are none.
   webTargets?: MobileControlWebTargetSnapshot[]
 }
 
-// Bounds on the automations projection. The phone reads the whole snapshot in
-// one response, so what it carries must stay small by construction rather than
-// by trimming after the fact. The producer enforces these; the wire types cannot.
-export const automationsPerProjectMax = 24
-export const automationRecentRunsMax = 5
-export const automationRunTextMaxChars = 160
-
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileControlError }
-
-const automationStatuses = [
-  'enabled',
-  'paused',
-  'blocked',
-] as const satisfies readonly MobileControlAutomationSnapshot['status'][]
-const automationRunStatuses = [
-  'queued',
-  'running',
-  'completed',
-  'failed',
-  'blocked',
-  'skipped',
-] as const satisfies readonly MobileControlAutomationRunStatus[]
 
 /**
  * The check the phone runs on a snapshot it receives, kept here so the
@@ -407,57 +296,7 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     if (commandError) return invalidPayload(commandError)
   }
 
-  const automationsError = validateOptionalArray(input.automations, 'snapshot.automations', validateAutomationSnapshot)
-  if (automationsError) return invalidPayload(automationsError)
-
   return { ok: true, value: input as unknown as MobileControlSnapshot }
-}
-
-function validateAutomationSnapshot(input: unknown, fieldName: string): string | null {
-  if (!isRecord(input)) return `${fieldName} must be an object`
-
-  const baseError =
-    requireString(input, 'automationId') ??
-    optionalString(input, 'projectKey') ??
-    requireString(input, 'name') ??
-    requireLiteral(input, 'status', automationStatuses, `${fieldName}.status`) ??
-    // Membership deliberately unchecked beyond "non-empty string": trigger kinds
-    // are provider-registered (see MobileControlAutomationSnapshot.triggerKind).
-    requireString(input, 'triggerKind') ??
-    optionalString(input, 'cadence') ??
-    optionalIsoDate(input, 'nextRunAt') ??
-    optionalIsoDate(input, 'lastRunAt') ??
-    optionalLiteral(input, 'lastRunStatus', automationRunStatuses, `${fieldName}.lastRunStatus`) ??
-    optionalBoolean(input, 'runInFlight')
-  if (baseError) return baseError
-
-  return validateOptionalArray(input.recentRuns, `${fieldName}.recentRuns`, validateAutomationRunSummary)
-}
-
-function validateAutomationRunSummary(input: unknown, fieldName: string): string | null {
-  if (!isRecord(input)) return `${fieldName} must be an object`
-  return (
-    requireString(input, 'runId') ??
-    requireLiteral(input, 'status', automationRunStatuses, `${fieldName}.status`) ??
-    optionalIsoDate(input, 'startedAt') ??
-    optionalIsoDate(input, 'completedAt') ??
-    optionalString(input, 'blockedReason') ??
-    optionalString(input, 'summary')
-  )
-}
-
-function validateOptionalArray(
-  input: unknown,
-  fieldName: string,
-  validateItem: (item: unknown, itemFieldName: string) => string | null,
-): string | null {
-  if (input === undefined) return null
-  if (!Array.isArray(input)) return `${fieldName} must be an array`
-  for (let index = 0; index < input.length; index += 1) {
-    const error = validateItem(input[index], `${fieldName}.${index}`)
-    if (error) return error
-  }
-  return null
 }
 
 function validateStringArray(input: unknown, fieldName: string): string | null {
@@ -481,40 +320,9 @@ function optionalString(record: Record<string, unknown>, field: string): string 
   return `${field} must be a non-empty string when provided`
 }
 
-function optionalBoolean(record: Record<string, unknown>, field: string): string | null {
-  return record[field] === undefined || typeof record[field] === 'boolean'
-    ? null
-    : `${field} must be a boolean when provided`
-}
-
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {
   const value = record[field]
   return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? null : `${field} must be an ISO 8601 timestamp`
-}
-
-function optionalIsoDate(record: Record<string, unknown>, field: string): string | null {
-  return record[field] === undefined ? null : requireIsoDate(record, field)
-}
-
-function requireLiteral(
-  record: Record<string, unknown>,
-  field: string,
-  allowed: readonly string[],
-  fieldName: string,
-): string | null {
-  const value = record[field]
-  return typeof value === 'string' && allowed.includes(value)
-    ? null
-    : `${fieldName} must be one of: ${allowed.join(', ')}`
-}
-
-function optionalLiteral(
-  record: Record<string, unknown>,
-  field: string,
-  allowed: readonly string[],
-  fieldName: string,
-): string | null {
-  return record[field] === undefined ? null : requireLiteral(record, field, allowed, fieldName)
 }
 
 function invalidPayload(message: string): ValidationResult<never> {

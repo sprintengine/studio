@@ -148,9 +148,6 @@ test('ToastHost', async () => {
   function meshEvent(body: Record<string, unknown>): unknown {
     return { revision: ++revision, ...body }
   }
-  function attachment(attachId: string, state: string, connectionId = 'c1', machineName = 'Air'): unknown {
-    return meshEvent({ kind: 'attachment', attachId, connectionId, machineName, sessionId: 's1', state, detail: '' })
-  }
   function fireMesh(payload: unknown): void {
     act(() => {
       for (const handler of [...meshHandlers]) handler(payload)
@@ -230,27 +227,21 @@ test('ToastHost', async () => {
     unmount()
   })
 
-  runAsync(
-    'typing the code and pressing Allow answers from the toast, granting the defaults — never terminal control',
-    async () => {
-      reset()
-      bridge.approveCalls.length = 0
-      const mounted = mount()
-      fireTailnet(pairEvent('received', 'req-answer', 'sam-macbook-air'))
-      await typeInto(mounted.querySelector('input[inputmode="numeric"]'), '48 19 72')
-      click(buttonNamed(mounted, /^Allow/))
-      await flush()
-      assert.equal(bridge.approveCalls.length, 1, 'one approval')
-      assert.equal(bridge.approveCalls[0]?.id, 'req-answer')
-      assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most')
-      assert.ok(bridge.approveCalls[0]?.scopes.includes('workspace:operate'), 'the default families are granted')
-      assert.ok(
-        !bridge.approveCalls[0]?.scopes.includes('terminal:control'),
-        'arbitrary shell is never granted by a surface that did not show the words',
-      )
-      unmount()
-    },
-  )
+  runAsync('typing the code and pressing Allow answers from the toast, granting the defaults', async () => {
+    reset()
+    bridge.approveCalls.length = 0
+    const mounted = mount()
+    fireTailnet(pairEvent('received', 'req-answer', 'sam-macbook-air'))
+    assert.match(mounted.innerHTML, /Type the code it is showing\./, 'the help line asks for the code')
+    await typeInto(mounted.querySelector('input[inputmode="numeric"]'), '48 19 72')
+    click(buttonNamed(mounted, /^Allow/))
+    await flush()
+    assert.equal(bridge.approveCalls.length, 1, 'one approval')
+    assert.equal(bridge.approveCalls[0]?.id, 'req-answer')
+    assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most')
+    assert.ok(bridge.approveCalls[0]?.scopes.includes('workspace:operate'), 'the default families are granted')
+    unmount()
+  })
 
   runAsync('Decline from the toast refuses the request main is holding', async () => {
     reset()
@@ -345,54 +336,6 @@ test('ToastHost', async () => {
     fireMesh(meshEvent({ kind: 'machine-forgotten', connectionId: 'c1', machineName: 'Air' }))
     assert.match(mounted.innerHTML, /Machine removed/)
     assert.match(mounted.innerHTML, /Air was removed from your mesh/)
-    unmount()
-  })
-
-  run('a lost connection is one warn toast per MACHINE, however many panes it has', () => {
-    reset()
-    const mounted = mount()
-    fireMesh(attachment('pane-a', 'reconnecting'))
-    assert.equal(titles().length, 0, 'reconnecting is the pane’s own business; no toast yet')
-    fireMesh(attachment('pane-a', 'offline'))
-    fireMesh(attachment('pane-b', 'offline'))
-    fireMesh(attachment('pane-c', 'offline'))
-    assert.deepEqual(titles(), ['Connection to Air lost'], 'three panes, one loss')
-    assert.deepEqual(
-      useToastStore.getState().toasts.map((toast) => toast.id),
-      ['mesh:c1'],
-      'keyed by the connection',
-    )
-    assert.ok(mounted.querySelector('[role="alert"]'), 'warn persists')
-    // A second machine losing its link is a second toast, not a replacement.
-    fireMesh(attachment('pane-z', 'offline', 'c2', 'Mini'))
-    assert.deepEqual(titles(), ['Connection to Air lost', 'Connection to Mini lost'])
-    unmount()
-  })
-
-  run('reconnected is only news after a loss, and it RETRACTS the loss', () => {
-    reset()
-    const mounted = mount()
-    fireMesh(attachment('pane-a', 'connecting'))
-    fireMesh(attachment('pane-a', 'live'))
-    assert.equal(titles().length, 0, 'a first connection is not a reconnection')
-    fireMesh(attachment('pane-a', 'offline'))
-    assert.deepEqual(titles(), ['Connection to Air lost'])
-    fireMesh(attachment('pane-a', 'live'))
-    assert.deepEqual(titles(), ['Reconnected to Air'], 'the standing loss is gone and the recovery announced')
-    assert.doesNotMatch(mounted.innerHTML, /lost/)
-    // Only once: a second pane going live on the same recovered machine is quiet.
-    fireMesh(attachment('pane-b', 'live'))
-    assert.deepEqual(titles(), ['Reconnected to Air'])
-    unmount()
-  })
-
-  run('a pane closed for good retracts the loss toast without claiming a recovery', () => {
-    reset()
-    mount()
-    fireMesh(attachment('pane-a', 'offline'))
-    assert.deepEqual(titles(), ['Connection to Air lost'])
-    fireMesh(attachment('pane-a', 'closed'))
-    assert.deepEqual(titles(), [], 'retracted, and no “Reconnected” invented')
     unmount()
   })
 

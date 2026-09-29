@@ -1,6 +1,6 @@
 ---
 name: studio-workspaces
-description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, terminal_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or attach to a terminal on this machine, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
+description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, terminal_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or list the agent terminals on this machine, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
 ---
 
 # Workspaces and terminals
@@ -39,21 +39,26 @@ permission preset and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 
-`terminal_create` starts an AGENT terminal on this machine and returns a session
-id ready to attach — it launches a CLI under a permission preset through the
-same path `agent_launch` uses, and `terminal_list`'s `kind` filter counts it as
-`agent`, not as a plain shell. There is no tool here that opens a bare shell.
-Name the workspace by `workspaceId` or by `workspaceName`. The CLI and the
-permission preset default to this machine's own launch settings unless you name
-them: the preset chosen for that CLI, else `bypass`, exactly as the app's
-launcher would. Name `none` (no permission flag, so the CLI's own configuration
-decides) when the person asks for it; the answer reports the preset the launch
-resolved.
+`terminal_create` starts an AGENT terminal on this machine and returns its
+session id and agent id — it launches a CLI under a permission preset through
+the same path `agent_launch` uses, without the connector and worktree options,
+and `terminal_list`'s `kind` filter counts it as `agent`, not as a plain shell.
+There is no tool here that opens a bare shell. Name the workspace by
+`workspaceId` or by `workspaceName`. The CLI and the permission preset default
+to this machine's own launch settings unless you name them: the preset chosen
+for that CLI, else `bypass`, exactly as the app's launcher would. Name `none`
+(no permission flag, so the CLI's own configuration decides) when the person
+asks for it; the answer reports the preset the launch resolved. Follow the
+agent with `agent_status` or `terminal_list`.
 
 `terminal_list` lists open sessions — session id, agent name, CLI, working
 directory, workspace, whether the process is live or the session is paused, and
 the agent phase when the CLI reports one. It reads the terminal runtime and
 never writes.
+
+These terminal tools and the launch tools above are served to agents on this
+machine only, never to a paired machine over the tailnet — a paired device
+starts chat agents instead.
 
 Read `cli_runtime_list` before naming any `cli` or `cliModel`. Only rows with
 `agentSelectable: true` can be launched as agents.
@@ -116,8 +121,8 @@ loop.
 The phone companion pairs with and talks to this desktop only over the tailnet;
 there is no hosted relay. These two tools are its whole connection.
 
-`workspace_snapshot` is the companion document: backlog, automations and the
-dev servers published on the tailnet as one versioned read, in path-token form
+`workspace_snapshot` is the companion document: backlog and the dev servers
+published on the tailnet as one versioned read, in path-token form
 — `ws_` tokens round-trip and local paths never leave the desktop. Pass
 `knownSnapshotVersion` from your previous read to get an `{unchanged: true}`
 marker instead of the whole document when nothing moved; a polling loop that

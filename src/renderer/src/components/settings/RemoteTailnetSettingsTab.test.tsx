@@ -233,10 +233,10 @@ test('RemoteTailnetSettingsTab', async () => {
     assert.match(text, /Granted scopes/)
     assert.match(text, /workspace:operate/)
     assert.match(text, /Not granted/)
-    assert.match(text, /terminal:observe/)
-    assert.match(text, /terminal:control/)
-    // The sentence the whole rebuild exists for.
-    assert.match(text, /can't see terminals or terminal agents here/)
+    assert.match(text, /conversation:read/)
+    assert.match(text, /conversation:operate/)
+    // What the missing conversation scopes cost, in a sentence.
+    assert.match(text, /It can't see chats here\./)
 
     const grant = [...dom.window.document.body.querySelectorAll('button')].find(
       (button) => (button.textContent ?? '').trim() === 'Grant',
@@ -253,8 +253,6 @@ test('RemoteTailnetSettingsTab', async () => {
       'backlog:operate',
       'conversation:read',
       'conversation:operate',
-      'terminal:observe',
-      'terminal:control',
     ])
     unmount()
   })
@@ -288,13 +286,11 @@ test('RemoteTailnetSettingsTab', async () => {
     // Every row, named for what it reveals.
     assert.match(text, /View conversations/)
     assert.match(text, /Operate conversations/)
-    assert.match(text, /Watch terminals/)
-    assert.match(text, /Drive terminals/)
-    assert.match(text, /Arbitrary shell on this machine/)
-    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 8)
-    // Standard is the default preset, terminal:control included (owner ruling
+    assert.doesNotMatch(text, /terminals/, 'no terminal rows')
+    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 6)
+    // Standard is the default preset, every scope included (owner ruling
     // 2026-09-10) — so every box is ticked when the dialog opens.
-    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 8)
+    assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 6)
 
     const create = [...dom.window.document.body.querySelectorAll('button')].find(
       (button) => (button.textContent ?? '').trim() === 'Create link',
@@ -309,8 +305,6 @@ test('RemoteTailnetSettingsTab', async () => {
       'backlog:operate',
       'conversation:read',
       'conversation:operate',
-      'terminal:observe',
-      'terminal:control',
     ])
     unmount()
   })

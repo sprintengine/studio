@@ -107,17 +107,13 @@ import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
 import type {
-  MeshAttachResult,
   MeshBrowse,
   MeshConnection,
   MeshCreateConversationResult,
-  MeshCreateTerminalResult,
-  MeshCheckoutRequest,
   MeshWorkspaceCheckoutResult,
   MeshEvent,
   MeshLiveState,
   MeshPairResult,
-  MeshTerminalEvent,
   MeshRequestPairingResult,
   TailnetForgetMachineResult,
   MeshConversationCommandResult,
@@ -733,8 +729,8 @@ export type ElectronApi = {
   tailnetShareStatus: () => Promise<TailnetShareStatus>
   tailnetSharePort: (localPort: number) => Promise<TailnetShareResult>
   tailnetUnsharePort: (servePort: number) => Promise<TailnetShareResult>
-  // The Mesh: the machines this Studio is paired WITH, and the panes
-  // it mounts from them. Main owns the device tokens and every outbound socket —
+  // The Mesh: the machines this Studio is paired WITH, and the chats
+  // it follows on them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer
   // always sends, so this is the only route a window has.
   meshListConnections: () => Promise<MeshConnection[]>
@@ -759,25 +755,8 @@ export type ElectronApi = {
   meshCheckReachability: (connectionId?: string) => Promise<MeshLiveState>
   /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
   meshForget: (connectionId: string) => Promise<MeshConnection[]>
-  /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
+  /** One machine's workspaces, or the gap that says why this pairing may not read them. */
   meshBrowse: (connectionId: string) => Promise<MeshBrowse>
-  /** Open a terminal on the remote machine and get the session id to attach to. */
-  meshCreateTerminal: (input: {
-    connectionId: string
-    workspaceId?: string
-    name?: string
-    /** Launch identity, forwarded verbatim; the remote gateway validates it, and takes either preset. */
-    cli?: string
-    prompt?: string
-    cliModel?: string
-    permissionPreset?: string
-    /**
-     * Where the chat runs there (checkout-and-branch-on-remote-create): the
-     * workspace's current checkout, or a fresh worktree branched from
-     * `baseRef`. The current checkout when absent.
-     */
-    checkout?: MeshCheckoutRequest
-  }) => Promise<MeshCreateTerminalResult>
   /**
    * Start a chat agent in a workspace on a paired machine (`conversation:operate`
    * there), and get the ids a chat pane here follows it by.
@@ -793,26 +772,14 @@ export type ElectronApi = {
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
   meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**
-   * Attach a pane to a remote session. Subscribe with `onMeshTerminalEvent`
-   * on the same `attachId` FIRST — the replay is the first thing that arrives.
-   */
-  meshAttachTerminal: (input: {
-    attachId: string
-    connectionId: string
-    sessionId: string
-  }) => Promise<MeshAttachResult>
-  meshDetachTerminal: (attachId: string) => Promise<void>
-  meshTerminalInput: (attachId: string, data: string) => void
-  meshTerminalResize: (attachId: string, cols: number, rows: number) => void
-  onMeshTerminalEvent: (attachId: string, cb: (event: MeshTerminalEvent) => void) => () => void
-  /**
-   * Every attachment main holds right now with its link state — the initial
-   * read behind `onMeshEvent`, carrying the same revision the events do.
+   * The pairing requests still waiting and each machine's last reachability —
+   * the initial read behind `onMeshEvent`, carrying the same revision the
+   * events do.
    */
   meshGetLiveState: () => Promise<MeshLiveState>
   /**
    * Whole-app mesh lifecycle (remote-sessions-ux): a machine paired or
-   * forgotten, an attachment's link state changing — broadcast to every
+   * forgotten, answering or not, a pairing wait moving on — broadcast to every
    * window, credential-free. Returns the unsubscribe.
    */
   onMeshEvent: (cb: (event: MeshEvent) => void) => () => void

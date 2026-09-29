@@ -186,7 +186,7 @@ test('terminalLines', async () => {
         }),
         session({ sessionId: 'shell', kind: 'terminal', cli: undefined, agentId: undefined, lastOutputAt: 500 }),
       ],
-      meshPanes: [{ tabId: 'mesh-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
+      meshPanes: [{ tabId: 'mesh-conversation:c1:ws-9:agent-9', machineName: 'air.local', cli: 'codex' }],
       summaries: { '/repo': summary({}) },
     })
     assert.deepEqual(
@@ -195,7 +195,7 @@ test('terminalLines', async () => {
         ['working', 'agent', 'Aine Carey', true, 120],
         ['idle-recent', 'agent', 'Conor Kirby', false, null],
         ['shell', 'shell', 'Terminal', false, null],
-        ['mesh-terminal:c1:s9', 'remote', null, false, null],
+        ['mesh-conversation:c1:ws-9:agent-9', 'remote', null, false, null],
       ],
     )
     const pane = lines[3]
@@ -234,29 +234,27 @@ test('terminalLines', async () => {
   }
 
   // One remote AGENT's line: the agent's own name (the ROW is titled with the
-  // conversation now, so a chat running three of them says which is which), its
-  // stamped facts, and paused reads as paused.
+  // conversation, so a chat running three of them says which is which), and no
+  // checkout reading, because the conversation list carries none.
   {
     const row = {
       sessionId: 'r1',
       title: 'Gael Corry',
       cli: 'codex',
-      branch: 'feat/x',
-      additions: 3,
-      deletions: 1,
-      diffScope: 'worktree',
-      activity: 'paused',
+      activity: 'idle',
       since: 42,
     } as RemoteSessionRow
     const line = lineOfRemoteRow(row)
     assert.equal(line.name, 'Gael Corry', 'the line names its agent, for the mark’s tooltip')
-    assert.equal(line.diffScope, 'worktree', 'a remote sends a git reading, never a ledger')
+    assert.equal(line.branch, null, 'no branch is claimed for a checkout on another disk')
+    assert.equal(line.additions + line.deletions, 0)
+    assert.equal(line.diffScope, 'folder')
     assert.equal(line.changedFiles, 0)
-    assert.equal(line.files, null, 'no file breakdown on the wire: the row draws NOTHING, not the lines it was sent')
+    assert.equal(line.files, null, 'no file breakdown on the wire: the row draws NOTHING')
     assert.equal(line.activeSubagents, 0)
-    assert.equal(line.worktree, true)
+    assert.equal(line.worktree, false)
     assert.equal(line.idleSince, 42)
-    assert.equal(line.idleLabel, 'Paused')
+    assert.equal(line.idleLabel, 'Idle')
     const working = lineOfRemoteRow({ ...row, activity: 'working' } as RemoteSessionRow)
     assert.equal(working.working, true)
     assert.equal(working.workingSince, 42)
@@ -373,7 +371,7 @@ test('terminalLines', async () => {
     const meshOnly = terminalLinesOf({
       workspace: workspace(),
       sessions: [],
-      meshPanes: [{ tabId: 'mesh-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
+      meshPanes: [{ tabId: 'mesh-conversation:c1:ws-9:agent-9', machineName: 'air.local', cli: 'codex' }],
       summaries: {},
     })
     assert.equal(meshOnly.lines[0].activeSubagents, 0, 'a pane on another machine reports no subagents')

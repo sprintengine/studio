@@ -479,13 +479,11 @@ function lineOfMeshPane(
 }
 
 /**
- * One AGENT on a paired machine, as a line of its conversation's row.
+ * One chat agent on a paired machine, as the line of its conversation's row.
  *
- * The name is the agent's — "Gael Corry" — and it rides the line's mark
- * tooltip, exactly as a local agent's does. It used to be null because the
- * agent's name WAS the row title; now the row is titled with the conversation
- * and a chat running three agents over there draws three lines, each one
- * saying which agent it is (owner, 2026-09-11).
+ * The name rides the line's mark tooltip, exactly as a local agent's does.
+ * The conversation list carries no checkout reading — no branch, no diff, no
+ * file breakdown — so a remote line draws none rather than a confident zero.
  */
 export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
   return {
@@ -494,21 +492,15 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     cli: row.cli,
     name: row.title,
     machineName: null,
-    branch: row.branch,
-    worktree: row.diffScope === 'worktree',
+    branch: null,
+    worktree: false,
     cwd: null,
     removed: false,
-    additions: row.additions,
-    deletions: row.deletions,
-    // A remote sends a git reading with no file count in it, and its pull
-    // requests are looked up where the checkout is — so a remote row never
-    // reaches the `landed` scope either. And with no file breakdown on the wire
-    // there is nothing for it to draw: the numbers a line shows are files now,
-    // so a remote row draws NOTHING rather than the lines it was sent. The wire
-    // shape can grow the counts later and the row starts drawing on its own.
+    additions: 0,
+    deletions: 0,
     changedFiles: 0,
     files: null,
-    diffScope: row.diffScope,
+    diffScope: 'folder',
     activeSubagents: 0,
     // A remote row's wire shape carries no pull requests: the lookup runs where
     // the checkout is, and that is the other machine.
@@ -518,7 +510,7 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     needsInput: row.activity === 'needs-input',
     failed: false,
     idleSince: row.activity === 'working' ? null : row.since,
-    idleLabel: row.activity === 'paused' ? 'Paused' : 'Idle',
+    idleLabel: 'Idle',
   }
 }
 

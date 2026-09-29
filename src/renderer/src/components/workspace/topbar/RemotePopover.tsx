@@ -1,20 +1,8 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import {
-  CloseIconButton,
-  GhostButton,
-  IconButton,
-  LinkButton,
-  OutlineButton,
-  PanelHeader,
-  RefreshIcon,
-  Tooltip,
-} from '../../ui'
+import { CloseIconButton, GhostButton, IconButton, OutlineButton, PanelHeader, RefreshIcon, Tooltip } from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
-import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { useTerminalSessions } from '../../../hooks/useTerminalSessions'
-import { revealAgentTerminalTab } from '../../../utils/agentTabReveal'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { formatElapsedMs, formatRelativeMsAgo } from '../../../utils/relativeTime'
 import type { TailnetLiveDevice } from '../../../../../shared/tailnet'
@@ -23,7 +11,6 @@ import { showToast } from '../../../store/toastStore'
 import { PairRequestCard } from '../../remote/PairRequestCard'
 import { OutboundPairRequestCard } from '../../remote/OutboundPairRequestCard'
 import {
-  drivenTerminalView,
   meshMachinePhase,
   machineGlyphToneClass,
   machineIsAnswering,
@@ -51,9 +38,9 @@ export { meshMachinePhase, machinePhaseText, type MeshMachinePhase }
 // tailnet is enumerated, and the address answers no question the name and the
 // state do not. Settings → Remote still shows this machine's endpoint, which
 // is where someone goes to type it somewhere else. The split into "This
-// machine" and "Machines" went with them: a phone driving a terminal here is
-// not this machine, and two headings over two flavours of the same fact was
-// the confusion the ruling names.
+// machine" and "Machines" went with them: a phone connected here is not this
+// machine, and two headings over two flavours of the same fact was the
+// confusion the ruling names.
 
 export function RemotePopover({
   presence,
@@ -62,7 +49,7 @@ export function RemotePopover({
   presence: TailnetPresence
   onOpenRemoteSettings: () => void
 }) {
-  const { status, live, mesh, meshAttachments, meshRequests, meshReachability } = presence
+  const { status, live, mesh, meshRequests, meshReachability } = presence
   const now = useRelativeNow(1000)
   const pairRequests = status?.pairRequests ?? []
   // The count over the list is what the list holds: connected devices and
@@ -99,7 +86,7 @@ export function RemotePopover({
           <MachineRow
             key={connection.id}
             connection={connection}
-            phase={meshMachinePhase(connection.id, meshAttachments, meshReachability)}
+            phase={meshMachinePhase(connection.id, meshReachability)}
             now={now}
             listening={listening}
             onPairAgain={onOpenRemoteSettings}
@@ -132,15 +119,12 @@ export function RemotePopover({
 }
 
 /**
- * One inbound device holding a socket here: its name and how long it has been
- * connected ("Connected for 12m"), Revoke, and — on its OWN LINE —
- * what it is driving, by the agent's name and as a way in (owner ruling
- * 2026-09-05). The session id used to ride the title line and was the one
- * thing on the row nobody could read.
+ * One inbound device holding a socket here: its name, how long it has been
+ * connected ("Connected for 12m"), and Revoke.
  *
- * Connected is connected: the dot is steady green whether or not the device is
- * typing, because amber in this app means someone has to do something and a
- * phone driving a terminal is the feature working.
+ * Connected is connected: the glyph is steady green whatever the device is
+ * doing, because amber in this app means someone has to do something and a
+ * phone following a chat is the feature working.
  */
 function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: number }) {
   const [revoking, setRevoking] = React.useState(false)
@@ -160,17 +144,12 @@ function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: n
       setRevoking(false)
     }
   }
-  const driving = device.attachedTerminalSessions.length > 0
   return (
     <div className="px-2.5 py-1.5 text-meta">
       <div className="flex items-center gap-2">
         {/* Connected is green, on the glyph (owner ruling 2026-09-05: the
             glyph is the row's one status channel; no dot beside it). */}
-        <span
-          role="img"
-          aria-label={driving ? 'Driving a terminal' : 'Connected'}
-          className="flex shrink-0 items-center"
-        >
+        <span role="img" aria-label="Connected" className="flex shrink-0 items-center">
           <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--tone-good)]" />
         </span>
         <span className="min-w-0 flex-1">
@@ -198,60 +177,6 @@ function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: n
           />
         </Tooltip>
       </div>
-      {device.attachedTerminalSessions.map((sessionId) => (
-        <DrivenTerminalLine key={sessionId} sessionId={sessionId} />
-      ))}
-    </div>
-  )
-}
-
-/**
- * What the device is typing into, named and openable. Indented under its
- * device and one per driven session: two terminals driven at once is two
- * lines, because each is a different place to go.
- */
-function DrivenTerminalLine({ sessionId }: { sessionId: string }) {
-  const sessions = useTerminalSessions()
-  const workspaces = useWorkspaceStore((state) => state.workspaces)
-  const view = React.useMemo(
-    () =>
-      drivenTerminalView(sessionId, sessions, (workspaceId, agentId) => {
-        const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
-        return workspace?.agents[agentId]?.name ?? null
-      }),
-    [sessionId, sessions, workspaces],
-  )
-  const label = (
-    <>
-      <span className="text-[color:var(--text-subtle)]">Driving </span>
-      <span className="truncate">{view.label}</span>
-    </>
-  )
-  const target = view.target
-  return (
-    <div className="flex min-w-0 items-center pl-6 pt-0.5 text-micro">
-      {target ? (
-        <Tooltip content={`Open ${view.label}`} placement="bottom">
-          {/* The kit's text link: accent ink, underlined on hover, no box at
-              all. `size="inherit"` keeps the strip's own `text-micro` — a link
-              set in a line takes that line's type. */}
-          <LinkButton
-            size="inherit"
-            className="min-w-0 max-w-full"
-            onClick={() => {
-              // The reveal activates the workspace, which is what clears a door
-              // or modal surface standing over the layout (agentTabReveal).
-              if (!revealAgentTerminalTab(target)) {
-                showToast({ tone: 'neutral', title: `${view.label} is not open in a workspace right now` })
-              }
-            }}
-          >
-            {label}
-          </LinkButton>
-        </Tooltip>
-      ) : (
-        <span className="min-w-0 truncate text-[color:var(--text-subtle)]">{label}</span>
-      )}
     </div>
   )
 }
@@ -267,11 +192,11 @@ export function deviceLivenessText(
 }
 
 /**
- * One paired machine: its phase from the links this app holds to it, or —
- * with none — from main's reachability check (phase 4), the one action the
- * phase earns (Retry for a machine that stopped answering, Pair again for one
- * that revoked us), and Disconnect, which is always available (owner ruling
- * 2026-09-05: a machine you can add here is a machine you can drop here).
+ * One paired machine: its phase from main's reachability check (phase 4), the
+ * one action the phase earns (Retry for a machine that stopped answering, Pair
+ * again for one that revoked us), and Disconnect, which is always available
+ * (owner ruling 2026-09-05: a machine you can add here is a machine you can
+ * drop here).
  *
  * Disconnect only ends the half of the pairing this device owns — the grant over
  * there is that machine's to revoke — and the toast says so, because
@@ -295,7 +220,7 @@ function MachineRow({
   const [forgetting, setForgetting] = React.useState(false)
   const action = listening ? machineRowAction(phase) : null
   const name = shortMachineName(connection.machineName)
-  const phaseText = listening ? machinePhaseText(name, phase, now) : ''
+  const phaseText = listening ? machinePhaseText(phase, now) : ''
   const ink = listening ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-disabled)]'
   const retry = async (): Promise<void> => {
     if (retrying) return

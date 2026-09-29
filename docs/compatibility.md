@@ -207,6 +207,82 @@ The member-by-member list was in the protocol package's `CHANGELOG.md`, removed
 with the package; `git show 84500b7f2:packages/mobile-control-protocol/CHANGELOG.md`
 still has it.
 
+## Withdrawals that did not bump
+
+### Terminals leave the tailnet (2026-09-29)
+
+**Not a bump, and the tailnet transport stays at 2.** Owner ruling: nothing
+about a terminal crosses the tailnet any more; what a paired device reads,
+drives and starts is a conversation. Everything that went is one of the shapes
+this file already says a peer must tolerate, so no peer on version 1 or 2 is
+refused over it:
+
+- **Two capabilities withdrawn**, `sliced-frames` and `terminal-resume`. Both
+  described the terminal stream. A capability is what a peer asks before relying
+  on a feature, and a build that stops advertising one is read as not having it
+  — the case "withdrawn by a build that keeps the version" above.
+- **The route**, `/tailnet/v1/terminal`. An upgrade there is answered 404, which
+  is what a peer from before the route existed answered.
+- **Five tools off the tailnet**, `terminal.list`, `terminal.create`,
+  `agent.launch`, `backlog.work` and `automation.run`. All five still exist and
+  are served on the local socket, to the agents and MCP clients on this machine;
+  a paired device's `tools/list` no longer names them, and a call to one is
+  refused as `tailnet_local_only`, the refusal the `tailnet.*` family already
+  had. `tools/list` is read on every connection and never pinned, so a shorter
+  list is a shape every peer already reads.
+- **A change-feed kind**, `terminals`. No `changed` frame names it, and the
+  `hello` frame's `revisions` map no longer has its key. That map is keyed by
+  the lists this machine announces and has grown a key before (`conversations`)
+  without a bump; a key a build does not announce is absent, the same as it was
+  before the key existed.
+- **Two scopes**, `terminal:observe` and `terminal:control`, retired the way the
+  Horizon scopes were: `normalizeTailnetScopes` drops a scope outside the
+  vocabulary, so a device stored with them loads with the rest of its grant, a
+  pair request naming them is read without them, and a peer reading a grant
+  list sees a shorter list, which a grant list always could be.
+- **The upload route** keeps its path, its `upload` capability and its
+  conversation shape. Its terminal branch — a file written into a session's
+  folder — is gone, and the `kind=conversation` older phones send is accepted
+  and no longer needed.
+
+The phone's side of this is its own change: it stops asking for terminals.
+Nothing in `src/main/mobile/control/protocol.ts` changed, so the mobile-control
+version stays at 4.
+
+### Automations leave the phone (2026-09-29)
+
+**Not a bump, and the mobile-control version stays at 4, window `[3, 4]`.**
+Owner ruling: the phone does not show or drive automations any more. What
+left `src/main/mobile/control/protocol.ts`:
+
+- **The snapshot member** `automations`, with its types
+  (`MobileControlAutomationSnapshot`, `MobileControlAutomationRunSummary`,
+  `MobileControlAutomationRunStatus`) and the producer's caps
+  (`automationsPerProjectMax`, `automationRecentRunsMax`,
+  `automationRunTextMaxChars`). The member was optional and already absent
+  whenever a desktop had no automations to show, so a snapshot without it is
+  one every v3 and v4 phone reads. That is why this is not the case "a field
+  that is removed" in the bump rule above: nothing about whether it may be
+  absent changed.
+- **The collection** `automations` from `mobileSnapshotCollections`. This is
+  the part that would have been a bump — it is what made v4 one — because
+  phones built before this ask for `['backlog', 'automations']` on every read,
+  and `workspace.snapshot` refuses a name it does not know. So the name is kept
+  as a retired collection (`retiredMobileSnapshotCollections`): accepted in
+  `include`, and answered with nothing, the way the upload route still accepts
+  the `kind` older phones send.
+- **The command** `automations.control`, with `AutomationsControlCommand`,
+  `MobileControlAutomationAction` and the `task_not_ready` error code only it
+  produced. A command is advertised in the snapshot's `commands` strings, and
+  the tailnet never advertised this one: the gateway's `workspace.mobile_command`
+  allowlist is `backlog.update` alone, so since the hosted relay went
+  (2026-09-27) no transport served it. A phone that sends it is refused
+  `command_not_supported` by the gateway, as before.
+
+The phone's mirror drops the same members in its own companion change. On the
+desktop, automations are unchanged, and `automation.run` stays a local-socket
+tool.
+
 ## What never changes without a bump
 
 - The meaning of an existing field.

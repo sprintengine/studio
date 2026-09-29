@@ -18,14 +18,8 @@ import { PANEL_COMMAND_EVENT } from './panelCommands'
 export const TERMINAL_FIND_COMMAND = 'terminal.find'
 
 export type MountedTerminalFind = {
-  /**
-   * The workspace this pane belongs to, or null for a pane that belongs to no
-   * workspace (a mesh attachment is to a machine, not a folder). A null entry
-   * can still answer — but only by holding focus, never through the
-   * active-workspace fallback below, which would otherwise let a remote pane
-   * answer for a workspace it is not part of.
-   */
-  workspaceId: string | null
+  /** The workspace this pane belongs to. */
+  workspaceId: string
   /** True while this pane (its terminal or its find bar) holds the keyboard. */
   isFocused: () => boolean
   /** Show the find bar and put the caret in it, keeping any existing query. */
@@ -44,9 +38,7 @@ const mountedTerminalFinds: MountedTerminalFind[] = []
 export function respondToTerminalFind(activeWorkspaceId: string | null): MountedTerminalFind | null {
   const responder =
     mountedTerminalFinds.find((entry) => entry.isFocused()) ??
-    [...mountedTerminalFinds]
-      .reverse()
-      .find((entry) => entry.workspaceId !== null && entry.workspaceId === activeWorkspaceId) ??
+    [...mountedTerminalFinds].reverse().find((entry) => entry.workspaceId === activeWorkspaceId) ??
     null
   responder?.openFind()
   return responder

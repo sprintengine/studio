@@ -673,7 +673,8 @@ export function createTailnetDeviceStore(options: {
 }
 
 /**
- * What an asker asked for, or the structured set when it asked for nothing.
+ * What an asker asked for, or the legacy set when it asked for nothing (or only
+ * for scopes this build no longer has).
  *
  * The default is the server's, not the client's: an older build sends no
  * scopes at all, and a request that arrived asking for nothing must read as the

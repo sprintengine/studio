@@ -29,8 +29,8 @@ requests appear as approval cards.
 
 Every surface that starts an agent takes both presets (owner ruling
 2026-09-27): the launcher, a launch on a paired machine, the automation and MCP
-tools (`agent.launch`, `terminal.create`, `backlog.work`, `automation.create`),
-and automations themselves. A launch that names no preset resolves the way the
+tools (`agent.launch`, `backlog.work`, `automation.create`,
+`conversation.create`), and automations themselves. A launch that names no preset resolves the way the
 launcher does: the preset chosen for that CLI on the machine that runs it, else
 Bypass. The launcher names its preset when it starts an agent on a paired
 machine, so the agent there runs on the choice the launcher showed.
@@ -79,7 +79,8 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   fetches tool details and diffs. `conversation:operate` sends, stops, answers
   approvals and questions, attaches images, changes the permission preset and
   switches the model, and implies read. New pairings grant both by default; the pairing surfaces
-  list them as their own rows. The terminal tier does not grant either.
+  list them as their own rows. There is no terminal scope: terminals do not
+  cross the tailnet (see "Terminals stay on the machine" below).
   Grants are read live: narrowing a device in Settings refuses its next
   command, removing read closes its socket (4403), and revoking it closes every
   stream it holds (4401).
@@ -161,8 +162,8 @@ URL-encoded); it resolves only against an already paired desktop.
 
 ### Following from another desktop
 
-A Studio desktop paired to this one follows its conversations the way it
-attaches to its terminals, with the same pairing and grant. The sidebar's
+A Studio desktop paired to this one follows its conversations with the same
+pairing and grant a phone uses. The sidebar's
 Remote band lists each chat on the paired machine as its own row, with the
 presence its phase says: running, needs approval, or done. Opening one makes a
 solo workspace whose pane is the regular chat view, following the conversation
@@ -202,6 +203,21 @@ in the app's own process.
   send is answered when its turn ends, as on the desktop itself, and a send in
   flight across a reconnect is sent again under the same command id and
   accepted once.
+
+### Terminals stay on the machine
+
+Conversations are the only agents that cross the tailnet (2026-09-29). A
+paired device, phone or desktop, cannot list, watch, type into, or start a
+terminal on this machine: there is no terminal socket and no terminal scope,
+and the tools that list terminals or start an agent in one (`terminal.list`,
+`terminal.create`, `agent.launch`, `backlog.work`, `automation.run`) are served
+on the local socket only, to the agents and MCP clients on this machine. What a
+paired device starts is a chat, through `conversation.create`, and the machine
+dropdown in New chat offers a paired machine only for a Chat agent. Automations
+stay on the machine too: the phone neither lists nor runs them, and the
+desktop's own Automations surface and the local `automation.*` tools are
+unchanged. A tab left open on a remote terminal by an earlier build reopens as
+an unavailable panel.
 
 ## Manual verification
 

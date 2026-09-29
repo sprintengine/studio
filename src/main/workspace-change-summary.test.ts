@@ -760,7 +760,7 @@ test('workspace-change-summary', async () => {
           }),
         { concurrency: 2 },
       )
-      // Six distinct checkouts asked at once — a remote terminal.list's fan-out.
+      // Six distinct checkouts asked at once, more than the share lets run together.
       const all = Promise.all(['/a', '/b', '/c', '/d', '/e', '/f'].map((path) => share.read(path)))
       await new Promise((resolve) => setImmediate(resolve))
       assert.equal(peak, 2, 'only two chains started; the rest wait for a slot')

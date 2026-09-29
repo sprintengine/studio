@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useTailnetPresence, type TailnetPresence } from '../topbar/useTailnetPresence'
 import { remoteLinkStateOf, shouldBrowse, type RemoteBrowseEntry, type RemoteLinkState } from './remoteSessionsModel'
@@ -12,15 +12,13 @@ import { remoteLinkStateOf, shouldBrowse, type RemoteBrowseEntry, type RemoteLin
 //
 // The change feed (2026-09-05) replaced the thirty-second timer. Main holds
 // one idle socket to each paired machine, on which that machine says its
-// terminal or workspace list moved, and the band re-reads on that: the
+// workspace or conversation list moved, and the band re-reads on that: the
 // server owns the state, the client subscribes. The timer
 // that remains is a slow fallback for a feed a machine could not open.
 
 /** The fallback re-read of awake machines while the band is open and focused; the change feed is the real beat. */
 const REMOTE_BAND_CADENCE_MS = 180_000
-/** Attachment link changes arrive in bursts (connecting → live); one read per burst. */
-const ATTACHMENT_SETTLE_MS = 750
-/** A machine's change pushes arrive already throttled; a short settle folds the terminal and workspace pushes of one event into one read. */
+/** A machine's change pushes arrive already throttled; a short settle folds the workspace and conversation pushes of one event into one read. */
 const REMOTE_CHANGE_SETTLE_MS = 250
 
 export type RemoteSessions = {
@@ -117,7 +115,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
     [bridge, conversationBridge],
   )
 
-  const { mesh, meshReachability, meshAttachments, meshRemoteChanges } = presence
+  const { mesh, meshReachability, meshRemoteChanges } = presence
 
   // The change feed: a machine that said it changed is re-read, once its
   // pushes settle. Keyed by the mesh's revision so a re-render of the same
@@ -179,29 +177,6 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
       if (!meshReachability.has(id)) wasAwake.current.delete(id)
     }
   }, [enabled, mesh, meshReachability, browse])
-
-  // A link opening or closing changes which rows are "open here"; the list
-  // that says so is the remote's, re-read once the burst settles.
-  const attachmentSignature = useMemo(
-    () =>
-      [...meshAttachments.values()]
-        .map((attachment) => `${attachment.connectionId}:${attachment.sessionId}:${attachment.state}`)
-        .sort()
-        .join('|'),
-    [meshAttachments],
-  )
-  const lastSignature = useRef(attachmentSignature)
-  useEffect(() => {
-    if (lastSignature.current === attachmentSignature) return
-    lastSignature.current = attachmentSignature
-    if (!enabled) return
-    const timer = window.setTimeout(() => {
-      for (const connection of mesh) {
-        if (shouldBrowse(meshReachability.get(connection.id))) browse(connection.id)
-      }
-    }, ATTACHMENT_SETTLE_MS)
-    return () => window.clearTimeout(timer)
-  }, [enabled, attachmentSignature, mesh, meshReachability, browse])
 
   // The fallback cadence: only while the band is open and this window is in
   // front, and slow — a machine whose change feed is up has already said

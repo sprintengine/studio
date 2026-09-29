@@ -7,6 +7,7 @@ import {
   mobileControlProtocolVersion,
   mobileControlSupportedProtocolVersions,
   mobileSnapshotCollections,
+  retiredMobileSnapshotCollections,
   unsupportedMobileControlProtocolVersion,
   validateMobileControlSnapshot,
   type MobileControlSnapshot,
@@ -30,18 +31,6 @@ const validSnapshot: MobileControlSnapshot = {
       items: [{ itemId: 'MC-1', relativePath: 'backlog/2026-04-28-example.md', title: 'Example', status: 'ready' }],
     },
   ],
-  automations: [
-    {
-      automationId: 'auto_1',
-      projectKey: 'ws_acme',
-      name: 'nightly',
-      status: 'enabled',
-      triggerKind: 'schedule',
-      cadence: 'Daily 06:00',
-      lastRunStatus: 'completed',
-      recentRuns: [{ runId: 'run_1', status: 'completed', startedAt: now, completedAt: now }],
-    },
-  ],
 }
 
 test('a well-formed snapshot is accepted', () => {
@@ -63,19 +52,6 @@ test('a snapshot is read at the current version only', () => {
   }
 })
 
-test('automation statuses are closed; a stray one is refused', () => {
-  const badRun = validateMobileControlSnapshot({
-    ...validSnapshot,
-    automations: [{ ...validSnapshot.automations![0], recentRuns: [{ runId: 'run_1', status: 'nope' as never }] }],
-  })
-  assert.equal(badRun.ok, false)
-  const badStatus = validateMobileControlSnapshot({
-    ...validSnapshot,
-    automations: [{ ...validSnapshot.automations![0], status: 'off' as never }],
-  })
-  assert.equal(badStatus.ok, false)
-})
-
 test('the version window ends at the version this build stamps', () => {
   assert.equal(mobileControlSupportedProtocolVersions.at(-1), mobileControlProtocolVersion)
   assert.equal(isSupportedMobileControlProtocolVersion(mobileControlMinSupportedProtocolVersion), true)
@@ -93,6 +69,8 @@ test('a refusal names both the version seen and what this build speaks', () => {
   )
 })
 
-test('the snapshot collections are backlog and automations', () => {
-  assert.deepEqual([...mobileSnapshotCollections].sort(), ['automations', 'backlog'])
+test('the snapshot collection is backlog; automations is retired, not refused', () => {
+  assert.deepEqual([...mobileSnapshotCollections], ['backlog'])
+  // Phones built before automations left the wire still ask for them.
+  assert.deepEqual([...retiredMobileSnapshotCollections], ['automations'])
 })

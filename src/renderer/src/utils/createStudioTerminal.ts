@@ -13,7 +13,7 @@ import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
 import { createTerminalSearchHandle, type TerminalSearchHandle } from './terminalSearch'
-import { createTerminalSurfaceOscLinkHandler, type TerminalSurfaceOscLinkCallbacks } from './terminalOscLinks'
+import { createTerminalOscLinkHandler, type TerminalOscLinkCallbacks } from './terminalOscLinks'
 import { terminalSurfaceLinkRoots, type TerminalLinkRoots, type TerminalSurface } from './terminalSurfaces'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
 import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState } from './terminalWebglRenderer'
@@ -31,8 +31,8 @@ import { readTerminalWebglPresence, terminalWebglBudget, watchTerminalPresence }
  * What this owns: the option block, the Unicode width table, the theme (and
  * its live re-tint binding), the font, the scrollback, the fit addon, the
  * web-links addon, the write-only OSC 52 clipboard, the search addon, the WebGL
- * renderer and its context-loss fallback, the surface-derived `linkHandler`
- * every OSC 8 hyperlink goes through, and OSC handler registration.
+ * renderer and its context-loss fallback, the `linkHandler` every OSC 8
+ * hyperlink goes through, and OSC handler registration.
  *
  * What it deliberately does NOT own: `term.open()`, keyboard handlers, and the
  * file-link provider. Those are per-pane and, in the link provider's case,
@@ -41,12 +41,11 @@ import { readTerminalWebglPresence, terminalWebglBudget, watchTerminalPresence }
 
 /**
  * The surface type and its one rule live in `terminalSurfaces.ts` — a leaf
- * module with no xterm import, so the OSC link gate and its plain-Node tests
- * can read the same rule this factory does. Re-exported here because the panes
- * (and their tests) already import them from this module.
+ * module with no xterm import, so plain-Node tests can read the same rule this
+ * factory does. Re-exported here because the panes already import the types
+ * from this module.
  */
 export type { TerminalLinkRoots, TerminalSurface } from './terminalSurfaces'
-export { terminalSurfaceLinkRoots } from './terminalSurfaces'
 
 /** Handles a click on a URL the web-links addon matched. */
 export type TerminalWebLinkHandler = (event: MouseEvent, uri: string) => void
@@ -66,25 +65,18 @@ export type TerminalOscHandlers = Readonly<Record<number, (data: string) => bool
 export type CreateStudioTerminalInput = {
   surface: TerminalSurface
   /**
-   * Closed until the far end says this socket may type (MeshTerminalPanel).
-   * Named explicitly rather than exposed as a general option bag: a pane that
-   * needs to differ from the others should have to say which way, here.
-   */
-  disableStdin?: boolean
-  /**
    * What a click on an OSC 8 hyperlink DOES. Required, and only the callbacks:
-   * the gate itself is built here from `surface`, so no pane can construct a
-   * terminal without one and none can decide for itself whether it may resolve
-   * a local path.
+   * the gate itself is built here, so no pane can construct a terminal without
+   * one.
    *
-   * That is not hypothetical. `MeshTerminalPanel` passed no handler at all,
-   * and xterm's `OscLinkProvider` falls back to its OWN `defaultActivate` —
-   * a browser `confirm()` and a `window.open()`, which this app's
+   * That is not hypothetical. A pane once passed no handler at all, and
+   * xterm's `OscLinkProvider` falls back to its OWN `defaultActivate` — a
+   * browser `confirm()` and a `window.open()`, which this app's
    * `setWindowOpenHandler` turns into `shell.openExternal` — so an http(s)
-   * hyperlink printed by the REMOTE machine opened in the user's browser
-   * without ever passing `resolveTerminalOscLink`.
+   * hyperlink printed in that pane opened in the user's browser without ever
+   * passing `resolveTerminalOscLink`.
    */
-  oscLinks: TerminalSurfaceOscLinkCallbacks
+  oscLinks: TerminalOscLinkCallbacks
   oscHandlers?: TerminalOscHandlers
   /** When given, `loadWebLinks()` becomes live; otherwise it is a no-op. */
   onWebLink?: TerminalWebLinkHandler
@@ -94,7 +86,7 @@ export type StudioTerminal = {
   terminal: Terminal
   fitAddon: FitAddon
   /** `terminalSurfaceLinkRoots(surface)`, resolved once so panes agree with the factory. */
-  linkRoots: TerminalLinkRoots | null
+  linkRoots: TerminalLinkRoots
   /**
    * Loads the web-links addon, if an `onWebLink` handler was given.
    *
@@ -140,14 +132,11 @@ export type StudioTerminal = {
 
 export function createStudioTerminal({
   surface,
-  disableStdin,
   oscLinks,
   oscHandlers,
   onWebLink,
 }: CreateStudioTerminalInput): StudioTerminal {
-  // Derived here, from the surface, once: `allowLocalPaths` is never a
-  // literal a pane chose.
-  const linkHandler: ILinkHandler = createTerminalSurfaceOscLinkHandler(surface, oscLinks)
+  const linkHandler: ILinkHandler = createTerminalOscLinkHandler(oscLinks)
   const terminal = new Terminal({
     ...TERMINAL_CELL_GEOMETRY_OPTIONS,
     theme: getTerminalTheme(),
@@ -157,7 +146,6 @@ export function createStudioTerminal({
     fontSize: 13,
     cursorBlink: true,
     scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
-    ...(disableStdin === undefined ? {} : { disableStdin }),
     linkHandler,
   })
 
