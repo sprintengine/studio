@@ -401,15 +401,18 @@ export class ConversationRuntime {
   }
 
   /**
-   * The chat's live session, when it has one, rather than a second: a chat
-   * pane keeps its session only while it is mounted, so reopening or moving
-   * the tab, or reloading its window, starts one on the next send, as does a
-   * paired device. A second session would run a second CLI child resuming the
-   * same provider session beside the first until the idle sweep reached it.
-   * A model or preset asked for that differs is switched to on the live
-   * session; one its provider cannot switch, or a different provider or
-   * runtime, retires the idle session so a fresh one starts. A busy session is
-   * adopted as it is, so the work it is doing is never cut short.
+   * One session per chat: the chat's live session, when it has one, rather
+   * than a second. A chat view keeps its session in component state, so a
+   * remount (a tab moved or reopened, a row snoozed and woken, a window
+   * reloaded) asks again for a chat main is still holding, as does a paired
+   * device. A second session beside the first was a second agent on the
+   * sidebar row with only one tab behind it, and a second CLI child resuming
+   * the same provider session. A model or preset asked for that differs is
+   * switched to on the live session; one its provider cannot switch, or a
+   * different provider or runtime, retires the idle session, and a failed one
+   * gives way, so a fresh one starts (`startSessionNow` clears what the chat
+   * left behind). A busy session is adopted as it is, so the work it is doing
+   * is never cut short.
    */
   private async adoptLiveSession(
     input: ConversationStartSessionInput,
@@ -418,6 +421,7 @@ export class ConversationRuntime {
     const existing = this.liveSessionFor(path)
     if (!existing) return null
     if (isSessionBusy(existing)) return { ok: true, session: this.toSummary(existing) }
+    if (existing.status === 'failed') return null
     const sameProcess =
       existing.providerId === input.providerId.trim() &&
       JSON.stringify(existing.cliRuntimes ?? null) === JSON.stringify(input.cliRuntimes ?? null) &&
@@ -452,25 +456,12 @@ export class ConversationRuntime {
   }
 
   private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
-    // One session per chat. A chat view keeps its session in component state,
-    // so a remount (a tab moved, a row snoozed and woken) asks again for a chat
-    // main is still holding; a second session beside the first was a second
-    // agent on the sidebar row with only one tab behind it. A live session on
-    // the same footing is the answer; anything else this chat left behind —
-    // stopped, failed, or on another model — gives way to the new one.
+    // A live session on the same footing was adopted (`adoptLiveSession`);
+    // anything else this chat left behind — stopped, failed, or retired —
+    // gives way to the new one.
     const previous = Array.from(this.sessions.values()).filter(
       (session) => session.workspaceId === input.workspaceId.trim() && session.agentId === input.agentId.trim(),
     )
-    const live = previous.find(
-      (session) =>
-        session.status !== 'stopped' &&
-        session.status !== 'failed' &&
-        session.workspaceRoot === input.workspaceRoot &&
-        session.providerId === input.providerId?.trim() &&
-        session.modelId === input.modelId?.trim(),
-    )
-    if (live) return { ok: true, session: this.toSummary(live) }
-
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
@@ -549,14 +540,6 @@ export class ConversationRuntime {
     }
     if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     this.sessions.set(sessionId, session)
-    // A stopped session of this chat was kept only to be listed; this one supersedes it.
-    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
-    for (const [id, other] of this.sessions)
-      if (
-        other.status === 'stopped' &&
-        this.transcriptPath(other.workspaceRoot, other.workspaceId, other.agentId) === path
-      )
-        this.sessions.delete(id)
 
     // Stateful providers resume their own durable session; the latest cursor
     // lives in the JSONL transcript this runtime already writes.
