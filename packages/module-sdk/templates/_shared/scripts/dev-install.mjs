@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Side-load the built module into SprintEngine Studio on this machine.
 //
-//   node scripts/dev-install.mjs [--project <dir>] [--key <private-key.pem>] [--no-sign]
+//   node scripts/dev-install.mjs [--project <dir>] [--key <private-key.pem>] [--no-sign] [--no-install]
 //
 // Run it after `npm run build` (`npm run dev:install` does both). It:
 //
@@ -14,6 +14,11 @@
 //    With no key the module installs unsigned and Studio asks you to trust it;
 // 4. copies module/ into $SPRINTENGINE_USER_MODULE_ROOT (default
 //    ~/.sprintengine/modules)/<id>, swapping the old copy out in one step.
+//
+// `--no-install` stops after step 3. `npm run build` ends with it, so after
+// every build module/manifest.json describes module/ exactly, and the
+// repository can be committed as it stands — a GitHub install reads module/
+// at a commit and refuses one its manifest does not describe.
 //
 // Every rebuild changes the digests, and trust is granted to exact contents,
 // so Studio asks again after each install — see the skill's pitfalls.md.
@@ -94,6 +99,12 @@ if (keyPath !== undefined) {
       'This @sprintengine/module-sdk signs without "engines.hostApi", and the app refuses a module without it. Update the SDK.',
     )
   }
+}
+
+if (argv.includes('--no-install')) {
+  const state = readJson(manifestPath).signature ? 'signed' : 'unsigned'
+  console.log(`Recorded ${Object.keys(files).length} file digest(s) in module/manifest.json (${state}).`)
+  process.exit(0)
 }
 
 // ── 4. Install ───────────────────────────────────────────────────────────────

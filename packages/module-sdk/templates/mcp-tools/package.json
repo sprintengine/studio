@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "esbuild src/main.ts --bundle --format=cjs --platform=node --target=node22 --external:electron --outfile=module/dist/main.cjs",
+    "build": "esbuild src/main.ts --bundle --format=cjs --platform=node --target=node22 --external:electron --outfile=module/dist/main.cjs && node scripts/dev-install.mjs --no-install",
     "test": "node --test test/smoke.test.mjs",
     "validate": "node scripts/validate.mjs",
     "check": "npm run typecheck && npm run build && npm test && npm run validate",

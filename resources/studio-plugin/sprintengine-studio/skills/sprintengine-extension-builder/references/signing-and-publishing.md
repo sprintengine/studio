@@ -49,8 +49,8 @@ npx sprintengine-module pack module --out packed/<id>                     # an i
    bundle digests the module's signed manifest.
 4. `node scripts/validate.mjs` — it runs both verifies.
 5. Commit `module/manifest.json`, `module/dist/` and `plugin.json` together
-   (see [install-from-github.md](install-from-github.md) for the `.gitignore`
-   change), tag the release, push.
+   (the template's `.gitignore` keeps the build; see
+   [install-from-github.md](install-from-github.md)), tag the release, push.
 
 ## Where people get it
 

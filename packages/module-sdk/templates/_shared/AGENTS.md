@@ -17,7 +17,7 @@ signature. What the extension is for is in `IDEA.md`.
 | Path | What it is |
 | --- | --- |
 | `src/` | Source. `renderer.tsx` → `registerRenderer(host)`, `main.ts` → `registerMain(host)` |
-| `module/` | The installable module: `manifest.json` plus the built `dist/`. Everything in here ships; nothing else does |
+| `module/` | The installable module: `manifest.json` plus the built `dist/`. Everything in here ships, and it is committed — build included — because a GitHub install reads it at a commit |
 | `plugin.json` | The bundle manifest a GitHub or marketplace install reads; its `module` component is `module/` |
 | `test/` | `smoke.test.mjs` loads the built bundles against fake hosts |
 | `scripts/` | `validate.mjs` and `dev-install.mjs`, the dev loop |
@@ -26,7 +26,7 @@ signature. What the extension is for is in `IDEA.md`.
 
 ```sh
 npm install
-npm run check        # typecheck, build, smoke test, validate — run before calling anything done
+npm run check        # typecheck, build (which records the file digests), smoke test, validate — run before calling anything done
 npm run dev:install  # build, record file digests, sign if you have a key, copy into ~/.sprintengine/modules/{{id}}
 npm run keygen       # once: a signing key in ~/.sprintengine/keys/{{id}}.key (never in this repo)
 ```
@@ -48,4 +48,6 @@ with `entry.main`, or a rebuild of code Studio already loaded, needs a restart.
   holding a token.
 - Text an agent or a web page produced is untrusted input: never evaluate it,
   and never let it choose a path, a URL or a command unchecked.
+- Commit `module/dist/` with the `module/manifest.json` the same build wrote;
+  one without the other is refused as tampered.
 - Never commit `*.key` / `*.pem`.

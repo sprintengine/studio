@@ -179,10 +179,12 @@ Details and fixes are in [pitfalls.md](references/pitfalls.md). The short list:
   signs with it (or `npx sprintengine-module sign module --key ~/.sprintengine/keys/<id>.key`).
   Signing records `files` and covers them. A signature from your key makes the
   module "signed"; people still decide to trust it.
-- **Publish on GitHub**: commit `module/dist` and the signed manifest, keep
-  `plugin.json` at the repository root, and people install it from Studio with
-  the repository URL. Unsigned code installs only after an explicit "I trust
-  this code". See [install-from-github.md](references/install-from-github.md).
+- **Publish on GitHub**: build (`npm run check` or `npm run dev:install`; a
+  build records `files`, and signs when your key exists) → commit `module/dist`
+  and `module/manifest.json` together, with `plugin.json` at the repository root
+  → push. People install it from Studio: Extensions → **Install extension from
+  GitHub…** with the repository URL. Unsigned code installs only after an
+  explicit "I trust this code". See [install-from-github.md](references/install-from-github.md).
 - **Marketplace**: a signed plugin bundle and a registry PR — see
   [signing-and-publishing.md](references/signing-and-publishing.md).
 

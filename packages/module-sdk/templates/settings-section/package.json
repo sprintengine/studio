@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "esbuild src/renderer.tsx --bundle --format=esm --platform=browser --target=chrome130 --jsx=automatic --loader:.css=text --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --external:@monaco-editor/react --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface --outfile=module/dist/renderer.mjs",
+    "build": "esbuild src/renderer.tsx --bundle --format=esm --platform=browser --target=chrome130 --jsx=automatic --loader:.css=text --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --external:@monaco-editor/react --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface --outfile=module/dist/renderer.mjs && node scripts/dev-install.mjs --no-install",
     "test": "node --test test/smoke.test.mjs",
     "validate": "node scripts/validate.mjs",
     "check": "npm run typecheck && npm run build && npm test && npm run validate",

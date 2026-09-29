@@ -1,9 +1,7 @@
 node_modules/
 packed/
-dist/
-# A GitHub install fetches the built module, so a repository you publish from
-# must commit module/dist: delete the `dist/` line above (or add `!module/dist/`)
-# when you publish.
+# module/dist is NOT ignored: an install from GitHub reads the built module at a
+# commit, so the build is committed with the manifest that describes it.
 *.key
 *.pem
 *.tgz.tmp

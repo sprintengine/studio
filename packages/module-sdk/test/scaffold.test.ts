@@ -229,8 +229,14 @@ test('scaffold', async () => {
       assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8').trim(), '@AGENTS.md')
       if (idea) assert.equal(readFileSync(join(dir, 'IDEA.md'), 'utf8'), `${idea}\n`)
       const gitignore = readFileSync(join(dir, '.gitignore'), 'utf8')
-      for (const pattern of ['node_modules/', 'dist/', 'packed/', '*.key', '*.pem', '.DS_Store']) {
+      for (const pattern of ['node_modules/', 'packed/', '*.key', '*.pem', '.DS_Store']) {
         assert.ok(gitignore.includes(pattern), `${template.id}: .gitignore does not ignore ${pattern}`)
+      }
+      // A GitHub install reads the built module at a commit, so the build is
+      // committed: nothing may ignore module/dist.
+      const ignored = gitignore.split('\n').map((line) => line.trim())
+      for (const line of ignored.filter((entry) => entry && !entry.startsWith('#'))) {
+        assert.ok(!/(^|\/)dist\/?$/.test(line), `${template.id}: .gitignore ignores the built module (${line})`)
       }
 
       // The manifests, as the app reads them.
@@ -282,6 +288,21 @@ test('scaffold', async () => {
 
       // The project's own dev loop.
       run('npm', ['run', 'build', '--silent'], dir, env)
+      // A build leaves the manifest describing module/ exactly, so the
+      // repository can be committed and installed from GitHub as it stands.
+      const built = JSON.parse(readFileSync(join(dir, 'module/manifest.json'), 'utf8'))
+      assert.deepEqual(
+        Object.keys(built.files ?? {}).sort(),
+        walk(join(dir, 'module'))
+          .filter((path) => path !== 'manifest.json')
+          .sort(),
+        `${template.id}: npm run build records the files digests`,
+      )
+      assert.doesNotMatch(
+        run('npm', ['run', 'validate', '--silent'], dir, env),
+        /changed since its "files" digests were written|no "files" digests/,
+        `${template.id}: validate finds the build's digests current`,
+      )
       run('npm', ['test', '--silent'], dir, env)
       run('npm', ['run', 'validate', '--silent'], dir, env)
       const installed = run(process.execPath, ['scripts/dev-install.mjs'], dir, env)

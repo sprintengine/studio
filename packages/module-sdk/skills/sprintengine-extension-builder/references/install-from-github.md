@@ -16,20 +16,29 @@ module/manifest.json     with "files" (and "signature" if you sign)
 module/dist/…            the BUILT bundles — commit them
 ```
 
-The template's `.gitignore` ignores `dist/`. For a repository people install
-from, delete that line (or add `!module/dist/`) and commit the build. Then:
+The template is set up for this: its `.gitignore` keeps `module/dist/`, and
+`npm run build` ends by recording `files` in `module/manifest.json` (and
+signing it when `~/.sprintengine/keys/<id>.key` exists). So:
 
-1. `npm run check`.
-2. Write `files`: `npm run dev:install` (unsigned, or signed when your key
-   exists), or `npx sprintengine-module sign module --key …`.
-3. If you sign: `npx sprintengine-module plugin sign . --key …` after the
+1. Build: `npm run check`, or `npm run dev:install` to try it in Studio first
+   (or `npx sprintengine-module sign module --key …` to sign by hand). Each
+   leaves the manifest describing the build.
+2. If you sign: `npx sprintengine-module plugin sign . --key …` after the
    module is signed.
-4. `node scripts/validate.mjs` — clean, no stale-digest warning.
-5. Commit `plugin.json`, `module/manifest.json` and `module/dist/` in one
+3. `node scripts/validate.mjs` — clean, no stale-digest warning.
+4. Commit `plugin.json`, `module/manifest.json` and `module/dist/` in one
    commit, and push.
+5. Others install it: Extensions → **Install extension from GitHub…**, and the
+   repository URL.
 
 A `module/` whose files do not match its manifest's `files` is refused as
-tampered, so never commit a rebuild without the manifest it produced.
+tampered, so never commit a rebuild without the manifest it produced — build,
+then commit both.
+
+Under the hood Studio resolves with `extensions:github:resolve` (the commit,
+`plugin.json` there, and what it discloses), installs that exact commit with
+`extensions:github:install`, and removes an installed module with
+`modules:third-party:uninstall` (Settings → Modules → Uninstall).
 
 ## Signed or not
 
