@@ -19,6 +19,7 @@ import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import { AutomationsStore, automationsStoreDirectory } from './store'
 import { createBuiltInAutomationProviderRegistry } from './provider-registry'
 import { AutomationsEngine } from './engine'
+import { createAutomationApprovalLedger, type AutomationApprovalLedger } from './approval-ledger'
 import { test } from 'vitest'
 
 test('shelf-install-e2e', async () => {
@@ -49,9 +50,10 @@ test('shelf-install-e2e', async () => {
 
   type FrontDoor = ReturnType<typeof registerAutomationsIpc>
 
-  function frontDoorFor(roots: string[]): FrontDoor {
+  function frontDoorFor(roots: string[], approvalLedger?: AutomationApprovalLedger): FrontDoor {
     const registry = createBuiltInAutomationProviderRegistry()
     return registerAutomationsIpc({ registerIpc: () => undefined }, {
+      approvalLedger,
       engine: {
         runNow: async () => ({
           ok: false as const,
@@ -221,7 +223,13 @@ test('shelf-install-e2e', async () => {
   // when it started.
   async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void> {
     const project = await makeProject('live')
-    const frontDoor = frontDoorFor([project])
+    // The real ledger, shared by the install and the engine the way the module
+    // shares it: a shelf install is the user's own click, so what it writes is
+    // approved as it lands and the engine runs it without a review.
+    const approvals = createAutomationApprovalLedger({
+      filePath: join(await mkdtemp(join(tmpdir(), 't9-approvals-')), 'automation-approvals.json'),
+    })
+    const frontDoor = frontDoorFor([project], approvals)
     const registry = createBuiltInAutomationProviderRegistry()
     const fired: string[] = []
     // One engine for the whole check, on a clock the harness moves. Constructing a
@@ -229,6 +237,7 @@ test('shelf-install-e2e', async () => {
     // unnecessary.
     let clock = Date.now()
     const engine = new AutomationsEngine({
+      approvals,
       getProjectFolders: () => [{ workspaceId: 'ws-live', folderPath: project }],
       createStore: (root: string) => new AutomationsStore(root),
       triggerProviders: registry.listTriggerProviders(),

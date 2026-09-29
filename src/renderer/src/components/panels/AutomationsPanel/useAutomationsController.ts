@@ -75,6 +75,14 @@ export type AutomationsController = {
    * without a full reload; edits keep their existing root.
    */
   applySaved: (saved: AutomationDefinition, workspaceRoot?: string) => void
+  /**
+   * Instance scope: allow automations waiting for approval, each pinned to the
+   * fingerprint its entry was listed with. All must share one project root. One
+   * that changed since it was listed is left waiting, and said so.
+   */
+  approve: (entries: AutomationsInstanceEntry[]) => Promise<void>
+  /** Instance scope: take an approval back, so the automation asks before it next runs. */
+  revokeApproval: (def: AutomationDefinition) => Promise<void>
   // Cross-definition runs feed (aggregated client-side from per-definition runs).
   // Folder scope only; inert in instance scope (the surface loads per-automation
   // runs in its canvas instead).
@@ -342,6 +350,58 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
     [isInstance],
   )
 
+  // The approval write lands in main's ledger, and the definitions-changed
+  // broadcast that follows reloads the index. The entries are patched first
+  // anyway so the review does not linger for the length of that round trip.
+  const approve = useCallback(
+    async (toApprove: AutomationsInstanceEntry[]) => {
+      const [first] = toApprove
+      if (!first) return
+      await mutate(first.definition, async () => {
+        const result = await window.api.approveAutomations({
+          workspaceRoot: first.workspaceRoot,
+          automations: toApprove.map((entry) => ({
+            automationId: entry.definition.id,
+            fingerprint: entry.approval?.fingerprint ?? '',
+          })),
+        })
+        if (!result.ok) return result
+        const approved = new Set(result.value.approved)
+        const approvedAt = new Date().toISOString()
+        setEntries((prev) =>
+          prev.map((entry) =>
+            entry.workspaceRoot === first.workspaceRoot && approved.has(entry.definition.id) && entry.approval
+              ? {
+                  ...entry,
+                  approval: { state: 'approved', fingerprint: entry.approval.fingerprint, source: 'user', approvedAt },
+                }
+              : entry,
+          ),
+        )
+        if (result.value.changed.length === 0) return result
+        const names = toApprove
+          .filter((entry) => result.value.changed.includes(entry.definition.id))
+          .map((entry) => entry.definition.name)
+        return {
+          ok: false as const,
+          message: `${names.join(', ')} changed while you were reviewing ${
+            names.length === 1 ? 'it, so it was' : 'them, so they were'
+          } not allowed. Read ${names.length === 1 ? 'it' : 'them'} again, then allow.`,
+        }
+      })
+    },
+    [mutate],
+  )
+
+  const revokeApproval = useCallback(
+    (def: AutomationDefinition) => {
+      const root = rootForDefinition(def.id)
+      if (!root) return Promise.resolve()
+      return mutate(def, () => window.api.revokeAutomationApproval({ workspaceRoot: root, automationId: def.id }))
+    },
+    [rootForDefinition, mutate],
+  )
+
   const clearActionError = useCallback(() => setActionError(null), [])
 
   // Build the cross-definition feed by aggregating per-definition run lists (no
@@ -412,6 +472,8 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
     toggleStatus,
     remove,
     applySaved,
+    approve,
+    revokeApproval,
     feedRuns,
     feedState,
     feedError,

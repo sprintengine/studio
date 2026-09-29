@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useState, type JSX, type ReactNode } from 'react'
 
 import {
   DefinitionList,
@@ -41,8 +41,11 @@ export function AutomationSurfaceCanvas({
   focusNonce,
   onOpenAgent,
   onViewReport,
+  review,
 }: {
   entry: AutomationsInstanceEntry
+  /** The approval review, for an automation waiting on one; it leads the canvas. */
+  review?: ReactNode
   now: number
   /** A run to scroll into view and briefly highlight (notification deep link). */
   focusRunId?: string | null
@@ -78,6 +81,7 @@ export function AutomationSurfaceCanvas({
   return (
     <div className="h-full min-h-0 overflow-y-auto px-6 py-5">
       <div className="mx-auto flex max-w-[720px] flex-col gap-4">
+        {review}
         {/* The definition facts lead, unlabeled — they are the stable frame, so
             swapping between automations never jumps the layout the way the
             variable-height run list would. What happened comes after. */}
@@ -128,9 +132,11 @@ export function AutomationSurfaceCanvas({
             </InlineNotice>
           ) : runs.length === 0 ? (
             <p className="py-3 text-micro leading-5 text-[color:var(--text-muted)]">
-              {definition.status === 'enabled'
-                ? 'No runs yet. The first one appears here when the schedule fires or you run it now.'
-                : 'No runs yet. Turn the automation on to schedule runs, or run it now.'}
+              {entry.approval?.state === 'needs-approval'
+                ? 'No runs yet, and none until you allow it.'
+                : definition.status === 'enabled'
+                  ? 'No runs yet. The first one appears here when the schedule fires or you run it now.'
+                  : 'No runs yet. Turn the automation on to schedule runs, or run it now.'}
             </p>
           ) : (
             <ol className="flex flex-col">

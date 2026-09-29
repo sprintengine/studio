@@ -16,6 +16,7 @@ import {
   type DefinitionWriteResult,
 } from './definition-write'
 import { isRecord } from '../../shared/records'
+import type { AutomationApprovalLedger } from './approval-ledger'
 
 // The module-scoped Automations service: the app-side registry behind the
 // SDK's `getAutomationsService(host)` helper (token
@@ -68,9 +69,16 @@ export type ModuleAutomationsRegistry = {
   dispose(): void
 }
 
-export type ModuleAutomationsRegistryDeps = DefinitionWriteDeps & {
+export type ModuleAutomationsRegistryDeps = Omit<DefinitionWriteDeps, 'approvals'> & {
   /** Same snapshot the IPC front door validates workspace roots against. */
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
+  /**
+   * What a module writes is recorded as approved, as `module`: the module is
+   * code the user already trusted in Settings → Modules, and an automation it
+   * makes is part of what it does. The source is fixed here rather than taken
+   * from the caller, so a module cannot record its writes as the user's.
+   */
+  approvalLedger?: AutomationApprovalLedger
 }
 
 // Write-core failure codes → the module-facing vocabulary. Draft/config
@@ -103,7 +111,11 @@ function refuseFrom<T>(failure: { code: string; message: string }): ModuleAutoma
 }
 
 export function createModuleAutomationsRegistry(deps: ModuleAutomationsRegistryDeps): ModuleAutomationsRegistry {
-  const writeCore = createDefinitionWriteCore(deps)
+  const { approvalLedger, ...writeDeps } = deps
+  const writeCore = createDefinitionWriteCore({
+    ...writeDeps,
+    ...(approvalLedger ? { approvals: { ledger: approvalLedger, source: 'module' as const } } : {}),
+  })
   const subscribers = new Set<{ moduleId: string; listener: (event: AutomationsRunEvent) => void }>()
 
   // Post-write hook failures (webhook receiver refresh) never fail a module

@@ -18,6 +18,7 @@ import {
   type LocalAutomationExecutorOptions,
 } from './executor-local'
 import { AutomationsStore } from './store'
+import { everyAutomationApproved } from '../../../tests/automation-approvals'
 import { test } from 'vitest'
 
 test('unattended-containment', async () => {
@@ -141,6 +142,7 @@ test('unattended-containment', async () => {
     })
 
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-host', folderPath: root }],
       now: () => Date.parse('2026-07-30T02:00:00.000Z'),
       createRunId: () => 'run-1',

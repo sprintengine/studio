@@ -40,6 +40,10 @@ export const AUTOMATIONS_INSTANCE_LIST_CHANNEL = 'automations:instance:list'
 // discipline every other automations read follows.
 export const AUTOMATIONS_BUILTIN_LIST_CHANNEL = 'automations:list-builtin'
 export const AUTOMATIONS_BUILTIN_INSTALL_CHANNEL = 'automations:install-builtin'
+// Saying yes to an automation this machine did not write (see
+// AutomationApproval below), and taking the yes back.
+export const AUTOMATIONS_APPROVE_CHANNEL = 'automations:approve'
+export const AUTOMATIONS_REVOKE_APPROVAL_CHANNEL = 'automations:revoke-approval'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
@@ -571,7 +575,66 @@ export type AutomationsInstanceEntry = {
    * without polling the engine (agent-backed runs stay `running` until finalize).
    */
   isRunningNow: boolean
+  /**
+   * Whether this machine has said yes to the definition as it reads now. Main
+   * stamps it on every index read; absent only on an entry the renderer seeded
+   * itself after its own write, which main approved as it wrote it. Display
+   * only: the engine asks the ledger, never this field.
+   */
+  approval?: AutomationApproval
 }
+
+// ── Approval ─────────────────────────────────────────────────────────────────
+// A definition is a file inside the project, so anything that can write to the
+// project — a cloned repository, a `git pull`, an agent working in the checkout
+// — can put one there, and an agent-backed automation runs unattended on
+// `bypass` by default. So an automation runs only once this machine has said
+// yes to exactly what it does: the approval ledger (in the app's userData, never
+// in the project) holds a fingerprint of each definition's behaviour, and a
+// definition that has none, or whose file has changed since, waits for a person.
+
+/**
+ * Who said yes. Writes through the app are approved as they are written, so an
+ * automation made or edited here never asks; only the source differs, so a
+ * later tightening (say, asking again for what an agent wrote) is one check.
+ * - `user`: a person pressed Allow on the review.
+ * - `app`: written from the app's own screens — the editor, the pause toggle,
+ *   Add on a built-in, a marketplace install.
+ * - `agent`: written through the app's local automation tools
+ *   (`automation.create`), which agents on this machine call. Approved as
+ *   written because the agents here are the user's own (owner ruling
+ *   2026-09-29); a prompt-injected agent is the case this label exists for.
+ * - `module`: written by an installed capability module through its scoped
+ *   automations service, which the user already trusted in Settings → Modules.
+ */
+export type AutomationApprovalSource = 'user' | 'app' | 'agent' | 'module'
+
+/**
+ * `fingerprint` is main's hash of what the definition does now. The review
+ * hands it back with Allow so a file that changed while it was on screen is
+ * refused rather than approved unseen; main re-reads and re-hashes either way,
+ * and only ever records its own hash.
+ */
+export type AutomationApproval =
+  | { state: 'approved'; fingerprint: string; source: AutomationApprovalSource; approvedAt: string }
+  | {
+      state: 'needs-approval'
+      fingerprint: string
+      /** `unreviewed`: never approved here. `changed`: approved once, and the file has changed since. */
+      reason: 'unreviewed' | 'changed'
+    }
+
+export type AutomationsApproveInput = {
+  workspaceRoot: string
+  /** One automation, or every one the review listed ("Allow all"). */
+  automations: { automationId: string; fingerprint: string }[]
+}
+
+export type AutomationsApproveResult = AutomationsResult<{
+  approved: string[]
+  /** Changed since the review showed it, so left waiting: review it again. */
+  changed: string[]
+}>
 
 // A project root whose store could not be read, surfaced rather than silently
 // dropped so one malformed store never masks the automations that ARE readable.
@@ -598,6 +661,7 @@ export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>
 export type AutomationsEngineStatusResult = AutomationsResult<AutomationsEngineStatus>
 export type AutomationsInstanceListResult = AutomationsResult<AutomationsInstanceIndex>
 export type AutomationsBuiltinListResult = AutomationsResult<BuiltinAutomation[]>
+export type AutomationsRevokeApprovalResult = AutomationsResult<{ automationId: string }>
 
 /** Which project a built-in was added to, and whether this call is what added it. */
 export type AutomationsBuiltinInstallInput = {

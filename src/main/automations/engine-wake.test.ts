@@ -7,6 +7,7 @@ import { test } from 'vitest'
 import type { AutomationsEngineEvaluationResult } from './engine'
 import { AutomationsEngine, nextAutomationsWakeDelayMs } from './engine'
 import { AutomationsStore } from './store'
+import { everyAutomationApproved } from '../../../tests/automation-approvals'
 
 const MINUTE = 60_000
 const NOW = Date.parse('2026-06-17T09:00:00.000Z')
@@ -92,6 +93,7 @@ test('the engine arms one timer from each evaluation, and wake re-evaluates at o
   } as unknown as AutomationsStore
   let evaluations = 0
   const engine = new AutomationsEngine({
+    approvals: everyAutomationApproved,
     getProjectFolders: () => {
       evaluations += 1
       return [{ workspaceId: 'ws-a', folderPath: '/Users/dev/app' }]
@@ -164,6 +166,7 @@ async function manualRunEngine(maxAgentRunMs: number) {
   const armed: number[] = []
   let cleared = 0
   const engine = new AutomationsEngine({
+    approvals: everyAutomationApproved,
     getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: workspaceRoot }],
     now: () => NOW,
     maxAgentRunMs,

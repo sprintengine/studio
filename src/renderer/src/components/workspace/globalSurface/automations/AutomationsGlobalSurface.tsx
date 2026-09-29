@@ -47,7 +47,15 @@ import {
   useBuiltinAutomations,
 } from './builtinAutomations'
 import { resolveAutomationRuntimeCli } from '../../../panels/AutomationsPanel/AutomationEditor'
-import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, projectLabel } from './railState'
+import {
+  SCHEDULER_OFF_NOTICE,
+  automationRailState,
+  enumerationProblemsNotice,
+  projectLabel,
+  waitingForApprovalNotice,
+} from './railState'
+import { AutomationApprovalReview } from './AutomationApprovalReview'
+import { waitingInProject } from './approvalReview'
 import {
   consumePendingAutomationSurfaceTarget,
   subscribeAutomationSurfaceTarget,
@@ -94,6 +102,8 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     remove,
     applySaved,
     rootForDefinition,
+    approve,
+    revokeApproval,
   } = useAutomationsController({ scope: 'instance' })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -262,11 +272,42 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
+  const cliCatalog = useMemo(
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+  )
   const builtinRuntime = useMemo(() => {
-    const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
-    const resolved = resolveAutomationRuntimeCli(undefined, lastSelectedCli, catalog)
-    return { cli: resolved, label: catalog.find((option) => option.value === resolved)?.label ?? resolved }
-  }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, lastSelectedCli])
+    const resolved = resolveAutomationRuntimeCli(undefined, lastSelectedCli, cliCatalog)
+    return { cli: resolved, label: cliCatalog.find((option) => option.value === resolved)?.label ?? resolved }
+  }, [cliCatalog, lastSelectedCli])
+  const cliLabel = useCallback(
+    (cli: string) => cliCatalog.find((option) => option.value === cli)?.label ?? cli,
+    [cliCatalog],
+  )
+
+  // Automations waiting for approval, in rail order, so "Review" in the
+  // attention strip opens the one the rail lists first.
+  const waitingEntries = useMemo(
+    () => orderedEntries.filter((entry) => entry.approval?.state === 'needs-approval'),
+    [orderedEntries],
+  )
+
+  // "Allow all" approves files the person has not each opened, so it names them
+  // first. The review they are looking at is one of them.
+  const handleAllowAll = useCallback(
+    async (entry: AutomationsInstanceEntry) => {
+      const waiting = waitingInProject(entries, entry.workspaceRoot)
+      const confirmed = await dialog.confirm({
+        title: `Allow all ${waiting.length} automations in ${projectLabel(entry.workspaceRoot)}?`,
+        body: `Each will run whatever its file says, on its own schedule or trigger: ${waiting
+          .map((candidate) => candidate.definition.name)
+          .join(', ')}.`,
+        confirmLabel: 'Allow all',
+      })
+      if (confirmed) await approve(waiting)
+    },
+    [entries, dialog, approve],
+  )
 
   // Adding re-reads the index rather than patching it: the definition main wrote
   // is the one the rail must list, and `load()` is the read that produced every
@@ -443,6 +484,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     if (selectedEntry) {
       const def = selectedEntry.definition
       const busy = busyId === def.id
+      const waiting = selectedEntry.approval?.state === 'needs-approval'
       const overflowItems: OverflowMenuItem[] = [
         {
           id: 'toggle',
@@ -450,6 +492,18 @@ export default function AutomationsGlobalSurface(): JSX.Element {
           onSelect: () => void toggleStatus(def),
           disabled: busy,
         },
+        // The way back from an Allow: the automation keeps its file and asks
+        // again before its next run.
+        ...(selectedEntry.approval?.state === 'approved'
+          ? [
+              {
+                id: 'revoke-approval',
+                label: 'Ask before it runs again',
+                onSelect: () => void revokeApproval(def),
+                disabled: busy,
+              },
+            ]
+          : []),
         { kind: 'separator', id: 'sep' },
         {
           id: 'delete',
@@ -466,9 +520,13 @@ export default function AutomationsGlobalSurface(): JSX.Element {
         title: def.name,
         actions: (
           <>
-            <GhostButton onClick={() => void handleRunNow(selectedEntry)} disabled={busy}>
-              Run now
-            </GhostButton>
+            {/* Not offered while it waits: main would refuse the run, and the
+                review on the canvas is the thing to do first. */}
+            {waiting ? null : (
+              <GhostButton onClick={() => void handleRunNow(selectedEntry)} disabled={busy}>
+                Run now
+              </GhostButton>
+            )}
             <GhostButton onClick={() => startEdit(selectedEntry)}>Edit</GhostButton>
             <OverflowMenu items={overflowItems} ariaLabel={`More actions for ${def.name}`} />
           </>
@@ -487,12 +545,37 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     handleRunNow,
     startEdit,
     toggleStatus,
+    revokeApproval,
     handleDelete,
   ])
 
   // ── Attention strip: non-blocking degraded signals ──────────────────────────
   const attention = useMemo(() => {
     const banners: React.ReactNode[] = []
+    // First, because it is the one that asks something of the person: these
+    // will not run until someone looks. Review opens the first of them.
+    if (waitingEntries.length > 0) {
+      banners.push(
+        <div key="approval" className="px-5 py-2">
+          <InlineNotice
+            tone="warn"
+            action={
+              <GhostButton
+                size="xs"
+                onClick={() => {
+                  setEditorTarget(null)
+                  setSelectedId(waitingEntries[0].definition.id)
+                }}
+              >
+                Review
+              </GhostButton>
+            }
+          >
+            {waitingForApprovalNotice(waitingEntries.length)}
+          </InlineNotice>
+        </div>,
+      )
+    }
     if (isEngineUnreachable(engineStatus)) {
       banners.push(
         <div key="engine" className="px-5 py-2">
@@ -508,7 +591,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       )
     }
     return banners.length > 0 ? <>{banners}</> : undefined
-  }, [engineStatus, problems])
+  }, [engineStatus, problems, waitingEntries])
 
   // ── Rail ────────────────────────────────────────────────────────────────────
   // Why "Built in" is not listing five rows. Never an empty group in silence:
@@ -625,6 +708,18 @@ export default function AutomationsGlobalSurface(): JSX.Element {
               if (selectedEntry) setViewerRun({ run, workspaceRoot: selectedEntry.workspaceRoot })
             }}
             onCreate={openChooser}
+            review={
+              selectedEntry ? (
+                <AutomationApprovalReview
+                  entry={selectedEntry}
+                  waitingInProject={waitingInProject(entries, selectedEntry.workspaceRoot).length}
+                  busy={busyId === selectedEntry.definition.id}
+                  cliLabel={cliLabel}
+                  onAllow={() => void approve([selectedEntry])}
+                  onAllowAll={() => void handleAllowAll(selectedEntry)}
+                />
+              ) : null
+            }
           />
         </div>
         {viewerRun ? (
@@ -695,7 +790,9 @@ function SurfaceBody({
   onOpenAgent,
   onViewReport,
   onCreate,
+  review,
 }: {
+  review: React.ReactNode
   loadState: string
   loadError: string | null
   onRetry: () => void
@@ -789,6 +886,7 @@ function SurfaceBody({
     return (
       <AutomationSurfaceCanvas
         entry={selectedEntry}
+        review={review}
         now={now}
         focusRunId={focusRunId}
         focusNonce={focusNonce}

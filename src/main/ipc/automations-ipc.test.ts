@@ -34,6 +34,7 @@ import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { registerAutomationsIpc } from './automations-ipc'
+import { everyAutomationApproved } from '../../../tests/automation-approvals'
 import { test } from 'vitest'
 
 test('automations-ipc', async () => {
@@ -71,6 +72,7 @@ test('automations-ipc', async () => {
     const workspaceRoots = options.workspaceRoots ?? []
     const providerRegistry = createBuiltInAutomationProviderRegistry()
     const engine = createAutomationsEngine({
+      approvals: everyAutomationApproved,
       createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
       getProjectFolders: () =>
         workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),

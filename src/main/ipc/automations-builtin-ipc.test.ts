@@ -15,6 +15,7 @@ import { createBuiltInAutomationProviderRegistry } from '../automations/provider
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { registerAutomationsIpc } from './automations-ipc'
+import { everyAutomationApproved } from '../../../tests/automation-approvals'
 import { test } from 'vitest'
 
 test('automations-builtin-ipc', async () => {
@@ -54,6 +55,7 @@ test('automations-builtin-ipc', async () => {
       },
       {
         engine: createAutomationsEngine({
+          approvals: everyAutomationApproved,
           createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
           getProjectFolders: () =>
             workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),

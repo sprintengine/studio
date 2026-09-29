@@ -16,6 +16,7 @@ import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { deriveActivityFromPhase } from '../agent-state'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
+import type { AutomationApprovalGate } from './approval-ledger'
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
@@ -90,6 +91,10 @@ export type AutomationRunWorktreeRemover = (input: { workspaceRoot: string; work
 export type AutomationRunAgentDisposer = (input: { workspaceId: string; agentId: string }) => Promise<void>
 
 export type AutomationsEngineOptions = {
+  // The approval ledger. Required, so no engine is ever built that runs a
+  // definition nobody said yes to: every fire — schedule, polled trigger,
+  // webhook delivery, Run now — asks it first (approval-ledger.ts).
+  approvals: AutomationApprovalGate
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   createStore?: (workspaceRoot: string) => AutomationsStore
@@ -261,7 +266,12 @@ const DEFAULT_TURN_SETTLE_MS = 15_000
 // exists to fix.
 const DEFAULT_MAX_AGENT_RUN_MS = 6 * 60 * 60 * 1000
 
+// Why a definition that is waiting for approval did not run, in the words the
+// Automations screen and an MCP caller both read.
+export const AUTOMATION_NEEDS_APPROVAL_CODE = 'needs_approval'
+
 export class AutomationsEngine {
+  private readonly approvals: AutomationApprovalGate
   private readonly getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   private readonly getWorkspaceSnapshot?: () => WorkspaceSyncSnapshot | Promise<WorkspaceSyncSnapshot>
   private readonly createStore: (workspaceRoot: string) => AutomationsStore
@@ -301,6 +311,7 @@ export class AutomationsEngine {
   private timerEvaluation: Promise<AutomationsEngineEvaluationResult> | null = null
 
   constructor(options: AutomationsEngineOptions) {
+    this.approvals = options.approvals
     this.getProjectFolders = options.getProjectFolders
     this.getWorkspaceSnapshot = options.getWorkspaceSnapshot
     this.createStore = options.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
@@ -478,6 +489,10 @@ export class AutomationsEngine {
     }
 
     const definition = definitionResult.value
+    // Run now is a fire like any other: a person pressing it on a definition
+    // they have not approved is asked to review it, not handed a run of it.
+    const unapproved = await this.approvalProblem(input.workspaceRoot, definition)
+    if (unapproved) return { ok: false, problem: unapproved }
     if (definition.trigger.kind !== 'schedule') {
       return {
         ok: false,
@@ -636,6 +651,11 @@ export class AutomationsEngine {
         },
       }
     }
+    // The receiver only routes approved definitions, but it routes from its last
+    // refresh, and a `git pull` since then does not refresh it. So the delivery
+    // re-reads and asks again rather than trusting the route table.
+    const unapproved = await this.approvalProblem(input.workspaceRoot, definition)
+    if (unapproved) return { ok: false, problem: unapproved }
     if (definition.trigger.kind === 'schedule') {
       return {
         ok: false,
@@ -1219,6 +1239,20 @@ export class AutomationsEngine {
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
     if (definition.status !== 'enabled') return
+    // Before anything the definition says is acted on — its trigger polled, its
+    // `nextRunAt` read, its state written. A repo can ship a `nextRunAt` in the
+    // past; honouring it would fire the moment the approval landed, so an
+    // unapproved definition's schedule is not even looked at, and approval clears
+    // it so the next evaluation computes it fresh (automations-ipc.ts).
+    const unapproved = await this.approvalProblem(workspaceRoot, definition)
+    if (unapproved) {
+      // The state cache is the same file's other copy of that schedule. Dropped
+      // from this evaluation's copy of it, so a state write later in this pass
+      // (another automation's) cannot put back the entry an approval clears.
+      delete state.nextRunAtByAutomationId[definition.id]
+      result.problems.push(unapproved)
+      return
+    }
     if (definition.trigger.kind !== 'schedule') {
       // Anything a provider can poll has no due time, so its cadence is what
       // wakes the scheduler. A push-only trigger (a webhook) is delivered, not
@@ -1537,6 +1571,29 @@ export class AutomationsEngine {
     if (persistedNextRunAt)
       result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt: persistedNextRunAt })
     return true
+  }
+
+  private async approvalProblem(
+    workspaceRoot: string,
+    definition: AutomationDefinition,
+  ): Promise<AutomationsEngineProblem | null> {
+    let approval: Awaited<ReturnType<AutomationApprovalGate['check']>>
+    try {
+      approval = await this.approvals.check(workspaceRoot, definition)
+    } catch {
+      // A ledger that cannot be read approves nothing.
+      approval = { state: 'needs-approval', fingerprint: '', reason: 'unreviewed' }
+    }
+    if (approval.state === 'approved') return null
+    return {
+      workspaceRoot,
+      automationId: definition.id,
+      code: AUTOMATION_NEEDS_APPROVAL_CODE,
+      message:
+        approval.reason === 'changed'
+          ? `Automation "${definition.name}" changed since you allowed it, so it will not run until you review it again in Automations.`
+          : `Automation "${definition.name}" was not made in this app on this machine, so it will not run until you review and allow it in Automations.`,
+    }
   }
 
   private runRecord(

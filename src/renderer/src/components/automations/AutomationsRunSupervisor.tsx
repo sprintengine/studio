@@ -1,6 +1,7 @@
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { subscribeAutomationApprovalNotices } from './approvalNotices'
 import { subscribeAutomationRunNotifications } from './runTarget'
 
 // Always-mounted renderer observer of T12's automation run-event channel
@@ -49,6 +50,11 @@ export default function AutomationsRunSupervisor(): null {
       ),
     [],
   )
+
+  // The other thing that happens with the door closed: an automation starts
+  // waiting for approval (approvalNotices.ts). No replay concern here — it reads
+  // the index on mount — so the ordinary effect timing is enough.
+  useEffect(() => subscribeAutomationApprovalNotices(window.api, publishDiagnosticSync), [])
 
   return null
 }

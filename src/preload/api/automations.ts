@@ -1,6 +1,8 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { ElectronApi } from '../../shared/electron-api'
 import type {
+  AutomationsApproveInput,
+  AutomationsApproveResult,
   AutomationsBuiltinInstallInput,
   AutomationsBuiltinInstallResult,
   AutomationsBuiltinListResult,
@@ -13,6 +15,7 @@ import type {
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsDefinitionsChangedEvent,
+  AutomationsRevokeApprovalResult,
   AutomationsRunEvent,
   AutomationsRunFinalizeInput,
   AutomationsRunFinalizeResult,
@@ -23,6 +26,7 @@ import type {
   AutomationsWorkspaceInput,
 } from '../../shared/automations/contracts'
 import {
+  AUTOMATIONS_APPROVE_CHANNEL,
   AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
   AUTOMATIONS_BUILTIN_LIST_CHANNEL,
   AUTOMATIONS_CREATE_CHANNEL,
@@ -32,6 +36,7 @@ import {
   AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
+  AUTOMATIONS_REVOKE_APPROVAL_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
   AUTOMATIONS_RUN_FINALIZE_CHANNEL,
@@ -60,6 +65,8 @@ export function createAutomationsApi(
   | 'updateAutomation'
   | 'deleteAutomation'
   | 'runAutomationNow'
+  | 'approveAutomations'
+  | 'revokeAutomationApproval'
   | 'listAutomationRuns'
   | 'finalizeAutomationRun'
   | 'listAutomationProviders'
@@ -84,6 +91,10 @@ export function createAutomationsApi(
       renderer.invoke(AUTOMATIONS_DELETE_CHANNEL, input) as Promise<AutomationsDeleteResult>,
     runAutomationNow: (input: AutomationsDefinitionInput): Promise<AutomationsRunNowResult> =>
       renderer.invoke(AUTOMATIONS_RUN_NOW_CHANNEL, input) as Promise<AutomationsRunNowResult>,
+    approveAutomations: (input: AutomationsApproveInput): Promise<AutomationsApproveResult> =>
+      renderer.invoke(AUTOMATIONS_APPROVE_CHANNEL, input) as Promise<AutomationsApproveResult>,
+    revokeAutomationApproval: (input: AutomationsDefinitionInput): Promise<AutomationsRevokeApprovalResult> =>
+      renderer.invoke(AUTOMATIONS_REVOKE_APPROVAL_CHANNEL, input) as Promise<AutomationsRevokeApprovalResult>,
     listAutomationRuns: (input: AutomationsRunsListInput): Promise<AutomationsRunsListResult> =>
       renderer.invoke(AUTOMATIONS_RUNS_LIST_CHANNEL, input) as Promise<AutomationsRunsListResult>,
     finalizeAutomationRun: (input: AutomationsRunFinalizeInput): Promise<AutomationsRunFinalizeResult> =>

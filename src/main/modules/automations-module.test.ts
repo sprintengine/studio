@@ -43,6 +43,7 @@ import {
 } from '../../shared/automations/contracts'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
+import { everyAutomationApprovedLedger } from '../../../tests/automation-approvals'
 import { test } from 'vitest'
 
 test('automations-module', async () => {
@@ -396,7 +397,7 @@ test('automations-module', async () => {
     const { ipcMain, handled } = createFakeIpcMain()
     const { report, kernel } = loadMainModules({
       ipcMain,
-      modules: [fakeAgentRuntimeModule(), createAutomationsModule()],
+      modules: [fakeAgentRuntimeModule(), createAutomationsModule({ approvalLedger: everyAutomationApprovedLedger })],
     })
 
     assert.ok(report.loaded.includes('automations'))
@@ -413,6 +414,7 @@ test('automations-module', async () => {
       ],
     )
     assert.deepEqual(handled.filter((channel) => channel.startsWith('automations:')).sort(), [
+      'automations:approve',
       'automations:create',
       'automations:delete',
       'automations:engine-status',
@@ -421,6 +423,7 @@ test('automations-module', async () => {
       'automations:list',
       'automations:list-builtin',
       'automations:providers:list',
+      'automations:revoke-approval',
       'automations:run-now',
       'automations:run:finalize',
       'automations:runs:list',
@@ -466,7 +469,7 @@ test('automations-module', async () => {
       ipcMain,
       modules: [
         fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(workspaceRoot) }),
-        createAutomationsModule(),
+        createAutomationsModule({ approvalLedger: everyAutomationApprovedLedger }),
       ],
     })
 
@@ -485,7 +488,7 @@ test('automations-module', async () => {
     const { ipcMain, handled } = createFakeIpcMain()
     const { report, kernel } = loadMainModules({
       ipcMain,
-      modules: [fakeAgentRuntimeModule(), createAutomationsModule()],
+      modules: [fakeAgentRuntimeModule(), createAutomationsModule({ approvalLedger: everyAutomationApprovedLedger })],
       overrides: { automations: false },
     })
 
@@ -508,7 +511,7 @@ test('automations-module', async () => {
     const enabledAgain = createFakeIpcMain()
     const reenabled = loadMainModules({
       ipcMain: enabledAgain.ipcMain,
-      modules: [fakeAgentRuntimeModule(), createAutomationsModule()],
+      modules: [fakeAgentRuntimeModule(), createAutomationsModule({ approvalLedger: everyAutomationApprovedLedger })],
       overrides: { automations: true },
     })
     assert.ok(reenabled.report.loaded.includes('automations'))
@@ -533,6 +536,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule(),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           createEngine: () => {
             const engine = createFakeAutomationsEngine()
             engines.push(engine)
@@ -595,6 +599,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule({ terminalRuntime: terminal.runtime }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           createEngine: (options) => {
             captured.options = options
             captured.engine = createFakeAutomationsEngine()
@@ -679,6 +684,7 @@ test('automations-module', async () => {
           },
         }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           createEngine: (options) => {
             capturedRunAutomation = options.runAutomation
             return createFakeAutomationsEngine() as unknown as AutomationsEngine
@@ -723,6 +729,7 @@ test('automations-module', async () => {
           },
         }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           createEngine: (options) => {
             capturedRunAutomation = options.runAutomation
             return createFakeAutomationsEngine() as unknown as AutomationsEngine
@@ -766,7 +773,7 @@ test('automations-module', async () => {
     const { ipcMain, handlers } = createFakeIpcMain()
     const moduleLoad = loadMainModules({
       ipcMain,
-      modules: [fakeAgentRuntimeModule(), createAutomationsModule()],
+      modules: [fakeAgentRuntimeModule(), createAutomationsModule({ approvalLedger: everyAutomationApprovedLedger })],
     })
 
     assert.ok(moduleLoad.report.loaded.includes('automations'))
@@ -808,6 +815,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           createEngine: (options) => {
             capturedEngineOptions = options
             capturedRunAutomation = options.runAutomation
@@ -866,6 +874,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           checkProviderPermission,
           createEngine: (options) => {
             capturedEngineOptions = options
@@ -942,6 +951,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule({ workspaceSnapshot: workspaceSnapshot(folderPath) }),
         createAutomationsModule({
+          approvalLedger: everyAutomationApprovedLedger,
           checkProviderPermission,
           createEngine: (options) => {
             capturedRunAutomation = options.runAutomation
