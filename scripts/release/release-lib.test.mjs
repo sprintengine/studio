@@ -12,6 +12,8 @@ import {
   feedTags,
   mergeMacManifests,
   missingInstallers,
+  NIGHTLIES_KEPT,
+  nightliesToPrune,
   prereleaseVersion,
   sourceShaFromBody,
   updaterUrls,
@@ -384,4 +386,26 @@ test('a manifest served to users is checked, not only the copy the token can rea
   const { problems, retryable } = await world.check()
   assert.deepEqual(problems, [`${world.urls.manifests.mac} has no Intel (x64) .zip`])
   assert.equal(retryable, false)
+})
+
+test('only nightlies past the newest few are pruned, never a stable, a draft or a stranger', () => {
+  const release = (tag_name, day, extra = {}) => ({ tag_name, published_at: `2026-09-${day}T12:00:00Z`, draft: false, ...extra })
+  const releases = [
+    release('v0.6.0', '22'),
+    release('v0.7.0-nightly.20260923.28', '23'),
+    // Published out of tag order: age is when it was published.
+    release('v0.7.0-nightly.20260929.58', '29'),
+    release('v0.7.0-nightly.20260924.31', '24'),
+    release('v0.7.0-nightly.20260928.54', '28'),
+    release('v0.7.0-nightly.20260925.35', '25'),
+    release('v0.7.0-nightly.20260930.60', '30', { draft: true }),
+    release('v0.7.0-nightly.20260930.61', '30', { published_at: null }),
+    release('v0.4.0-preview.20260919.2', '19'),
+    release('some-other-tag', '01'),
+  ]
+  assert.equal(NIGHTLIES_KEPT, 3)
+  assert.deepEqual(nightliesToPrune(releases), ['v0.7.0-nightly.20260924.31', 'v0.7.0-nightly.20260923.28'])
+  assert.deepEqual(nightliesToPrune(releases, 5), [])
+  assert.deepEqual(nightliesToPrune([]), [])
+  assert.throws(() => nightliesToPrune(releases, 0), /Keep at least one nightly/)
 })

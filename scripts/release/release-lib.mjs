@@ -256,6 +256,23 @@ function tagChannel(tag) {
   }
 }
 
+// How many nightly releases stay on the repository. The newest is what the
+// nightly gate and a stable promotion read back, and what installed nightly
+// builds update to; the two before it are there to go back to. Older ones are
+// history the tags already keep, at about 2 GB of installers each.
+export const NIGHTLIES_KEPT = 3
+
+// The tags of the published nightlies past the newest `keep`, oldest last.
+// Stable releases, drafts, and anything that is not a nightly are never named.
+export function nightliesToPrune(releases, keep = NIGHTLIES_KEPT) {
+  if (!Number.isInteger(keep) || keep < 1) throw new Error(`Keep at least one nightly, not ${keep}`)
+  return releases
+    .filter((release) => !release.draft && release.published_at && tagChannel(release.tag_name) === 'nightly')
+    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
+    .slice(keep)
+    .map((release) => release.tag_name)
+}
+
 const describeResponse = (response) => (response.error ? `failed: ${response.error}` : `HTTP ${response.status}`)
 
 // One unauthenticated pass over a published release. Returns the problems and
