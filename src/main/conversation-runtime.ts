@@ -231,6 +231,11 @@ const UNSAVED_NOTICE =
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
 
+// How much of a chat's end the hover card reads for its newest turn. A turn
+// longer than this shows its newest part; the card draws a few hundred
+// characters of it either way.
+const PEEK_TURN_BYTES = 256 * 1024
+
 // Same cadence as the terminal runtime's stale-terminal sweep: often enough
 // that an idle child process does not outlive the threshold by much, rare
 // enough to be free.
@@ -456,11 +461,7 @@ export class ConversationRuntime {
         .findFirst(
           input.workspaceRoot,
           this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
-          // The first message with words: an image-only opener names nothing.
-          (event) =>
-            event.type === 'user_message' &&
-            typeof event.payload?.text === 'string' &&
-            event.payload.text.trim().length > 0,
+          isWordedUserMessage,
         )
         .catch(() => undefined)
       if (first) this.updateExcerpts(session, first)
@@ -2321,6 +2322,21 @@ export class ConversationRuntime {
   }
 
   /**
+   * What the hover card over a chat shows, read from the transcript's two
+   * ends: the first message with words, and the newest turn within a small
+   * budget. The chat between is never read, however long it has run.
+   */
+  async readPeekTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[]> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    const [first, latest] = await Promise.all([
+      this.transcripts.findFirst(input.workspaceRoot, path, isWordedUserMessage),
+      this.transcripts.lastTurn(input.workspaceRoot, path, PEEK_TURN_BYTES),
+    ])
+    return first && !latest.some((event) => event.id === first.id) ? [first, ...latest] : latest
+  }
+
+  /**
    * What a subscriber needs to join: the events after its cursor when the
    * cursor provably belongs to this log, otherwise a snapshot of the last
    * turns. Only published events are ever on disk ahead of a reader, so
@@ -2749,6 +2765,13 @@ function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
     }
   }
   return history
+}
+
+// The first message with words: an image-only opener names nothing.
+function isWordedUserMessage(event: ConversationEvent): boolean {
+  return (
+    event.type === 'user_message' && typeof event.payload?.text === 'string' && event.payload.text.trim().length > 0
+  )
 }
 
 function isSessionBusy(session: RuntimeSession): boolean {

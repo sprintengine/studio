@@ -146,6 +146,25 @@ export class ConversationTranscriptReader {
     })
   }
 
+  /**
+   * The newest turn as stored, oldest first: the events back to and including
+   * the newest user message, a merged run of deltas as one event. A turn
+   * longer than `bytes` comes back as its newest part, without the message.
+   */
+  lastTurn(root: string, path: string, bytes: number): Promise<ConversationEvent[]> {
+    return this.read(root, path, async (records) => {
+      const newest: ConversationEvent[] = []
+      let read = 0
+      for await (const record of records) {
+        read += record.bytes
+        if (read > bytes && newest.length > 0) break
+        newest.push(compact(record))
+        if (record.event.type === 'user_message') break
+      }
+      return newest.reverse()
+    })
+  }
+
   /** The newest stored event matching `predicate`, scanning back as far as it takes. */
   findLast(
     root: string,

@@ -1708,15 +1708,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       if (!summary) return null
       const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
       if (!workspaceRoot) return []
-      const transcript = await conversationRuntime.readTranscript(
-        {
-          workspaceRoot,
-          workspaceId: summary.workspaceId,
-          agentId: summary.agentId,
-        },
-        { all: true },
-      )
-      return transcript.ok ? transcript.events : []
+      // The first message and the newest turn, never the whole transcript:
+      // a long chat is tens of megabytes, and a hover must not parse it.
+      return conversationRuntime
+        .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
+        .catch(() => [])
     },
   })
 
