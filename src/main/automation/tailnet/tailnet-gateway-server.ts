@@ -239,6 +239,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
   function notifyChanged(what: ChangeKind): void {
     changeRevisions[what] += 1
+    // Nobody is watching: the revision is all a later watcher needs, since
+    // its `hello` carries it. Arming a timer here would wake this machine on
+    // every turn of every chat for a push with no one to receive it.
+    if (eventStreams.size === 0) return
     const state = changePush[what]
     // A push already queued carries this revision too.
     if (state.timer) return
