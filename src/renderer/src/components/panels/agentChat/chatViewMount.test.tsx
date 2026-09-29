@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom'
-import { forwardRef, Fragment, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { forwardRef, memo, useImperativeHandle, useRef, type ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import type {
   ConversationEvent,
@@ -9,7 +9,24 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 
 // The virtual list measures a real viewport, which jsdom does not have; this
-// stand-in renders every row so the rows themselves can be driven.
+// stand-in renders every row so the rows themselves can be driven. Like the
+// real list, a row on screen renders again only when its item or the list's
+// `extraData` changes: a new `renderItem` alone does not reach it.
+const ListRow = memo(
+  function ListRow({
+    item,
+    index,
+    render,
+  }: {
+    item: unknown
+    index: number
+    extraData: unknown
+    render: (props: { item: unknown; index: number }) => ReactNode
+  }) {
+    return <>{render({ item, index })}</>
+  },
+  (previous, next) => previous.item === next.item && previous.extraData === next.extraData,
+)
 vi.mock('@legendapp/list/react', () => ({
   LegendList: forwardRef(function LegendList(
     {
@@ -18,12 +35,14 @@ vi.mock('@legendapp/list/react', () => ({
       keyExtractor,
       ListHeaderComponent,
       className,
+      extraData,
     }: {
       data: unknown[]
       renderItem: (props: { item: unknown; index: number }) => ReactNode
       keyExtractor: (item: unknown) => string
       ListHeaderComponent?: ReactNode
       className?: string
+      extraData?: unknown
     },
     ref,
   ) {
@@ -39,7 +58,7 @@ vi.mock('@legendapp/list/react', () => ({
       <div ref={scroller} className={className}>
         {ListHeaderComponent}
         {data.map((item, index) => (
-          <Fragment key={keyExtractor(item)}>{renderItem({ item, index })}</Fragment>
+          <ListRow key={keyExtractor(item)} item={item} index={index} extraData={extraData} render={renderItem} />
         ))}
       </div>
     )
@@ -1140,6 +1159,33 @@ test('a sent picture’s bytes leave the view once the transcript has stored it,
     // Drawn from the store's copy now, which the send seeded: nothing is read back.
     expect(bubbleImage()).toBe('data:image/png;base64,iVBORw0KGgo=')
     expect(reads).toEqual([])
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('rows already on screen follow the view: the previous turn folds when a new one starts', async () => {
+  // Turn ids of its own: a fold another test opened is remembered per turn.
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 'fold-first', text: 'Check the build' }),
+      event('turn_started', { turnId: 'fold-first' }),
+      event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-one', name: 'Read', input: { path: 'a.ts' } }),
+      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-one', output: 'a', status: 'ok' }),
+      event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-two', name: 'Read', input: { path: 'b.ts' } }),
+      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-two', output: 'b', status: 'ok' }),
+      event('content_delta', { turnId: 'fold-first', text: 'It builds.' }),
+      event('turn_completed', { turnId: 'fold-first' }),
+    ],
+  })
+  const fold = () => chat.button('Worked for')
+  try {
+    expect(fold()?.getAttribute('aria-expanded'), 'the latest turn rests open').toBe('true')
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'fold-second', text: 'And the tests?' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'fold-second' }) })
+    })
+    expect(fold()?.getAttribute('aria-expanded'), 'an earlier turn rests folded').toBe('false')
   } finally {
     await chat.unmount()
   }

@@ -2114,6 +2114,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           cli: chatCli,
         }
   chromeRef.current = chrome
+  // What rows read besides their own item: it changes with a turn starting or
+  // ending, a retry becoming possible, a jump's flash, never with a token.
+  // `chrome` is the previous object while nothing in it changed (above).
+  const rowContext = useMemo(
+    () => ({ chrome, flashRowId, hydrated, replayThroughSeq }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chrome, flashRowId, hydrated, replayThroughSeq],
+  )
 
   const completedReplies = shape.completedReplies
   if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
@@ -2278,6 +2286,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 ref={listRef}
                 data={timelineRows}
                 dataKey={conversationKey}
+                // A row on screen renders again only when its item or this
+                // changes, so everything a row reads besides its item rides
+                // here rather than only in the closure below.
+                extraData={rowContext}
                 renderItem={({ item }) => (
                   <ConversationRowFrame
                     key={item.id}
