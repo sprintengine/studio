@@ -1,6 +1,7 @@
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
 import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
 import { conversationSummaryPhase, type ConversationPhase } from '../../../../../shared/conversation/phase'
+import { layoutHasAgentTab } from '../../../utils/launchedAgentProjection'
 import { labelForCliRuntime } from '../newWorkspace/cliRuntimeOptions'
 import type { Activity } from './rowStyle'
 
@@ -21,6 +22,26 @@ export function conversationLineMark(
   const runtimeLabel = cli ? `${labelForCliRuntime(cli)} chat` : 'Chat'
   const parts = [summary.displayName?.trim(), runtimeLabel, summary.modelId].filter(Boolean)
   return { cli, runtimeLabel, tooltip: parts.join(' · ') }
+}
+
+/**
+ * The chats a row draws a line for: one per chat tab in the workspace's layout.
+ * Main lists every session it holds, and that is not the same count — a closed
+ * tab's session can outlive it, and a chat can be left holding more than one —
+ * but the row's lines are the workspace's tabs, so a session with no tab has no
+ * line and a chat with two sessions has one, the one it spoke through last.
+ */
+export function conversationsWithTabs(
+  sessions: readonly ConversationSessionSummary[],
+  layoutModel: unknown,
+): ConversationSessionSummary[] {
+  const byAgent = new Map<string, ConversationSessionSummary>()
+  for (const session of sessions) {
+    const held = byAgent.get(session.agentId)
+    if (held && held.updatedAt >= session.updatedAt) continue
+    if (held || layoutHasAgentTab(layoutModel, session.agentId)) byAgent.set(session.agentId, session)
+  }
+  return sessions.filter((session) => byAgent.get(session.agentId) === session)
 }
 
 export function conversationLineText(summary: ConversationSessionSummary): string {

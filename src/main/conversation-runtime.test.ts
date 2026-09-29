@@ -65,6 +65,7 @@ test('conversation-runtime', async () => {
     await testIdleSweepDisposesOnlyTrulyIdleSessions()
     await testSuspendSessionEndsTheChildAndKeepsTheSession()
     await testShutdownStopsSessionsAndDisposesChildren()
+    await testStartingAChatAgainKeepsOneSessionForIt()
     await testListLiveConversationRootsMapsAdapterInventory()
     await testClaudeConversationPreparesStudioMcpBeforeSession()
 
@@ -379,6 +380,80 @@ test('conversation-runtime', async () => {
       assert.equal(stopped.ok && stopped.session.status, 'stopped')
       assert.deepEqual(capture.disposedChildren, [sessionId, sessionId])
       assert.equal((await runtime.suspendSession({ sessionId: 'missing' })).ok, false)
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A chat view that remounts asks to start a chat main already holds. It gets
+  // that session back while it is live; one that failed is replaced, not kept
+  // beside the new one, so a chat never shows as two agents.
+  async function testStartingAChatAgainKeepsOneSessionForIt(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
+    try {
+      const stopped: string[] = []
+      const provider: ConversationProviderAdapter = {
+        id: 'restart-provider',
+        sessions: 'stateful',
+        listModels: () => ['restart-model'],
+        startSession(input) {
+          return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+        },
+        sendTurn(input: MockAdapterTurnInput) {
+          return [
+            runtimeEvent(input, 'turn_started', { turnId: input.turnId }),
+            input.message === 'crash'
+              ? runtimeEvent(input, 'turn_failed', { turnId: input.turnId, reason: 'provider', message: 'child died' })
+              : runtimeEvent(input, 'turn_completed', { turnId: input.turnId }),
+          ]
+        },
+        resolveApproval() {
+          return []
+        },
+        interrupt(input) {
+          return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+        },
+        stopSession(input) {
+          stopped.push(input.sessionId)
+          return [runtimeEvent(input, 'session_closed')]
+        },
+      }
+      const runtime = new TrackedConversationRuntime({
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+        adapters: [provider],
+      })
+      const start = () =>
+        runtime.startSession({
+          workspaceRoot,
+          workspaceId: 'workspace',
+          agentId: 'agent',
+          providerId: 'restart-provider',
+          modelId: 'restart-model',
+        })
+      const listed = () => {
+        const result = runtime.listSessions({ workspaceId: 'workspace', agentId: 'agent' })
+        return result.ok ? result.sessions.map((session) => session.sessionId) : []
+      }
+
+      const first = await start()
+      assert.equal(first.ok, true)
+      if (!first.ok) return
+      const again = await start()
+      assert.equal(again.ok && again.session.sessionId, first.session.sessionId)
+      assert.deepEqual(listed(), [first.session.sessionId])
+
+      const crashed = await runtime.sendTurn({ sessionId: first.session.sessionId, message: 'crash' })
+      assert.equal(crashed.ok, true)
+      const failed = runtime.listSessions({ agentId: 'agent' })
+      assert.equal(failed.ok && failed.sessions[0]?.status, 'failed')
+      const replaced = await start()
+      assert.equal(replaced.ok, true)
+      if (!replaced.ok) return
+      assert.notEqual(replaced.session.sessionId, first.session.sessionId)
+      assert.deepEqual(stopped, [first.session.sessionId])
+      assert.deepEqual(listed(), [replaced.session.sessionId])
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })

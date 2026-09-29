@@ -79,7 +79,22 @@ test('WorkspaceSidebar.allChats', async () => {
     // minute ago, but the person has not said anything there since yesterday, so
     // it must stay at the bottom rather than jump the row you were reaching for.
     const workspaces = [
-      workspace('w1', 'Alpha', '/repo/apples', { lastUserMessageAt: now - 3 * HOUR }),
+      workspace('w1', 'Alpha', '/repo/apples', {
+        lastUserMessageAt: now - 3 * HOUR,
+        // The chat tab the conversation line further down stands for.
+        layoutModel: {
+          global: {},
+          layout: {
+            type: 'row',
+            children: [
+              {
+                type: 'tabset',
+                children: [{ type: 'tab', component: 'agent', config: { agentId: 'conversation-agent' } }],
+              },
+            ],
+          },
+        },
+      }),
       workspace('w2', 'Bravo', '/repo/pears', {
         createdAt: now - 30 * HOUR,
         lastUserMessageAt: now - 26 * HOUR,
