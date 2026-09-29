@@ -63,10 +63,6 @@ const ALLOW_LIST = new Map([
     'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.',
   ],
   [
-    'MeshTerminalPanel.tsx',
-    'Hosts xterm attached to ANOTHER machine. Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.',
-  ],
-  [
     'FileExplorer.tsx',
     "Owns its chrome row deliberately (owner, 2026-09-05): the search field AND the four tree actions share ONE band, in place of a PanelHeader titled with the folder name. The name is the tree's own root row, so the header restated the first row of the surface. Same band geometry as GitPanel.",
   ],

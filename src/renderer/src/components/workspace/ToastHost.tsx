@@ -35,7 +35,7 @@ export function ToastHost() {
 // announcement replaces in place and the retraction cannot orphan.
 //
 // Scope choices stay on the card in the Remote popover: Allow here grants the
-// defaults, terminal control excluded.
+// defaults.
 function usePairRequestToastBridge(): void {
   const announced = useRef(new Set<string>())
   useEffect(() => {
@@ -117,31 +117,16 @@ function useListenerToastBridge(): void {
   }, [])
 }
 
-export function meshLossToastId(connectionId: string): string {
-  return `mesh:${connectionId}`
-}
-
 export function meshRevokedToastId(connectionId: string): string {
   return `mesh-revoked:${connectionId}`
 }
 
 function useMeshToastBridge(): void {
-  // Per-connection link memory, so N panes on one machine make one
-  // announcement per outage, not N — and recovery is only news after one.
-  // The loss toast is keyed by the CONNECTION so recovery RETRACTS it: a
-  // "Reconnecting." standing over a fresh "Reconnected" would contradict
-  // itself.
-  const lostConnections = useRef(new Set<string>())
   // Machines that revoked us, announced once each until they answer again.
   const revokedConnections = useRef(new Set<string>())
 
   useEffect(() => {
     if (typeof window.api.onMeshEvent !== 'function') return
-    const retract = (connectionId: string): boolean => {
-      const hadLoss = lostConnections.current.delete(connectionId)
-      if (hadLoss) useToastStore.getState().dismissToast(meshLossToastId(connectionId))
-      return hadLoss
-    }
     return window.api.onMeshEvent((event) => {
       if (event.kind === 'machine-paired') {
         showToast({
@@ -152,7 +137,6 @@ function useMeshToastBridge(): void {
         return
       }
       if (event.kind === 'machine-forgotten') {
-        retract(event.connectionId)
         if (revokedConnections.current.delete(event.connectionId)) {
           useToastStore.getState().dismissToast(meshRevokedToastId(event.connectionId))
         }
@@ -206,27 +190,6 @@ function useMeshToastBridge(): void {
         } else if (event.reachable && revokedConnections.current.delete(event.connectionId)) {
           useToastStore.getState().dismissToast(toastId)
         }
-        return
-      }
-      if (event.kind === 'attachment') {
-        if (event.state === 'offline') {
-          if (lostConnections.current.has(event.connectionId)) return
-          lostConnections.current.add(event.connectionId)
-          showToast({
-            id: meshLossToastId(event.connectionId),
-            tone: 'warn',
-            title: `Connection to ${event.machineName} lost`,
-            description: 'Reconnecting.',
-          })
-          return
-        }
-        if (event.state === 'live' && retract(event.connectionId)) {
-          showToast({ tone: 'good', title: `Reconnected to ${event.machineName}` })
-        }
-        // A pane closing for good ends the outage story for its machine
-        // only if no other pane is still hoping; that pane's next `offline`
-        // announces afresh, which is the honest sequence.
-        if (event.state === 'closed') retract(event.connectionId)
       }
     })
   }, [])

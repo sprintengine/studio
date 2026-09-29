@@ -39,16 +39,16 @@ function scheduleCadenceSummary(config: ScheduleTriggerConfig): string {
 }
 
 /**
- * The cadence as read by someone who does NOT share the desktop's clock — the
- * phone. A wall-clock cadence (daily/weekly/at/cron) is written in the trigger's
- * own timezone, which the desktop panel can leave implicit and a phone in another
- * timezone cannot: "Daily at 09:00" is a different moment in Dublin than in
+ * The cadence as read by someone who does NOT share the schedule's clock. A
+ * wall-clock cadence (daily/weekly/at/cron) is written in the trigger's own
+ * timezone, which a reader in that zone can leave implicit and a reader in
+ * another cannot: "Daily at 09:00" is a different moment in Dublin than in
  * Kolkata. An interval cadence names no wall-clock time, so it gets no suffix.
  *
  * `at` fixes the instant the zone label describes, because a zone's short name is
  * offset-dependent (Dublin is GMT+1 in July, GMT in January).
  */
-export function scheduleCadenceSummaryWithZone(config: ScheduleTriggerConfig, at: Date): string {
+function scheduleCadenceSummaryWithZone(config: ScheduleTriggerConfig, at: Date): string {
   const summary = scheduleCadenceSummary(config)
   if (config.cadence.type === 'interval') return summary
   const zone = timeZoneLabel(config.timezone, at)

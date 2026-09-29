@@ -28,6 +28,8 @@ import {
   manifestNames,
   mergeMacManifests,
   missingInstallers,
+  NIGHTLIES_KEPT,
+  nightliesToPrune,
   parseVersion,
   prereleaseVersion,
   sourceShaFromBody,
@@ -342,12 +344,43 @@ async function verify() {
   console.log(`Release ${tag} is readable on ${RELEASES_REPO} without credentials.`)
 }
 
+// Deletes the nightly releases past the newest few, never their tags: a tag is
+// how a version stays in the history and in the numbering, and it costs
+// nothing to keep. Run after a nightly is published and verified, so the
+// newest is always the one just made.
+async function pruneNightlies() {
+  const token = env('GH_TOKEN')
+  const releases = await listPublishedReleases(token)
+  const tags = nightliesToPrune(releases)
+  if (tags.length === 0) {
+    console.log(`No nightly past the newest ${NIGHTLIES_KEPT} to delete.`)
+    return
+  }
+  for (const tag of tags) {
+    const { id } = releases.find((release) => release.tag_name === tag)
+    const response = await fetch(`https://api.github.com/repos/${RELEASES_REPO}/releases/${id}`, {
+      method: 'DELETE',
+      headers: {
+        accept: 'application/vnd.github+json',
+        authorization: `Bearer ${token}`,
+        'user-agent': 'sprintengine-release',
+        'x-github-api-version': '2022-11-28',
+      },
+    })
+    // Already gone: another run pruned it first.
+    if (!response.ok && response.status !== 404)
+      throw new Error(`DELETE release ${tag} answered ${response.status}: ${await response.text()}`)
+    console.log(`Deleted the ${tag} release; its tag stays.`)
+  }
+}
+
 const [command, ...args] = process.argv.slice(2)
 const commands = {
   resolve: () => resolve(),
   notes: () => notes(args[0] ?? 'release-notes.md'),
   'merge-mac': () => mergeMac(args[0], args[1]),
   verify: () => verify(),
+  'prune-nightlies': () => pruneNightlies(),
 }
 
 if (!commands[command]) {

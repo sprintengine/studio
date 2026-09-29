@@ -40,10 +40,16 @@ import {
 import { useAgentEditorReveal } from '../../hooks/useAgentEditorReveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
-import { useConversationSessions } from '../../hooks/useConversationSessions'
+import {
+  conversationSessionsStore,
+  groupConversationSessionsByWorkspace,
+  useConversationSessions,
+  type ConversationSessionEntry,
+} from '../../hooks/conversationSessionsStore'
+import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
-import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
+import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -125,8 +131,7 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
-import { meshTerminalTabName } from '../panels/mesh/meshModel'
-import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import {
@@ -320,6 +325,7 @@ function newChatFolderLabel(path: string): string {
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+const NO_CONVERSATION_SESSIONS: readonly ConversationSessionEntry[] = []
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
   'app.settings.open',
@@ -2167,35 +2173,54 @@ export default function WorkspaceManager() {
     void window.api.showItemInFolder(folderPath)
   }, [])
 
+  // Each workspace's chats, grouped once. A workspace whose chats did not move
+  // keeps its array (the store keeps each unchanged session's object), so the
+  // layout layer and the sidebar row handed it hold their memo.
+  const conversationSessionsByWorkspaceIdRef = useRef<ReadonlyMap<string, readonly ConversationSessionEntry[]> | null>(
+    null,
+  )
+  const conversationSessionsByWorkspaceId = useMemo(() => {
+    const grouped = groupConversationSessionsByWorkspace(
+      conversationSessions,
+      conversationSessionsByWorkspaceIdRef.current,
+    )
+    conversationSessionsByWorkspaceIdRef.current = grouped
+    return grouped
+  }, [conversationSessions])
+
+  // Rebuilt whenever a terminal or a chat moves anywhere, but handed on as the
+  // previous object while no workspace's answer changed: the sidebar and its
+  // settle sweep are keyed on it.
+  const activityByWorkspaceIdRef = useRef<Record<string, WorkspaceActivity> | null>(null)
   const activityByWorkspaceId = useMemo(() => {
     const map: Record<string, WorkspaceActivity> = {}
     for (const workspace of workspaces) {
       map[workspace.id] = combinedAgentActivity(
         getWorkspaceActivity(workspace, terminalSessions),
-        conversationSessions.filter((session) => session.workspaceId === workspace.id),
+        conversationSessionsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATION_SESSIONS,
       )
     }
-    return map
-  }, [workspaces, terminalSessions, conversationSessions])
+    const stable = stableRecord(map, activityByWorkspaceIdRef.current)
+    activityByWorkspaceIdRef.current = stable
+    return stable
+  }, [workspaces, terminalSessions, conversationSessionsByWorkspaceId])
 
   // Workspaces whose agents are resident (live PTY) right now, so the sidebar can
   // bold them as "hot" — instant to switch into, versus suspended/exited rows that
   // re-launch on open. Derived from the same live `terminalSessions` snapshot as
   // activity, and recomputes the moment the reaper suspends an agent (it disposes
   // the session, and the terminal:sessions-delta broadcast carries the change).
+  const residentWorkspaceIdsRef = useRef<ReadonlySet<string> | null>(null)
   const residentWorkspaceIds = useMemo(() => {
-    const ids = residentAgentWorkspaceIds(terminalSessions)
-    for (const session of conversationSessions) {
-      if (session.status !== 'stopped') ids.add(session.workspaceId)
-    }
-    return ids
+    const ids = residentAgentWorkspaceIds(terminalSessions, conversationSessions)
+    const stable = stableSet(ids, residentWorkspaceIdsRef.current)
+    residentWorkspaceIdsRef.current = stable
+    return stable
   }, [terminalSessions, conversationSessions])
 
+  const terminalRecencyByWorkspaceIdRef = useRef<Record<string, RowRecency> | null>(null)
   const terminalRecencyByWorkspaceId = useMemo(() => {
-    const map: Record<
-      string,
-      { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
-    > = {}
+    const map: Record<string, RowRecency> = {}
     // The persisted keystroke clock is read off the store, not the projection:
     // the projection deliberately ignores it so typing does not re-render the
     // manager. It is only the fallback for a workspace with no live session,
@@ -2230,16 +2255,25 @@ export default function WorkspaceManager() {
       const phase = conversationSummaryPhase(session)
       if (phase === 'running' || phase === 'starting') {
         row.hasRunning = true
-        row.workingSince = Math.min(row.workingSince ?? session.updatedAt, session.updatedAt)
+        // When the turn started, not `updatedAt`: that also moves when an
+        // approval resolves or the model changes, and the counter restarted.
+        const startedAt = session.turnStartedAt ?? session.updatedAt
+        row.workingSince = Math.min(row.workingSince ?? startedAt, startedAt)
       }
-      row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
+      // When the person last sent it something; `updatedAt` also moves on a
+      // model or permission change, which is not the person typing.
+      row.lastInputAt = Math.max(row.lastInputAt ?? 0, conversationLastInputAt(session))
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
         // When its last turn ended; `updatedAt` also moves on a model or
         // permission change, which is not the chat finishing anything.
         row.idleSince = Math.max(row.idleSince ?? 0, conversationFinishedAt(session) ?? session.updatedAt)
       }
     }
-    return map
+    // Each row's recency keeps its object while its four readings are equal,
+    // so a memoized row whose workspace did not move skips its render.
+    const stable = stableRecord(map, terminalRecencyByWorkspaceIdRef.current, recencyEqual)
+    terminalRecencyByWorkspaceIdRef.current = stable
+    return stable
   }, [workspaces, terminalSessions, conversationSessions])
 
   // The sidebar's "finished while you were away" marks, reported up: the
@@ -3255,20 +3289,12 @@ export default function WorkspaceManager() {
     closeNewChatPanel()
   }
 
-  // A chat started on a paired machine (remote-sessions-ux /
-  // new-chat-on-a-remote-machine): the agent is created THERE over the
-  // audited mesh client — cli, prompt, model, and preset forwarded verbatim,
-  // so the remote's own refusals (a scope, a CLI it lacks) surface word for
-  // word — and what appears here is a solo workspace whose lone pane is the
-  // mesh attachment onto that session, provenance-badged by the two-line row.
-  // A failure leaves the panel open with the remote's message as a toast; no
-  // phantom row.
-  // A session on a paired machine, opened from the sidebar's Remote band
-  // (remote-sessions-in-the-sidebar): the row that already is that session
-  // is focused; any other becomes a solo workspace whose lone pane is the
-  // mesh attachment — the same shape a chat started over there takes,
-  // minus the create. Provenance is stamped with the session id so the band
-  // recognises the row next time it reads the machine.
+  // A chat on a paired machine, opened from the sidebar's Remote band
+  // (remote-sessions-in-the-sidebar): the row that already is that chat is
+  // focused; any other becomes a solo workspace whose lone pane follows it —
+  // the same shape a chat started over there takes, minus the create.
+  // Provenance is stamped with the session id so the band recognises the row
+  // next time it reads the machine.
   const openRemoteSession = useCallback(
     (spec: RemoteSessionOpenSpec): void => {
       setNewChatPanelState(null)
@@ -3295,45 +3321,41 @@ export default function WorkspaceManager() {
         remoteOrigin: {
           connectionId: spec.connectionId,
           machineName: spec.machineName,
-          workspaceId: spec.workspaceId ?? spec.sessionId,
+          workspaceId: spec.conversation.workspaceId,
           workspaceName: spec.workspaceName ?? '',
           workspaceRoot: spec.workspaceRoot,
           sessionId: spec.sessionId,
           repository: spec.repository,
-          // The checkout as the machine listed it; this device never moves it.
-          checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
+          // A chat has no checkout of its own, and the list does not say which
+          // branch its workspace is on; this device never moves it either way.
+          checkout: { mode: 'current', branch: null, worktreePath: null },
         },
         windowId: workspaceWindowId,
-        // A chat opens in the chat view, following the conversation over
-        // there; a terminal agent attaches its pty, as it always has.
-        seedAgent: spec.conversation
-          ? {
-              tabName: meshTerminalTabName(spec.machineName, spec.title),
-              meshConversation: {
-                connectionId: spec.connectionId,
-                machineName: spec.machineName,
-                remoteWorkspaceId: spec.conversation.workspaceId,
-                remoteAgentId: spec.conversation.agentId,
-                title: spec.title,
-              },
-            }
-          : {
-              tabName: meshTerminalTabName(spec.machineName, spec.title),
-              mesh: {
-                connectionId: spec.connectionId,
-                machineName: spec.machineName,
-                remoteSessionId: spec.sessionId,
-              },
-            },
+        // It opens in the chat view, following the conversation over there.
+        seedAgent: {
+          tabName: remotePaneTabName(spec.machineName, spec.title),
+          meshConversation: {
+            connectionId: spec.connectionId,
+            machineName: spec.machineName,
+            remoteWorkspaceId: spec.conversation.workspaceId,
+            remoteAgentId: spec.conversation.agentId,
+            title: spec.title,
+          },
+        },
       })
     },
     [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, workspaceWindowId],
   )
 
-  // A chat agent started on a paired machine: it runs in that machine's
-  // conversation runtime, and what opens here is the same chat pane the Remote
-  // band opens for one of its chats, following it by workspace and agent id.
-  const confirmRemoteNewConversation = useCallback(
+  // A chat agent started on a paired machine (remote-sessions-ux /
+  // new-chat-on-a-remote-machine): it is created THERE over the audited mesh
+  // client — cli, prompt, model, and preset forwarded verbatim, so the remote's
+  // own refusals (a scope, a CLI it lacks) surface word for word — and runs in
+  // that machine's conversation runtime. What opens here is the same chat pane
+  // the Remote band opens for one of its chats, following it by workspace and
+  // agent id. A failure leaves the panel open with the remote's message as a
+  // toast; no phantom row.
+  const confirmRemoteNewChat = useCallback(
     async (launch: RemoteNewChatLaunch): Promise<void> => {
       const created = await window.api
         .meshCreateConversation({
@@ -3385,7 +3407,7 @@ export default function WorkspaceManager() {
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: meshTerminalTabName(launch.machineName, created.title),
+          tabName: remotePaneTabName(launch.machineName, created.title),
           meshConversation: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,
@@ -3403,97 +3425,6 @@ export default function WorkspaceManager() {
       })
     },
     [addWorkspace, closeNewChatPanel, workspaceWindowId],
-  )
-
-  const confirmRemoteNewChat = useCallback(
-    async (launch: RemoteNewChatLaunch): Promise<void> => {
-      if (launch.conversation) return confirmRemoteNewConversation(launch)
-      const created = await window.api
-        .meshCreateTerminal({
-          connectionId: launch.connectionId,
-          workspaceId: launch.remoteWorkspaceId,
-          cli: launch.cli,
-          prompt: launch.prompt || undefined,
-          cliModel: launch.cliModel ?? undefined,
-          permissionPreset: launch.permissionPreset === 'none' ? undefined : launch.permissionPreset,
-          // The checkout choice (checkout-and-branch-on-remote-create): a
-          // worktree is minted THERE by the remote's own agent.launch, and its
-          // refusal — a pairing without workspace:operate — comes back verbatim.
-          checkout: launch.checkout,
-        })
-        .catch((error: unknown): { ok: false; code: string; message: string } => ({
-          ok: false,
-          code: 'failed',
-          message: error instanceof Error ? error.message : String(error),
-        }))
-      if (!created.ok) {
-        showToast({
-          tone: 'error',
-          title: `Could not start on ${launch.machineName}`,
-          description: created.message,
-        })
-        return
-      }
-      if (!SOLO_CHAT_TEMPLATE) {
-        // The remote agent is REAL now; say so rather than orphaning it silently.
-        showToast({
-          tone: 'error',
-          title: `Started on ${launch.machineName}, but no pane could open`,
-          description: `The Solo layout template is missing. "${created.title}" is listed under Remote in the sidebar.`,
-        })
-        closeNewChatPanel()
-        return
-      }
-      addWorkspace(SOLO_CHAT_TEMPLATE, {
-        // The chat's name over there, same rule as `openRemoteSession`.
-        name: remoteWorkspaceName(created.title, launch.remoteWorkspaceName),
-        // No local checkout: the code lives on the other machine, and a local
-        // folder here would claim otherwise. Where it DOES live is the
-        // workspace's provenance, stamped once so the sidebar can group and
-        // badge it by machine after this pane is long closed.
-        folderPath: null,
-        remoteOrigin: {
-          connectionId: launch.connectionId,
-          machineName: launch.machineName,
-          workspaceId: launch.remoteWorkspaceId,
-          workspaceName: launch.remoteWorkspaceName,
-          workspaceRoot: launch.remoteWorkspaceRoot,
-          // The session the pane attaches to: how the sidebar's Remote band
-          // knows the row the machine lists is this one.
-          sessionId: created.sessionId,
-          // Which repository that is, as the machine served it (kept for New
-          // chat's "Run on", which filters machines by project).
-          repository: launch.remoteRepository,
-          // What the chat landed on: the worktree's branch as the remote minted
-          // it, or the checkout's branch as the panel read it before asking.
-          checkout: {
-            mode: created.checkout.mode,
-            branch: created.checkout.branch ?? launch.branch,
-            worktreePath: created.checkout.worktreePath,
-          },
-        },
-        windowId: workspaceWindowId,
-        seedAgent: {
-          tabName: meshTerminalTabName(launch.machineName, created.title),
-          mesh: {
-            connectionId: launch.connectionId,
-            machineName: launch.machineName,
-            remoteSessionId: created.sessionId,
-          },
-        },
-      })
-      closeNewChatPanel()
-      const landedBranch = created.checkout.branch ?? launch.branch
-      showToast({
-        tone: 'good',
-        title: `Started on ${launch.machineName}`,
-        description:
-          created.checkout.mode === 'worktree'
-            ? `${created.title} in ${launch.remoteWorkspaceName}, on a new worktree${landedBranch ? ` (${landedBranch})` : ''}`
-            : `${created.title} in ${launch.remoteWorkspaceName}${landedBranch ? ` · ${landedBranch}` : ''}`,
-      })
-    },
-    [addWorkspace, closeNewChatPanel, confirmRemoteNewConversation, workspaceWindowId],
   )
 
   // Optional workspaceId targets a single workspace's panel. The mode-scoped
@@ -4340,6 +4271,7 @@ export default function WorkspaceManager() {
           residentWorkspaceIds={residentWorkspaceIds}
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
           conversationSessions={conversationSessions}
+          conversationSessionsReady={conversationSessionsStore().hasSnapshot()}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
           onOpenRemoteSession={sidebarOpenRemoteSession}
@@ -4503,9 +4435,9 @@ export default function WorkspaceManager() {
                           >
                             <WorkspaceLayout
                               workspaceId={workspaceId}
-                              conversationSessions={conversationSessions.filter(
-                                (session) => session.workspaceId === workspaceId,
-                              )}
+                              conversationSessions={
+                                conversationSessionsByWorkspaceId.get(workspaceId) ?? NO_CONVERSATION_SESSIONS
+                              }
                               // The "+" belongs to the layer the user is actually in:
                               // every spawn handler acts on the ACTIVE workspace, so
                               // offering it on a background layer would open a tab in a

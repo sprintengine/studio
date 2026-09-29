@@ -16,17 +16,22 @@ import {
   TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_CONVERSATION_PATH,
+  TAILNET_CONVERSATION_IMAGE_PATH,
   TAILNET_EVENTS_PATH,
-  TAILNET_TERMINAL_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
+import {
+  CONVERSATION_IMAGE_MAX_BYTES,
+  sniffConversationImage,
+  type ConversationImageMediaType,
+} from './tailnet-conversation-images'
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
   encodeMaskedCloseFrame,
-  encodeMaskedPingFrame,
   encodeMaskedPongFrame,
   encodeMaskedTextFrame,
+  enableTcpKeepAlive,
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_NORMAL,
 } from './websocket-frames'
@@ -49,7 +54,7 @@ import { asRecord } from '../../../shared/records'
 
 /** A wrong port that accepts TCP and then says nothing must not hang the UI behind it. */
 const REQUEST_TIMEOUT_MS = 10_000
-/** The upgrade handshake only. An attached terminal is idle most of its life and is never timed out. */
+/** The upgrade handshake only. A change feed is idle most of its life and is never timed out. */
 const HANDSHAKE_TIMEOUT_MS = 10_000
 /** Enough for any control response; a body larger than this is not our listener answering. */
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -486,16 +491,134 @@ export async function callRemoteTool(input: {
   return { ok: true, value: structured }
 }
 
-export type RemoteTerminalSocket = {
-  /** Send one client frame (`input` or `resize`). No-op once closed. */
+/**
+ * The picture one step of a chat on another machine made or looked at, as that
+ * machine serves it (`conversation-images`).
+ *
+ * Bounded by the same ceiling the far end serves under, whatever it says it
+ * is sending: a body that runs past it is cut off, not buffered. The type is
+ * read off the bytes again here rather than taken from the header, so what
+ * reaches a window is always one of the four formats.
+ */
+export function fetchRemoteConversationImage(input: {
+  endpoint: TailnetEndpoint
+  token: string
+  workspaceId: string
+  agentId: string
+  toolUseId: string
+  timeoutMs?: number
+  maxBytes?: number
+}): Promise<RemoteCallOutcome<{ mediaType: ConversationImageMediaType; bytes: Buffer }>> {
+  const maxBytes = input.maxBytes ?? CONVERSATION_IMAGE_MAX_BYTES
+  const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS
+  const query = new URLSearchParams({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    toolUseId: input.toolUseId,
+  })
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (outcome: RemoteCallOutcome<{ mediaType: ConversationImageMediaType; bytes: Buffer }>) => {
+      if (settled) return
+      settled = true
+      resolve(outcome)
+    }
+    const call = httpRequest(
+      {
+        host: input.endpoint.host,
+        port: input.endpoint.port,
+        method: 'GET',
+        path: `${TAILNET_CONVERSATION_IMAGE_PATH}?${query.toString()}`,
+        headers: {
+          Accept: 'image/png, image/jpeg, image/webp, image/gif, application/json',
+          Connection: 'close',
+          Authorization: `Bearer ${input.token}`,
+        },
+      },
+      (response) => {
+        const status = response.statusCode ?? 0
+        const tooLarge = () =>
+          settle({
+            ok: false,
+            code: 'image_too_large',
+            message: `That picture is over the ${Math.floor(maxBytes / (1024 * 1024))}MB this app shows.`,
+          })
+        const declared = Number(response.headers['content-length'] ?? '')
+        const limit = status === 200 ? maxBytes : MAX_RESPONSE_BYTES
+        if (Number.isFinite(declared) && declared > limit) {
+          response.destroy()
+          if (status === 200) tooLarge()
+          else settle({ ok: false, code: `http_${status}`, message: `That machine answered HTTP ${status}.` })
+          return
+        }
+        const chunks: Buffer[] = []
+        let bytes = 0
+        response.on('data', (chunk: Buffer) => {
+          bytes += chunk.length
+          if (bytes > limit) {
+            response.destroy()
+            if (status === 200) tooLarge()
+            else settle({ ok: false, code: `http_${status}`, message: `That machine answered HTTP ${status}.` })
+            return
+          }
+          chunks.push(chunk)
+        })
+        response.on('end', () => {
+          const body = Buffer.concat(chunks)
+          if (status === 200) {
+            const mediaType = sniffConversationImage(body.subarray(0, 16))
+            if (!mediaType) {
+              settle({ ok: false, code: 'not_an_image', message: 'That machine sent something that is not a picture.' })
+              return
+            }
+            settle({ ok: true, value: { mediaType, bytes: body } })
+            return
+          }
+          if (status === 401) {
+            settle({ ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE })
+            return
+          }
+          let error: Record<string, unknown> | null = null
+          try {
+            error = asRecord(asRecord(JSON.parse(body.toString('utf8')))?.error)
+          } catch {
+            error = null
+          }
+          settle({
+            ok: false,
+            code: typeof error?.code === 'string' ? error.code : `http_${status}`,
+            message: typeof error?.message === 'string' ? error.message : `That machine answered HTTP ${status}.`,
+          })
+        })
+        response.on('error', (error) =>
+          settle({ ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }),
+        )
+        response.on('close', () => {
+          if (!response.complete)
+            settle({ ok: false, code: 'unreachable', message: 'That machine stopped sending the picture.' })
+        })
+      },
+    )
+    call.on('error', (error) =>
+      settle({ ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }),
+    )
+    call.setTimeout(timeoutMs, () => {
+      call.destroy(new Error(`no answer within ${Math.round(timeoutMs / 1000)}s`))
+    })
+    call.end()
+  })
+}
+
+export type RemoteJsonSocket = {
+  /** Send one client frame. No-op once closed. */
   send(frame: Record<string, unknown>): void
   /** Close from this end, telling the peer why. */
   close(reason: string): void
   isOpen(): boolean
 }
 
-export type RemoteTerminalSocketHandlers = {
-  /** One decoded server frame: replay, output, attached, exit, ended, error. */
+export type RemoteJsonSocketHandlers = {
+  /** One decoded server frame, as a plain object. */
   onFrame(frame: Record<string, unknown>): void
   /**
    * The socket is finished. `code` is the peer's WebSocket close code where it
@@ -506,55 +629,20 @@ export type RemoteTerminalSocketHandlers = {
 }
 
 /**
- * Attach to one remote terminal session over its own WebSocket.
- *
- * Its own socket per attachment, mirroring the server side: a terminal printing
- * a build log is the chattiest thing this transport carries, and sharing would
- * put a browse behind it.
- */
-export async function openRemoteTerminalSocket(input: {
-  endpoint: TailnetEndpoint
-  token: string
-  sessionId: string
-  /**
-   * Where this pane's screen already stands in the session's output, from an
-   * earlier dial. A host that still retains what follows sends only that; any
-   * other host — including one from before resuming existed, which ignores
-   * the parameters — sends the full replay.
-   */
-  resume?: { stream: string; position: number } | null
-  handlers: RemoteTerminalSocketHandlers
-}): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
-  const ticket = await requestSocketTicket(input.endpoint, input.token, 'a stream')
-  if (!ticket.ok) return ticket
-
-  const query: Record<string, string> = { sessionId: input.sessionId }
-  if (input.resume) {
-    query.stream = input.resume.stream
-    query.after = String(input.resume.position)
-  }
-  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_TERMINAL_PATH, query)
-  if (!upgraded.ok) return upgraded
-
-  return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
-}
-
-/**
  * Watch one machine's change feed (2026-09-05): a `changed` frame says its
- * terminal list or workspace list moved, and the caller re-reads. The same
- * ticket-then-upgrade the terminal attach uses, on the events route; frames
- * arrive on `onFrame` as plain objects, exactly as terminal frames do.
+ * workspace list or conversation list moved, and the caller re-reads. The
+ * same ticket-then-upgrade the conversation socket uses, on the events route.
  */
 export async function openRemoteEventsSocket(input: {
   endpoint: TailnetEndpoint
   token: string
-  handlers: RemoteTerminalSocketHandlers
-}): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
+  handlers: RemoteJsonSocketHandlers
+}): Promise<RemoteCallOutcome<RemoteJsonSocket>> {
   const ticket = await requestSocketTicket(input.endpoint, input.token, 'a change feed')
   if (!ticket.ok) return ticket
-  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_EVENTS_PATH, {})
+  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_EVENTS_PATH)
   if (!upgraded.ok) return upgraded
-  return { ok: true, value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
+  return { ok: true, value: driveJsonSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers) }
 }
 
 /**
@@ -567,22 +655,23 @@ export async function openRemoteEventsSocket(input: {
  * The far end pings every 25 seconds. A socket that has heard nothing for
  * `livenessTimeoutMs` is a peer that vanished without a close (a laptop lid,
  * a dropped route), and is ended so the caller re-dials instead of waiting on
- * a link that will never speak again. Its own pings keep an idle link from
- * looking dead to a middlebox in the meantime.
+ * a link that will never speak again. This end only listens: the far end's
+ * pings are what keep an idle link warm, and this end's pongs are what tell
+ * the far end it is still here.
  */
 export async function openRemoteConversationSocket(input: {
   endpoint: TailnetEndpoint
   token: string
-  handlers: RemoteTerminalSocketHandlers
+  handlers: RemoteJsonSocketHandlers
   livenessTimeoutMs?: number
-}): Promise<RemoteCallOutcome<RemoteTerminalSocket>> {
+}): Promise<RemoteCallOutcome<RemoteJsonSocket>> {
   const ticket = await requestSocketTicket(input.endpoint, input.token, 'a conversation stream')
   if (!ticket.ok) return ticket
-  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_CONVERSATION_PATH, {})
+  const upgraded = await upgradeSocket(input.endpoint, ticket.value, TAILNET_CONVERSATION_PATH)
   if (!upgraded.ok) return upgraded
   return {
     ok: true,
-    value: driveTerminalSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers, {
+    value: driveJsonSocket(upgraded.value.socket, upgraded.value.leftover, input.handlers, {
       livenessTimeoutMs: input.livenessTimeoutMs ?? CONVERSATION_LIVENESS_TIMEOUT_MS,
       unreadable: 'That machine sent a conversation frame this build could not read.',
     }),
@@ -622,7 +711,6 @@ function upgradeSocket(
   endpoint: TailnetEndpoint,
   ticket: string,
   path: string,
-  query: Record<string, string>,
 ): Promise<RemoteCallOutcome<{ socket: Socket; leftover: Buffer }>> {
   return new Promise((resolve) => {
     const key = randomBytes(16).toString('base64')
@@ -635,8 +723,8 @@ function upgradeSocket(
       if (settled) return
       settled = true
       // Hand the socket over with no handshake listeners left on it, and with
-      // the connect timeout cleared: an attached terminal is idle most of its
-      // life and must never be timed out for it.
+      // the connect timeout cleared: a change feed is idle most of its life and
+      // must never be timed out for it.
       socket.setTimeout(0)
       socket.removeListener('timeout', onTimeout)
       socket.removeListener('data', onData)
@@ -680,6 +768,9 @@ function upgradeSocket(
         refuse('protocol', 'The handshake key did not verify; that endpoint is not a Studio tailnet listener.')
         return
       }
+      // Kernel keepalive for the socket's life: a watch that carries nothing
+      // while nothing changes has no other way to notice the far end is gone.
+      enableTcpKeepAlive(socket)
       settle({ ok: true, value: { socket, leftover } })
     }
 
@@ -689,7 +780,7 @@ function upgradeSocket(
     socket.on('close', onClose)
     socket.on('data', onData)
     socket.on('connect', () => {
-      const search = new URLSearchParams({ ticket, ...query })
+      const search = new URLSearchParams({ ticket })
       socket.write(
         [
           `GET ${path}?${search.toString()} HTTP/1.1`,
@@ -706,40 +797,49 @@ function upgradeSocket(
   })
 }
 
-/** Frame loop for an upgraded JSON socket: a terminal, the change feed, or a conversation. */
-function driveTerminalSocket(
+/** Frame loop for an upgraded JSON socket: the change feed, or a conversation. */
+function driveJsonSocket(
   socket: Socket,
   leftover: Buffer,
-  handlers: RemoteTerminalSocketHandlers,
+  handlers: RemoteJsonSocketHandlers,
   options: { livenessTimeoutMs?: number; unreadable?: string } = {},
-): RemoteTerminalSocket {
+): RemoteJsonSocket {
   const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES, 'client')
   let closed = false
   let closeCode: number | null = null
   let closeReason = 'The connection to that machine ended.'
   let heardAt = Date.now()
   const liveness = options.livenessTimeoutMs
-  const heartbeat =
-    liveness === undefined
-      ? null
-      : setInterval(
-          () => {
-            if (closed) return
-            if (Date.now() - heardAt > liveness) {
-              closeReason = 'That machine stopped answering.'
-              finish()
-              return
-            }
-            if (!socket.destroyed) socket.write(encodeMaskedPingFrame())
-          },
-          Math.max(10, Math.floor(liveness / 3)),
-        )
-  heartbeat?.unref?.()
+  // Listen-only liveness. The far end pings every 25 seconds, which keeps the
+  // path warm for middleboxes and is what refreshes `heardAt`; a ping from
+  // this end as well only made both machines wake for a pong neither needed.
+  // One timer, re-armed for whatever is left of the window when it fires, so
+  // a link that is talking costs a wakeup per window rather than per beat.
+  let heartbeat: NodeJS.Timeout | null = null
+  const armLiveness = (delayMs: number): void => {
+    if (liveness === undefined || closed) return
+    heartbeat = setTimeout(
+      () => {
+        heartbeat = null
+        if (closed) return
+        const silentMs = Date.now() - heardAt
+        if (silentMs > liveness) {
+          closeReason = 'That machine stopped answering.'
+          finish()
+          return
+        }
+        armLiveness(liveness - silentMs + 1)
+      },
+      Math.max(10, delayMs),
+    )
+    heartbeat.unref?.()
+  }
 
   const finish = (): void => {
     if (closed) return
     closed = true
-    if (heartbeat) clearInterval(heartbeat)
+    if (heartbeat) clearTimeout(heartbeat)
+    heartbeat = null
     socket.destroy()
     handlers.onClosed({ code: closeCode, reason: closeReason })
   }
@@ -770,8 +870,8 @@ function driveTerminalSocket(
         parsed = JSON.parse(frame.text)
       } catch {
         // A frame we cannot read is a protocol failure, not something to skip:
-        // silently dropping it would leave a pane waiting for output forever.
-        closeReason = options.unreadable ?? 'That machine sent a terminal frame this build could not read.'
+        // silently dropping it would leave a pane waiting for a frame forever.
+        closeReason = options.unreadable ?? 'That machine sent a frame this build could not read.'
         finish()
         return
       }
@@ -782,7 +882,7 @@ function driveTerminalSocket(
 
   socket.on('data', consume)
   // An upgraded socket is half-open: a peer that vanishes makes Node emit
-  // `end`, not `close`. Handling only one leaves a dead attachment believed live.
+  // `end`, not `close`. Handling only one leaves a dead socket believed live.
   socket.on('end', () => {
     closeReason = 'That machine stopped answering.'
     finish()
@@ -793,6 +893,7 @@ function driveTerminalSocket(
     finish()
   })
   if (leftover.length > 0) consume(leftover)
+  if (liveness !== undefined) armLiveness(liveness + 1)
 
   return {
     send(frame): void {
@@ -819,24 +920,20 @@ const UNAUTHORIZED_MESSAGE =
   'That machine no longer accepts this pairing. It was revoked there, or its app data was reset. Pair again to reconnect.'
 
 function refusalMessage(code: string, status: number): string {
-  if (code === 'terminal_scope_required') {
-    return 'This pairing may not open terminals on that machine. Pair again with the terminal scope.'
-  }
-  if (code === 'terminal_streaming_unavailable') return 'That machine is not serving terminals right now.'
   if (code === 'conversation_scope_required') {
     return 'This pairing may not read conversations on that machine. Pair again with conversation access.'
   }
   if (code === 'conversation_streaming_unavailable') return 'That machine is not serving conversations right now.'
   if (code === 'unauthorized') return UNAUTHORIZED_MESSAGE
-  return `That machine refused the terminal stream (HTTP ${status}, ${code}).`
+  return `That machine refused the stream (HTTP ${status}, ${code}).`
 }
 
 function closeReasonFor(code: number): string {
-  if (code === 4401) return 'That machine revoked this pairing, so the terminal was disconnected.'
+  if (code === 4401) return 'That machine revoked this pairing, so the stream was disconnected.'
   if (code === 4403) return 'This pairing may no longer read conversations on that machine.'
   if (code === 4409) return 'That machine asked this device to reconnect and catch up.'
-  if (code === 1000 || code === 1001) return 'That machine closed the terminal stream.'
-  return `The terminal stream closed (code ${code}).`
+  if (code === 1000 || code === 1001) return 'That machine closed the stream.'
+  return `The stream closed (code ${code}).`
 }
 
 function describeUnreachable(endpoint: TailnetEndpoint, error: unknown): string {

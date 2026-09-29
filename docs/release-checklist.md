@@ -33,6 +33,31 @@ commit or squash, never rebase, with Conventional Commit titles; see
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Terminals over the tailnet, 2026-09-29 (owner ruling): a paired device no
+  longer lists, watches, types into or starts a terminal on this machine, and
+  this machine no longer does so on another. What crosses the tailnet is
+  conversations: the phone and a paired Studio follow and start chat agents
+  only. Gone with it: the terminal WebSocket, the Mesh terminal pane and its
+  New chat launch (a paired machine is offered for a Chat agent only), the
+  remote band's terminal rows, the "driving a terminal" marks in the Remote
+  popover and on tabs, and the lost/reconnected toasts that came from terminal
+  links. `terminal.list`,
+  `terminal.create`, `agent.launch`, `backlog.work` and `automation.run` stay on
+  the local socket, for agents and MCP clients on this machine, and are no
+  longer served to a paired device. The two scopes only terminals used,
+  `terminal:observe` and `terminal:control`, are retired: a paired device that
+  holds them keeps its pairing and loses just those two, silently, on first
+  load — the same way the Horizon scopes went. A Mesh tab left open on a remote
+  terminal reopens as an unavailable panel; close it. Local terminals are
+  unchanged.
+- Automations on the phone, 2026-09-29 (owner ruling): the desktop no longer
+  sends its automations to the phone, and the phone can no longer enable,
+  pause or run one. The snapshot's `automations` member, the `automations`
+  collection and the `automations.control` command are gone from the
+  mobile-control wire; the phone's own release drops its Automations screen.
+  An older phone that still asks for the collection gets a snapshot without
+  it, not an error. Automations themselves are unchanged on the desktop, and
+  an agent on this machine still lists and runs them through `automation.*`.
 - Hosted mobile relay, 2026-09-27 (owner ruling): the phone companion pairs
   with and talks to the desktop over Tailscale only. The relay bridge, its
   pairing links, its push notifications and Settings > Mobile are gone, and

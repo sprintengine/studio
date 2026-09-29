@@ -71,6 +71,21 @@ const transcript = [
   }),
 ]
 
+// Rows the live-row hook watches, so a test can scroll one out of view.
+const observed = new Map<Element, (entries: Array<{ target: Element; isIntersecting: boolean }>) => void>()
+class FakeIntersectionObserver {
+  constructor(private readonly callback: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void) {}
+  observe(target: Element) {
+    observed.set(target, this.callback)
+  }
+  unobserve(target: Element) {
+    observed.delete(target)
+  }
+  disconnect() {
+    observed.clear()
+  }
+}
+
 async function mountAgentsTab({ focused = true }: { focused?: boolean } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -84,6 +99,7 @@ async function mountAgentsTab({ focused = true }: { focused?: boolean } = {}) {
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    IntersectionObserver: FakeIntersectionObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   }
   Object.assign(globalThis, globals)
@@ -127,6 +143,9 @@ async function mountAgentsTab({ focused = true }: { focused?: boolean } = {}) {
   return {
     host,
     act,
+    async setActive(active: boolean) {
+      await act(async () => root.render(createElement(AgentsTab, { workspaceId: 'workspace', active })))
+    },
     async deliver(events: ConversationEvent[]) {
       await act(async () => {
         frames.at(-1)?.({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: null } })
@@ -238,4 +257,93 @@ test('an agent’s words sit before the step they lead into, and its report is n
     'One more note.',
     'The router lives in src/router.ts.',
   ])
+})
+
+const anotherLane = () => [
+  event('tool_started', {
+    turnId: 'turn-1',
+    toolCallId: 'lane-tests',
+    tool: 'Agent',
+    subagentLane: true,
+    subagentType: 'Plan',
+    input: { description: 'Write the tests', subagent_type: 'Plan' },
+  }),
+  event('subagent_status', { toolUseId: 'lane-tests', status: 'running', background: true }),
+]
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+// An earlier test asked the tab to open one agent's thread; start from the list.
+async function showList(tab: Awaited<ReturnType<typeof mountAgentsTab>>) {
+  const back = tab.button('All agents')
+  if (back) await tab.act(async () => back.click())
+}
+
+test('a hidden tab holds what it showed and catches up when it is shown', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    expect(tab.host.textContent).toContain('Working · 1')
+    await tab.setActive(false)
+    await tab.deliver([...transcript, ...anotherLane()])
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).not.toContain('Write the tests')
+    await tab.setActive(true)
+    expect(tab.host.textContent).toContain('Write the tests')
+    expect(tab.host.textContent).toContain('Working · 2')
+  } finally {
+    await tab.unmount()
+  }
+})
+
+test('a tab out of sight in an open pane rests its subscription too, and catches up when seen', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    // The pane is open on this tab, but the view is out of the viewport (a
+    // warm workspace layer or a pane pushed off screen says the same).
+    const view = tab.host.firstElementChild!
+    await tab.act(async () => observed.get(view)?.([{ target: view, isIntersecting: false }]))
+    await tab.deliver([...transcript, ...anotherLane()])
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).not.toContain('Write the tests')
+    await tab.act(async () => observed.get(view)?.([{ target: view, isIntersecting: true }]))
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).toContain('Write the tests')
+  } finally {
+    await tab.unmount()
+  }
+})
+
+test('while the chat streams, the lanes follow on a short beat rather than every event', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    await tab.deliver([...transcript, ...anotherLane()])
+    expect(tab.host.textContent).not.toContain('Write the tests')
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).toContain('Write the tests')
+  } finally {
+    await tab.unmount()
+  }
+})
+
+test('a working agent’s character is held by the live-row motion rule, as a transcript lane is', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    const row = tab.button('Find the router')!
+    expect(row.querySelectorAll('.agent-glyph [class^="agent-glyph__"]').length).toBeGreaterThan(0)
+    // The row only says it is out of view; the stylesheet's pause rule holds
+    // the character still, and nothing is written inline to beat that rule.
+    expect(row.hasAttribute('data-live-offscreen'), 'on screen, the row is unmarked').toBe(false)
+    await tab.act(async () => observed.get(row)?.([{ target: row, isIntersecting: false }]))
+    expect(row.hasAttribute('data-live-offscreen'), 'scrolled away, the row is marked').toBe(true)
+    const inline = [...row.querySelectorAll<HTMLElement>('*')].map((el) => el.style.animationPlayState)
+    expect(inline.filter(Boolean)).toEqual([])
+  } finally {
+    await tab.unmount()
+  }
 })

@@ -21,7 +21,6 @@ import { createMcpSocketServer } from './mcp-socket-server'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
 import { createTailnetRemoteService, type TailnetRemoteService } from './tailnet/tailnet-service'
-import type { TerminalRemoteHost } from '../terminal-remote-attach'
 import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 
 // Owns the always-on Studio MCP gateway lifecycle, local socket endpoint, and
@@ -52,13 +51,6 @@ type AutomationServiceOptions = {
    * module enablement must be honored live.
    */
   resolveGatewayTools: () => McpToolRegistration[]
-  /**
-   * Watch-and-type access to this machine's terminals, for the tailnet
-   * listener's terminal WebSocket. The LOCAL socket never gets it:
-   * a local client already has the machine, and the terminal stream exists to
-   * cross a network. Absent leaves that route refusing with a stated reason.
-   */
-  resolveTerminalHost?: () => TerminalRemoteHost
   resolveConversationHost?: () => ConversationGatewayHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
@@ -68,7 +60,10 @@ type AutomationServiceOptions = {
    * app shell; absent in tests and headless embeddings, where nothing listens.
    */
   onTailnetEvent?: (payload: TailnetPushPayload) => void
-  /** Whether a window is open: the mesh's reachability timer only runs while one is. */
+  /**
+   * Whether an app window is visible and not minimized (the canvas worker never
+   * counts): the mesh's reachability timer only runs while one is.
+   */
   hasWindow?: () => boolean
   onMeshEvent?: (event: MeshEvent) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
@@ -167,7 +162,6 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
       isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
-      terminals: options.resolveTerminalHost?.(),
       conversations: options.resolveConversationHost?.(),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
         if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
@@ -279,10 +273,6 @@ export function createAutomationService(options: AutomationServiceOptions) {
 
   // The change feed to paired devices. Only the tailnet listener has one; the
   // local socket's clients are agents on this machine, which read on demand.
-  function notifyTerminalsChanged(): void {
-    tailnet?.notifyTerminalsChanged()
-  }
-
   function notifyWorkspacesChanged(): void {
     tailnet?.notifyWorkspacesChanged()
   }
@@ -308,7 +298,6 @@ export function createAutomationService(options: AutomationServiceOptions) {
     setEnabled,
     shutdown,
     notifyToolsListChanged,
-    notifyTerminalsChanged,
     notifyWorkspacesChanged,
     notifyConversationsChanged,
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),

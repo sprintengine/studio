@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 
 import type { ConversationEvent, ConversationSessionFrame } from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
@@ -20,7 +20,7 @@ import {
   createRemoteConversationCache,
   type RemoteConversationCache,
 } from './tailnet/tailnet-remote-conversation-cache'
-import type { RemoteTerminalSocketHandlers } from './tailnet/tailnet-remote-client'
+import type { RemoteJsonSocket, RemoteJsonSocketHandlers } from './tailnet/tailnet-remote-client'
 import { pairingUrl } from './tailnet/tailnet-service'
 
 // Another Studio desktop following this machine's conversations over the
@@ -476,7 +476,7 @@ test('a grant narrowed to read refuses commands; one without read ends the follo
     assert.equal(!always.ok && always.code, 'unsafe_remote_decision')
 
     const joins = h.joins.length
-    h.devices.updateDeviceScopes(deviceId, ['terminal:observe'])
+    h.devices.updateDeviceScopes(deviceId, ['workspace:read'])
     await waitFor(() => pane.link()?.state === 'closed', 'losing read closes the follow')
     assert.equal(pane.link()?.code, 'conversation_scope_required')
     await new Promise((resolve) => setTimeout(resolve, 300))
@@ -508,7 +508,7 @@ test('a revoked pairing ends the follow and is recorded as unauthorized', async 
 
 test('a resync close waits the delay the far end advised before dialling again', async () => {
   const dials: number[] = []
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const cache: RemoteConversationCache = {
     load: async () => null,
     save: async () => undefined,
@@ -551,7 +551,7 @@ test('a resync close waits the delay the far end advised before dialling again',
 })
 
 test('a frame of a known type in the wrong shape ends the follow instead of being skipped', async () => {
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const client = createRemoteConversations({
     cache: {
       load: async () => null,
@@ -586,7 +586,7 @@ test('a frame of a known type in the wrong shape ends the follow instead of bein
 })
 
 test('a snapshot sent in parts and chunks is applied once whole, and a busy command is retried under its own id', async () => {
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const sent: Array<Record<string, unknown>> = []
   const client = createRemoteConversations({
     cache: {
@@ -706,5 +706,201 @@ test('a kept copy read back while its write is in flight is the copy that write 
     assert.equal(await cache.load(cacheKey), null, 'forgetting the machine deletes what was kept of it')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** A follow client whose sockets and kept copy the test drives, on fake timers. */
+function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'fail' } = {}) {
+  const handlers: RemoteJsonSocketHandlers[] = []
+  const sockets: Array<{ socket: RemoteJsonSocket; closed: boolean }> = []
+  const saves: Array<{ lastSeq: number | null; events: number }> = []
+  const away: string[] = []
+  let dial = overrides.dial ?? 'ok'
+  let release: (() => void) | null = null
+  let hold = false
+  const client = createRemoteConversations({
+    cache: {
+      load: async () => null,
+      save: async (_key, record) => {
+        saves.push({ lastSeq: record.lastSeq, events: record.page.events.length })
+      },
+      saveNow: () => undefined,
+      forgetConnection: async () => undefined,
+    },
+    retry: { baseMs: 500, maxMs: 15_000 },
+    ...(overrides.isOnBattery ? { isOnBattery: overrides.isOnBattery } : {}),
+    onAway: (connectionId) => away.push(connectionId),
+    resolveConnection: () => ({
+      id: 'c',
+      machineName: 'mac-mini',
+      endpoint: { host: 'mac-mini.tail1234.ts.net', port: 1 },
+      token: 't',
+      scopes: ['conversation:read', 'conversation:operate'],
+    }),
+    openSocket: async (input) => {
+      handlers.push(input.handlers)
+      if (hold) await new Promise<void>((resolve) => (release = resolve))
+      if (dial === 'fail') return { ok: false, code: 'unreachable', message: 'mac-mini did not answer.' }
+      const entry = { closed: false, socket: null as unknown as RemoteJsonSocket }
+      entry.socket = {
+        send: () => undefined,
+        close: () => {
+          entry.closed = true
+        },
+        isOpen: () => !entry.closed,
+      }
+      sockets.push(entry)
+      return { ok: true, value: entry.socket }
+    },
+  })
+  const frames: MeshConversationFrame[] = []
+  const key = { connectionId: 'c', workspaceId, agentId }
+  const event = (seq: number, type: string, payload: Record<string, unknown> = { text: 'x', turnId: 't' }) => ({
+    id: `e${seq}`,
+    seq,
+    sessionId: 's',
+    workspaceId,
+    agentId,
+    providerId: 'p',
+    modelId: 'm',
+    type,
+    createdAt: 1,
+    payload,
+  })
+  return {
+    client,
+    handlers,
+    sockets,
+    saves,
+    away,
+    frames,
+    key,
+    event,
+    setDial: (next: 'ok' | 'fail') => (dial = next),
+    holdDials: (next: boolean) => (hold = next),
+    releaseDial: () => release?.(),
+    follow: (followId = 'p') => client.follow({ followId, key, emit: (frame) => frames.push(frame) }),
+    link: () => frames.filter((frame) => frame.type === 'link').at(-1),
+    fence: (seq: number) =>
+      handlers.at(-1)!.onFrame({ type: 'synchronized', seq, generation: 'g1', key: { workspaceId, agentId } }),
+  }
+}
+
+test('a streaming reply is kept on a slow beat, and at once where a turn ends', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient()
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(0)
+    d.fence(1)
+    assert.equal(d.saves.length, 1, 'the fence is kept at once')
+    // A reply streaming for two seconds, four deltas a second.
+    for (let seq = 2; seq < 10; seq++) {
+      d.handlers[0].onFrame({ type: 'event', event: d.event(seq, 'content_delta') })
+      await vi.advanceTimersByTimeAsync(250)
+    }
+    assert.equal(d.saves.length, 1, 'no write per delta')
+    await vi.advanceTimersByTimeAsync(8_000)
+    assert.equal(d.saves.length, 2, 'one write on the slow beat')
+    assert.equal(d.saves.at(-1)?.lastSeq, 9)
+    d.handlers[0].onFrame({ type: 'event', event: d.event(10, 'content_delta') })
+    d.handlers[0].onFrame({ type: 'event', event: d.event(11, 'turn_completed', { turnId: 't' }) })
+    assert.equal(d.saves.length, 3, 'the end of the turn is kept at once')
+    assert.equal(d.saves.at(-1)?.lastSeq, 11)
+    await vi.advanceTimersByTimeAsync(60_000)
+    assert.equal(d.saves.length, 3, 'nothing left to write')
+    // A reconnect that finds nothing new rewrites nothing.
+    d.handlers[0].onClosed({ code: null, reason: 'dropped' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    d.fence(11)
+    assert.equal(d.saves.length, 3, 'an unchanged fence is not a write')
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('on battery the slow beat stretches', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient({ isOnBattery: () => true })
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(0)
+    d.fence(1)
+    d.handlers[0].onFrame({ type: 'event', event: d.event(2, 'content_delta') })
+    await vi.advanceTimersByTimeAsync(30_000)
+    assert.equal(d.saves.length, 1)
+    await vi.advanceTimersByTimeAsync(2_000)
+    assert.equal(d.saves.length, 2)
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a follow on a machine that stops answering parks until it is resumed or the machine wakes', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient({ dial: 'fail' })
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(10_000)
+    const dials = d.handlers.length
+    assert.equal(dials, 4, 'the first dial and a few quick retries')
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'offline')
+    assert.deepEqual(d.away, ['c'], 'the owner is told once')
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    assert.equal(d.handlers.length, dials, 'a parked follow does not dial on a timer')
+    assert.equal(d.client.parkedOn('c'), true)
+
+    d.client.resume('c')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'resume dials once')
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'offline', 'and parks again on a failure')
+    await vi.advanceTimersByTimeAsync(60_000)
+    assert.equal(d.handlers.length, dials + 1)
+    await d.follow('another-window')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 2, 'another window opening it dials once')
+
+    d.setDial('ok')
+    d.client.onWake()
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 3, 'a wake dials a parked follow')
+    d.fence(1)
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'live')
+    assert.equal(d.client.parkedOn('c'), false)
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a follow woken, resumed and joined while its dial is out opens one socket', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient({ dial: 'fail' })
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(10_000)
+    assert.equal(d.client.parkedOn('c'), true)
+    const dials = d.handlers.length
+    d.setDial('ok')
+    d.holdDials(true)
+    d.client.resume('c')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'the dial is out')
+    // Everything else that would dial lands while it is out.
+    d.client.onWake()
+    d.client.resume('c')
+    await d.follow('p2')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'none of it dials a second time')
+    d.releaseDial()
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.sockets.length, 1, 'one socket, none orphaned')
+    d.fence(1)
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'live')
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
   }
 })

@@ -214,7 +214,7 @@ export function getSessionItems(
   terminalSessions: TerminalSessionSnapshot[],
   // Conversation (chat) agents have no PTY snapshot; their runtime session
   // summaries are a second, equally truthful status source.
-  conversationSessions: ConversationSessionSummary[] = [],
+  conversationSessions: readonly ConversationSessionSummary[] = [],
   options: SessionItemOptions = {},
 ): SessionItem[] {
   const conversationItems = conversationSessions.flatMap((summary): SessionItem[] => {

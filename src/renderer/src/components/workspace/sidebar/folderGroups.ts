@@ -7,7 +7,7 @@ import { type RemoteConversation } from '../remoteBand/remoteSessionsModel'
 import { type FolderIdentityMap, folderIdentityKey } from '../useFolderRepositoryIdentities'
 import { workspaceProjectRoot } from '../../../utils/workspaceWorktree'
 import { shortMachineName } from '../../remote/machineRowModel'
-import { meshPaneKind } from '../../../../../shared/tailnet-mesh'
+import { isMeshConversationPane } from '../../../../../shared/tailnet-mesh'
 
 export type FolderGroup = {
   key: string
@@ -330,14 +330,14 @@ export function meshPanesOf(workspace: Workspace): Array<{ tabId: string; machin
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; id?: unknown; component?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && meshPaneKind(record.component) !== null) {
+    if (record.type === 'tab' && isMeshConversationPane(record.component)) {
       const config = record.config as { machineName?: unknown; cli?: unknown; remoteSessionId?: unknown } | undefined
       const machine = config?.machineName
       if (typeof machine === 'string' && machine) {
         const tabId =
           typeof record.id === 'string' && record.id
             ? record.id
-            : `mesh-terminal:${machine}:${String(config?.remoteSessionId ?? panes.length)}`
+            : `mesh-conversation:${machine}:${String(config?.remoteSessionId ?? panes.length)}`
         panes.push({
           tabId,
           machineName: machine,

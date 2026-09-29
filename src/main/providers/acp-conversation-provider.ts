@@ -172,7 +172,12 @@ type State = {
   loadSupported: boolean
   queue?: Queue
   turn?: MockAdapterTurnInput
+  // Settles when the running turn has ended, however it ended.
+  turnEnded?: Promise<void>
   cancelled: boolean
+  // Ends the process of a stopped turn the agent does not wind down; see
+  // ACP_CANCEL_GRACE_MS.
+  cancelWatchdog?: ReturnType<typeof setTimeout>
   pending: Map<string, Pending>
   toolCalls: Map<string, Record<string, unknown>>
   lastActivityAt: number
@@ -197,11 +202,19 @@ type State = {
 // A change larger than this is approved by path and size: the approval card is
 // persisted with the transcript, and a multi-megabyte diff would dominate it.
 const WRITE_PREVIEW_BYTES = 256 * 1024
+// The largest protocol line an agent may print before it is taken for broken.
+const MAX_FRAME_BYTES = 16 * 1024 * 1024
+// How long a stopped turn waits for the agent to answer its prompt after
+// `session/cancel`. The protocol has the prompt resolve as cancelled, and the
+// process is kept for the next turn; one that does not answer by then is
+// ended, so Stop always takes effect.
+export const ACP_CANCEL_GRACE_MS = 5_000
 
 type Options = {
   detect?: (input: MockAdapterSessionInput) => Promise<string>
   buildEnv?: (input: MockAdapterSessionInput) => Promise<NodeJS.ProcessEnv>
   startupTimeoutMs?: number
+  cancelGraceMs?: number
 }
 
 /** Text helpers refuse symlinks in every path component, not only the leaf.
@@ -229,11 +242,17 @@ export async function confinedAcpPath(cwd: string, requested: string, writing = 
 }
 
 async function detectAcpCommand(profile: AcpProfile, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
-  const { detectCli } = await import('../cli-runtime-install')
-  const result = await detectCli(profile.cli, cliRuntimes?.[profile.cli])
-  if (!result.installed || !result.resolvedPath)
+  const { resolveCliExecutable } = await import('../cli-runtime-install')
+  const { path } = await resolveCliExecutable(profile.cli, cliRuntimes?.[profile.cli])
+  if (!path)
     throw new Error(`${profile.displayName} CLI was not found. Install it or configure its command in Settings.`)
-  return result.resolvedPath
+  return path
+}
+
+// The CLI could not be started from where it was found: look it up again on
+// the next start.
+function forgetAcpCommand(profile: AcpProfile): void {
+  void import('../cli-runtime-install').then(({ invalidateCliExecutable }) => invalidateCliExecutable(profile.cli))
 }
 
 async function acpEnvironment(): Promise<NodeJS.ProcessEnv> {
@@ -354,6 +373,26 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       child.stdin.end()
       terminateCliChild(child)
     }
+  }
+  // Stop the running turn with the protocol's own `session/cancel`, keeping
+  // the process: respawning it would sign in again and reload (or, without
+  // session loading, replay as a prompt) the whole conversation on the next
+  // turn. The process is ended only when the cancel cannot be sent or the
+  // agent has not wound the turn down within ACP_CANCEL_GRACE_MS.
+  const cancelTurn = async (state: State) => {
+    state.cancelled = true
+    cancelPermissions(state)
+    const turn = state.turn
+    if (!turn) return
+    if (!state.cancelWatchdog) {
+      state.cancelWatchdog = setTimeout(() => {
+        state.cancelWatchdog = undefined
+        if (state.turn === turn) dispose(state)
+      }, options.cancelGraceMs ?? ACP_CANCEL_GRACE_MS)
+      state.cancelWatchdog.unref?.()
+    }
+    if (!state.nativeId || !state.connection) return
+    await state.connection.cancel({ sessionId: state.nativeId }).catch(() => dispose(state))
   }
   const permission = (state: State, params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
     if (!state.turn || state.cancelled || state.closed || params.sessionId !== state.nativeId)
@@ -507,16 +546,19 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           state.queue.end()
         }
       })
+      // The bytes since the last newline: only the chunk's first and last
+      // newline matter, found natively rather than by walking every byte.
       let frameBytes = 0
       const boundedInput = (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>).pipeThrough(
         new TransformStream<Uint8Array, Uint8Array>({
           transform(chunk, controller) {
-            for (const byte of chunk) {
-              frameBytes = byte === 10 ? 0 : frameBytes + 1
-              if (frameBytes > 16 * 1024 * 1024) {
-                dispose(state)
-                throw new Error('ACP protocol frame exceeds the size limit.')
-              }
+            const first = chunk.indexOf(10)
+            const oversized =
+              first < 0 ? frameBytes + chunk.length > MAX_FRAME_BYTES : frameBytes + first > MAX_FRAME_BYTES
+            frameBytes = first < 0 ? frameBytes + chunk.length : chunk.length - chunk.lastIndexOf(10) - 1
+            if (oversized) {
+              dispose(state)
+              throw new Error('ACP protocol frame exceeds the size limit.')
             }
             controller.enqueue(chunk)
           },
@@ -709,10 +751,12 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         ])
       } catch (error) {
         dispose(state)
-        if (child.pid === undefined)
+        if (child.pid === undefined) {
+          if (!options.detect) forgetAcpCommand(profile)
           throw new Error(
             `${profile.displayName} could not be started from ${command}: ${spawnError?.message ?? 'the process did not start.'}`,
           )
+        }
         throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)
@@ -763,21 +807,24 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         ...(notice ? [event(state, 'session_updated', { providerSessionId: state.nativeId, notice })] : []),
       ]
     },
-    sendTurn(input) {
+    async sendTurn(input) {
       const state = sessions.get(input.sessionId)
       if (!state || state.closed) throw new Error('ACP session is unavailable.')
+      // A stopped turn the agent is still winding down is over from the
+      // person's side: wait for it (the watchdog bounds the wait).
+      if (state.turn && state.cancelled) await state.turnEnded
+      if (state.closed) throw new Error('ACP session is unavailable.')
       if (state.turn) throw new Error('ACP turn is already active.')
       const queue = new Queue()
+      let turnEnded = () => {}
+      state.turnEnded = new Promise<void>((resolve) => {
+        turnEnded = resolve
+      })
       state.queue = queue
       state.turn = input
       state.cancelled = false
-      state.toolCalls.clear()
       state.assistantText = ''
-      const abort = () => {
-        state.cancelled = true
-        cancelPermissions(state)
-        if (state.nativeId) void state.connection?.cancel({ sessionId: state.nativeId }).catch(() => dispose(state))
-      }
+      const abort = () => void cancelTurn(state)
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
@@ -862,9 +909,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         } finally {
           input.signal?.removeEventListener('abort', abort)
           cancelPermissions(state)
+          if (state.cancelWatchdog) clearTimeout(state.cancelWatchdog)
+          state.cancelWatchdog = undefined
+          // The turn's tool calls (diffs included) are only needed while it runs.
+          state.toolCalls.clear()
           state.turn = undefined
           state.queue = undefined
           queue.end()
+          turnEnded()
         }
       })()
       return queue
@@ -920,12 +972,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     },
     async interrupt(input) {
       const state = sessions.get(input.sessionId)
-      if (state) {
-        state.cancelled = true
-        cancelPermissions(state)
-        if (state.nativeId) await state.connection?.cancel({ sessionId: state.nativeId })
-        dispose(state)
-      }
+      if (state) await cancelTurn(state)
       return []
     },
     stopSession(input) {
@@ -943,9 +990,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       }
       sessions.clear()
     },
-    disposeChildProcess(sessionId) {
+    // A running turn keeps its process, except one already stopped: Settle
+    // and Snooze interrupt and then dispose straight away, before the agent
+    // has answered the cancel, and the process has nothing left to do.
+    // `force` ends it whatever it is doing; its pending cards are cancelled.
+    disposeChildProcess(sessionId, options) {
       const state = sessions.get(sessionId)
-      if (!state || state.turn || state.pending.size) return false
+      if (!state) return false
+      if (!options?.force && ((state.turn && !state.cancelled) || state.pending.size)) return false
       dispose(state)
       return true
     },

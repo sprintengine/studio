@@ -1,5 +1,5 @@
 // The tailnet listener's route table, in its own module so both the gateway
-// server and the terminal stream can name a path without importing each other.
+// server and the remote client can name a path without importing each other.
 
 const TAILNET_ROUTE_PREFIX = '/tailnet/v1'
 export const TAILNET_HEALTH_PATH = `${TAILNET_ROUTE_PREFIX}/health`
@@ -22,13 +22,11 @@ export const TAILNET_IDENTITY_PATH = `${TAILNET_ROUTE_PREFIX}/identity`
 export const TAILNET_MCP_PATH = `${TAILNET_ROUTE_PREFIX}/mcp`
 export const TAILNET_WS_TICKET_PATH = `${TAILNET_ROUTE_PREFIX}/ws-ticket`
 export const TAILNET_STREAM_PATH = `${TAILNET_ROUTE_PREFIX}/stream`
-/** One WebSocket per attached terminal, so a chatty session cannot stall the RPC stream. */
-export const TAILNET_TERMINAL_PATH = `${TAILNET_ROUTE_PREFIX}/terminal`
 /** One scoped conversation stream, independently resumable by event sequence. */
 export const TAILNET_CONVERSATION_PATH = `${TAILNET_ROUTE_PREFIX}/conversation`
 /**
  * The change feed (2026-09-05): one idle WebSocket per paired device on which
- * this machine says "the terminal list changed" or "the workspace list
+ * this machine says "the workspace list changed" or "the conversation list
  * changed", so a device re-reads on the change instead of every thirty
  * seconds. Server-to-client only, throttled to one push per kind per second,
  * carrying nothing but the kind — the device reads through the tools it is
@@ -37,13 +35,22 @@ export const TAILNET_CONVERSATION_PATH = `${TAILNET_ROUTE_PREFIX}/conversation`
  */
 export const TAILNET_EVENTS_PATH = `${TAILNET_ROUTE_PREFIX}/events`
 /**
- * One file from a paired device into a thread's own folder (backlog id 88).
+ * One image from a paired device, staged for a conversation it may operate.
  *
  * A plain streaming POST rather than a JSON-RPC tool: base64 inside an RPC
  * envelope inflates a 5MB photo by a third and buffers all of it at both ends,
  * where a stream to disk buffers none of it.
  */
 export const TAILNET_UPLOAD_PATH = `${TAILNET_ROUTE_PREFIX}/upload`
+/**
+ * The picture one step of a chat made or looked at, as raw bytes:
+ * `GET ?workspaceId=&agentId=&toolUseId=`. A plain GET for the same reason the
+ * upload is a plain POST — a picture inside a JSON frame is a third larger and
+ * buffered whole at both ends — and one a client can cache, since a step's
+ * picture never changes. The file is the one the conversation's own record of
+ * the step names; nothing in the request is a path.
+ */
+export const TAILNET_CONVERSATION_IMAGE_PATH = `${TAILNET_ROUTE_PREFIX}/conversation-image`
 
 // ── What this transport speaks ───────────────────────────────────────────────
 //
@@ -80,15 +87,15 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * `upload` was served from 2026-09-05 and advertised from 2026-09-07. Until it
  * was named here the route was undiscoverable, and a phone's only way to find
  * out was to send the file and read the 404 at the end of the transfer — the
- * one failure a 25MB upload must not have.
+ * one failure an upload must not have.
  *
- * `terminal-resume`: the terminal stream positions its `replay` and `output`
- * frames in the session's output stream, and an attach that names a position
- * (`stream` and `after` on the upgrade URL) is answered with `resumed` and only
- * the missing tail when it is still retained. A client needs no check before
- * asking — a host without it ignores the two parameters and sends the full
- * replay, whose missing `position` says so — but may read it to know whether a
- * reconnect will repaint.
+ * Withdrawn 2026-09-29, when terminals stopped crossing the tailnet:
+ * `sliced-frames` (a terminal replay or output too large for one frame arrived
+ * as several) and `terminal-resume` (a terminal attach could name where its
+ * screen stood and be sent only the tail). Both described the terminal stream,
+ * which is gone; withdrawing a capability is not a version bump
+ * (`docs/compatibility.md`), and a client that asks for the route it named is
+ * answered 404.
  *
  * `conversation-models` (owner ruling 2026-09-27): the conversation list names
  * each chat's CLI and the models this machine's picker offers for it, and a
@@ -96,14 +103,19 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * the `setModel` command. A client hides its model control for a machine that
  * does not advertise it. The string is the protocol package's
  * `CONVERSATION_MODELS_CAPABILITY`.
+ *
+ * `conversation-images` (2026-09-29): `GET conversation-image` serves the
+ * picture a chat's step made (Codex's `GenerateImage`) or looked at (a file
+ * read of a picture), by the step's tool call id, to a device with
+ * `conversation:read`. A client that finds it missing says the picture is on
+ * the other machine, as it did before the route existed.
  */
 export const TAILNET_CAPABILITIES = [
   'events',
-  'sliced-frames',
   'upload',
-  'terminal-resume',
   'conversations',
   'conversation-models',
+  'conversation-images',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

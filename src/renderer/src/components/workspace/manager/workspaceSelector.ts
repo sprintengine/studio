@@ -3,7 +3,7 @@
 
 import type { Workspace } from '../../../types/workspace'
 import { workspaceLastUserMessageAt } from '../../../utils/workspaceRecency'
-import { meshPaneKind } from '../../../../../shared/tailnet-mesh'
+import { isMeshConversationPane } from '../../../../../shared/tailnet-mesh'
 
 export type WorkspaceManagerWorkspaceCacheEntry = {
   source: Workspace
@@ -85,7 +85,7 @@ export function layoutMeshSignature(workspace: Pick<Workspace, 'layoutModel'>): 
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; component?: unknown; id?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && meshPaneKind(record.component) !== null) {
+    if (record.type === 'tab' && isMeshConversationPane(record.component)) {
       parts.push(JSON.stringify([record.id ?? null, record.config ?? null]))
     }
     if (Array.isArray(record.children)) for (const child of record.children) walk(child)

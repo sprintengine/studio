@@ -56,5 +56,28 @@ test('workspaceResidency', async () => {
     new Set(['ws-1', 'ws-2']),
   )
 
+  // A chat keeps its workspace resident while its session is open and its
+  // child has not rested. A settled, snoozed or idle-swept chat still reads
+  // `ready`, but holds no process until its next message.
+  const chat = (workspaceId: string, status: 'ready' | 'active' | 'stopped', resting?: true) => ({
+    workspaceId,
+    status,
+    ...(resting ? { resting } : {}),
+  })
+  assert.deepEqual(
+    new Set(
+      residentAgentWorkspaceIds(
+        [],
+        [
+          chat('ws-live', 'ready'),
+          chat('ws-busy', 'active'),
+          chat('ws-settled', 'ready', true),
+          chat('ws-gone', 'stopped'),
+        ],
+      ),
+    ),
+    new Set(['ws-live', 'ws-busy']),
+  )
+
   console.log('workspaceResidency.test.ts passed')
 })

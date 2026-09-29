@@ -189,10 +189,10 @@ export function registerAutomationsIpc(
   }
 
   // Shared by the update channel and the app-level front door, exactly as
-  // createDefinition is: the mobile `automations.control` command enables and
-  // pauses through this, so the phone's write gets the identical patch parse,
-  // provider validation, next-run recompute and post-write refresh the desktop
-  // UI's own toggle gets — rather than a second write path onto the same store.
+  // createDefinition is: a write from outside the renderer gets the identical
+  // patch parse, provider validation, next-run recompute and post-write refresh
+  // the desktop UI's own toggle gets — rather than a second write path onto the
+  // same store.
   const updateDefinition = async (input: unknown): Promise<AutomationsDefinitionResult> => {
     const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
@@ -326,9 +326,8 @@ type AutomationsCatalogueInstallResult = AutomationsResult<AutomationsCatalogueI
 
 // App-level front door over the exact IPC pipeline (parse, workspace-root
 // trust, write core, engine). The automations module provides it as a kernel
-// service so the automation server's tools — and the phone's
-// `automations.control` command — mutate through the same path the UI does;
-// inputs stay `unknown` because the pipeline owns validation.
+// service so the automation server's tools mutate through the same path the
+// UI does; inputs stay `unknown` because the pipeline owns validation.
 export type AutomationsAppFrontDoor = {
   createDefinition(input: unknown): Promise<AutomationsDefinitionResult>
   updateDefinition(input: unknown): Promise<AutomationsDefinitionResult>

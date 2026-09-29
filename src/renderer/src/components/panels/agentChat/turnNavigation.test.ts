@@ -99,7 +99,9 @@ test('steps walk from the landed turn and hand the row to the shared jump', asyn
   const { createRoot } = await import('react-dom/client')
   const jumps: [number, string][] = []
   let navigation: ReturnType<typeof useTurnNavigation> | null = null
+  let renders = 0
   function Harness() {
+    renders++
     navigation = useTurnNavigation({
       rows,
       listRef: { current: null },
@@ -110,16 +112,19 @@ test('steps walk from the landed turn and hand the row to the shared jump', asyn
   const root = createRoot(document.createElement('div'))
   try {
     await act(async () => root.render(createElement(Harness)))
-    expect(navigation!.current).toBe(0)
-    expect(navigation!.hasPrevious).toBe(false)
+    expect(navigation!.position.get().current).toBe(0)
+    expect(navigation!.position.get().hasPrevious).toBe(false)
     await act(async () => navigation!.step(1))
     await act(async () => navigation!.step(1))
     expect(jumps).toEqual([
       [3, 'u2'],
       [4, 'u3'],
     ])
-    expect(navigation!.current).toBe(2)
-    expect(navigation!.hasNext).toBe(false)
+    expect(navigation!.position.get().current).toBe(2)
+    expect(navigation!.position.get().hasNext).toBe(false)
+    // Where the reader is moved without the view that holds the navigation
+    // drawing again: only what subscribes to the position does.
+    expect(renders).toBe(1)
     await act(async () => navigation!.step(1))
     expect(jumps).toHaveLength(2)
     await act(async () => navigation!.jump(0))

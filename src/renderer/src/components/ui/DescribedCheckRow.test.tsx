@@ -80,7 +80,7 @@ test('DescribedCheckRow', async () => {
           <DescribedCheckRow
             id="scope-terminal-control"
             title="Drive chats & terminals"
-            code="terminal:control"
+            code="conversation:operate"
             description="Type into conversations and shells."
             checked={false}
             onChange={() => {}}
@@ -144,7 +144,7 @@ test('DescribedCheckRow', async () => {
         (span.getAttribute('class') ?? '').includes('font-mono'),
       )
       assert.ok(mono, 'the code is set in mono — this is an identifier, not a word')
-      assert.equal(mono.textContent, 'terminal:control')
+      assert.equal(mono.textContent, 'conversation:operate')
       const classes = mono.getAttribute('class') ?? ''
       assert.match(classes, /text-micro/, 'a step smaller than the title')
       assert.match(classes, /text-\[color:var\(--text-subtle\)\]/, 'and a step quieter')

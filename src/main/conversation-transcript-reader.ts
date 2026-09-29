@@ -125,8 +125,16 @@ export class ConversationTranscriptReader {
     })
   }
 
-  /** The newest events, expanded to one per sequence number, oldest first. */
-  tail(root: string, path: string, limit: { events?: number; bytes?: number } = {}): Promise<ConversationEvent[]> {
+  /**
+   * The newest events, oldest first: expanded to one per sequence number, or
+   * with `compact`, as stored, a merged run of deltas as one event carrying
+   * the run's text, for a reader that only folds the text.
+   */
+  tail(
+    root: string,
+    path: string,
+    limit: { events?: number; bytes?: number; compact?: boolean } = {},
+  ): Promise<ConversationEvent[]> {
     return this.read(root, path, async (records) => {
       const maxBytes = limit.bytes ?? this.limits.fullReadBytes
       const maxEvents = limit.events ?? Number.POSITIVE_INFINITY
@@ -136,7 +144,7 @@ export class ConversationTranscriptReader {
       for await (const record of records) {
         bytes += record.bytes
         if (bytes > maxBytes && newest.length > 0) break
-        const expanded = expandCoalescedDeltas(record.event)
+        const expanded = limit.compact ? [compact(record)] : expandCoalescedDeltas(record.event)
         newest.push(expanded)
         count += expanded.length
         if (count >= maxEvents) break
@@ -146,14 +154,42 @@ export class ConversationTranscriptReader {
     })
   }
 
-  /** The newest stored event matching `predicate`, scanning back as far as it takes. */
+  /**
+   * The newest turn as stored, oldest first: the events back to and including
+   * the newest user message, a merged run of deltas as one event. A turn
+   * longer than `bytes` comes back as its newest part, without the message.
+   */
+  lastTurn(root: string, path: string, bytes: number): Promise<ConversationEvent[]> {
+    return this.read(root, path, async (records) => {
+      const newest: ConversationEvent[] = []
+      let read = 0
+      for await (const record of records) {
+        read += record.bytes
+        if (read > bytes && newest.length > 0) break
+        newest.push(compact(record))
+        if (record.event.type === 'user_message') break
+      }
+      return newest.reverse()
+    })
+  }
+
+  /**
+   * The newest stored event matching `predicate`, scanning back as far as it
+   * takes, or with `maxBytes`, no further back than that many bytes.
+   */
   findLast(
     root: string,
     path: string,
     predicate: (event: ConversationEvent) => boolean,
+    maxBytes = Number.POSITIVE_INFINITY,
   ): Promise<ConversationEvent | undefined> {
     return this.read(root, path, async (records) => {
-      for await (const record of records) if (predicate(record.event)) return record.event
+      let read = 0
+      for await (const record of records) {
+        if (predicate(record.event)) return record.event
+        read += record.bytes
+        if (read > maxBytes) break
+      }
       return undefined
     })
   }

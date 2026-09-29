@@ -72,7 +72,7 @@ The order is the argument, and it is fixed:
       …a link-button reading "Grant"…                                   ← …and the one act that changes it
     </div>
     <ul class="ds-popover-scope-list ds-popover-scope-list--missing">…</ul>
-    <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+    <div class="ds-popover-scope-note">It can't see chats here.</div>
   </div>
 </div>
 ```
@@ -86,7 +86,7 @@ The order is the argument, and it is fixed:
   verb inside a surface that is already an aside — never a filled button: this
   popover is not a view and has no primary action budget.
 - **The consequence line is the reason the surface exists.** "It can't see chats
-  or terminals here" is what the reader actually came to find out; a bare pair
+  here" is what the reader actually came to find out; a bare pair
   of lists leaves them to derive it from two identifiers they may not know.
   One line, `micro`, `text.muted`, and only when something is actually
   missing — a note that is always there is decoration.

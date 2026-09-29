@@ -750,3 +750,89 @@ test('a generated picture shows under its row unopened, opens in the system view
     }
   }
 })
+
+test('a remote chat asks its machine for a step’s picture by the step, and says where it is when that machine does not share it', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }
+  Object.assign(globalThis, globals)
+  const asked: unknown[] = []
+  const local: string[] = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      readImageDataUrl: async (path: string) => void local.push(path),
+      meshConversationToolImage: async (input: { key: unknown; toolUseId: string }) => {
+        asked.push(input)
+        return input.toolUseId === 'old-machine'
+          ? { ok: false, code: 'images_unsupported', message: 'This picture is on mac-mini.' }
+          : { ok: true, dataUrl: `data:image/png;base64,${input.toolUseId}` }
+      },
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { ConversationTransportProvider, createRemoteConversationTransport } = await import('../conversationTransport')
+  const key = { connectionId: 'mac-mini', workspaceId: 'remote-workspace', agentId: 'agent' }
+  const transport = createRemoteConversationTransport({ key, machineName: 'mac-mini', access: 'read' })
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const render = (entry: TranscriptToolEntry) =>
+    act(async () =>
+      root.render(
+        <ConversationTransportProvider value={transport}>
+          <ConversationLinkProvider workspaceId="remote-workspace" workspaceRoot="" cwd="" agentId="agent">
+            <ToolRow tool={entry} />
+          </ConversationLinkProvider>
+        </ConversationTransportProvider>,
+      ),
+    )
+  try {
+    // A picture made over there shows under its row, with no folder here to reveal.
+    await render(
+      tool({
+        id: 'ig_2',
+        name: 'GenerateImage',
+        toolKind: 'other',
+        input: { path: '[home]/Library/conversation-images/ig_2.png', prompt: 'A lighthouse' },
+        outputStatus: 'ok',
+      }),
+    )
+    expect(host.querySelector('[data-generated-image] img')?.getAttribute('src')).toBe('data:image/png;base64,ig_2')
+    expect(host.textContent).not.toContain('Reveal in Finder')
+    expect(asked).toEqual([{ key, toolUseId: 'ig_2' }])
+    // A read of a picture, opened, shows it; a machine that does not share
+    // pictures leaves it there, and says so.
+    const openRead = async (id: string) => {
+      await render(tool({ id, name: 'Read', toolKind: 'file_read', input: { path: 'shots/screen.png' } }))
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click())
+    }
+    await openRead('read-shot')
+    expect(host.querySelector('[data-tool-step-body] img')?.getAttribute('src')).toBe('data:image/png;base64,read-shot')
+    await openRead('old-machine')
+    expect(host.textContent).toContain('This image is on another machine.')
+    expect(asked).toEqual([
+      { key, toolUseId: 'ig_2' },
+      { key, toolUseId: 'read-shot' },
+      { key, toolUseId: 'old-machine' },
+    ])
+    expect(local, 'a remote path is never read off this disk').toEqual([])
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of Object.keys(globals)) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

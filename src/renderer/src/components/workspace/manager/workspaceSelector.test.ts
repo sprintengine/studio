@@ -20,6 +20,19 @@ const agentTab = { type: 'tab', id: 'tab-agent', component: 'agent', config: { a
 const meshTab = {
   type: 'tab',
   id: 'tab-mesh',
+  component: 'mesh-conversation',
+  config: {
+    connectionId: 'conn-1',
+    machineName: 'mac-mini',
+    remoteWorkspaceId: 'remote-ws',
+    remoteAgentId: 'remote-agent',
+    remoteSessionId: 'conversation:remote-ws:remote-agent',
+    title: 'Remote chat',
+  },
+}
+const staleTerminalTab = {
+  type: 'tab',
+  id: 'tab-stale',
   component: 'mesh-terminal',
   config: { machineName: 'mac-mini', connectionId: 'conn-1', remoteSessionId: 'remote-1' },
 }
@@ -57,6 +70,16 @@ test('opening or closing a mesh pane moves the projection', () => {
   const [again] = selectWorkspaceManagerWorkspaces([withMesh])
   assert.notEqual(again, projected, 'the sidebar draws mesh panes, so it has to see this')
   assert.equal(again, withMesh)
+})
+
+test('a persisted remote terminal tab is a stale tab, not a mesh pane', () => {
+  assert.equal(layoutMeshSignature({ layoutModel: layoutWith([agentTab, staleTerminalTab]) }), '')
+  const first = workspace()
+  const [projected] = selectWorkspaceManagerWorkspaces([first])
+  const [again] = selectWorkspaceManagerWorkspaces([
+    { ...first, layoutModel: layoutWith([agentTab, staleTerminalTab]) },
+  ])
+  assert.equal(again, projected, 'nothing the sidebar draws moved')
 })
 
 test('keystrokes in a chat that has been messaged do not move the projection', () => {

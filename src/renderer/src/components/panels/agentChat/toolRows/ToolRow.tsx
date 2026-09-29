@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { memo, useMemo, useRef, useState } from 'react'
 import type { ConversationToolDetail, ConversationJsonValue } from '../../../../../../shared/conversation-runtime'
 import {
   presentToolItem,
@@ -20,7 +20,7 @@ import { useLiveRowMotion } from '../liveVisibility'
 import { formatMessageTime, LiveElapsed } from '../liveElapsed'
 import { formatStepDuration } from '../stepDuration'
 import { useConversationTransport } from '../conversationTransport'
-import { isPreviewableImagePath, useLocalImage } from '../useLocalImage'
+import { isPreviewableImagePath, useToolImage } from '../useLocalImage'
 import { treeRelativePath } from '../../../../utils/fileTreeEntries'
 import { revealLabel } from '../../../../utils/revealLabel'
 import { showToast } from '../../../../store/toastStore'
@@ -175,7 +175,7 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
     return (
       <>
         {prompt ? <p className="text-[color:var(--text-muted)]">{prompt}</p> : null}
-        <ImagePreview path={path} />
+        <ImagePreview path={path} toolUseId={tool.id} />
       </>
     )
   }
@@ -183,7 +183,11 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
     // A read that failed says why; there is no file behind it to show.
     if (status === 'error')
       return <ToolPanel copyText={output || undefined}>{output || 'The file could not be read.'}</ToolPanel>
-    return previewsAsImage(path) ? <ImagePreview path={path} /> : <ReadOutput output={output} path={path} />
+    return previewsAsImage(path) ? (
+      <ImagePreview path={path} toolUseId={tool.id} />
+    ) : (
+      <ReadOutput output={output} path={path} />
+    )
   }
   if (kind === 'file_edit' || kind === 'file_write')
     return <EditBody input={detail?.input ?? tool.input} toolUseId={tool.id} subject={path} />
@@ -248,11 +252,11 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
 }
 
 // An image the agent looked at is shown, not described: the picture is what it
-// read, and a path to a screenshot says nothing about what was on it. Only a
-// file on this machine can be shown — a remote conversation's path names a file
-// over there.
-function ImagePreview({ path }: { path: string }) {
-  const current = useLocalImage(path)
+// read, and a path to a screenshot says nothing about what was on it. A remote
+// conversation's path names a file over there, so its picture is asked of that
+// machine by the step, where the machine serves pictures at all.
+function ImagePreview({ path, toolUseId }: { path: string; toolUseId: string }) {
+  const current = useToolImage(toolUseId, path)
   if (!current.resolved) return <p className="text-[color:var(--text-muted)]">This image is on another machine.</p>
   if (current.failed)
     // Screenshots in particular are often read from a temporary folder the
@@ -272,9 +276,10 @@ function ImagePreview({ path }: { path: string }) {
 // without the row being opened, at a size that says what it is. A click hands
 // it to the system's viewer, as an attached image is; where it was saved is a
 // click away for keeping it. A picture that cannot be shown here draws nothing:
-// the row, opened, says why.
-function GeneratedImage({ path, prompt }: { path: string; prompt?: string }) {
-  const current = useLocalImage(path)
+// the row, opened, says why. A picture made on a paired machine has no folder
+// here to reveal.
+function GeneratedImage({ path, prompt, toolUseId }: { path: string; prompt?: string; toolUseId: string }) {
+  const current = useToolImage(toolUseId, path)
   if (!current.resolved || current.failed) return null
   if (!current.src) return <Spinner label="Loading image" />
   const src = current.src
@@ -301,16 +306,20 @@ function GeneratedImage({ path, prompt }: { path: string; prompt?: string }) {
           className="block max-h-96 max-w-full rounded-sm border border-[color:var(--border-subtle)] object-contain"
         />
       </MediaButton>
-      <figcaption className="flex min-w-0 max-w-full items-center gap-2 text-meta text-[color:var(--text-subtle)]">
-        {prompt ? (
-          <span className="min-w-0 truncate" title={prompt}>
-            {prompt}
-          </span>
-        ) : null}
-        <GhostButton size="inline" onClick={() => void window.api.showItemInFolder(path)}>
-          {revealLabel(window.api.platform)}
-        </GhostButton>
-      </figcaption>
+      {prompt || !current.remote ? (
+        <figcaption className="flex min-w-0 max-w-full items-center gap-2 text-meta text-[color:var(--text-subtle)]">
+          {prompt ? (
+            <span className="min-w-0 truncate" title={prompt}>
+              {prompt}
+            </span>
+          ) : null}
+          {current.remote ? null : (
+            <GhostButton size="inline" onClick={() => void window.api.showItemInFolder(path)}>
+              {revealLabel(window.api.platform)}
+            </GhostButton>
+          )}
+        </figcaption>
+      ) : null}
     </figure>
   )
 }
@@ -514,7 +523,27 @@ export function subjectFolder(path: string, title: string): string {
   return cut === 0 ? path.slice(0, 1) : path.slice(0, cut)
 }
 
-export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
+// A command's label (`npm test`, `git status` …) is read out of the shell
+// text by a tokenizer. The same command is labelled every time its row
+// renders, and a transcript repeats commands, so the labels are kept.
+const MAX_COMMAND_LABELS = 512
+const commandLabels = new Map<string, string>()
+export function cachedCommandLabel(command: string): string {
+  const cached = commandLabels.get(command)
+  if (cached !== undefined) {
+    commandLabels.delete(command)
+    commandLabels.set(command, cached)
+    return cached
+  }
+  const label = labelCommand(command).label
+  commandLabels.set(command, label)
+  if (commandLabels.size > MAX_COMMAND_LABELS) commandLabels.delete(commandLabels.keys().next().value!)
+  return label
+}
+
+// Memoized: a turn's steps sit under the reply streaming into it, and a step's
+// entry keeps its identity until the step itself changes.
+export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const context = useConversationLinkContext()
   const transport = useConversationTransport()
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
@@ -526,10 +555,11 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const [partial, setPartial] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
-  const presentation = presentToolItem(toolPresentationInput(tool), (command) => labelCommand(command).label)
+  const presentation = useMemo(() => presentToolItem(toolPresentationInput(tool), cachedCommandLabel), [tool])
   const running = tool.status === 'running'
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
+  const settledClock = useMemo(() => (settledAt === undefined ? '' : formatMessageTime(settledAt)), [settledAt])
   const durationMs =
     !running && tool.startedAt !== undefined && tool.completedAt !== undefined
       ? Math.max(0, tool.completedAt - tool.startedAt)
@@ -624,7 +654,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
           <span className="flex shrink-0 items-baseline gap-2 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-subtle)]">
             {/* When it happened is there for the asking; how long it took is
                 what a column of steps is scanned for, so it stays. */}
-            <span className="opacity-0 group-hover/tool-row:opacity-100">{formatMessageTime(settledAt)}</span>
+            <span className="opacity-0 group-hover/tool-row:opacity-100">{settledClock}</span>
             {durationMs !== undefined ? <span data-step-duration="">{formatStepDuration(durationMs)}</span> : null}
           </span>
         ) : null}
@@ -633,7 +663,7 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
         />
       </div>
       {!open && tool.name === 'GenerateImage' && tool.outputStatus !== 'error' && generatedPath ? (
-        <GeneratedImage path={generatedPath} prompt={generatedPrompt} />
+        <GeneratedImage path={generatedPath} prompt={generatedPrompt} toolUseId={tool.id} />
       ) : null}
       {open ? (
         // What the step produced. A read's code block sits here as every other
@@ -675,4 +705,4 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
       ) : null}
     </div>
   )
-}
+})

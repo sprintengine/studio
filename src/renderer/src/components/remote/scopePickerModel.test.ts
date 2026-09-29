@@ -5,10 +5,10 @@ import {
   READ_ONLY_SCOPES,
   SCOPE_ROWS,
   STANDARD_SCOPES,
+  conversationGapNote,
   missingScopes,
   presetFor,
   scopesForPreset,
-  terminalGapNote,
   toggleScope,
 } from './scopePickerModel'
 import { test } from 'vitest'
@@ -16,9 +16,9 @@ import { test } from 'vitest'
 test('scopePickerModel', async () => {
   // The permission picker's rules, tested where they live.
   //
-  // The acceptance criterion these exist for: the terminal tier is offered by
-  // name on every pairing path, Standard includes it, and Read only includes the
-  // half that makes a remote conversation visible.
+  // The acceptance criterion these exist for: the conversation scopes are
+  // offered by name on every pairing path, Standard includes both, and Read only
+  // includes the half that makes a remote conversation visible.
 
   let failures = 0
 
@@ -49,33 +49,31 @@ test('scopePickerModel', async () => {
 
   check('each row names only what its scope grants', () => {
     const row = (scope: TailnetScope) => SCOPE_ROWS.find((candidate) => candidate.scope === scope)!
-    // Chats belong to the conversation scopes alone: a terminal or workspace
+    // Chats belong to the conversation scopes alone: a workspace or backlog
     // row that mentioned them would read as granting `conversation:read`.
     for (const scope of TAILNET_SCOPES.filter((candidate) => !candidate.startsWith('conversation:')))
       assert.doesNotMatch(`${row(scope).title} ${row(scope).description}`, /chat|conversation/iu, scope)
     assert.equal(row('conversation:read').title, 'View conversations')
     assert.match(row('conversation:read').description, /chat transcripts/u)
     assert.equal(row('conversation:operate').title, 'Operate conversations')
-    assert.equal(row('terminal:observe').title, 'Watch terminals')
-    assert.equal(row('terminal:control').title, 'Drive terminals')
-    assert.match(row('terminal:control').description, /Arbitrary shell on this machine/u)
+    assert.equal(SCOPE_ROWS.length, 6)
   })
 
-  check('read only is every :read plus terminal:observe', () => {
-    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'conversation:read', 'terminal:observe'])
+  check('read only is every :read', () => {
+    assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'conversation:read'])
   })
 
-  check('standard is every scope, terminal:control included', () => {
-    // Owner ruling 2026-09-10. The whole point of the rebuild: a default that
-    // quietly withheld the terminal tier is what hid remote chats.
+  check('standard is every scope, conversation:operate included', () => {
+    // Owner ruling 2026-09-10: a default that quietly withheld a scope is what
+    // hid remote chats.
     assert.deepEqual([...STANDARD_SCOPES], [...TAILNET_SCOPES])
-    assert.ok(STANDARD_SCOPES.includes('terminal:control'))
+    assert.ok(STANDARD_SCOPES.includes('conversation:operate'))
   })
 
   check('presetFor names a set, whatever order it arrived in', () => {
     assert.equal(presetFor(scopesForPreset('standard')), 'standard')
     assert.equal(presetFor(scopesForPreset('read-only')), 'read-only')
-    const shuffled: TailnetScope[] = ['terminal:observe', 'conversation:read', 'backlog:read', 'workspace:read']
+    const shuffled: TailnetScope[] = ['conversation:read', 'backlog:read', 'workspace:read']
     assert.equal(presetFor(shuffled), 'read-only')
   })
 
@@ -88,30 +86,28 @@ test('scopePickerModel', async () => {
   })
 
   check('toggling keeps vocabulary order and is idempotent', () => {
-    assert.deepEqual(toggleScope(['terminal:control'], 'workspace:read', true), ['workspace:read', 'terminal:control'])
+    assert.deepEqual(toggleScope(['conversation:operate'], 'workspace:read', true), [
+      'workspace:read',
+      'conversation:operate',
+    ])
     assert.deepEqual(toggleScope(['workspace:read'], 'workspace:read', true), ['workspace:read'])
     assert.deepEqual(toggleScope(['workspace:read'], 'workspace:read', false), [])
     assert.deepEqual(toggleScope([], 'workspace:read', false), [])
   })
 
   check('missingScopes is the complement, in vocabulary order', () => {
-    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), [
-      'workspace:operate',
-      'backlog:operate',
-      'conversation:operate',
-      'terminal:control',
-    ])
+    assert.deepEqual(missingScopes(READ_ONLY_SCOPES), ['workspace:operate', 'backlog:operate', 'conversation:operate'])
     assert.deepEqual(missingScopes(STANDARD_SCOPES), [])
   })
 
-  check('the terminal note says what the missing terminal scope costs', () => {
-    assert.equal(terminalGapNote(STANDARD_SCOPES), null)
-    // Control implies watching, so it alone leaves nothing out.
-    assert.equal(terminalGapNote(['terminal:control']), null)
-    assert.equal(terminalGapNote(READ_ONLY_SCOPES), 'It can watch terminals here but not type into them.')
-    const blind = "It can't see terminals or terminal agents here."
-    assert.equal(terminalGapNote(missingScopes(['terminal:observe', 'terminal:control'])), blind)
-    assert.equal(terminalGapNote([]), blind)
+  check('the conversation note says what the missing conversation scope costs', () => {
+    assert.equal(conversationGapNote(STANDARD_SCOPES), null)
+    // Operating a chat is the whole grant; it alone leaves nothing out.
+    assert.equal(conversationGapNote(['conversation:operate']), null)
+    assert.equal(conversationGapNote(READ_ONLY_SCOPES), 'It can read chats here but not send to them.')
+    const blind = "It can't see chats here."
+    assert.equal(conversationGapNote(missingScopes(['conversation:read', 'conversation:operate'])), blind)
+    assert.equal(conversationGapNote([]), blind)
   })
 
   if (failures > 0) {

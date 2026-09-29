@@ -175,8 +175,16 @@ export default function RemoteConversationPanel({
 
   // The machine's list names the conversation's title, model and what its
   // provider can do. Read on open and whenever the link comes back live.
+  // Not when the link drops: a machine the follow cannot reach will not
+  // answer a list either, and the read would only wait out its timeout.
+  // Main shares one list per machine across the panes and the band that ask
+  // at once, and the protocol has no read for a single conversation, so the
+  // whole list is still what is asked for.
   const live = link?.state === 'live'
+  const linkRef = useRef(link)
+  linkRef.current = link
   useEffect(() => {
+    if (!live && linkRef.current !== null) return
     let cancelled = false
     void window.api
       .meshConversationList(connectionId)

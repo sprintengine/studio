@@ -50,6 +50,17 @@ function shorten(value: string, maximum = 72, keepEnd = 0) {
   }
   return value.slice(0, Math.max(1, maximum - 1)) + '…'
 }
+// Steps with no kind of their own that still say what they did better than
+// their tool's name does.
+function otherTitle(name: string, input: Record<string, unknown>, live: boolean): string {
+  if (name === 'GenerateImage') return live ? 'Generating image' : 'Generated image'
+  if (name === 'Sleep') {
+    const ms = typeof input.durationMs === 'number' ? input.durationMs : 0
+    const span = ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.max(1, Math.round(ms / 1000))}s`
+    return `${live ? 'Waiting' : 'Waited'} ${span}`
+  }
+  return name
+}
 
 /** Presentation is shared by desktop and remote clients; malformed tools stay readable. */
 export function presentToolItem(
@@ -114,7 +125,7 @@ export function presentToolItem(
       title = `${verb} plan`
       break
     default:
-      title = name
+      title = otherTitle(name, input, live)
   }
   const exitCode = typeof safe.exitCode === 'number' ? safe.exitCode : undefined
   const tone = live

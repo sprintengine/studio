@@ -6,8 +6,8 @@ import { resolve } from 'path'
 // device that has no use for it, and the phone cannot open it anyway. We
 // therefore hand the phone an opaque token in place of a workspace root, and
 // resolve it back to
-// the real root server-side when a command (backlog.create / .update,
-// automations.control) round-trips it. The token is a one-way hash so the
+// the real root server-side when a command (backlog.create / .update)
+// round-trips it. The token is a one-way hash so the
 // absolute path itself never leaves the desktop.
 
 const WORKSPACE_ID_PREFIX = 'ws_'

@@ -202,11 +202,10 @@ test('tailnet-pairing-roundtrip', async () => {
       assert.equal(device.transportVersion, 2)
       assert.deepEqual(device.capabilities, [
         'events',
-        'sliced-frames',
         'upload',
-        'terminal-resume',
         'conversations',
         'conversation-models',
+        'conversation-images',
       ])
 
       // The pairing is real only if the token it produced actually drives tools.
@@ -348,11 +347,10 @@ test('tailnet-pairing-roundtrip', async () => {
       assert.equal(body.transportVersion, 2)
       assert.deepEqual(body.capabilities, [
         'events',
-        'sliced-frames',
         'upload',
-        'terminal-resume',
         'conversations',
         'conversation-models',
+        'conversation-images',
       ])
 
       const scanned = parsePairingUrl(harness.service.offerPairing().pairingUrl ?? '')

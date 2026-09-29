@@ -71,9 +71,7 @@ test('NewAgentPanel', async () => {
     unreachableReason: null,
     unauthorized: false,
     scopes: [],
-    terminalAccess: 'full',
     workspaces: [],
-    terminals: [],
     gaps: [],
   })
 
@@ -1386,9 +1384,7 @@ test('NewAgentPanel', async () => {
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: id === 'm1' ? [workspace('w1', 'alpha'), workspace('w2', 'beta')] : [workspace('w9', 'solo')],
-          terminals: [],
           gaps: [],
         })
         const view = await remoteRender()
@@ -1576,9 +1572,7 @@ test('NewAgentPanel', async () => {
         unreachableReason: id === 'down' ? 'Down is asleep.' : null,
         unauthorized: id === 'revoked',
         scopes: [],
-        terminalAccess: 'full',
         workspaces: [],
-        terminals: [],
         gaps:
           id === 'gap' ? [{ part: 'workspaces', code: 'scope', message: 'This pairing may not list workspaces.' }] : [],
       })
@@ -1615,9 +1609,7 @@ test('NewAgentPanel', async () => {
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
-          terminals: [],
           gaps: [],
         })
         const remoteLaunches: Array<Record<string, unknown>> = []
@@ -1660,7 +1652,7 @@ test('NewAgentPanel', async () => {
           })
         await enter()
         assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
-        const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That launch cannot travel yet')
+        const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet')
         assert.ok(refusal, 'the stranded refusal is announced')
         assert.ok(
           refusal?.description?.includes('the attached images'),
@@ -1702,9 +1694,7 @@ test('NewAgentPanel', async () => {
         unreachableReason: null,
         unauthorized: false,
         scopes: [],
-        terminalAccess: 'full',
         workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
-        terminals: [],
         gaps: [],
       })
       const remoteLaunches: Array<Record<string, unknown>> = []
@@ -1733,11 +1723,9 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches.length, 0, 'nothing starts on this machine')
       assert.equal(remoteLaunches.length, 1, 'the chat travels')
       const launch = remoteLaunches[0]!
-      assert.equal(launch.conversation, true, 'as a chat, not a terminal agent')
       assert.equal(launch.cli, 'claude-code')
       assert.equal(launch.prompt, 'fix the build')
       assert.equal(launch.remoteWorkspaceId, 'w1')
-      assert.deepEqual(launch.checkout, { mode: 'current' }, 'a chat has no worktree of its own')
       view.unmount()
     })
 
@@ -1753,9 +1741,7 @@ test('NewAgentPanel', async () => {
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
           gaps: [],
         })
         const remoteLaunches: Array<Record<string, unknown>> = []
@@ -1810,24 +1796,8 @@ test('NewAgentPanel', async () => {
       },
     )
 
-    // The worktree question lives in ONE place now (owner, 2026-09-11): the ⋯
-    // row, for a local target and a remote one alike. The scope line used to
-    // grow a "Current checkout" chip and a branch segment the moment a remote
-    // project was picked, which asked the same question twice on one surface.
-    const openMore = async (view: { container: Element }) => {
-      const more = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
-      )
-      await click(more)
-      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')!
-    }
-    const worktreeRowOf = (menu: Element) =>
-      [...menu.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        (button.textContent ?? '').startsWith('Worktree'),
-      )
-
     await check(
-      'the scope line carries no checkout control, and the ⋯ worktree row is what sends a remote launch to a fresh worktree',
+      'picking a paired machine makes the launch a chat, and choosing Agent or Terminal after it returns to This device',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1837,10 +1807,66 @@ test('NewAgentPanel', async () => {
           reachable: true,
           unreachableReason: null,
           unauthorized: false,
-          scopes: ['workspace:operate', 'terminal:control'],
-          terminalAccess: 'control',
+          scopes: [],
+          workspaces: [workspace('w1', 'alpha')],
+          gaps: [],
+        })
+        const checkedKind = async (view: Harness): Promise<string | undefined> => {
+          const menu = await openMoreMenu(view)
+          const checked = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find(
+            (row) => row.getAttribute('aria-checked') === 'true',
+          )
+          const kind = ['Chat agent', 'Agent', 'Terminal'].find((label) =>
+            (checked?.textContent ?? '').startsWith(label),
+          )
+          await act(async () => {
+            dom.window.document.dispatchEvent(
+              new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+            )
+          })
+          return kind
+        }
+        const view = await remoteRender()
+        await settle()
+        assert.equal(await checkedKind(view), 'Agent', 'the door opens on Agent, on This device')
+        await pickMachine(view, 'Air')
+        assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'the machine is picked')
+        assert.equal(await checkedKind(view), 'Chat agent', 'and the launch becomes a chat, the one kind that travels')
+
+        await pickKind(view, 'Agent')
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'Agent runs here, so the target returns')
+
+        await pickMachine(view, 'Air')
+        assert.equal(await checkedKind(view), 'Chat agent')
+        await pickKind(view, 'Terminal')
+        await settle()
+        // A bare terminal offers no machine at all; back on Chat agent, the
+        // target it left behind is This device, not the machine picked before.
+        assert.ok(
+          [undefined, 'This device'].includes(machineTrigger(view)?.textContent?.trim()),
+          'no remote target survives a Terminal pick',
+        )
+        await pickKind(view, 'Chat agent')
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'and so does Terminal')
+        view.unmount()
+      },
+    )
+
+    await check(
+      'a remote chat carries no checkout control: no worktree row, and the branch the panel read rides the launch',
+      async () => {
+        seedStore()
+        resetRememberedMachineForTests()
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
+          connectionId: id,
+          reachable: true,
+          unreachableReason: null,
+          unauthorized: false,
+          scopes: ['workspace:operate', 'conversation:operate'],
           workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
-          terminals: [],
           gaps: [],
         })
         const checkoutReads: string[] = []
@@ -1853,10 +1879,7 @@ test('NewAgentPanel', async () => {
               git: true,
               branch: 'main',
               defaultBranch: 'main',
-              branches: [
-                { name: 'feat/x', current: false },
-                { name: 'main', current: true },
-              ],
+              branches: [{ name: 'main', current: true }],
               worktrees: [{ path: '/srv/alpha', branch: 'main', isMain: true }],
             },
           }
@@ -1870,8 +1893,6 @@ test('NewAgentPanel', async () => {
         await settle()
         await pickMachine(view, 'Air')
         await settle()
-        // The checkout is still READ on the pick — the ⋯ row's gate is built from
-        // it — but nothing on the scope line reports it.
         assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
         assert.equal(
           view.container.querySelector('[data-checkout-trigger="true"]'),
@@ -1879,122 +1900,22 @@ test('NewAgentPanel', async () => {
           'no checkout chip on the scope line',
         )
         assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
-        assert.equal(view.container.querySelector('[data-branch-fact="true"]'), null, 'and no branch fact')
 
-        const textarea = view.container.querySelector('textarea')!
-        const type = (value: string) =>
-          act(async () => {
-            const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-            setter.call(textarea, value)
-            textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-          })
-        const enter = () =>
-          act(async () => {
-            textarea.dispatchEvent(
-              new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-            )
-          })
-        await type('fix the build')
-        await enter()
-        await settle()
-        assert.deepEqual(
-          remoteLaunches[0]?.checkout,
-          { mode: 'current' },
-          'with no worktree asked for, the current checkout travels',
+        const menu = await openMoreMenu(view)
+        const worktreeRow = [...(menu?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) =>
+          (button.textContent ?? '').startsWith('Worktree'),
         )
-        assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
+        assert.equal(worktreeRow, undefined, 'a chat has no checkout of its own to fork, so no worktree row')
+        await act(async () => {
+          dom.window.document.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          )
+        })
 
-        // Turn the ⋯ row on and the same launch forks a worktree over there,
-        // based on the remote checkout's own branch.
-        const menu = await openMore(view)
-        const row = worktreeRowOf(menu)
-        assert.ok(row, 'the worktree row is offered once a remote project is picked')
-        assert.equal(row!.disabled, false, 'and a workspace:operate pairing may take it')
-        await click(row)
-        await settle()
-        const branchInput = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Worktree branch name"]')
-        assert.ok(branchInput, 'and reveals the branch field')
-        await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
-          setter.call(branchInput!, 'fix/build')
-          branchInput!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-        })
-        await settle()
-        await type('fix the build again')
-        await enter()
-        await settle()
-        assert.deepEqual(
-          remoteLaunches[1]?.checkout,
-          { mode: 'worktree', baseRef: 'main', name: 'fix/build' },
-          'the worktree request carries the typed branch name and forks the remote’s own branch',
-        )
-        assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
-        view.unmount()
-      },
-    )
-
-    await check(
-      'the ⋯ worktree row stays closed while the checkout is being read, and a detached remote forks its trunk',
-      async () => {
-        seedStore()
-        resetRememberedMachineForTests()
-        meshConnections = [machine('m1', 'Air')]
-        meshBrowseAnswer = (id) => ({
-          connectionId: id,
-          reachable: true,
-          unreachableReason: null,
-          unauthorized: false,
-          scopes: ['workspace:operate', 'terminal:control'],
-          terminalAccess: 'control',
-          workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
-          gaps: [],
-        })
-        let release: (value: Record<string, unknown>) => void = () => {}
-        meshCheckoutAnswer = () =>
-          new Promise<Record<string, unknown>>((resolve) => {
-            release = resolve
-          }) as never
-        const remoteLaunches: Array<Record<string, unknown>> = []
-        const view = await remoteRender({
-          onLaunchRemote: async (launch: Record<string, unknown>) => {
-            remoteLaunches.push(launch)
-          },
-        })
-        await settle()
-        await pickMachine(view, 'Air')
-        await settle()
-        let menu = await openMore(view)
-        let row = worktreeRowOf(menu)!
-        assert.equal(row.disabled, true, 'while the checkout is unread the worktree row is closed')
-        assert.ok(row.textContent?.includes('Reading the checkout'), 'and says it is reading')
-        await act(async () => {
-          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-        })
-        // The read lands on a detached checkout: no branch, a trunk to fork.
-        await act(async () => {
-          release({
-            ok: true,
-            checkout: {
-              workspaceId: 'w1',
-              git: true,
-              branch: null,
-              defaultBranch: 'main',
-              branches: [{ name: 'main', current: false }],
-              worktrees: [],
-            },
-          })
-        })
-        await settle()
-        menu = await openMore(view)
-        row = worktreeRowOf(menu)!
-        assert.equal(row.disabled, false, 'once read, a repo with a trunk can fork')
-        await click(row)
-        await settle()
         const textarea = view.container.querySelector('textarea')!
         await act(async () => {
           const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-          setter.call(textarea, 'go')
+          setter.call(textarea, 'fix the build')
           textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
         })
         await act(async () => {
@@ -2003,97 +1924,10 @@ test('NewAgentPanel', async () => {
           )
         })
         await settle()
-        assert.deepEqual(
-          remoteLaunches[0]?.checkout,
-          { mode: 'worktree', baseRef: 'main' },
-          'the trunk is the base when there is no branch, and an unnamed worktree sends no name',
-        )
+        assert.equal(remoteLaunches.length, 1, 'the chat travels')
+        assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
+        assert.equal('checkout' in (remoteLaunches[0] ?? {}), false, 'and no checkout request')
         view.unmount()
-        meshCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: {
-            workspaceId,
-            git: true,
-            branch: 'main',
-            defaultBranch: 'main',
-            branches: [{ name: 'main', current: true }],
-            worktrees: [],
-          },
-        })
-      },
-    )
-
-    await check(
-      'a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim the ⋯ worktree row with the real reason',
-      async () => {
-        seedStore()
-        resetRememberedMachineForTests()
-        meshConnections = [machine('m1', 'Air')]
-        let scopes: string[] = ['terminal:control']
-        meshBrowseAnswer = (id) => ({
-          connectionId: id,
-          reachable: true,
-          unreachableReason: null,
-          unauthorized: false,
-          scopes,
-          terminalAccess: 'control',
-          workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
-          gaps: [],
-        })
-        const reasonFor = async () => {
-          const view = await remoteRender()
-          await settle()
-          await pickMachine(view, 'Air')
-          await settle()
-          const menu = await openMore(view)
-          const row = worktreeRowOf(menu)!
-          const hint = row.textContent ?? ''
-          const disabled = row.disabled ? 'true' : null
-          await click(row)
-          await settle()
-          const opened = dom.window.document
-            .querySelector('[aria-label="Worktree branch name"]')
-            ?.getAttribute('aria-hidden')
-          view.unmount()
-          return { hint, disabled, opened }
-        }
-        const scopeless = await reasonFor()
-        assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
-        assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
-        assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
-
-        scopes = ['workspace:operate', 'terminal:control']
-        meshCheckoutAnswer = () => ({
-          ok: false,
-          code: 'tailnet_scope_required',
-          message: 'This device is not granted "workspace:read".',
-        })
-        const unreadable = await reasonFor()
-        assert.equal(unreadable.disabled, 'true')
-        assert.ok(
-          unreadable.hint.includes('not granted "workspace:read"'),
-          'an unreadable checkout carries the gateway’s words',
-        )
-
-        meshCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
-        })
-        const plain = await reasonFor()
-        assert.equal(plain.disabled, 'true')
-        assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
-        meshCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: {
-            workspaceId,
-            git: true,
-            branch: 'main',
-            defaultBranch: 'main',
-            branches: [{ name: 'main', current: true }],
-            worktrees: [],
-          },
-        })
       },
     )
 
@@ -2117,8 +1951,7 @@ test('NewAgentPanel', async () => {
             reachable: id !== 'm3',
             unreachableReason: id === 'm3' ? 'Down is asleep.' : null,
             unauthorized: false,
-            scopes: ['workspace:operate', 'terminal:control'],
-            terminalAccess: 'control',
+            scopes: ['workspace:operate'],
             workspaces:
               id === 'm1'
                 ? [
@@ -2129,7 +1962,6 @@ test('NewAgentPanel', async () => {
                     { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
                   ]
                 : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
-            terminals: [],
             gaps: [],
           }
         }
@@ -2377,7 +2209,6 @@ test('NewAgentPanel', async () => {
         unreachableReason: null,
         unauthorized: false,
         scopes: ['workspace:operate'],
-        terminalAccess: 'control',
         workspaces: [
           {
             ...workspace('w1', 'other', '/srv/other'),
@@ -2385,7 +2216,6 @@ test('NewAgentPanel', async () => {
           },
           { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
         ],
-        terminals: [],
         gaps: [],
       })
       const view = await remoteRender()
@@ -2555,9 +2385,7 @@ test('NewAgentPanel', async () => {
         unreachableReason: null,
         unauthorized: false,
         scopes: ['workspace:operate'],
-        terminalAccess: 'control',
         workspaces: [{ ...workspace('w1', 'mystery', '/srv/mystery'), repository: null }],
-        terminals: [],
         gaps: [],
       })
       const view = await remoteRender()

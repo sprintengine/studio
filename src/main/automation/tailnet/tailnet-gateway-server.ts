@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { Duplex } from 'stream'
+import { pipeline } from 'stream/promises'
 
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../../shared/product-identity'
@@ -38,21 +39,14 @@ import {
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_EVENTS_PATH,
   TAILNET_STREAM_PATH,
-  TAILNET_TERMINAL_PATH,
   TAILNET_CONVERSATION_PATH,
+  TAILNET_CONVERSATION_IMAGE_PATH,
   TAILNET_TRANSPORT_VERSION,
   TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
-import { resolveUploadDestination, UPLOAD_MAX_BYTES } from './tailnet-uploads'
+import { openConversationImage } from './tailnet-conversation-images'
 import { ATTACHABLE_IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
-import {
-  createTailnetTerminalStream,
-  terminalAttachScopeFor,
-  terminalResumeFromQuery,
-  type TailnetTerminalStream,
-} from './tailnet-terminal-stream'
-import type { TerminalRemoteHost } from '../../terminal-remote-attach'
 import {
   createResyncBackoff,
   createTailnetConversationStream,
@@ -65,13 +59,14 @@ import { normalizeAddress } from './tailnet-peer-identity'
 import { parseTailnetEndpoint } from './tailnet-remote-client'
 import { normalizeTailnetScopes, type TailnetReverseGrant } from '../../../shared/tailnet'
 import { tailnetScopeGrantsAccess, type TailnetDevice, type TailnetScope } from '../../../shared/tailnet'
-import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet-scopes'
+import { localOnlyGatewayToolReason, requiredScopeForTool } from './tailnet-scopes'
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
   encodeCloseFrame,
   encodePongFrame,
   encodeTextFrame,
+  enableTcpKeepAlive,
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_GOING_AWAY,
   WEBSOCKET_CLOSE_REVOKED,
@@ -90,8 +85,8 @@ import {
 // The transport is deliberately NOT spec Streamable HTTP. It is a small,
 // explicit surface: one JSON-in/JSON-out MCP endpoint, plus WebSockets for
 // clients that need a persistent channel — the RPC stream (tool-list
-// notifications, connection-scoped identity) and, per attached terminal, a
-// stream of its own. No SSE, no session resumption — those are
+// notifications, connection-scoped identity), the change feed, and the
+// conversation socket. No SSE, no session resumption — those are
 // advertised nowhere, so nothing can quietly depend on a half version.
 
 export {
@@ -101,7 +96,6 @@ export {
   TAILNET_MCP_PATH,
   TAILNET_WS_TICKET_PATH,
   TAILNET_STREAM_PATH,
-  TAILNET_TERMINAL_PATH,
   TAILNET_CONVERSATION_PATH,
   // The wire's own version and feature list live beside the paths; re-exported
   // here so a caller that already imports the server keeps one import.
@@ -128,13 +122,6 @@ export type TailnetGatewayServerOptions = {
   isMutation: (toolName: string) => boolean
   devices: TailnetDeviceStore
   peers: TailnetPeerResolver
-  /**
-   * Watch-and-type access to this machine's terminals. Absent leaves
-   * the terminal WebSocket route answering `terminal_streaming_unavailable`
-   * rather than pretending the transport is there — the structured tool surface
-   * is unaffected either way.
-   */
-  terminals?: TerminalRemoteHost
   conversations?: ConversationGatewayHost
   /**
    * Fired when a peer asks to pair, so the surfaces that answer these
@@ -153,9 +140,9 @@ export type TailnetGatewayServerOptions = {
   onReverseGrant?: (input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }) => void
   /**
    * Device activity, for the live-state push (remote-sessions-ux): a device's
-   * RPC stream or terminal attachment opening or closing — fired exactly once
-   * per transition, so the service above derives "connected" and "driving
-   * terminal X" without holding a socket reference of its own — and every
+   * RPC stream opening or closing — fired exactly once per transition, so the
+   * service above derives "connected" without holding a socket reference of
+   * its own — and every
    * authenticated HTTP call (`request`), which is activity on a device that
    * may hold no socket at all. Opens and requests carry the peer as the
    * transport saw it, resolved at the same point `recordSeen` is.
@@ -180,8 +167,6 @@ type TailnetGatewayPeer = { peerNode: string | null; peerAddress: string }
 export type TailnetGatewayActivity =
   | ({ kind: 'stream'; device: TailnetDevice; open: true } & TailnetGatewayPeer)
   | { kind: 'stream'; device: TailnetDevice; open: false }
-  | ({ kind: 'terminal'; device: TailnetDevice; sessionId: string; open: true } & TailnetGatewayPeer)
-  | { kind: 'terminal'; device: TailnetDevice; sessionId: string; open: false }
   | ({ kind: 'request'; device: TailnetDevice } & TailnetGatewayPeer)
 
 export type TailnetGatewayServer = {
@@ -192,11 +177,10 @@ export type TailnetGatewayServer = {
   address(): { address: string; port: number } | null
   notifyToolsListChanged(): void
   /**
-   * Tell every device on the change feed that this machine's terminal list
-   * changed, or its workspace list. Throttled here, so a burst of hook frames
-   * is one push; the device re-reads through terminal.list / workspace.list.
+   * Tell every device on the change feed that this machine's workspace list
+   * changed. Throttled here, so a burst is one push; the device re-reads
+   * through workspace.list.
    */
-  notifyTerminalsChanged(): void
   notifyWorkspacesChanged(): void
   /**
    * The conversation list changed: one started, ended, or moved phase (a turn
@@ -206,8 +190,6 @@ export type TailnetGatewayServer = {
   notifyConversationsChanged(): void
   /** Live WebSocket streams, by device — diagnostics and tests. */
   streamCount(): number
-  /** Live attached terminals — diagnostics and tests. */
-  terminalStreamCount(): number
   /** Live change-feed sockets — diagnostics and tests. */
   eventStreamCount(): number
 }
@@ -222,12 +204,11 @@ type StreamSession = {
 
 type EventStream = { socket: Duplex; deviceId: string }
 
-type ChangeKind = 'terminals' | 'workspaces' | 'conversations'
+type ChangeKind = 'workspaces' | 'conversations'
 
 /**
- * The floor between two pushes of one kind. A session broadcast already
- * coalesces to a frame; a second is what stops a busy hook stream turning
- * into a re-read per frame on every paired machine.
+ * The floor between two pushes of one kind. A second is what stops a busy
+ * conversation turning into a re-read per event on every paired machine.
  */
 const TAILNET_CHANGE_PUSH_INTERVAL_MS = 1_000
 
@@ -236,7 +217,6 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   let server: Server | null = null
   let unsubscribeRevocations: (() => void) | null = null
   const streams = new Set<StreamSession>()
-  const terminalStreams = new Set<TailnetTerminalStream>()
   const conversationStreams = new Set<TailnetConversationStream>()
   // Conversation images are opaque, short-lived inputs, not workspace files.
   // Stage them under a process-owned private directory so workspace symlinks
@@ -252,15 +232,18 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   // A revision per kind, so a watcher that reconnects can see it missed
   // something and re-read; a throttle per kind, so a burst is one push.
   const changePushIntervalMs = Math.max(0, options.changePushIntervalMs ?? TAILNET_CHANGE_PUSH_INTERVAL_MS)
-  const changeRevisions: Record<ChangeKind, number> = { terminals: 0, workspaces: 0, conversations: 0 }
+  const changeRevisions: Record<ChangeKind, number> = { workspaces: 0, conversations: 0 }
   const changePush: Record<ChangeKind, { lastSentAt: number; timer: ReturnType<typeof setTimeout> | null }> = {
-    terminals: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
     workspaces: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
     conversations: { lastSentAt: Number.NEGATIVE_INFINITY, timer: null },
   }
 
   function notifyChanged(what: ChangeKind): void {
     changeRevisions[what] += 1
+    // Nobody is watching: the revision is all a later watcher needs, since
+    // its `hello` carries it. Arming a timer here would wake this machine on
+    // every turn of every chat for a push with no one to receive it.
+    if (eventStreams.size === 0) return
     const state = changePush[what]
     // A push already queued carries this revision too.
     if (state.timer) return
@@ -387,14 +370,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // next request: a live WebSocket would otherwise keep serving a device the
     // user just removed.
     const unsubscribeRevoked = options.devices.onDeviceRevoked((deviceId) => closeStreamsFor(deviceId))
-    // A narrowed grant reaches an open conversation or terminal socket the
-    // same way: it re-reads the device and closes, or stops accepting commands
-    // or keystrokes. The RPC stream needs no push: it re-reads the device on
-    // every message it answers.
+    // A narrowed grant reaches an open conversation socket the same way: it
+    // re-reads the device and closes, or stops accepting commands. The RPC
+    // stream needs no push: it re-reads the device on every message it answers.
     const unsubscribeScopes = options.devices.onDeviceScopesChanged((device) => {
       for (const conversation of [...conversationStreams])
         if (conversation.deviceId === device.id) conversation.refreshScopes()
-      for (const terminal of [...terminalStreams]) if (terminal.deviceId === device.id) terminal.refreshScopes()
     })
     unsubscribeRevocations = () => {
       unsubscribeRevoked()
@@ -417,13 +398,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       stream.socket.destroy()
     }
     streams.clear()
-    for (const terminal of [...terminalStreams]) terminal.close(WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
-    terminalStreams.clear()
     for (const conversation of [...conversationStreams])
       conversation.close(WEBSOCKET_CLOSE_GOING_AWAY, 'Server stopping.')
     conversationStreams.clear()
-    for (const kind of ['terminals', 'workspaces'] as const) {
-      const state = changePush[kind]
+    for (const state of Object.values(changePush)) {
       if (state.timer) clearTimeout(state.timer)
       state.timer = null
     }
@@ -441,17 +419,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   }
 
   /**
-   * One file from a paired device, scoped to an eligible session.
+   * One image from a paired device, for a conversation it may operate.
    *
-   * The destination comes from the SESSION, never the request: the phone names
-   * a file, and the working directory it lands under is whatever the terminal
-   * host says that session is running in. `resolveUploadDestination` holds the
-   * guard and its tests; this is the transport around it.
+   * The file lands in a private staging directory, never in the workspace, and
+   * the answer is an opaque id rather than a path: only the device that
+   * uploaded it can spend that id, and only on a send to the same
+   * conversation. `kind=conversation` is still read off older phones' requests
+   * and still means the only thing it can.
    *
    * Streamed to disk with the ceiling enforced as the bytes arrive, so an
    * oversized upload is cut off mid-flight rather than buffered to discover
-   * its size — and the part-written file is removed, because a truncated
-   * screenshot in a folder an agent reads is worse than no screenshot.
+   * its size — and the part-written file is removed.
    */
   async function handleUpload(
     request: IncomingMessage,
@@ -459,26 +437,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     device: TailnetDevice,
     url: URL,
   ): Promise<void> {
-    const conversationUpload = url.searchParams.get('kind') === 'conversation'
-    // Writing a file into someone's project is a mutation on the terminal
-    // family, so it takes the tier that types rather than the one that watches.
-    if (
-      !tailnetScopeGrantsAccess(
-        new Set(device.scopes),
-        conversationUpload ? 'conversation:operate' : 'terminal:control',
-      )
-    ) {
+    if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'conversation:operate')) {
       writeJson(response, 403, {
         error: {
           code: 'tailnet_scope_required',
-          message: conversationUpload
-            ? 'This device may read conversations but not attach images to them.'
-            : 'This device may watch terminals but not write files into them.',
+          message: 'This device may read conversations but not attach images to them.',
         },
       })
       return
     }
-    if (conversationUpload ? !options.conversations : !options.terminals) {
+    const conversations = options.conversations
+    if (!conversations) {
       writeJson(response, 501, {
         error: { code: 'upload_unavailable', message: 'This build cannot receive uploads for this session.' },
       })
@@ -492,129 +461,146 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       })
       return
     }
-    const conversation = conversationUpload
-      ? (await options.conversations?.list())?.find((candidate) => candidate.sessionId === sessionId)
-      : null
-    const conversationKey = conversation
-      ? options.conversations?.resolveKey(conversation.workspaceId, conversation.agentId)
-      : null
-    const session = conversationUpload
-      ? conversationKey
-        ? { cwd: conversationKey.workspaceRoot }
-        : null
-      : options.terminals?.listSessions().find((candidate) => candidate.sessionId === sessionId)
-    if (!session) {
+    const conversation = (await conversations.list()).find((candidate) => candidate.sessionId === sessionId)
+    if (!conversation || !conversations.resolveKey(conversation.workspaceId, conversation.agentId)) {
       writeJson(response, 404, {
-        error: conversationUpload
-          ? { code: 'unknown_conversation', message: 'No eligible conversation on this machine has that id.' }
-          : { code: 'unknown_terminal', message: 'No terminal on this machine has that session id.' },
+        error: { code: 'unknown_conversation', message: 'No eligible conversation on this machine has that id.' },
       })
       return
     }
     const mediaType = (headerOf(request, 'content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
-    if (conversationUpload && !ATTACHABLE_IMAGE_TYPES.includes(mediaType as (typeof ATTACHABLE_IMAGE_TYPES)[number])) {
+    if (!ATTACHABLE_IMAGE_TYPES.includes(mediaType as (typeof ATTACHABLE_IMAGE_TYPES)[number])) {
       writeJson(response, 415, {
         error: { code: 'invalid_media_type', message: 'Only PNG, JPEG, WebP and GIF images can be attached.' },
       })
       return
     }
-    if (conversationUpload && conversation?.capabilities?.images !== true) {
+    if (conversation.capabilities?.images !== true) {
       writeJson(response, 409, {
         error: { code: 'images_unsupported', message: 'This conversation cannot accept images.' },
       })
       return
     }
-    // Resolved twice on purpose. The first pass is the only way to learn which
-    // directory the guard chose; the second is the one that counts, and it is
-    // the pass that can answer `shot (2).png`. Handing `uniqueName` an empty
-    // set — as this did until 2026-09-07 — meant it never fired, and a second
-    // photo of the same name met the sink's exclusive `wx` create and came
-    // back as an unexplained 500 instead of a new file.
-    const probe = resolveUploadDestination({ cwd: session.cwd, sessionId, name })
-    let destination = probe.ok
-      ? resolveUploadDestination({ cwd: session.cwd, sessionId, name, taken: await namesTakenIn(probe.directory) })
-      : probe
-    if (!destination.ok) {
-      writeJson(response, destination.code === 'path_escape' ? 400 : 409, {
-        error: { code: destination.code, message: destination.message },
-      })
-      return
-    }
     // A declared length over the cap is refused before a byte is read.
     const declared = Number(request.headers['content-length'] ?? '')
-    const maxBytes = conversationUpload ? MAX_ATTACHMENT_BYTES : UPLOAD_MAX_BYTES
-    if (Number.isFinite(declared) && declared > maxBytes) {
+    if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
       // Drained before the answer, not after: see `drainRefusedBody`.
-      if (await drainRefusedBody(request)) {
-        writeJson(response, 413, {
-          error: {
-            code: 'too_large',
-            message: `That file is over the ${Math.floor(maxBytes / (1024 * 1024))}MB limit.`,
-          },
-        })
-      }
+      if (await drainRefusedBody(request)) writeTooLarge(response)
       return
     }
     try {
-      if (conversationUpload) {
-        // Created once and shared, but a failed creation is not remembered:
-        // the next upload tries again instead of every upload failing until
-        // the app restarts.
-        if (!conversationUploadDirectory) {
-          const creating = mkdtemp(join(tmpdir(), 'studio-conversation-images-'))
-          conversationUploadDirectory = creating
-          creating.catch(() => {
-            if (conversationUploadDirectory === creating) conversationUploadDirectory = null
-          })
-        }
-        const directory = await conversationUploadDirectory
-        destination = { ok: true, directory, path: join(directory, randomUUID()) }
-      }
-      const written = await streamUploadToDisk(request, destination, maxBytes)
-      // A conversation upload returns an opaque id, never its filesystem path.
-      // Only the originating device and session can spend that id on a send.
-      if (conversationUpload) {
-        const uploadPath = destination.path
-        const uploadId = options.conversations?.registerUpload?.({
-          deviceId: device.id,
-          sessionId,
-          path: uploadPath,
-          name,
-          mediaType,
-          bytes: written,
-          dispose: () => {
-            void rm(uploadPath, { force: true }).catch(() => {})
-          },
+      // Created once and shared, but a failed creation is not remembered: the
+      // next upload tries again instead of every upload failing until the app
+      // restarts.
+      if (!conversationUploadDirectory) {
+        const creating = mkdtemp(join(tmpdir(), 'studio-conversation-images-'))
+        conversationUploadDirectory = creating
+        creating.catch(() => {
+          if (conversationUploadDirectory === creating) conversationUploadDirectory = null
         })
-        if (!uploadId) {
-          await rm(destination.path, { force: true }).catch(() => {})
-          writeJson(response, 503, { error: { code: 'upload_unavailable' } })
-          return
-        }
-        writeJson(response, 200, { uploadId, bytes: written })
-      } else {
-        options.log?.(`tailnet upload: ${device.name} wrote ${written} bytes to ${destination.path}`)
-        writeJson(response, 200, { path: destination.path, bytes: written })
       }
+      const uploadPath = join(await conversationUploadDirectory, randomUUID())
+      const written = await streamUploadToDisk(request, uploadPath, MAX_ATTACHMENT_BYTES)
+      const uploadId = conversations.registerUpload?.({
+        deviceId: device.id,
+        sessionId,
+        path: uploadPath,
+        name,
+        mediaType,
+        bytes: written,
+        dispose: () => {
+          void rm(uploadPath, { force: true }).catch(() => {})
+        },
+      })
+      if (!uploadId) {
+        await rm(uploadPath, { force: true }).catch(() => {})
+        writeJson(response, 503, { error: { code: 'upload_unavailable' } })
+        return
+      }
+      writeJson(response, 200, { uploadId, bytes: written })
     } catch (error) {
       if (error instanceof UploadTooLarge) {
         // Drained before the answer, not after: see `drainRefusedBody`.
-        if (await drainRefusedBody(request)) {
-          writeJson(response, 413, {
-            error: {
-              code: 'too_large',
-              message: `That file is over the ${Math.floor(maxBytes / (1024 * 1024))}MB limit.`,
-            },
-          })
-        }
+        if (await drainRefusedBody(request)) writeTooLarge(response)
         return
       }
       options.log?.(`tailnet upload failed: ${message(error)}`)
       // A staging directory removed underneath the app (a temp cleaner) is
       // made again on the next upload.
-      if (conversationUpload && (error as NodeJS.ErrnoException | null)?.code === 'ENOENT')
-        conversationUploadDirectory = null
+      if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') conversationUploadDirectory = null
       writeJson(response, 500, { error: { code: 'internal_error', message: 'The file could not be written.' } })
+    }
+  }
+
+  /**
+   * The picture one step of a chat made or looked at, streamed as it is on disk.
+   *
+   * The device names the chat and the step; the conversation's record of that
+   * step names the file. A `path` in the query is never read. The bytes are
+   * served under the type their first bytes say, and cached privately for a
+   * day: a step's picture never changes, and a phone scrolling back through a
+   * chat should not fetch it twice.
+   */
+  async function handleConversationImage(response: ServerResponse, device: TailnetDevice, url: URL): Promise<void> {
+    if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'conversation:read')) {
+      writeJson(response, 403, {
+        error: { code: 'tailnet_scope_required', message: 'This device may not read conversations on this machine.' },
+      })
+      return
+    }
+    const conversations = options.conversations
+    const workspaceId = url.searchParams.get('workspaceId')?.trim() ?? ''
+    const agentId = url.searchParams.get('agentId')?.trim() ?? ''
+    const toolUseId = url.searchParams.get('toolUseId')?.trim() ?? ''
+    if (!workspaceId || !agentId || !toolUseId) {
+      writeJson(response, 400, {
+        error: { code: 'invalid_arguments', message: 'A picture is named by workspaceId, agentId and toolUseId.' },
+      })
+      return
+    }
+    const key = conversations?.resolveKey(workspaceId, agentId) ?? null
+    const found = key && conversations?.toolImagePath ? await conversations.toolImagePath(key, toolUseId) : null
+    if (!found || (!found.ok && found.code === 'unknown_conversation')) {
+      writeJson(response, 404, {
+        error: { code: 'unknown_conversation', message: 'No eligible conversation on this machine has that id.' },
+      })
+      return
+    }
+    if (!found.ok) {
+      writeJson(response, 404, {
+        error: { code: 'unknown_image', message: 'That step of the conversation shows no picture.' },
+      })
+      return
+    }
+    const opened = await openConversationImage(found.path)
+    if (!opened.ok) {
+      writeJson(response, opened.refusal.status, {
+        error: { code: opened.refusal.code, message: opened.refusal.message },
+      })
+      return
+    }
+    const { file, size, mediaType } = opened.image
+    if (response.headersSent || response.writableEnded) {
+      await file.close().catch(() => undefined)
+      return
+    }
+    response.writeHead(200, {
+      'Content-Type': mediaType,
+      'Content-Length': size,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    })
+    // Never empty: an empty file has no first bytes to be a picture by.
+    // Bounded to the size the headers promised: a file that grows while it is
+    // read is not allowed to overrun its own Content-Length.
+    const source = file.createReadStream({ start: 0, end: size - 1, autoClose: true })
+    try {
+      await pipeline(source, response)
+    } catch (error) {
+      // The client went away, or the file did. The status line is already
+      // sent, so the only honest thing left is to cut the connection.
+      options.log?.(`tailnet conversation image failed: ${message(error)}`)
+      response.destroy()
     }
   }
 
@@ -710,6 +696,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
     if (method === 'POST' && path === TAILNET_UPLOAD_PATH) {
       await handleUpload(request, response, device, parseUrl(request.url))
+      return
+    }
+
+    if (method === 'GET' && path === TAILNET_CONVERSATION_IMAGE_PATH) {
+      await handleConversationImage(response, device, parseUrl(request.url))
       return
     }
 
@@ -911,16 +902,13 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const scopeAllows = (toolName: string): boolean =>
       tailnetScopeGrantsAccess(granted, requiredScopeForTool(toolName, options.isMutation(toolName)))
     return {
-      // Local-only first, and independent of scopes: the `tailnet.*` family is
-      // not something a wider grant unlocks, it is off this transport entirely.
-      filterTools: (tools) => tools.filter((tool) => !isLocalOnlyGatewayTool(tool.name) && scopeAllows(tool.name)),
+      // Local-only first, and independent of scopes: a local-only tool is not
+      // something a wider grant unlocks, it is off this transport entirely.
+      filterTools: (tools) =>
+        tools.filter((tool) => localOnlyGatewayToolReason(tool.name) === null && scopeAllows(tool.name)),
       authorizeToolCall: (toolName) => {
-        if (isLocalOnlyGatewayTool(toolName)) {
-          return toolError(
-            'tailnet_local_only',
-            `"${toolName}" configures who may drive this machine and is served only on its owner-only local socket, never over the tailnet. Run it from an agent on that machine.`,
-          )
-        }
+        const localOnly = localOnlyGatewayToolReason(toolName)
+        if (localOnly) return toolError('tailnet_local_only', localOnly)
         return scopeAllows(toolName)
           ? null
           : toolError(
@@ -951,12 +939,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   async function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     if (request.headers.origin) return rejectUpgrade(socket, 403, 'origin_not_allowed')
     const path = pathOf(request.url)
-    if (
-      path !== TAILNET_STREAM_PATH &&
-      path !== TAILNET_TERMINAL_PATH &&
-      path !== TAILNET_CONVERSATION_PATH &&
-      path !== TAILNET_EVENTS_PATH
-    ) {
+    if (path !== TAILNET_STREAM_PATH && path !== TAILNET_CONVERSATION_PATH && path !== TAILNET_EVENTS_PATH) {
       return rejectUpgrade(socket, 404, 'not_found')
     }
     if ((headerOf(request, 'upgrade') ?? '').toLowerCase() !== 'websocket')
@@ -1024,61 +1007,6 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       })
       registration.stream = stream
       if (!stream.isClosed()) conversationStreams.add(stream)
-      if (head?.length) socket.emit('data', head)
-      return
-    }
-
-    if (path === TAILNET_TERMINAL_PATH) {
-      // Refused BEFORE the 101, so a device without the grant never gets a
-      // socket it could send an input frame on.
-      if (!options.terminals) return rejectUpgrade(socket, 503, 'terminal_streaming_unavailable')
-      if (!terminalAttachScopeFor(device.scopes)) return rejectUpgrade(socket, 403, 'terminal_scope_required')
-      const sessionId = query.get('sessionId')?.trim()
-      if (!sessionId) return rejectUpgrade(socket, 400, 'session_id_required')
-
-      const terminalPeerAddress = normalizeAddress(remoteAddressOf(socket))
-      const terminalPeer = await options.peers.resolve(terminalPeerAddress)
-      options.devices.recordSeen(device.id, terminalPeer)
-      acceptUpgrade(socket, key)
-      // The stream can refuse itself (unknown session, missing grant) and run
-      // `onClosed` before the constructor returns, so the callback reads the
-      // reference through a box rather than closing over a `const` that is
-      // still in its temporal dead zone.
-      const registration: { stream: TailnetTerminalStream | null } = { stream: null }
-      const resume = terminalResumeFromQuery(query)
-      const stream = createTailnetTerminalStream({
-        socket,
-        sessionId,
-        ...(resume ? { resume } : {}),
-        deviceId: device.id,
-        deviceName: device.name,
-        // Read live, never captured, as for a conversation socket: a grant
-        // narrowed in Settings reaches the terminal that is already attached.
-        scopes: () => options.devices.listDevices().find((entry) => entry.id === device.id)?.scopes ?? null,
-        terminals: options.terminals,
-        onClosed: () => {
-          // Emit only when the stream was actually tracked: a stream that
-          // refused its own attach closes before it is added and never
-          // announced an open, so it must not announce a close.
-          if (registration.stream && terminalStreams.delete(registration.stream)) {
-            options.onActivity?.({ kind: 'terminal', device, sessionId, open: false })
-          }
-        },
-        log: options.log,
-      })
-      registration.stream = stream
-      // A stream that refused its own attach has already closed and run
-      // `onClosed` before this line, so only a live one is tracked.
-      if (stream.isClosed()) return
-      terminalStreams.add(stream)
-      options.onActivity?.({
-        kind: 'terminal',
-        device,
-        sessionId,
-        open: true,
-        peerNode: terminalPeer,
-        peerAddress: terminalPeerAddress,
-      })
       if (head?.length) socket.emit('data', head)
       return
     }
@@ -1184,11 +1112,6 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     for (const stream of [...streams]) {
       if (stream.deviceId === deviceId) closeStream(stream, WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
     }
-    // An attached terminal is the stream a revocation must reach fastest: it is
-    // live output, and for a control-scoped device a live shell.
-    for (const terminal of [...terminalStreams]) {
-      if (terminal.deviceId === deviceId) terminal.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
-    }
     for (const conversation of [...conversationStreams]) {
       if (conversation.deviceId === deviceId)
         conversation.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
@@ -1200,8 +1123,18 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     for (const [ticket, entry] of tickets) if (entry.deviceId === deviceId) tickets.delete(ticket)
   }
 
-  /** Write the RFC 6455 handshake response for an accepted upgrade. */
+  /**
+   * Write the RFC 6455 handshake response for an accepted upgrade, and turn on
+   * TCP keepalive for the socket's life.
+   *
+   * Keepalive is the kernel's, so it costs this process no wakeups, and it is
+   * what finds a peer that vanished without a close — a laptop that slept, a
+   * Wi-Fi change, a re-keyed tunnel. The change feed sends nothing while
+   * nothing changes, so without it a dead watcher would sit in `eventStreams`
+   * until a later push failed, which may be never.
+   */
   function acceptUpgrade(socket: Duplex, key: string): void {
+    enableTcpKeepAlive(socket)
     socket.write(
       [
         'HTTP/1.1 101 Switching Protocols',
@@ -1283,12 +1216,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     notifyToolsListChanged: () => {
       for (const stream of streams) sendStream(stream, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
     },
-    notifyTerminalsChanged: () => notifyChanged('terminals'),
     notifyWorkspacesChanged: () => notifyChanged('workspaces'),
     notifyConversationsChanged: () => notifyChanged('conversations'),
     eventStreamCount: () => eventStreams.size,
     streamCount: () => streams.size,
-    terminalStreamCount: () => terminalStreams.size,
   }
 }
 
@@ -1330,6 +1261,15 @@ function writeUnauthorized(response: ServerResponse): void {
     error: {
       code: 'unauthorized',
       message: 'A paired device token is required. Pair this machine in Settings → Remote.',
+    },
+  })
+}
+
+function writeTooLarge(response: ServerResponse): void {
+  writeJson(response, 413, {
+    error: {
+      code: 'too_large',
+      message: `That file is over the ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB limit.`,
     },
   })
 }
@@ -1393,31 +1333,12 @@ function queryOf(url: string | undefined): URLSearchParams {
   return parseUrl(url).searchParams
 }
 
-/**
- * The names already in a thread's upload directory, so a new file never
- * collides with one.
- *
- * A directory that does not exist yet holds nothing, which is the common case
- * — the first upload creates it. Any other read failure is also answered as
- * "nothing taken": the exclusive `wx` create downstream is the real guard, and
- * refusing an upload because a directory listing failed would trade a rare
- * duplicate name for a dead feature.
- */
-async function namesTakenIn(directory: string): Promise<ReadonlySet<string>> {
-  const { readdir } = await import('node:fs/promises')
-  try {
-    return new Set(await readdir(directory))
-  } catch {
-    return new Set()
-  }
-}
-
 // How much of an already-refused body is read and thrown away before the
 // connection is cut instead, and how long that is given. Generous enough that
 // an honest client which overshot the ceiling always gets its sentence (the
 // phone's own screenshot is megabytes, not gigabytes), small enough that a
 // client streaming without end is hung up on rather than served forever.
-const REFUSED_BODY_DRAIN_MAX_BYTES = 4 * UPLOAD_MAX_BYTES
+const REFUSED_BODY_DRAIN_MAX_BYTES = 4 * MAX_ATTACHMENT_BYTES
 const REFUSED_BODY_DRAIN_MS = 15_000
 
 /**
@@ -1427,7 +1348,7 @@ const REFUSED_BODY_DRAIN_MS = 15_000
  * The tempting move is to hang up — the decision is made, the sink is gone, and
  * the remaining megabytes have nowhere to land. But destroying the socket races
  * the response's own flush: the client's next write fails with EPIPE and it
- * never reads the 413, so "That file is over the 25MB limit." is replaced by a
+ * never reads the 413, so "That file is over the 5MB limit." is replaced by a
  * connection reset and the phone can only say something went wrong. Losing the
  * sentence is worse than reading bytes we intend to throw away, because the
  * sentence is the entire reason the limit is stated on the wire.
@@ -1492,30 +1413,20 @@ async function drainRefusedBody(request: IncomingMessage): Promise<boolean> {
 class UploadTooLarge extends Error {}
 
 /**
- * Stream a request body into the thread's upload directory.
+ * Stream a request body into the staging directory.
  *
  * The ceiling is counted as the bytes arrive rather than trusted from
  * `content-length`, which a client controls and can simply omit. A body that
  * runs past it is cut off and the part-written file removed: a truncated
- * screenshot sitting in a folder an agent reads is worse than no screenshot,
- * because the agent cannot tell the difference.
+ * image handed to an agent is worse than no image, because the agent cannot
+ * tell the difference.
  */
-async function streamUploadToDisk(
-  request: IncomingMessage,
-  destination: { directory: string; path: string },
-  maxBytes = UPLOAD_MAX_BYTES,
-): Promise<number> {
-  const { mkdir, rm, writeFile } = await import('node:fs/promises')
-  const { createWriteStream, existsSync } = await import('node:fs')
-  const { join } = await import('node:path')
-  await mkdir(destination.directory, { recursive: true })
-  // The folder ignores itself, the way the browser's screenshot folder does
-  // (browser-manager.ts). A project cannot be expected to list a directory it
-  // has never heard of in its own .gitignore, and a phone quietly adding
-  // untracked files to someone's `git status` is a bad surprise.
-  const ignore = join(destination.directory, '.gitignore')
-  if (!existsSync(ignore)) await writeFile(ignore, '*\n', 'utf8').catch(() => {})
-  const sink = createWriteStream(destination.path, { flags: 'wx' })
+async function streamUploadToDisk(request: IncomingMessage, path: string, maxBytes: number): Promise<number> {
+  const { mkdir, rm } = await import('node:fs/promises')
+  const { createWriteStream } = await import('node:fs')
+  const { dirname } = await import('node:path')
+  await mkdir(dirname(path), { recursive: true })
+  const sink = createWriteStream(path, { flags: 'wx' })
   let created = false
   sink.once('open', () => {
     created = true
@@ -1552,7 +1463,7 @@ async function streamUploadToDisk(
   } catch (error) {
     // An exclusive-create failure means the path belongs to someone else.
     // Cleanup may remove only the partial file this request actually created.
-    if (created) await rm(destination.path, { force: true }).catch(() => {})
+    if (created) await rm(path, { force: true }).catch(() => {})
     throw error
   }
   return written

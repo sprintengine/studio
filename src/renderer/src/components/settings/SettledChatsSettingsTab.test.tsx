@@ -95,3 +95,42 @@ test('with nothing settled, the page says how a chat gets here', async () => {
   expect(host.textContent).toContain('No settled chats.')
   expect(host.textContent).toContain('three days without activity')
 })
+
+test('the list keeps its identity through a write to another workspace', async () => {
+  const { createSettledChatsSelector } = await import('./settledChatsModel')
+  const select = createSettledChatsSelector()
+  const workspaces = fixtures.state.workspaces as Parameters<typeof select>[0]
+  const first = select(workspaces)
+  expect(first.map((chat) => chat.id)).toEqual(['w3', 'w2'])
+  // The chat still going turns over; nothing settled moved.
+  const busier = [{ ...workspaces[0]!, lastTurnEndedAt: now } as (typeof workspaces)[number], ...workspaces.slice(1)]
+  expect(select(busier)).toBe(first)
+  // A settled chat's own write that changes nothing listed keeps its entry.
+  const touched = [...busier]
+  touched[1] = { ...touched[1]!, lastTurnEndedAt: now } as (typeof workspaces)[number]
+  expect(select(touched)).toBe(first)
+  // Renaming one moves only that entry.
+  const renamed = [...touched]
+  renamed[2] = { ...renamed[2]!, name: 'Tidy the changelog' } as (typeof workspaces)[number]
+  const next = select(renamed)
+  expect(next).not.toBe(first)
+  expect(next[0]!.title).toBe('Tidy the changelog')
+  expect(next[1]).toBe(first[1])
+})
+
+test('a long list draws the most recent hundred and folds the rest', async () => {
+  fixtures.state.workspaces = Array.from({ length: 130 }, (_, index) => ({
+    id: `s${index}`,
+    name: `Settled ${index}`,
+    mode: 'standard',
+    folderPath: '/code/apples',
+    createdAt: now - 10 * DAY,
+    settledAt: now - index * 60_000,
+  }))
+  await render()
+  expect(rows()).toHaveLength(100)
+  const more = [...host.querySelectorAll('button')].find((button) => button.textContent === 'Show 30 more')
+  expect(more).toBeDefined()
+  await act(async () => more!.click())
+  expect(rows()).toHaveLength(130)
+})

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   PROMPT_CACHE_NOTICE_TOKENS,
   promptCacheCopy,
+  promptCacheMarkClock,
   promptCacheNeedsAttention,
   promptCacheNoticeLine,
   promptCacheState,
@@ -78,4 +79,24 @@ test('the composer line says when the cache goes, and how many tokens are cached
   const cold = promptCacheState({ ttl: '5m', expiresAt: NOW - 13 * MINUTE, recacheTokens: 198_400 }, NOW)
   assert.ok(promptCacheNeedsAttention(cold))
   assert.equal(promptCacheNoticeLine(cold, NOW), 'Cache expired 13m ago · ~198k tokens uncached')
+})
+
+test('a mark’s clock runs only while what it draws can still change', () => {
+  const big = 200_000
+  const clock = (reading: Parameters<typeof promptCacheMarkClock>[0], working: boolean, includeCold: boolean) =>
+    promptCacheMarkClock(reading, working, includeCold, NOW)
+  // Working, or too small to ever mark: nothing to keep time for.
+  assert.deepEqual(clock({ ttl: '1h', expiresAt: NOW + MINUTE, recacheTokens: big }, true, true), { kind: 'still' })
+  assert.deepEqual(clock({ ttl: '1h', expiresAt: NOW + MINUTE, recacheTokens: 1_000 }, false, true), { kind: 'still' })
+  assert.deepEqual(clock(null, false, true), { kind: 'still' })
+  // Warm: asleep until its last ten minutes.
+  assert.deepEqual(clock({ ttl: '1h', expiresAt: NOW + 30 * MINUTE, recacheTokens: big }, false, true), {
+    kind: 'wake',
+    at: NOW + 20 * MINUTE,
+  })
+  // Expiring: drawn, and its words count down.
+  assert.deepEqual(clock({ ttl: '5m', expiresAt: NOW + MINUTE, recacheTokens: big }, false, false), { kind: 'tick' })
+  // Cold: says how long ago where cold is shown, and is never drawn where it is not.
+  assert.deepEqual(clock({ ttl: '1h', expiresAt: NOW - MINUTE, recacheTokens: big }, false, true), { kind: 'tick' })
+  assert.deepEqual(clock({ ttl: '1h', expiresAt: NOW - MINUTE, recacheTokens: big }, false, false), { kind: 'still' })
 })

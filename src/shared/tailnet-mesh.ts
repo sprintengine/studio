@@ -8,7 +8,7 @@ import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
 // `tailnet.ts` is "who may drive this machine"; `tailnet-peers.ts` is "which
 // machines exist". This file is the third direction and the one a person
 // actually works in: the machines this Studio has PAIRED WITH, what they hold,
-// and the terminals it has open on them.
+// and the conversations it follows on them.
 //
 // The outbound half lives in the main process (`tailnet/tailnet-mesh-service.ts`),
 // not the renderer, for one hard reason: the listener refuses any request
@@ -47,9 +47,6 @@ export type MeshConnection = {
   pairedVia: 'link' | 'request' | 'reverse' | 'unknown'
 }
 
-/** What this Studio may do with a paired machine's terminals. */
-export type MeshTerminalAccess = 'none' | 'observe' | 'control'
-
 /** A workspace on the remote machine, as `workspace.list` reports it. */
 export type MeshWorkspace = {
   id: string
@@ -87,76 +84,14 @@ export type MeshWorkspaceCheckoutResult =
   { ok: true; checkout: MeshWorkspaceCheckout } | { ok: false; code: string; message: string }
 
 /**
- * Where a remote chat runs, chosen at the launch: the current checkout or a
- * new worktree. `current` opens the agent in the
- * workspace's own checkout, on whatever branch it is on — this machine never
- * moves another machine's checkout. `worktree` asks the remote to branch a
- * fresh worktree off `baseRef` (its current branch when absent) and start
- * the agent there; it is served by `agent.launch`, the audited
- * `workspace:operate` mutation that already owns worktree creation.
- */
-export type MeshCheckoutRequest = { mode: 'current' } | { mode: 'worktree'; name?: string; baseRef?: string }
-
-/** What a create actually landed on, reported back so the row can say so. */
-type MeshCreatedCheckout = {
-  mode: 'current' | 'worktree'
-  branch: string | null
-  /** The worktree's absolute path on the remote; null on the current checkout. */
-  worktreePath: string | null
-}
-
-/** A terminal session on the remote machine, as `terminal.list` reports it. */
-export type MeshTerminal = {
-  sessionId: string
-  kind: 'agent' | 'terminal'
-  workspaceId: string | null
-  agentName: string | null
-  cli: string | null
-  cwd: string | null
-  /** The pty is running. False with `suspended` false means it exited. */
-  processAlive: boolean
-  /** Paused to reclaim memory: the screen is real, the process is not. */
-  suspended: boolean
-  /** Hook-reported agent phase where the CLI reports one. */
-  phase: string | null
-  /**
-   * Epoch ms the agent entered `phase` (remote-band-in-the-sidebar): how long
-   * a working row has been working, or an idle one has been idle, the way
-   * the local rows say it. Null when the remote reports no phase, or
-   * predates the field.
-   */
-  phaseSince: number | null
-  /**
-   * The remote workspace's display name, as `terminal.list` serves it beside
-   * the id (remote-band-in-the-sidebar) — so a pairing granted terminals alone,
-   * which may not call `workspace.list`, still has a name for the row. Null on
-   * an older remote.
-   */
-  workspaceName: string | null
-  /**
-   * The checkout the session works in, summarised the way the sidebar row is:
-   * branch, ±lines, and whose changes they are (`worktree` this chat's own,
-   * `branch` the branch's, `folder` only what is uncommitted). Null when the
-   * remote could not read it, or predates the field — never a confident zero.
-   */
-  git: {
-    branch: string | null
-    additions: number
-    deletions: number
-    changedFiles: number
-    scope: 'worktree' | 'branch' | 'folder'
-  } | null
-}
-
-/**
  * A part of a browse this machine is not allowed to read, named with the reason.
  *
- * A device paired for terminals alone genuinely cannot list workspaces. Showing
- * an empty list would say "this machine has no workspaces", which is a
+ * A device paired for conversations alone genuinely cannot list workspaces.
+ * Showing an empty list would say "this machine has no workspaces", which is a
  * different — and false — statement.
  */
 export type MeshGap = {
-  part: 'workspaces' | 'terminals' | 'runs'
+  part: 'workspaces'
   code: string
   message: string
 }
@@ -172,49 +107,24 @@ export type MeshBrowse = {
   unauthorized: boolean
   /** Live scopes read from the remote, which may differ from what was stored at pairing. */
   scopes: TailnetScope[]
-  terminalAccess: MeshTerminalAccess
   workspaces: MeshWorkspace[]
-  terminals: MeshTerminal[]
   gaps: MeshGap[]
 }
 
-/** The state of one attached remote terminal's link, as the pane badges it. */
+/** The state of one followed remote conversation's link, as the pane badges it. */
 export type MeshLinkState =
   /** Opening the socket for the first time. */
   | 'connecting'
-  /** Attached; output is flowing. */
+  /** Following; frames are flowing. */
   | 'live'
-  /** The socket dropped and we are dialling again. Scrollback stays on screen. */
+  /** The socket dropped and we are dialling again. The transcript stays on screen. */
   | 'reconnecting'
   /** The peer is not answering. Quiet, not alarming — a sleeping laptop looks like this. */
   | 'offline'
-  /** Finished for good: the session ended, access was revoked, or the pane detached. */
+  /** Finished for good: the conversation ended, access was revoked, or the pane stopped following. */
   | 'closed'
 
-/**
- * What main sends a remote terminal pane.
- *
- * `replay` / `output` / `exit` / `ended` / `error` are the listener's own attach
- * frames, forwarded verbatim. `status` is main's addition: the CLIENT-side link
- * lifecycle, which the server cannot narrate because the times it matters are
- * exactly the times it is unreachable.
- */
-export type MeshTerminalEvent =
-  | { type: 'status'; state: MeshLinkState; detail: string }
-  | { type: 'attached'; sessionId: string; access: MeshTerminalAccess; title: string }
-  | { type: 'replay'; data: string; reason: 'attach' | 'resync' }
-  | { type: 'output'; data: string }
-  | { type: 'exit'; exitCode: number }
-  | { type: 'ended'; reason: string }
-  | { type: 'error'; code: string; message: string }
-
 export type MeshPairResult = { ok: true; connection: MeshConnection } | { ok: false; code: string; message: string }
-
-export type MeshAttachResult = { ok: true } | { ok: false; code: string; message: string }
-
-export type MeshCreateTerminalResult =
-  | { ok: true; sessionId: string; workspaceId: string; agentId: string; title: string; checkout: MeshCreatedCheckout }
-  | { ok: false; code: string; message: string }
 
 /**
  * A chat agent started on a paired machine (`conversation.create`). The chat
@@ -224,18 +134,6 @@ export type MeshCreateTerminalResult =
 export type MeshCreateConversationResult =
   | { ok: true; workspaceId: string; agentId: string; title: string; providerId: string; modelId: string }
   | { ok: false; code: string; message: string }
-
-/** Terminal access a set of granted scopes carries, in the Mesh's vocabulary. */
-export function meshTerminalAccess(scopes: readonly TailnetScope[]): MeshTerminalAccess {
-  if (scopes.includes('terminal:control')) return 'control'
-  if (scopes.includes('terminal:observe')) return 'observe'
-  return 'none'
-}
-
-/** The channel one attachment's events arrive on. The renderer picks the id and subscribes first. */
-export function meshTerminalEventChannel(attachId: string): string {
-  return `mesh:terminal:${attachId}`
-}
 
 /**
  * A pairing we have ASKED for and are waiting on, as a window sees
@@ -302,18 +200,14 @@ export type MeshCollectPairingResult =
 /**
  * Broadcast mesh lifecycle (MC: remote-sessions-ux / tailnet-live-state-push).
  *
- * Distinct from the per-attachment `meshTerminalEventChannel` stream, which
- * carries pty bytes to the one window that owns the pane. These are the
- * whole-app facts every window may care about — a machine paired or forgotten,
- * an attachment's link state changing — pushed on one channel so chrome (the
- * Remote glyph, toasts) never polls. The mesh has no per-machine supervisor:
- * "connected" is a property of its live attachments, and these events say
- * exactly that rather than inventing a machine phase main does not hold.
+ * Distinct from a followed conversation's frame channel, which carries its
+ * events to the one window that owns the pane. These are the whole-app facts
+ * every window may care about — a machine paired or forgotten, answering or
+ * not — pushed on one channel so chrome (the Remote glyph, toasts) never polls.
  */
 export type MeshEvent =
   | { kind: 'machine-paired'; revision: number; connection: MeshConnection }
   | { kind: 'machine-forgotten'; revision: number; connectionId: string; machineName: string }
-  | ({ kind: 'attachment'; revision: number } & MeshLiveAttachment)
   /**
    * A request this machine made to pair with another (phase 3): main owns
    * the wait, so every surface — not just the panel that asked — can show
@@ -330,7 +224,7 @@ export type MeshEvent =
     }
   | ({ kind: 'machine-reachability'; revision: number } & MeshMachineReachability)
   /**
-   * A paired machine said its terminal list or workspace list changed
+   * A paired machine said its workspace list or conversation list changed
    * (2026-09-05, the change feed). Carries nothing else: a surface that
    * shows that machine re-reads it through the mesh's browse, which is the
    * read it already knows how to do — and no longer does on a timer.
@@ -340,32 +234,16 @@ export type MeshEvent =
       revision: number
       connectionId: string
       machineName: string
-      what: 'terminals' | 'workspaces' | 'conversations'
+      what: 'workspaces' | 'conversations'
     }
 
 /**
- * One pane's link to one remote session. Keyed by `attachId` — the pane —
- * not by session: two panes on the same remote session are two links, and
- * one closing must not retract the other's "live".
- */
-export type MeshLiveAttachment = {
-  attachId: string
-  connectionId: string
-  machineName: string
-  sessionId: string
-  state: MeshLinkState
-  detail: string
-}
-
-/**
- * The initial read behind `MESH_EVENT_CHANNEL`: every attachment main holds
- * right now with its link state, so a window that mounts (or reloads) after
- * a pane went live is not stuck on "paired". Carries the same monotonic
- * `revision` the events do; a subscriber keeps whichever is newer.
+ * The initial read behind `MESH_EVENT_CHANNEL`, so a window that mounts (or
+ * reloads) mid-wait starts where every other window is. Carries the same
+ * monotonic `revision` the events do; a subscriber keeps whichever is newer.
  */
 export type MeshLiveState = {
   revision: number
-  attachments: MeshLiveAttachment[]
   /** Requests this machine made that are still waiting to be answered. */
   requests: MeshPairRequestView[]
   /** The last reachability answer per paired machine; absent before the first check. */
@@ -397,15 +275,10 @@ export const MESH_FORGET_CHANNEL = 'mesh:forget'
  */
 export const TAILNET_FORGET_MACHINE_CHANNEL = 'tailnet:forget-machine'
 export const MESH_BROWSE_CHANNEL = 'mesh:browse'
-export const MESH_CREATE_TERMINAL_CHANNEL = 'mesh:create-terminal'
 /** Start a chat agent on a paired machine, over its `conversation.create`. */
 export const MESH_CREATE_CONVERSATION_CHANNEL = 'mesh:create-conversation'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
 export const MESH_WORKSPACE_CHECKOUT_CHANNEL = 'mesh:workspace-checkout'
-export const MESH_ATTACH_TERMINAL_CHANNEL = 'mesh:attach-terminal'
-export const MESH_DETACH_TERMINAL_CHANNEL = 'mesh:detach-terminal'
-export const MESH_TERMINAL_INPUT_CHANNEL = 'mesh:terminal-input'
-export const MESH_TERMINAL_RESIZE_CHANNEL = 'mesh:terminal-resize'
 
 /**
  * What forgetting a machine did, from the Mesh's side.
@@ -428,11 +301,11 @@ export type TailnetForgetMachineResult = MeshForgetMachineResult & {
 
 // ── Conversations on a paired machine ───────────────────────────────────────
 //
-// The chat counterpart of an attached terminal: main follows a conversation
-// over that machine's conversation socket, keeps its transcript tail and
-// cursor on disk, and hands a window the same frames the local session API
-// does — `snapshot`, `event`, `synchronized`, `error` — plus `link`, the
-// client-side connection state the far end cannot narrate while unreachable.
+// Main follows a conversation over that machine's conversation socket, keeps
+// its transcript tail and cursor on disk, and hands a window the same frames
+// the local session API does — `snapshot`, `event`, `synchronized`, `error` —
+// plus `link`, the client-side connection state the far end cannot narrate
+// while unreachable.
 
 /** What a pairing may do with a machine's conversations: follow them, or also drive them. */
 export type MeshConversationAccess = 'read' | 'operate'
@@ -464,6 +337,13 @@ export type MeshConversationListResult =
   | { ok: true; conversations: MeshConversation[]; access: MeshConversationAccess; modelSwitch: boolean }
   | { ok: false; code: string; message: string }
 
+/**
+ * A step's picture from a paired machine, as a data URL a window can draw.
+ * `images_unsupported` is a machine that does not serve pictures (it does not
+ * advertise `conversation-images`); the picture stays over there.
+ */
+export type MeshConversationImageResult = { ok: true; dataUrl: string } | { ok: false; code: string; message: string }
+
 /** The commands a remote device may send. A permanent rule is not among them. */
 export type MeshConversationCommand = ConversationWireCommand
 
@@ -477,38 +357,33 @@ export function meshConversationPresence(phase: MeshConversation['phase']): 'run
   return 'idle'
 }
 
-/** The layout component of a pane attached to a terminal on a paired machine. */
-export const MESH_TERMINAL_COMPONENT = 'mesh-terminal'
 /** The layout component of a chat pane following a conversation on a paired machine. */
 export const MESH_CONVERSATION_COMPONENT = 'mesh-conversation'
 
 /**
- * Which remote pane a layout tab's component names, or null for any other.
- * Layouts are saved with their tabs, and ones saved before the client side was
- * called the mesh name these panes `fleet-terminal` and `fleet-conversation`;
- * they read as the same panes, so an update reopens every remote pane a person
- * had.
+ * Whether a layout tab's component is a remote conversation pane. Layouts are
+ * saved with their tabs, and ones saved before the client side was called the
+ * mesh name this pane `fleet-conversation`; it reads as the same pane, so an
+ * update reopens every remote chat a person had.
+ *
+ * A remote terminal pane (`mesh-terminal`, or `fleet-terminal` before that) is
+ * not one. Terminals stopped crossing the tailnet on 2026-09-29, and such a tab
+ * saved by an earlier build falls through to the layout's unavailable surface,
+ * like any other stale tab.
  */
-export function meshPaneKind(component: unknown): 'terminal' | 'conversation' | null {
-  if (component === MESH_TERMINAL_COMPONENT || component === 'fleet-terminal') return 'terminal'
-  if (component === MESH_CONVERSATION_COMPONENT || component === 'fleet-conversation') return 'conversation'
-  return null
+export function isMeshConversationPane(component: unknown): boolean {
+  return component === MESH_CONVERSATION_COMPONENT || component === 'fleet-conversation'
 }
 
 /** A layout tab's component with a pre-rename remote pane read as its current name; any other unchanged. */
-export function canonicalMeshPaneComponent<T>(
-  component: T,
-): T | typeof MESH_TERMINAL_COMPONENT | typeof MESH_CONVERSATION_COMPONENT {
-  const kind = meshPaneKind(component)
-  if (kind === 'terminal') return MESH_TERMINAL_COMPONENT
-  if (kind === 'conversation') return MESH_CONVERSATION_COMPONENT
-  return component
+export function canonicalMeshPaneComponent<T>(component: T): T | typeof MESH_CONVERSATION_COMPONENT {
+  return isMeshConversationPane(component) ? MESH_CONVERSATION_COMPONENT : component
 }
 
 /**
- * The id a remote conversation's row and pane are known by here, in the place
- * a remote terminal's session id goes: one id space for "what this pane shows
- * on that machine", so a row finds the window already showing it.
+ * The id a remote conversation's row and pane are known by here: one id for
+ * "what this pane shows on that machine", so a row finds the window already
+ * showing it.
  */
 export function meshConversationSessionId(workspaceId: string, agentId: string): string {
   return `conversation:${workspaceId}:${agentId}`
@@ -526,3 +401,4 @@ export const MESH_CONVERSATION_EARLIER_CHANNEL = 'mesh:conversation-earlier'
 export const MESH_CONVERSATION_COMMAND_CHANNEL = 'mesh:conversation-command'
 export const MESH_CONVERSATION_TOOL_DETAIL_CHANNEL = 'mesh:conversation-tool-detail'
 export const MESH_CONVERSATION_TURN_DIFF_CHANNEL = 'mesh:conversation-turn-diff'
+export const MESH_CONVERSATION_TOOL_IMAGE_CHANNEL = 'mesh:conversation-tool-image'
