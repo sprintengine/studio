@@ -19,6 +19,9 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { resolveWindowsProgramOnPath } from '../command-on-path'
+import { gitSafetyEnv } from '../git-run'
+
 const execFileAsync = promisify(execFile)
 
 /**
@@ -71,6 +74,7 @@ export type GhSpawn = (
     cwd?: string
     maxBuffer: number
     windowsHide: boolean
+    env: NodeJS.ProcessEnv
     /** `execFile`'s own timeout: the child is signalled, not merely abandoned. */
     timeout?: number
     killSignal?: NodeJS.Signals
@@ -82,6 +86,8 @@ export type GhRunnerEnvironment = {
   /** `process.env.SHELL` by default; the login shell the PATH fallback runs through. */
   shell?: string | undefined
   platform?: NodeJS.Platform
+  /** Where `gh` is on Windows; {@link resolveWindowsProgramOnPath} by default. */
+  resolveWindowsProgram?: (name: string) => Promise<string | null>
 }
 
 // Default gh runner: a direct spawn, then — when the binary is not on PATH — a
@@ -95,14 +101,26 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     ((file, args, options) => execFileAsync(file, args, options) as Promise<{ stdout: string; stderr: string }>)
   const shell = environment.shell !== undefined ? environment.shell : process.env.SHELL
   const platform = environment.platform ?? process.platform
+  const resolveWindowsProgram = environment.resolveWindowsProgram ?? ((name) => resolveWindowsProgramOnPath(name))
 
   const runDirect = async (args: string[], options: GhRunOptions): Promise<GhResult> => {
+    // On Windows a bare `gh` would be looked for in `cwd` — the repository —
+    // before PATH, so a `gh.exe` a repository ships would run in its place. The
+    // program is resolved on PATH and spawned by its full path instead, and a
+    // PATH with no `gh` on it is "not installed" rather than a bare-name spawn.
+    let file = 'gh'
+    if (platform === 'win32') {
+      const resolved = await resolveWindowsProgram('gh')
+      if (!resolved) return { found: false, code: -1, stdout: '', stderr: '' }
+      file = resolved
+    }
     try {
-      const { stdout, stderr } = await spawn('gh', args, {
+      const { stdout, stderr } = await spawn(file, args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
+        env: gitSafetyEnv(),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
@@ -118,6 +136,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
+        env: gitSafetyEnv(),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
