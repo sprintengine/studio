@@ -38,6 +38,7 @@ test('claude-agent-provider', async () => {
     await testNativeSkillSelectionReachesSdk()
     await testWslChatRunsItsChildInTheDistribution()
     await testAskModeReadOnlyAndEffort()
+    await testModeSwitchesReachTheLiveChild()
     await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
@@ -49,6 +50,8 @@ test('claude-agent-provider', async () => {
     await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
     await testAbortSignalEndsTheTurnStream()
     await testSpawnFailureSurfacesAsTurnFailed()
+    await testStopDuringSpawnStartsNoChild()
+    await testSuspendDuringSpawnStartsNoChild()
     await testDisposeChildKeepsSessionAndCursorForRespawn()
     await testToolAfterResultOpensContinuationInsteadOfDenying()
     await testSubagentEventsAfterResultRideTheContinuationChannel()
@@ -313,6 +316,58 @@ test('claude-agent-provider', async () => {
     }
     assert.equal(capturedOptions[1]?.permissionMode, 'bypassPermissions')
     adapter.disposeAll()
+  }
+
+  // Plan and ask reach the live child as its native plan mode, and default
+  // mode as bypass, over the control channel. Default under `none` is the
+  // CLI's own configured mode, which no control-channel mode names, so that
+  // one switch still respawns; so does a child that refuses the mode.
+  async function testModeSwitchesReachTheLiveChild(): Promise<void> {
+    const emitResult = (_message: Record<string, unknown>, context: FakeQueryContext): void => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'modes' })
+    }
+    const send = async (adapter: ClaudeAgentProviderAdapter, turnId: string, mode: MockAdapterTurnInput['mode']) =>
+      collect(
+        adapter.sendTurn(
+          turnInput({ turnId, requestId: `approval_${turnId}`, mode }),
+        ) as AsyncIterable<ConversationEvent>,
+      )
+
+    const bypass = createAdapter(emitResult)
+    await collect(bypass.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
+    await send(bypass.adapter, 't1', 'default')
+    await send(bypass.adapter, 't2', 'plan')
+    await send(bypass.adapter, 't3', 'ask')
+    await send(bypass.adapter, 't4', 'default')
+    assert.equal(bypass.capturedOptions.length, 1, 'no respawn for a mode switch under bypass')
+    assert.deepEqual(bypass.permissionModes, ['plan', 'bypassPermissions'], 'plan to ask needs no switch')
+    bypass.adapter.disposeAll()
+
+    const none = createAdapter(emitResult)
+    await collect(none.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
+    await send(none.adapter, 't1', 'default')
+    const last = await send(none.adapter, 't2', 'ask')
+    assert.equal(last.at(-1)?.type, 'turn_completed')
+    assert.equal(none.capturedOptions.length, 1, 'entering ask mode keeps the child')
+    assert.deepEqual(none.permissionModes, ['plan'])
+    await send(none.adapter, 't3', 'default')
+    assert.equal(none.capturedOptions.length, 2, 'leaving it under none respawns into the configured default')
+    assert.equal(none.capturedOptions[1]?.permissionMode, undefined)
+    none.adapter.disposeAll()
+
+    const refusing = createAdapter(emitResult, {
+      onSetPermissionMode: () => {
+        throw new Error('mode refused')
+      },
+    })
+    await collect(
+      refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[],
+    )
+    await send(refusing.adapter, 't1', 'default')
+    await send(refusing.adapter, 't2', 'plan')
+    assert.equal(refusing.capturedOptions.length, 2, 'a refused switch respawns instead')
+    assert.equal(refusing.capturedOptions[1]?.permissionMode, 'plan')
+    refusing.adapter.disposeAll()
   }
 
   // A model switch reaches the live query through the SDK's setModel — no
@@ -1274,6 +1329,84 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(events[1]?.payload?.reason, 'spawn')
     assert.equal(events[1]?.payload?.message, 'Claude Code CLI is not installed.')
+  }
+
+  // A spawn awaits executable discovery (and more) before the child starts; a
+  // stop in that window must not leave a child running that no session owns.
+  function deferredExecutable(): {
+    resolveExecutable: () => Promise<string>
+    asked: Promise<void>
+    release: () => void
+  } {
+    let release!: () => void
+    let noteAsked!: () => void
+    const asked = new Promise<void>((resolve) => {
+      noteAsked = resolve
+    })
+    const ready = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return {
+      resolveExecutable: async () => {
+        noteAsked()
+        await ready
+        return '/fake/bin/claude'
+      },
+      asked,
+      release,
+    }
+  }
+
+  async function testStopDuringSpawnStartsNoChild(): Promise<void> {
+    const sdk = createFakeSdk((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'late' })
+    })
+    const executable = deferredExecutable()
+    const adapter = createClaudeAgentProvider({
+      loadQuery: sdk.loadQuery as never,
+      resolveExecutable: executable.resolveExecutable,
+      buildEnv: () => ({}),
+      now: () => 1000,
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const turn = collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    await executable.asked
+    adapter.stopSession(SESSION_INPUT)
+    executable.release()
+    const events = await turn
+    assert.equal(events.at(-1)?.type, 'turn_failed')
+    assert.equal(sdk.capturedOptions.length, 0, 'no child is started for a stopped session')
+    assert.deepEqual(adapter.listLiveSessions(), [])
+  }
+
+  async function testSuspendDuringSpawnStartsNoChild(): Promise<void> {
+    const sdk = createFakeSdk((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'late' })
+    })
+    const executable = deferredExecutable()
+    const adapter = createClaudeAgentProvider({
+      loadQuery: sdk.loadQuery as never,
+      resolveExecutable: executable.resolveExecutable,
+      buildEnv: () => ({}),
+      now: () => 1000,
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const turn = collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    await executable.asked
+    assert.equal(adapter.disposeChildProcess('conv_1'), true, 'the spawn in flight is called off')
+    executable.release()
+    assert.equal((await turn).at(-1)?.type, 'turn_failed')
+    assert.equal(sdk.capturedOptions.length, 0)
+    assert.equal(adapter.listLiveSessions()[0]?.hasChildProcess, false)
+    // The session stays: the next send starts its child as usual.
+    const next = await collect(
+      adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+    )
+    assert.equal(next.at(-1)?.type, 'turn_completed')
+    assert.equal(sdk.capturedOptions.length, 1)
+    assert.equal(adapter.disposeChildProcess('conv_1'), true)
+    assert.equal(adapter.disposeChildProcess('conv_1'), false, 'nothing is spawning or running any more')
+    await adapter.disposeAll()
   }
 
   async function testDisposeChildKeepsSessionAndCursorForRespawn(): Promise<void> {
