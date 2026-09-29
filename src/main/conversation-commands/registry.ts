@@ -42,6 +42,18 @@ export function publishConversationCommands(input: {
   for (const listener of listeners) listener(catalog)
 }
 
+/**
+ * A live session reported the list already held, unchanged: it is as fresh as
+ * that report, so the next ask does not probe for it again. Nothing is told,
+ * since nothing a listener shows or stores has changed; a list with an error,
+ * or none, is left for a real report.
+ */
+export function touchConversationCommands(cli: string, cwd: string, at = Date.now()): void {
+  const known = catalogs.get(keyOf(cli, cwd))
+  if (!known || known.error || known.fetchedAt <= 0) return
+  catalogs.set(keyOf(cli, cwd), { ...known, fetchedAt: Math.max(known.fetchedAt, at) })
+}
+
 export function conversationCommandsFor(cli: string, cwd: string): ConversationCommandCatalog {
   return catalogs.get(keyOf(cli, cwd)) ?? { cli, cwd, commands: [], fetchedAt: 0 }
 }

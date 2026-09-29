@@ -16,6 +16,9 @@ import type {
 export type ConversationCheckpointResult = { ok: true; ref: string } | { ok: false; message: string; skipped?: boolean }
 
 const PREFIX = 'refs/sprintengine/checkpoints/'
+// Refs removed by one `update-ref --stdin`, and untracked files measured at once.
+const REF_BATCH = 1000
+const LSTAT_BATCH = 64
 const SIDECARS = ['.sprintengine', '.multi-code']
 // The copy must never write a split index into the repository's git
 // directory, and a filesystem monitor's answers belong to the real index.
@@ -153,8 +156,7 @@ export class ConversationCheckpoints {
     if (!(await this.available(key.workspaceRoot))) return
     const prefix = `${PREFIX}${this.identity(key)}/`
     const refs = await this.git(key.workspaceRoot, ['for-each-ref', '--format=%(refname)', prefix])
-    for (const ref of refs.trim().split('\n').filter(Boolean))
-      await this.git(key.workspaceRoot, ['update-ref', '-d', ref])
+    await this.deleteRefs(key.workspaceRoot, refs.trim().split('\n').filter(Boolean))
   }
 
   /**
@@ -187,8 +189,22 @@ export class ConversationCheckpoints {
       if (group) group.activity = Math.max(group.activity, thread.updatedAt)
     }
     const cutoff = now - 30 * 24 * 60 * 60 * 1000
-    for (const group of groups.values())
-      if (group.activity < cutoff) for (const ref of group.refs) await this.git(cwd, ['update-ref', '-d', ref])
+    await this.deleteRefs(
+      cwd,
+      [...groups.values()].filter((group) => group.activity < cutoff).flatMap((group) => group.refs),
+    )
+  }
+
+  /**
+   * Delete refs a batch at a time: an editing turn leaves two, so a long
+   * conversation expires thousands, and one git process per ref took minutes
+   * of spawning in the background of opening a chat.
+   */
+  private async deleteRefs(cwd: string, refs: string[]): Promise<void> {
+    for (let start = 0; start < refs.length; start += REF_BATCH) {
+      const batch = refs.slice(start, start + REF_BATCH)
+      await this.git(cwd, ['update-ref', '--stdin'], undefined, batch.map((ref) => `delete ${ref}\n`).join(''))
+    }
   }
 
   private async commit(root: string, tree: string, turnSeq: number, point: string): Promise<string> {
@@ -257,8 +273,11 @@ export class ConversationCheckpoints {
       .filter((path) => path && !isSidecar(path))
     if (paths.length > this.limits.files) return 'Checkpoints skipped: too many untracked files.'
     let bytes = 0
-    for (const path of paths) {
-      bytes += (await lstat(safePath(root, path))).size
+    for (let start = 0; start < paths.length; start += LSTAT_BATCH) {
+      const sizes = await Promise.all(
+        paths.slice(start, start + LSTAT_BATCH).map(async (path) => (await lstat(safePath(root, path))).size),
+      )
+      bytes += sizes.reduce((sum, size) => sum + size, 0)
       if (bytes > this.limits.bytes) return 'Checkpoints skipped: untracked files exceed the size limit.'
     }
     return null

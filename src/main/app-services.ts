@@ -105,6 +105,7 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { powerActivity } from './power-activity'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -610,7 +611,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return result.ok ? { ok: true } : result
     },
   })
-  conversationRuntime.startIdleSweep()
+  conversationRuntime.startIdleSweep(powerActivity)
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -1708,15 +1709,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       if (!summary) return null
       const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
       if (!workspaceRoot) return []
-      const transcript = await conversationRuntime.readTranscript(
-        {
-          workspaceRoot,
-          workspaceId: summary.workspaceId,
-          agentId: summary.agentId,
-        },
-        { all: true },
-      )
-      return transcript.ok ? transcript.events : []
+      // The first message and the newest turn, never the whole transcript:
+      // a long chat is tens of megabytes, and a hover must not parse it.
+      return conversationRuntime
+        .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
+        .catch(() => [])
     },
   })
 
