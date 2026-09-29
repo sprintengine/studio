@@ -59,6 +59,7 @@ import {
   type RemoteJsonSocket,
 } from './tailnet-remote-client'
 import { asRecord } from '../../../shared/records'
+import { powerActivity, type PowerActivity } from '../../power-activity'
 
 // The Mesh: this Studio driving other machines.
 //
@@ -71,6 +72,29 @@ import { asRecord } from '../../../shared/records'
 const WATCH_RETRY_BASE_MS = 500
 /** A watch on a machine that is away re-dials this slowly at most; the reachability probe is the other beat. */
 const WATCH_RETRY_MAX_MS = 60_000
+/**
+ * A watch that has failed this many dials in a row stops dialling and waits
+ * for the machine to come back (see "Machines that stopped answering").
+ */
+const WATCH_AWAY_AFTER_ATTEMPTS = 4
+/**
+ * How often a machine that stopped answering is asked again while someone can
+ * see a window: one small identity read, which, when it answers, re-dials
+ * every watch and followed conversation parked on that machine.
+ */
+const AWAY_RECHECK_BASE_MS = 15_000
+const AWAY_RECHECK_MAX_MS = 60_000
+/** The person coming back to the app asks a machine that stopped answering at most this often. */
+const AWAY_FOCUS_RECHECK_MIN_MS = 10_000
+/** Every wait between dials to an absent machine is this many times longer on battery. */
+const BATTERY_STRETCH = 4
+/**
+ * The kinds of change a machine's feed reports that this one reads. Anything
+ * else — the `terminals` an older build still announces — names a list this
+ * machine no longer reads.
+ */
+const CHANGE_KINDS = ['workspaces', 'conversations'] as const
+type ChangeKind = (typeof CHANGE_KINDS)[number]
 
 // ── Staying paired (pair-from-the-scan-and-stay-paired, phases 3, 4, 6) ─────
 //
@@ -279,8 +303,14 @@ export type TailnetMeshServiceOptions = {
    * actually there, so the caller can report which halves it ended.
    */
   revokeInboundDevice?: (deviceId: string) => boolean
-  /** Whether a window is open — the reachability timer only runs while one is. Defaults to always. */
+  /**
+   * Whether a window someone could be looking at is open: the reachability
+   * timer, and the re-checks of a machine that stopped answering, only run
+   * while one is. Defaults to always.
+   */
   hasWindow?: () => boolean
+  /** Focus, lock and battery, for the loops above; the process-wide instance unless a test passes its own. */
+  activity?: Pick<PowerActivity, 'isOnBattery' | 'isScreenLocked' | 'onFocusChange'>
   /** Injected in tests, which cannot wait minutes. */
   pairPollMs?: number
   reachabilityIntervalMs?: number
@@ -306,6 +336,10 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   const pairPollMs = Math.max(50, options.pairPollMs ?? DEFAULT_PAIR_POLL_MS)
   const reachabilityIntervalMs = Math.max(50, options.reachabilityIntervalMs ?? DEFAULT_REACHABILITY_INTERVAL_MS)
   const reachabilityTimeoutMs = Math.max(50, options.reachabilityTimeoutMs ?? DEFAULT_REACHABILITY_TIMEOUT_MS)
+  const activity = options.activity ?? powerActivity
+  const stretch = (): number => (activity.isOnBattery() ? BATTERY_STRETCH : 1)
+  /** Someone could be looking: a window is up and the screen is not locked. */
+  const someoneLooking = (): boolean => (options.hasWindow?.() ?? true) && !activity.isScreenLocked()
   // Stamped on every broadcast and every snapshot; only ever goes up, so a
   // subscriber can order a late initial read against events already applied.
   let revision = 0
@@ -342,7 +376,10 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       store.markConnected(connection.id)
       if (!reachabilityFor(connection).reachable)
         recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+      machineBack(connection.id)
     },
+    onAway: (connectionId) => noteMachineAway(connectionId),
+    isOnBattery: () => activity.isOnBattery(),
     log: options.log,
   })
 
@@ -390,6 +427,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         pairedVia: 'link',
       })
       broadcast({ kind: 'machine-paired', connection })
+      syncReachabilityTimer()
       // It just answered a pairing, so it is reachable — recorded rather
       // than left for the next timer to discover.
       recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
@@ -531,6 +569,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       }
       endRequest(request, true, { ok: true, status: 'approved', connection })
       broadcast({ kind: 'machine-paired', connection })
+      syncReachabilityTimer()
       announceRequest(request, 'approved', { connection })
       recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
       startWatch(connection.id)
@@ -705,6 +744,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       broadcast({ kind: 'machine-forgotten', connectionId: existing.id, machineName: existing.machineName })
     }
     broadcast({ kind: 'machine-paired', connection })
+    syncReachabilityTimer()
     void probeReachability(connection)
     startWatch(connection.id)
     return connection
@@ -720,6 +760,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   const reachability = new Map<string, MeshMachineReachability>()
   const probes = new Map<string, Promise<void>>()
   let reachabilityTimer: ReturnType<typeof setInterval> | null = null
+  /** `start` was called: the supervisor runs, and the change feed is watched. */
+  let supervising = false
 
   function reachabilityFor(connection: MeshConnection): MeshMachineReachability {
     return (
@@ -754,6 +796,9 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
     reachability.set(connection.id, next)
     broadcast({ kind: 'machine-reachability', ...next })
+    // Whatever answered, the machine is back: whatever was parked waiting for
+    // it dials now rather than at the next re-check.
+    if (answer.reachable) resumeMachine(connection.id)
   }
 
   function probeReachability(connection: MeshConnection): Promise<void> {
@@ -810,6 +855,16 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     retryTimer: ReturnType<typeof setTimeout> | null
     attempts: number
     released: boolean
+    /** Between a dial's ticket and its socket; a second dial then would orphan a socket. */
+    dialing: boolean
+    /** Stopped dialling after failing long enough; waits for the machine to come back. */
+    parked: boolean
+    /**
+     * The revision of each kind of change as the far end last reported it,
+     * or null before the first `hello`. A reconnect whose `hello` names a
+     * different one missed that change and says so, as a push would have.
+     */
+    revisions: Partial<Record<ChangeKind, number>> | null
   }
   const watches = new Map<string, Watch>()
   /**
@@ -842,12 +897,21 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     if (watched && !supported) stopWatch(connectionId)
     // Only while the supervisor is running: outside it, nothing is watched at
     // all, and a probe must not be what starts a socket `start` never asked for.
-    else if (!watched && supported && reachabilityTimer) startWatch(connectionId)
+    else if (!watched && supported && supervising) startWatch(connectionId)
   }
 
   function startWatch(connectionId: string): void {
     if (watches.has(connectionId)) return
-    const watch: Watch = { connectionId, socket: null, retryTimer: null, attempts: 0, released: false }
+    const watch: Watch = {
+      connectionId,
+      socket: null,
+      retryTimer: null,
+      attempts: 0,
+      released: false,
+      dialing: false,
+      parked: false,
+      revisions: null,
+    }
     watches.set(connectionId, watch)
     void dialWatch(watch)
   }
@@ -864,7 +928,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   }
 
   async function dialWatch(watch: Watch): Promise<void> {
-    if (watch.released) return
+    if (watch.released || watch.dialing || watch.socket?.isOpen()) return
+    watch.parked = false
     const connection = store.find(watch.connectionId)
     if (!connection) {
       stopWatch(watch.connectionId)
@@ -886,26 +951,39 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       stopWatch(watch.connectionId)
       return
     }
-    const opened = await openRemoteEventsSocket({
-      endpoint: endpointOf(connection),
-      token: connection.deviceToken,
-      handlers: {
-        onFrame: (frame) => handleWatchFrame(watch, frame),
-        onClosed: ({ code, reason }) => {
-          watch.socket = null
-          if (watch.released) return
-          // Revoked over there: a decision, not a blip. The watch ends; the
-          // reachability record says why, and a re-pair starts a new one.
-          if (code === 4401) {
-            const revoked = store.find(watch.connectionId)
-            if (revoked) recordReachability(revoked, { reachable: false, unauthorized: true, detail: reason })
-            stopWatch(watch.connectionId)
-            return
-          }
-          scheduleWatchRetry(watch)
+    let socket: RemoteJsonSocket | null = null
+    watch.dialing = true
+    let opened: Awaited<ReturnType<typeof openRemoteEventsSocket>>
+    try {
+      opened = await openRemoteEventsSocket({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        handlers: {
+          // The first frame (`hello`) can arrive with the handshake, before the
+          // socket is handed back, so frames are judged by the watch alone.
+          onFrame: (frame) => {
+            if (!watch.released && (!socket || watch.socket === socket)) handleWatchFrame(watch, frame)
+          },
+          onClosed: ({ code, reason }) => {
+            // A socket this watch already let go of (recycled on a wake) is not news.
+            if (!socket || watch.socket !== socket) return
+            watch.socket = null
+            if (watch.released) return
+            // Revoked over there: a decision, not a blip. The watch ends; the
+            // reachability record says why, and a re-pair starts a new one.
+            if (code === 4401) {
+              const revoked = store.find(watch.connectionId)
+              if (revoked) recordReachability(revoked, { reachable: false, unauthorized: true, detail: reason })
+              stopWatch(watch.connectionId)
+              return
+            }
+            scheduleWatchRetry(watch)
+          },
         },
-      },
-    })
+      })
+    } finally {
+      watch.dialing = false
+    }
     if (watch.released) {
       if (opened.ok) opened.value.close('Stopped watching.')
       return
@@ -919,18 +997,35 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       scheduleWatchRetry(watch)
       return
     }
-    watch.socket = opened.value
+    socket = opened.value
+    if (!socket.isOpen()) {
+      // Closed before it was handed back (its first bytes carried the close):
+      // a failed dial, not an open watch.
+      scheduleWatchRetry(watch)
+      return
+    }
+    watch.socket = socket
     watch.attempts = 0
     // It answered, so it is reachable — the same record a browse would land.
     if (!reachabilityFor(connection).reachable) {
       recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
     }
+    machineBack(connection.id)
   }
 
   function scheduleWatchRetry(watch: Watch): void {
-    if (watch.released || watch.retryTimer) return
-    const delayMs =
-      backoffDelayMs(watch.attempts, { baseMs: WATCH_RETRY_BASE_MS, maxMs: WATCH_RETRY_MAX_MS }) ?? WATCH_RETRY_MAX_MS
+    if (watch.released || watch.retryTimer || watch.parked) return
+    if (watch.attempts >= WATCH_AWAY_AFTER_ATTEMPTS) {
+      // Away: stop dialling on a timer of its own. It used to re-dial every
+      // minute for as long as the machine was paired — from a tray with no
+      // window, on battery, all night. The machine's re-check (or a wake, or
+      // any other answer from it) brings the watch back.
+      watch.parked = true
+      noteMachineAway(watch.connectionId)
+      return
+    }
+    const maxMs = WATCH_RETRY_MAX_MS * stretch()
+    const delayMs = backoffDelayMs(watch.attempts, { baseMs: WATCH_RETRY_BASE_MS, maxMs }) ?? maxMs
     watch.attempts += 1
     watch.retryTimer = setTimeout(() => {
       watch.retryTimer = null
@@ -940,45 +1035,193 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   }
 
   function handleWatchFrame(watch: Watch, frame: Record<string, unknown>): void {
-    if (frame.type !== 'changed') return
-    // Anything else — the `terminals` an older build still announces — names a
-    // list this machine no longer reads.
-    const what = frame.what === 'workspaces' || frame.what === 'conversations' ? frame.what : null
-    if (!what) return
     const connection = store.find(watch.connectionId)
     if (!connection) return
-    broadcast({ kind: 'remote-changed', connectionId: connection.id, machineName: connection.machineName, what })
+    const changed = (what: ChangeKind): void => {
+      broadcast({ kind: 'remote-changed', connectionId: connection.id, machineName: connection.machineName, what })
+    }
+    if (frame.type === 'hello') {
+      // Where the far end stands. On a reconnect, a kind whose revision moved
+      // changed while this watch was away — asleep, parked, recycled — and is
+      // reported as the push it missed would have been.
+      const revisions = asRecord(frame.revisions)
+      if (!revisions) return
+      const previous = watch.revisions
+      const next: Partial<Record<ChangeKind, number>> = {}
+      for (const what of CHANGE_KINDS) {
+        const revision = revisions[what]
+        if (typeof revision !== 'number') continue
+        next[what] = revision
+        if (previous && previous[what] !== revision) changed(what)
+      }
+      watch.revisions = next
+      return
+    }
+    if (frame.type !== 'changed') return
+    const what = CHANGE_KINDS.find((kind) => kind === frame.what)
+    if (!what) return
+    if (watch.revisions && typeof frame.revision === 'number') watch.revisions[what] = frame.revision
+    changed(what)
+  }
+
+  // ── Machines that stopped answering ───────────────────────────────────────
+  //
+  // A followed conversation and a change-feed watch each used to re-dial a
+  // sleeping machine on their own backoff, forever: a ticket request and a
+  // link frame every fifteen seconds per open pane, and a dial a minute per
+  // paired machine, with or without a window. Now each gives up after a few
+  // quick tries and parks, and the machine is asked again by one small
+  // identity read, only while someone could be looking, backing off to a
+  // minute (four on battery). Anything that shows the machine is back — that
+  // read, a browse, a list, a wake, the person returning to the app — dials
+  // everything parked on it at once.
+  type AwayMachine = { attempts: number; timer: ReturnType<typeof setTimeout> | null; lastCheckAt: number }
+  const awayMachines = new Map<string, AwayMachine>()
+
+  function noteMachineAway(connectionId: string): void {
+    if (!store.find(connectionId)) return
+    let away = awayMachines.get(connectionId)
+    if (!away) {
+      away = { attempts: 0, timer: null, lastCheckAt: 0 }
+      awayMachines.set(connectionId, away)
+    }
+    armAwayRecheck(connectionId, away)
+  }
+
+  function armAwayRecheck(connectionId: string, away: AwayMachine): void {
+    // Nobody can see a window: nothing is re-checked until someone can (the
+    // focus listener below) or the machine wakes.
+    if (away.timer || !someoneLooking()) return
+    const delayMs =
+      (backoffDelayMs(away.attempts, { baseMs: AWAY_RECHECK_BASE_MS, maxMs: AWAY_RECHECK_MAX_MS }) ??
+        AWAY_RECHECK_MAX_MS) * stretch()
+    away.timer = setTimeout(() => {
+      away.timer = null
+      if (awayMachines.get(connectionId) !== away) return
+      away.attempts += 1
+      void recheckAway(connectionId, away)
+    }, delayMs)
+    away.timer.unref?.()
+  }
+
+  async function recheckAway(connectionId: string, away: AwayMachine): Promise<void> {
+    const connection = store.find(connectionId)
+    if (!connection) {
+      awayMachines.delete(connectionId)
+      return
+    }
+    // Nothing is waiting on it any more (the pane closed, the watch ended):
+    // there is no one to tell, so no one to ask for.
+    if (!remoteConversations.parkedOn(connectionId) && watches.get(connectionId)?.parked !== true) {
+      forgetAway(connectionId)
+      return
+    }
+    if (!someoneLooking()) return
+    away.lastCheckAt = Date.now()
+    // An answer resumes everything parked on the machine, through
+    // `recordReachability`; no answer leaves it parked for the next re-check.
+    await probeReachability(connection)
+    if (awayMachines.get(connectionId) === away) armAwayRecheck(connectionId, away)
+  }
+
+  /**
+   * The machine answered a dial of ours. Its re-check stops, and whatever
+   * else is still parked on it dials now: the reachability record may already
+   * have said "reachable", so `recordReachability` would not have resumed it.
+   */
+  function machineBack(connectionId: string): void {
+    forgetAway(connectionId)
+    resumeMachine(connectionId)
+  }
+
+  /** Dial everything parked on one machine, now. */
+  function resumeMachine(connectionId: string): void {
+    remoteConversations.resume(connectionId)
+    const watch = watches.get(connectionId)
+    if (watch?.parked) void dialWatch(watch)
+  }
+
+  function forgetAway(connectionId: string): void {
+    const away = awayMachines.get(connectionId)
+    if (away?.timer) clearTimeout(away.timer)
+    awayMachines.delete(connectionId)
+  }
+
+  // Coming back to the app is when a stale "not answering" is noticed: ask
+  // each absent machine once, and re-arm the re-checks a hidden window held.
+  const releaseFocus = activity.onFocusChange((focused) => {
+    if (!focused) return
+    for (const [connectionId, away] of awayMachines) {
+      if (Date.now() - away.lastCheckAt < AWAY_FOCUS_RECHECK_MIN_MS) {
+        armAwayRecheck(connectionId, away)
+        continue
+      }
+      if (away.timer) clearTimeout(away.timer)
+      away.timer = null
+      void recheckAway(connectionId, away)
+    }
+  })
+
+  // ── The supervisor ────────────────────────────────────────────────────────
+
+  /** The five-minute check runs only while there is a machine to check. */
+  function syncReachabilityTimer(): void {
+    const wanted = supervising && store.list().length > 0
+    if (wanted && !reachabilityTimer) {
+      reachabilityTimer = setInterval(() => {
+        // Nobody is looking: a row nobody can see does not need to be right.
+        if (!someoneLooking()) return
+        void checkAllReachability()
+      }, reachabilityIntervalMs)
+      reachabilityTimer.unref?.()
+    } else if (!wanted && reachabilityTimer) {
+      clearInterval(reachabilityTimer)
+      reachabilityTimer = null
+    }
   }
 
   function start(): void {
-    if (reachabilityTimer) return
+    if (supervising) return
+    supervising = true
     void checkAllReachability()
     for (const connection of store.list()) startWatch(connection.id)
-    reachabilityTimer = setInterval(() => {
-      // Nobody is looking: a row nobody can see does not need to be right.
-      if (options.hasWindow && !options.hasWindow()) return
-      void checkAllReachability()
-    }, reachabilityIntervalMs)
-    reachabilityTimer.unref?.()
+    syncReachabilityTimer()
   }
 
   function onWake(): void {
     void checkAllReachability()
     remoteConversations.onWake()
-    // Dial now; the backoff was for a machine that had not changed, and this
-    // one just did.
+    for (const away of awayMachines.values()) {
+      // A new network, perhaps: the re-checks start again from the quick end.
+      away.attempts = 0
+      if (away.timer) clearTimeout(away.timer)
+      away.timer = null
+    }
     for (const watch of watches.values()) {
-      if (watch.released || watch.socket || !watch.retryTimer) continue
-      clearTimeout(watch.retryTimer)
+      if (watch.released || watch.dialing) continue
+      if (watch.socket) {
+        // A watch that looks open across a sleep may be talking to nobody:
+        // the far end, or a middlebox, dropped it while this machine could
+        // not hear, and nothing flows on it until something changes, so
+        // nothing would ever say so. One cheap dial per machine, only on a
+        // wake; its `hello` reports whatever changed meanwhile.
+        const stale = watch.socket
+        watch.socket = null
+        stale.close('Reconnecting after a wake.')
+      }
+      if (watch.retryTimer) clearTimeout(watch.retryTimer)
       watch.retryTimer = null
       void dialWatch(watch)
     }
   }
 
-  async function browse(connectionId: unknown): Promise<MeshBrowse> {
+  function browse(connectionId: unknown): Promise<MeshBrowse> {
     const connection = connectionFor(connectionId)
-    if (!connection) return unknownConnectionBrowse(connectionId)
+    if (!connection) return Promise.resolve(unknownConnectionBrowse(connectionId))
+    return browseNow(connection)
+  }
 
+  async function browseNow(connection: StoredMeshConnection): Promise<MeshBrowse> {
     // Identity first: it is the cheapest authenticated call, so it separates
     // "asleep" from "revoked" before anything else is attempted, and it returns
     // the scopes as they are NOW rather than as they were at pairing.
@@ -1181,6 +1424,38 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
   }
 
+  async function listConversationsNow(connection: StoredMeshConnection): Promise<MeshConversationListResult> {
+    const identity = await readRemoteIdentity({ endpoint: endpointOf(connection), token: connection.deviceToken })
+    if (!identity.ok) {
+      recordReachability(connection, {
+        reachable: false,
+        unauthorized: identity.code === 'unauthorized',
+        detail: identity.message,
+      })
+      return { ok: false, code: identity.code, message: identity.message }
+    }
+    store.updateScopes(connection.id, identity.value.scopes)
+    store.markConnected(connection.id)
+    rememberCapabilities(connection.id, identity.value.capabilities)
+    recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
+    // A published list without the lane is a machine that cannot answer;
+    // one that published none is asked anyway and answers for itself.
+    if (identity.value.capabilities && !tailnetPeerSupports(identity.value.capabilities, 'conversations')) {
+      return {
+        ok: false,
+        code: 'conversations_unsupported',
+        message: `${connection.machineName} does not serve conversations. Update Studio there to follow them from here.`,
+      }
+    }
+    // Model switching is a capability of its own: a machine that does not
+    // name it lists no catalog and refuses the command, so its chats keep
+    // the model they have and the picker says so.
+    const listed = await remoteConversations.list(connection.id)
+    return listed.ok
+      ? { ...listed, modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models') }
+      : listed
+  }
+
   /**
    * Drop this machine's credential for one peer, and everything hanging off it.
    *
@@ -1193,11 +1468,13 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     const forgotten = store.find(connectionId)
     reachability.delete(connectionId)
     peerCapabilities.delete(connectionId)
+    forgetAway(connectionId)
     stopWatch(connectionId)
     // Its followed conversations end, and what was kept of them goes too: a
     // transcript from a machine no longer paired is not this machine's to keep.
     void remoteConversations.forgetConnection(connectionId, 'This machine was removed from your mesh.')
     store.forget(connectionId)
+    syncReachabilityTimer()
     if (forgotten) broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
     // Never the stored record itself: it carries the device token, and nothing
     // above this line is allowed to hold one.
@@ -1255,35 +1532,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     async listConversations(connectionId): Promise<MeshConversationListResult> {
       const connection = connectionFor(connectionId)
       if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
-      const identity = await readRemoteIdentity({ endpoint: endpointOf(connection), token: connection.deviceToken })
-      if (!identity.ok) {
-        recordReachability(connection, {
-          reachable: false,
-          unauthorized: identity.code === 'unauthorized',
-          detail: identity.message,
-        })
-        return { ok: false, code: identity.code, message: identity.message }
-      }
-      store.updateScopes(connection.id, identity.value.scopes)
-      store.markConnected(connection.id)
-      rememberCapabilities(connection.id, identity.value.capabilities)
-      recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
-      // A published list without the lane is a machine that cannot answer;
-      // one that published none is asked anyway and answers for itself.
-      if (identity.value.capabilities && !tailnetPeerSupports(identity.value.capabilities, 'conversations')) {
-        return {
-          ok: false,
-          code: 'conversations_unsupported',
-          message: `${connection.machineName} does not serve conversations. Update Studio there to follow them from here.`,
-        }
-      }
-      // Model switching is a capability of its own: a machine that does not
-      // name it lists no catalog and refuses the command, so its chats keep
-      // the model they have and the picker says so.
-      const listed = await remoteConversations.list(connection.id)
-      return listed.ok
-        ? { ...listed, modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models') }
-        : listed
+      return listConversationsNow(connection)
     },
 
     async followConversation(input) {
@@ -1368,6 +1617,9 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     getLiveState,
 
     shutdown(): void {
+      releaseFocus()
+      for (const connectionId of [...awayMachines.keys()]) forgetAway(connectionId)
+      supervising = false
       remoteConversations.shutdown()
       for (const connectionId of [...watches.keys()]) stopWatch(connectionId)
       if (reachabilityTimer) clearInterval(reachabilityTimer)

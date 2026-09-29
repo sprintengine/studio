@@ -714,6 +714,7 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
   const handlers: RemoteJsonSocketHandlers[] = []
   const sockets: Array<{ socket: RemoteJsonSocket; closed: boolean }> = []
   const saves: Array<{ lastSeq: number | null; events: number }> = []
+  const away: string[] = []
   let dial = overrides.dial ?? 'ok'
   let release: (() => void) | null = null
   let hold = false
@@ -728,6 +729,7 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
     },
     retry: { baseMs: 500, maxMs: 15_000 },
     ...(overrides.isOnBattery ? { isOnBattery: overrides.isOnBattery } : {}),
+    onAway: (connectionId) => away.push(connectionId),
     resolveConnection: () => ({
       id: 'c',
       machineName: 'mac-mini',
@@ -770,6 +772,7 @@ function drivenClient(overrides: { isOnBattery?: () => boolean; dial?: 'ok' | 'f
     handlers,
     sockets,
     saves,
+    away,
     frames,
     key,
     event,
@@ -829,6 +832,73 @@ test('on battery the slow beat stretches', async () => {
     assert.equal(d.saves.length, 1)
     await vi.advanceTimersByTimeAsync(2_000)
     assert.equal(d.saves.length, 2)
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a follow on a machine that stops answering parks until it is resumed or the machine wakes', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient({ dial: 'fail' })
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(10_000)
+    const dials = d.handlers.length
+    assert.equal(dials, 4, 'the first dial and a few quick retries')
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'offline')
+    assert.deepEqual(d.away, ['c'], 'the owner is told once')
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    assert.equal(d.handlers.length, dials, 'a parked follow does not dial on a timer')
+    assert.equal(d.client.parkedOn('c'), true)
+
+    d.client.resume('c')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'resume dials once')
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'offline', 'and parks again on a failure')
+    await vi.advanceTimersByTimeAsync(60_000)
+    assert.equal(d.handlers.length, dials + 1)
+    await d.follow('another-window')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 2, 'another window opening it dials once')
+
+    d.setDial('ok')
+    d.client.onWake()
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 3, 'a wake dials a parked follow')
+    d.fence(1)
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'live')
+    assert.equal(d.client.parkedOn('c'), false)
+    d.client.shutdown()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a follow woken, resumed and joined while its dial is out opens one socket', async () => {
+  vi.useFakeTimers()
+  try {
+    const d = drivenClient({ dial: 'fail' })
+    await d.follow()
+    await vi.advanceTimersByTimeAsync(10_000)
+    assert.equal(d.client.parkedOn('c'), true)
+    const dials = d.handlers.length
+    d.setDial('ok')
+    d.holdDials(true)
+    d.client.resume('c')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'the dial is out')
+    // Everything else that would dial lands while it is out.
+    d.client.onWake()
+    d.client.resume('c')
+    await d.follow('p2')
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.handlers.length, dials + 1, 'none of it dials a second time')
+    d.releaseDial()
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(d.sockets.length, 1, 'one socket, none orphaned')
+    d.fence(1)
+    assert.equal(d.link()?.type === 'link' && d.link()?.state, 'live')
     d.client.shutdown()
   } finally {
     vi.useRealTimers()

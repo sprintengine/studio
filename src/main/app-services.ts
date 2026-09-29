@@ -1407,8 +1407,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onMeshEvent(event)
     },
+    // A window someone could be looking at: the mesh's reachability timer and
+    // its re-checks of an absent machine only feed rows on screen.
     hasWindow: () =>
-      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
+      BrowserWindow.getAllWindows().some(
+        (window) =>
+          !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
+      ),
     resolveConversationHost: () =>
       createConversationGatewayHost(
         conversationRuntime,
