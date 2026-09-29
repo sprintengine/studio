@@ -1,250 +1,159 @@
 # Changelog
 
-## Unreleased
+## 1.0.0-beta.0
 
-- **A signed manifest signs the module's code: `files`.** `CapabilityManifest`
-  gains `files?: ModuleFileDigests`, a map of every file the module ships
-  (POSIX path relative to the module root → lowercase sha256 hex, manifest.json
-  aside). `sprintengine-module sign` now records it before signing, so the
-  signature covers the code as well as the declaration; `verify` and `pack`
-  fail when the folder no longer matches it exactly. New exports:
-  `ModuleFileDigests`, `validateModuleFileDigests`, `compareModuleFileDigests`
-  and `isPackExcludedPath` from the root; `computeModuleFileDigestsSync` and
-  `moduleFileDigestIssuesSync` from `./signing`. The field joins the canonical
-  payload only when present, so a signature over a manifest without it still
-  verifies byte for byte — but the app no longer trusts such a module through
-  its publisher key or a user's grant, and a manifest whose `files` do not
-  match is refused as tampered. **Sign existing modules again** to keep them
-  trusted.
+The first beta of the contract 1.0 will ship: modules reach the
+app's agents **as chats**, declare the host API they were built for, sign their
+code as well as their manifest, and install from a folder, from GitHub or from
+the marketplace. This entry covers everything since 0.5.0 and replaces the
+unreleased notes that were kept while the contract moved; where those notes
+described an API added and removed again before release (per-launch terminal
+contributions, host-run Python), this release has neither.
+
+The package was renamed with the app: it is `@sprintengine/module-sdk`, and a
+module must change every import, including the `--external:` flags for
+`@sprintengine/module-sdk/ui` and `@sprintengine/module-sdk/surface`.
+
+### Breaking: removed
+
+- **Terminal agents.** A module no longer launches, types into, watches or
+  names agent terminals. Removed: `getAgentSessionService` with
+  `ModuleAgentSessionService`, `ModuleAgentSessionRecord`,
+  `ModuleAgentSpawnRequest`, `ModuleAgentSpawnResult` and
+  `ModuleAgentExitEvent`; `RendererHost.spawnAgent`,
+  `RendererHost.watchAgentSessions`, `RendererHost.registerAgentIdNamespace`
+  and `RendererHost.listAgentRuntimes` with `ModuleSpawnAgentInput`,
+  `ModuleSpawnAgentResult`, `ModuleAgentSessionView`,
+  `AgentIdNamespaceDefinition`, `ModuleAgentRuntimeOption` and
+  `ModuleAgentRuntimeModelOption`. Use the conversation service and
+  `openChat` (below).
+- **Permissions `ipc:agents` and `agents:session`.** Declare
+  `conversation:read` / `conversation:operate` for chats and `mcp:tools` for
+  gateway tools. A manifest that still lists either shows it as an
+  unrecognised capability.
+- **`MainHost.ipcMain`.** Register handlers with `registerIpc`.
+- **Agent CLI plugins.** `validateCliPluginManifest`, `parseCliPluginManifest`
+  and every `Cli*` manifest type leave the SDK: agent runtimes ship with the
+  app, and nothing a user installs adds or replaces one. `cli` is no longer a
+  `MarketplaceComponentKind`, and `plugin scaffold --component cli` is gone.
+- **`BacklogItemView.kind`.** The host no longer guesses a plan kind. Read
+  `item.type`, or `item.relativePath` for the file's format.
+- **Vocabulary nothing produces any more:** `LifecycleState` loses `review`,
+  `testing`, `product`, `changes_requested`, `recorded`, `approved_auto`,
+  `done_unmerged` and `done_merged`, and `WorkspaceRunGlyphState` loses
+  `review` (map onto `in_progress`, `needs_input` or `done`);
+  `CommandAvailability` loses `sprintengineWorkspace`,
+  `sprintengineHasArchitect`, `sprintengineFocusAgentVisible` and
+  `sprintEngineEnabled`; `BacklogItemLink` loses `target.taskId` and
+  `priorStatus`; `CliModelPickerButtonProps` loses `noneOption`;
+  `McpConnectionMetadata` loses `sprintRunId`; `ActionContext.spawnAgent`
+  loses `specialistId`.
+
+### Breaking: changed
+
+- **`engines.hostApi` is required** on a third-party manifest. A module
+  without it, or built for a host API outside the app's supported range, is
+  refused with a message saying which side to update. The CLI's `sign`,
+  `verify` and `pack` check it too.
+- **A module needs `files` to load.** `CapabilityManifest.files` maps every
+  file the module ships (POSIX path → lowercase sha256, `manifest.json` aside).
+  `sprintengine-module sign` writes it before signing, so the signature covers
+  the code; `verify` and `pack` fail when the folder no longer matches. The app
+  refuses a changed, missing or extra file as tampered, trusts a signed module
+  by key only when it carries `files`, and binds a person's trust grant to a
+  fingerprint that covers them. **Sign existing modules again.**
   `MarketplacePluginAuthoringManifest` omits `files`: a bundle's digests live
   per component.
+- **`focusTab` takes `kind: 'chat' | 'file'`.** `'agent'` is gone; a chat is
+  focused by its agent id.
+- **`MainHost.registerMcpTools` requires `mcp:tools`**, and a third-party tool
+  counts as changing state unless it declares `mutates: false`.
+- **Automations run their agents as chats.** `ActionContext.spawnAgent` takes
+  `model` (was `cliModel`) and `skills`, and resolves with the chat's
+  `sessionId`; the run finishes when that chat's turn completes or fails.
+  `AutomationRun.executionId` is now `AutomationRun.sessionId`.
+- **A sidecar is a declaration.** The host lists a `registerSidecar` spec and
+  spawns nothing; `SidecarSpec.kind` no longer suggests Python.
+- **The previous app name is gone from every contract:** the import map
+  answers only `@sprintengine/module-sdk`, the panel-command event is
+  `sprintengine:panel-command`, the CLI binary is `sprintengine-module`, and
+  the drop-in roots are `~/.sprintengine/modules` and `~/.sprintengine/plugins`.
+- The package requires Node 22.15 or newer, as the templates do.
 
-- **`LifecycleGlyph` takes an optional `style`.** Inline overrides on the
-  glyph's `<svg>` — the host's `StatusDot` now draws a lifecycle shape in its
-  tone's ink and size through it. Additive: a glyph without one is unchanged.
+### Added
 
-- **`SegmentedControlItem` takes an optional `badge`.** `{ count, label, tone? }`
-  draws the kit's count badge after the segment's label and adds `label` to the
-  segment's accessible name — for a choice with something waiting behind it.
-  Additive: an item without one is unchanged.
+- **Host API version.** `HOST_API_VERSION` (1), `HOST_API_MIN_SUPPORTED` (1),
+  `checkHostApiCompatibility`, `HostApiCompatibility`, and
+  `CapabilityManifest.engines`. Both hosts carry `hostApiVersion` and
+  `supports(capability)` with the `HostCapability` names `conversations`,
+  `chat.open`, `companion-agents`, `automations`, `secrets`, `github`,
+  `storage`, `mcp-tools`, `skills`, `module-assets` and `notifications`.
+- **Chat conversations.** `getConversationService(host)` creates, sends to,
+  steers, interrupts, approves for, stops, subscribes to, replays, lists and
+  watches the chats a module owns — only its own. Types:
+  `ModuleConversationService`, `ModuleConversationCreateInput`,
+  `ModuleConversationEvent`, `ModuleConversationEventType`,
+  `ModuleConversationRef`, `ModuleConversationSummary`,
+  `ModuleConversationStatus`, `ModuleConversationImageAttachment`,
+  `ModuleConversationPermissionPreset`, `ModuleConversationErrorCode`,
+  `ModuleConversationResult`. Permissions `conversation:read` and
+  `conversation:operate`.
+- **Opening a chat for the person.** `RendererHost.openChat` (a drafted prompt
+  by default, `send: true` to send it) and `RendererHost.listChatRuntimes`,
+  with `ModuleOpenChatInput`, `ModuleOpenChatResult` and
+  `ModuleChatRuntimeOption`.
+- **Brokered credentials.** `getSecretsService(host)` (permission `secrets`):
+  a stored value only ever leaves the host inside a request to an https origin
+  it was stored with. `getGitHubService(host)` (permission `github`): the GitHub
+  API with the person's sign-in, token never shown. Types:
+  `ModuleSecretsService`, `ModuleSecretFetchInit`, `ModuleSecretFetchResult`,
+  `ModuleSecretsError`, `ModuleGitHubService`, `ModuleGitHubRequest`,
+  `ModuleGitHubResponse`.
+- **Opening a module's own surfaces.** `RendererHost.openGlobalSurface(id)` and
+  `RendererHost.openModalSurface(id)`; each opens only a surface the calling
+  module registered.
+- **Async registration.** `RegisterMain` and `RegisterRenderer` may return a
+  promise; the host waits for it (bounded) and fails the module alone on a
+  rejection.
+- **Templates and `sprintengine-module init`.** Eleven starter projects
+  (`blank`, `panel`, `global-surface`, `top-bar-item`, `settings-section`,
+  `workspace-type`, `backlog-action`, `file-action`, `mcp-tools`,
+  `automation-trigger`, `chat-companion`), each building, testing and
+  side-loading out of the box, with `plugin.json` at the project root pointing
+  at `module/`. `@sprintengine/module-sdk/scaffold` exports the scaffolder
+  (`scaffoldModuleProject`, `listModuleTemplates`).
+- **The `sprintengine-extension-builder` skill**, shipped in the package and
+  copied into every scaffolded project, for the agent that builds the
+  extension.
+- **File digests for tooling:** `ModuleFileDigests`,
+  `validateModuleFileDigests`, `compareModuleFileDigests` and
+  `isPackExcludedPath` from the root; `computeModuleFileDigestsSync` and
+  `moduleFileDigestIssuesSync` from `./signing`.
+- **Renderer contributions:** `registerFileAction` (Files-tree actions),
+  `registerNotificationActionProvider` (Open actions for bell rows),
+  `registerDoorBadge` (a row's waiting count), and on
+  `WorkspaceTypeDefinition` `hiddenFromRail`, `createLabel`, `RowMark`,
+  `rowActions` and `openOnFirstLoad`, with `RendererHost.openWorkspace(typeId)`.
+- **Packaged web runtimes.** `RendererHost.getAssetUrl` serves an installed
+  file from a stable, private `studio-module:` origin.
+- **Automations provider metadata.** `label`, `glyph`
+  (`AUTOMATION_PROVIDER_GLYPHS`), `summary`, and a trigger's `pairsWith`.
+- **Sidecar handles.** `registerSidecar` returns a `SidecarHandle`
+  (`start`, `stop`, `status`), with `SidecarRunState`, `SidecarStartOptions`
+  and `SidecarRuntimeStatus`.
+- **UI kit:** `PanelHeader`, `LifecycleGlyph`'s `style`, `SegmentedControlItem`'s
+  `badge`, and the button and input prop building blocks (`ButtonBase`,
+  `SizedButtonProps`, `ButtonComponent`, `SharedInputProps`) are exported.
+- `CompanionAgentEvent.seq`.
 
-- **`send-after-ready` is implemented, and `CliReadinessSignal` says what
-  "ready" means.** A CLI plugin whose `promptInjection.mode` is
-  `send-after-ready` now has its first message typed in (one bracketed paste,
-  one Enter) on a new launch; a resume never sends it again. Its `readiness` is
-  one of `{ type: 'bracketed-paste', timeoutMs }` (the line editor turned
-  bracketed paste on; sent anyway at the deadline) or
-  `{ type: 'output-match', pattern, timeoutMs }` (the CLI printed `pattern`;
-  nothing is typed at the deadline, and the person is handed the message back).
-  `pattern` must now compile as a regular expression. An `input`
-  `promptInjection.overflow` may carry `env`, set only on a launch whose first
-  message is typed in; a `send-after-ready` manifest's overflow must be `input`.
-  A manifest whose `output-match` pattern was a never-matching placeholder now
-  never types its message and hands it back instead. `readiness` is validated
-  and used whatever the mode: on a `positional-arg` manifest it governs the
-  typed delivery of a first message too long for the command line, and an
-  invalid one now rejects the manifest instead of being ignored.
+### Behaviour
 
-- **The app's previous name is gone from every contract.** This is a
-  **breaking change**, with no aliases kept:
-  - the host's import map answers only the `@sprintengine/module-sdk` scope, so
-    a bundle built against an earlier scope must be rebuilt;
-  - the panel-command window event is `sprintengine:panel-command`;
-  - the authoring CLI binary is `sprintengine-module`;
-  - the drop-in extension roots are `~/.sprintengine/modules` and
-    `~/.sprintengine/plugins`.
-
-- **`BacklogItemView` loses `kind`.** A Backlog item is a markdown file with
-  metadata; the host no longer guesses a plan kind from its filename or title,
-  and no longer reads a `kind:` / `planKind:` frontmatter field. This is a
-  **breaking type change** for a module that reads `item.kind`. Read
-  `item.type` for the triage type (an `.html` file with no `type:` reads as
-  `mockup`), or `item.relativePath` for the file's format.
-
-- **The host no longer runs Python.** `MainHost.runPython`,
-  `RunPythonRequest`, `RunPythonResult`, `PythonSidecarConfig` and
-  `SidecarSpec.python` are removed, and the app stops bundling CPython. A
-  `registerSidecar` call is a declaration again: the host lists it but spawns
-  nothing, so `SidecarHandle` loses the members only a host-spawned child
-  could feed — `pid`, `onStdout`, `onStderr`, `onExit`, `ready` and
-  `signalReady()` — along with `SidecarChunkListener` and
-  `SidecarExitListener`. This is a **breaking change**: a module that
-  registered a `kind: 'python'` sidecar or called `runPython` stops
-  compiling. Ship your own runtime and spawn it yourself (declare
-  `process:spawn`), or port the work to TypeScript.
-
-- **`LifecycleState` loses `review`, `testing`, `product`,
-  `changes_requested`, `recorded`, `approved_auto`, `done_unmerged` and
-  `done_merged`, and `WorkspaceRunGlyphState` loses `review`.** They were
-  the in-tree run engine's pipeline stages, and nothing in the host produces
-  them any more. This is a **breaking type change**: a `deriveRunGlyph`
-  provider or a `LifecycleGlyph` caller that returns one stops compiling. Map
-  the stage onto the remaining vocabulary (`in_progress` for a stage still
-  running, `needs_input` for a stage waiting on a person, `done` for a
-  finished one).
-
-- **`ActionContext.spawnAgent` loses `specialistId`.** Nothing in the app
-  reads it, and the host ignored it. This is a **breaking type change** for an
-  automation action provider that sets it: the property no longer exists, so
-  the compile fails rather than the value being dropped silently. Delete the
-  assignment and say what the agent should do in `prompt`, or install the
-  skill you want and attach it through the Agent Sessions service instead.
-
-  The module id `sprint-engine` stays in `BUNDLED_MODULE_IDS`. It is reserved,
-  not bundled: the Sprint Engine ships as an out-of-tree module that installs
-  under that id, and the reservation is what stops anything else claiming the
-  name.
-
-- **`CommandAvailability` loses `sprintengineWorkspace`,
-  `sprintengineHasArchitect`, `sprintengineFocusAgentVisible` and
-  `sprintEngineEnabled`.** The shell no longer computes any of them, so a
-  command gating on one could never become available. The union is open at the
-  type level, so a module that still names one compiles — and reads as
-  unsatisfied, which is what it already was. Gate on a `panel:<moduleId>` scope
-  or an availability predicate instead.
-
-- **`CliManifest` loses `souls` and `CliSoulsSpec`.** The app no longer reads a
-  CLI plugin's role directory, because it has no concept of a role.
-
-- **`BacklogItemLink` loses `target.taskId` and `priorStatus`.** Both were
-  written only by the in-tree run engine for an epic child's run link, and
-  nothing reads them now: the host drops them when it normalises a stored
-  link. A module that set either stops compiling; delete the assignment.
-
-- **`CliModelPickerButtonProps` loses `noneOption`.** The pinned "no runtime"
-  row served the retired planning agent; the trigger always names a runtime
-  now.
-
-- **`McpConnectionMetadata` loses `sprintRunId`.** Nothing set it once the
-  in-tree run engine left; an out-of-tree module identifies its own connections
-  through `agentId`.
-
-- **A workspace type can hide its workspaces from the rail.**
-  `WorkspaceTypeDefinition.hiddenFromRail` withholds workspaces of that type
-  from the Projects list, keyboard switch targets, and command-palette
-  results, the same way `hiddenFromPicker` withholds the type from the
-  creation picker. Hidden means hidden from discovery: the workspace stays
-  in the store, in window assignments, and explicitly activatable. A door
-  surface that took over finding those workspaces sets this so they are not
-  listed again under one project.
-
-- **A module can contribute Open actions for its bell rows**
-  (`host.registerNotificationActionProvider`). One provider per `source`; a
-  duplicate is a registration error. `resolveActions` receives
-  `{ notification: { workspaceId?, navigationTarget? }, revealWorkspace }`
-  and returns `{ id, label, run }` actions. Returning none leaves the shell's
-  generic workspace-reveal fallback. New types: `NotificationActionProvider`,
-  `NotificationActionContext`, `NotificationAction`, `NotificationActionView`.
-
-- **A module can contribute a door / nav-entry waiting count**
-  (`host.registerDoorBadge`). `{ rowId, getWaitingCount, subscribe,
-  notificationSource? }` — the shell merges the count with that row's unread
-  bell news, and `notificationSource` is how unnamed notices of that source
-  fall to the row. Duplicate `rowId` is a registration error. Gone with the
-  module, so a count with no row never appears. New type:
-  `DoorBadgeContribution`.
-
-- **A workspace type can own its sidebar row and its create control.**
-  `WorkspaceTypeDefinition` gains `createLabel` (the picker/hub create
-  control; defaults to `label`), `RowMark` (glyph beside the row title),
-  and `rowActions` (`{ id, label, variant?, isVisible, confirm, run }`,
-  extra context-menu items on that type's rows). The shell draws
-  those from the registration; they are absent with the module, never a
-  disabled core row. New types: `WorkspaceTypeRowAction`,
-  `WorkspaceTypeRowActionConfirm`, `WorkspaceTypeSidebarWorkspace`.
-
-- **A module can contribute Files-tree context-menu actions**
-  (`host.registerFileAction`). The function receives `{ id, label, order?,
-  getLabel?, isVisible(context), getState(context), run(context) }` where
-  `context` is `{ workspaceId, workspaceRoot, entries }` and each entry is
-  `{ name, path, isDir, gitDeleted? }`. The explorer renders visible
-  contributions from enabled modules under a heading named for the module;
-  the row is absent — not a disabled core item — when the module is off.
-  Duplicate ids are a registration error. New types: `FileAction`,
-  `FileActionContext`, `FileActionEntry`, `FileActionState`.
-
-- **A module can contribute to every agent launch**
-  (`host.registerLaunchContribution`). The function receives `{ cli,
-  workspaceRoot, sessionId, agentId, agentKind, resume, knowledgeRoot,
-  pathStyle }` and returns `{ env, pathEntries, shellFunctions,
-  mcpServers, hostContext, session, identityKeys }`. Contributions run in
-  module registration order and a throw is recorded as a module diagnostic
-  without failing the spawn. Declare `ipc:agents`. New types:
-  `LaunchContribution`, `LaunchContributionRequest`,
-  `LaunchContributionResult`, `LaunchContributionMcpServer`,
-  `LaunchContributionHostContextSection`, `LaunchContributionSessionTag`,
-  `LaunchContributionPathStyle`.
-
-- **A module can ship Python the host runs on the managed interpreter**
-  (`MainHost.registerSidecar` `kind: 'python'`, `MainHost.runPython`). Sidecar
-  registration used to be a label: `kind` was free-form and nothing honoured
-  it, so a module that wanted its own packages on the app's CPython had to
-  spawn `python3` itself and hope. `registerSidecar({ id, kind: 'python',
-  python: { root, module, args, env }, startOn })` is now host-owned — the
-  host containment-checks `python.root` (the same rule as `registerSkills`),
-  prepends it to `PYTHONPATH`, and spawns on the managed interpreter. The
-  returned `SidecarHandle` carries `pid`, stdout/stderr chunk callbacks,
-  `onExit`, and a `ready` promise the module resolves from its own output via
-  `signalReady()`. `stop()` and unload kill the child. `kind: 'process'` with
-  a module-supplied lifecycle stays legal for non-Python daemons.
-  `runPython({ root, script | module, args, cwd, env, timeoutMs })` is the
-  one-shot twin and returns `{ exitCode, stdout, stderr }`. Third-party
-  modules must declare `process:spawn` on both surfaces (the host checks it);
-  bundled first-party modules have no permissions list and are not gated
-  there. New mirrored types: `PythonSidecarConfig`,
-  `SidecarHandle`, `SidecarRunState`, `SidecarRuntimeStatus`,
-  `SidecarStartOptions`, `RunPythonRequest`, `RunPythonResult`.
-
-- **Automations providers carry display metadata and pairing defaults.**
-  `AutomationActionProvider` and `AutomationTriggerProvider` gain optional
-  `label`, `glyph` (from the closed `AUTOMATION_PROVIDER_GLYPHS` vocabulary:
-  `agent`, `loop`, `board`, `clock`) and `summary`. The Automations panel
-  reads those instead of hard-coding a module's copy. A trigger may declare
-  `pairsWith: { actionKind, defaultDisableAfterRun }` so a chained pair
-  defaults `disableAfterRun` without the host naming either kind.
-  `ActionKind` keeps the bundled literals (`spawn-agent`, `run-command`,
-  `run-skill-loop`) and stays open to module-namespaced kinds.
-
-- **`RendererHost.invoke` routes to any module that declares `ipc:invoke`.**
-  The main-side dispatcher used to refuse bundled owners, which left a module
-  built here unable to use the bridge it publishes. That restriction is
-  dropped: prefix + permission remain the gate. No type change.
-
-- **Backlog item actions render in menus, not as header buttons.**
-  `BacklogItemAction.order` positions an action within the row's right-click
-  menu and the detail header's More-actions menu. The header's own buttons
-  belong to the shell. No type change.
-
-- **The package is now `@sprintengine/module-sdk`**, matching the app's name.
-  **A module author must change every import**, including the `--external:`
-  flags for the host-bridged subpaths: `@sprintengine/module-sdk`,
-  `@sprintengine/module-sdk/ui`, `@sprintengine/module-sdk/surface`,
-  `@sprintengine/module-sdk/signing`. The types, the exports and the runtime
-  contract are unchanged — only the name is.
-
-- **Packaged web runtimes have stable module origins.** `RendererHost.getAssetUrl`
-  resolves an installed asset to a `studio-module:` URL. Packaged HTML supports
-  relative scripts, WebAssembly, workers and IndexedDB. Private per-installation
-  origins prevent unrelated pages from guessing asset URLs, with current trust and
-  enablement checks and containment inside the module directory.
-- **Panel headers are available through the shared UI kit.** `PanelHeader` and
-  `PanelHeaderProps` are exported from `@sprintengine/module-sdk/ui` so contributed
-  panels can use Studio's existing header component.
-
-- **Folderless workspaces can open themselves after installation.** Set
-  `WorkspaceTypeDefinition.openOnFirstLoad: true` to create/focus that type on
-  its first enabled, trusted renderer load. A persisted marker prevents focus
-  stealing or recreation after closing it, and only the primary window runs
-  automatic creation. `RendererHost.openWorkspace(typeId)` lets a module's
-  command explicitly reopen its own type. Both use the registered template,
-  reuse existing workspaces and reject types requiring a creation step or
-  custom creation hook.
-- **New renderer-only modules activate after install/trust.** Studio refreshes
-  trusted renderer entries and adds their contributions without restarting.
-  Each module id is evaluated at most once per renderer session; modules with
-  main/preload entries, updates to running code and failed evaluations still
-  require a restart. Existing registry consumers update reactively, and an
-  `openOnFirstLoad` workspace opens as soon as the new module is ready.
+- `RendererHost.invoke` routes to any module that declares `ipc:invoke`.
+- Backlog item actions render in the row's menu and the detail header's
+  More-actions menu, ordered by `order`.
+- A new renderer-only module loads as soon as it is trusted; `entry.main` and
+  updates to loaded code still take a restart.
+- A third-party module resolves only the services the SDK publishes.
 
 ## 0.5.0 — 2026-09-10
 
