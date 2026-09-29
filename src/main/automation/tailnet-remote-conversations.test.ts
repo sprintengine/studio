@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, vi } from 'vitest'
+import { createSafeStorageStandIn } from '../../../tests/stubs/safe-storage'
 
 import type { ConversationEvent, ConversationSessionFrame } from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
@@ -13,6 +14,7 @@ import { createMockConversationProvider } from '../providers/mock-conversation-p
 import { createConversationGatewayHost, type ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
+import { createTailnetMeshStore } from './tailnet/tailnet-mesh-store'
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { createRemoteConversations } from './tailnet/tailnet-remote-conversations'
@@ -172,9 +174,13 @@ async function startHarness(): Promise<Harness> {
   let server = build(0)
   await server.start()
   const port = server.address()!.port
+  // One keychain across launches, so a restarted client opens the pairing the
+  // first one sealed.
+  const keychain = createSafeStorageStandIn()
   const newMesh = () =>
     createTailnetMeshService({
       resolveUserDataDir: () => localDir,
+      createStore: (options) => createTailnetMeshStore({ ...options, safeStorage: keychain }),
       resolveDeviceName: () => 'dev-macbook-air',
       resolvePeerName: async () => null,
       conversations: { retry: { baseMs: 20, maxMs: 200 }, saveDelayMs: 5, requestTimeoutMs: 5_000 },
