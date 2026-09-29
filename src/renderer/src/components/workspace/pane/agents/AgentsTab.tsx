@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { EmptyState, GhostButton, InlineNotice, PanelHeader, RowButton, Spinner, TruncatedText } from '../../../ui'
 import { useLocalChatBinding, type ChatBinding } from '../../../panels/agentChat/chatBinding'
@@ -67,7 +67,38 @@ function formatTokens(count: number): string {
   return count >= 1000 ? `${Math.round(count / 1000)}k tokens` : `${count} tokens`
 }
 
-export function AgentsTab({ workspaceId }: { workspaceId: string; active: boolean }) {
+// How often the lanes may be refolded while the chat streams. The whole
+// transcript is folded each time, and a lane's words and steps read the same a
+// fraction of a second later.
+const LANE_REFRESH_MS = 400
+
+/**
+ * `value`, following it at most once per `intervalMs` (the latest value lands
+ * on the trailing edge), and not at all while `following` is false. Turned
+ * back on, it catches up at once, as it does whenever `atOnce` says what is
+ * shown cannot wait (nothing read yet).
+ */
+function useThrottledValue<T>(value: T, intervalMs: number, following: boolean, atOnce: (shown: T) => boolean): T {
+  const [shown, setShown] = useState(value)
+  const shownAt = useRef(0)
+  useEffect(() => {
+    if (!following || Object.is(value, shown)) return undefined
+    const show = () => {
+      shownAt.current = Date.now()
+      setShown(() => value)
+    }
+    const wait = atOnce(shown) ? 0 : shownAt.current + intervalMs - Date.now()
+    if (wait <= 0) {
+      show()
+      return undefined
+    }
+    const timer = setTimeout(show, wait)
+    return () => clearTimeout(timer)
+  }, [value, shown, intervalMs, following, atOnce])
+  return shown
+}
+
+export function AgentsTab({ workspaceId, active }: { workspaceId: string; active: boolean }) {
   const focusedAgentId = useWorkspaceStore((s) => s.focusedAgentByWorkspaceId[workspaceId] ?? null)
   const request = useAgentFocusRequest(workspaceId)
   // A chat that asked for this tab (from one of its agent lanes) is shown until
@@ -103,9 +134,12 @@ export function AgentsTab({ workspaceId }: { workspaceId: string; active: boolea
       binding={binding}
       initialLaneId={target?.laneId ?? null}
       requestSerial={target?.serial ?? 0}
+      active={active}
     />
   )
 }
+
+const isEmpty = (events: readonly unknown[]): boolean => events.length === 0
 
 function ChatAgents({
   workspaceId,
@@ -114,6 +148,7 @@ function ChatAgents({
   binding,
   initialLaneId,
   requestSerial,
+  active,
 }: {
   workspaceId: string
   agentId: string
@@ -121,20 +156,27 @@ function ChatAgents({
   binding: ChatBinding
   initialLaneId: string | null
   requestSerial: number
+  /** The pane is open on this tab and its workspace is on screen. */
+  active: boolean
 }) {
   const session = useConversationSession(root, workspaceId, agentId)
   // Tokens stream into the same session; the list only needs to keep up, not to
-  // refold on every one of them.
-  const events = useDeferredValue(session.events)
+  // refold on every one of them. Nobody can see a collapsed pane or a
+  // background workspace's, so there it holds what it last showed and
+  // catches up when it is shown again.
+  const events = useDeferredValue(useThrottledValue(session.events, LANE_REFRESH_MS, active, isEmpty))
   const projection = useMemo(() => projectConversation(events), [events])
   const lanes = useMemo(() => collectAgentLanes(projection.entries), [projection.entries])
   const [selected, setSelected] = useState<string | null>(initialLaneId)
   useEffect(() => setSelected(initialLaneId), [initialLaneId, requestSerial])
   const lane = selected ? lanes.find((candidate) => candidate.id === selected) : undefined
 
-  const working = lanes.filter((candidate) => candidate.status === 'running')
-  const finished = lanes.filter((candidate) => candidate.status !== 'running').reverse()
+  // Kept while the lanes are, so a session frame that moved nothing drawn here
+  // (every frame, while the tab is hidden) re-renders no section or thread.
+  const working = useMemo(() => lanes.filter((candidate) => candidate.status === 'running'), [lanes])
+  const finished = useMemo(() => lanes.filter((candidate) => candidate.status !== 'running').reverse(), [lanes])
   const tokens = lanes.reduce((sum, candidate) => sum + (candidate.agent?.usage?.totalTokens ?? 0), 0)
+  const showList = useCallback(() => setSelected(null), [])
 
   return (
     <ConversationLinkProvider workspaceId={workspaceId} agentId={agentId} cwd={root} workspaceRoot={root}>
@@ -142,7 +184,7 @@ function ChatAgents({
         <div className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)]">
           <PanelHeader title="Agents" subtitle={binding.agent.name} count={lanes.length || undefined} />
           {lane ? (
-            <AgentThread lane={lane} onBack={() => setSelected(null)} />
+            <AgentThread lane={lane} onBack={showList} />
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
               {!session.hydrated && !session.error ? (
@@ -193,7 +235,7 @@ function ChatAgents({
   )
 }
 
-function AgentSection({
+const AgentSection = React.memo(function AgentSection({
   title,
   lanes,
   onOpen,
@@ -216,7 +258,7 @@ function AgentSection({
       </ul>
     </section>
   )
-}
+})
 
 function AgentStatus({ lane }: { lane: TranscriptToolEntry }) {
   if (lane.status === 'running')
@@ -268,7 +310,13 @@ function AgentRow({ lane, onOpen }: { lane: TranscriptToolEntry; onOpen: () => v
 // One agent's own thread: what it was asked and what kind of helper it is, the
 // steps it took (each one opens onto its input and output, as in the chat),
 // and the report it came back with.
-function AgentThread({ lane, onBack }: { lane: TranscriptToolEntry; onBack: () => void }) {
+const AgentThread = React.memo(function AgentThread({
+  lane,
+  onBack,
+}: {
+  lane: TranscriptToolEntry
+  onBack: () => void
+}) {
   const running = lane.status === 'running'
   const description = useSubagentTypeDescription(lane.subagentType)
   const task = laneTask(lane)
@@ -351,4 +399,4 @@ function AgentThread({ lane, onBack }: { lane: TranscriptToolEntry; onBack: () =
       ) : null}
     </div>
   )
-}
+})
