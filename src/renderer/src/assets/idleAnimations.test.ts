@@ -131,6 +131,7 @@ test('the pause covers the parts of a visible window nobody can see', () => {
     '[data-live-offscreen]',
     "[data-layer-state='warm']",
     "[data-layer-state='cold']",
+    '[data-pane-collapsed]',
     '[inert]',
   ]
   for (const selector of splitSelectorList(pauseSelector())) {
