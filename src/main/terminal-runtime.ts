@@ -743,7 +743,7 @@ function setTerminalVisible(
   } else if (shouldReplay) {
     // A fresh pane shown without a hidden→visible edge: the replay below holds
     // whatever batch was queued for the pane it replaces.
-    terminalOutput.discardRenderer(sessionId)
+    terminalOutput.discard(sessionId)
   }
   recordTerminalVisibility(session, visible)
   // A pane going hidden or coming back has nothing in flight worth waiting on:
@@ -3040,7 +3040,7 @@ async function spawnTerminalFromIpc(
     // The replay already holds whatever was queued for the old pane and not yet
     // sent; sending that batch after it would print its tail twice. And the new
     // pane starts with nothing in flight.
-    terminalOutput.discardRenderer(sessionId)
+    terminalOutput.discard(sessionId)
     terminalOutput.resetRendererFlow(sessionId)
     noteRendererCaughtUp(existingSession)
     if (replay) {

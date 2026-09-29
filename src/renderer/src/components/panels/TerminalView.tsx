@@ -16,12 +16,7 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import {
-  createStudioTerminal,
-  terminalSurfaceLinkRoots,
-  type StudioTerminal,
-  type TerminalSurface,
-} from '../../utils/createStudioTerminal'
+import { createStudioTerminal, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
@@ -444,12 +439,6 @@ export default function TerminalView({
       workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
       executionRoot: linkExecutionRoot.cwd ?? null,
     }
-    // Read here rather than off `studioTerminal` below because the OSC 8 handler
-    // is a CONSTRUCTION option — xterm's own OscLinkProvider reads
-    // `options.linkHandler` — so the surface's permission to resolve a local
-    // path has to be known before the terminal exists. Same function the factory
-    // calls, so the two can never disagree.
-    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
     // statPath rejects for a path that is gone or unreadable; that routes to the
     // error popover, so a dead link never opens a menu of actions that would all
     // fail. Shared by the OSC 8 handler and the heuristic provider below.
@@ -474,7 +463,7 @@ export default function TerminalView({
               kind: 'file',
               resolvedPath,
               isDirectory,
-              workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+              workspaceRoot: terminalSurface.workspaceRoot,
             },
             x: anchor.x,
             y: anchor.y,
@@ -572,47 +561,43 @@ export default function TerminalView({
     const textarea = term.textarea
     textarea?.addEventListener('focus', reclaimPtySize)
 
-    // Non-null for every agent surface; the guard is what keeps a surface that
-    // must not resolve local paths (mesh) from ever registering this provider.
     const linkRoots = studioTerminal.linkRoots
-    const fileLinkDisposable = linkRoots
-      ? term.registerLinkProvider(
-          createTerminalFileLinkProvider({
-            terminal: term,
-            workspaceRoot: linkRoots.workspaceRoot,
-            // A thunk, so the correction the launch path makes below reaches the links
-            // already on screen without re-registering the provider.
-            executionRoot: () => launchExecutionRoot,
-            // An agent under WSL prints Linux paths; the provider needs the
-            // distribution to hand Windows a path it can open. Read late, like
-            // the root.
-            wslDistro: () =>
-              terminalWslDistro({
-                platform: window.api.platform,
-                hostId: currentContext().hostId,
-                roots: [launchExecutionRoot, linkRoots.workspaceRoot],
-              }),
-            inspectPath,
-            // The click no longer decides anything — it opens the chooser.
-            onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
-              setLinkMenu({
-                target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
-                x: anchor.x,
-                y: anchor.y,
-                line,
-                column,
-              })
-            },
-            onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
-            // A matched path that never became a link leaves no trace on screen, so
-            // count it. Both roots are null for a workspace with no configured folder
-            // — the case this effect deliberately runs for — and every relative path
-            // in the pane is then dropped for `no-root`, which is the one shape of
-            // "the terminal linkifies nothing" a user can actually report.
-            onDrop: terminalDiagnostics.recordFileLinkDrop,
+    const fileLinkDisposable = term.registerLinkProvider(
+      createTerminalFileLinkProvider({
+        terminal: term,
+        workspaceRoot: linkRoots.workspaceRoot,
+        // A thunk, so the correction the launch path makes below reaches the links
+        // already on screen without re-registering the provider.
+        executionRoot: () => launchExecutionRoot,
+        // An agent under WSL prints Linux paths; the provider needs the
+        // distribution to hand Windows a path it can open. Read late, like
+        // the root.
+        wslDistro: () =>
+          terminalWslDistro({
+            platform: window.api.platform,
+            hostId: currentContext().hostId,
+            roots: [launchExecutionRoot, linkRoots.workspaceRoot],
           }),
-        )
-      : null
+        inspectPath,
+        // The click no longer decides anything — it opens the chooser.
+        onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
+          setLinkMenu({
+            target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
+            x: anchor.x,
+            y: anchor.y,
+            line,
+            column,
+          })
+        },
+        onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
+        // A matched path that never became a link leaves no trace on screen, so
+        // count it. Both roots are null for a workspace with no configured folder
+        // — the case this effect deliberately runs for — and every relative path
+        // in the pane is then dropped for `no-root`, which is the one shape of
+        // "the terminal linkifies nothing" a user can actually report.
+        onDrop: terminalDiagnostics.recordFileLinkDrop,
+      }),
+    )
 
     // Loaded AFTER the file-link provider on purpose: xterm resolves link
     // providers in registration order and the earlier one's links suppress the
@@ -1486,7 +1471,7 @@ export default function TerminalView({
       disposeFocusRequest()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      fileLinkDisposable?.dispose()
+      fileLinkDisposable.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()

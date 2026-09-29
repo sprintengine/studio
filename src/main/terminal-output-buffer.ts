@@ -4,45 +4,6 @@ import type { TerminalSession } from './terminal-session'
 type TerminalOutputCause = 'timer' | 'exit' | 'dispose' | 'visibility'
 
 /**
- * One attached viewer of a session's output.
- *
- * This buffer used to hold exactly ONE pending batch per session, forwarded to
- * the renderer behind a single per-session gate (`session.visible`). A remote
- * attach is a second, independent viewer of the same pty: it must
- * keep streaming while the local pane is hidden, and a slow remote consumer
- * must not stall the local one. So the batch, the gate, and the byte bound are
- * all per SINK now, and the renderer is simply the sink the runtime always has.
- *
- * `shouldForward` is the per-sink flush gate. For the renderer it is the
- * session's visibility (a hidden xterm is frozen, so forwarding to it would be
- * dropped bytes the reveal has to resend anyway). For a remote viewer it
- * is its own socket — deliberately NOT the local pane's visibility.
- */
-export type TerminalOutputSink = {
-  /** Unique within a session. The renderer's is `TERMINAL_RENDERER_SINK_ID`. */
-  id: string
-  shouldForward(session: TerminalSession | undefined): boolean
-  /**
-   * `extent` places the batch in the session's output stream: `endOffset` is
-   * the offset just past it and `bytes` its UTF-8 length, so a batch that does
-   * not start where the sink's last one ended — its head was dropped at the
-   * bound — can be told from one that does. `bytes` counts a `droppedNotice`
-   * too, which is why only a sink without one may rely on it.
-   */
-  forward(data: string, extent: TerminalOutputExtent): void
-  /** Bound on bytes buffered but not yet forwarded, per sink. */
-  pendingLimitBytes: number
-  /** Text put in place of the bytes dropped at the bound; omit for a sink that resyncs instead. */
-  droppedNotice?: string
-  /** Called when the bound was hit and older bytes were dropped. */
-  onDropped?(): void
-}
-
-export type TerminalOutputExtent = { endOffset: number; bytes: number }
-
-const TERMINAL_RENDERER_SINK_ID = 'renderer'
-
-/**
  * Backpressure from the renderer's xterm to the pty.
  *
  * Main used to forward whatever the pty produced, every 16 ms, up to 256 KB a
@@ -81,8 +42,6 @@ type TerminalOutputBufferOptions = {
     chunkCount: number,
     byteCount: number,
   ): void
-  /** Viewers attached beyond the renderer; empty for every session nobody remote is watching. */
-  resolveExtraSinks?(sessionId: string): readonly TerminalOutputSink[]
   flowControl?: TerminalFlowControl
 }
 
@@ -95,12 +54,15 @@ const TERMINAL_PENDING_DATA_LIMIT = 256 * 1024
 const TERMINAL_THROTTLE_NOTICE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
 type PendingBatch = {
-  sink: TerminalOutputSink
+  // The session the newest chunk was queued for. A resume can respawn under
+  // the same id between the first chunk of a batch and its flush; the batch
+  // goes to the window the newest chunk's session is routed to.
+  session: TerminalSession
   chunks: string[]
   bytes: number
   units: number
   // The session's stream offset once the newest chunk in this batch was
-  // appended — how far the viewer has been sent when this batch goes out.
+  // appended — how far the pane has been sent when this batch goes out.
   endOffset: number
   timer: NodeJS.Timeout
 }
@@ -119,87 +81,62 @@ export function createTerminalOutputBuffer({
   getSession,
   sendTerminalEvent,
   recordDataBatch,
-  resolveExtraSinks,
   flowControl,
 }: TerminalOutputBufferOptions) {
-  // sessionId -> sinkId -> the batch waiting for that one viewer.
-  const pendingTerminalData = new Map<string, Map<string, PendingBatch>>()
-  // One renderer sink per session object, reading the session's CURRENT sender
-  // when it forwards (a reveal can adopt a new window between the first chunk of
-  // a batch and its flush). It used to be rebuilt, closure and all, per chunk.
-  const rendererSinks = new WeakMap<TerminalSession, TerminalOutputSink>()
+  // sessionId -> the batch waiting for the session's pane.
+  const pendingTerminalData = new Map<string, PendingBatch>()
   const rendererFlow = new Map<string, RendererFlow>()
 
   function flush(sessionId: string, cause: TerminalOutputCause = 'timer'): void {
-    const bySink = pendingTerminalData.get(sessionId)
-    if (!bySink) return
+    const pending = pendingTerminalData.get(sessionId)
+    if (!pending) return
 
     pendingTerminalData.delete(sessionId)
+    clearTimeout(pending.timer)
     const session = getSession(sessionId)
-    for (const pending of bySink.values()) {
-      clearTimeout(pending.timer)
-      const data = pending.chunks.length === 1 ? (pending.chunks[0] as string) : pending.chunks.join('')
-      const isRenderer = pending.sink.id === TERMINAL_RENDERER_SINK_ID
-      if (pending.sink.shouldForward(session)) {
-        pending.sink.forward(data, { endOffset: pending.endOffset, bytes: pending.bytes })
-        if (isRenderer && session) {
-          session.rendererDeliveredOffset = pending.endOffset
-          session.rendererDeliveredTo = session.sender
-          noteRendererForwarded(sessionId, data.length)
-        }
-      }
-      // Diagnostics describe the UI's data path, so they stay the renderer's:
-      // counting a remote viewer's batches too would silently double the
-      // throughput the Diagnostics panel reports.
-      if (isRenderer) {
-        recordDataBatch(session, cause, pending.chunks.length, pending.bytes)
-        if (session) evaluateFlow(session)
+    const data = pending.chunks.length === 1 ? (pending.chunks[0] as string) : pending.chunks.join('')
+    // While a pane is hidden the bytes are held in the retained replay buffer
+    // and the reveal path resends them, so forwarding here would only
+    // duplicate the tail.
+    if (session?.visible !== false) {
+      sendTerminalEvent(pending.session.sender, `terminal:data:${pending.session.sessionId}`, data)
+      if (session) {
+        session.rendererDeliveredOffset = pending.endOffset
+        session.rendererDeliveredTo = session.sender
+        noteRendererForwarded(sessionId, data.length)
       }
     }
+    recordDataBatch(session, cause, pending.chunks.length, pending.bytes)
+    if (session) evaluateFlow(session)
   }
 
-  /** Drop one viewer's queued batch — used when it detaches mid-flight. */
-  function discard(sessionId: string, sinkId: string): void {
-    const bySink = pendingTerminalData.get(sessionId)
-    const pending = bySink?.get(sinkId)
-    if (!bySink || !pending) return
+  /** Drop the queued batch: a replay about to be sent already holds it. */
+  function discard(sessionId: string): void {
+    const pending = pendingTerminalData.get(sessionId)
+    if (!pending) return
     clearTimeout(pending.timer)
-    bySink.delete(sinkId)
-    if (bySink.size === 0) pendingTerminalData.delete(sessionId)
+    pendingTerminalData.delete(sessionId)
   }
 
   /**
-   * Queue one pty chunk for every viewer. `bytes` is the chunk's UTF-8 length,
-   * already measured when it was appended to the replay buffer.
+   * Queue one pty chunk for the session's pane. `bytes` is the chunk's UTF-8
+   * length, already measured when it was appended to the replay buffer.
    */
   function send(session: TerminalSession, data: string, bytes: number): void {
-    queue(session, rendererSink(session), data, bytes)
-    const extra = resolveExtraSinks?.(session.sessionId)
-    if (extra) for (const sink of extra) queue(session, sink, data, bytes)
-  }
-
-  function queue(session: TerminalSession, sink: TerminalOutputSink, data: string, bytes: number): void {
-    let bySink = pendingTerminalData.get(session.sessionId)
-    if (!bySink) {
-      bySink = new Map<string, PendingBatch>()
-      pendingTerminalData.set(session.sessionId, bySink)
-    }
-    const pending = bySink.get(sink.id)
-    const isRenderer = sink.id === TERMINAL_RENDERER_SINK_ID
+    const pending = pendingTerminalData.get(session.sessionId)
     if (pending) {
-      pending.sink = sink
+      pending.session = session
       pending.chunks.push(data)
       pending.bytes += bytes
       pending.units += data.length
       pending.endOffset = session.output.endOffset
-      if (pending.bytes > sink.pendingLimitBytes) {
-        const trimmed = trimPendingTerminalChunks(pending.chunks, sink.pendingLimitBytes, sink.droppedNotice)
+      if (pending.bytes > TERMINAL_PENDING_DATA_LIMIT) {
+        const trimmed = trimPendingTerminalChunks(pending.chunks, TERMINAL_PENDING_DATA_LIMIT)
         pending.chunks = trimmed.chunks
         pending.bytes = trimmed.bytes
         pending.units = trimmed.chunks.reduce((total, chunk) => total + chunk.length, 0)
-        if (trimmed.dropped) sink.onDropped?.()
       }
-      if (isRenderer) evaluateFlow(session)
+      evaluateFlow(session)
       return
     }
 
@@ -207,33 +144,15 @@ export function createTerminalOutputBuffer({
     const timer = setTimeout(() => {
       flush(session.sessionId, 'timer')
     }, delayMs)
-    bySink.set(sink.id, {
-      sink,
+    pendingTerminalData.set(session.sessionId, {
+      session,
       chunks: [data],
       bytes,
       units: data.length,
       endOffset: session.output.endOffset,
       timer,
     })
-    if (isRenderer) evaluateFlow(session)
-  }
-
-  function rendererSink(session: TerminalSession): TerminalOutputSink {
-    const cached = rendererSinks.get(session)
-    if (cached) return cached
-    const channel = `terminal:data:${session.sessionId}`
-    const sink: TerminalOutputSink = {
-      id: TERMINAL_RENDERER_SINK_ID,
-      // Unchanged from before the multi-sink split: while a pane is hidden the
-      // bytes are held in the retained replay buffer and the reveal path
-      // resends them, so forwarding here would only duplicate the tail.
-      shouldForward: (current) => current?.visible !== false,
-      forward: (data) => sendTerminalEvent(session.sender, channel, data),
-      pendingLimitBytes: TERMINAL_PENDING_DATA_LIMIT,
-      droppedNotice: TERMINAL_THROTTLE_NOTICE,
-    }
-    rendererSinks.set(session, sink)
-    return sink
+    evaluateFlow(session)
   }
 
   // --- Flow control --------------------------------------------------------
@@ -268,7 +187,7 @@ export function createTerminalOutputBuffer({
 
   function rendererBacklog(sessionId: string): number {
     const flow = rendererFlow.get(sessionId)
-    const pendingUnits = pendingTerminalData.get(sessionId)?.get(TERMINAL_RENDERER_SINK_ID)?.units ?? 0
+    const pendingUnits = pendingTerminalData.get(sessionId)?.units ?? 0
     return (flow?.inflight ?? 0) + pendingUnits
   }
 
@@ -277,9 +196,9 @@ export function createTerminalOutputBuffer({
     const flow = rendererFlow.get(session.sessionId)
     if (!flow) return
     // A hidden pane is sent nothing, so there is nothing to wait on it for —
-    // and the renderer bucket still fills with every chunk until the flush
-    // drops it, so counting it would pause the pty of an agent nobody is
-    // looking at (a minimized window) at the pane's parse speed.
+    // and its batch still fills with every chunk until the flush drops it, so
+    // counting it would pause the pty of an agent nobody is looking at (a
+    // minimized window) at the pane's parse speed.
     if (session.visible === false) {
       if (flow.paused) resumeFlow(session, flow)
       return
@@ -367,8 +286,6 @@ export function createTerminalOutputBuffer({
     flush,
     send,
     discard,
-    /** Drop the renderer's queued batch: a replay about to be sent already holds it. */
-    discardRenderer: (sessionId: string): void => discard(sessionId, TERMINAL_RENDERER_SINK_ID),
     ack,
     noteRendererSent,
     resetRendererFlow,
@@ -379,11 +296,7 @@ export function createTerminalOutputBuffer({
   }
 }
 
-function trimPendingTerminalChunks(
-  chunks: string[],
-  maxBytes: number,
-  notice?: string,
-): { chunks: string[]; bytes: number; dropped: boolean } {
+function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks: string[]; bytes: number } {
   let bytes = 0
   const retained: string[] = []
 
@@ -407,15 +320,11 @@ function trimPendingTerminalChunks(
       retained.unshift(tail)
       bytes += Buffer.byteLength(tail)
     }
-    if (notice) retained.unshift(notice)
-    return {
-      chunks: retained,
-      bytes: retained.reduce((total, value) => total + Buffer.byteLength(value), 0),
-      dropped: true,
-    }
+    retained.unshift(TERMINAL_THROTTLE_NOTICE)
+    return { chunks: retained, bytes: retained.reduce((total, value) => total + Buffer.byteLength(value), 0) }
   }
 
-  return { chunks: retained, bytes, dropped: false }
+  return { chunks: retained, bytes }
 }
 
 function getTerminalDataBatchDelay(session: TerminalSession, bytes: number): number {
