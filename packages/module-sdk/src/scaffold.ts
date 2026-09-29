@@ -108,6 +108,15 @@ export function defaultSkillsRoot(): string {
   return join(PACKAGE_ROOT, 'skills')
 }
 
+/** This package's own version: what a project scaffolded by its CLI depends on. */
+export function sdkPackageVersion(): string {
+  const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version?: unknown }
+  if (typeof pkg.version !== 'string' || pkg.version === '') {
+    throw new Error(`${join(PACKAGE_ROOT, 'package.json')} carries no version.`)
+  }
+  return pkg.version
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.length > 0)
 }

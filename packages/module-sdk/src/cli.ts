@@ -3,6 +3,7 @@
 // capability module authors. Runs without repo access: everything it needs
 // ships in the @sprintengine/module-sdk tarball.
 //
+//   init             create an extension project from one of the templates
 //   keygen           generate an ed25519 signing keypair (private key PEM)
 //   pack             validate a module directory and assemble an installable copy
 //   sign             write a detached ed25519 signature into manifest.json
@@ -47,6 +48,7 @@ import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } fro
 const USAGE = `sprintengine-module — pack, sign, and verify SprintEngine Studio capability modules
 
 Usage:
+  sprintengine-module init <dir> --template <id> [--id <module-id>] [--name <name>] [--sdk-tarball <file>] [--force]
   sprintengine-module keygen [--out <file>] [--force]
   sprintengine-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
   sprintengine-module sign <module-dir> --key <private-key.pem>
@@ -55,6 +57,12 @@ Usage:
   sprintengine-module plugin pack <plugin-dir> [--out <dir>] [--force]
   sprintengine-module plugin sign <plugin-dir> --key <private-key.pem>
   sprintengine-module plugin verify <plugin-dir>
+
+init creates an extension project in <dir> from a template: the module, its
+build and dev-loop scripts, and the extension-builder skill for whichever agent
+works on it. --id defaults to the folder name, --name to the id title-cased;
+--sdk-tarball depends on a local SDK tarball instead of the npm release. Run it
+with an unknown --template to list the templates.
 
 keygen writes an ed25519 private key (PKCS#8 PEM) to --out
 (default module-signing.key). Keep it out of the module directory and out of
@@ -691,8 +699,59 @@ function pluginCommand(args: string[]): void {
   }
 }
 
+// The scaffolder is loaded only for `init`: it finds its templates relative to
+// its own file, which a bundle of this CLI need not preserve for the other
+// commands.
+async function init(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    options: {
+      template: { type: 'string' },
+      id: { type: 'string' },
+      name: { type: 'string' },
+      'sdk-tarball': { type: 'string' },
+      force: { type: 'boolean' },
+    },
+    allowPositionals: true,
+  })
+  const { listModuleTemplates, scaffoldModuleProject, sdkPackageVersion } = await import('./scaffold.js')
+  const templates = (): string =>
+    listModuleTemplates()
+      .map((template) => `  ${template.id.padEnd(20)} ${template.summary}`)
+      .join('\n')
+  const dir = positionals[0]
+  if (!dir) fail(`init requires a project directory.\n\n${USAGE}`)
+  if (!values.template) fail(`init requires --template <id>. The templates:\n${templates()}`)
+  const target = resolve(dir)
+  const id =
+    values.id ??
+    basename(target)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  const tarball = values['sdk-tarball'] ? resolve(values['sdk-tarball']) : undefined
+  if (tarball && !existsSync(tarball)) fail(`SDK tarball not found: ${tarball}`)
+  const result = await scaffoldModuleProject({
+    dir: target,
+    templateId: values.template,
+    id,
+    displayName: values.name ?? displayNameFromId(id),
+    sdkVersion: sdkPackageVersion(),
+    ...(tarball ? { sdkTarballPath: tarball } : {}),
+    ...(values.force ? { force: true } : {}),
+  })
+  if (!result.ok) {
+    fail(result.code === 'unknown_template' ? `${result.message}\n\n${templates()}` : result.message)
+  }
+  console.log(`Created ${id} from the ${values.template} template in ${target} (${result.files.length} files).`)
+  console.log('Next: npm install, then npm run check; npm run dev:install side-loads it into Studio.')
+}
+
 const [command, ...rest] = process.argv.slice(2)
 switch (command) {
+  case 'init':
+    init(rest).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
+    break
   case 'keygen':
     keygen(rest)
     break
