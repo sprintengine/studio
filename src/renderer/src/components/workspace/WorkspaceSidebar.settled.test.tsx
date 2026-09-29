@@ -49,6 +49,9 @@ test('WorkspaceSidebar.settled', async () => {
   // Alpha holds a live agent pty; the settled rows hold nothing, which is what
   // a chat that came to rest looks like after the kill lands.
   const killed: string[] = []
+  // A chat agent has no pty: main owns its process, and Settle ends it through
+  // the conversation runtime. Echo's live chat and a chat already stopped.
+  const chatsSuspended: string[] = []
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
@@ -66,6 +69,17 @@ test('WorkspaceSidebar.settled', async () => {
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async (sessionId: string) => {
       killed.push(sessionId)
+    },
+    conversationSessionsList: async () => ({
+      ok: true,
+      sessions: [
+        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' },
+        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-5', status: 'stopped' },
+      ],
+    }),
+    conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
+      chatsSuspended.push(sessionId)
+      return { ok: true }
     },
   }
 
@@ -231,6 +245,7 @@ test('WorkspaceSidebar.settled', async () => {
       })
       await settle()
       assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
+      assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
 
       // The row you are in always has a row: selecting a settled chat (from
       // Settings or search) keeps it in the active list, still settled, while
@@ -268,6 +283,24 @@ test('WorkspaceSidebar.settled', async () => {
       } as unknown as SidebarProps)
       assert.ok(actionLabel('Close Delta'), 'a remote-band row keeps Close in its seat')
       assert.equal(actionLabel('Settle Delta'), null, 'and is never offered Settle')
+
+      // A chat-agent row has no pty, and settling it still ends its agent's
+      // process: the live chat is suspended, the stopped one left alone, and
+      // no terminal is killed on its account.
+      await render({
+        ...props,
+        workspaces: [workspace('w1', 'Alpha'), workspace('w5', 'Echo')],
+        activityByWorkspaceId: { w1: 'idle', w5: 'idle' },
+        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' }],
+      } as unknown as SidebarProps)
+      const settleEcho = actionLabel('Settle Echo')
+      assert.ok(settleEcho, 'Echo has a Settle button to click')
+      act(() => {
+        settleEcho.click()
+      })
+      await settle()
+      assert.deepEqual(chatsSuspended, ['echo-chat'], "settling a chat ends its chat agent's process")
+      assert.deepEqual(killed, ['alpha-pty'], 'and kills no terminal for it')
     } finally {
       act(() => {
         root.unmount()

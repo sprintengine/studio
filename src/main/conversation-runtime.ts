@@ -29,6 +29,7 @@ import type {
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationSuspendSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -1098,6 +1099,27 @@ export class ConversationRuntime {
     session.approvalRequests.clear()
     session.automaticApprovals.clear()
     session.updatedAt = this.now()
+    return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Settle and Snooze: whatever the session is doing ends now. A running turn
+  // is interrupted and the child process disposed, as the idle sweep does, so
+  // the session and its resume cursor stay and the next message respawns the
+  // child. Not `stopSession`: a stopped session refuses every later turn, and
+  // a settled chat can be un-settled and typed into.
+  async suspendSession(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (session.status === 'stopped') return { ok: true, session: this.toSummary(session) }
+    if (session.activeTurnId) {
+      const interrupted = await this.interrupt({ sessionId: session.sessionId })
+      if (!interrupted.ok) return interrupted
+    }
+    // A session still starting has no child to dispose yet; the idle sweep
+    // reaches it once it is ready.
+    if (session.status === 'ready' || session.status === 'failed')
+      this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
+    void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
     return { ok: true, session: this.toSummary(session) }
   }
 

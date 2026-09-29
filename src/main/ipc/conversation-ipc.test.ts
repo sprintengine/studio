@@ -179,6 +179,10 @@ test('conversation-ipc', async () => {
         calls.push(`stop:${input.sessionId}`)
         return actionResult
       },
+      suspendSession: async (input) => {
+        calls.push(`suspend:${input.sessionId}`)
+        return actionResult
+      },
       listSessions: () => ({ ok: true, sessions: [startResult.session] }),
       onEvent: (cb) => {
         runtimeListeners.push(cb)
@@ -209,6 +213,11 @@ test('conversation-ipc', async () => {
       permissionPreset: 'bypass',
     })
     await ipcMain.handlers.get('conversation:sessions:stop')?.(null, { sessionId: 'conv_1' })
+    await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, { sessionId: 'conv_1' })
+    assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, {}), {
+      ok: false,
+      message: 'sessionId is required.',
+    })
     assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:list')?.(null, {}), {
       ok: true,
       sessions: [startResult.session],
@@ -260,6 +269,7 @@ test('conversation-ipc', async () => {
       'respond:conv_1:approval_1:true',
       'permission:conv_1:bypass',
       'stop:conv_1',
+      'suspend:conv_1',
     ])
   }
 

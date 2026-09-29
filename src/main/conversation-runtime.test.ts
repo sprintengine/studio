@@ -63,6 +63,7 @@ test('conversation-runtime', async () => {
     await testReadTranscriptClosesUnfinishedTurns()
     await testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession()
     await testIdleSweepDisposesOnlyTrulyIdleSessions()
+    await testSuspendSessionEndsTheChildAndKeepsTheSession()
     await testShutdownStopsSessionsAndDisposesChildren()
     await testListLiveConversationRootsMapsAdapterInventory()
     await testClaudeConversationPreparesStudioMcpBeforeSession()
@@ -322,6 +323,62 @@ test('conversation-runtime', async () => {
       // Answered and idle again → disposable.
       clock += 1
       assert.deepEqual(runtime.sweepIdleSessions(clock + 61_000), [sessionId])
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Settle and Snooze: the child goes whatever the session is doing, and the
+  // session stays usable, so an un-settled chat takes the next message.
+  async function testSuspendSessionEndsTheChildAndKeepsTheSession(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
+    try {
+      const capture = lifecycleCapture()
+      const runtime = new TrackedConversationRuntime({
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+        adapters: [createLifecycleProvider(capture)],
+      })
+      const events: string[] = []
+      runtime.onEvent((event) => events.push(event.type))
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'lifecycle-provider',
+        modelId: 'lifecycle-model',
+      })
+      assert.equal(started.ok, true)
+      if (!started.ok) return
+      const sessionId = started.session.sessionId
+
+      // Idle: the child is disposed, the session is not stopped.
+      await runtime.sendTurn({ sessionId, message: 'hello' })
+      const idle = await runtime.suspendSession({ sessionId })
+      assert.equal(idle.ok && idle.session.status, 'ready')
+      assert.deepEqual(capture.disposedChildren, [sessionId])
+      assert.deepEqual(capture.stoppedSessions, [])
+
+      // Mid-turn, at a pending approval: the turn is interrupted, then the
+      // child disposed. The idle sweep would have left this one running.
+      void runtime.sendTurn({ sessionId, message: 'ask' })
+      await waitForEvent(events, 'approval_requested')
+      const busy = await runtime.suspendSession({ sessionId })
+      assert.equal(busy.ok && busy.session.status, 'ready')
+      assert.equal(events.at(-1), 'turn_failed')
+      assert.deepEqual(capture.disposedChildren, [sessionId, sessionId])
+
+      // The next message is taken, which a stopped session would refuse.
+      const resumed = await runtime.sendTurn({ sessionId, message: 'hello again' })
+      assert.equal(resumed.ok && resumed.session.status, 'ready')
+
+      // A stopped session has nothing left to suspend; an unknown one is refused.
+      await runtime.stopSession({ sessionId })
+      const stopped = await runtime.suspendSession({ sessionId })
+      assert.equal(stopped.ok && stopped.session.status, 'stopped')
+      assert.deepEqual(capture.disposedChildren, [sessionId, sessionId])
+      assert.equal((await runtime.suspendSession({ sessionId: 'missing' })).ok, false)
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
