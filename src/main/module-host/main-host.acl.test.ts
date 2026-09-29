@@ -10,11 +10,12 @@ import { test } from 'vitest'
 // What a third-party module can reach through its MainHost, beyond what a
 // first-party one can: the service ACL and the MCP tool rules.
 
-const bundled: CapabilityManifest = { id: 'bundled', displayName: 'Bundled', version: 1 }
+const bundled: CapabilityManifest = { id: 'bundled', displayName: 'Bundled', version: 1, defaultEnabled: true }
 const thirdParty: CapabilityManifest = {
   id: 'acme-deck',
   displayName: 'Acme Deck',
   version: 1,
+  defaultEnabled: true,
   source: 'third-party',
   permissions: ['mcp:tools'],
 }
@@ -22,6 +23,7 @@ const otherThirdParty: CapabilityManifest = {
   id: 'acme-other',
   displayName: 'Acme Other',
   version: 1,
+  defaultEnabled: true,
   source: 'third-party',
 }
 

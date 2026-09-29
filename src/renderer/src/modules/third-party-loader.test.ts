@@ -306,7 +306,6 @@ test('third-party-loader', async () => {
         },
         'async-hung': { registerRenderer: () => new Promise<void>(() => {}) },
       }),
-      undefined,
       5,
     )
     assert.deepEqual(

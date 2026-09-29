@@ -42,7 +42,9 @@ test('load-modules', async () => {
     const order: string[] = []
     const runtime: CapabilityModule = {
       manifest: { id: 'runtime', displayName: 'Runtime', version: 1, defaultEnabled: true, core: true },
-      registerMain: () => order.push('runtime'),
+      registerMain: () => {
+        order.push('runtime')
+      },
     }
     const feature: CapabilityModule = {
       manifest: {
@@ -52,7 +54,9 @@ test('load-modules', async () => {
         defaultEnabled: true,
         dependsOn: ['runtime'],
       },
-      registerMain: () => order.push('feature'),
+      registerMain: () => {
+        order.push('feature')
+      },
     }
 
     const { ipcMain } = createFakeIpcMain()
