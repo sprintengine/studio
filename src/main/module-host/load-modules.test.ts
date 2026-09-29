@@ -11,7 +11,6 @@ import type { InstalledModule } from '../modules/user-module-registry'
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from './load-modules'
 import { createServiceToken } from './main-host'
-import { collectLaunchContributions, resetLaunchContributionsForTest } from './launch-contributions'
 import { test } from 'vitest'
 
 test('load-modules', async () => {
@@ -23,7 +22,6 @@ test('load-modules', async () => {
     testThrowingModuleIsIsolated()
     testDuplicateChannelIsReportedNotFatal()
     testLifecycleAndSidecarsCollected()
-    await testLaunchContributionRegistersAndUnloads()
     await testRunStartupAndShutdownInvokeHooks()
     await testRunShutdownBeginRunsBeginHooksInRegistrationOrderBeforeShutdown()
     await testTrustedThirdPartyMainRegistersThroughHost()
@@ -187,40 +185,6 @@ test('load-modules', async () => {
     assert.equal(kernel.startupHooks().length, 1)
     assert.equal(kernel.shutdownHooks().length, 1)
     assert.deepEqual(report.sidecars, [{ id: 'svc-daemon', kind: 'process', module: 'svc-core' }])
-  }
-
-  async function testLaunchContributionRegistersAndUnloads(): Promise<void> {
-    resetLaunchContributionsForTest()
-    const mod: CapabilityModule = {
-      manifest: { id: 'svc', displayName: 'Svc', version: 1, defaultEnabled: true },
-      registerMain: (host) => {
-        host.registerLaunchContribution(() => ({
-          env: { SVC_LAUNCH: '1' },
-          hostContext: [{ heading: 'Svc', body: 'Standing instruction.' }],
-        }))
-      },
-    }
-
-    const { ipcMain } = createFakeIpcMain()
-    const { kernel } = loadMainModules({ ipcMain, modules: [mod] })
-    const merged = collectLaunchContributions({
-      cli: 'codex',
-      workspaceRoot: '/Users/dev/project',
-      sessionId: 's1',
-      pathStyle: 'posix',
-    })
-    assert.equal(merged.env.SVC_LAUNCH, '1')
-    assert.deepEqual(merged.hostContext, [{ heading: 'Svc', body: 'Standing instruction.' }])
-
-    await kernel.unregisterModule('svc')
-    const after = collectLaunchContributions({
-      cli: 'codex',
-      workspaceRoot: '/Users/dev/project',
-      sessionId: 's1',
-      pathStyle: 'posix',
-    })
-    assert.equal(after.env.SVC_LAUNCH, undefined)
-    resetLaunchContributionsForTest()
   }
 
   async function testRunStartupAndShutdownInvokeHooks(): Promise<void> {

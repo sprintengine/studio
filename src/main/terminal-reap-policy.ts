@@ -109,13 +109,6 @@ export type ReapCandidate = {
   // a stalled session gets the full threshold from the stall flag, not from its
   // last keystroke.
   idleSince: number | null
-  // Caller-supplied: an orchestrator-managed terminal (a module tagged the
-  // session via `session.managed` on its launch contribution). Excluded from
-  // the recency floor entirely — the floor is a promise about the USER'S
-  // terminals: managed agents of a finished run must not occupy keep-alive
-  // slots (evicting the user's own terminals from their budget) nor be spared
-  // from the dispose path that closes the parked-until-teardown memory gap.
-  managed: boolean
   // User lock ("keep running"): the user explicitly exempted this terminal from
   // reaping via its lock control. Absolute — no idle clock ever overrides it.
   reapExempt: boolean
@@ -227,23 +220,15 @@ export function selectReapableSessions(
   const reapable = candidates.filter((candidate) => isSessionReapable(candidate, { now, idleThresholdMs }))
 
   // Recency floor: cap how many of the reapable set are acted on so at least
-  // `keepRecentAliveCount` live agent terminals remain after the sweep. The
-  // floor is a USER-terminal promise, so module-managed sessions are out of
-  // scope on both sides: they neither occupy keep-alive slots (a module's agents
-  // must not evict the user's own terminals from their budget) nor gain
-  // protection from it.
-  // Held (working / awaiting-input / recently-rested) live user agents already
+  // `keepRecentAliveCount` live agent terminals remain after the sweep.
+  // Held (working / awaiting-input / recently-rested) live agents already
   // count toward the floor — the cap only bites when reaping the full set would
-  // drop the live user-agent population below N. Oldest-rested reap first, so
+  // drop the live agent population below N. Oldest-rested reap first, so
   // the spared remainder is always the most recently used.
-  const managedReapable = reapable.filter((candidate) => candidate.managed)
-  const userReapable = reapable.filter((candidate) => !candidate.managed)
-  const liveUserAgentCount = candidates.filter(
-    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.managed,
-  ).length
-  const maxUserReapable = Math.max(0, liveUserAgentCount - keepRecentAliveCount)
+  const liveAgentCount = candidates.filter((candidate) => candidate.processAlive && candidate.kind === 'agent').length
+  const maxReapable = Math.max(0, liveAgentCount - keepRecentAliveCount)
 
-  if (userReapable.length <= maxUserReapable) {
+  if (reapable.length <= maxReapable) {
     return {
       reapableSessionIds: reapable.map((candidate) => candidate.sessionId),
       heldByRecencyFloorSessionIds: [],
@@ -252,12 +237,9 @@ export function selectReapableSessions(
 
   const restingSince = (candidate: ReapCandidate): number =>
     Math.max(candidate.lastInteractionAt, candidate.idleSince ?? 0)
-  const oldestFirst = [...userReapable].sort((a, b) => restingSince(a) - restingSince(b))
+  const oldestFirst = [...reapable].sort((a, b) => restingSince(a) - restingSince(b))
   return {
-    reapableSessionIds: [
-      ...managedReapable.map((candidate) => candidate.sessionId),
-      ...oldestFirst.slice(0, maxUserReapable).map((candidate) => candidate.sessionId),
-    ],
-    heldByRecencyFloorSessionIds: oldestFirst.slice(maxUserReapable).map((candidate) => candidate.sessionId),
+    reapableSessionIds: oldestFirst.slice(0, maxReapable).map((candidate) => candidate.sessionId),
+    heldByRecencyFloorSessionIds: oldestFirst.slice(maxReapable).map((candidate) => candidate.sessionId),
   }
 }

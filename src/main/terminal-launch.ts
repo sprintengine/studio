@@ -36,8 +36,6 @@ import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import { withoutInheritedSessionEnv } from './inherited-session-env'
-import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
-import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
 import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './hosts/wsl-distro'
 import type { HostLaunchFile, HostLaunchTarget } from './hosts/execution-host'
@@ -77,14 +75,6 @@ export type ShellLaunchConfig = {
    * Linux does.
    */
   hostFiles?: HostLaunchFile[]
-  /**
-   * A module owns this session's lifetime. The idle reaper excludes it from the
-   * recency floor that protects the user's own agents. Set from launch
-   * contributions; absent means unmanaged.
-   */
-  managed?: boolean
-  /** A module asked the idle reaper to skip this session entirely. */
-  reapExempt?: boolean
 }
 
 export function getTerminalEnv(): Record<string, string> {
@@ -438,69 +428,15 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function collectLaunchContributionMerge(input: {
-  cwd: string
-  sessionId: string
-  resume?: boolean
-  cli?: AgentCli
-  knowledgeRoot?: string
-  pathStyle: LaunchContributionPathStyle
-  agentId?: string
-  agentKind?: string
-}): MergedLaunchContribution {
-  return collectLaunchContributions(
-    {
-      cli: input.cli ?? '',
-      workspaceRoot: input.cwd,
-      sessionId: input.sessionId,
-      resume: input.resume,
-      pathStyle: input.pathStyle,
-      ...(input.knowledgeRoot ? { knowledgeRoot: input.knowledgeRoot } : {}),
-      ...(input.agentId ? { agentId: input.agentId } : {}),
-      ...(input.agentKind ? { agentKind: input.agentKind } : {}),
-    },
-    (failure) => {
-      console.warn(`[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`)
-    },
-  )
-}
-
 /**
- * Merge a collected launch contribution onto a base session env: strip the
- * contribution's identity keys from inherited env, apply `env` (protected keys
- * cannot be overwritten), then prepend `pathEntries` to PATH.
- */
-export function applyMergedLaunchContribution(
-  env: Record<string, string>,
-  merged: MergedLaunchContribution,
-  pathStyle: 'posix' | 'windows',
-): Record<string, string> {
-  const next: Record<string, string> = { ...env }
-  for (const key of merged.identityKeys) delete next[key]
-  for (const [key, value] of Object.entries(merged.env)) {
-    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
-    next[key] = value
-  }
-  if (merged.pathEntries.length === 0) return next
-  const delimiter = pathStyle === 'windows' ? ';' : ':'
-  const pathKey =
-    Object.keys(next).find((key) => key.toLowerCase() === 'path') ?? (pathStyle === 'windows' ? 'Path' : 'PATH')
-  return {
-    ...next,
-    [pathKey]: `${merged.pathEntries.join(delimiter)}${delimiter}${next[pathKey] ?? ''}`,
-  }
-}
-
-/**
- * POSIX bootstrap fragment: module shell functions, then managed-MCP env, then
- * the CLI manifest's `launch.env`. Empty when nothing has anything to say.
+ * POSIX bootstrap fragment: managed-MCP env, then the CLI manifest's
+ * `launch.env`. Empty when neither has anything to say.
  */
 export function buildLaunchShellBootstrap(
-  merged: MergedLaunchContribution,
   managedMcpEnv?: Record<string, string>,
   providerLaunchEnv?: Record<string, string>,
 ): string {
-  const lines: string[] = [...merged.shellFunctions]
+  const lines: string[] = []
   for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       lines.push(`export ${key}=${quotePosix(value)}`)
@@ -516,13 +452,6 @@ export function buildLaunchShellBootstrap(
     }
   }
   return lines.join('; ')
-}
-
-function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolean; reapExempt?: boolean } {
-  return {
-    ...(merged.session.managed ? { managed: true } : {}),
-    ...(merged.session.reapExempt ? { reapExempt: true } : {}),
-  }
 }
 
 function replaceAllLiteral(value: string, search: string, replacement: string): string {
@@ -1165,7 +1094,6 @@ export function resolveHostContextDelivery(input: {
   cli: AgentCli
   memoryRootPath?: string
   memoryRelativeRoot?: string
-  moduleSections?: Array<{ heading: string; body: string }>
   onHost?: { dir: string; files: HostLaunchFile[] }
   /** The session is an agent bound to a workspace, so it can call the editor tools. */
   editorTools?: boolean
@@ -1188,7 +1116,6 @@ export function resolveHostContextDelivery(input: {
           },
         }
       : {}),
-    ...(input.moduleSections && input.moduleSections.length > 0 ? { moduleSections: input.moduleSections } : {}),
     // Out-of-band channels only. On the prompt fallback the document is pasted
     // after the person's first message, and four lines of tool advice are not
     // worth putting in their words; those CLIs learn the editor tools from the
@@ -1410,21 +1337,13 @@ function buildWslShellScript(
   launchSkills: readonly string[] = [],
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
-  const merged = collectLaunchContributionMerge({
-    cwd,
-    sessionId,
-    resume,
-    cli,
-    knowledgeRoot: memoryRootPath,
-    pathStyle: 'wsl',
-  })
   return [
     wslPidFileLine(scriptPath, host),
     buildUserShellStartup(),
     wslHostEnvExports(host),
     wslIdentityExports(host),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1541,19 +1460,9 @@ export function getShellLaunchConfig(
   assertExistingDirectory(cwd)
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
-  const contributionPathStyle: LaunchContributionPathStyle = launchHost.kind
-  const merged = collectLaunchContributionMerge({
-    cwd: contributionPathStyle === 'windows' ? wslToWindowsPath(cwd) : cwd,
-    sessionId,
-    resume,
-    cli,
-    knowledgeRoot:
-      contributionPathStyle === 'windows' && memoryRootPath ? wslToWindowsPath(memoryRootPath) : memoryRootPath,
-    pathStyle: contributionPathStyle,
-  })
 
   // The host's own context for this launch (an attached design system, the
-  // project's Knowledge Graph, plus any module sections), built here so EVERY
+  // project's Knowledge Graph), built here so EVERY
   // launcher gets the same document — interactive, mobile, and the headless
   // AgentLaunchService all arrive at this function. The manifest's
   // `contextInjection` decides the channel; only the prompt fallback touches
@@ -1567,7 +1476,6 @@ export function getShellLaunchConfig(
     cli,
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
-    ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
     ...(onHost ? { onHost } : {}),
     ...(hostContextOptions.editorTools ? { editorTools: true } : {}),
   })
@@ -1642,7 +1550,7 @@ export function getShellLaunchConfig(
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: mergeProviderLaunchEnv(
         {
-          ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
+          ...getTerminalEnv(),
           ...managedMcpEnv,
         },
         providerLaunchEnv,
@@ -1652,7 +1560,6 @@ export function getShellLaunchConfig(
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
       ...promptDeliveryConfig(promptDelivery),
-      ...launchSessionTags(merged),
     }
   }
 
@@ -1693,14 +1600,13 @@ export function getShellLaunchConfig(
       hostFiles: [startup.file, ...hostFiles],
       ...(hostContextPath ? { hostContextPath } : {}),
       ...promptDeliveryConfig(promptDelivery),
-      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1731,7 +1637,7 @@ export function getShellLaunchConfig(
     cwd,
     env: mergeProviderLaunchEnv(
       {
-        ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
+        ...getTerminalEnv(),
         ...managedMcpEnv,
       },
       providerLaunchEnv,
@@ -1740,7 +1646,6 @@ export function getShellLaunchConfig(
     startupScriptPath,
     ...(hostContextPath ? { hostContextPath } : {}),
     ...promptDeliveryConfig(promptDelivery),
-    ...launchSessionTags(merged),
   }
 }
 
@@ -1759,36 +1664,22 @@ export function getPlainShellLaunchConfig(
     // (a bare Linux path) is opened in the default distribution by the caller,
     // which hands this a WSL target for it.
     if (launchHost.kind === 'windows' && isWindowsPath(windowsCwd)) {
-      const merged = collectLaunchContributionMerge({
-        cwd: windowsCwd,
-        sessionId,
-        pathStyle: 'windows',
-        agentKind: 'terminal',
-      })
       return {
         command: 'powershell.exe',
         args: ['-NoLogo'],
-        env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
+        env: getTerminalEnv(),
         cwd: windowsCwd,
         pathStyle: 'windows',
-        ...launchSessionTags(merged),
       }
     }
 
     const wslHost = launchHost.kind === 'wsl' ? launchHost : DEFAULT_WSL_TARGET
-    const merged = collectLaunchContributionMerge({
-      cwd,
-      sessionId,
-      pathStyle: 'wsl',
-      agentKind: 'terminal',
-    })
     const startup = wslStartupScript(sessionId, wslHost, (scriptPath) =>
       [
         wslPidFileLine(scriptPath, wslHost),
         buildUserShellStartup(),
         wslHostEnvExports(wslHost),
         `cd ${quotePosix(toWslPath(cwd))}`,
-        buildLaunchShellBootstrap(merged),
         wslShellExec(wslHost),
       ]
         .filter(Boolean)
@@ -1801,18 +1692,11 @@ export function getPlainShellLaunchConfig(
       pathStyle: 'wsl',
       startupScriptPath: startup.path,
       hostFiles: [startup.file],
-      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
-  const merged = collectLaunchContributionMerge({
-    cwd,
-    sessionId,
-    pathStyle: 'posix',
-    agentKind: 'terminal',
-  })
   // Only a shell pane gets shell integration — OSC 7 and OSC 133 alike. An
   // agent pane runs a CLI rather than a prompt (nothing would fire the hook),
   // and a mesh pane must not resolve a local path at all — so this is the one
@@ -1824,7 +1708,6 @@ export function getPlainShellLaunchConfig(
     shellName === 'zsh' ? ensureShellIntegrationZshZdotdir() : null,
   )
   const launchCommand = [
-    buildLaunchShellBootstrap(merged),
     ...(shellIntegrationSetup ? [shellIntegrationSetup] : []),
     buildInteractiveShellExec(shellPath, shellName),
   ]
@@ -1836,10 +1719,9 @@ export function getPlainShellLaunchConfig(
     command: shellPath,
     cwd,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
-    env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
+    env: getTerminalEnv(),
     pathStyle: 'posix',
     startupScriptPath,
-    ...launchSessionTags(merged),
   }
 }
 

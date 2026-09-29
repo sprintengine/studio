@@ -9,14 +9,8 @@ import {
   type ModuleNotification,
   type ModuleNotifyInput,
 } from '../../shared/modules/notifications'
-import type { LaunchContribution } from '../../shared/modules/launch-contributions'
 import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../../shared/modules/skills'
 import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../shared/modules/host-api'
-import {
-  addLaunchContribution,
-  removeLaunchContributionsForModule,
-  setLaunchContributionFailureReporter,
-} from './launch-contributions'
 import {
   ensureSkillInstalled as ensureSkillInstalledOnDisk,
   registerModuleSkills,
@@ -140,12 +134,6 @@ export type MainHost = {
   readonly hostApiVersion: number
   /** Whether this host provides `capability` now; false for names it does not know. */
   supports(capability: HostCapability): boolean
-  /**
-   * Raw ipcMain, for first-party (trusted, in-process) modules that reuse
-   * existing `registerXIpc(ipcMain)` functions. Prefer `registerIpc` for new
-   * code so channel ownership is tracked and collisions are caught.
-   */
-  readonly ipcMain: IpcMain
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the always-on Studio gateway. Registrations are
@@ -199,14 +187,6 @@ export type MainHost = {
    * registration stays declarative (status 'declared').
    */
   registerSidecar(spec: SidecarSpec, lifecycle?: SidecarLifecycle): SidecarHandle
-  /**
-   * Contribute env, PATH shims, shell functions, managed-MCP server entries,
-   * host-context sections and a session lifetime tag to every agent launch.
-   * Called per spawn in module registration order; a throw is recorded as a
-   * module diagnostic and skipped — it never fails the launch. A disabled or
-   * absent module contributes nothing. Declare `ipc:agents`.
-   */
-  registerLaunchContribution(contribution: LaunchContribution): void
   /**
    * Surface a user-visible status notification. The source module id is
    * stamped from this host's scope; invalid payloads throw. Emission is
@@ -425,18 +405,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     if (recent.length > NOTIFICATION_BUFFER_LIMIT) recent.splice(0, recent.length - NOTIFICATION_BUFFER_LIMIT)
   }
 
-  setLaunchContributionFailureReporter((failure) => {
-    try {
-      emitNotification(failure.moduleId, {
-        severity: 'warning',
-        title: 'Launch contribution failed',
-        body: failure.message,
-      })
-    } catch (error) {
-      console.warn(`[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`, error)
-    }
-  })
-
   function emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void {
     const validated = validateModuleEventTopic(topic)
     if (!validated.ok) {
@@ -565,7 +533,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       moduleId,
       hostApiVersion: HOST_API_VERSION,
       supports: hostSupports,
-      ipcMain,
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {
@@ -662,9 +629,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         }
         return sidecarHandleOf(entry)
       },
-      registerLaunchContribution(contribution) {
-        addLaunchContribution(moduleId, contribution)
-      },
       notify(input) {
         emitNotification(moduleId, input)
       },
@@ -716,7 +680,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       if (entry.moduleId === moduleId) services.delete(serviceKey)
     }
     if (skillIdsByModule.delete(moduleId)) skillRegistry.unregister(moduleId)
-    removeLaunchContributionsForModule(moduleId)
   }
 
   return {

@@ -1534,12 +1534,6 @@ function buildReapCandidates(): ReapCandidate[] {
     // When the agent went to rest — keeps a just-finished (or just-stalled)
     // agent alive until it has actually rested past the threshold.
     idleSince: isAtRestAgentPhase(session.agentState?.phase) ? (session.agentState?.since ?? null) : null,
-    // Managed-ness is a module's claim on the session's lifetime, recorded at
-    // spawn from the launch contribution. Core no longer infers it
-    // from a run-state path: with the owning module absent or disabled nothing
-    // contributes the tag, and a spawn that still carries a stale path must not
-    // be treated as somebody's managed agent.
-    managed: session.managed === true,
     reapExempt: session.reapExempt === true,
     // Hook-reported self-scheduled wakeup (see ingestAgentStateFrame): a future
     // wake time holds the session in the pure policy.
@@ -3314,8 +3308,6 @@ async function spawnTerminalFromIpc(
       deferredPrompt,
       launchPromptPath,
       hostFiles,
-      managed,
-      reapExempt,
     } = shellOnly
       ? getPlainShellLaunchConfig(workingDirectory, sessionId, launchFor)
       : getShellLaunchConfig(
@@ -3413,8 +3405,6 @@ async function spawnTerminalFromIpc(
       cliSessionId: cliSessionId ?? undefined,
       cli: shellOnly ? undefined : cli,
       cwd: launchCwd ?? workingDirectory,
-      managed: managed === true,
-      ...(reapExempt ? { reapExempt: true } : {}),
       executionMode,
       worktreeId,
       worktreePath,
