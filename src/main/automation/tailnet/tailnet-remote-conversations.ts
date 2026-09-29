@@ -71,7 +71,25 @@ const MAX_BUSY_RETRIES = 5
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
 const DEFAULT_LIST_TIMEOUT_MS = 15_000
-const DEFAULT_SAVE_DELAY_MS = 250
+/**
+ * The longest a streaming reply's kept copy may lag what is on screen. The
+ * copy is written whole, so a save per delta would rewrite megabytes several
+ * times a second; the moments that matter (a fence, a turn ending, a question
+ * for the person) are saved at once instead, and this only bounds what a
+ * crash in the middle of a long turn could lose. Losing it costs a re-read,
+ * never an event: the cursor is written with the tail it vouches for, so an
+ * older copy simply asks the far end for more.
+ */
+const DEFAULT_SAVE_DELAY_MS = 8_000
+/** Events after which the copy is saved at once rather than on the slow beat. */
+const SAVE_BOUNDARY_EVENTS: ReadonlySet<string> = new Set([
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'session_closed',
+])
+/** The slow beat is this many times longer on battery. */
+const BATTERY_STRETCH = 4
 /** The protocol's largest logical frame, plus the envelope a chunk's text is re-escaped in. */
 const MAX_REASSEMBLED_CHARS = 40 * 1024 * 1024
 /** How much of a transcript this machine keeps. Older turns stay a `loadEarlier` away. */
@@ -94,6 +112,8 @@ export type RemoteConversationsOptions = {
   onUnauthorized?(connectionId: string, detail: string): void
   /** The machine answered a dial: it is reachable. */
   onReachable?(connectionId: string): void
+  /** Whether the machine runs on battery: the save beat stretches while it does. */
+  isOnBattery?(): boolean
   openSocket?: typeof openRemoteConversationSocket
   retry?: { baseMs: number; maxMs: number }
   requestTimeoutMs?: number
@@ -178,6 +198,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   const commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
   const listTimeoutMs = options.listTimeoutMs ?? DEFAULT_LIST_TIMEOUT_MS
   const saveDelayMs = options.saveDelayMs ?? DEFAULT_SAVE_DELAY_MS
+  const stretch = (): number => (options.isOnBattery?.() ? BATTERY_STRETCH : 1)
   const follows = new Map<string, Follow>()
   const listenerFollow = new Map<string, Follow>()
 
@@ -273,6 +294,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     ...record.page,
     events: [...record.page.events],
   })
+  /** Write the copy now, if anything in it changed since the last write. */
   const persistNow = (follow: Follow): void => {
     if (follow.saveTimer) clearTimeout(follow.saveTimer)
     follow.saveTimer = null
@@ -281,10 +303,15 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     // Encoded before `save` returns, so the copy may keep growing meanwhile.
     void options.cache.save(follow.key, follow.record)
   }
+  /**
+   * Mark the copy changed and make sure a write follows within the slow beat.
+   * A throttle, not a debounce: a reply that streams for minutes is still
+   * written every few seconds, never only at its end.
+   */
   const persistSoon = (follow: Follow): void => {
     follow.dirty = true
     if (follow.saveTimer) return
-    follow.saveTimer = setTimeout(() => persistNow(follow), saveDelayMs)
+    follow.saveTimer = setTimeout(() => persistNow(follow), saveDelayMs * stretch())
     follow.saveTimer.unref?.()
   }
 
@@ -548,17 +575,26 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         // live events already queued behind it.
         if (event.seq !== undefined && held !== null && event.seq <= held) return
         append(follow, event)
-        persistSoon(follow)
+        // A turn's end, or a question for the person, is where a restart
+        // should find the copy; everything between is on the slow beat.
+        if (SAVE_BOUNDARY_EVENTS.has(event.type)) {
+          follow.dirty = true
+          persistNow(follow)
+        } else persistSoon(follow)
         emit(follow, { type: 'event', event })
         return
       }
       case 'synchronized': {
         const record = (follow.record ??= emptyRecord())
-        record.generation = frame.generation ?? record.generation
-        record.lastSeq = Math.max(record.lastSeq ?? 0, frame.seq)
+        const generation = frame.generation ?? record.generation
+        const lastSeq = Math.max(record.lastSeq ?? 0, frame.seq)
+        // A reconnect that found nothing new moves neither, and rewriting the
+        // whole copy to say so would be a write for nothing.
+        if (generation !== record.generation || lastSeq !== record.lastSeq) follow.dirty = true
+        record.generation = generation
+        record.lastSeq = lastSeq
         follow.synchronized = true
         follow.attempts = 0
-        follow.dirty = true
         persistNow(follow)
         link(follow, 'live', `Following on ${machineName(follow)}.`)
         emit(follow, {
