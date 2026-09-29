@@ -235,7 +235,7 @@ function DoorModuleInstallControls({
     setFlow({ status: 'verifying' })
     let verify
     try {
-      verify = await window.api.verifyMarketplacePlugin(entry)
+      verify = await window.api.verifyMarketplacePlugin({ id: entry.id })
     } catch (error) {
       setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
       return
@@ -258,12 +258,13 @@ function DoorModuleInstallControls({
       return
     }
     setFlow({ status: 'installing' })
+    const trustToken = outcome.trustToken
     try {
       // No workspace: a module installs into the user module root, and this
       // door may be open with no project at all.
       const { installAndActivateRendererModules } = await import('../../modules')
       const result = await installAndActivateRendererModules(() =>
-        window.api.installMarketplacePluginFromRegistry({ entry }),
+        window.api.installMarketplacePluginFromRegistry({ id: entry.id, ...(trustToken ? { trustToken } : {}) }),
       )
       setFlow(summarizeInstallResult(result))
     } catch (error) {

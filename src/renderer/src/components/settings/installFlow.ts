@@ -11,12 +11,14 @@
 // sourced from the T3.4 `verifyMarketplacePlugin` IPC, which runs the existing
 // download + ed25519-verify path WITHOUT installing. Flow: idle → click Install →
 // verifying → if 'verified' install directly; if 'community' show the trust prompt
-// populated with the verified permissions, then install with trustGranted:true.
+// populated with what verify disclosed, then install with the trust token verify
+// issued. The token is the approval: main pinned it to exactly the content it
+// disclosed, and the renderer can carry it but never make one up.
 //
 // Trust split (T4b/T5): an 'unsigned' bundle is no longer a blanket block. Unsigned
 // mcp/skills-only bundles are declarative — they earn the same explicit trust prompt
-// as community (installing load-ineligible behind trustGranted:true). Unsigned
-// code-bearing bundles (module/cli) and 'invalid' still hard-block with no install
+// as community (installing load-ineligible behind the token). Unsigned code-bearing
+// registry bundles (a module) and 'invalid' still hard-block with no install
 // affordance, mirroring the backend gate (shared/marketplace/component-trust.ts,
 // which is the real enforcement; this classification only picks the UI affordance).
 // No permission is ever fabricated.
@@ -25,16 +27,16 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginVerifyResult,
 } from '../../../../shared/electron-api'
-import type { MarketplaceComponentKind } from '../../../../shared/marketplace/manifest'
-import type { CapabilityPermission } from '../../../../shared/modules/permissions'
+import type { MarketplaceProvidesKind } from '../../../../shared/marketplace/manifest'
+import type { ExtensionTrustReviewData } from '../extensions/ExtensionTrustReview'
 
-// Code-bearing kinds execute arbitrary code once loaded, so an UNSIGNED bundle
+// A module executes arbitrary code once loaded, so an UNSIGNED registry bundle
 // carrying one is never trust-grantable in the UI — it hard-blocks. mcp/skills are
 // declarative and may install unsigned behind an explicit trust grant. The real
 // enforcement is the backend `hasCodeBearingComponent` gate; this kind-level check
 // only decides whether the renderer offers a trust prompt or a hard block.
-function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
-  return provides.some((kind) => kind === 'module' || kind === 'cli')
+function hasCodeBearingKind(provides: readonly MarketplaceProvidesKind[]): boolean {
+  return provides.includes('module')
 }
 
 /**
@@ -42,9 +44,8 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
  *
  * Only the two workspace-scoped kinds do: an MCP server syncs into
  * `<workspaceRoot>/.mcp.json` and a skill pack copies into the workspace's
- * harness dirs. A module installs into `~/.sprintengine/modules/<id>`, a CLI
- * plugin into the user plugin root — neither touches a project — so a
- * module-only bundle installs with no workspace open at all, which is what
+ * harness dirs. A module installs into `~/.sprintengine/modules/<id>`, which
+ * touches no project — so a module-only bundle installs with no workspace open at all, which is what
  * makes a first-party module installable from a fresh app that has never
  * opened a folder (D10). An automation needs one, but an automation-only
  * bundle's own component reports that itself with the sentence that names the
@@ -53,7 +54,7 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
  * Lives here rather than inline in `BrowseStorefront` so the rule can be
  * asserted without a renderer, like the rest of the flow.
  */
-export function installNeedsWorkspace(provides: readonly MarketplaceComponentKind[]): boolean {
+export function installNeedsWorkspace(provides: readonly MarketplaceProvidesKind[]): boolean {
   return provides.some((kind) => kind === 'mcp' || kind === 'skills')
 }
 
@@ -65,10 +66,9 @@ export type InstallFlowState =
   | { status: 'idle' }
   // verifyMarketplacePlugin in flight (download + ed25519-verify, no install).
   | { status: 'verifying' }
-  // Signed community plugin: show the trust prompt with the verified
-  // permissions. `files` carries the real content listing for entries whose
-  // payload is files rather than permissions (Claude Code plugin skills).
-  | { status: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string }
+  // The trust prompt: what verify disclosed, and the token that installs
+  // exactly that once the person agrees.
+  | { status: 'needs-trust'; review: ExtensionTrustReviewData; trustToken: string }
   // install-entry IPC in flight (verified direct, or community after trust).
   | { status: 'installing' }
   // `restartRequired`: the install landed a module whose main entry only loads
@@ -83,8 +83,10 @@ export type InstallFlowState =
 
 // What the component should do next once verify resolves.
 export type VerifyOutcome =
-  | { kind: 'install' } // verified → install directly, no trust prompt
-  | { kind: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string } // community → trust prompt
+  // verified → install directly, no trust prompt; the token (when verify
+  // issued one) still binds the install to what verify read.
+  | { kind: 'install'; trustToken?: string }
+  | { kind: 'needs-trust'; review: ExtensionTrustReviewData; trustToken: string } // → trust prompt
   | { kind: 'blocked'; classification: BlockedClassification; message: string; issues?: string[] }
 
 function blockedFallbackMessage(classification: BlockedClassification): string {
@@ -93,29 +95,39 @@ function blockedFallbackMessage(classification: BlockedClassification): string {
     : "This extension is unsigned, so it can't be installed."
 }
 
+// What the trust prompt discloses, straight from the verify result.
+export function trustReviewFromVerify(
+  verify: MarketplacePluginVerifyResult & { classification: ExtensionTrustReviewData['classification'] },
+): ExtensionTrustReviewData {
+  return {
+    classification: verify.classification,
+    permissions: verify.permissions,
+    ...(verify.files?.length ? { files: verify.files } : {}),
+    ...(verify.mcpServers?.length ? { mcpServers: verify.mcpServers } : {}),
+    ...(verify.sourceUrl ? { sourceUrl: verify.sourceUrl } : {}),
+    ...(verify.pin?.commitSha ? { commitSha: verify.pin.commitSha } : {}),
+    ...(verify.keyFingerprint ? { keyFingerprint: verify.keyFingerprint } : {}),
+    ...(verify.codeBearing ? { codeBearing: true } : {}),
+  }
+}
+
 // Map a verify result to the next step. Verified installs directly; community and
-// unsigned mcp/skills-only earn the trust prompt with the real verified permissions;
+// unsigned mcp/skills-only earn the trust prompt with what verify disclosed;
 // unsigned code-bearing bundles and invalid are hard blocks carrying the verifier's
-// message + issue detail. `provides` (from the registry entry) resolves the unsigned
-// split — the verify result itself does not carry component kinds.
+// message + issue detail. `provides` (from the registry entry) backs up the
+// verifier's own code-bearing flag for the unsigned split.
 export function classifyVerification(
   verify: MarketplacePluginVerifyResult,
-  provides: MarketplaceComponentKind[],
+  provides: readonly MarketplaceProvidesKind[],
 ): VerifyOutcome {
   switch (verify.classification) {
     case 'verified':
-      return { kind: 'install' }
+      return { kind: 'install', ...(verify.trustToken ? { trustToken: verify.trustToken } : {}) }
     case 'community':
-      return {
-        kind: 'needs-trust',
-        permissions: verify.permissions,
-        ...(verify.files?.length ? { files: verify.files } : {}),
-        ...(verify.pinnedRef ? { pinnedRef: verify.pinnedRef } : {}),
-      }
-    case 'unsigned':
+    case 'unsigned': {
       // Code-bearing unsigned hard-blocks (the backend refuses it too); unsigned
-      // mcp/skills-only earns the explicit trust prompt with its declared permissions.
-      if (hasCodeBearingKind(provides)) {
+      // mcp/skills-only earns the explicit trust prompt.
+      if (verify.classification === 'unsigned' && (verify.codeBearing || hasCodeBearingKind(provides))) {
         return {
           kind: 'blocked',
           classification: 'unsigned',
@@ -123,12 +135,21 @@ export function classifyVerification(
           issues: verify.issues?.map((issue) => issue.message),
         }
       }
+      // No token, no approval to give: main declined to issue one.
+      if (!verify.trustToken) {
+        return {
+          kind: 'blocked',
+          classification: 'invalid',
+          message: verify.message || 'This extension can’t be approved for install right now.',
+          issues: verify.issues?.map((issue) => issue.message),
+        }
+      }
       return {
         kind: 'needs-trust',
-        permissions: verify.permissions,
-        ...(verify.files?.length ? { files: verify.files } : {}),
-        ...(verify.pinnedRef ? { pinnedRef: verify.pinnedRef } : {}),
+        review: trustReviewFromVerify({ ...verify, classification: verify.classification }),
+        trustToken: verify.trustToken,
       }
+    }
     case 'invalid':
       return {
         kind: 'blocked',
@@ -184,18 +205,14 @@ export type InstallFlowView = {
   // A spinner/progress state: interactions are suppressed and `busyLabel` shows.
   busy: boolean
   busyLabel?: string
-  // The trust prompt: render the permission disclosure + an explicit Cancel
-  // alongside the trust-install action. Only the 'needs-trust' state sets this.
+  // The trust prompt: render the disclosure + an explicit Cancel alongside the
+  // trust-install action. Only the 'needs-trust' state sets this.
   trustPrompt: boolean
-  // Real verified permissions to disclose at the trust prompt — never
-  // fabricated. `null` outside the trust prompt; `[]` is a real "no access" list.
-  permissions: CapabilityPermission[] | null
-  // Real content listing to disclose at the trust prompt, for Claude Code
-  // plugin skill folders; null when the trust decision is permission-shaped.
-  files: string[] | null
-  // The commit the file listing came from; the trust-install passes it back so
-  // the install fetches exactly the disclosed content. Trust prompt only.
-  pinnedRef: string | null
+  // What verify disclosed — never fabricated. `null` outside the trust prompt.
+  review: ExtensionTrustReviewData | null
+  // The token the trust-install passes back so main installs exactly the
+  // disclosed content. Trust prompt only.
+  trustToken: string | null
   // An explanatory notice (success / blocked / error). Status is carried by the
   // message text + tone, never colour alone.
   notice: { tone: NoticeTone; message: string; issues?: string[] } | null
@@ -208,9 +225,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         action: { kind: 'install', label: 'Install' },
         busy: false,
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         notice: null,
       }
     case 'verifying':
@@ -219,9 +235,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         busy: true,
         busyLabel: 'Verifying…',
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         notice: null,
       }
     case 'needs-trust':
@@ -229,9 +244,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         action: { kind: 'trust-install', label: 'Trust and install' },
         busy: false,
         trustPrompt: true,
-        permissions: state.permissions,
-        files: state.files ?? null,
-        pinnedRef: state.pinnedRef ?? null,
+        review: state.review,
+        trustToken: state.trustToken,
         notice: null,
       }
     case 'installing':
@@ -240,9 +254,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         busy: true,
         busyLabel: 'Installing…',
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         notice: null,
       }
     case 'installed': {
@@ -256,9 +269,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         action: null,
         busy: false,
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         // A skill that shipped without bundled content installs nothing; the
         // notice tone warns so the user sees which listed skills they did not
         // get, rather than the flat "Installed." hiding the gap.
@@ -272,9 +284,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         action: null,
         busy: false,
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         notice: {
           tone: state.classification === 'invalid' ? 'error' : 'warn',
           message: state.message,
@@ -286,9 +297,8 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         action: { kind: 'retry', label: 'Try again' },
         busy: false,
         trustPrompt: false,
-        permissions: null,
-        files: null,
-        pinnedRef: null,
+        review: null,
+        trustToken: null,
         notice: { tone: 'error', message: state.message, issues: state.issues },
       }
   }
