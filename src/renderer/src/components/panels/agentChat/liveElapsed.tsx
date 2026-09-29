@@ -1,30 +1,40 @@
 import { useEffect, useRef } from 'react'
-import { observeLiveVisibility } from './liveVisibility'
+import { relativeNowClocks } from '../../../hooks/useRelativeNow'
+import { inHiddenRegion, observeLiveVisibility } from './liveVisibility'
 
 // Seconds since a step started, ticking once a second only while the row is on
 // screen in a visible window. It writes the text node directly so a tick never
 // re-renders the transcript.
+//
+// Every counter rides the window's one shared 1 s clock (useRelativeNow's)
+// rather than an interval of its own: a fan-out of agents, their running
+// steps and the working line is one wakeup a second, not one per row. The
+// clock stops when nothing subscribes and while the window is hidden. The
+// intersection observer cannot see `visibility: hidden`, so a counter in a
+// warm workspace layer (or a cold or inert one) stays subscribed but skips
+// its write; it is right again within a second of being shown.
 export function LiveElapsed({ startedAt }: { startedAt: number }) {
   const textRef = useRef<HTMLSpanElement | null>(null)
   const initial = formatElapsedMs(Date.now() - startedAt)
   useEffect(() => {
-    const update = () => {
-      if (textRef.current) textRef.current.textContent = formatElapsedMs(Date.now() - startedAt)
-    }
     const element = textRef.current
     if (!element) return
-    let timer: number | undefined
+    const update = (now: number) => {
+      if (inHiddenRegion(element)) return
+      const text = formatElapsedMs(now - startedAt)
+      if (element.textContent !== text) element.textContent = text
+    }
+    let unsubscribe: (() => void) | undefined
     const stop = observeLiveVisibility(element, (visible) => {
-      if (timer !== undefined) window.clearInterval(timer)
-      timer = undefined
-      if (visible) {
-        update()
-        timer = window.setInterval(update, 1000)
-      }
+      unsubscribe?.()
+      unsubscribe = undefined
+      if (!visible) return
+      update(Date.now())
+      unsubscribe = relativeNowClocks().subscribe(1000, update)
     })
     return () => {
       stop()
-      if (timer !== undefined) window.clearInterval(timer)
+      unsubscribe?.()
     }
   }, [startedAt])
   return <span ref={textRef}>{initial}</span>

@@ -33,6 +33,17 @@ export function useLiveRowMotion(ref: RefObject<HTMLElement | null>, running: bo
   }, [ref, running])
 }
 
+// Mounted but out of sight in a visible window, where the intersection
+// observer still reports "in view": a warm workspace layer (visibility:
+// hidden), a cold one (content-visibility: hidden), or an inert region (an
+// inactive workspace's parked pane, a collapsed pane, the canvas under a door).
+// The same conditions the stylesheet's pause rule keys on.
+const HIDDEN_REGION_SELECTOR = "[data-layer-state='warm'], [data-layer-state='cold'], [inert]"
+
+export function inHiddenRegion(element: Element): boolean {
+  return element.closest(HIDDEN_REGION_SELECTOR) !== null
+}
+
 /** One observer and one visibility listener cover every mounted live transcript row. */
 export function observeLiveVisibility(element: Element, callback: (visible: boolean) => void): () => void {
   if (listeners.size === 0) {

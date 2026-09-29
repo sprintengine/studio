@@ -77,7 +77,12 @@ export function createRelativeNowClocks(activity: WindowActivity, clock: { now()
 }
 
 let sharedClocks: RelativeNowClocks | null = null
-function relativeNowClocks(): RelativeNowClocks {
+/**
+ * This window's shared clocks, for a caller that ticks outside React state:
+ * the transcript's live elapsed counters write their text straight into the
+ * DOM on the 1 s clock rather than re-rendering.
+ */
+export function relativeNowClocks(): RelativeNowClocks {
   sharedClocks ??= createRelativeNowClocks(windowActivity())
   return sharedClocks
 }
