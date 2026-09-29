@@ -101,6 +101,10 @@ function harness(permissions: Record<string, string[]>) {
       for (const listener of workspaceListeners) listener()
       return { ok: true }
     },
+    // A module's chat always joins the workspace it names; none is a `newChat`.
+    listWorkspaces: () => workspaces,
+    createWorkspace: () => ({ ok: false, message: 'a module never starts a newChat' }),
+    removeWorkspace: () => undefined,
     startSession: (input) => runtime.startSession(input),
     send: async () => ({ ok: true }) as never,
     newAgentSuffix: () => `s${++suffix}`,
