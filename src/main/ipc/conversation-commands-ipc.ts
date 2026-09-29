@@ -1,5 +1,5 @@
 import { isAbsolute, join } from 'node:path'
-import { BrowserWindow, type IpcMain } from 'electron'
+import type { IpcMain } from 'electron'
 
 import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
 import { conversationProviderForCli } from '../../shared/conversation-harness'
@@ -17,7 +17,13 @@ import {
 import { onConversationCommandsChanged } from '../conversation-commands/registry'
 import { createConversationCommandsService, type ConversationCommandsService } from '../conversation-commands/service'
 
-type WindowLike = { isDestroyed: () => boolean; webContents: { send: (channel: string, payload: unknown) => void } }
+/** The slice of a renderer's webContents the push touches. */
+type SubscriberLike = {
+  id: number
+  isDestroyed: () => boolean
+  send: (channel: string, payload: unknown) => void
+  once: (event: 'destroyed', listener: () => void) => unknown
+}
 
 export type ConversationCommandsIpcDeps = {
   service?: ConversationCommandsService
@@ -25,7 +31,6 @@ export type ConversationCommandsIpcDeps = {
   userDataDir?: string
   /** The person's per-CLI command and WSL overrides, which main owns. */
   cliRuntimes?: () => ConversationCliRuntimeOverrides | undefined
-  getWindows?: () => WindowLike[]
 }
 
 // The renderer names a CLI and a folder; anything else is refused here rather
@@ -54,8 +59,10 @@ export type ConversationCommandsIpcHandle = {
  * `conversation-commands:list` answers with the (CLI, folder) list main holds,
  * starting a probe when it is missing or old; every list published afterwards
  * — that probe's, a live session's, an ACP update's — is pushed to every
- * window, so a chat that did not ask (another window, a background chat) is
- * current too.
+ * renderer that has asked for one, so a chat that did not ask (another window,
+ * a background chat) is current too. A renderer that never asked has no chat
+ * reading a list (every chat asks as it mounts), so the canvas worker and the
+ * windows without a composer are not woken for each list a live chat reports.
  */
 export function registerConversationCommandsIpc(
   ipcMain: IpcMain,
@@ -69,16 +76,27 @@ export function registerConversationCommandsIpc(
         ? createConversationCommandsDiskCache({ file: join(deps.userDataDir, CONVERSATION_COMMANDS_CACHE_FILE) })
         : null,
     })
-  ipcMain.handle(CONVERSATION_COMMANDS_LIST_CHANNEL, async (_event, raw?: unknown) => {
+  const subscribers = new Map<number, SubscriberLike>()
+  const subscribe = (sender: SubscriberLike | undefined): void => {
+    if (!sender || subscribers.has(sender.id) || sender.isDestroyed()) return
+    subscribers.set(sender.id, sender)
+    sender.once('destroyed', () => subscribers.delete(sender.id))
+  }
+  ipcMain.handle(CONVERSATION_COMMANDS_LIST_CHANNEL, async (event, raw?: unknown) => {
     const input = readConversationCommandsRequest(raw)
     if (!input) throw new Error('A command list is asked for with a chat CLI and an absolute folder.')
+    subscribe((event as { sender?: SubscriberLike } | null)?.sender)
     return service.list(input)
   })
-  const getWindows = deps.getWindows ?? (() => BrowserWindow.getAllWindows())
-  const stop = onConversationCommandsChanged((catalog: ConversationCommandCatalog) => {
-    for (const win of getWindows()) {
-      if (!win.isDestroyed()) win.webContents.send(CONVERSATION_COMMANDS_CHANGED_CHANNEL, catalog)
+  const stopRelay = onConversationCommandsChanged((catalog: ConversationCommandCatalog) => {
+    for (const [id, sender] of subscribers) {
+      if (sender.isDestroyed()) subscribers.delete(id)
+      else sender.send(CONVERSATION_COMMANDS_CHANGED_CHANNEL, catalog)
     }
   })
+  const stop = (): void => {
+    stopRelay()
+    subscribers.clear()
+  }
   return { stop, dispose: () => service.dispose() }
 }
