@@ -91,15 +91,39 @@ type MobileControlSnapshotServiceOptions = {
    * shares nothing without stubbing a daemon.
    */
   readWebTargets?: () => Promise<MobileControlWebTargetSnapshot[]>
+  /**
+   * How long one read of the published dev servers answers for. Reading them
+   * runs two `tailscale` processes, and a phone polling the snapshot would
+   * otherwise pay for both on every poll. Injected in tests.
+   */
+  webTargetsMaxAgeMs?: number
+  now?: () => number
 }
+
+/** A share started or stopped on this desktop reaches the phone's web screen within this. */
+const DEFAULT_WEB_TARGETS_MAX_AGE_MS = 20_000
 
 export class MobileControlSnapshotService {
   private readonly supportedCommands: MobileControlCommandType[]
-  private readonly readWebTargets: () => Promise<MobileControlWebTargetSnapshot[]>
+  private readonly readWebTargetsNow: () => Promise<MobileControlWebTargetSnapshot[]>
+  private readonly webTargetsMaxAgeMs: number
+  private readonly now: () => number
+  /** The last read of the web targets, shared by every snapshot inside its age. Holds no timer. */
+  private webTargets: { read: Promise<MobileControlWebTargetSnapshot[]>; at: number } | null = null
 
   constructor(options: MobileControlSnapshotServiceOptions = {}) {
     this.supportedCommands = normalizeMobileControlCommands(options.supportedCommands ?? defaultMobileSnapshotCommands)
-    this.readWebTargets = options.readWebTargets ?? (async () => [])
+    this.readWebTargetsNow = options.readWebTargets ?? (async () => [])
+    this.webTargetsMaxAgeMs = Math.max(0, options.webTargetsMaxAgeMs ?? DEFAULT_WEB_TARGETS_MAX_AGE_MS)
+    this.now = options.now ?? Date.now
+  }
+
+  private readWebTargets(): Promise<MobileControlWebTargetSnapshot[]> {
+    const at = this.now()
+    if (this.webTargets && at - this.webTargets.at < this.webTargetsMaxAgeMs) return this.webTargets.read
+    const read = this.readWebTargetsNow().catch(() => [] as MobileControlWebTargetSnapshot[])
+    this.webTargets = { read, at }
+    return read
   }
 
   async readSnapshot(request: MobileControlSnapshotRequest): Promise<MobileControlSnapshot> {
@@ -108,9 +132,10 @@ export class MobileControlSnapshotService {
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
     const backlog = collections.has('backlog') ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt) : []
     // A share is machine state that can change without any workspace changing,
-    // so it is read on every snapshot and folded into the version below —
-    // otherwise the phone's If-None-Match would hold a stale web screen.
-    const webTargets = await this.readWebTargets().catch(() => [] as MobileControlWebTargetSnapshot[])
+    // so it is folded into the version below — otherwise the phone's
+    // If-None-Match would hold a stale web screen. It is read at most once
+    // per `webTargetsMaxAgeMs`, however often the phone asks.
+    const webTargets = await this.readWebTargets()
     return {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,

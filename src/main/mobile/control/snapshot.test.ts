@@ -448,3 +448,31 @@ test('snapshot', async () => {
 
   await suiteRun
 })
+
+test('the published dev servers are read once per interval, however often the phone asks', async () => {
+  let reads = 0
+  let clock = 1_000
+  let shares = [{ id: 'serve:443', label: 'localhost:5173', url: 'https://mac-mini.tail1234.ts.net', localPort: 5173 }]
+  const service = new MobileControlSnapshotService({
+    readWebTargets: async () => {
+      reads += 1
+      return shares.map((share) => ({ ...share, machine: 'mac-mini.tail1234.ts.net' }))
+    },
+    webTargetsMaxAgeMs: 20_000,
+    now: () => clock,
+  })
+  const read = () => service.readSnapshot({ desktopSessionId: 'tailnet:mac-mini', workspaceRoots: [] })
+  const first = await read()
+  const [second, third] = await Promise.all([read(), read()])
+  assert.equal(reads, 1, 'polls inside the interval share one read')
+  assert.equal(second.snapshotVersion, first.snapshotVersion)
+  assert.equal(third.webTargets?.length, 1)
+
+  // A share stopped over the interval reaches the phone on the next read after it.
+  shares = []
+  clock += 20_000
+  const fourth = await read()
+  assert.equal(reads, 2)
+  assert.equal(fourth.webTargets, undefined)
+  assert.notEqual(fourth.snapshotVersion, first.snapshotVersion, 'and moves the version')
+})

@@ -42,7 +42,7 @@ import { TAILNET_SCOPES, type TailnetRemoteStatus, type TailnetScope } from '../
 import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 import { TAILNET_CONVERSATION_PATH } from './tailnet/tailnet-routes'
 import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 
 test('tailnet', async () => {
   // The tailnet listener. Every test here drives the REAL server over a
@@ -1315,6 +1315,52 @@ test('tailnet', async () => {
     }
   }
 
+  // A machine nobody watches bumps the revision a later `hello` reports and
+  // arms nothing: every turn of every chat used to set a timer for a push
+  // with no one to receive it. And stopping clears every kind's pending
+  // push, the conversation one included.
+  async function testTheChangeFeedArmsNothingUnwatchedAndStopClearsEveryPush(): Promise<void> {
+    const harness = await startHarness({ changePushIntervalMs: 60_000 })
+    let stopped = false
+    try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        harness.server.notifyConversationsChanged()
+        harness.server.notifyConversationsChanged()
+        harness.server.notifyWorkspacesChanged()
+        assert.equal(vi.getTimerCount(), 0, 'no watcher, no timer')
+      } finally {
+        vi.useRealTimers()
+      }
+      const device = await pairDevice(harness, { name: 'watcher', scopes: ['workspace:read'] })
+      const ticket = (await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })).body as {
+        ticket: string
+      }
+      const feed = await openWebSocket(harness.port, ticket.ticket, { path: TAILNET_EVENTS_PATH })
+      const hello = await feed.nextMessage()
+      assert.deepEqual(
+        hello.revisions,
+        { workspaces: 1, conversations: 2 },
+        'the revisions still moved, so a watcher that arrives later sees it',
+      )
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        harness.server.notifyConversationsChanged()
+        assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'conversations', revision: 3 })
+        harness.server.notifyConversationsChanged()
+        assert.equal(vi.getTimerCount(), 1, 'a push inside the floor waits on a timer')
+        await harness.server.stop()
+        stopped = true
+        assert.equal(vi.getTimerCount(), 0, 'stopping clears the conversation push too')
+      } finally {
+        vi.useRealTimers()
+      }
+    } finally {
+      if (!stopped) await harness.server.stop()
+      rmSync(harness.userDataDir, { recursive: true, force: true })
+    }
+  }
+
   async function testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity(): Promise<void> {
     const harness = await startHarness({ peerNode: 'mac-mini.tail1234.ts.net' })
     try {
@@ -2081,6 +2127,7 @@ test('tailnet', async () => {
     testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
     testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,
     testTheChangeFeedPushesOncePerBurstAndFollowsRevocation,
+    testTheChangeFeedArmsNothingUnwatchedAndStopClearsEveryPush,
     testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable,
     testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl,
     testRevocationLandsOnTheNextRequestAndKillsLiveStreams,

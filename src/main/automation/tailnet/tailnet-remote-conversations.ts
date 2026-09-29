@@ -61,17 +61,39 @@ import {
 // sentence rather than being skipped: skipping an event and then advancing the
 // cursor past it would lose it for good.
 
-/** First retry is fast (a Wi-Fi blip), then backs off to a quiet poll for a sleeping peer. */
+/** First retry is fast (a Wi-Fi blip), then backs off. */
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 15_000
-/** After this many failed dials the link stops saying "reconnecting" and says the peer is not answering. */
+/**
+ * After this many failed dials the link stops saying "reconnecting", says the
+ * peer is not answering, and stops dialling: the follow is parked until
+ * something says the machine may be back (see `resume`).
+ */
 const OFFLINE_AFTER_ATTEMPTS = 3
+/** Every wait between dials is this many times longer on battery. */
+const BATTERY_STRETCH = 4
 /** A read the far end answers `busy` is asked again, but not forever. */
 const MAX_BUSY_RETRIES = 5
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
 const DEFAULT_LIST_TIMEOUT_MS = 15_000
-const DEFAULT_SAVE_DELAY_MS = 250
+/**
+ * The longest a streaming reply's kept copy may lag what is on screen. The
+ * copy is written whole, so a save per delta would rewrite megabytes several
+ * times a second; the moments that matter (a fence, a turn ending, a question
+ * for the person) are saved at once instead, and this only bounds what a
+ * crash in the middle of a long turn could lose. Losing it costs a re-read,
+ * never an event: the cursor is written with the tail it vouches for, so an
+ * older copy simply asks the far end for more.
+ */
+const DEFAULT_SAVE_DELAY_MS = 8_000
+/** Events after which the copy is saved at once rather than on the slow beat. */
+const SAVE_BOUNDARY_EVENTS: ReadonlySet<string> = new Set([
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'session_closed',
+])
 /** The protocol's largest logical frame, plus the envelope a chunk's text is re-escaped in. */
 const MAX_REASSEMBLED_CHARS = 40 * 1024 * 1024
 /** How much of a transcript this machine keeps. Older turns stay a `loadEarlier` away. */
@@ -94,6 +116,14 @@ export type RemoteConversationsOptions = {
   onUnauthorized?(connectionId: string, detail: string): void
   /** The machine answered a dial: it is reachable. */
   onReachable?(connectionId: string): void
+  /**
+   * A follow on this machine stopped dialling after failing long enough to
+   * read offline. It stays parked until `resume` or `onWake`; the owner
+   * decides when the machine is worth asking again.
+   */
+  onAway?(connectionId: string): void
+  /** Whether the machine runs on battery: the save beat and the retry cap stretch while it does. */
+  isOnBattery?(): boolean
   openSocket?: typeof openRemoteConversationSocket
   retry?: { baseMs: number; maxMs: number }
   requestTimeoutMs?: number
@@ -117,8 +147,12 @@ export type RemoteConversations = {
   toolDetail(key: MeshConversationKey, toolUseId: string): Promise<ConversationToolDetailResult>
   turnDiff(key: MeshConversationKey, turnSeq: number, path?: string): Promise<ConversationTurnDiffResult>
   command(key: MeshConversationKey, command: unknown): Promise<MeshConversationCommandResult>
-  /** Re-dial every follow waiting out a backoff: a lid opening should reconnect at once. */
+  /** Re-dial every follow waiting out a backoff or parked offline: a lid opening should reconnect at once. */
   onWake(): void
+  /** Re-dial the parked follows on one machine: it just answered something else. */
+  resume(connectionId: string): void
+  /** Whether any follow on this machine is parked, waiting for `resume`. */
+  parkedOn(connectionId: string): boolean
   /** End every follow on a machine and delete what was kept of its conversations. */
   forgetConnection(connectionId: string, reason: string): Promise<void>
   shutdown(): void
@@ -154,6 +188,16 @@ type Follow = {
   retryTimer: NodeJS.Timeout | null
   /** The pending retry honours a delay the far end advised, which a wake must not cut short. */
   retryAdvised: boolean
+  /** Offline and not dialling: waits for `resume` or a wake instead of a timer. */
+  parked: boolean
+  /**
+   * A dial is between its ticket and its socket. A second dial started then
+   * would open a second socket and orphan one of them, answering the far
+   * end's pings forever; it is folded into `redial` instead.
+   */
+  dialing: boolean
+  /** Asked to dial again while a dial was out: the one in flight may carry a stale credential. */
+  redial: boolean
   resyncAfterMs: number | null
   released: boolean
   finished: boolean
@@ -178,6 +222,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   const commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
   const listTimeoutMs = options.listTimeoutMs ?? DEFAULT_LIST_TIMEOUT_MS
   const saveDelayMs = options.saveDelayMs ?? DEFAULT_SAVE_DELAY_MS
+  const stretch = (): number => (options.isOnBattery?.() ? BATTERY_STRETCH : 1)
   const follows = new Map<string, Follow>()
   const listenerFollow = new Map<string, Follow>()
 
@@ -273,6 +318,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     ...record.page,
     events: [...record.page.events],
   })
+  /** Write the copy now, if anything in it changed since the last write. */
   const persistNow = (follow: Follow): void => {
     if (follow.saveTimer) clearTimeout(follow.saveTimer)
     follow.saveTimer = null
@@ -281,10 +327,15 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
     // Encoded before `save` returns, so the copy may keep growing meanwhile.
     void options.cache.save(follow.key, follow.record)
   }
+  /**
+   * Mark the copy changed and make sure a write follows within the slow beat.
+   * A throttle, not a debounce: a reply that streams for minutes is still
+   * written every few seconds, never only at its end.
+   */
   const persistSoon = (follow: Follow): void => {
     follow.dirty = true
     if (follow.saveTimer) return
-    follow.saveTimer = setTimeout(() => persistNow(follow), saveDelayMs)
+    follow.saveTimer = setTimeout(() => persistNow(follow), saveDelayMs * stretch())
     follow.saveTimer.unref?.()
   }
 
@@ -310,12 +361,13 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   }
 
   async function dial(follow: Follow): Promise<void> {
-    if (follow.released || follow.finished || follow.socket) return
+    if (follow.released || follow.finished || follow.socket || follow.dialing) return
     const connection = options.resolveConnection(follow.key.connectionId)
     if (!connection) {
       finish(follow, 'That machine is no longer paired here.', 'unknown_connection')
       return
     }
+    follow.parked = false
     follow.access = accessOf(connection.scopes) ?? follow.access
     link(
       follow,
@@ -331,14 +383,29 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         if (socket && follow.socket === socket) closed(follow, code, reason)
       },
     }
-    const opened = await openSocket({
-      endpoint: connection.endpoint,
-      token: connection.token,
-      handlers,
-      ...(options.livenessTimeoutMs === undefined ? {} : { livenessTimeoutMs: options.livenessTimeoutMs }),
-    })
+    follow.dialing = true
+    let opened: Awaited<ReturnType<typeof openSocket>>
+    try {
+      opened = await openSocket({
+        endpoint: connection.endpoint,
+        token: connection.token,
+        handlers,
+        ...(options.livenessTimeoutMs === undefined ? {} : { livenessTimeoutMs: options.livenessTimeoutMs }),
+      })
+    } finally {
+      follow.dialing = false
+    }
     if (follow.released || follow.finished) {
+      follow.redial = false
       if (opened.ok) opened.value.close('Stopped following.')
+      return
+    }
+    if (follow.redial) {
+      // Asked again while this dial was out (a re-follow after it ended): this
+      // dial may carry the credential that ended it, so it gives way.
+      follow.redial = false
+      if (opened.ok) opened.value.close('Reconnecting.')
+      void dial(follow)
       return
     }
     if (!opened.ok) {
@@ -371,14 +438,23 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   }
 
   function scheduleRetry(follow: Follow, reason: string, advisedMs?: number): void {
-    if (follow.released || follow.finished || follow.retryTimer) return
-    const delayMs =
-      advisedMs ?? backoffDelayMs(follow.attempts, { baseMs: retry.baseMs, maxMs: retry.maxMs }) ?? retry.maxMs
+    if (follow.released || follow.finished || follow.retryTimer || follow.parked) return
+    const maxMs = retry.maxMs * stretch()
+    const delayMs = advisedMs ?? backoffDelayMs(follow.attempts, { baseMs: retry.baseMs, maxMs }) ?? maxMs
     follow.retryAdvised = advisedMs !== undefined
     if (advisedMs === undefined) follow.attempts += 1
     if (advisedMs !== undefined) link(follow, 'reconnecting', reason)
-    else if (follow.attempts > OFFLINE_AFTER_ATTEMPTS) link(follow, 'offline', reason)
-    else link(follow, 'reconnecting', reason)
+    else if (follow.attempts > OFFLINE_AFTER_ATTEMPTS) {
+      // Not answering: stop dialling. A sleeping machine was costing a ticket
+      // request and a link frame to every window every few seconds for as
+      // long as its pane stayed open. The owner watches for it to come back
+      // (a reachability answer, a wake, the person returning to the app) and
+      // calls `resume`.
+      follow.parked = true
+      link(follow, 'offline', reason)
+      options.onAway?.(follow.key.connectionId)
+      return
+    } else link(follow, 'reconnecting', reason)
     follow.retryTimer = setTimeout(() => {
       follow.retryTimer = null
       follow.retryAdvised = false
@@ -431,6 +507,7 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
   function finish(follow: Follow, detail: string, code: string): void {
     if (follow.finished) return
     follow.finished = true
+    follow.parked = false
     if (follow.retryTimer) clearTimeout(follow.retryTimer)
     follow.retryTimer = null
     const socket = follow.socket
@@ -548,17 +625,26 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         // live events already queued behind it.
         if (event.seq !== undefined && held !== null && event.seq <= held) return
         append(follow, event)
-        persistSoon(follow)
+        // A turn's end, or a question for the person, is where a restart
+        // should find the copy; everything between is on the slow beat.
+        if (SAVE_BOUNDARY_EVENTS.has(event.type)) {
+          follow.dirty = true
+          persistNow(follow)
+        } else persistSoon(follow)
         emit(follow, { type: 'event', event })
         return
       }
       case 'synchronized': {
         const record = (follow.record ??= emptyRecord())
-        record.generation = frame.generation ?? record.generation
-        record.lastSeq = Math.max(record.lastSeq ?? 0, frame.seq)
+        const generation = frame.generation ?? record.generation
+        const lastSeq = Math.max(record.lastSeq ?? 0, frame.seq)
+        // A reconnect that found nothing new moves neither, and rewriting the
+        // whole copy to say so would be a write for nothing.
+        if (generation !== record.generation || lastSeq !== record.lastSeq) follow.dirty = true
+        record.generation = generation
+        record.lastSeq = lastSeq
         follow.synchronized = true
         follow.attempts = 0
-        follow.dirty = true
         persistNow(follow)
         link(follow, 'live', `Following on ${machineName(follow)}.`)
         emit(follow, {
@@ -815,6 +901,9 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
           attempts: 0,
           retryTimer: null,
           retryAdvised: false,
+          parked: false,
+          dialing: false,
+          redial: false,
           resyncAfterMs: null,
           released: false,
           finished: false,
@@ -842,6 +931,10 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
         follow.finished = false
         follow.attempts = 0
         follow.code = undefined
+        if (follow.dialing) follow.redial = true
+        else void dial(follow)
+      } else if (follow.parked) {
+        // Another window opening it is a person asking for it now.
         void dial(follow)
       }
       const joined = follow
@@ -965,11 +1058,24 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
 
     onWake() {
       for (const follow of follows.values()) {
-        if (follow.released || follow.finished || follow.socket || !follow.retryTimer || follow.retryAdvised) continue
-        clearTimeout(follow.retryTimer)
+        if (follow.released || follow.finished || follow.socket || follow.dialing || follow.retryAdvised) continue
+        if (!follow.retryTimer && !follow.parked) continue
+        if (follow.retryTimer) clearTimeout(follow.retryTimer)
         follow.retryTimer = null
         void dial(follow)
       }
+    },
+
+    resume(connectionId) {
+      for (const follow of follows.values()) {
+        if (follow.key.connectionId !== connectionId || !follow.parked) continue
+        void dial(follow)
+      }
+    },
+
+    parkedOn(connectionId) {
+      for (const follow of follows.values()) if (follow.key.connectionId === connectionId && follow.parked) return true
+      return false
     },
 
     async forgetConnection(connectionId, reason) {

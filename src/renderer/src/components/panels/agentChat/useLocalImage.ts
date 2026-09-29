@@ -59,37 +59,60 @@ export function useLocalImage(path: string | null | undefined): LocalImage {
 // row that scrolls away and back, or opens after showing collapsed, draws what
 // was already fetched instead of asking the other machine again. A failure is
 // not kept, since the picture may be there on the next look; a machine that
-// does not serve pictures is, since it will not start to mid-conversation. Few
-// entries, since each can be megabytes of data URL.
+// does not serve pictures is, since it will not start to mid-conversation.
+// Bounded by count and by the length of the data URLs held: twelve full-size
+// pictures would be over a hundred megabytes in one window, and main keeps
+// its own copy of each for when one is asked for again.
 const TOOL_IMAGE_CACHE_ENTRIES = 12
-const toolImageCache = new WeakMap<ConversationTransport, Map<string, Promise<ConversationToolImageResult>>>()
+const TOOL_IMAGE_CACHE_CHARS = 24 * 1024 * 1024
+type ToolImageCache = {
+  entries: Map<string, { answer: Promise<ConversationToolImageResult>; chars: number }>
+  chars: number
+}
+const toolImageCache = new WeakMap<ConversationTransport, ToolImageCache>()
 
-function fetchToolImage(
+export function fetchToolImage(
   transport: ConversationTransport,
   toolImage: NonNullable<ConversationTransport['toolImage']>,
   toolUseId: string,
 ): Promise<ConversationToolImageResult> {
   let cache = toolImageCache.get(transport)
   if (!cache) {
-    cache = new Map()
+    cache = { entries: new Map(), chars: 0 }
     toolImageCache.set(transport, cache)
   }
-  const cached = cache.get(toolUseId)
+  const kept = cache.entries
+  const cached = kept.get(toolUseId)
   if (cached) {
     // The most recently shown stays longest.
-    cache.delete(toolUseId)
-    cache.set(toolUseId, cached)
-    return cached
+    kept.delete(toolUseId)
+    kept.set(toolUseId, cached)
+    return cached.answer
   }
   const asked = toolImage({ toolUseId }).catch((error: unknown): ConversationToolImageResult => ({
     ok: false,
     unsupported: false,
     message: error instanceof Error ? error.message : String(error),
   }))
-  cache.set(toolUseId, asked)
-  while (cache.size > TOOL_IMAGE_CACHE_ENTRIES) cache.delete(cache.keys().next().value!)
+  const entry = { answer: asked, chars: 0 }
+  kept.set(toolUseId, entry)
+  const evict = (): void => {
+    for (const [id, older] of kept) {
+      if ((kept.size <= TOOL_IMAGE_CACHE_ENTRIES && cache.chars <= TOOL_IMAGE_CACHE_CHARS) || older === entry) break
+      kept.delete(id)
+      cache.chars -= older.chars
+    }
+  }
+  evict()
   void asked.then((answer) => {
-    if (!answer.ok && !answer.unsupported && cache.get(toolUseId) === asked) cache.delete(toolUseId)
+    if (kept.get(toolUseId) !== entry) return
+    if (!answer.ok && !answer.unsupported) {
+      kept.delete(toolUseId)
+      return
+    }
+    entry.chars = answer.ok ? answer.src.length : 0
+    cache.chars += entry.chars
+    evict()
   })
   return asked
 }
