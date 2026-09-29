@@ -281,7 +281,7 @@ test('a new chat whose session cannot start takes its whole workspace back out',
   )
 })
 
-test('skills are installed in the working root, attached to the first message and kept as the chat\'s chips', async () => {
+test("skills are installed in the working root, attached to the first message and kept as the chat's chips", async () => {
   const { service, record } = harness()
   const result = await service.launch({
     workspaceId: 'ws-1',
