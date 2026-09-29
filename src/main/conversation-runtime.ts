@@ -3039,7 +3039,33 @@ function isAsyncIterable(
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {
-  return redactConversationValue(event)
+  return isPlainDelta(event) ? event : redactConversationValue(event)
+}
+
+const ENVELOPE_KEYS = new Set([
+  'id',
+  'seq',
+  'sessionId',
+  'workspaceId',
+  'agentId',
+  'providerId',
+  'modelId',
+  'type',
+  'createdAt',
+  'payload',
+])
+
+/**
+ * A reply or reasoning delta that is only its text: every token of a reply is
+ * one, and redaction goes by key, so none of its keys has anything to redact.
+ * Skipping it spares a JSON round trip per token. A delta carrying anything
+ * else is redacted like any event.
+ */
+function isPlainDelta(event: ConversationEvent): boolean {
+  if (event.type !== 'content_delta' && event.type !== 'reasoning_delta') return false
+  for (const key in event) if (!ENVELOPE_KEYS.has(key)) return false
+  for (const key in event.payload ?? {}) if (key !== 'text' && key !== 'turnId') return false
+  return true
 }
 
 /** Events that ride the log's short batch instead of forcing a write. */

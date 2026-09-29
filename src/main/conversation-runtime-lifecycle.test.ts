@@ -493,3 +493,27 @@ test('a session summary says when the running turn began, and only while it runs
     { now: () => clock },
   )
 })
+
+test('a delta that is only its text is written as it is, and one carrying more is still redacted', async () => {
+  const base = echoProvider()
+  const provider = recordingProvider({
+    sendTurn: (input) => [
+      runtimeEvent(input, 'turn_started', { turnId: input.turnId }),
+      runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: 'Use the token from the vault.' }),
+      runtimeEvent(input, 'reasoning_delta', { turnId: input.turnId, text: 'Thinking', apiKey: 'sk-live' }),
+      ...(base.sendTurn(input) as ConversationEvent[]).slice(-1),
+    ],
+  })
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+    const started = await runtime.startSession({ ...key, providerId: 'echo-provider', modelId: 'model' })
+    assert.ok(started.ok)
+    assert.ok((await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'Go' })).ok)
+    const replayed = await runtime.readTranscript(key)
+    assert.ok(replayed.ok)
+    const content = replayed.events.find((event) => event.type === 'content_delta')
+    const reasoning = replayed.events.find((event) => event.type === 'reasoning_delta')
+    assert.equal(content?.payload?.text, 'Use the token from the vault.')
+    assert.equal(reasoning?.payload?.apiKey, '[redacted]')
+  })
+})
