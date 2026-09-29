@@ -733,30 +733,16 @@ export default function WorkspaceManager() {
     }
     return context
   }, [workspaceActionsEnabled, moduleEnablement, activeCommandScopes, windowActiveWorkspaceId, terminalSessions])
-  // Names the bucket a session with no workspace row is listed under. A module
-  // that spawns agents outside a window's knowledge (the review guide runs as an
-  // agent terminal in its project workspace) claims its own agent-id prefix and
-  // supplies the label — core asks the registry rather than importing any
-  // module's own id predicate.
-  const resolveDetachedSessionLabel = useCallback(
-    (workspaceId: string): string | null => {
-      for (const summary of [...terminalSessions, ...conversationSessions]) {
-        if (summary.workspaceId !== workspaceId) continue
-        const owner = getRendererHost().getAgentIdNamespace(summary.agentId ?? '', moduleEnabled)
-        if (owner) return owner.label
-      }
-      return null
-    },
-    [terminalSessions, conversationSessions, moduleEnabled],
-  )
   // Resolution runs against EVERY workspace, not just this window's, so a session
   // hosted in another window resolves to its real workspace and is filtered out
   // below — only a session no workspace anywhere claims becomes detached. Detached
   // rows belong to no window, so every window lists them: they are stoppable from
   // wherever the user notices them.
-  const sessions = getSessionItems(useWorkspaceStore.getState().workspaces, terminalSessions, conversationSessions, {
-    resolveDetachedLabel: resolveDetachedSessionLabel,
-  }).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
+  const sessions = getSessionItems(
+    useWorkspaceStore.getState().workspaces,
+    terminalSessions,
+    conversationSessions,
+  ).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
   const sidebarWorkspaceOrder = useMemo(() => buildSidebarWorkspaceOrder(railWorkspaces), [railWorkspaces])
   // The bell badge is an error counter: only unread errors increment it (and
   // drive the red just-changed pulse), so a flood of info/warning notifications
@@ -4008,17 +3994,7 @@ export default function WorkspaceManager() {
     // A session row can carry an agentId that has no workspace.agents record;
     // updateAgent would fabricate one and focusOrAddAgentTab would open a pane
     // for it. For those rows activation is plain workspace focus only.
-    //
-    // A review guide is the opposite case: it is an ordinary agent terminal
-    // that main spawned without this window's knowledge, so it has no record
-    // until something adopts it. Opening it from here IS that adoption — the
-    // same one the Reviews door performs — and without it the reviewer lands in
-    // the Reviews host with no tab.
-    const agentId =
-      item.agentId &&
-      (workspace.agents[item.agentId] || getRendererHost().getAgentIdNamespace(item.agentId, moduleEnabled))
-        ? item.agentId
-        : null
+    const agentId = item.agentId && workspace.agents[item.agentId] ? item.agentId : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))

@@ -71,14 +71,11 @@ export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAge
 // and reads, checked per call against `conversation:read` /
 // `conversation:operate` and the chat's owner. Key mirrors the private token
 // behind the SDK's getConversationService helper.
-export const ConversationModuleServiceToken = createServiceToken<ModuleConversationRegistry>(
-  'conversation.module-service',
-)
+export const ConversationModuleServiceToken =
+  createServiceToken<ModuleConversationRegistry>('conversation.module-service')
 // Per-module brokered secrets (`secrets` permission). Key mirrors the private
 // token behind the SDK's getSecretsService helper.
-export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>(
-  'module-secrets.module-service',
-)
+export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>('module-secrets.module-service')
 // The signed-in user's GitHub, brokered per module (`github` permission). Key
 // mirrors the private token behind the SDK's getGitHubService helper.
 export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>('github.module-service')

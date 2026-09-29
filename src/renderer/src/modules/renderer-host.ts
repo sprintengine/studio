@@ -12,16 +12,9 @@ import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLi
 import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
 import type { WorkspaceFileWatcher, WorkspaceFileWatchEvent } from './workspace-file-watch'
-import type { AgentSessionWatcher, ModuleAgentSessionView } from './agent-session-watch'
 import type { ColorSchemeWatcher, ModuleColorScheme } from './color-scheme-watch'
 import type { WorkspaceListSource } from './workspace-list-watch'
-import type {
-  ModuleAgentRuntimeOption,
-  ModuleAgentSpawner,
-  ModuleFocusTabInput,
-  ModuleSpawnAgentInput,
-  ModuleSpawnAgentResult,
-} from './agent-spawn'
+import type { ModuleFocusTabInput, ModuleTabFocuser } from './workspace-tabs'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../../shared/modules/host-api'
 import type {
@@ -724,30 +717,6 @@ export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
   moduleId: string
 }
 
-// An agent-id namespace a module claims. A module that spawns agents
-// outside a window's knowledge — a background guide, a companion — owns ids the
-// shell then has to reason about without knowing whose they are: what to call
-// the session when no workspace row claims it, and whether the id is one it may
-// adopt onto a workspace. Both questions used to be answered by core importing
-// the module's own `isXAgentId` predicate; this is the seam that replaces it.
-export type AgentIdNamespaceDefinition = {
-  /**
-   * Every agent id starting with this belongs to the claiming module. Keep it
-   * distinctive and terminated (`'review-guide-'`, not `'review'`) so it cannot
-   * swallow a sibling's ids.
-   */
-  prefix: string
-  /**
-   * What the shell calls sessions in this namespace that no workspace claims,
-   * e.g. "Reviews". Sentence case; it is a group name in a session list.
-   */
-  label: string
-}
-
-export type RegisteredAgentIdNamespace = AgentIdNamespaceDefinition & {
-  moduleId: string
-}
-
 // Read access to the workspace's Backlog for module renderers. The kernel owns
 // only the seam: the backlog module provides the implementation (shared scan +
 // watcher), and the scoped host methods below route through it — the kernel
@@ -864,11 +833,6 @@ export type RendererHost = {
    * A contract, not a security boundary.
    */
   invoke(channel: string, payload?: unknown): Promise<unknown>
-  /**
-   * Provide the Backlog read implementation (backlog module only — a single
-   * slot, ownership-guarded like registerBacklogLinkProvider).
-   */
-  provideBacklogReader(reader: BacklogReader): void
   /** The workspace's Backlog items (read-only views; mutate via BacklogItemActionContext). */
   listBacklogItems(workspaceId: string): Promise<BacklogItem[]>
   /** Observe the workspace's Backlog: fires with the current snapshot, then on change. */
@@ -965,21 +929,11 @@ export type RendererHost = {
    */
   subscribe(topic: string, cb: (payload: unknown) => void): () => void
   /**
-   * Claim an agent-id namespace for your module: every agent id
-   * starting with `prefix` is yours, and `label` is what the shell calls those
-   * sessions where no workspace claims them. Without this, an agent your
-   * module spawned outside a window's knowledge is an unlabelled, unadoptable
-   * session. Registered once at boot; the shell gates on your module's live
-   * enablement. A prefix that overlaps one another module already claimed is a
-   * registration error. Disclosure permission: `ipc:agents`.
-   */
-  registerAgentIdNamespace(definition: AgentIdNamespaceDefinition): void
-  /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
    * checkout; a worktree-backed workspace does live work under a
    * worktree, and this resolves that root. The live-runtime methods below
-   * (`watchWorkspaceFile`, `spawnAgent`, `focusTab`) resolve workspace-relative
+   * (`watchWorkspaceFile`, `focusTab`) resolve workspace-relative
    * paths against it. Null means "not currently resolvable" — never a throw.
    * Disclosure permission: `ipc:workspace-read`.
    */
@@ -999,50 +953,36 @@ export type RendererHost = {
     cb: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<() => void>
   /**
-   * Observe live agent sessions: `cb` fires once with the current read-only
-   * views, then on every change (deduped). Returns the unsubscriber — call it
-   * on unmount. Throws with a named cause before the shell wires the session
-   * source or while the Agent Runtime module is disabled.
-   *
-   * A workspace id watches that workspace's sessions, whoever spawned them.
-   * `undefined` watches every workspace, narrowed to sessions whose agent id
-   * falls in a namespace this module claimed with `registerAgentIdNamespace`
-   * — that is what makes an all-workspaces watch answerable at all. A module
-   * that claimed no namespace sees an empty list.
-   * Disclosure permission: `ipc:agents`.
-   */
-  watchAgentSessions(workspaceId: string | undefined, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
-  /**
-   * Spawn an agent session through the SHARED session runtime (the same path
-   * every shell surface uses) and add its tab to the workspace layout.
-   * Structured result, never a throw for expected failures (unknown
-   * workspace, folderless workspace, unavailable runtime, spawn failure).
-   * Rejects with a named cause before the shell wires the backend or while
-   * the Agent Runtime module is disabled. Disclosure: `ipc:agents`.
-   */
-  spawnAgent(input: ModuleSpawnAgentInput): Promise<ModuleSpawnAgentResult>
-  /**
-   * Focus a workspace tab: an agent's terminal tab (added if missing) or a
-   * file tab by workspace-relative path (false when not open/focusable).
-   * Throws with a named cause when agent runtime is unavailable.
+   * Focus a workspace tab: a chat by its agent id (its tab added if missing)
+   * or a file tab by workspace-relative path. False when there is no such chat
+   * or the file is not focusable. Throws with a named cause when agent runtime
+   * is unavailable.
    */
   focusTab(input: ModuleFocusTabInput): boolean
-  /**
-   * The agent runtimes available to spawn, from the same
-   * availability-filtered catalog the shell's own pickers read: id, display
-   * label, whether the binary is on this machine, the runtime's model rows,
-   * and which one the user last chose. Plugin internals stay unexposed.
-   * Throws with a named cause when agent runtime is unavailable.
-   */
-  listAgentRuntimes(): ModuleAgentRuntimeOption[]
   /**
    * Open a chat in a workspace and focus it; the prompt lands as a draft
    * unless `send: true`. Answers `unavailable` until the shell registers its
    * opener (see chat-opener.ts). Requires `conversation:operate`.
    */
   openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
-  /** The agent runtimes a chat can run on, with the user's last choice marked. */
+  /**
+   * The agent runtimes a chat can run on, from the catalog the shell's own
+   * chat picker reads, with the user's last choice marked. Empty before the
+   * shell wires the catalog.
+   */
   listChatRuntimes(): ModuleChatRuntimeOption[]
+}
+
+// What a bundled module's renderer half receives: the published surface plus
+// the seams only first-party modules fill. A third-party module is handed the
+// same object typed as `RendererHost`, and every member here refuses it at
+// runtime too — the type is a convenience, the check is the rule.
+export type InternalRendererHost = RendererHost & {
+  /**
+   * Provide the Backlog read implementation. The backlog module's alone — any
+   * other caller throws — and a single slot.
+   */
+  provideBacklogReader(reader: BacklogReader): void
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -1055,7 +995,7 @@ export type RendererKernel = {
    * `manifest` carries the permissions `openChat` checks; a host made without
    * one has declared nothing.
    */
-  hostFor(moduleId: string, manifest?: CapabilityManifest): RendererHost
+  hostFor(moduleId: string, manifest?: CapabilityManifest): InternalRendererHost
   getPanel(componentId: string): WorkspacePanelComponent | undefined
   /** The capability module that registered the panel, for enablement gating. */
   getPanelModule(componentId: string): string | undefined
@@ -1135,16 +1075,6 @@ export type RendererKernel = {
    */
   getModalSurfaceLaunchers(moduleEnabled?: (moduleId: string) => boolean): RegisteredModalSurfaceLauncher[]
   /**
-   * The module namespace owning `agentId`, or undefined when no enabled module
-   * claims it. The shell asks this instead of importing a module's own id
-   * predicate — it is how a session no workspace claims gets a group label,
-   * and how core knows an unrecorded agent id is adoptable.
-   */
-  getAgentIdNamespace(
-    agentId: string,
-    moduleEnabled?: (moduleId: string) => boolean,
-  ): RegisteredAgentIdNamespace | undefined
-  /**
    * Enablement source for host methods that must gate on a module's live
    * enablement without a caller-supplied predicate (the Backlog read API).
    * Wired once at boot by modules/index.ts from the workspace store; absent
@@ -1205,11 +1135,6 @@ export type RendererKernel = {
    */
   setWorkspaceFileWatcher(watcher: WorkspaceFileWatcher): void
   /**
-   * Agent-session source for `RendererHost.watchAgentSessions`. Wired once at
-   * boot by modules/index.ts over the shell's terminal-sessions store.
-   */
-  setAgentSessionWatcher(watcher: AgentSessionWatcher): void
-  /**
    * Workspace-list source for `RendererHost.listWorkspaces` /
    * `watchWorkspaces`. Wired once at boot by modules/index.ts over the
    * workspace store; absent (early boot, tests) the list reads empty.
@@ -1223,11 +1148,16 @@ export type RendererKernel = {
    */
   setColorSchemeWatcher(watcher: ColorSchemeWatcher): void
   /**
-   * Spawn/focus/runtimes backend for the module agent surface. Wired once at
-   * boot by modules/index.ts over the shared session runtime + layout
-   * helpers + availability-filtered CLI catalog.
+   * Tab-focus backend for `RendererHost.focusTab`. Wired once at boot by
+   * modules/index.ts over the workspace store and the layout tab helpers.
    */
-  setAgentSpawner(spawner: ModuleAgentSpawner): void
+  setTabFocuser(focuser: ModuleTabFocuser): void
+  /**
+   * Catalog source for `RendererHost.listChatRuntimes`. Wired once at boot by
+   * modules/index.ts over the availability-filtered CLI catalog; absent (early
+   * boot, tests) the list reads empty.
+   */
+  setChatRuntimeSource(source: () => ModuleChatRuntimeOption[]): void
 }
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
@@ -1278,7 +1208,6 @@ export function createRendererHost(): RendererKernel {
   const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   const modalSurfaces = new Map<string, RegisteredModalSurface>()
-  const agentIdNamespaces = new Map<string, RegisteredAgentIdNamespace>()
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   const moduleAssetOrigins = new Map<string, string>()
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
@@ -1325,8 +1254,8 @@ export function createRendererHost(): RendererKernel {
   }
   let workingRootResolver: ((workspaceId: string) => string | null) | null = null
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
-  let agentSessionWatcher: AgentSessionWatcher | null = null
-  let agentSpawner: ModuleAgentSpawner | null = null
+  let tabFocuser: ModuleTabFocuser | null = null
+  let chatRuntimeSource: (() => ModuleChatRuntimeOption[]) | null = null
   let workspaceListSource: WorkspaceListSource | null = null
   let colorSchemeWatcher: ColorSchemeWatcher | null = null
   const agentRuntimeDisabled = (): boolean =>
@@ -1617,27 +1546,12 @@ export function createRendererHost(): RendererKernel {
             moduleId,
           })
         },
-        registerAgentIdNamespace(definition) {
-          const prefix = definition.prefix.trim()
-          if (prefix.length === 0) {
-            throw new Error('Agent id namespace prefix must be a non-empty string.')
-          }
-          if (definition.label.trim().length === 0) {
-            throw new Error(`Agent id namespace "${prefix}" must have a non-empty label.`)
-          }
-          // Overlap, not equality: a prefix that contains — or is contained by —
-          // an existing one makes ownership of a concrete id ambiguous, and the
-          // resolver would answer by registration order rather than by design.
-          for (const existing of agentIdNamespaces.values()) {
-            if (prefix.startsWith(existing.prefix) || existing.prefix.startsWith(prefix)) {
-              throw new Error(
-                `Agent id namespace "${prefix}" overlaps "${existing.prefix}", already claimed by module "${existing.moduleId}".`,
-              )
-            }
-          }
-          agentIdNamespaces.set(prefix, { ...definition, prefix, moduleId })
-        },
         provideBacklogReader(reader) {
+          // The Backlog read API is the backlog module's to serve; another
+          // module providing it would answer every listBacklogItems caller.
+          if (moduleId !== 'backlog') {
+            throw new Error(`Module "${moduleId}" cannot provide the Backlog reader; only the backlog module can.`)
+          }
           if (backlogReader) {
             throw new Error(`The Backlog reader is already provided by module "${backlogReader.moduleId}".`)
           }
@@ -1755,38 +1669,8 @@ export function createRendererHost(): RendererKernel {
             cb(event)
           })
         },
-        watchAgentSessions(workspaceId, cb) {
-          const watcher = requireAgentRuntime(agentSessionWatcher, 'Agent session observation')
-          // An unscoped watch is narrowed to the module's own agent-id
-          // namespaces, resolved at subscribe time from the registry — the
-          // module cannot name someone else's prefix, so this is also what
-          // keeps the all-workspaces mode from being a window onto every
-          // session in the app.
-          const scope =
-            workspaceId === undefined
-              ? {
-                  agentIdPrefixes: [...agentIdNamespaces.values()]
-                    .filter((namespace) => namespace.moduleId === moduleId)
-                    .map((namespace) => namespace.prefix),
-                }
-              : undefined
-          return watcher(
-            workspaceId,
-            (sessions) => {
-              if (agentRuntimeDisabled()) return
-              cb(sessions)
-            },
-            scope,
-          )
-        },
-        async spawnAgent(input) {
-          return requireAgentRuntime(agentSpawner, 'Agent spawn').spawnAgent(input)
-        },
         focusTab(input) {
-          return requireAgentRuntime(agentSpawner, 'Tab focus').focusTab(input)
-        },
-        listAgentRuntimes() {
-          return requireAgentRuntime(agentSpawner, 'Agent runtime listing').listAgentRuntimes()
+          return requireAgentRuntime(tabFocuser, 'Tab focus')(input)
         },
         async openChat(input) {
           if (!manifest?.permissions?.includes('conversation:operate')) {
@@ -1803,8 +1687,7 @@ export function createRendererHost(): RendererKernel {
           return opener({ ...input, moduleId })
         },
         listChatRuntimes() {
-          // Empty until the chat runtime catalog is wired to modules.
-          return []
+          return chatRuntimeSource ? chatRuntimeSource() : []
         },
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {
@@ -1936,15 +1819,6 @@ export function createRendererHost(): RendererKernel {
       }
       return launchers
     },
-    getAgentIdNamespace(agentId, moduleEnabled) {
-      // Longest prefix first, so a future nested claim resolves to the more
-      // specific owner rather than to whichever registered first. Registration
-      // already rejects overlaps, making this a belt to that brace.
-      const candidates = [...agentIdNamespaces.values()].sort((a, b) => b.prefix.length - a.prefix.length)
-      return candidates.find(
-        (namespace) => agentId.startsWith(namespace.prefix) && (!moduleEnabled || moduleEnabled(namespace.moduleId)),
-      )
-    },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
     },
@@ -1982,11 +1856,11 @@ export function createRendererHost(): RendererKernel {
     setWorkspaceFileWatcher(watcher) {
       workspaceFileWatcher = watcher
     },
-    setAgentSessionWatcher(watcher) {
-      agentSessionWatcher = watcher
+    setTabFocuser(focuser) {
+      tabFocuser = focuser
     },
-    setAgentSpawner(spawner) {
-      agentSpawner = spawner
+    setChatRuntimeSource(source) {
+      chatRuntimeSource = source
     },
     setWorkspaceListSource(source) {
       workspaceListSource = source
@@ -1999,5 +1873,5 @@ export function createRendererHost(): RendererKernel {
 
 export type RendererModule = {
   manifest: CapabilityManifest
-  registerRenderer?: (host: RendererHost) => void
+  registerRenderer?: (host: InternalRendererHost) => void
 }

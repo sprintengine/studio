@@ -1107,6 +1107,11 @@ test('renderer-host', async () => {
 
     assert.throws(
       () => kernel.hostFor('impostor').provideBacklogReader({ list: async () => [], watch: () => () => {} }),
+      /only the backlog module can/,
+      'only the backlog module may serve the Backlog read API',
+    )
+    assert.throws(
+      () => kernel.hostFor('backlog').provideBacklogReader({ list: async () => [], watch: () => () => {} }),
       /already provided by module "backlog"/,
       'the reader slot is single-occupancy with a named owner',
     )
@@ -1180,65 +1185,6 @@ test('renderer-host', async () => {
   })
 
   // ── The module-boundary surfaces ──────────────────────────────────
-
-  function testAgentIdNamespaces(): void {
-    const kernel = createRendererHost()
-    kernel.hostFor('notebooks').registerAgentIdNamespace({ prefix: 'notebook-run-', label: 'Notebooks' })
-    kernel.hostFor('weather-deck').registerAgentIdNamespace({
-      prefix: 'weather-deck-forecaster-',
-      label: 'Weather Deck',
-    })
-
-    assert.equal(
-      kernel.getAgentIdNamespace('notebook-run-nb_1')?.label,
-      'Notebooks',
-      'an owned agent id resolves to its module\u2019s label',
-    )
-    assert.equal(
-      kernel.getAgentIdNamespace('notebook-run-nb_1')?.moduleId,
-      'notebooks',
-      'and to the module that claimed it',
-    )
-    assert.equal(kernel.getAgentIdNamespace('agent-1'), undefined, 'an ordinary workspace agent id belongs to nobody')
-    assert.equal(kernel.getAgentIdNamespace(''), undefined, 'an empty id never resolves to a namespace')
-
-    // Enablement is live: a disabled module owns nothing, so a session in its
-    // namespace stops being adoptable and loses its label rather than pointing at
-    // a module the shell will not mount.
-    const enabled = (moduleId: string): boolean => moduleId !== 'notebooks'
-    assert.equal(
-      kernel.getAgentIdNamespace('notebook-run-nb_1', enabled),
-      undefined,
-      'a disabled module\u2019s namespace does not resolve',
-    )
-    assert.equal(
-      kernel.getAgentIdNamespace('weather-deck-forecaster-1', enabled)?.moduleId,
-      'weather-deck',
-      'while an enabled sibling still does',
-    )
-
-    // Overlap is rejected at registration, not resolved by order: a prefix that
-    // contains \u2014 or is contained by \u2014 an existing one makes ownership of a
-    // concrete id ambiguous.
-    assert.throws(
-      () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-run-x', label: 'Other' }),
-      /overlaps "notebook-run-"/,
-      'a prefix inside an existing namespace is refused',
-    )
-    assert.throws(
-      () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-', label: 'Other' }),
-      /overlaps "notebook-run-"/,
-      'and so is one that would swallow it',
-    )
-    assert.throws(
-      () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: '  ', label: 'Other' }),
-      /non-empty string/,
-    )
-    assert.throws(
-      () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'other-', label: '  ' }),
-      /non-empty label/,
-    )
-  }
 
   function testModuleAppState(): void {
     // Unwired (early boot, tests): reads are undefined, writes report false, and a
@@ -1365,7 +1311,6 @@ test('renderer-host', async () => {
   }
 
   function testModuleBoundarySurfaces(): void {
-    testAgentIdNamespaces()
     testModuleAppState()
     testModuleEventSubscription()
     console.log('renderer host module-boundary surface tests passed')

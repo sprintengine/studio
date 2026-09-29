@@ -108,7 +108,7 @@ function shallowEqualEntries(a: Readonly<Record<string, unknown>>, b: Readonly<R
 // (a microtask after boot, before the React root renders any panel) the
 // kernel treats providers as enabled — and watches re-check on every
 // delivery, so nothing started in that window outlives the resolver. The
-// live-runtime surface factories (file watch, session watch, agent spawn)
+// live-runtime surface factories (file watch, tab focus, chat runtimes)
 // ride the same deferred batch: they are only constructed inside this wiring
 // block, and importing them statically would make boot evaluate them — and
 // their transitive graph — before the first paint, for nothing that paint
@@ -117,14 +117,11 @@ if (typeof window !== 'undefined') {
   Promise.all([
     import('../store/workspaceStore'),
     import('../store/slices/settingsSlice'),
-    import('../hooks/terminalSessionsStore'),
     import('../utils/modelRegistry'),
     import('../components/workspace/newWorkspace/cliRuntimeOptions'),
-    import('../utils/agentNames'),
     import('../utils/workspaceWorktree'),
     import('./workspace-file-watch'),
-    import('./agent-session-watch'),
-    import('./agent-spawn'),
+    import('./workspace-tabs'),
     import('./registry-snapshot'),
     import('./workspace-list-watch'),
     import('./color-scheme-watch'),
@@ -135,14 +132,11 @@ if (typeof window !== 'undefined') {
       ([
         { useWorkspaceStore, workspaceRegistryReady, __workspaceStoreBackupRecoveryPromise },
         { moduleSettingsNamespace },
-        terminalSessions,
         modelRegistry,
         cliRuntimeOptions,
-        agentNames,
         workspaceWorktree,
         { createWorkspaceFileWatcher },
-        { createAgentSessionWatcher },
-        { createModuleAgentSpawner },
+        { createModuleTabFocuser, toModuleChatRuntimeOptions },
         { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror },
         { createWorkspaceListSource },
         { createColorSchemeWatcher },
@@ -350,74 +344,22 @@ if (typeof window !== 'undefined') {
             readFile: (path) => window.api.readfile(path),
           }),
         )
-        // Agent-session observation over the same terminal-sessions store the
-        // shell's own surfaces consume.
-        rendererHost.setAgentSessionWatcher(
-          createAgentSessionWatcher({
-            getSessions: terminalSessions.getTerminalSessionsSnapshot,
-            subscribe: terminalSessions.subscribeTerminalSessions,
-          }),
-        )
-        // Agent spawn/focus/runtimes over the SHARED session runtime, the
-        // layout tab helpers, and the availability-filtered CLI catalog.
-        rendererHost.setAgentSpawner(
-          createModuleAgentSpawner({
+        // Tab focus over the layout tab helpers: a chat is an agent tab whose
+        // record runs on the conversation runtime, and a file tab resolves
+        // against the working root like every other live-runtime path.
+        rendererHost.setTabFocuser(
+          createModuleTabFocuser({
             getWorkspace: (workspaceId) => {
               const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
               if (!workspace) return null
               return {
-                // Spawn cwd and file-tab base both target the working root, so
-                // live ops land in the worktree a workspace works under.
-                folderPath: workspaceWorktree.workspaceWorkingRoot(workspace),
-                agents: Object.entries(workspace.agents).map(([id, agent]) => ({ id, name: agent.name })),
+                workingRoot: workspaceWorktree.workspaceWorkingRoot(workspace),
+                agents: Object.entries(workspace.agents).map(([id, agent]) => ({
+                  id,
+                  name: agent.name,
+                  isChat: agent.runtimeKind === 'conversation',
+                })),
               }
-            },
-            upsertAgent: (workspaceId, agentId, patch) => {
-              useWorkspaceStore.getState().updateAgent(workspaceId, agentId, {
-                name: patch.name,
-                cli: patch.cli,
-                ...(patch.cliModel ? { cliModel: patch.cliModel } : {}),
-              })
-            },
-            removeAgent: (workspaceId, agentId) => {
-              useWorkspaceStore.getState().removeAgent(workspaceId, agentId)
-            },
-            spawnTerminal: async (input) => {
-              const state = useWorkspaceStore.getState()
-              const agentName = state.workspaces.find((entry) => entry.id === input.workspaceId)?.agents[input.agentId]
-                ?.name
-              // Mirror the shell spawn paths: an IPC rejection becomes a
-              // structured failure — the module surface documents never-throw.
-              const result = await window.api
-                .terminalSpawn(
-                  input.sessionId,
-                  100,
-                  30,
-                  input.cwd,
-                  false,
-                  input.cli,
-                  input.prompt,
-                  state.appSettings.cliRuntimes,
-                  false,
-                  {
-                    kind: 'agent',
-                    workspaceId: input.workspaceId,
-                    agentId: input.agentId,
-                    ...(agentName ? { agentName } : {}),
-                    ...(input.cliModel ? { cliModel: input.cliModel } : {}),
-                    // This CLI's own preset first, as every other spawn path reads it.
-                    cliPermissionPreset:
-                      state.appSettings.cliPermissionPresets?.[input.cli] ??
-                      state.appSettings.lastAgentSpawnPermissionPreset ??
-                      'default',
-                    mcpSettings: state.appSettings.mcp,
-                  },
-                )
-                .catch((error): { ok: false; message: string } => ({
-                  ok: false,
-                  message: error instanceof Error ? error.message : 'Failed to start the agent session.',
-                }))
-              return { ok: result.ok, message: result.ok ? undefined : result.message }
             },
             revealAgentTab: (workspaceId, agentId, name) => {
               if (modelRegistry.focusOrAddAgentTab(workspaceId, agentId, name)) return
@@ -430,43 +372,27 @@ if (typeof window !== 'undefined') {
                   modelRegistry.ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, name),
                 )
               } catch {
-                // The session stays available even if layout persistence is busy.
+                // The chat stays available even if layout persistence is busy.
               }
             },
             focusFileTab: (workspaceId, absolutePath) => modelRegistry.focusFileTab(workspaceId, absolutePath),
-            listRuntimes: () => {
-              const state = useWorkspaceStore.getState()
-              const lastSelected = state.appSettings.lastSelectedCli ?? null
-              return cliRuntimeOptions
-                .selectAgentCliCatalog(
-                  state.pluginCatalogStatus,
-                  state.pluginCatalogEntries,
-                  state.appSettings.cliRuntimes,
-                  { map: state.cliAvailability, status: state.cliAvailabilityStatus },
-                  state.appSettings.cliModelCatalog,
-                )
-                .map((option) => ({
-                  id: option.value,
-                  label: option.label,
-                  // The catalog is availability-filtered, so a row that is here
-                  // is installed unless detection explicitly said otherwise
-                  // (an option probed after it was added carries no entry yet).
-                  available: option.installed !== false,
-                  // Ids + labels only: the merged catalog's origin tags and
-                  // "New" marks are picker internals, not module contract.
-                  models: (option.modelSelection?.options ?? []).map((model) => ({
-                    id: model.id,
-                    label: model.label ?? model.id,
-                  })),
-                  isDefault: option.value === lastSelected,
-                }))
-            },
-            defaultCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? null,
-            pickAgentName: (existing) => agentNames.pickRandomAgentName(existing),
-            newAgentId: () => `agent-${crypto.randomUUID()}`,
-            newSessionId: () => crypto.randomUUID(),
           }),
         )
+        // The chat runtimes, from the same availability-filtered catalog the
+        // shell's own chat picker narrows to CLIs with a conversation runtime.
+        rendererHost.setChatRuntimeSource(() => {
+          const state = useWorkspaceStore.getState()
+          return toModuleChatRuntimeOptions(
+            cliRuntimeOptions.selectAgentCliCatalog(
+              state.pluginCatalogStatus,
+              state.pluginCatalogEntries,
+              state.appSettings.cliRuntimes,
+              { map: state.cliAvailability, status: state.cliAvailabilityStatus },
+              state.appSettings.cliModelCatalog,
+            ),
+            state.appSettings.lastSelectedCli ?? null,
+          )
+        })
         // Boot measurement: the deferred batch above is the one part of
         // boot that was moved OUT of the eager chunk to reach the first paint
         // sooner, so how long it takes to settle — and whether it lands before or

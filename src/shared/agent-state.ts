@@ -3,9 +3,8 @@
  * with the main process.
  *
  * These are core agent records: `AgentExecution` and `defaultAgent` are
- * generic, and a module's managed agents are identified by
- * `registerAgentIdNamespace` plus the launch contribution's `session.managed`
- * tag — not by an enum member. Pure data shapes only — no DOM, React, or
+ * generic, and an agent a module started is identified by its
+ * `ownerModuleId` — not by an enum member. Pure data shapes only — no DOM, React, or
  * flexlayout imports may be added here.
  */
 import type { CliPermissionPreset } from './cli-permission-preset'
