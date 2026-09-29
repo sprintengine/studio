@@ -432,7 +432,10 @@ export function createCodexConversationProvider(
     const mapped = codexTool(item as ThreadItem)
     if (!mapped) return
     const previous = turn.items.get(id)
-    turn.items.set(id, item)
+    // A finished step is kept only as having been seen: its output, a
+    // picture's bytes among them, is not needed again once it is reported, and
+    // an approval only ever asks about a step still running.
+    turn.items.set(id, complete ? { id, type: item.type } : item)
     // Text after a tool is laid out as a block of its own already.
     if (!previous && !parentToolUseId) turn.textItem = null
     const picture = item.type === 'imageGeneration' && complete ? await generatedImagePath(state, item) : null

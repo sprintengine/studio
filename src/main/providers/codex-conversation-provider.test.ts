@@ -1021,6 +1021,34 @@ test('the idle reaper leaves a process alone while a subagent in it is working',
   expect(f.adapter.disposeChildProcess?.('session')).toBe(true)
 })
 
+test('a stopped turn Codex never confirms ends the lanes of the subagents its process ran', async () => {
+  vi.useFakeTimers()
+  try {
+    const f = fixture({ silentInterrupt: true })
+    await f.adapter.startSession(f.input)
+    const done = f.send()
+    await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/start')).toBe(true))
+    const activity = {
+      id: 'call_spawn',
+      type: 'subAgentActivity',
+      kind: 'started',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/slow',
+    }
+    await f.message({ method: 'item/completed', params: { threadId: 'native-thread', item: activity } })
+    await f.adapter.interrupt(f.input)
+    // A subagent still working keeps the process from the reaper and Settle.
+    expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
+    await vi.advanceTimersByTimeAsync(CODEX_INTERRUPT_GRACE_MS)
+    await done
+    expect(f.transports.closed).toBe(1)
+    expect(payloads(f.events, 'subagent_status').map((payload) => payload.status)).toEqual(['running', 'stopped'])
+    expect(f.adapter.listLiveSessions?.()[0]).toMatchObject({ turnActive: false, hasChildProcess: false })
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test('what Codex reports beside the reply is said in the turn, once', async () => {
   const f = fixture()
   await f.adapter.startSession(f.input)

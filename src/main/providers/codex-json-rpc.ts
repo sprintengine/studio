@@ -142,12 +142,15 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
   child.stderr.on('data', (chunk: Buffer) => {
     if (!options.onToolFailure) return
     stderrLine += stderrDecoder.write(chunk)
+    // Each line is read where it lies, and the remainder cut once per chunk.
+    let start = 0
     let newline: number
-    while ((newline = stderrLine.indexOf('\n')) >= 0) {
-      const reason = codexToolFailure(stderrLine.slice(0, newline))
-      stderrLine = stderrLine.slice(newline + 1)
+    while ((newline = stderrLine.indexOf('\n', start)) >= 0) {
+      const reason = codexToolFailure(stderrLine.slice(start, newline))
+      start = newline + 1
       if (reason) options.onToolFailure(reason)
     }
+    if (start > 0) stderrLine = stderrLine.slice(start)
     // A line this long is not a log line worth reading.
     if (stderrLine.length > 64 * 1024) stderrLine = ''
   })
