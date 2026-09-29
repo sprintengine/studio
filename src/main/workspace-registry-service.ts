@@ -50,7 +50,16 @@ import {
   type WorkspaceSyncEvent,
   type WorkspaceSyncState,
 } from '../shared/workspace-sync'
-import type { Workspace, WorkspaceId, WorkspaceMode, WorkspaceWindowId } from '../renderer/src/types/workspace'
+import type {
+  AgentId,
+  AgentState,
+  Workspace,
+  WorkspaceId,
+  WorkspaceMode,
+  WorkspaceWindowId,
+  WorkspaceWorktree,
+} from '../renderer/src/types/workspace'
+import type { ExecutionHostId } from '../shared/execution-host'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
 
 export type WorkspaceRegistryDiagnostic = {
@@ -74,6 +83,15 @@ export type WorkspaceCreateRequest = {
   mode?: WorkspaceMode
   /** Target window; defaults to the primary window, which always exists. */
   windowId?: WorkspaceWindowId
+  /** The machine on this computer it runs on; absent or `local` is this one. */
+  hostId?: ExecutionHostId | null
+  /** Marks a workspace whose folder is a worktree, filed under the project it was cut from. */
+  worktree?: WorkspaceWorktree | null
+  /**
+   * Agent records it is born with, keyed by the layout's agent tab ids, so a
+   * window never sees a tab with no agent behind it.
+   */
+  agents?: Record<AgentId, AgentState>
 }
 
 export type WorkspaceCreateResult = {
@@ -381,9 +399,11 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,
+      ...(input.hostId && input.hostId !== 'local' ? { hostId: input.hostId } : {}),
+      ...(input.worktree ? { worktree: input.worktree } : {}),
       templateId: template.id,
       layoutModel: template.layout,
-      agents: {},
+      agents: { ...input.agents },
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },

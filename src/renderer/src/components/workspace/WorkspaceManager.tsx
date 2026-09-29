@@ -49,6 +49,7 @@ import {
 import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
+import { nextNewChatName } from '../../../../shared/workspace-title'
 import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
@@ -1043,16 +1044,10 @@ export default function WorkspaceManager() {
   }, [activeGlobalSurfaceEntry, surfaceRegionEl, leaveGlobalSurface])
 
   const pickNewChatName = useCallback(
-    (folderPath: string | null): string => {
-      const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
-      const existingNames = new Set(folderWorkspaces.map((workspace) => workspace.name.trim().toLowerCase()))
-      if (!existingNames.has('chat')) return 'Chat'
-      for (let index = 2; index < 1000; index += 1) {
-        const name = `Chat ${index}`
-        if (!existingNames.has(name.toLowerCase())) return name
-      }
-      return `Chat ${Date.now()}`
-    },
+    (folderPath: string | null): string =>
+      nextNewChatName(
+        workspaces.filter((workspace) => workspace.folderPath === folderPath).map((workspace) => workspace.name),
+      ),
     [workspaces],
   )
 

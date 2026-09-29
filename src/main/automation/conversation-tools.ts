@@ -27,6 +27,12 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         type: 'object',
         properties: {
           workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+          newChat: {
+            type: 'boolean',
+            description:
+              'Start a new chat of its own in the folder of workspaceId, rather than adding one to that ' +
+              "workspace's chat. The new chat's workspaceId is returned; its first message titles it.",
+          },
           cli: {
             type: 'string',
             description:
@@ -56,6 +62,9 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             return toolError('invalid_arguments', `"${key}" must be a string when provided.`)
           }
         }
+        if (args.newChat !== undefined && typeof args.newChat !== 'boolean') {
+          return toolError('invalid_arguments', '"newChat" must be a boolean when provided.')
+        }
         const permissionPreset =
           args.permissionPreset === undefined ? undefined : parseCliPermissionPreset(args.permissionPreset)
         if (permissionPreset === null) {
@@ -63,6 +72,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         }
         const launched = await deps.launch({
           workspaceId: args.workspaceId.trim(),
+          ...(args.newChat === true ? { newChat: true } : {}),
           ...(typeof args.cli === 'string' ? { cli: args.cli } : {}),
           ...(typeof args.cliModel === 'string' ? { cliModel: args.cliModel } : {}),
           ...(typeof args.prompt === 'string' ? { prompt: args.prompt } : {}),
