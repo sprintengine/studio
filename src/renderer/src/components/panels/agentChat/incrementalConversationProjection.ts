@@ -12,16 +12,37 @@ import {
   type UserTurn,
 } from './conversationProjection'
 
-type HistoryNode = { event: ConversationEvent; previous: HistoryNode | null; length: number }
 type ReasoningWindow = { startedAt: number; endedAt?: number }
 
 export type IncrementalConversationState = {
   projection: ConversationProjection
   userTurns: UserTurn[]
-  history: HistoryNode | null
+  // What has been folded: `events[0, length)`. The array can be longer than
+  // that: a later state of the same lineage appended to it in place, or it is
+  // the caller's array a batch was read from.
+  events: readonly ConversationEvent[]
+  length: number
+  // Whether `events` belongs to this lineage, so an append may go into it in
+  // place. A caller's array (a session snapshot) is never written to.
+  ownsEvents: boolean
   reasoning: Map<string, ReasoningWindow>
   entryIndexes: Map<string, number>
+  // Moves on every change except a streamed token. What is derived from the
+  // transcript's shape (pending approvals, the latest failed turn, prompt
+  // history) is keyed on it, so it is not recomputed per token.
+  structureRevision: number
 }
+
+// A batch of appended events is applied one at a time while that stays cheap:
+// a coalesced frame of tokens, or a hidden view catching up on a few steps.
+// Past these bounds one fold of the whole log costs less than the refolds the
+// batch would trigger (a reconnect, or a view that rested through a long turn).
+const MAX_INCREMENTAL_BATCH = 512
+const MAX_BATCH_REFOLDS = 8
+
+// Within one batch the entries array is copied on its first write and written
+// in place after that, so a frame of tokens copies it once, not once a token.
+type Batch = { entries: TranscriptEntry[] | null }
 
 function entryKey(entry: TranscriptEntry): string {
   switch (entry.kind) {
@@ -44,10 +65,8 @@ function indexEntries(entries: TranscriptEntry[]): Map<string, number> {
   return new Map(entries.map((entry, index) => [entryKey(entry), index]))
 }
 
-function collectHistory(history: HistoryNode | null): ConversationEvent[] {
-  const events = new Array<ConversationEvent>(history?.length ?? 0)
-  for (let node = history; node; node = node.previous) events[node.length - 1] = node.event
-  return events
+function folded(state: Pick<IncrementalConversationState, 'events' | 'length'>): readonly ConversationEvent[] {
+  return state.length === state.events.length ? state.events : state.events.slice(0, state.length)
 }
 
 // Each turn's latest reasoning run: a run closed by prose or a tool call is
@@ -55,7 +74,7 @@ function collectHistory(history: HistoryNode | null): ConversationEvent[] {
 // A failure without a turn id (an interrupt) closes the latest turn still
 // streaming, as the fold resolves it, so the two never disagree about whether
 // a run is open.
-function reasoningWindows(events: ConversationEvent[]): Map<string, ReasoningWindow> {
+function reasoningWindows(events: readonly ConversationEvent[]): Map<string, ReasoningWindow> {
   const windows = new Map<string, ReasoningWindow>()
   // Turns in the order the fold creates them, and whether each still streams.
   const streaming = new Map<string, boolean>()
@@ -124,26 +143,55 @@ function reconcileEntries(previous: TranscriptEntry[], next: TranscriptEntry[]):
 }
 
 export function createConversationProjectionState(
-  events: ConversationEvent[] = [],
+  events: readonly ConversationEvent[] = [],
   userTurns: UserTurn[] = [],
 ): IncrementalConversationState {
-  let history: HistoryNode | null = null
-  let length = 0
-  for (const event of events) history = { event, previous: history, length: ++length }
   const projection = projectConversation(events, userTurns)
   return {
     projection,
     userTurns,
-    history,
+    events,
+    length: events.length,
+    ownsEvents: false,
     reasoning: reasoningWindows(events),
     entryIndexes: indexEntries(projection.entries),
+    structureRevision: 0,
   }
+}
+
+// Fold `events` whole, keeping the identity of every entry that came out the
+// same, so rows that did not change are not re-rendered.
+function rebuild(
+  state: IncrementalConversationState,
+  events: readonly ConversationEvent[],
+  userTurns: UserTurn[],
+  ownsEvents: boolean,
+  batch: Batch | null = null,
+): IncrementalConversationState {
+  const next = createConversationProjectionState(events, userTurns)
+  const entries = reconcileEntries(state.projection.entries, next.projection.entries)
+  if (batch) batch.entries = entries
+  return {
+    ...next,
+    ownsEvents,
+    projection: { ...next.projection, entries },
+    entryIndexes: indexEntries(entries),
+    structureRevision: state.structureRevision + 1,
+  }
+}
+
+function writableEntries(state: IncrementalConversationState, batch: Batch | null): TranscriptEntry[] {
+  if (batch && batch.entries === state.projection.entries) return batch.entries
+  const entries = state.projection.entries.slice()
+  if (batch) batch.entries = entries
+  return entries
 }
 
 function updateEntry(
   state: IncrementalConversationState,
   key: string,
   update: (entry: TranscriptEntry) => TranscriptEntry,
+  batch: Batch | null,
 ): ConversationProjection | null {
   const index = state.entryIndexes.get(key)
   if (index === undefined) return null
@@ -151,7 +199,7 @@ function updateEntry(
   if (!entry) return null
   const updated = update(entry)
   if (updated === entry) return null
-  const entries = state.projection.entries.slice()
+  const entries = writableEntries(state, batch)
   entries[index] = updated
   return { ...state.projection, entries }
 }
@@ -187,7 +235,11 @@ function updateToolTree(tool: TranscriptToolEntry, id: string, event: Conversati
   return null
 }
 
-function fastProjection(state: IncrementalConversationState, event: ConversationEvent): ConversationProjection | null {
+function fastProjection(
+  state: IncrementalConversationState,
+  event: ConversationEvent,
+  batch: Batch | null,
+): ConversationProjection | null {
   const turnId = readString(event.payload, 'turnId')
   // A notice rides on whichever event followed it; only the fold reads it.
   if (readString(event.payload, 'notice')) return null
@@ -199,19 +251,24 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
     // An empty content delta still ends the reasoning window, exactly as the
     // fold does, so it is not a no-op.
     return (
-      updateEntry(state, key, (entry) => {
-        if (entry.kind !== 'assistant') return entry
-        const window = state.reasoning.get(turnId)
-        if (event.type === 'reasoning_delta') {
-          if (isOpen(window)) return delta ? { ...entry, reasoning: entry.reasoning + delta } : entry
-          return { ...entry, reasoning: openReasoningRun(entry.reasoning, delta), reasoningLive: true }
-        }
-        const reasoningDurationMs = isOpen(window)
-          ? (entry.reasoningDurationMs ?? 0) + Math.max(0, event.createdAt - window.startedAt)
-          : entry.reasoningDurationMs
-        if (!delta && reasoningDurationMs === entry.reasoningDurationMs && !entry.reasoningLive) return entry
-        return { ...entry, text: entry.text + delta, reasoningDurationMs, reasoningLive: undefined }
-      }) ?? state.projection
+      updateEntry(
+        state,
+        key,
+        (entry) => {
+          if (entry.kind !== 'assistant') return entry
+          const window = state.reasoning.get(turnId)
+          if (event.type === 'reasoning_delta') {
+            if (isOpen(window)) return delta ? { ...entry, reasoning: entry.reasoning + delta } : entry
+            return { ...entry, reasoning: openReasoningRun(entry.reasoning, delta), reasoningLive: true }
+          }
+          const reasoningDurationMs = isOpen(window)
+            ? (entry.reasoningDurationMs ?? 0) + Math.max(0, event.createdAt - window.startedAt)
+            : entry.reasoningDurationMs
+          if (!delta && reasoningDurationMs === entry.reasoningDurationMs && !entry.reasoningLive) return entry
+          return { ...entry, text: entry.text + delta, reasoningDurationMs, reasoningLive: undefined }
+        },
+        batch,
+      ) ?? state.projection
     )
   }
   if (event.type === 'tool_output') {
@@ -226,7 +283,7 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
       if (entry.kind !== 'tool') continue
       const changed = updateToolTree(entry, id, event)
       if (!changed) continue
-      const entries = state.projection.entries.slice()
+      const entries = writableEntries(state, batch)
       entries[index] = changed
       return { ...state.projection, entries }
     }
@@ -234,12 +291,23 @@ function fastProjection(state: IncrementalConversationState, event: Conversation
   return null
 }
 
-export function applyEvent(
+// Whether an event can take the fast path, as far as its type says; only for
+// sizing a batch, so a guess either way costs time, never correctness.
+function mayApplyFast(event: ConversationEvent): boolean {
+  return event.type === 'content_delta' || event.type === 'reasoning_delta' || event.type === 'tool_output'
+}
+
+// Fold `events[index]` into a state that holds `events[0, index)`.
+function step(
   state: IncrementalConversationState,
-  event: ConversationEvent,
+  events: readonly ConversationEvent[],
+  index: number,
+  ownsEvents: boolean,
+  batch: Batch | null,
 ): IncrementalConversationState {
-  const history: HistoryNode = { event, previous: state.history, length: (state.history?.length ?? 0) + 1 }
-  const projection = fastProjection(state, event)
+  const event = events[index]!
+  const length = index + 1
+  const projection = fastProjection(state, event, batch)
   if (projection) {
     let reasoning = state.reasoning
     const turnId = readString(event.payload, 'turnId')
@@ -250,18 +318,33 @@ export function applyEvent(
       if (window && window.endedAt === undefined)
         reasoning = new Map(reasoning).set(turnId, { ...window, endedAt: event.createdAt })
     }
-    return { ...state, history, projection, reasoning }
+    const token = event.type === 'content_delta' || event.type === 'reasoning_delta'
+    return {
+      ...state,
+      events,
+      length,
+      ownsEvents,
+      projection,
+      reasoning,
+      structureRevision: token ? state.structureRevision : state.structureRevision + 1,
+    }
   }
-  const events = collectHistory(history)
-  const folded = projectConversation(events, state.userTurns)
-  const entries = reconcileEntries(state.projection.entries, folded.entries)
-  return {
-    ...state,
-    history,
-    projection: { ...folded, entries },
-    reasoning: reasoningWindows(events),
-    entryIndexes: indexEntries(entries),
-  }
+  const prefix = length === events.length ? events : events.slice(0, length)
+  return rebuild(state, prefix, state.userTurns, ownsEvents && prefix === events, batch)
+}
+
+export function applyEvent(
+  state: IncrementalConversationState,
+  event: ConversationEvent,
+): IncrementalConversationState {
+  // Append in place when this state is its lineage's tip; a branch (or a
+  // caller's array) is copied once, and owned from then on.
+  const events =
+    state.ownsEvents && state.events.length === state.length
+      ? (state.events as ConversationEvent[])
+      : state.events.slice(0, state.length)
+  events.push(event)
+  return step(state, events, state.length, true, null)
 }
 
 export function prependEvents(
@@ -269,32 +352,45 @@ export function prependEvents(
   olderEvents: ConversationEvent[],
 ): IncrementalConversationState {
   if (!olderEvents.length) return state
-  const events = [...olderEvents, ...collectHistory(state.history)]
-  const rebuilt = createConversationProjectionState(events, state.userTurns)
-  const entries = reconcileEntries(state.projection.entries, rebuilt.projection.entries)
-  return { ...rebuilt, projection: { ...rebuilt.projection, entries }, entryIndexes: indexEntries(entries) }
+  return rebuild(state, [...olderEvents, ...folded(state)], state.userTurns, true)
+}
+
+// Events appended after what `state` holds: token by token while the batch is
+// small, else one fold of the whole log.
+function applyAppended(
+  state: IncrementalConversationState,
+  events: readonly ConversationEvent[],
+): IncrementalConversationState {
+  const start = state.length
+  if (events.length - start === 1) return step(state, events, start, false, null)
+  if (events.length - start <= MAX_INCREMENTAL_BATCH) {
+    let refolds = 0
+    for (let index = start; index < events.length && refolds <= MAX_BATCH_REFOLDS; index++)
+      if (!mayApplyFast(events[index]!)) refolds++
+    if (refolds <= MAX_BATCH_REFOLDS) {
+      const batch: Batch = { entries: null }
+      let next = state
+      for (let index = start; index < events.length; index++) next = step(next, events, index, false, batch)
+      return next
+    }
+  }
+  return rebuild(state, events, state.userTurns, false)
 }
 
 /** Reconcile a paged snapshot or live window without replaying each snapshot event. */
 export function syncConversationProjection(
   state: IncrementalConversationState,
-  events: ConversationEvent[],
+  events: readonly ConversationEvent[],
   userTurns: UserTurn[],
 ): IncrementalConversationState {
-  const oldLength = state.history?.length ?? 0
-  if (state.userTurns !== userTurns) return createConversationProjectionState(events, userTurns)
-  if (oldLength > 0 && events.length > oldLength && events[oldLength - 1] === state.history?.event) {
-    const appended = events.slice(oldLength)
-    if (appended.length === 1) return applyEvent(state, appended[0])
-    // A reconnect can deliver many structural events at once. Fold that batch
-    // once, retaining existing row identities, instead of refolding per event.
-    const rebuilt = createConversationProjectionState(events, userTurns)
-    const entries = reconcileEntries(state.projection.entries, rebuilt.projection.entries)
-    return { ...rebuilt, projection: { ...rebuilt.projection, entries }, entryIndexes: indexEntries(entries) }
-  }
-  if (oldLength > 0 && events.length > oldLength && events.at(-1) === state.history?.event)
-    return prependEvents(state, events.slice(0, events.length - oldLength))
-  if (events.length !== oldLength || (oldLength > 0 && events.at(-1) !== state.history?.event))
-    return createConversationProjectionState(events, userTurns)
+  if (state.userTurns !== userTurns) return rebuild(state, events, userTurns, false)
+  const oldLength = state.length
+  if (events === state.events && events.length === oldLength) return state
+  const last = oldLength > 0 ? state.events[oldLength - 1] : undefined
+  if (oldLength > 0 && events.length > oldLength && events[oldLength - 1] === last) return applyAppended(state, events)
+  // Anything else — a page of earlier turns, a log compacted or replaced — is
+  // folded whole, keeping the rows that came out the same.
+  if (events.length !== oldLength || (oldLength > 0 && events.at(-1) !== last))
+    return rebuild(state, events, userTurns, false)
   return state
 }

@@ -497,7 +497,10 @@ export function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEn
   }
 }
 
-export function projectConversation(events: ConversationEvent[], userTurns: UserTurn[] = []): ConversationProjection {
+export function projectConversation(
+  events: readonly ConversationEvent[],
+  userTurns: UserTurn[] = [],
+): ConversationProjection {
   const turns = new Map<string, TurnAccumulator>()
   const turnOrder: string[] = []
   // User bubbles recorded in the event stream itself (persisted transcript);
