@@ -959,7 +959,13 @@ export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineR
   const openAgents = useOpenAgentsPane()
   return (
     <div ref={ref} className="flex items-baseline gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
-      <span className="chat-shimmer font-medium">{row.label}</span>
+      <span className="chat-shimmer font-medium">
+        {row.label}
+        {/* The shimmer's bright band: a masked copy of the label (index.css). */}
+        <span className="chat-shimmer__glint" aria-hidden="true">
+          <span className="chat-shimmer__band" data-text={row.label} />
+        </span>
+      </span>
       {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
       {row.agents && openAgents ? (
         <LinkButton ink="quiet" onClick={() => openAgents(null)}>

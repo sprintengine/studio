@@ -65,7 +65,12 @@ test('a working character moves; a finished one stands still with the face its e
     renderToStaticMarkup(createElement(AgentGlyph, { agentId: 'a', state, character: 'robot' }))
   const working = draw('working')
   assert.match(working, /agent-glyph--working/)
-  assert.match(working, /agent-glyph__whole/, 'the parts that move are wrapped for their keyframes')
+  assert.match(
+    working,
+    /^<svg[^>]*\bagent-glyph__whole\b/,
+    'the whole body moves on the root svg, a CSS box the compositor can animate',
+  )
+  assert.doesNotMatch(working, /<g[^>]*agent-glyph__whole/, 'no element inside the svg carries the body motion')
   assert.match(working, /agent-glyph__eyes/)
   for (const state of ['done', 'failed', 'stopped'] as const) {
     const markup = draw(state)

@@ -79,6 +79,12 @@ export function ReasoningBlock({
           className={`shrink-0 ${live ? 'chat-shimmer text-[color:var(--text-muted)]' : 'text-[color:var(--text-subtle)] group-hover/tool-row:text-[color:var(--text-muted)]'}`}
         >
           {label}
+          {live ? (
+            // The shimmer's bright band: a masked copy of the label (index.css).
+            <span className="chat-shimmer__glint" aria-hidden="true">
+              <span className="chat-shimmer__band" data-text={label} />
+            </span>
+          ) : null}
         </span>
         {preview ? (
           <span className="min-w-0 truncate text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)]">
