@@ -38,6 +38,7 @@
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
     "test:sources": "node scripts/check-sources-seed.mjs",
     "test:release": "node --test scripts/release/*.test.mjs",
+    "codex:protocol": "node scripts/generate-codex-protocol.mjs",
     "typecheck": "npm run typecheck:app",
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",

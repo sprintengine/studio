@@ -10,7 +10,13 @@ import type { ConversationEvent } from '../../shared/conversation-runtime'
 import { conversationCommandsFor } from '../conversation-commands/registry'
 
 function fixture(
-  setup: { env?: NodeJS.ProcessEnv; account?: unknown; resume?: (params: unknown) => unknown; skills?: unknown } = {},
+  setup: {
+    env?: NodeJS.ProcessEnv
+    account?: unknown
+    resume?: (params: unknown) => unknown
+    skills?: unknown
+    saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
+  } = {},
 ) {
   let connection!: CodexRpcOptions
   const calls: { method: string; params: unknown }[] = []
@@ -23,6 +29,7 @@ function fixture(
   const adapter = createCodexConversationProvider({
     resolveExecutable: async () => '/usr/bin/codex',
     buildEnv: async () => setup.env ?? {},
+    saveGeneratedImage: setup.saveGeneratedImage,
     createTransport(options) {
       connection = options
       transports.created++
@@ -100,6 +107,9 @@ function fixture(
     calls,
     replies,
     crash: () => connection.onClose(new Error('Child process exited.')),
+    get connection() {
+      return connection
+    },
   }
 }
 
@@ -176,6 +186,59 @@ test('streams text and command output, preserves nonzero exit as an ordinary too
     expect(call.params).not.toHaveProperty('sandbox')
     expect(call.params).not.toHaveProperty('sandboxPolicy')
   }
+})
+
+test('each message of a turn starts a paragraph, and a tool between them already separates them', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  const say = async (id: string, text: string, phase: string) => {
+    await f.message({ method: 'item/started', params: { item: { id, type: 'agentMessage', text: '', phase } } })
+    await f.message({ method: 'item/agentMessage/delta', params: { itemId: id, delta: text } })
+    await f.message({ method: 'item/completed', params: { item: { id, type: 'agentMessage', text, phase } } })
+  }
+  await say('plan', 'I’ll check the branch.', 'commentary')
+  await f.message({
+    method: 'item/completed',
+    params: { item: { id: 'retry', type: 'agentMessage', text: 'Retrying.' } },
+  })
+  const sleep = { id: 'sleep', type: 'sleep', durationMs: 10_000 }
+  await f.message({ method: 'item/started', params: { item: sleep } })
+  await f.message({ method: 'item/completed', params: { item: sleep } })
+  await say('still', 'Still unavailable.', 'commentary')
+  await say('answer', 'I couldn’t put up the PR.', 'final_answer')
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.events.filter((event) => event.type === 'content_delta').map((event) => event.payload!.text)).toEqual([
+    'I’ll check the branch.',
+    '\n\nRetrying.',
+    'Still unavailable.',
+    '\n\nI couldn’t put up the PR.',
+  ])
+  expect(f.events.find((event) => event.type === 'tool_started')?.payload).toMatchObject({
+    toolUseId: 'sleep',
+    name: 'Sleep',
+    kind: 'other',
+    input: { durationMs: 10_000 },
+  })
+})
+
+test('an image Codex looks at is shown as a read of that file', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  const item = { id: 'view', type: 'imageView', path: '/workspace/app/shot.png' }
+  await f.message({ method: 'item/started', params: { item } })
+  await f.message({ method: 'item/completed', params: { item } })
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.events.find((event) => event.type === 'tool_started')?.payload).toMatchObject({
+    name: 'Read',
+    kind: 'file_read',
+    input: { path: '/workspace/app/shot.png' },
+  })
 })
 
 test('command and patch approvals stay pending until individually answered', async () => {
@@ -680,4 +743,305 @@ test('Codex lists a folder before any chat there has started from an app-server 
   expect(names('/workspace/probe')).toEqual(['compact', 'release-notes'])
   expect(calls).toEqual(['initialize', 'initialized', 'skills/list'])
   expect(closed).toBe(true)
+})
+
+async function runTurn(f: ReturnType<typeof fixture>, messages: RpcMessage[], send = f.send()) {
+  await f.adapter.startSession(f.input)
+  const done = send
+  await f.started
+  for (const message of messages) await f.message(message)
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  return f.events
+}
+const payloads = (events: ConversationEvent[], type: ConversationEvent['type']) =>
+  events.filter((event) => event.type === type).map((event) => event.payload!)
+
+test('a generated picture is written to disk and its path, never its bytes, goes in the transcript', async () => {
+  const saved: { sessionId: string; itemId: string; base64: string }[] = []
+  const f = fixture({
+    saveGeneratedImage: async (input) => {
+      saved.push(input)
+      return `/data/conversation-images/${input.sessionId}/${input.itemId}.png`
+    },
+  })
+  const started = {
+    id: 'ig_1',
+    type: 'imageGeneration',
+    status: 'inProgress',
+    revisedPrompt: null,
+    result: '',
+    failure: null,
+  }
+  const completed = { ...started, status: 'completed', revisedPrompt: 'A flat orange circle', result: 'iVBORw0KGgo=' }
+  const events = await runTurn(f, [
+    { method: 'item/started', params: { item: started } },
+    { method: 'item/completed', params: { item: completed } },
+  ])
+  expect(saved).toEqual([{ sessionId: 'session', itemId: 'ig_1', base64: 'iVBORw0KGgo=' }])
+  expect(payloads(events, 'tool_started').at(-1)).toMatchObject({
+    toolUseId: 'ig_1',
+    name: 'GenerateImage',
+    input: { prompt: 'A flat orange circle', path: '/data/conversation-images/session/ig_1.png' },
+  })
+  expect(payloads(events, 'tool_output')).toEqual([
+    expect.objectContaining({ toolUseId: 'ig_1', output: '', status: 'ok' }),
+  ])
+  expect(JSON.stringify(events)).not.toContain('iVBORw0KGgo=')
+})
+
+test('a picture Codex saved itself is shown from there, and a spent image limit says when it resets', async () => {
+  const f = fixture({ saveGeneratedImage: async () => expect.unreachable('Codex already saved it') })
+  const events = await runTurn(f, [
+    {
+      method: 'item/completed',
+      params: {
+        item: {
+          id: 'saved',
+          type: 'imageGeneration',
+          status: 'completed',
+          revisedPrompt: null,
+          result: 'AAAA',
+          failure: null,
+          savedPath: '/Users/me/.codex/generated_images/a.png',
+        },
+      },
+    },
+    {
+      method: 'item/completed',
+      params: {
+        item: {
+          id: 'limited',
+          type: 'imageGeneration',
+          status: 'failed',
+          revisedPrompt: null,
+          result: '',
+          failure: { type: 'usageLimitExceeded', limitId: 'images', resetsAt: 1_790_700_000 },
+        },
+      },
+    },
+  ])
+  expect(payloads(events, 'tool_started').find((payload) => payload.toolUseId === 'saved')).toMatchObject({
+    input: { path: '/Users/me/.codex/generated_images/a.png' },
+  })
+  const limited = payloads(events, 'tool_output').find((payload) => payload.toolUseId === 'limited')
+  expect(limited).toMatchObject({ status: 'error' })
+  expect(String(limited?.output)).toMatch(/image generation limit\. It resets /)
+})
+
+test("Codex's plan updates draw as checklists", async () => {
+  const f = fixture()
+  const events = await runTurn(f, [
+    {
+      method: 'turn/plan/updated',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'native-turn',
+        explanation: 'Two steps',
+        plan: [
+          { step: 'Read the diff', status: 'completed' },
+          { step: 'Open the PR', status: 'inProgress' },
+        ],
+      },
+    },
+    {
+      method: 'turn/plan/updated',
+      params: { threadId: 'native-thread', turnId: 'native-turn', explanation: null, plan: [] },
+    },
+  ])
+  const plans = payloads(events, 'tool_started')
+  expect(plans).toHaveLength(2)
+  expect(plans[0]).toMatchObject({
+    name: 'TodoWrite',
+    kind: 'todo',
+    input: {
+      explanation: 'Two steps',
+      todos: [
+        { content: 'Read the diff', status: 'completed' },
+        { content: 'Open the PR', status: 'in_progress' },
+      ],
+    },
+  })
+  expect(plans[0].toolUseId).not.toBe(plans[1].toolUseId)
+})
+
+test('a subagent is a lane: its steps nest under it, its words and end are its own', async () => {
+  const f = fixture()
+  const child = 'child-thread'
+  const activity = {
+    id: 'call_spawn',
+    type: 'subAgentActivity',
+    kind: 'started',
+    agentThreadId: child,
+    agentPath: '/root/pong',
+  }
+  const wait = {
+    id: 'call_wait',
+    type: 'collabAgentToolCall',
+    tool: 'wait',
+    status: 'completed',
+    senderThreadId: 'native-thread',
+    receiverThreadIds: [],
+    prompt: null,
+    model: null,
+    reasoningEffort: null,
+    agentsStates: {},
+  }
+  const command = {
+    id: 'child_cmd',
+    type: 'commandExecution',
+    command: 'echo PONG',
+    cwd: '/workspace/app',
+    status: 'completed',
+    aggregatedOutput: 'PONG\n',
+    exitCode: 0,
+  }
+  const events = await runTurn(f, [
+    { method: 'item/started', params: { threadId: 'native-thread', item: activity } },
+    { method: 'item/completed', params: { threadId: 'native-thread', item: activity } },
+    { method: 'turn/started', params: { threadId: child, turn: { id: 'child-turn' } } },
+    {
+      method: 'item/started',
+      params: { threadId: child, item: { ...command, status: 'inProgress', aggregatedOutput: null } },
+    },
+    { method: 'item/completed', params: { threadId: child, item: command } },
+    { method: 'thread/tokenUsage/updated', params: { threadId: child, tokenUsage: { last: { totalTokens: 999 } } } },
+    {
+      method: 'item/completed',
+      params: { threadId: child, item: { id: 'child_msg', type: 'agentMessage', text: 'PONG' } },
+    },
+    { method: 'item/completed', params: { threadId: 'native-thread', item: wait } },
+    { method: 'turn/completed', params: { threadId: child, turn: { status: 'completed' } } },
+    {
+      method: 'item/completed',
+      params: { threadId: 'native-thread', item: { id: 'answer', type: 'agentMessage', text: 'It said PONG.' } },
+    },
+  ])
+  const started = payloads(events, 'tool_started')
+  expect(started.map((payload) => payload.toolUseId)).toEqual(['call_spawn', 'child_cmd'])
+  expect(started[0]).toMatchObject({
+    name: 'Agent',
+    kind: 'subagent',
+    subagentLane: true,
+    input: { description: 'pong' },
+  })
+  expect(started[1]).toMatchObject({ parentToolUseId: 'call_spawn', input: { command: 'echo PONG' } })
+  expect(payloads(events, 'subagent_message')).toEqual([{ parentToolUseId: 'call_spawn', text: 'PONG' }])
+  const statuses = payloads(events, 'subagent_status')
+  expect(statuses.map((payload) => payload.status)).toEqual(['running', 'completed'])
+  // Lane progress is the session's, not a turn's.
+  expect(statuses.every((payload) => payload.turnId === undefined)).toBe(true)
+  expect(payloads(events, 'tool_output').find((payload) => payload.toolUseId === 'call_spawn')).toMatchObject({
+    output: 'PONG',
+    status: 'ok',
+  })
+  // The child's usage is not the conversation's, and its text is not the reply.
+  expect(payloads(events, 'usage_updated')).toEqual([])
+  expect(payloads(events, 'content_delta').map((payload) => payload.text)).toEqual(['It said PONG.'])
+})
+
+test('a thread that is neither this one nor a subagent of it is still refused', async () => {
+  const f = fixture()
+  await runTurn(f, [
+    {
+      id: 7,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'stranger', itemId: 'x', command: 'rm -rf /' },
+    },
+  ])
+  expect(f.replies).toEqual([{ id: 7, result: { error: 'This thread is not owned by this session.' } }])
+  expect(payloads(f.events, 'approval_requested')).toEqual([])
+})
+
+test('the idle reaper leaves a process alone while a subagent in it is working', async () => {
+  const f = fixture()
+  const activity = {
+    id: 'call_spawn',
+    type: 'subAgentActivity',
+    kind: 'started',
+    agentThreadId: 'child-thread',
+    agentPath: '/root/slow',
+  }
+  await runTurn(f, [{ method: 'item/completed', params: { threadId: 'native-thread', item: activity } }])
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
+  await f.message({ method: 'turn/completed', params: { threadId: 'child-thread', turn: { status: 'completed' } } })
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(true)
+})
+
+test('what Codex reports beside the reply is said in the turn, once', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  f.connection.onToolFailure?.('timed out negotiating with the code-mode host')
+  f.connection.onToolFailure?.('timed out negotiating with the code-mode host')
+  for (const message of [
+    {
+      method: 'mcpServer/startupStatus/updated',
+      params: {
+        threadId: 'native-thread',
+        name: 'node_repl',
+        status: 'failed',
+        error: 'MCP client for `node_repl` failed to start: MCP startup failed: No such file or directory (os error 2)',
+      },
+    },
+    {
+      method: 'mcpServer/startupStatus/updated',
+      params: {
+        threadId: 'native-thread',
+        name: 'node_repl',
+        status: 'failed',
+        error: 'MCP client for `node_repl` failed to start: MCP startup failed: No such file or directory (os error 2)',
+      },
+    },
+    {
+      method: 'mcpServer/startupStatus/updated',
+      params: { threadId: 'native-thread', name: 'docs', status: 'ready', error: null },
+    },
+    {
+      method: 'error',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'native-turn',
+        willRetry: true,
+        error: { message: 'stream disconnected' },
+      },
+    },
+    {
+      method: 'error',
+      params: { threadId: 'native-thread', turnId: 'native-turn', willRetry: false, error: { message: 'fatal' } },
+    },
+    { method: 'warning', params: { threadId: 'native-thread', message: 'Approaching your usage limit.' } },
+    {
+      method: 'model/rerouted',
+      params: {
+        threadId: 'native-thread',
+        turnId: 'native-turn',
+        fromModel: 'gpt-6-sol',
+        toModel: 'gpt-6-luna',
+        reason: 'highRiskCyberActivity',
+      },
+    },
+  ])
+    await f.message(message)
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  const notes = payloads(f.events, 'command_output')
+  expect(notes.every((payload) => payload.adapterNote === true && payload.turnId === 'turn')).toBe(true)
+  expect(notes.map((payload) => payload.output)).toEqual([
+    expect.stringMatching(/^Codex could not run its tools: timed out negotiating with the code-mode host\. /),
+    "Codex's MCP server “node_repl” did not start: No such file or directory (os error 2)",
+    'Codex hit an error and is retrying: stream disconnected',
+    'Approaching your usage limit.',
+    'Codex answered this turn with gpt-6-luna instead of gpt-6-sol, as the request looked like high-risk security work.',
+  ])
+})
+
+test('the handshake asks for the experimental API, and extra app-server arguments come from the environment', async () => {
+  const f = fixture({ env: { SPRINTENGINE_CODEX_APP_SERVER_ARGS: `-c 'features.code_mode_host=false'` } })
+  await runTurn(f, [])
+  expect(f.calls.find((call) => call.method === 'initialize')?.params).toMatchObject({
+    capabilities: { experimentalApi: true },
+  })
+  expect(f.connection.args).toEqual(['-c', 'features.code_mode_host=false'])
 })

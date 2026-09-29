@@ -675,3 +675,78 @@ test('a file step names its file once: the label has the name, the link beside i
   // At the top of the workspace there is no folder to name, and no second copy of the name.
   expect(row('/Users/dev/project/package.json')).toBe('Read package.json')
 })
+
+test('a generated picture shows under its row unopened, opens in the system viewer, and reveals where it was saved', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  }
+  Object.assign(globalThis, globals)
+  const opened: unknown[] = [],
+    revealed: string[] = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      readImageDataUrl: async () => 'data:image/png;base64,iVBORw0KGgo=',
+      openImageAttachment: async (input: unknown) => void opened.push(input),
+      showItemInFolder: async (path: string) => void revealed.push(path),
+    },
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  const path = '/data/conversation-images/session/ig_1.png'
+  try {
+    await act(async () =>
+      root.render(
+        <ConversationLinkProvider
+          workspaceId="generated-image"
+          workspaceRoot="/workspace/app"
+          cwd="/workspace/app"
+          agentId="agent"
+        >
+          <ToolRow
+            tool={tool({
+              id: 'ig_1',
+              name: 'GenerateImage',
+              toolKind: 'other',
+              input: { path, prompt: 'A flat orange circle' },
+              outputStatus: 'ok',
+            })}
+          />
+        </ConversationLinkProvider>,
+      ),
+    )
+    const image = host.querySelector<HTMLImageElement>('[data-generated-image] img')
+    expect(image?.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(image?.getAttribute('alt')).toBe('A flat orange circle')
+    expect(host.textContent).toContain('Generated image')
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="Open A flat orange circle"]')!.click(),
+    )
+    expect(opened).toEqual([{ mediaType: 'image/png', dataBase64: 'iVBORw0KGgo=' }])
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Reveal in Finder')!
+        .click(),
+    )
+    expect(revealed).toEqual([path])
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of Object.keys(globals)) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

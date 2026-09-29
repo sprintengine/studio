@@ -1,9 +1,16 @@
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { expect, test } from 'vitest'
-import { CodexRpcError, createCodexRpcTransport, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
+import {
+  CodexRpcError,
+  codexAppServerArgs,
+  codexToolFailure,
+  createCodexRpcTransport,
+  type CodexRpcOptions,
+  type RpcMessage,
+} from './codex-json-rpc'
 
-function fixture(timeoutMs = 1000) {
+function fixture(timeoutMs = 1000, extra: Partial<CodexRpcOptions> = {}) {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
     stdout: new PassThrough(),
@@ -17,20 +24,25 @@ function fixture(timeoutMs = 1000) {
   })
   const messages: RpcMessage[] = [],
     closed: Error[] = [],
-    writes: RpcMessage[] = []
+    writes: RpcMessage[] = [],
+    spawned: string[][] = []
   child.stdin.on('data', (chunk: Buffer) => writes.push(JSON.parse(chunk.toString())))
   const transport = createCodexRpcTransport({
     command: '/usr/bin/codex',
     cwd: '/workspace/app',
     env: {},
     timeoutMs,
-    spawnChild: (() => child) as unknown as CodexRpcOptions['spawnChild'],
+    spawnChild: ((_file: string, args: string[]) => {
+      spawned.push(args)
+      return child
+    }) as unknown as CodexRpcOptions['spawnChild'],
     onMessage: (message) => {
       messages.push(message)
     },
     onClose: (error) => closed.push(error),
+    ...extra,
   })
-  return { child, transport, messages, closed, writes }
+  return { child, transport, messages, closed, writes, spawned }
 }
 
 test('correlates requests and preserves split UTF-8 frames while ignoring malformed lines', async () => {
@@ -137,4 +149,42 @@ test('a CLI that cannot be started says so instead of reporting a closed connect
   await expect(request).rejects.toThrow('Codex could not be started from /Users/dev/bin/codex')
   await new Promise((resolve) => setImmediate(resolve))
   expect(closed[0]?.message).toContain('ENOENT')
+})
+
+test('a tool Codex could not run is read from stderr, and nothing else there is', async () => {
+  const failures: string[] = []
+  const f = fixture(1000, { onToolFailure: (reason) => failures.push(reason) })
+  const line =
+    '\u001b[2m2026-09-29T14:14:20.361376Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mtimed out negotiating with the code-mode host\n'
+  // Split mid-line: a reason is read only once its line is whole.
+  f.child.stderr.write(line.slice(0, 40))
+  expect(failures).toEqual([])
+  f.child.stderr.write(line.slice(40))
+  f.child.stderr.write('2026-09-29T14:14:21Z  WARN codex_core::client: token=secret request failed\n')
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(failures).toEqual(['timed out negotiating with the code-mode host'])
+  f.transport.close()
+})
+
+test('stderr parsing ignores other targets and levels', () => {
+  expect(
+    codexToolFailure('2026-09-29T14:18:01Z ERROR codex_core::tools::router: error=code-mode host is disabled'),
+  ).toBe('code-mode host is disabled')
+  expect(codexToolFailure('2026-09-29T14:18:01Z ERROR codex_core::client: error=bad key sk-123')).toBeNull()
+  expect(codexToolFailure('2026-09-29T14:18:01Z WARN codex_core::tools::router: error=slow')).toBeNull()
+  expect(codexToolFailure(`x ERROR codex_core::tools::router: error=${'a'.repeat(900)}`)).toHaveLength(500)
+})
+
+test('extra app-server arguments follow its own and split as a shell would', () => {
+  expect(codexAppServerArgs(`-c 'model_reasoning_summary="auto"' --disable  "code mode"`)).toEqual([
+    '-c',
+    'model_reasoning_summary="auto"',
+    '--disable',
+    'code mode',
+  ])
+  expect(codexAppServerArgs(undefined)).toEqual([])
+  expect(codexAppServerArgs(`--enable ''`)).toEqual(['--enable', ''])
+  const f = fixture(1000, { args: ['--enable', 'feature'] })
+  expect(f.spawned[0]?.slice(-5)).toEqual(['app-server', '--listen', 'stdio://', '--enable', 'feature'])
+  f.transport.close()
 })

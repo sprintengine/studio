@@ -727,7 +727,9 @@ export function projectConversation(events: ConversationEvent[], userTurns: User
           inputTruncated: readBoolean(event.payload, 'inputTruncated'),
           status: 'running',
           summary: readString(event.payload, 'summary'),
-          startedAt: event.createdAt,
+          // A call reported again (its input filled in on completion) keeps
+          // the moment it began.
+          startedAt: turn.tools.get(id)?.startedAt ?? event.createdAt,
           addedLines: readNumber(event.payload, 'addedLines'),
           removedLines: readNumber(event.payload, 'removedLines'),
           subagentLane: readBoolean(event.payload, 'subagentLane'),
