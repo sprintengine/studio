@@ -184,6 +184,18 @@ test('useTailnetPresence', async () => {
       })
     })
     assert.equal(current().meshRemoteChanges.get('air')?.revision, 3, 'an older mesh revision is dropped')
+    // A push of the other kind keeps the first kind's revision, so a reader
+    // that re-reads by kind loses neither when both land between two renders.
+    await act(async () => {
+      meshListener!({
+        kind: 'remote-changed',
+        revision: 4,
+        connectionId: 'air',
+        machineName: 'air',
+        what: 'workspaces',
+      })
+    })
+    assert.deepEqual(current().meshRemoteChanges.get('air')?.revisions, { conversations: 3, workspaces: 4 })
     await act(async () => {
       meshListener!({ kind: 'machine-forgotten', revision: 6, connectionId: 'air', machineName: 'air' })
     })
@@ -202,4 +214,61 @@ test('useTailnetPresence', async () => {
   })
 
   await suiteRun
+})
+
+test('useTailnetPresence is one set of reads and one subscription per window', async () => {
+  // The top bar and the Remote band both ask for presence in every window.
+  // They share one set of initial reads and one subscription to each channel.
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
+  const anyGlobal = globalThis as unknown as Record<string, unknown>
+  anyGlobal.window = dom.window
+  anyGlobal.document = dom.window.document
+  anyGlobal.HTMLElement = dom.window.HTMLElement
+  anyGlobal.Node = dom.window.Node
+  anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+  const reads = { status: 0, live: 0, mesh: 0, meshLive: 0 }
+  const tailnetListeners = new Set<(payload: unknown) => void>()
+  const meshListeners = new Set<(event: unknown) => void>()
+  ;(dom.window as unknown as { api: unknown }).api = {
+    tailnetGetStatus: async () => (reads.status++, null),
+    tailnetGetLiveState: async () => (reads.live++, { revision: 0, devices: [] }),
+    meshListConnections: async () => (reads.mesh++, []),
+    meshGetLiveState: async () => (reads.meshLive++, { revision: 0, requests: [], reachability: [] }),
+    onTailnetEvent: (listener: (payload: unknown) => void) => {
+      tailnetListeners.add(listener)
+      return () => tailnetListeners.delete(listener)
+    },
+    onMeshEvent: (listener: (event: unknown) => void) => {
+      meshListeners.add(listener)
+      return () => meshListeners.delete(listener)
+    },
+  }
+
+  const seen: TailnetPresence[] = []
+  function Surface() {
+    seen.push(useTailnetPresence())
+    return null
+  }
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(createElement('div', null, createElement(Surface), createElement(Surface)))
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  assert.deepEqual(reads, { status: 1, live: 1, mesh: 1, meshLive: 1 }, 'one set of initial reads')
+  assert.equal(tailnetListeners.size, 1, 'one tailnet subscription')
+  assert.equal(meshListeners.size, 1, 'one mesh subscription')
+
+  await act(async () => {
+    for (const listener of meshListeners)
+      listener({ kind: 'remote-changed', revision: 1, connectionId: 'mini', machineName: 'mini', what: 'workspaces' })
+  })
+  assert.equal(seen.at(-1)?.meshRemoteChanges.get('mini')?.what, 'workspaces', 'every surface sees the push')
+
+  act(() => root.unmount())
+  assert.equal(tailnetListeners.size + meshListeners.size, 0, 'the last one out releases both channels')
 })
