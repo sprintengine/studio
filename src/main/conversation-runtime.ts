@@ -258,6 +258,11 @@ const ADAPTERS_WITHOUT_FALLBACK_HISTORY: ReadonlySet<string> = new Set([CLAUDE_A
 // characters of it either way.
 const PEEK_TURN_BYTES = 256 * 1024
 
+// How far back a picture request from a paired device looks for the step
+// that made the picture. The host keeps what it found, so only the first
+// request for a step pays for the scan.
+const TOOL_CALL_SCAN_BYTES = 32 * 1024 * 1024
+
 // Same cadence as the terminal runtime's stale-terminal sweep: often enough
 // that an idle child process does not outlive the threshold by much, rare
 // enough to be free.
@@ -2024,6 +2029,10 @@ export class ConversationRuntime {
         input.workspaceRoot,
         path,
         (candidate) => candidate.type === 'tool_started' && candidate.payload?.toolUseId === input.toolUseId,
+        // A paired device asks for a step it was shown, so it is recent; a
+        // miss past this reads as an unknown step rather than scanning the
+        // whole transcript on every request.
+        TOOL_CALL_SCAN_BYTES,
       )
       if (!event?.payload) return null
       const name = event.payload.name ?? event.payload.tool

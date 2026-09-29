@@ -173,14 +173,23 @@ export class ConversationTranscriptReader {
     })
   }
 
-  /** The newest stored event matching `predicate`, scanning back as far as it takes. */
+  /**
+   * The newest stored event matching `predicate`, scanning back as far as it
+   * takes, or with `maxBytes`, no further back than that many bytes.
+   */
   findLast(
     root: string,
     path: string,
     predicate: (event: ConversationEvent) => boolean,
+    maxBytes = Number.POSITIVE_INFINITY,
   ): Promise<ConversationEvent | undefined> {
     return this.read(root, path, async (records) => {
-      for await (const record of records) if (predicate(record.event)) return record.event
+      let read = 0
+      for await (const record of records) {
+        if (predicate(record.event)) return record.event
+        read += record.bytes
+        if (read > maxBytes) break
+      }
       return undefined
     })
   }

@@ -395,3 +395,26 @@ test('closeAll also closes a stream an append opened while the first pass was cl
   assert.equal(streams.opened.length, 2)
   assert.equal(streams.closed, 2)
 })
+
+test('findLast with a byte budget stops looking past it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-event-log-'))
+  try {
+    const filePath = join(root, 'agent.jsonl')
+    const old = { ...event('tool_started', { toolUseId: 'old' }), seq: 1 }
+    const filler = Array.from({ length: 40 }, (_, index) => ({
+      ...event('tool_output', { toolUseId: 'filler', output: 'x'.repeat(1024) }),
+      seq: index + 2,
+    }))
+    const recent = { ...event('tool_started', { toolUseId: 'recent' }), seq: 42 }
+    const lines = [old, ...filler, recent].map((item) => JSON.stringify(item)).join('\n')
+    await writeFile(filePath, `${lines}\n`, { mode: 0o600 })
+    const reader = new ConversationTranscriptReader()
+    const find = (id: string, maxBytes?: number) =>
+      reader.findLast(root, filePath, (item) => item.payload?.toolUseId === id, maxBytes)
+    assert.equal((await find('recent', 4096))?.seq, 42)
+    assert.equal(await find('old', 4096), undefined, 'the old step lies past the budget')
+    assert.equal((await find('old'))?.seq, 1, 'without a budget it scans back as far as it takes')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
