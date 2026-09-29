@@ -90,6 +90,7 @@ import { SubagentTypesProvider } from './agentChat/subagentStatus'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
 import { useChatViewActive } from './agentChat/chatViewActivity'
+import { prefersReducedMotion } from './agentChat/reducedMotion'
 import { useConversationTransport } from './agentChat/conversationTransport'
 import { openCliSignInTerminal } from './agentChat/cliSignIn'
 import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
@@ -212,6 +213,11 @@ export function queuedTurnLabel(text: string, attachmentCount: number): string {
   const images = attachmentCountLabel(attachmentCount)
   return text ? `${text} · ${images}` : images
 }
+
+// What keeps the transcript at its end while the reader is there: a row added
+// or growing, and the list itself resizing (a pane dragged, the composer tray
+// growing). One path, not the list's plus an effect per token.
+const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
@@ -843,33 +849,52 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // pause is not the reader leaving the end, so it must not show the pill.
   const [followPaused, setFollowPaused] = useState(false)
   const followPausedRef = useRef(false)
+  // A scroll is read once a frame, however many events it fired: an animated
+  // end-follow or a fling fires one per frame or more, and each read measures
+  // the scroller.
+  const scrollFrameRef = useRef(0)
+  const lastScrollRef = useRef<NativeScrollEvent | null>(null)
+  const readLogScroll = useCallback(() => {
+    scrollFrameRef.current = 0
+    const scrolled = lastScrollRef.current
+    lastScrollRef.current = null
+    if (!scrolled || followPausedRef.current) return
+    const { contentOffset, contentSize, layoutMeasurement } = scrolled
+    const element = listRef.current?.getScrollableNode()
+    observeScroll(
+      element?.scrollTop ?? contentOffset.y,
+      element?.scrollHeight ?? contentSize.height,
+      element?.clientHeight ?? layoutMeasurement.height,
+    )
+    // The restore's own jumps are not a place the reader chose; remembering
+    // them would overwrite the position being restored.
+    if (isRestoringScroll()) return
+    // At the end, where the view opens again anyway, there is no row to find.
+    if (atBottomRef.current) {
+      rememberConversationScroll(conversationKey, { offset: 0, atEnd: true })
+      return
+    }
+    const rowId = firstVisibleRowRef.current
+    const position = rowId ? listRef.current?.getState().positionByKey(rowId) : undefined
+    rememberConversationScroll(conversationKey, {
+      rowId,
+      offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
+      atEnd: false,
+    })
+  }, [conversationKey, observeScroll, atBottomRef, isRestoringScroll])
   const handleLogScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       if (followPausedRef.current) return
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-      const element = listRef.current?.getScrollableNode()
-      observeScroll(
-        element?.scrollTop ?? contentOffset.y,
-        element?.scrollHeight ?? contentSize.height,
-        element?.clientHeight ?? layoutMeasurement.height,
-      )
-      const nearBottom = atBottomRef.current
-      // The restore's own jumps are not a place the reader chose; remembering
-      // them would overwrite the position being restored.
-      if (isRestoringScroll()) return
-      const state = listRef.current?.getState()
-      const rowId = firstVisibleRowRef.current
-      const position = rowId ? state?.positionByKey(rowId) : undefined
-      rememberConversationScroll(conversationKey, {
-        rowId,
-        offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
-        atEnd: nearBottom,
-      })
+      lastScrollRef.current = event.nativeEvent
+      if (scrollFrameRef.current) return
+      if (typeof requestAnimationFrame === 'function') scrollFrameRef.current = requestAnimationFrame(readLogScroll)
+      else readLogScroll()
     },
-    [conversationKey, observeScroll, atBottomRef, isRestoringScroll],
+    [readLogScroll],
   )
+  useEffect(() => () => cancelAnimationFrame(scrollFrameRef.current), [])
   const jumpToLatest = useCallback(() => {
-    void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
+    void listRef.current?.scrollToEnd({ animated: !prefersReducedMotion() })
     atBottomRef.current = true
     setAtBottom(true)
   }, [atBottomRef, setAtBottom])
@@ -909,10 +934,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     followedInitialSnapshot.current = true
     if (atBottomRef.current) {
       void listRef.current?.scrollToEnd({
-        animated: animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        animated: animate && !prefersReducedMotion(),
       })
     }
-  }, [events.length, timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
+    // Not on every event: tokens grow the last row, and the list's own
+    // end-follow keeps up with that. This lands the first snapshot at the
+    // end, and follows a turn starting or ending and a row being added.
+  }, [timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
   useEffect(() => {
     const id = pendingUserScrollIdRef.current
     if (!id) return
@@ -2315,9 +2343,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
                 maintainVisibleContentPosition={{ data: true, size: true }}
                 maintainScrollAtEnd={
-                  atBottom && !followPaused
-                    ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
-                    : false
+                  atBottom && !followPaused ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS } : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />
