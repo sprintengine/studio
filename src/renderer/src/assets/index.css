@@ -2509,7 +2509,20 @@ samp,
  * while its agent works the character moves, each part on its own loop; done,
  * failed and stopped characters stand still. Parts turn and scale about their
  * own box, so each keyframe names its pivot. Reduced motion holds every
- * character still, eyes open. */
+ * character still, eyes open.
+ *
+ * The whole-body motion (nod, squish, float, drift, rock, hop, hoho) runs on
+ * the root <svg>, which carries `agent-glyph__whole` while its agent works:
+ * the root is a CSS box, so its transform animates on the compositor; one on
+ * an element inside the SVG is composited only in narrow cases, and otherwise
+ * repaints the glyph on the main thread each frame. Only the small parts
+ * (eyes, string, hat, antenna, whiskers, nose, bow) still move inside it. The
+ * root's pivot is the drawing's own box, not the 16px square, so a character
+ * turns and squashes about the same point it did when a `<g>` round the
+ * drawing moved: every drawing is centred on x 8, and stands on y 13.2 of 16
+ * (robot, bubble), 13.8 (bear), 14 (mushroom, pumpkin, skull, present), 14.2
+ * (reindeer) or 15.2 (the balloon's string). The glyph is drawn at 16px on a
+ * 16-unit view box, so the keyframes' px are the drawing's units. */
 .agent-glyph * {
   transform-box: fill-box;
 }
@@ -2695,8 +2708,8 @@ samp,
   }
 }
 
-.agent-glyph--robot .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--robot.agent-glyph__whole {
+  transform-origin: 50% 82.5%;
   animation: agent-glyph-nod 1600ms ease-in-out infinite;
 }
 .agent-glyph--robot .agent-glyph__eyes {
@@ -2705,15 +2718,15 @@ samp,
 .agent-glyph--robot .agent-glyph__antenna {
   animation: agent-glyph-antenna 1000ms steps(1) infinite;
 }
-.agent-glyph--blob .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--blob.agent-glyph__whole {
+  transform-origin: 50% 82.5%;
   animation: agent-glyph-squish 1100ms ease-in-out infinite;
 }
 .agent-glyph--blob .agent-glyph__eyes {
   animation: agent-glyph-look 2600ms ease-in-out infinite;
 }
-.agent-glyph--balloon .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--balloon.agent-glyph__whole {
+  transform-origin: 50% 95%;
   animation: agent-glyph-drift 2400ms ease-in-out infinite;
 }
 .agent-glyph--balloon .agent-glyph__string {
@@ -2724,8 +2737,8 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3000ms infinite;
 }
-.agent-glyph--bear .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--bear.agent-glyph__whole {
+  transform-origin: 50% 86.25%;
   animation: agent-glyph-nod 1800ms ease-in-out infinite;
 }
 .agent-glyph--bear .agent-glyph__eyes {
@@ -2739,29 +2752,29 @@ samp,
 .agent-glyph--gent .agent-glyph__eyes {
   animation: agent-glyph-look 2600ms ease-in-out infinite;
 }
-.agent-glyph--mushroom .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--mushroom.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-squish 1300ms ease-in-out infinite;
 }
 .agent-glyph--mushroom .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 2800ms infinite;
 }
-.agent-glyph--ghost .agent-glyph__whole {
+.agent-glyph--ghost.agent-glyph__whole {
   animation: agent-glyph-float 1800ms ease-in-out infinite;
 }
 .agent-glyph--ghost .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 3200ms infinite;
 }
-.agent-glyph--pumpkin .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--pumpkin.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-rock 1400ms ease-in-out infinite;
 }
 .agent-glyph--pumpkin .agent-glyph__eyes {
   animation: agent-glyph-flicker 900ms steps(1) infinite;
 }
-.agent-glyph--cat .agent-glyph__whole {
+.agent-glyph--cat.agent-glyph__whole {
   animation: agent-glyph-float 2000ms ease-in-out infinite;
 }
 .agent-glyph--cat .agent-glyph__eyes {
@@ -2771,7 +2784,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-twitch 2200ms ease-in-out infinite;
 }
-.agent-glyph--elf .agent-glyph__whole {
+.agent-glyph--elf.agent-glyph__whole {
   animation: agent-glyph-float 1200ms ease-in-out infinite;
 }
 .agent-glyph--elf .agent-glyph__hat {
@@ -2782,7 +2795,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 2800ms infinite;
 }
-.agent-glyph--santa .agent-glyph__whole {
+.agent-glyph--santa.agent-glyph__whole {
   animation: agent-glyph-hoho 1800ms ease-in-out infinite;
 }
 .agent-glyph--santa .agent-glyph__hat {
@@ -2793,7 +2806,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3400ms infinite;
 }
-.agent-glyph--witch .agent-glyph__whole {
+.agent-glyph--witch.agent-glyph__whole {
   animation: agent-glyph-float 1800ms ease-in-out infinite;
 }
 .agent-glyph--witch .agent-glyph__hat {
@@ -2803,15 +2816,15 @@ samp,
 .agent-glyph--witch .agent-glyph__eyes {
   animation: agent-glyph-look 2800ms ease-in-out infinite;
 }
-.agent-glyph--skull .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--skull.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-rock 1400ms ease-in-out infinite;
 }
 .agent-glyph--skull .agent-glyph__eyes {
   animation: agent-glyph-flicker 900ms steps(1) infinite;
 }
-.agent-glyph--reindeer .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--reindeer.agent-glyph__whole {
+  transform-origin: 50% 88.75%;
   animation: agent-glyph-nod 1600ms ease-in-out infinite;
 }
 .agent-glyph--reindeer .agent-glyph__nose {
@@ -2821,8 +2834,8 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3000ms infinite;
 }
-.agent-glyph--present .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--present.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-hop 1600ms ease-in-out infinite;
 }
 .agent-glyph--present .agent-glyph__bow {
@@ -2838,6 +2851,7 @@ samp,
  * `.agent-glyph *` is outranked by `.agent-glyph--robot .agent-glyph__eyes`
  * and left every character moving. */
 @media (prefers-reduced-motion: reduce) {
+  .agent-glyph--working.agent-glyph__whole,
   .agent-glyph--working [class^='agent-glyph__'] {
     animation: none;
   }
