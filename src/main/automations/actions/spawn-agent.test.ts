@@ -21,8 +21,8 @@ test('spawn-agent', async () => {
   }
 
   function assertNoRunStatusFileInstruction(): void {
-    // The run finalizes from the agent-state hooks; no run-status file exists for
-    // the agent to write.
+    // The run finalizes from its conversation's turn events; no run-status file
+    // exists for the agent to write.
     const prompt = compose()
     assert.ok(!prompt.includes('run-status'), 'prompt names no run-status file')
     assert.ok(!prompt.includes('.sprintengine-automation-run-status.json'), 'prompt carries no signal filename')
@@ -186,7 +186,7 @@ test('spawn-agent', async () => {
     assert.ok(!jsonPart.includes('�'), 'the byte cut never splits a multibyte character')
   }
 
-  type CapturedLaunch = { prompt: string; permissionPreset?: string }
+  type CapturedLaunch = { prompt: string; permissionPreset?: string; skills?: string[] }
 
   function stubRuntime(
     triggerPayload: Record<string, unknown> | undefined,
@@ -201,7 +201,8 @@ test('spawn-agent', async () => {
       spawnAgent: async (input) => {
         captured.prompt = input.prompt
         captured.permissionPreset = input.permissionPreset
-        return { workspaceId: 'ws-1', agentId: 'agent-1' }
+        captured.skills = input.skills
+        return { workspaceId: 'ws-1', agentId: 'agent-1', sessionId: 'conv_1' }
       },
       requireIntegration: () => {},
     }
@@ -291,6 +292,23 @@ test('spawn-agent', async () => {
     assert.ok(captured.prompt.includes('"taskId": "T3"'), 'run-skill-loop carries the payload')
   }
 
+  async function assertSpawnSkillBecomesTheChatsSkill(): Promise<void> {
+    // The configured skill is installed and attached to the chat's first
+    // message; the run records the chat session its launch started.
+    const withSkill: CapturedLaunch = { prompt: '' }
+    const result = await runSpawnAgentAction(
+      { prompt: 'Work the backlog.', spawnSkillId: 'backlog' },
+      stubRuntime(undefined, withSkill),
+    )
+    assert.deepEqual(withSkill.skills, ['backlog'])
+    assert.equal(result.sessionId, 'conv_1')
+    assert.equal(result.status, 'running')
+
+    const without: CapturedLaunch = { prompt: '' }
+    await runSpawnAgentAction({ prompt: 'Sweep.' }, stubRuntime(undefined, without))
+    assert.equal(without.skills, undefined, 'no skill configured, none attached')
+  }
+
   async function main(): Promise<void> {
     assertNoRunStatusFileInstruction()
     assertNonInteractiveDirectiveStated()
@@ -304,6 +322,7 @@ test('spawn-agent', async () => {
     await assertExecutorThreadsPayloadWhenOptedIn()
     await assertRunSkillLoopPassesFlagThrough()
     await assertUnspecifiedPresetResolvesToBypass()
+    await assertSpawnSkillBecomesTheChatsSkill()
     console.log('automations spawn-agent prompt tests passed')
   }
 

@@ -7,6 +7,7 @@ import {
   type ThirdPartyRendererEntriesResult,
   type ThirdPartyRendererEntryView,
 } from '../../shared/modules/manifest'
+import { checkHostApiCompatibility } from '../../shared/modules/host-api'
 import type { MainHost } from '../module-host/main-host'
 import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment'
 import { isLoadEligible, isTrustedByPublisher, type ModuleTrustContext } from './module-signature'
@@ -35,6 +36,12 @@ function resolveRendererEntry(installed: InstalledModule): RendererEntryResoluti
   const entryRenderer = installed.manifest.entry?.renderer
   if (!entryRenderer) {
     return { servable: false, view: { availability: 'none' } }
+  }
+  // Built for another host API: not sent, and trusting it would not change
+  // that. A tampered module keeps its own, louder, reason (host-api-gate.ts).
+  const compatibility = checkHostApiCompatibility(installed.manifest)
+  if (!compatibility.ok && installed.trust.status !== 'invalid') {
+    return { servable: false, view: { availability: 'blocked', message: compatibility.message } }
   }
   if (!isLoadEligible(installed.trust.status)) {
     return {

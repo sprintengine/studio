@@ -11,7 +11,6 @@ import type { InstalledModule } from '../modules/user-module-registry'
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from './load-modules'
 import { createServiceToken } from './main-host'
-import { collectLaunchContributions, resetLaunchContributionsForTest } from './launch-contributions'
 import { test } from 'vitest'
 
 test('load-modules', async () => {
@@ -23,7 +22,10 @@ test('load-modules', async () => {
     testThrowingModuleIsIsolated()
     testDuplicateChannelIsReportedNotFatal()
     testLifecycleAndSidecarsCollected()
-    await testLaunchContributionRegistersAndUnloads()
+    await testAsyncRegisterMainIsAwaitedByReady()
+    await testAsyncRegisterMainRejectionUnregistersTheModule()
+    await testAsyncRegisterMainTimeoutUnregistersTheModule()
+    await testApplyEnablementAwaitsAsyncRegisterMain()
     await testRunStartupAndShutdownInvokeHooks()
     await testRunShutdownBeginRunsBeginHooksInRegistrationOrderBeforeShutdown()
     await testTrustedThirdPartyMainRegistersThroughHost()
@@ -40,7 +42,9 @@ test('load-modules', async () => {
     const order: string[] = []
     const runtime: CapabilityModule = {
       manifest: { id: 'runtime', displayName: 'Runtime', version: 1, defaultEnabled: true, core: true },
-      registerMain: () => order.push('runtime'),
+      registerMain: () => {
+        order.push('runtime')
+      },
     }
     const feature: CapabilityModule = {
       manifest: {
@@ -50,7 +54,9 @@ test('load-modules', async () => {
         defaultEnabled: true,
         dependsOn: ['runtime'],
       },
-      registerMain: () => order.push('feature'),
+      registerMain: () => {
+        order.push('feature')
+      },
     }
 
     const { ipcMain } = createFakeIpcMain()
@@ -189,38 +195,106 @@ test('load-modules', async () => {
     assert.deepEqual(report.sidecars, [{ id: 'svc-daemon', kind: 'process', module: 'svc-core' }])
   }
 
-  async function testLaunchContributionRegistersAndUnloads(): Promise<void> {
-    resetLaunchContributionsForTest()
+  async function testAsyncRegisterMainIsAwaitedByReady(): Promise<void> {
+    const token = createServiceToken<string>('svc.late')
     const mod: CapabilityModule = {
       manifest: { id: 'svc', displayName: 'Svc', version: 1, defaultEnabled: true },
-      registerMain: (host) => {
-        host.registerLaunchContribution(() => ({
-          env: { SVC_LAUNCH: '1' },
-          hostContext: [{ heading: 'Svc', body: 'Standing instruction.' }],
-        }))
+      registerMain: async (host) => {
+        await Promise.resolve()
+        host.provideService(token, () => 'late')
+        host.onStartup(() => {})
       },
     }
 
     const { ipcMain } = createFakeIpcMain()
-    const { kernel } = loadMainModules({ ipcMain, modules: [mod] })
-    const merged = collectLaunchContributions({
-      cli: 'codex',
-      workspaceRoot: '/Users/dev/project',
-      sessionId: 's1',
-      pathStyle: 'posix',
-    })
-    assert.equal(merged.env.SVC_LAUNCH, '1')
-    assert.deepEqual(merged.hostContext, [{ heading: 'Svc', body: 'Standing instruction.' }])
+    const { kernel, report, ready } = loadMainModules({ ipcMain, modules: [mod] })
+    assert.equal(kernel.startupHooks().length, 0, 'nothing has registered before the await')
+    await ready
+    assert.deepEqual(report.loaded, ['svc'])
+    assert.deepEqual(report.errors, [])
+    assert.equal(kernel.hostFor('@host').getService(token), 'late')
+    assert.equal(kernel.startupHooks().length, 1)
+  }
 
-    await kernel.unregisterModule('svc')
-    const after = collectLaunchContributions({
-      cli: 'codex',
-      workspaceRoot: '/Users/dev/project',
-      sessionId: 's1',
-      pathStyle: 'posix',
-    })
-    assert.equal(after.env.SVC_LAUNCH, undefined)
-    resetLaunchContributionsForTest()
+  async function testAsyncRegisterMainRejectionUnregistersTheModule(): Promise<void> {
+    const mod: CapabilityModule = {
+      manifest: { id: 'flaky', displayName: 'Flaky', version: 1, defaultEnabled: true, source: 'third-party' },
+      registerMain: async (host) => {
+        host.registerIpc('flaky:ping', () => 'pong')
+        await Promise.resolve()
+        throw new Error('async boom')
+      },
+    }
+    const other: CapabilityModule = {
+      manifest: { id: 'steady', displayName: 'Steady', version: 1, defaultEnabled: true },
+      registerMain: (host) => host.registerIpc('steady:ping', () => 'pong'),
+    }
+
+    const { ipcMain } = createFakeIpcMain()
+    const { kernel, report, ready } = loadMainModules({ ipcMain, modules: [mod, other] })
+    assert.ok(kernel.ownedChannels().has('flaky:ping'), 'sync registrations land before the await')
+    await ready
+    assert.deepEqual(report.loaded, ['steady'])
+    assert.deepEqual(report.errors, [{ id: 'flaky', message: 'async boom' }])
+    assert.equal(kernel.ownedChannels().has('flaky:ping'), false, 'the failed module leaves nothing behind')
+    assert.ok(kernel.ownedChannels().has('steady:ping'))
+    assert.ok(
+      kernel.recentNotifications().some((n) => n.sourceModuleId === 'flaky' && n.severity === 'error'),
+      'a third-party async failure is surfaced under its identity',
+    )
+  }
+
+  async function testAsyncRegisterMainTimeoutUnregistersTheModule(): Promise<void> {
+    let registeredHook = false
+    const mod: CapabilityModule = {
+      manifest: { id: 'hung', displayName: 'Hung', version: 1, defaultEnabled: true },
+      registerMain: (host) => {
+        host.onStartup(() => {
+          registeredHook = true
+        })
+        return new Promise<void>(() => {})
+      },
+    }
+
+    const { ipcMain } = createFakeIpcMain()
+    const { kernel, report, ready } = loadMainModules({ ipcMain, modules: [mod], registerTimeoutMs: 5 })
+    await ready
+    assert.deepEqual(report.loaded, [])
+    assert.equal(report.errors.length, 1)
+    assert.match(report.errors[0]!.message, /did not settle within/)
+    assert.equal(kernel.startupHooks().length, 0)
+    await kernel.runStartup()
+    assert.equal(registeredHook, false)
+  }
+
+  async function testApplyEnablementAwaitsAsyncRegisterMain(): Promise<void> {
+    let settled = false
+    const good: CapabilityModule = {
+      manifest: { id: 'live-good', displayName: 'Live good', version: 1, defaultEnabled: false },
+      registerMain: async (host) => {
+        await Promise.resolve()
+        host.registerIpc('live-good:ping', () => 'pong')
+        settled = true
+      },
+    }
+    const bad: CapabilityModule = {
+      manifest: { id: 'live-bad', displayName: 'Live bad', version: 1, defaultEnabled: false },
+      registerMain: async (host) => {
+        host.registerIpc('live-bad:ping', () => 'pong')
+        throw new Error('live boom')
+      },
+    }
+
+    const { ipcMain } = createFakeIpcMain()
+    const { kernel, applyEnablement } = loadMainModules({ ipcMain, modules: [good, bad] })
+    const live = await applyEnablement(
+      { 'live-good': true, 'live-bad': true },
+      { liveModuleIds: ['live-good', 'live-bad'] },
+    )
+    assert.equal(settled, true)
+    assert.deepEqual(live.loaded, ['live-good'])
+    assert.deepEqual(live.errors, [{ id: 'live-bad', message: 'live boom' }])
+    assert.equal(kernel.ownedChannels().has('live-bad:ping'), false)
   }
 
   async function testRunStartupAndShutdownInvokeHooks(): Promise<void> {

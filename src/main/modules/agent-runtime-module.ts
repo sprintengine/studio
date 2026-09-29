@@ -1,15 +1,21 @@
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 
 import type { AppServices } from '../app-services'
+import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
+import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
   AgentLaunchSettingsToken,
-  AgentSessionsModuleServiceToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
+  ConversationLaunchServiceToken,
+  ConversationModuleServiceToken,
+  ConversationRuntimeToken,
+  GitHubModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleSecretsServiceToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
@@ -19,12 +25,12 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
+import { createModuleGitHubRegistry } from '../module-host/module-github'
+import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
+import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
-import { createAgentSessionsModuleRegistry } from '../agent-sessions-module-service'
-import { findBuiltinSkill } from '../builtin-skills'
-import { getPluginById } from '../plugin-registry-instance'
-import { resolveSkillInvocation } from '../../shared/skill-invocation'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
 // Resolves a module id to the capability permissions it declared in its
@@ -107,37 +113,42 @@ export function createAgentRuntimeModule(
           getModulePermissions: options.getModulePermissions,
         }),
       )
-      // Agent sessions: ordinary agent TERMINALS a module owns (D5). Composed
-      // through the same AgentLaunchService every app-level launch uses, so a
-      // module's agent gets the user's CLI, permission default, runtime
-      // overrides, MCP and knowledge graph — and a tab — rather than a
-      // hand-rolled spawn payload. Every method checks `agents:session`.
-      const agentSessions = createAgentSessionsModuleRegistry({
-        launchAgent: (request) => services.agentLaunchService.launch(request),
-        terminal: {
-          list: () => services.terminalRuntime.ipcHandlers.listTerminals(),
-          kill: (sessionId) => services.terminalRuntime.ipcHandlers.killTerminal(sessionId),
-          setReapExempt: (sessionId, exempt) =>
-            services.terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),
-          onAgentSessionExit: (listener) => services.terminalRuntime.registerAgentSessionExitListener(listener),
-        },
-        sendPrompt: async (sessionId, text) => {
-          const result = await services.agentControlPlane.send({ sessionId }, text, { submit: true })
-          return result.ok ? { ok: true } : { ok: false, message: result.message }
-        },
-        hasWorkspace: (workspaceId) =>
-          services.workspaceSyncService
-            .getSnapshot()
-            .state.workspaces.some((workspace) => workspace.id === workspaceId),
-        // The builtin catalogue today; WP-D widens `findBuiltinSkill` itself to
-        // skills a module registered, so this seam needs no second branch.
-        resolveSkill: (skillId) => findBuiltinSkill(skillId),
-        resolveSkillInvocation: (cli, skillId) =>
-          resolveSkillInvocation(getPluginById(cli)?.manifest.skillIntegration, skillId),
+      // Chats: the launch service every chat main starts goes through (an
+      // automation run's agent first) and the runtime it runs on, both
+      // first-party only; and the moduleId-scoped conversation service behind
+      // the SDK's getConversationService, which checks `conversation:read` /
+      // `conversation:operate` and the chat's owner on every call.
+      host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
+      host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
+      const conversations = createConversationModuleRegistry({
+        launch: (request) => services.conversationLaunchService.launch(request),
+        runtime: services.conversationRuntime,
+        getWorkspaceAgents: () => services.workspaceSyncService.getSnapshot().state.workspaces,
+        onWorkspacesChanged: (listener) => services.workspaceSyncService.subscribeEvents(() => listener()),
+        getCliRuntimes: () =>
+          effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes as
+            ConversationCliRuntimeOverrides | undefined,
+        getModulePermissions: options.getModulePermissions,
+        // A chat a module's MCP tool starts is held to the calling agent's preset.
+        getCallerPermissionCeiling: moduleToolCallerCeiling,
+      })
+      host.provideService(ConversationModuleServiceToken, () => conversations.registry)
+      host.onShutdown(() => conversations.dispose())
+      // The brokers behind the SDK's getSecretsService and getGitHubService: a
+      // module stores a secret and spends it on the origins it named, or calls
+      // the signed-in person's GitHub, without ever holding the value itself.
+      // Each checks its permission (`secrets`, `github`) on every call.
+      const secrets = createModuleSecretsRegistry({
+        userDataDir: app.getPath('userData'),
+        safeStorage,
         getModulePermissions: options.getModulePermissions,
       })
-      host.provideService(AgentSessionsModuleServiceToken, () => agentSessions)
-      host.onShutdown(() => agentSessions.dispose())
+      host.provideService(ModuleSecretsServiceToken, () => secrets.registry)
+      const github = createModuleGitHubRegistry({
+        tokenStore: services.githubTokenStore,
+        getModulePermissions: options.getModulePermissions,
+      })
+      host.provideService(GitHubModuleServiceToken, () => github.registry)
     },
   }
 }

@@ -39,7 +39,12 @@ export async function readMarketplaceUpdateStates(
   // component's own id.
   const receiptOwnedModuleIds = new Set<string>()
   for (const receipt of receiptsRead.receipts) {
-    installed.push({ id: receipt.id, displayName: receipt.displayName, installedVersion: receipt.version })
+    // An extension installed from a GitHub URL updates from its repository
+    // (extensions:github:check-update), not the registry: a registry entry
+    // that happens to share its id says nothing about it.
+    if (receipt.source?.kind !== 'github') {
+      installed.push({ id: receipt.id, displayName: receipt.displayName, installedVersion: receipt.version })
+    }
     claimedIds.add(receipt.id)
     for (const component of receipt.components) {
       if (component.kind === 'module') receiptOwnedModuleIds.add(component.id)

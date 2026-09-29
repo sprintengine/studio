@@ -33,7 +33,7 @@ import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
-import { createAgentPermissionResolver } from './automation/launch-permission-cap'
+import { createAgentPermissionResolver, launchPermissionCeiling } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
@@ -115,6 +115,7 @@ import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
+import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
@@ -595,20 +596,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
     attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
     planStore: new ConversationPlanStore(app.getPath('userData')),
-    prepareStudioMcp: async ({ workspaceRoot }) => {
+    // A Claude chat's child loads no project settings, so the gateway pinned
+    // into a workspace's `.mcp.json` never reached it; the child is handed the
+    // gateway itself, on the machine its `claude` runs on.
+    resolveStudioMcpServer: async ({ hostId }) => {
       await whenAgentLaunchReady()
-      const result = await syncStudioMcpConfig(
-        {
-          workspaceRoot,
-          settings: { syncEnabled: false, servers: {} },
-          clients: ['claude-code'],
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => studioGatewayFor(null),
-        },
-      )
-      return result.ok ? { ok: true } : result
+      const gateway = studioGatewayFor(hostId ?? null)
+      if (!gateway) return null
+      return {
+        id: STUDIO_MCP_SERVER_ID,
+        name: STUDIO_MCP_SERVER_NAME,
+        transport: 'stdio',
+        command: gateway.command,
+        args: gateway.args,
+        env: gateway.env,
+        ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
+      }
     },
   })
   conversationRuntime.startIdleSweep(powerActivity)
@@ -1384,6 +1387,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     startSession: (input) => conversationRuntime.startSession(input),
     send: (input) => conversationRuntime.sendTurn(input),
+    // The same installer a terminal launch's skill-at-spawn uses, into the
+    // folder the chat works in (a run's worktree when it has one).
+    ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
     warn: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
     },
@@ -1479,6 +1485,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveGatewayTools: createStudioGatewayTools({
       resolveModuleTools: () => resolveModuleMcpTools(),
       isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+      // A module tool runs under its caller's launch cap, so a chat the module
+      // starts for a capped agent is no looser than that agent.
+      callerPermissionCeiling: (context) => launchPermissionCeiling(context, resolveAgentPermissionPreset),
       warn: (details) => {
         void writeDiagnosticLog({
           level: 'warning',
@@ -1952,6 +1961,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    conversationLaunchService,
     tourService,
     setTourAttention: tours.setAttention,
     builtinSkillManager,

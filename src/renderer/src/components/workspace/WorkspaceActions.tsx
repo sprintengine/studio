@@ -41,6 +41,7 @@ import { remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemo
 import { useTailnetPresence } from './topbar/useTailnetPresence'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 
 // The two title-bar popovers' bodies. Both hang off a glyph in this cluster and
 // neither is rendered until that glyph is pressed — the Remote list of machines
@@ -754,11 +755,19 @@ export function WorkspaceActions({
       {/* Module-contributed top-bar controls (registerTopBarItem): the mic
        * button and its siblings render here, in the communication cluster's
        * module slot. Enablement-filtered above, so a module toggle
-       * adds/removes its control live. */}
+       * adds/removes its control live. A control that crashes drops out of
+       * the bar rather than taking the bar with it. */}
       {moduleTopBarItems.map((item) => (
-        <React.Suspense key={item.id} fallback={null}>
-          <item.Component />
-        </React.Suspense>
+        <ModuleContributionBoundary
+          key={item.id}
+          moduleId={item.moduleId}
+          surface={`top-bar item "${item.id}"`}
+          variant="inline"
+        >
+          <React.Suspense fallback={null}>
+            <item.Component />
+          </React.Suspense>
+        </ModuleContributionBoundary>
       ))}
 
       {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar).

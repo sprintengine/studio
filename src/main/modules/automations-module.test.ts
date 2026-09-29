@@ -6,11 +6,10 @@ import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type {
-  AgentPhaseEvent,
-  AgentPhaseListener,
-  AgentSessionExitEvent,
-  AgentSessionExitListener,
-} from '../../shared/agent-runtime'
+  ConversationEvent,
+  ConversationEventType,
+  ConversationSessionSummary,
+} from '../../shared/conversation-runtime'
 import type {
   AutomationActionProvider,
   AutomationDefinition,
@@ -25,15 +24,15 @@ import type {
 } from '../automations/engine'
 import { AutomationsStore } from '../automations/store'
 import { runGitCommand } from '../git-utils'
-import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
+import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
 import {
-  AgentLaunchServiceToken,
   AutomationsProviderRegistryToken,
-  TerminalRuntimeToken,
+  ConversationLaunchServiceToken,
+  ConversationRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import {
@@ -70,55 +69,92 @@ test('automations-module', async () => {
     return { ipcMain, handled, activeHandlers, handlers }
   }
 
-  type FakeTerminalRuntime = {
+  type FakeConversationRuntime = {
     runtime: unknown
     listenerCount: () => number
-    phaseListenerCount: () => number
-    emitExit: (event: AgentSessionExitEvent) => Promise<void>
-    emitPhase: (event: AgentPhaseEvent) => Promise<void>
-    setLiveExecutionIds: (ids: string[]) => void
+    emit: (type: ConversationEventType, payload?: Record<string, unknown>) => void
+    sessions: ConversationSessionSummary[]
+    stopped: string[]
+    transcriptReads: unknown[]
   }
 
-  // Minimal TerminalRuntime stand-in exposing only the seams the automations
-  // module uses: the live-execution inventory, the executionId resolver, and the
-  // agent-session exit / agent-phase listeners.
-  function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}): FakeTerminalRuntime {
-    let liveIds = options.liveExecutionIds ?? []
-    const listeners = new Set<AgentSessionExitListener>()
-    const phaseListeners = new Set<AgentPhaseListener>()
+  // Minimal conversation runtime exposing only the seams the automations module
+  // uses: the event stream, the session list, stopping a session, and reading a
+  // chat's transcript.
+  function createFakeConversationRuntime(
+    options: { sessions?: ConversationSessionSummary[]; transcript?: ConversationEvent[] } = {},
+  ): FakeConversationRuntime {
+    const listeners = new Set<(event: ConversationEvent) => void>()
+    const sessions = options.sessions ?? []
+    const stopped: string[] = []
+    const transcriptReads: unknown[] = []
+    let seq = 0
     const runtime = {
-      getLiveAgentExecutionIds: () => liveIds.map((executionId) => ({ system: 'manual', executionId })),
-      resolveAgentExecutionId: () => undefined,
-      registerAgentSessionExitListener: (listener: AgentSessionExitListener) => {
+      onEvent: (listener: (event: ConversationEvent) => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
-      registerAgentPhaseListener: (listener: AgentPhaseListener) => {
-        phaseListeners.add(listener)
-        return () => phaseListeners.delete(listener)
+      listSessions: (input: { workspaceId?: string; agentId?: string } = {}) => ({
+        ok: true,
+        sessions: sessions.filter(
+          (session) =>
+            (!input.workspaceId || session.workspaceId === input.workspaceId) &&
+            (!input.agentId || session.agentId === input.agentId),
+        ),
+      }),
+      stopSession: async (input: { sessionId: string }) => {
+        stopped.push(input.sessionId)
+        return { ok: true }
+      },
+      readTranscript: async (input: unknown) => {
+        transcriptReads.push(input)
+        return { ok: true, events: options.transcript ?? [] }
       },
     }
     return {
       runtime,
       listenerCount: () => listeners.size,
-      phaseListenerCount: () => phaseListeners.size,
-      emitExit: async (event) => {
-        for (const listener of listeners) await listener(event)
+      emit: (type, payload) => {
+        seq += 1
+        const event: ConversationEvent = {
+          id: `evt-${seq}`,
+          sessionId: 'conv_1',
+          workspaceId: 'ws-1',
+          agentId: 'agent-1',
+          providerId: 'claude-agent',
+          modelId: 'default',
+          type,
+          createdAt: seq,
+          ...(payload ? { payload } : {}),
+        }
+        for (const listener of listeners) listener(event)
       },
-      emitPhase: async (event) => {
-        for (const listener of phaseListeners) await listener(event)
-      },
-      setLiveExecutionIds: (ids) => {
-        liveIds = ids
-      },
+      sessions,
+      stopped,
+      transcriptReads,
+    }
+  }
+
+  function session(overrides: Partial<ConversationSessionSummary> = {}): ConversationSessionSummary {
+    return {
+      sessionId: 'conv_1',
+      workspaceId: 'ws-1',
+      agentId: 'agent-1',
+      providerId: 'claude-agent',
+      modelId: 'default',
+      status: 'ready',
+      createdAt: 1,
+      updatedAt: 1,
+      ...overrides,
     }
   }
 
   function fakeAgentRuntimeModule(
     options: {
-      launchAgent?: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
+      launchConversation?: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>
       workspaceSnapshot?: unknown
-      terminalRuntime?: unknown
+      conversationRuntime?: unknown
+      agentWrites?: unknown[]
     } = {},
   ): CapabilityModule {
     return {
@@ -144,22 +180,25 @@ test('automations-module', async () => {
                     lastAppliedWorkspaceSyncSequence: 1,
                   },
                 },
+              updateWorkspaceAgent: (...args: unknown[]) => {
+                options.agentWrites?.push(args)
+                return { ok: true }
+              },
             }) as never,
         )
         host.provideService(
-          TerminalRuntimeToken,
-          () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never,
+          ConversationRuntimeToken,
+          () => (options.conversationRuntime ?? createFakeConversationRuntime().runtime) as never,
         )
-        // Agent launch is its own main-process service; the module
-        // resolves it separately.
+        // Starting a chat is its own main-process service; the module resolves
+        // it separately.
         host.provideService(
-          AgentLaunchServiceToken,
+          ConversationLaunchServiceToken,
           () =>
             ({
               launch:
-                options.launchAgent ??
+                options.launchConversation ??
                 (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
-              dispose: () => ({ ok: true, workspaceId: '', agentId: '' }),
             }) as never,
         )
       },
@@ -324,13 +363,13 @@ test('automations-module', async () => {
     | 'runNow'
     | 'deliverTriggerEvent'
     | 'finalizeRun'
-    | 'finalizeRunOnAgentExit'
-    | 'noteAgentPhase'
+    | 'finalizeRunOnConversationEnd'
+    | 'noteConversationTurn'
   > & {
     startCount: number
     stopCount: number
-    agentExitCalls: Array<Parameters<AutomationsEngine['finalizeRunOnAgentExit']>[0]>
-    agentPhaseCalls: Array<Parameters<AutomationsEngine['noteAgentPhase']>[0]>
+    conversationEndCalls: Array<Parameters<AutomationsEngine['finalizeRunOnConversationEnd']>[0]>
+    conversationTurnCalls: Array<Parameters<AutomationsEngine['noteConversationTurn']>[0]>
   }
 
   const emptyEvaluation = (): AutomationsEngineEvaluationResult => ({
@@ -346,13 +385,13 @@ test('automations-module', async () => {
     return {
       startCount: 0,
       stopCount: 0,
-      agentExitCalls: [],
-      agentPhaseCalls: [],
-      async finalizeRunOnAgentExit(input) {
-        this.agentExitCalls.push(input)
+      conversationEndCalls: [],
+      conversationTurnCalls: [],
+      async finalizeRunOnConversationEnd(input) {
+        this.conversationEndCalls.push(input)
       },
-      async noteAgentPhase(event) {
-        this.agentPhaseCalls.push(event)
+      async noteConversationTurn(event) {
+        this.conversationTurnCalls.push(event)
       },
       start() {
         running = true
@@ -588,8 +627,14 @@ test('automations-module', async () => {
     assert.equal(engines[1].stopCount, 1)
   }
 
-  async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise<void> {
-    const terminal = createFakeTerminalRuntime({ liveExecutionIds: ['exec-live-1', 'exec-live-2'] })
+  async function testConversationListenerRoutesTurnsAndWiresLiveSessions(): Promise<void> {
+    const conversations = createFakeConversationRuntime({
+      sessions: [
+        session({ sessionId: 'conv_1', status: 'active' }),
+        session({ sessionId: 'conv_2', agentId: 'agent-2' }),
+        session({ sessionId: 'conv_old', agentId: 'agent-3', status: 'stopped' }),
+      ],
+    })
     // Held in a record, not a `let`: TS does not track assignments made inside the
     // createEngine callback, so a nullable local narrows to `null` at every use.
     const captured: { options?: AutomationsEngineOptions; engine?: FakeAutomationsEngine } = {}
@@ -597,7 +642,7 @@ test('automations-module', async () => {
     const moduleLoad = loadMainModules({
       ipcMain: createFakeIpcMain().ipcMain,
       modules: [
-        fakeAgentRuntimeModule({ terminalRuntime: terminal.runtime }),
+        fakeAgentRuntimeModule({ conversationRuntime: conversations.runtime }),
         createAutomationsModule({
           approvalLedger: everyAutomationApprovedLedger,
           createEngine: (options) => {
@@ -610,52 +655,123 @@ test('automations-module', async () => {
     })
 
     assert.ok(moduleLoad.report.loaded.includes('automations'))
-    // Exactly one exit listener and one phase listener are registered by the module.
-    assert.equal(terminal.listenerCount(), 1)
-    assert.equal(terminal.phaseListenerCount(), 1)
-    // The engine is wired with a live-execution projection that flattens the
-    // runtime inventory to executionId strings (used by the startup reconcile).
-    assert.deepEqual(captured.options?.getLiveAgentExecutionIds?.(), ['exec-live-1', 'exec-live-2'])
+    // Exactly one conversation listener is registered by the module.
+    assert.equal(conversations.listenerCount(), 1)
+    // The startup reconcile reads the sessions that are still live.
+    assert.deepEqual(captured.options?.getLiveConversationSessionIds?.(), ['conv_1', 'conv_2'])
 
-    // Every real agent-session pty exit is routed to the engine verbatim, with the
-    // (workspaceId, agentId) correlation key alongside the executionId; the engine
-    // owns the match-vs-ignore decision (covered in engine.test.ts).
-    await terminal.emitExit({
-      system: 'manual',
-      workspaceRoot: '/repo',
-      workspaceId: 'ws-1',
-      agentId: 'agent-1',
-      executionId: 'exec-live-1',
-      exitCode: 0,
-    })
-    await terminal.emitExit({ system: 'weather-deck', workspaceRoot: '/repo', executionId: 'exec-x', exitCode: 7 })
-    assert.deepEqual(captured.engine?.agentExitCalls, [
-      { executionId: 'exec-live-1', workspaceId: 'ws-1', agentId: 'agent-1', exitCode: 0 },
-      { executionId: 'exec-x', workspaceId: undefined, agentId: undefined, exitCode: 7 },
+    const chat = { sessionId: 'conv_1', workspaceId: 'ws-1', agentId: 'agent-1' }
+    // Every chat's turns are routed; the engine owns the match-vs-ignore
+    // decision (covered in engine.test.ts). Events that are not a turn's start
+    // or end are not routed at all.
+    conversations.emit('turn_started')
+    conversations.emit('content_delta', { text: 'working' })
+    // A turn a steer closed carries on as the next: not an end.
+    conversations.emit('turn_completed', { steered: true })
+    conversations.emit('turn_completed')
+    conversations.emit('turn_failed', { message: 'provider error' })
+    assert.deepEqual(captured.engine?.conversationTurnCalls, [
+      { type: 'turn_started', ...chat },
+      { type: 'turn_completed', ...chat, backgroundAgents: 0 },
+      { type: 'turn_failed', ...chat },
     ])
 
-    // Phase transitions are the primary finalize channel: routed verbatim, the
-    // engine decides whether the frame ends a pending run's turn.
-    const phaseEvent: AgentPhaseEvent = {
-      workspaceId: 'ws-1',
-      agentId: 'agent-1',
-      executionId: 'exec-live-1',
-      phase: 'idle',
-      previousPhase: 'thinking',
-      event: 'Stop',
-      turnEnd: true,
-      turnFailure: false,
-      ts: 1_700_000_000_000,
-      pendingWakeupAt: null,
-    }
-    await terminal.emitPhase(phaseEvent)
-    assert.deepEqual(captured.engine?.agentPhaseCalls, [phaseEvent])
+    // A turn that ends with background agents still running says so, and the
+    // last of them reporting back between turns is routed as the turn's end.
+    conversations.sessions[0] = session({ sessionId: 'conv_1', backgroundAgents: 2, phase: 'completed' })
+    conversations.emit('turn_completed')
+    conversations.emit('subagent_status', { status: 'completed' })
+    conversations.sessions[0] = session({ sessionId: 'conv_1', backgroundAgents: 0, phase: 'completed' })
+    conversations.emit('subagent_status', { status: 'completed' })
+    assert.deepEqual(captured.engine?.conversationTurnCalls.slice(3), [
+      { type: 'turn_completed', ...chat, backgroundAgents: 2 },
+      { type: 'turn_completed', ...chat, backgroundAgents: 0 },
+    ])
 
-    // Teardown unregisters both so a disable→enable cycle never leaks a listener
+    // The session closing is the secondary channel.
+    conversations.emit('session_closed', { message: 'the CLI exited' })
+    assert.deepEqual(captured.engine?.conversationEndCalls, [
+      { reason: 'session_closed', ...chat, message: 'the CLI exited' },
+    ])
+
+    // Teardown unregisters it so a disable→enable cycle never leaks a listener
     // pointed at a stopped engine.
     await moduleLoad.kernel.runShutdown()
-    assert.equal(terminal.listenerCount(), 0)
-    assert.equal(terminal.phaseListenerCount(), 0)
+    assert.equal(conversations.listenerCount(), 0)
+  }
+
+  async function testRunChatIsDisposedAndSummarizedThroughTheRuntime(): Promise<void> {
+    const conversations = createFakeConversationRuntime({
+      sessions: [
+        session({ sessionId: 'conv_1', status: 'active' }),
+        session({ sessionId: 'conv_0', status: 'stopped' }),
+      ],
+      transcript: [
+        {
+          id: 'evt-1',
+          sessionId: 'conv_1',
+          workspaceId: 'ws-1',
+          agentId: 'agent-1',
+          providerId: 'claude-agent',
+          modelId: 'default',
+          type: 'content_delta',
+          createdAt: 1,
+          payload: { text: 'Filed the report.' },
+        },
+      ],
+    })
+    const agentWrites: unknown[] = []
+    const captured: { options?: AutomationsEngineOptions } = {}
+    loadMainModules({
+      ipcMain: createFakeIpcMain().ipcMain,
+      modules: [
+        fakeAgentRuntimeModule({
+          conversationRuntime: conversations.runtime,
+          agentWrites,
+          workspaceSnapshot: {
+            sequence: 1,
+            state: {
+              workspaces: [
+                {
+                  id: 'ws-1',
+                  folderPath: '/repo',
+                  agents: {
+                    'agent-1': {
+                      id: 'agent-1',
+                      runtimeKind: 'conversation',
+                      execution: { mode: 'worktree', worktreeId: null, cwd: '/repo/.sprintengine/wt/run-1' },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        }),
+        createAutomationsModule({
+          createEngine: (options) => {
+            captured.options = options
+            return createFakeAutomationsEngine() as unknown as AutomationsEngine
+          },
+        }),
+      ],
+    })
+
+    // The summary is read from the run chat's own transcript, which a worktree
+    // chat keeps in its worktree.
+    const summary = await captured.options?.readRunConversationSummary?.({
+      sessionId: 'conv_1',
+      workspaceId: 'ws-1',
+      agentId: 'agent-1',
+    })
+    assert.equal(summary, 'Filed the report.')
+    assert.deepEqual(conversations.transcriptReads, [
+      { workspaceRoot: '/repo/.sprintengine/wt/run-1', workspaceId: 'ws-1', agentId: 'agent-1' },
+    ])
+
+    // Disposing the run's chat stops its live session and removes its record.
+    await captured.options?.disposeRunAgent?.({ workspaceId: 'ws-1', agentId: 'agent-1' })
+    assert.deepEqual(conversations.stopped, ['conv_1'], 'only the live session is stopped')
+    assert.deepEqual(agentWrites, [['ws-1', 'agent-1', null, 'automation']])
   }
 
   async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<void> {
@@ -666,7 +782,7 @@ test('automations-module', async () => {
     // proving there is no pre-launch dirty-tree block). Real repository, because
     // the module wires the real `defaultCreateRunWorktree`.
     const folderPath = await initDirtyTestRepo('sprintengine-automations-module-dirty-')
-    const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
+    const launchRequests: Array<{ kind: 'agent.launch' } & ConversationLaunchRequest> = []
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
 
@@ -678,7 +794,7 @@ test('automations-module', async () => {
           // automations-host workspace; seed one so the run reaches the launch
           // (which the fake delegate then refuses) instead of trying to create one.
           workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
-          launchAgent: async (request) => {
+          launchConversation: async (request) => {
             launchRequests.push({ kind: 'agent.launch', ...request })
             return { ok: false, code: 'should_not_launch', message: 'should not launch' }
           },
@@ -714,7 +830,7 @@ test('automations-module', async () => {
   // Real module wiring, so this covers the production `defaultCreateRunWorktree`.
   async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<void> {
     const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-non-git-'))
-    const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
+    const launchRequests: Array<{ kind: 'agent.launch' } & ConversationLaunchRequest> = []
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
 
@@ -723,7 +839,7 @@ test('automations-module', async () => {
       modules: [
         fakeAgentRuntimeModule({
           workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
-          launchAgent: async (request) => {
+          launchConversation: async (request) => {
             launchRequests.push({ kind: 'agent.launch', ...request })
             return { ok: false, code: 'should_not_launch', message: 'should not launch' }
           },
@@ -1059,7 +1175,8 @@ test('automations-module', async () => {
     await testWebhookReceiverFailureIsVisibleInSidecarStatus()
     await testDisabledModuleRegistersNoSidecarOrIpc()
     await testLiveEnablementToggleStopsUnregistersAndRestarts()
-    await testAgentExitListenerRoutesExitsAndWiresLiveExecutions()
+    await testConversationListenerRoutesTurnsAndWiresLiveSessions()
+    await testRunChatIsDisposedAndSummarizedThroughTheRuntime()
     await testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch()
     await testModuleExecutorBlocksWhenTheRunCannotGetAWorktree()
     await testModuleRegistersFirstPartyActionProviders()

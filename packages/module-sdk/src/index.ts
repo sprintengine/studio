@@ -13,6 +13,9 @@
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
+import type { HostCapability } from './host-api.js'
+
 // ── Manifest ─────────────────────────────────────────────────────────────────
 
 export type CapabilityCategory =
@@ -66,6 +69,12 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Permission scopes requested (install-time disclosure, not runtime enforcement). */
   permissions?: string[]
+  /**
+   * The host API this module was built against (`HOST_API_VERSION` of the SDK
+   * it compiled with). Required for third-party modules; the host refuses one
+   * built for an API it does not provide.
+   */
+  engines?: { hostApi: number }
   entry?: ModuleEntry
   /**
    * Digests of every file the module ships. `sprintengine-module sign` writes
@@ -114,7 +123,6 @@ export type CapabilityPermission =
   | 'network'
   | 'ipc:workspace-read'
   | 'ipc:workspace-write'
-  | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
   | 'backlog.read'
@@ -128,15 +136,24 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
-  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
-  // scoped Agent Sessions service. Runtime-checked like `agents:companion`, and
-  // scoped further by agent-id namespace: a module reaches the sessions it
-  // started and named, never another module's and never the user's.
-  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
   | 'storage'
+  // Read the conversations the module started through the SDK's scoped
+  // conversation service: their events, transcripts and list.
+  | 'conversation:read'
+  // Start, prompt, interrupt and stop the module's own conversations, and open
+  // a chat in the renderer (`RendererHost.openChat`). Implies read.
+  | 'conversation:operate'
+  // Store secrets the host sends only to origins the module named, never
+  // handing the value back (the SDK's scoped secrets service).
+  | 'secrets'
+  // Call the GitHub API with the user's sign-in through the SDK's GitHub
+  // service; the host attaches the token and never hands it over.
+  | 'github'
+  // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`).
+  | 'mcp:tools'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -147,7 +164,6 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'network',
   'ipc:workspace-read',
   'ipc:workspace-write',
-  'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
   'backlog.read',
@@ -155,8 +171,12 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
-  'agents:session',
   'storage',
+  'conversation:read',
+  'conversation:operate',
+  'secrets',
+  'github',
+  'mcp:tools',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -312,9 +332,13 @@ export type McpToolRegistration = {
    * decisions: a remote (tailnet) caller must hold `<family>:operate` rather
    * than the read-only `<family>:read` to invoke it, and every call — including
    * one refused for want of that scope — is written to the gateway audit with
-   * the calling device. Omitted or false means a read: advertised to every
-   * paired device on the read scope and not audited. Declare it on anything
-   * that writes to disk, spawns a process, or reconfigures the machine.
+   * the calling device. `false` means a read: advertised to every paired
+   * device on the read scope and not audited.
+   *
+   * Omitted counts as a change: a tool from an installed module is treated as
+   * `mutates: true` unless it says `mutates: false`. Declare `false` only on a
+   * tool that genuinely reads — never on one that writes to disk, spawns a
+   * process, or reconfigures the machine.
    */
   mutates?: boolean
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
@@ -364,84 +388,16 @@ export type EnsureSkillInstalledResult = {
   message?: string
 }
 
-// ── Launch contributions ─────────────────────────────────────────────────────
-
-/** Path style of the launched shell, so a contribution can quote paths it can open. */
-export type LaunchContributionPathStyle = 'posix' | 'windows' | 'wsl'
-
-/**
- * What the host knows about this spawn when it asks modules to contribute.
- *
- * `knowledgeRoot` is a value the caller already resolved. Core does not
- * interpret it; the module that owns it reads it and writes env / session tags
- * itself.
- */
-export type LaunchContributionRequest = {
-  cli: string
-  workspaceRoot: string
-  sessionId: string
-  agentId?: string
-  agentKind?: string
-  resume?: boolean
-  /** Absolute Knowledge Graph root when the launch resolved one. */
-  knowledgeRoot?: string
-  /**
-   * Path style of the launched shell. POSIX env uses `'posix'`; a native
-   * Windows PTY uses `'windows'`; a WSL bootstrap uses `'wsl'` so the module
-   * can quote paths the Linux shell can open.
-   */
-  pathStyle: LaunchContributionPathStyle
-}
-
-/** One managed-MCP server entry, in the shape `mcp-config-service` already takes. */
-export type LaunchContributionMcpServer = {
-  id: string
-  name?: string
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  url?: string
-  transport?: string
-}
-
-export type LaunchContributionHostContextSection = {
-  heading: string
-  body: string
-}
-
-export type LaunchContributionSessionTag = {
-  /** A module owns this session's lifetime (reaper recency-floor exclusion). */
-  managed: boolean
-  /** Hold this session out of the idle reaper entirely. */
-  reapExempt?: boolean
-}
-
-export type LaunchContributionResult = {
-  env?: Record<string, string>
-  /** Directories prepended to `PATH`. The module writes its own shims here. */
-  pathEntries?: string[]
-  /** POSIX function definitions (and their `export -f`) appended to the shell bootstrap. */
-  shellFunctions?: string[]
-  mcpServers?: LaunchContributionMcpServer[]
-  /** Sections appended to the host-context document after design-system and knowledge. */
-  hostContext?: LaunchContributionHostContextSection[]
-  session?: LaunchContributionSessionTag
-  /**
-   * Env keys the shell strips from inherited env before applying this
-   * contribution, so a stale value from the app's own process cannot leak
-   * into a spawn that did not set its own. Core always strips the
-   * agent-identity keys; this list is in addition.
-   */
-  identityKeys?: string[]
-}
-
-export type LaunchContribution = (launch: LaunchContributionRequest) => LaunchContributionResult
-
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
-  /** Raw Electron ipcMain; typed `unknown` to keep the SDK Electron-free. */
-  readonly ipcMain: unknown
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
@@ -449,7 +405,8 @@ export type MainHost = {
    * whole batch is rejected). Availability follows the module's enablement
    * live: a disabled module's tools stay listed on the gateway and answer
    * calls with an actionable enable error instead of running. An MCP tool is
-   * agent-reachable capability — declare the `ipc:agents` permission.
+   * agent-reachable capability: declare the `mcp:tools` permission, without
+   * which the host refuses the registration.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
   /**
@@ -491,14 +448,6 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec): SidecarHandle
   /**
-   * Contribute env, PATH shims, shell functions, managed-MCP server entries,
-   * host-context sections and a session lifetime tag to every agent launch.
-   * Called per spawn in module registration order; a throw is recorded as a
-   * module diagnostic and skipped — it never fails the launch. A disabled or
-   * absent module contributes nothing. Declare `ipc:agents`.
-   */
-  registerLaunchContribution(contribution: LaunchContribution): void
-  /**
    * Surface a user-visible status notification. Identity is stamped from this
    * host's scope; emission is flood-bounded per module.
    */
@@ -528,8 +477,12 @@ export type MainHost = {
   emit(topic: string, payload?: unknown): void
 }
 
-/** The export contract of `entry.main`: `export function registerMain(host) { … }`. */
-export type RegisterMain = (host: MainHost) => void
+/**
+ * The export contract of `entry.main`: `export function registerMain(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterMain = (host: MainHost) => void | Promise<void>
 
 // ── Workspace service (host-provided, consumed via the service bridge) ────────
 
@@ -721,11 +674,11 @@ export type AutomationRun = {
   workspaceId?: string
   agentId?: string
   /**
-   * Terminal-session executionId of the spawned agent, resolved at launch-confirm
-   * time. Correlates an agent-lifecycle exit back to this run. Optional: historical
-   * runs and resolution misses degrade to the poll-scan.
+   * The chat session the run's agent conversation started, known once it has
+   * launched. The run finishes when that conversation's turn completes or
+   * fails, or its session closes. Absent on runs that never launched an agent.
    */
-  executionId?: string
+  sessionId?: string
   promptFingerprint?: string
   touchedFiles?: string[]
   commandsRan?: string[]
@@ -758,16 +711,24 @@ export type ActionContext = {
   runId: string
   workspaceRoot: string
   triggerPayload: Record<string, unknown>
+  /**
+   * Start the run's agent as a chat conversation and send `prompt` as its
+   * first turn. `worktreePath` is the working root when the run is isolated in
+   * a worktree; `skills` are installed before the turn and invoked in it (an
+   * unknown id fails the launch). Resolves once the conversation's session has
+   * started; the run finishes with that session's turn.
+   */
   spawnAgent(input: {
     workspaceId?: string
     folderPath: string
     cli?: string
-    cliModel?: string
+    model?: string
     permissionPreset?: AutomationCliPermissionPreset
     worktreePath?: string
     name?: string
     prompt: string
-  }): Promise<{ workspaceId: string; agentId: string }>
+    skills?: string[]
+  }): Promise<{ workspaceId: string; agentId: string; sessionId: string }>
   runCommand(input: { command: string[]; cwd: string }): Promise<{ code: number; output: string }>
   reportProgress(patch: Partial<AutomationRun>): void
   requireIntegration(id: string): void
@@ -1003,6 +964,8 @@ export type CompanionAgentStatus =
  */
 export type CompanionAgentEvent = {
   id: string
+  /** Order within the session; absent only on events recorded before the host stamped one. */
+  seq?: number
   sessionId: string
   workspaceId: string
   agentId: string
@@ -1087,169 +1050,6 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const moduleId = host.moduleId
   return {
     attach: (spec) => registry.attach(moduleId, spec),
-  }
-}
-
-// ── Agent sessions (host-provided, consumed via the service bridge) ──────────
-
-/**
- * A terminal agent session as a module sees it: the coordinates it needs to
- * address the session again, and the liveness facts it needs to decide whether
- * to. Deliberately narrower than the app's own session snapshot — identity and
- * liveness, never scrollback, cwd, or file-change telemetry.
- */
-export type ModuleAgentSessionRecord = {
-  sessionId: string
-  agentId: string | null
-  name: string | null
-  cli: string | null
-  workspaceId: string | null
-  executionId: string | null
-  /** The pty is running and not frozen by the idle reaper. */
-  isLive: boolean
-  suspended: boolean
-  reapExempt: boolean
-  startedAt: number
-}
-
-export type ModuleAgentSpawnRequest = {
-  /**
-   * The workspace the agent belongs to. Required: a module surface is always
-   * opened FROM somewhere, and an agent parked in a workspace nobody named is
-   * one the user cannot find again.
-   */
-  workspaceId: string
-  /** Absolute working directory for the agent's terminal. */
-  cwd: string
-  /** Agent CLI plugin id. Absent takes the user's last-selected CLI. */
-  cli?: string
-  /** Model id for CLIs declaring modelSelection; forwarded verbatim. */
-  cliModel?: string
-  /** Delivered as the opening turn on a fresh spawn, or pasted into a reused one. */
-  prompt: string
-  /**
-   * A skill the host installs into the working directory before the CLI starts.
-   * An id the host cannot resolve fails the spawn with `unknown_skill` rather
-   * than starting an agent without the instructions it was meant to run on.
-   * The CLI-native invocation comes back as `skillInvocation` for the prompt to
-   * lead with.
-   */
-  skill?: { id: string }
-  /** Session-manager label for the terminal. Absent picks a name from the shared pool. */
-  label?: string
-  /**
-   * The agent's identity: `${agentIdPrefix}${agentIdKey}`. The prefix must be a
-   * namespace this module registered; the key is whatever the module keys its
-   * agents by (a review id, a document id). Stable across spawns, which is what
-   * `reuseLive` and `list()` match on. Absent mints an app-owned id.
-   */
-  agentIdPrefix?: string
-  agentIdKey?: string
-  /**
-   * The launch permission preset. Absent takes the user's configured default —
-   * never an escalation the module chose for them.
-   */
-  permissionPreset?: 'none' | 'bypass'
-  /**
-   * Deliver the prompt to a live session under the same agent id instead of
-   * spawning a second one (`reused: true`). Default true; a dead or suspended
-   * session under that id is disposed and replaced either way.
-   */
-  reuseLive?: boolean
-  /** Free-form role ('review-guide'). Accepted; the host does not record it today. */
-  role?: string
-}
-
-export type ModuleAgentSpawnResult =
-  | {
-      ok: true
-      sessionId: string
-      agentId: string
-      executionId: string
-      workspaceId: string
-      cli: string
-      reused: boolean
-      /**
-       * The CLI-native explicit invocation for the requested skill (`/review-guide`
-       * on Claude, `Use $review-guide.` on Codex). Absent when no skill was asked
-       * for, or when this CLI's plugin declares no native skill form — point the
-       * agent at the installed `.agents/skills/<id>/SKILL.md` instead.
-       */
-      skillInvocation?: string
-    }
-  | {
-      ok: false
-      code:
-        | 'unknown_workspace'
-        | 'missing_cwd'
-        | 'no_cli_selected'
-        | 'cli_not_agent_selectable'
-        | 'unknown_skill'
-        | 'spawn_failed'
-        | 'send_failed'
-        | 'permission_missing'
-      message: string
-    }
-
-/** A module agent's terminal ended. Fans out from the runtime's own exit report. */
-export type ModuleAgentExitEvent = {
-  agentId: string | null
-  executionId: string
-  workspaceId: string | null
-  exitCode: number
-}
-
-/**
- * Terminal agent sessions for a module's `entry.main`, obtained via
- * `getAgentSessionService(host)`.
- *
- * Declare the `agents:session` permission — every method here checks it — and
- * `dependsOn: ['agent-runtime']` so the service exists before your entry runs.
- */
-export type ModuleAgentSessionService = {
-  spawn(request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
-  /** One prompt into a live session, submitted as a turn, serialized per session. */
-  send(sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
-  kill(sessionId: string): void
-  /**
-   * Hold a session out of the idle reaper's reach while it is mid-task. The
-   * host clears the exemption when that session exits, so a module that never
-   * balances its own call cannot leave an unsuspendable pty behind.
-   */
-  setReapExempt(sessionId: string, exempt: boolean): void
-  onExit(listener: (event: ModuleAgentExitEvent) => void): () => void
-  /** Only sessions whose agent id starts with a prefix this module owns. */
-  list(): ModuleAgentSessionRecord[]
-}
-
-type AgentSessionsRegistry = {
-  spawn(moduleId: string, request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
-  send(moduleId: string, sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
-  kill(moduleId: string, sessionId: string): void
-  setReapExempt(moduleId: string, sessionId: string, exempt: boolean): void
-  onExit(moduleId: string, listener: (event: ModuleAgentExitEvent) => void): () => void
-  list(moduleId: string): ModuleAgentSessionRecord[]
-}
-
-const agentSessionsModuleServiceToken: ServiceToken<AgentSessionsRegistry> = createServiceToken<AgentSessionsRegistry>(
-  'agent-sessions.module-service',
-)
-
-/**
- * The scoped Agent Sessions service for `host`'s module. The raw host registry
- * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `getCompanionAgentsService`.
- */
-export function getAgentSessionService(host: MainHost): ModuleAgentSessionService {
-  const registry = host.requireService(agentSessionsModuleServiceToken)
-  const moduleId = host.moduleId
-  return {
-    spawn: (request) => registry.spawn(moduleId, request),
-    send: (sessionId, text) => registry.send(moduleId, sessionId, text),
-    kill: (sessionId) => registry.kill(moduleId, sessionId),
-    setReapExempt: (sessionId, exempt) => registry.setReapExempt(moduleId, sessionId, exempt),
-    onExit: (listener) => registry.onExit(moduleId, listener),
-    list: () => registry.list(moduleId),
   }
 }
 
@@ -2093,30 +1893,6 @@ export type ModalSurfaceLauncher = {
   Glyph: ModalSurfaceIconComponent
 }
 
-// ── Agent id namespaces ──────────────────────────────────────────────────────
-
-/**
- * An agent-id namespace your module claims. A module that spawns agents outside
- * a window's knowledge — a background guide, a companion — owns ids the shell
- * then has to reason about without knowing whose they are: what to call the
- * session when no workspace claims it, and whether the id is one it may adopt
- * onto a workspace. This is how it asks you instead of guessing.
- */
-export type AgentIdNamespaceDefinition = {
-  /**
-   * Every agent id starting with this belongs to your module. Keep it
-   * distinctive and terminated (`'review-guide-'`, not `'review'`) so it cannot
-   * swallow another module's ids. A prefix overlapping one already claimed is a
-   * registration error.
-   */
-  prefix: string
-  /**
-   * What the shell calls sessions in this namespace that no workspace claims,
-   * e.g. "Reviews". Sentence case; it is a group name in a session list.
-   */
-  label: string
-}
-
 // ── Live runtime surfaces (renderer) ─────────────────────────────────────────
 
 export type WorkspaceFileWatchEvent = {
@@ -2128,75 +1904,10 @@ export type WorkspaceFileWatchEvent = {
 /** The resolved surface of the app's active theme (`watchColorScheme`). */
 export type ModuleColorScheme = 'light' | 'dark'
 
-/** Read-only view of one live agent session (enum-ish fields widened to string). */
-export type ModuleAgentSessionView = {
-  /** The studio's terminal-tracking id (stable per session). */
-  sessionId: string
-  agentId: string | null
-  /** Display name from spawn metadata, when known. */
-  name: string | null
-  /** Session kind ('terminal', 'agent', …). */
-  kind: string
-  /** Owning orchestration system tag, when the session belongs to one. */
-  system: string | null
-  /** The owning execution's id within its system, when the session belongs to one. */
-  executionId: string | null
-  /** True while the underlying process is alive (false when suspended/exited). */
-  isLive: boolean
-}
-
-/** One model a runtime offers, as a picker row. */
-export type ModuleAgentRuntimeModelOption = {
-  /** Model id to pass as `spawnAgent`'s `cliModel`. */
-  id: string
-  /** Display label; falls back to the id when the catalog names none. */
-  label: string
-}
-
-export type ModuleAgentRuntimeOption = {
-  /** Runtime id to pass as `spawnAgent`'s `cli` (e.g. 'claude', 'codex'). */
-  id: string
-  /** Display label for pickers. */
-  label: string
-  /**
-   * Whether this machine has the runtime's binary. Rows detected as missing
-   * are still listed so your picker can show them disabled rather than
-   * pretending the CLI does not exist; spawning one fails.
-   */
-  available: boolean
-  /**
-   * The model ids this runtime offers — the plugin manifest's list merged with
-   * what the CLI reported about itself and the ids the user added, the same
-   * rows the shell's own model picker shows. Empty means the runtime exposes
-   * no model choice: omit `cliModel` and it launches with its own default.
-   */
-  models: ModuleAgentRuntimeModelOption[]
-  /** True for the runtime the user last chose — what a picker should preselect. */
-  isDefault: boolean
-}
-
-export type ModuleSpawnAgentInput = {
-  workspaceId: string
-  /** Display name for the agent tab; defaults to a shell-picked agent name. */
-  name?: string
-  /** Runtime id from `listAgentRuntimes()`; defaults to the user's last-used CLI. */
-  cli?: string
-  /** Model id for the runtime; omitted = the CLI's default model. */
-  cliModel?: string
-  /** Launch prompt handed to the agent once the session starts. */
-  prompt?: string
-  /** Focus the new agent's tab (default true). */
-  focus?: boolean
-}
-
-export type ModuleSpawnAgentResult =
-  | { ok: true; agentId: string }
-  | { ok: false; code: 'unknown_workspace' | 'missing_folder' | 'unknown_runtime' | 'spawn_failed'; message: string }
-
 export type ModuleFocusTabInput = {
   workspaceId: string
-  kind: 'agent' | 'file'
-  /** Agent id, or a workspace-relative file path. */
+  kind: 'chat' | 'file'
+  /** A chat's agent id (from `openChat` or the conversation service), or a workspace-relative file path. */
   id: string
 }
 
@@ -2233,6 +1944,13 @@ export type NotificationActionProvider = {
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   /**
    * Stable URL for a file packaged inside this trusted module (e.g. runtime/index.html).
    * Inside packaged HTML, relative resources, WebAssembly, workers and IndexedDB share a stable,
@@ -2309,6 +2027,20 @@ export type RendererHost = {
    * character, a missing Glyph) is a registration error too.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
+  /**
+   * Open one of THIS module's global surfaces — the page a
+   * `registerGlobalSurface` with the same id contributed — as if its door had
+   * been picked. A module may only open surfaces it registered: false for an
+   * id that is not yours, not registered, or while your module is disabled.
+   */
+  openGlobalSurface(id: string): boolean
+  /**
+   * Open one of THIS module's modal surfaces over whatever the window is
+   * showing — the trigger you draw yourself from a panel, a row action or a
+   * command. A module may only open surfaces it registered: false for an id
+   * that is not yours, not registered, or while your module is disabled.
+   */
+  openModalSurface(id: string): boolean
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through
@@ -2426,17 +2158,6 @@ export type RendererHost = {
    */
   subscribe(topic: string, cb: (payload: unknown) => void): () => void
   /**
-   * Claim an agent-id namespace for your module: every agent id starting with
-   * `prefix` is yours, and `label` is what the shell calls those sessions where
-   * no workspace claims them. Without it, an agent your module spawned outside
-   * a window's knowledge is an unlabelled, unadoptable session. Registered once
-   * at boot; the shell gates on your module's live enablement. A prefix
-   * overlapping one another module already claimed is a registration error,
-   * reported as a module load error that gates off your other contributions.
-   * Declare the `ipc:agents` permission.
-   */
-  registerAgentIdNamespace(definition: AgentIdNamespaceDefinition): void
-  /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
    * checkout; a worktree-backed workspace (an automation run with
@@ -2460,41 +2181,24 @@ export type RendererHost = {
     cb: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<() => void>
   /**
-   * Observe live agent sessions: `cb` fires once with the current read-only
-   * views, then on every change (deduped). Returns the unsubscriber — call it
-   * on unmount. Throws with a named cause when agent runtime is unavailable.
-   *
-   * A workspace id watches that workspace's sessions, whoever spawned them.
-   * `undefined` watches every workspace, narrowed to sessions whose agent id
-   * falls in a namespace you claimed with `registerAgentIdNamespace` — which
-   * is how you follow agents your own `entry.main` spawned without a
-   * window's knowledge. Claim no namespace and the unscoped watch reports an
-   * empty list; it is never a window onto other modules' sessions.
-   * Declare `ipc:agents`.
-   */
-  watchAgentSessions(workspaceId: string | undefined, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
-  /**
-   * Spawn an agent session through the app's SHARED session runtime (the
-   * same path every shell surface uses) and add its tab to the workspace
-   * layout. Structured result — expected failures (unknown workspace,
-   * folderless workspace, unavailable runtime, spawn failure) never throw;
-   * rejects only when agent runtime is unavailable. Declare `ipc:agents`.
-   */
-  spawnAgent(input: ModuleSpawnAgentInput): Promise<ModuleSpawnAgentResult>
-  /**
-   * Focus a workspace tab: an agent's terminal tab (added if missing) or a
+   * Focus a workspace tab: a chat by its agent id (added if missing) or a
    * file tab by workspace-relative path. False when not focusable; throws
    * with a named cause when agent runtime is unavailable.
    */
   focusTab(input: ModuleFocusTabInput): boolean
   /**
-   * The agent runtimes available to spawn, from the same
-   * availability-filtered catalog the shell's own pickers read: id, display
-   * label, whether the binary is on this machine, the runtime's model rows,
-   * and which one the user last chose. Plugin internals stay unexposed.
-   * Throws with a named cause when agent runtime is unavailable.
+   * Open a chat in a workspace and focus it. By default the prompt lands in the
+   * composer as a draft the user sends themselves; `send: true` sends it as the
+   * first turn. Expected failures come back as a result, never a throw
+   * (`unavailable` when this window cannot open chats). Declare
+   * `conversation:operate`.
    */
-  listAgentRuntimes(): ModuleAgentRuntimeOption[]
+  openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
+  /**
+   * The agent runtimes a chat can run on, from the same catalog the shell's
+   * own chat picker reads, with the one the user last chose marked.
+   */
+  listChatRuntimes(): ModuleChatRuntimeOption[]
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
@@ -2663,8 +2367,52 @@ export const THEME_TOKENS = [
 
 export type ThemeToken = (typeof THEME_TOKENS)[number]
 
-/** The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`. */
-export type RegisterRenderer = (host: RendererHost) => void
+/**
+ * The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterRenderer = (host: RendererHost) => void | Promise<void>
+
+// ── Host API version, conversations, brokered credentials ────────────────────
+
+export {
+  HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION,
+  checkHostApiCompatibility,
+  type HostApiCompatibility,
+  type HostCapability,
+} from './host-api.js'
+
+export {
+  getConversationService,
+  type ModuleChatRuntimeOption,
+  type ModuleConversationCreateInput,
+  type ModuleConversationErrorCode,
+  type ModuleConversationEvent,
+  type ModuleConversationEventType,
+  type ModuleConversationImageAttachment,
+  type ModuleConversationPermissionPreset,
+  type ModuleConversationRef,
+  type ModuleConversationResult,
+  type ModuleConversationService,
+  type ModuleConversationStatus,
+  type ModuleConversationSummary,
+  type ModuleOpenChatInput,
+  type ModuleOpenChatResult,
+} from './conversation.js'
+
+export {
+  getGitHubService,
+  getSecretsService,
+  type ModuleGitHubRequest,
+  type ModuleGitHubResponse,
+  type ModuleGitHubService,
+  type ModuleSecretFetchInit,
+  type ModuleSecretFetchResult,
+  type ModuleSecretsError,
+  type ModuleSecretsService,
+} from './brokers.js'
 
 // ── Manifest validation + canonical signing payload ──────────────────────────
 // Pure (no Node APIs) and safe in any runtime. The ed25519 sign/verify
@@ -2685,44 +2433,6 @@ export {
   type ThirdPartyManifestIssue,
   type ThirdPartyManifestResult,
 } from './manifest-validate.js'
-
-// ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
-// A CLI plugin is a separate artifact from a capability module: a `plugin.json`
-// dropped into ~/.sprintengine/plugins/<id>/ that teaches the studio a new agent
-// CLI. Pure validator + types, safe in any runtime.
-
-export {
-  parseCliPluginManifest,
-  validateCliPluginManifest,
-  type CliArgvToken,
-  type CliAuthSpec,
-  type CliCapabilities,
-  type CliCompletionMode,
-  type CliCompletionSpec,
-  type CliContextInjection,
-  type CliContextInjectionMode,
-  type CliLaunchSpec,
-  type CliManifestIssue,
-  type CliManifestResult,
-  type CliMcpConfigFormat,
-  type CliMcpConfigSpec,
-  type CliModelOption,
-  type CliModelSelectionSpec,
-  type CliPermissionPreset,
-  type CliPluginManifest,
-  type CliPromptInjection,
-  type CliPromptInjectionMode,
-  type CliReadinessSignal,
-  type CliResumeSpec,
-  type CliSkillFormat,
-  type CliSkillInstallScope,
-  type CliSkillInstallTarget,
-  type CliSkillIntegration,
-  type CliSkillInvocation,
-  type CliSkillSupport,
-  type CliVariableDecl,
-  type CliVariableType,
-} from './cli-manifest.js'
 
 // ── Marketplace plugin bundle authoring ─────────────────────────────────────
 // A marketplace plugin is a signed bundle manifest (`plugin.json`) that points

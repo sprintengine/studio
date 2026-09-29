@@ -1,5 +1,10 @@
-import { app, type IpcMain } from 'electron'
+import { lstat, realpath, rm } from 'node:fs/promises'
+import { basename, dirname } from 'node:path'
 
+import { app, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+
+import type { ThirdPartyModuleUninstallResult } from '../../shared/electron-api'
+import { checkHostApiCompatibility } from '../../shared/modules/host-api'
 import type {
   ModuleEnablementOverrides,
   ThirdPartyModuleLaunchView,
@@ -8,8 +13,22 @@ import type {
   ThirdPartyModuleTrustResult,
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
-import { readModuleOverridesSync } from '../module-host/enablement-store'
+import { isRecord } from '../../shared/records'
+import { readModuleOverridesSync, writeModuleOverrides } from '../module-host/enablement-store'
+import { deleteModuleSecrets } from '../module-host/module-secrets'
+import { computeHostApiIneligible } from '../modules/host-api-gate'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
+import {
+  defaultMarketplacePluginInstallStorePath,
+  readMarketplacePluginInstallReceipts,
+} from '../marketplace/plugin-lifecycle'
+import { listKnownWorkspaceRoots } from '../workspace-roots'
+import { assertAppSender } from './ipc-sender'
+import {
+  createMarketplacePluginPipeline,
+  installEnvelope,
+  type MarketplacePluginIpcServices,
+} from './marketplace-plugin-ipc'
 import { readThirdPartyMainLaunchSnapshot, type ThirdPartyMainLaunchSnapshot } from '../modules/third-party-main-loader'
 import { rendererEntryView } from '../modules/third-party-renderer-entries'
 import {
@@ -26,8 +45,16 @@ import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules
 // foundation). Pure filesystem + crypto verification — it installs, validates,
 // trust-classifies, and records trust. Startup execution is owned by the
 // trusted third-party main loader; this IPC only reports launch readiness.
-export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
+export function registerThirdPartyModuleIpc(
+  ipcMain: IpcMain,
+  // What uninstalling a marketplace or GitHub install needs: the lifecycle's
+  // MCP and automation services, and the open workspaces an MCP or skill
+  // removal may write into.
+  services: MarketplacePluginIpcServices,
+): void {
   const trustContext = (): ModuleTrustContext => readModuleTrustContextSync(app.getPath('userData'))
+  let pipeline: ReturnType<typeof createMarketplacePluginPipeline> | null = null
+  const marketplace = () => (pipeline ??= createMarketplacePluginPipeline(services))
 
   ipcMain.handle('modules:third-party:list', async (): Promise<ThirdPartyModuleListResult> => {
     const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), trustContext())
@@ -38,6 +65,74 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
       rejected,
     }
   })
+
+  // Uninstall, whichever way the module arrived. A module a marketplace or
+  // GitHub install put in place belongs to its receipt, and the whole bundle
+  // comes out through the lifecycle — its MCP servers and skill copies too, and
+  // the receipt with them. A module dropped in from a folder has no receipt:
+  // its folder is removed, and only after checking it is exactly one folder
+  // directly under the module root, so no id can reach anything else. Either
+  // way nothing about it outlives it — trust grant, enablement choice, stored
+  // secrets — so a later module that takes the same id starts from nothing.
+  ipcMain.handle(
+    'modules:third-party:uninstall',
+    async (event: IpcMainInvokeEvent, input: unknown): Promise<ThirdPartyModuleUninstallResult> => {
+      try {
+        assertAppSender(event)
+        const id = isRecord(input) && typeof input.id === 'string' ? input.id.trim() : ''
+        if (!isModuleIdSegment(id)) return { ok: false, message: 'A module id is required.' }
+        const userData = app.getPath('userData')
+
+        const receipts = await readMarketplacePluginInstallReceipts(defaultMarketplacePluginInstallStorePath(userData))
+        if (!receipts.ok) return { ok: false, message: receipts.message }
+        const receipt = receipts.receipts.find(
+          (candidate) =>
+            candidate.id === id ||
+            candidate.components.some((component) => component.kind === 'module' && component.id === id),
+        )
+
+        let removedModuleIds: string[]
+        if (receipt) {
+          const envelope = installEnvelope(
+            input as Record<string, unknown>,
+            listKnownWorkspaceRoots(services.workspaceSyncService.getSnapshot()),
+          )
+          if (!envelope.ok) return { ok: false, message: envelope.message }
+          const result = await marketplace().lifecycle.uninstall({ ...envelope.value, pluginId: receipt.id })
+          if (!result.ok) return { ok: false, message: result.message }
+          removedModuleIds = result.removed
+            .filter((component) => component.kind === 'module')
+            .map((component) => component.id)
+          notifyRendererModulesChanged()
+          await forgetModules(userData, removedModuleIds)
+          return {
+            ok: true,
+            removedModuleIds,
+            ...(result.mcpSettings ? { mcpSettings: result.mcpSettings } : {}),
+          }
+        }
+
+        const { modules } = await discoverUserModules(defaultUserModuleRoot(), trustContext())
+        const target = modules.find((module) => module.manifest.id === id)
+        if (!target) return { ok: false, message: `Module "${id}" is not installed.` }
+        const contained = await containedModuleFolder(defaultUserModuleRoot(), target.moduleRoot)
+        if (!contained.ok) return { ok: false, message: contained.message }
+        await rm(contained.path, { recursive: true, force: true })
+        const { result: revoked } = await setModuleTrust(userData, id, null)
+        notifyRendererModulesChanged()
+        await forgetModules(userData, [id])
+        if (!revoked.ok) {
+          return {
+            ok: false,
+            message: `Removed "${id}" but could not withdraw its trust: ${revoked.message ?? 'unknown error'}`,
+          }
+        }
+        return { ok: true, removedModuleIds: [id] }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
   ipcMain.handle(
     'modules:third-party:install-folder',
@@ -103,6 +198,45 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
   )
 }
 
+// The folder an uninstall may remove: a real directory (not a link to one)
+// whose parent is the module root itself, both taken through realpath so a
+// symlinked root or folder cannot move the target somewhere else.
+async function containedModuleFolder(
+  moduleRoot: string,
+  folder: string,
+): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  const refused = {
+    ok: false as const,
+    message: 'That module’s folder is not inside the modules folder, so it was left alone.',
+  }
+  try {
+    const info = await lstat(folder)
+    if (!info.isDirectory() || info.isSymbolicLink()) return refused
+    const [root, real] = await Promise.all([realpath(moduleRoot), realpath(folder)])
+    if (dirname(real) !== root || basename(real) === '') return refused
+    return { ok: true, path: real }
+  } catch {
+    return refused
+  }
+}
+
+// Everything the app kept for a module outside its folder. Trust is revoked by
+// whoever removed the folder (the lifecycle, or the folder path above).
+async function forgetModules(userData: string, moduleIds: readonly string[]): Promise<void> {
+  if (moduleIds.length === 0) return
+  const overrides = readModuleOverridesSync(userData)
+  if (moduleIds.some((id) => id in overrides)) {
+    const next = { ...overrides }
+    for (const id of moduleIds) delete next[id]
+    await writeModuleOverrides(userData, next)
+  }
+  for (const id of moduleIds) await deleteModuleSecrets(userData, id).catch(() => undefined)
+}
+
+function isModuleIdSegment(id: string): boolean {
+  return id.length > 0 && id.length <= 200 && !/[\\/\0]/.test(id) && id !== '.' && id !== '..'
+}
+
 export function toThirdPartyModuleView(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot = readThirdPartyMainLaunchSnapshot(),
@@ -134,6 +268,18 @@ function mainEntryLaunchView(
 ): ThirdPartyModuleLaunchView {
   const id = module.manifest.id
   const hasMainEntry = Boolean(module.manifest.entry?.main)
+  // Built for a host API this app does not provide: neither entry loads, and
+  // trusting it would not change that, so it says so ahead of any trust
+  // state. A tampered module keeps its own, louder, reason (host-api-gate.ts).
+  if (module.trust.status !== 'invalid' && computeHostApiIneligible([module])[id]) {
+    const compatibility = checkHostApiCompatibility(module.manifest)
+    return {
+      status: 'blocked_host_api',
+      hasMainEntry,
+      expectedToLoad: false,
+      message: compatibility.ok ? 'Built for another host API.' : compatibility.message,
+    }
+  }
   if (module.trust.status === 'invalid') {
     return {
       status: 'blocked_invalid',

@@ -797,11 +797,11 @@ test('extensionsCatalogue', async () => {
     })
     await settle()
 
-    await run('the plus menu is a folder on this machine or a repository, and nothing else', () => {
+    await run('the plus menu names what each repository is: a skill source, or an extension', () => {
       const items = [...dom.window.document.querySelectorAll('[role="menu"] button')].map(
         (item) => item.textContent?.trim() ?? '',
       )
-      assert.deepEqual(items, ['Add from folder…', 'Add from GitHub…'])
+      assert.deepEqual(items, ['Add from folder…', 'Add skill source from GitHub…', 'Install extension from GitHub…'])
     })
 
     await run('Escape closes the menu', async () => {
@@ -809,6 +809,27 @@ test('extensionsCatalogue', async () => {
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       })
       assert.equal(dom.window.document.querySelector('[role="menu"]'), null)
+    })
+
+    await run('"Install extension from GitHub…" opens the install dialog, not the skill-source one', async () => {
+      await act(async () => {
+        ;(container.querySelector('button[aria-label="Add source"]') as HTMLElement).click()
+      })
+      await settle()
+      const item = [...dom.window.document.querySelectorAll('[role="menu"] button')].find(
+        (candidate) => candidate.textContent?.trim() === 'Install extension from GitHub…',
+      ) as HTMLElement | undefined
+      await act(async () => {
+        item?.click()
+      })
+      await settle()
+      const dialog = dom.window.document.querySelector('[role="dialog"]')
+      assert.ok(dialog?.textContent?.includes('Install extension from GitHub'))
+      assert.ok(dialog?.querySelector('input[aria-label="Repository URL"]'))
+      await act(async () => {
+        ;(dialog?.querySelector('button[aria-label="Close"]') as HTMLElement | null)?.click()
+      })
+      await settle()
     })
 
     // ── Skills: the repository's folders are the groups ──────────────────────────

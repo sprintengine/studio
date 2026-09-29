@@ -191,16 +191,24 @@ export type ActionContext = {
   runId: string
   workspaceRoot: string
   triggerPayload: Record<string, unknown>
+  /**
+   * Start the run's agent as a chat conversation and send `prompt` as its
+   * first turn. `worktreePath` is the working root when the run is isolated in
+   * a worktree; `skills` are installed before the turn and invoked in it (an
+   * unknown id fails the launch). Resolves once the conversation's session has
+   * started; the run finishes with that session's turn.
+   */
   spawnAgent(input: {
     workspaceId?: string
     folderPath: string
     cli?: string
-    cliModel?: string
+    model?: string
     permissionPreset?: AutomationCliPermissionPreset
     worktreePath?: string
     name?: string
     prompt: string
-  }): Promise<{ workspaceId: string; agentId: string }>
+    skills?: string[]
+  }): Promise<{ workspaceId: string; agentId: string; sessionId: string }>
   runCommand(input: { command: string[]; cwd: string }): Promise<{ code: number; output: string }>
   reportProgress(patch: Partial<AutomationRun>): void
   requireIntegration(id: string): void
@@ -292,12 +300,11 @@ export type AutomationRun = {
   workspaceId?: string
   agentId?: string
   /**
-   * Terminal-session executionId of the spawned agent, resolved by a bounded poll
-   * after launch-confirm. Secondary correlation key for the agent-lifecycle exit
-   * and for the startup reconcile. Optional: historical runs and permanent
-   * resolution misses correlate on (workspaceId, agentId) instead.
+   * The chat session the run's agent conversation started, known once it has
+   * launched. The run finishes when that conversation's turn completes or
+   * fails, or its session closes. Absent on runs that never launched an agent.
    */
-  executionId?: string
+  sessionId?: string
   promptFingerprint?: string
   touchedFiles?: string[]
   commandsRan?: string[]

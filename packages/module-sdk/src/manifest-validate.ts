@@ -16,7 +16,13 @@
 //
 // Everything here is pure (no Node or DOM APIs) so it is safe in any runtime.
 
-import type { CapabilityManifest, CapabilityPermission, ModuleEntry, ModuleSignature } from './index.js'
+import type {
+  CapabilityManifest,
+  CapabilityPermission,
+  ModuleEntry,
+  ModuleFileDigests,
+  ModuleSignature,
+} from './index.js'
 
 export type PermissionValidationIssue = { path: string; message: string }
 
@@ -110,8 +116,6 @@ function validateEntry(value: unknown, issues: ThirdPartyManifestIssue[]): Modul
 // `files` sits inside the canonical payload like any other field, which is what
 // makes a signature cover the code; a manifest without it keeps the exact
 // payload it was signed over before the field existed.
-
-type ModuleFileDigests = NonNullable<CapabilityManifest['files']>
 
 // The file a module's digests can never cover: it carries them, so hashing it
 // would make the signature depend on its own output.
@@ -219,6 +223,27 @@ function validateSignature(value: unknown, issues: ThirdPartyManifestIssue[]): M
   return { algorithm: 'ed25519', publicKey: value.publicKey as string, signature: value.signature as string }
 }
 
+// `engines.hostApi` is checked for shape here and signed with the rest of the
+// manifest. Whether a module may omit it is the host's call, not the
+// validator's (checkHostApiCompatibility in host-api.ts): this validator also
+// reads plugin bundle manifests and registry entries, which carry no host API.
+function validateEngines(value: unknown, issues: ThirdPartyManifestIssue[]): { hostApi: number } | undefined {
+  if (value === undefined) return undefined
+  if (!isObject(value)) {
+    issues.push({ path: 'engines', message: 'engines must be an object.' })
+    return undefined
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'hostApi') issues.push({ path: `engines.${key}`, message: 'unsupported engines field.' })
+  }
+  const hostApi = value.hostApi
+  if (typeof hostApi !== 'number' || !Number.isInteger(hostApi) || hostApi < 1) {
+    issues.push({ path: 'engines.hostApi', message: 'engines.hostApi must be a positive integer.' })
+    return undefined
+  }
+  return { hostApi }
+}
+
 export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyManifestResult {
   const issues: ThirdPartyManifestIssue[] = []
   if (!isObject(value)) {
@@ -257,6 +282,7 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
     else issues.push(...filesResult.issues)
   }
   const signature = validateSignature(value.signature, issues)
+  const engines = validateEngines(value.engines, issues)
 
   if (issues.length > 0) return { ok: false, issues }
 
@@ -275,6 +301,7 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
   if (typeof value.summary === 'string') manifest.summary = value.summary
   if (dependsOn && dependsOn.length > 0) manifest.dependsOn = dependsOn
   if (conflictsWith && conflictsWith.length > 0) manifest.conflictsWith = conflictsWith
+  if (engines) manifest.engines = engines
   if (entry) manifest.entry = entry
   if (files) manifest.files = files
   if (signature) manifest.signature = signature

@@ -20,7 +20,7 @@ import type {
 } from '../../../../../shared/electron-api'
 import type { SkillSource } from '../../../../../shared/skills'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
-import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
+import type { ExtensionTrustReviewData } from '../../extensions/ExtensionTrustReview'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
@@ -48,7 +48,6 @@ import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon } from '../../settings/BrowseStorefront'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
-import { pluginTrust } from '../../settings/BrowseStorefront'
 import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
 import {
   deriveInstalledExtensions,
@@ -96,9 +95,8 @@ type ModuleUpdateRun =
       status: 'needs-trust'
       entry: MarketplacePluginEntry
       queue: string[]
-      permissions: CapabilityPermission[]
-      files: string[] | null
-      pinnedRef: string | null
+      review: ExtensionTrustReviewData
+      trustToken: string
     }
 
 export function InstalledExtensionsInventory({
@@ -239,9 +237,10 @@ export function InstalledExtensionsInventory({
   // unsigned where it was signed) pauses on the disclosure prompt or blocks —
   // never a silent grant. A block or error stops the walk; the banner still
   // names what remains. A trust grant re-enters the walk with `grant` set for
-  // the entry the user just approved, skipping its second verify.
+  // the entry the user just approved — the token its verify issued — skipping
+  // a second verify.
   const processUpdateQueue = useCallback(
-    async (ids: string[], grant?: { id: string; pinnedRef: string | null }) => {
+    async (ids: string[], grant?: { id: string; trustToken: string }) => {
       let updated = false
       let pending = ids
       while (pending.length > 0) {
@@ -264,17 +263,15 @@ export function InstalledExtensionsInventory({
           return
         }
 
-        let trustGranted = false
-        let pinnedRef: string | null = null
+        let trustToken: string | undefined
         if (grant?.id === id) {
-          trustGranted = true
-          pinnedRef = grant.pinnedRef
+          trustToken = grant.trustToken
           grant = undefined
         } else {
           setUpdateRun({ status: 'busy', label: `Checking ${entry.name}…` })
           let verify
           try {
-            verify = await window.api.verifyMarketplacePlugin(entry)
+            verify = await window.api.verifyMarketplacePlugin({ id: entry.id })
           } catch (error) {
             setUpdateRun({ status: 'idle' })
             setUpdateNotice({ tone: 'error', message: errorMessage(error, 'Could not verify this update.') })
@@ -296,23 +293,22 @@ export function InstalledExtensionsInventory({
               status: 'needs-trust',
               entry,
               queue: pending,
-              permissions: outcome.permissions,
-              files: outcome.files ?? null,
-              pinnedRef: outcome.pinnedRef ?? null,
+              review: outcome.review,
+              trustToken: outcome.trustToken,
             })
             if (updated) await settleAfterUpdate()
             return
           }
+          trustToken = outcome.trustToken
         }
 
         setUpdateRun({ status: 'busy', label: `Updating ${entry.name}…` })
         try {
           const result = await window.api.updateMarketplacePluginFromRegistry({
-            entry,
-            trustGranted,
+            id: entry.id,
+            ...(trustToken ? { trustToken } : {}),
             workspaceRoot: workspaceRoot ?? undefined,
             mcpSettings,
-            ...(pinnedRef ? { claudePluginRef: pinnedRef } : {}),
           })
           if (!result.ok) {
             const summary = summarizeInstallResult(result)
@@ -359,12 +355,7 @@ export function InstalledExtensionsInventory({
   )
   const updateFlow: ModuleUpdateFlow =
     updateRun.status === 'needs-trust'
-      ? {
-          status: 'needs-trust',
-          tier: pluginTrust(updateRun.entry).tier,
-          permissions: updateRun.permissions,
-          files: updateRun.files,
-        }
+      ? { status: 'needs-trust', review: updateRun.review, publisher: updateRun.entry.publisher }
       : updateRun
 
   const view = deriveInstalledExtensions({
@@ -394,7 +385,7 @@ export function InstalledExtensionsInventory({
             if (updateRun.status === 'needs-trust') {
               void processUpdateQueue([updateRun.entry.id, ...updateRun.queue], {
                 id: updateRun.entry.id,
-                pinnedRef: updateRun.pinnedRef,
+                trustToken: updateRun.trustToken,
               })
             }
           }}

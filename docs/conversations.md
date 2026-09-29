@@ -54,6 +54,15 @@ sandboxing, Cursor as `--force`, Grok as `--always-approve`, and OpenCode as an
 takes no permission flag. No flag sends none of these. Do not interpret a hidden
 approval control as a promise that a provider will ask for permission.
 
+A Claude chat loads only the person's user settings, never the project's, so
+the app's MCP gateway is handed to each Claude chat directly rather than read
+from the workspace's `.mcp.json`. An automation that runs with a connector
+starts its chat with that connector's MCP server the same way: Claude through
+the SDK's `mcpServers`, Codex as `mcp_servers` config overrides for that chat's
+app-server, and ACP agents through `session/new` (HTTP and SSE servers only
+where the agent's handshake says it takes them). A provider that cannot take
+the server fails the run and says so, rather than running without it.
+
 ACP filesystem callbacks are confined, verified existing-file operations.
 Creating a new file through those callbacks is refused on platforms without
 anchored directory operations; provider-owned native edits are a separate CLI

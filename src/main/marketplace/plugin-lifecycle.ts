@@ -5,10 +5,10 @@ import { dirname, join } from 'node:path'
 import type {
   MarketplacePluginInstallInput,
   MarketplacePluginInstalledComponent,
-  MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplaceInstallSource,
   McpClientTarget,
   McpServerConfig,
   McpSettings,
@@ -21,7 +21,6 @@ import { uninstallSkill } from '../skills/install'
 import { installMarketplacePlugin, type MarketplacePluginInstallerServices } from '../modules/plugin-bundle-installer'
 import { normalizeMcpClients, normalizeMcpServerConfig } from '../mcp-config-service'
 import { defaultUserModuleRoot, moduleInstallPath } from '../modules/user-module-registry'
-import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
 import {
   defaultMarketplacePluginStagingRoot,
   downloadClaudeCodePluginSource,
@@ -29,11 +28,14 @@ import {
   type MarketplaceInstallLog,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
+import { mcpDisclosureDigest } from './github-extension-source'
+import { bundleMcpDisclosure, inlineMcpTrustPin } from './plugin-verify'
 import type { MarketplaceResourceResolver } from './resources'
+import { trustPinsMatch, type TrustGrant } from './trust-tokens'
 import { isRecord } from '../../shared/records'
 
 const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
-const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli', 'automation'])
+const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'automation'])
 const MODULE_TRUST_STATUSES = new Set(['trusted', 'signed', 'unsigned', 'invalid'])
 
 export type MarketplacePluginInstallReceipt = {
@@ -44,6 +46,14 @@ export type MarketplacePluginInstallReceipt = {
   classification: 'verified' | 'community' | 'unsigned'
   installedAt: string
   components: MarketplacePluginInstalledComponent[]
+  // Where it came from; absent on a receipt written before this was recorded,
+  // which was always the registry.
+  source?: MarketplaceInstallSource
+  // What the approval covered, so an update from a GitHub URL can tell
+  // whether the person has to be asked again: the manifest's permissions and
+  // a digest of the MCP servers it adds (github-extension-source.ts).
+  permissions?: string[]
+  mcpDigest?: string
 }
 
 type MarketplacePluginInstallStore = {
@@ -90,18 +100,30 @@ export type MarketplacePluginLifecycleServices = MarketplacePluginInstallerServi
   log?: MarketplaceInstallLog
 }
 
+/**
+ * One install or update, as main hands it to the lifecycle. The entry was
+ * resolved in main — from the app's registry, or carried inside a trust
+ * grant — and never came from the renderer. `grant` is the spent trust token:
+ * the person's approval of exactly the content its pin names. An entry that
+ * needs no approval (a verified publisher's signed bundle) installs without
+ * one; everything else is refused without one, and a grant whose pin does not
+ * match what was staged is refused whatever the tier.
+ */
+export type MarketplacePluginLifecycleInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
+  entry: MarketplacePluginEntry
+  grant?: TrustGrant | null
+}
+
 export function defaultMarketplacePluginInstallStorePath(userDataDir: string): string {
   return join(userDataDir, MARKETPLACE_PLUGIN_INSTALLS_FILENAME)
 }
 
 export function createMarketplacePluginLifecycleService(services: MarketplacePluginLifecycleServices) {
   return {
-    installFromRegistry: (
-      input: MarketplacePluginRegistryInstallInput,
-    ): Promise<MarketplacePluginRegistryInstallResult> => installOrUpdateMarketplacePlugin(input, services),
-    updateFromRegistry: (
-      input: MarketplacePluginRegistryInstallInput,
-    ): Promise<MarketplacePluginRegistryInstallResult> => installOrUpdateMarketplacePlugin(input, services),
+    install: (input: MarketplacePluginLifecycleInstallInput): Promise<MarketplacePluginRegistryInstallResult> =>
+      installOrUpdateMarketplacePlugin(input, services),
+    update: (input: MarketplacePluginLifecycleInstallInput): Promise<MarketplacePluginRegistryInstallResult> =>
+      installOrUpdateMarketplacePlugin(input, services),
     uninstall: (input: MarketplacePluginUninstallInput): Promise<MarketplacePluginUninstallResult> =>
       uninstallMarketplacePlugin(input, services),
   }
@@ -116,6 +138,16 @@ export async function readMarketplacePluginInstallReceipts(
   const store = await loadInstallStore(receiptStorePath)
   if (!store.ok) return store
   return { ok: true, receipts: Object.values(store.store.plugins) }
+}
+
+// One receipt, by the bundle id it is keyed on; undefined when there is none
+// or the store cannot be read.
+export async function readMarketplacePluginInstallReceipt(
+  receiptStorePath: string,
+  id: string,
+): Promise<MarketplacePluginInstallReceipt | undefined> {
+  const store = await loadInstallStore(receiptStorePath)
+  return store.ok ? store.store.plugins[id] : undefined
 }
 
 // The modules a verified install put in place, by id, to the content
@@ -148,11 +180,19 @@ export function readVerifiedModuleInstallsSync(receiptStorePath: string): Map<st
 }
 
 async function installOrUpdateMarketplacePlugin(
-  input: MarketplacePluginRegistryInstallInput,
+  rawInput: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
 ): Promise<MarketplacePluginRegistryInstallResult> {
-  const entry = validateRegistryEntry(input.entry)
+  const entry = validateRegistryEntry(rawInput.entry)
   if (!entry.ok) return { ok: false, message: entry.message, issues: entry.issues }
+  if (rawInput.grant && rawInput.grant.entryId !== entry.entry.id) {
+    return { ok: false, message: 'The trust approval is for a different extension.' }
+  }
+  // Only the harnesses the app writes skills for: a name outside that set is
+  // a path segment nobody chose (`join(workspaceRoot, '.' + harness, …)`).
+  const input: MarketplacePluginLifecycleInstallInput = rawInput.skillHarnesses
+    ? { ...rawInput, skillHarnesses: knownSkillHarnesses(rawInput.skillHarnesses) }
+    : rawInput
 
   const storeResult = await loadInstallStore(services.receiptStorePath)
   if (!storeResult.ok) return { ok: false, message: storeResult.message }
@@ -172,11 +212,15 @@ async function installOrUpdateMarketplacePlugin(
     return installClaudeCodePluginEntry(entry.entry, input, services, store, previous)
   }
 
+  const grant = input.grant ?? null
   const download = await downloadMarketplacePluginBundle({
     entry: entry.entry,
     trustContext: services.trustContext(),
     stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(dirname(services.receiptStorePath)),
     fetcher: services.fetcher,
+    // The commit the prompt's verify read, not wherever the branch is now.
+    ...(grant?.pin.commitSha ? { commitSha: grant.pin.commitSha } : {}),
+    ...(grant?.allowUnsignedCode ? { allowUnsignedCode: true } : {}),
   })
 
   if (!download.ok) {
@@ -192,13 +236,33 @@ async function installOrUpdateMarketplacePlugin(
     }
   }
 
-  // Community (signed, unverified publisher) and unsigned (mcp/skills-only)
-  // bundles both require the server-side trust grant before install. Unsigned
-  // code-bearing bundles never reach here: download hard-blocks them.
-  if (
-    (download.classification === 'community' || download.classification === 'unsigned') &&
-    input.trustGranted !== true
-  ) {
+  // Never backwards: a registry index can re-list an older bundle — signed,
+  // valid, and with whatever it has since been fixed for.
+  if (previous && download.manifest.version < previous.version) {
+    await rm(download.stagedBundlePath, { recursive: true, force: true })
+    return {
+      ok: false,
+      sourceUrl: download.sourceUrl,
+      classification: download.classification,
+      updated: true,
+      message: rollbackMessage(entry.entry.name, download.manifest.version, previous.version),
+    }
+  }
+
+  // What was staged has to be what the prompt disclosed. A branch that moved
+  // is fetched at the pinned commit above, so a mismatch here is content that
+  // changed at the same commit or a seed that differs from it: nothing the
+  // person reviewed.
+  if (grant && !trustPinsMatch(grant.pin, download.pin)) {
+    await rm(download.stagedBundlePath, { recursive: true, force: true })
+    return pinMismatchResult(download.sourceUrl, download.classification, Boolean(previous))
+  }
+
+  // Community (signed, unverified publisher) and unsigned bundles both require
+  // the person's approval before install. An unsigned bundle carrying code
+  // reached here only through a grant that allows it (a GitHub-URL install);
+  // on the registry path the download hard-blocks it.
+  if ((download.classification === 'community' || download.classification === 'unsigned') && !grant) {
     await rm(download.stagedBundlePath, { recursive: true, force: true })
     return {
       ok: false,
@@ -254,6 +318,7 @@ async function installOrUpdateMarketplacePlugin(
     // the failure rolls back through the same path as any other.
     const installed = await installMarketplacePlugin(installInput, services, {
       requireTrustedModuleComponents: installClassification === 'verified',
+      ...(grant?.allowUnsignedCode ? { allowUnsignedCode: true } : {}),
     })
     if (!installed.ok) {
       const rollback = await rollbackInstalledComponents(
@@ -288,6 +353,9 @@ async function installOrUpdateMarketplacePlugin(
       classification: installClassification,
       installedAt: new Date().toISOString(),
       components: installed.installed,
+      source: installSource(grant),
+      permissions: [...(download.manifest.permissions ?? [])],
+      mcpDigest: mcpDisclosureDigest(await bundleMcpDisclosure(download.stagedBundlePath, download.manifest)),
     }
     let finalMcpSettings = installed.mcpSettings ?? input.mcpSettings
     if (previous) {
@@ -336,10 +404,9 @@ async function installOrUpdateMarketplacePlugin(
     // IS the module trust decision, so a signed module component no longer
     // lands awaiting a second, identical toggle in Settings → Modules. Bound to
     // the installed manifest fingerprint, so different bytes under the same id
-    // never inherit it. Only the community tier reaches here with a grant:
-    // verified installs never ask for one, and an unsigned bundle carrying a
-    // module is refused at the signature gate.
-    const granted = await grantModuleComponentTrust(receipt.components, input, services, installClassification)
+    // never inherit it. Verified installs never ask for a grant; an unsigned
+    // module is granted only when the person trusted it as code.
+    const granted = await grantModuleComponentTrust(receipt.components, grant, services, installClassification)
 
     store.plugins[receipt.id] = receipt
     try {
@@ -392,19 +459,38 @@ async function installOrUpdateMarketplacePlugin(
   }
 }
 
+// A GitHub-URL install records the repository and the commit it was pinned
+// to; the pin is what the approval covered, so it is also what the next
+// update is compared against. Anything else came from the registry.
+function installSource(grant: TrustGrant | null): MarketplaceInstallSource {
+  if (grant?.source === 'github' && grant.github && grant.pin.commitSha) {
+    return { kind: 'github', ...grant.github, sha: grant.pin.commitSha }
+  }
+  return { kind: 'registry' }
+}
+
 // Install an inline-MCP registry entry: the servers ship in the entry itself,
 // so there is no bundle to download, verify, or sign. Because MCP config is
 // code-execution config written to agent CLIs, this NEVER installs without the
 // server-side trust grant, and is recorded with an honest 'unsigned' receipt.
 async function installInlineMcpEntry(
   entry: MarketplacePluginEntry,
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
   store: MarketplacePluginInstallStore,
   previous: MarketplacePluginInstallReceipt | undefined,
 ): Promise<MarketplacePluginRegistryInstallResult> {
   const updated = Boolean(previous)
-  if (input.trustGranted !== true) {
+  if (previous && entry.latest < previous.version) {
+    return {
+      ok: false,
+      sourceUrl: '',
+      classification: 'unsigned',
+      updated,
+      message: rollbackMessage(entry.name, entry.latest, previous.version),
+    }
+  }
+  if (!input.grant) {
     return {
       ok: false,
       sourceUrl: '',
@@ -417,6 +503,10 @@ async function installInlineMcpEntry(
         { path: 'mcp', message: 'Grant trust in the marketplace trust gate before installing this MCP server.' },
       ],
     }
+  }
+  // The servers written are the servers the prompt showed, command for command.
+  if (!trustPinsMatch(input.grant.pin, inlineMcpTrustPin(entry))) {
+    return pinMismatchResult('', 'unsigned', updated)
   }
 
   const workspaceRoot = input.workspaceRoot?.trim()
@@ -626,7 +716,7 @@ function previousHarnesses(previous: MarketplacePluginInstallReceipt | undefined
 }
 
 async function resolveInstallHarnesses(
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
   previous: MarketplacePluginInstallReceipt | undefined,
 ): Promise<SkillHarness[]> {
@@ -657,14 +747,24 @@ async function resolveInstallHarnesses(
 
 async function installClaudeCodePluginEntry(
   entry: MarketplacePluginEntry,
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
   store: MarketplacePluginInstallStore,
   previous: MarketplacePluginInstallReceipt | undefined,
 ): Promise<MarketplacePluginRegistryInstallResult> {
   const updated = Boolean(previous)
   const sourceUrl = entry.source?.trim() ?? ''
-  if (input.trustGranted !== true) {
+  if (previous && entry.latest < previous.version) {
+    return {
+      ok: false,
+      sourceUrl,
+      classification: 'unsigned',
+      updated,
+      message: rollbackMessage(entry.name, entry.latest, previous.version),
+    }
+  }
+  const grant = input.grant
+  if (!grant) {
     return {
       ok: false,
       sourceUrl,
@@ -693,9 +793,6 @@ async function installClaudeCodePluginEntry(
     stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(dirname(services.receiptStorePath)),
     packagedResourceResolver: services.packagedResourceResolver,
     log: services.log,
-    // Install exactly what the trust prompt disclosed when the verify pin is
-    // present; otherwise the staging computes the content identity itself.
-    ...(input.claudePluginRef ? { refOverride: input.claudePluginRef } : {}),
   })
   if (!download.ok) {
     services.log?.('claude-plugin:install-failed', { entryId: entry.id, message: download.message })
@@ -707,6 +804,15 @@ async function installClaudeCodePluginEntry(
       message: download.message,
       issues: [{ path: 'source', message: download.message }],
     }
+  }
+
+  // Install exactly what the trust prompt disclosed: the bundled payload
+  // changes only with the app or its catalogue, and when it does the person
+  // goes back through the prompt rather than getting different skills.
+  if (!trustPinsMatch(grant.pin, download.pin)) {
+    services.log?.('claude-plugin:pin-mismatch', { entryId: entry.id })
+    await rm(download.stagedPath, { recursive: true, force: true }).catch(() => undefined)
+    return pinMismatchResult(sourceUrl, 'unsigned', updated)
   }
 
   const harnesses = await resolveInstallHarnesses(input, services, previous)
@@ -946,19 +1052,28 @@ type ModuleTrustGrant = { id: string; previous: string | null }
 // module is installed but still awaiting a Settings toggle.
 async function grantModuleComponentTrust(
   components: MarketplacePluginInstalledComponent[],
-  input: MarketplacePluginRegistryInstallInput,
+  grant: TrustGrant | null,
   services: MarketplacePluginLifecycleServices,
   classification: 'verified' | 'community' | 'unsigned',
 ): Promise<ModuleTrustGrant[]> {
   const granted: ModuleTrustGrant[] = []
-  if (input.trustGranted !== true || !services.setModuleTrust || classification !== 'community') return granted
+  if (!grant || !services.setModuleTrust) return granted
+  // What the approval covers. A community bundle's grant covers a module that
+  // signs itself ('signed'); a module whose OWN manifest carries no signature
+  // stays awaiting-trust in Settings — the bundle signature covers its bytes,
+  // but the module identity a grant binds to is the one the module itself
+  // signs. The one exception is an unsigned module the person trusted as code
+  // from a GitHub URL: that approval IS the trust decision, bound to the
+  // manifest fingerprint like any other. 'trusted' already loads.
+  const grantable =
+    classification === 'community'
+      ? 'signed'
+      : classification === 'unsigned' && grant.allowUnsignedCode
+        ? 'unsigned'
+        : null
+  if (!grantable) return granted
   for (const component of components) {
-    // 'signed' is the only status a grant changes: 'trusted' already loads
-    // (first-party publisher key, or an existing grant for these exact bytes).
-    // A module whose OWN manifest carries no signature stays awaiting-trust in
-    // Settings — the bundle signature covers its bytes, but the module identity
-    // a grant binds to is the one the module itself signs.
-    if (component.kind !== 'module' || component.trustStatus !== 'signed' || !component.manifestFp) continue
+    if (component.kind !== 'module' || component.trustStatus !== grantable || !component.manifestFp) continue
     const grant = await services.setModuleTrust(component.id, component.manifestFp)
     if (grant.ok) {
       granted.push({ id: component.id, previous: grant.previous ?? null })
@@ -1099,16 +1214,6 @@ async function uninstallReceipt(
             }
           }
           break
-        case 'cli':
-          await rm(join((services.pluginRoot ?? getPluginRegistryUserRoot)(), component.id), {
-            recursive: true,
-            force: true,
-          })
-          {
-            const reloadPlugins = services.reloadPlugins ?? reloadPluginRegistry
-            reloadPlugins()
-          }
-          break
         case 'automation':
           // Deliberately left in place (owner ruling): an added automation is
           // the user's from the moment it lands — they name it, edit it, and
@@ -1191,9 +1296,9 @@ async function removeSkillComponent(
     // The receipt names the harnesses the install wrote; without one, every
     // harness dir is swept rather than guessing which held a copy.
     harnesses: component.harnesses?.length
-      ? component.harnesses
+      ? knownSkillHarnesses(component.harnesses)
       : input.skillHarnesses?.length
-        ? input.skillHarnesses
+        ? knownSkillHarnesses(input.skillHarnesses)
         : SKILL_PACK_HARNESSES,
   })
   // Already gone is the state uninstall wants, so an empty sweep is fine here;
@@ -1208,7 +1313,7 @@ function clientsFromServers(servers: McpServerConfig[]): McpClientTarget[] {
 
 async function createPreviousInstallSnapshot(
   receipt: MarketplacePluginInstallReceipt,
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
   backupRoot: string,
 ): Promise<{ ok: true; snapshot: PreviousInstallSnapshot } | { ok: false; message: string }> {
@@ -1237,7 +1342,7 @@ async function createPreviousInstallSnapshot(
 
 async function restorePreviousInstallSnapshot(
   snapshot: PreviousInstallSnapshot,
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
@@ -1267,7 +1372,7 @@ async function restorePreviousInstallSnapshot(
 
 function filesystemComponentPaths(
   components: MarketplacePluginInstalledComponent[],
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
   services: MarketplacePluginLifecycleServices,
 ): string[] {
   const paths: string[] = []
@@ -1278,9 +1383,6 @@ function filesystemComponentPaths(
         break
       case 'module':
         paths.push(moduleInstallPath((services.moduleRoot ?? defaultUserModuleRoot)(), component.id))
-        break
-      case 'cli':
-        paths.push(join((services.pluginRoot ?? getPluginRegistryUserRoot)(), component.id))
         break
       case 'mcp':
       // An automation is a store record, not a path, and an update never
@@ -1295,19 +1397,42 @@ function filesystemComponentPaths(
 
 function skillComponentPaths(
   component: MarketplacePluginInstalledComponent,
-  input: MarketplacePluginRegistryInstallInput,
+  input: MarketplacePluginLifecycleInstallInput,
 ): string[] {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) return []
   const dirName = component.installedDirName ?? component.id
+  // These paths are snapshotted and, on a failed update, removed and restored,
+  // so a harness is only ever one of the app's own dirs.
   const harnesses = component.harnesses?.length
-    ? component.harnesses
+    ? knownSkillHarnesses(component.harnesses)
     : input.skillHarnesses?.length
-      ? input.skillHarnesses
-      : ['agents']
-  return harnesses.map((harness) =>
-    join(workspaceRoot, harness === 'agents' ? '.agents' : `.${harness}`, 'skills', dirName),
-  )
+      ? knownSkillHarnesses(input.skillHarnesses)
+      : (['agents'] as SkillHarness[])
+  return harnesses.map((harness) => join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills', dirName))
+}
+
+function knownSkillHarnesses(harnesses: readonly string[]): SkillHarness[] {
+  return SKILL_PACK_HARNESSES.filter((harness) => harnesses.includes(harness))
+}
+
+function rollbackMessage(name: string, offered: number, installed: number): string {
+  return `${name} version ${offered} is older than the installed version ${installed}, so it was not installed.`
+}
+
+function pinMismatchResult(
+  sourceUrl: string,
+  classification: MarketplacePluginRegistryInstallResult['classification'],
+  updated: boolean,
+): MarketplacePluginRegistryInstallResult {
+  return {
+    ok: false,
+    sourceUrl,
+    ...(classification ? { classification } : {}),
+    updated,
+    message: 'This extension changed after you reviewed it, so nothing was installed. Review it again.',
+    issues: [{ path: 'source', message: 'Installed content does not match the reviewed content.' }],
+  }
 }
 
 function previousMcpSettings(
@@ -1482,7 +1607,7 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
     throw new Error(`${path}.installedAt: installedAt is required.`)
   }
   if (!Array.isArray(value.components)) throw new Error(`${path}.components: components must be an array.`)
-  return {
+  const receipt: MarketplacePluginInstallReceipt = {
     id: value.id,
     displayName: value.displayName,
     version,
@@ -1493,6 +1618,39 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
       validateReceiptComponent(component, `${path}.components[${index}]`),
     ),
   }
+  if (value.source !== undefined) receipt.source = validateReceiptSource(value.source, `${path}.source`)
+  if (value.permissions !== undefined) {
+    receipt.permissions = validateStringArray(value.permissions, `${path}.permissions`, isNonEmptyString)
+  }
+  if (value.mcpDigest !== undefined) {
+    if (typeof value.mcpDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.mcpDigest)) {
+      throw new Error(`${path}.mcpDigest: MCP digest must be a sha256 hex digest.`)
+    }
+    receipt.mcpDigest = value.mcpDigest
+  }
+  return receipt
+}
+
+function validateReceiptSource(value: unknown, path: string): MarketplaceInstallSource {
+  if (!isRecord(value)) throw new Error(`${path}: source must be an object.`)
+  if (value.kind === 'registry') return { kind: 'registry' }
+  if (value.kind !== 'github') throw new Error(`${path}.kind: source kind must be registry or github.`)
+  for (const field of ['url', 'owner', 'repo', 'sha'] as const) {
+    if (!isNonEmptyString(value[field])) throw new Error(`${path}.${field}: ${field} is required.`)
+  }
+  if (value.ref !== undefined && !isNonEmptyString(value.ref)) throw new Error(`${path}.ref: ref must be a string.`)
+  return {
+    kind: 'github',
+    url: value.url as string,
+    owner: value.owner as string,
+    repo: value.repo as string,
+    sha: value.sha as string,
+    ...(value.ref !== undefined ? { ref: value.ref as string } : {}),
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
 }
 
 function validateReceiptComponent(value: unknown, path: string): MarketplacePluginInstalledComponent {

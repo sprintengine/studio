@@ -195,7 +195,7 @@ test('run-card', async () => {
         return { ok: true, receipts: [] }
       },
       installMarketplaceEntry: async (input) => {
-        calls.push(`installMarketplaceEntry ${input.entry.id} trustGranted=${String(input.trustGranted ?? false)}`)
+        calls.push(`installMarketplaceEntry ${input.entry.id} granted=${String(Boolean(input.grant))}`)
         return {
           ok: true,
           id: input.entry.id,
@@ -737,7 +737,7 @@ test('run-card', async () => {
       assert.deepEqual(calls, [
         'readMarketplaceRegistry',
         'listMarketplaceReceipts',
-        'installMarketplaceEntry review trustGranted=false',
+        'installMarketplaceEntry review granted=false',
       ])
       assert.equal(result.outcomes[0].status, 'done')
       // A module loads at app launch, so the outcome says what is left to do.
@@ -755,11 +755,7 @@ test('run-card', async () => {
       assert.equal(result.ok, true)
       assert.equal(result.outcomes[0].status, 'already')
       assert.equal(result.outcomes[0].message, 'Reviews is already installed.')
-      assert.equal(
-        calls.includes('installMarketplaceEntry review trustGranted=false'),
-        false,
-        'nothing was installed twice',
-      )
+      assert.equal(calls.includes('installMarketplaceEntry review granted=false'), false, 'nothing was installed twice')
     }
 
     // An id nothing in this build's registry carries is refused by name, and

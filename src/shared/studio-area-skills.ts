@@ -20,12 +20,13 @@ export type StudioAreaSkillId =
   | 'studio-automations'
   | 'studio-diff-tours'
   | 'studio-workspaces'
+  | 'sprintengine-extension-builder'
 
 /**
  * Where the skill is offered. `settings` is the one with no surface of its own:
  * the workspaces skill is about the app as a whole, so it is only a switch.
  */
-type StudioAreaSkillSurface = 'backlog' | 'design' | 'canvas' | 'automations' | 'diff' | 'settings'
+type StudioAreaSkillSurface = 'backlog' | 'design' | 'canvas' | 'automations' | 'diff' | 'extensions' | 'settings'
 
 export type StudioAreaSkill = {
   id: StudioAreaSkillId
@@ -67,6 +68,16 @@ export const STUDIO_AREA_SKILLS: readonly StudioAreaSkill[] = [
     name: 'Diff tours',
     gives: 'Teaches agents to walk you through their changes as a tour in the Diff viewer.',
     surface: 'diff',
+  },
+  // The one not named for the plugin: it is the SDK's own skill
+  // (packages/module-sdk/skills), shipped here byte for byte so an agent in any
+  // workspace can build an extension, not only one in a project the build flow
+  // scaffolded (which carries its own copy).
+  {
+    id: 'sprintengine-extension-builder',
+    name: 'Extensions',
+    gives: 'Teaches agents to build, try, sign and publish SprintEngine Studio extensions with the module SDK.',
+    surface: 'extensions',
   },
   {
     id: 'studio-workspaces',

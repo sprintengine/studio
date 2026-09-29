@@ -67,6 +67,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import {
@@ -701,7 +702,18 @@ function WorkspaceLayoutBody({
           }
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
-          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
+          // Outside the Suspense, so a chunk that fails to load is contained
+          // with a render throw: either stays in this tab.
+          return (
+            <ModuleContributionBoundary
+              moduleId={moduleId ?? component!}
+              surface={`panel "${component}"`}
+              variant="panel"
+              label={node.getName()}
+            >
+              {timedPanel(component!, <Panel workspaceId={workspaceId} />)}
+            </ModuleContributionBoundary>
+          )
         }
       }
     },

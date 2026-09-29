@@ -117,6 +117,10 @@ import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
+import { setWorkspaceChatOpener } from '../../modules/chat-opener'
+import { composerDraftStore } from '../panels/agentChat/draftStore'
+import { setBuildExtensionHost } from '../extensions/buildExtensionHost'
+import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
 import {
   markLaunchedAgentProjected,
   retiredLaunchedAgents,
@@ -733,30 +737,16 @@ export default function WorkspaceManager() {
     }
     return context
   }, [workspaceActionsEnabled, moduleEnablement, activeCommandScopes, windowActiveWorkspaceId, terminalSessions])
-  // Names the bucket a session with no workspace row is listed under. A module
-  // that spawns agents outside a window's knowledge (the review guide runs as an
-  // agent terminal in its project workspace) claims its own agent-id prefix and
-  // supplies the label — core asks the registry rather than importing any
-  // module's own id predicate.
-  const resolveDetachedSessionLabel = useCallback(
-    (workspaceId: string): string | null => {
-      for (const summary of [...terminalSessions, ...conversationSessions]) {
-        if (summary.workspaceId !== workspaceId) continue
-        const owner = getRendererHost().getAgentIdNamespace(summary.agentId ?? '', moduleEnabled)
-        if (owner) return owner.label
-      }
-      return null
-    },
-    [terminalSessions, conversationSessions, moduleEnabled],
-  )
   // Resolution runs against EVERY workspace, not just this window's, so a session
   // hosted in another window resolves to its real workspace and is filtered out
   // below — only a session no workspace anywhere claims becomes detached. Detached
   // rows belong to no window, so every window lists them: they are stoppable from
   // wherever the user notices them.
-  const sessions = getSessionItems(useWorkspaceStore.getState().workspaces, terminalSessions, conversationSessions, {
-    resolveDetachedLabel: resolveDetachedSessionLabel,
-  }).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
+  const sessions = getSessionItems(
+    useWorkspaceStore.getState().workspaces,
+    terminalSessions,
+    conversationSessions,
+  ).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
   const sidebarWorkspaceOrder = useMemo(() => buildSidebarWorkspaceOrder(railWorkspaces), [railWorkspaces])
   // The bell badge is an error counter: only unread errors increment it (and
   // drive the red just-changed pulse), so a flood of info/warning notifications
@@ -3050,6 +3040,56 @@ export default function WorkspaceManager() {
     return () => setExtensionsSurfaceHost(null)
   }, [])
 
+  // "Build your own extension" ends in a chat on the project it just made: a
+  // new chat workspace on that folder, the agent the flow's picker chose, the
+  // extension-builder skill attached and the brief sent. The flow is on the
+  // Extensions home; the chat is this shell's to make.
+  const openConversationInNewChatRef = useRef(openConversationInNewChat)
+  openConversationInNewChatRef.current = openConversationInNewChat
+  useEffect(() => {
+    setBuildExtensionHost({
+      openChat: ({ folder, confirm, prompt }) => openConversationInNewChatRef.current(folder, confirm, prompt),
+    })
+    return () => setBuildExtensionHost(null)
+  }, [])
+
+  // A module's `openChat` (RendererHost): a chat agent it owns, seeded into a
+  // workspace that is already open and brought to the front, the prompt left
+  // as a draft unless the module asked to send it. Registered while this shell
+  // is mounted — until then `openChat` answers `unavailable`, and
+  // `supports('chat.open')` says so. Everything is read at call time, so the
+  // opener is made once.
+  useEffect(() => {
+    setWorkspaceChatOpener(
+      createWorkspaceChatOpener({
+        getWorkspace: (workspaceId) =>
+          useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+        lastSelectedCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli,
+        permissionPresetFor: (cli) =>
+          resolveCliPermissionPreset(
+            cli,
+            useWorkspaceStore.getState().appSettings.lastAgentSpawnPermissionPreset ??
+              DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+          ),
+        newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
+        pickName: pickRandomAgentName,
+        writeAgent: (workspaceId, agentId, patch) =>
+          useWorkspaceStore.getState().updateAgent(workspaceId, agentId, patch),
+        putDraft: (workspaceId, agentId, draft) =>
+          composerDraftStore()
+            .getState()
+            .put(workspaceId, agentId, { ...draft, mentions: [] }),
+        ensureSkills: (workspaceRoot, skillIds) => {
+          for (const id of skillIds) void ensureSkillForAgent({ workspaceRoot, skill: { id } })
+        },
+        reveal: (workspaceId, agentId, name) => {
+          revealAgentTerminalTab({ workspaceId, agentId, name })
+        },
+      }),
+    )
+    return () => setWorkspaceChatOpener(null)
+  }, [])
+
   // The terminal pane's star: "find a skill or plugin, for THIS agent". The
   // palette's open state has to live here — the shortcuts that raise it fire
   // while it is unmounted — and the pane is eight components down, so the
@@ -4008,17 +4048,7 @@ export default function WorkspaceManager() {
     // A session row can carry an agentId that has no workspace.agents record;
     // updateAgent would fabricate one and focusOrAddAgentTab would open a pane
     // for it. For those rows activation is plain workspace focus only.
-    //
-    // A review guide is the opposite case: it is an ordinary agent terminal
-    // that main spawned without this window's knowledge, so it has no record
-    // until something adopts it. Opening it from here IS that adoption — the
-    // same one the Reviews door performs — and without it the reviewer lands in
-    // the Reviews host with no tab.
-    const agentId =
-      item.agentId &&
-      (workspace.agents[item.agentId] || getRendererHost().getAgentIdNamespace(item.agentId, moduleEnabled))
-        ? item.agentId
-        : null
+    const agentId = item.agentId && workspace.agents[item.agentId] ? item.agentId : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))

@@ -16,15 +16,17 @@ import { test } from 'vitest'
 test('installFlow', async () => {
   // The trust gate must disclose REAL verified permissions before trust and must
   // never fake an install: verified installs directly; community AND unsigned
-  // mcp/skills-only earn the trust prompt populated from the verify IPC; unsigned
-  // code-bearing (module/cli) and invalid hard-block with no install affordance; and
-  // the seven flow states each render an explicit view.
+  // mcp/skills-only earn the trust prompt populated from the verify IPC, carrying
+  // the token main issued for it; unsigned code-bearing (module) and invalid
+  // hard-block with no install affordance; and the seven flow states each render
+  // an explicit view.
 
   function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): MarketplacePluginVerifyResult {
     return {
       classification: 'verified',
       permissions: [],
       sourceUrl: 'https://github.com/sprintengine/studio-releases/tree/main/plugins/x',
+      trustToken: 'token-from-verify',
       ...overrides,
     }
   }
@@ -32,20 +34,48 @@ test('installFlow', async () => {
   // --- classifyVerification --------------------------------------------------
 
   {
-    // Verified → install directly (no trust prompt).
+    // Verified → install directly (no trust prompt), still passing the token so
+    // main installs exactly what verify read.
     const outcome = classifyVerification(verify({ classification: 'verified' }), ['mcp'])
-    assert.equal(outcome.kind, 'install')
+    assert.deepEqual(outcome, { kind: 'install', trustToken: 'token-from-verify' })
   }
 
   {
     // Community → trust prompt populated with the REAL verified permissions.
     const outcome = classifyVerification(
-      verify({ classification: 'community', permissions: ['network', 'filesystem:read-workspace'] }),
+      verify({
+        classification: 'community',
+        permissions: ['network', 'filesystem:read-workspace'],
+        keyFingerprint: 'f'.repeat(64),
+        codeBearing: true,
+        pin: { commitSha: 'a'.repeat(40), manifestSha256: 'b'.repeat(64), componentDigests: {} },
+        mcpServers: [
+          { id: 's', name: 'S', transport: 'stdio', command: 'node', args: ['s.js'], envKeys: ['K'], headerKeys: [] },
+        ],
+      }),
       ['module'],
     )
     assert.equal(outcome.kind, 'needs-trust')
     if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
-    assert.deepEqual(outcome.permissions, ['network', 'filesystem:read-workspace'])
+    assert.equal(outcome.trustToken, 'token-from-verify')
+    assert.deepEqual(outcome.review, {
+      classification: 'community',
+      permissions: ['network', 'filesystem:read-workspace'],
+      mcpServers: [
+        { id: 's', name: 'S', transport: 'stdio', command: 'node', args: ['s.js'], envKeys: ['K'], headerKeys: [] },
+      ],
+      sourceUrl: 'https://github.com/sprintengine/studio-releases/tree/main/plugins/x',
+      commitSha: 'a'.repeat(40),
+      keyFingerprint: 'f'.repeat(64),
+      codeBearing: true,
+    })
+  }
+
+  {
+    // No token, no prompt: main declined to issue an approval, so there is
+    // nothing the person could agree to.
+    const outcome = classifyVerification(verify({ classification: 'community', trustToken: undefined }), ['mcp'])
+    assert.equal(outcome.kind, 'blocked')
   }
 
   {
@@ -53,7 +83,7 @@ test('installFlow', async () => {
     const outcome = classifyVerification(verify({ classification: 'community', permissions: [] }), ['mcp'])
     assert.equal(outcome.kind, 'needs-trust')
     if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
-    assert.deepEqual(outcome.permissions, [])
+    assert.deepEqual(outcome.review.permissions, [])
   }
 
   {
@@ -82,7 +112,7 @@ test('installFlow', async () => {
     )
     assert.equal(outcome.kind, 'needs-trust')
     if (outcome.kind !== 'needs-trust') throw new Error('unreachable')
-    assert.deepEqual(outcome.permissions, ['filesystem:read-workspace'])
+    assert.deepEqual(outcome.review.permissions, ['filesystem:read-workspace'])
   }
 
   {
@@ -96,8 +126,8 @@ test('installFlow', async () => {
   }
 
   {
-    // Unsigned code-bearing (cli) → hard block as well.
-    const outcome = classifyVerification(verify({ classification: 'unsigned' }), ['cli'])
+    // The verifier's own code-bearing flag blocks too, whatever the entry says.
+    const outcome = classifyVerification(verify({ classification: 'unsigned', codeBearing: true }), ['mcp'])
     assert.equal(outcome.kind, 'blocked')
     if (outcome.kind !== 'blocked') throw new Error('unreachable')
     assert.equal(outcome.classification, 'unsigned')
@@ -242,10 +272,15 @@ test('installFlow', async () => {
   }
 
   {
-    const v = deriveInstallView({ status: 'needs-trust', permissions: ['network'] })
+    const v = deriveInstallView({
+      status: 'needs-trust',
+      review: { classification: 'community', permissions: ['network'] },
+      trustToken: 'token-from-verify',
+    })
     assert.deepEqual(v.action, { kind: 'trust-install', label: 'Trust and install' })
     assert.equal(v.trustPrompt, true)
-    assert.deepEqual(v.permissions, ['network'])
+    assert.deepEqual(v.review?.permissions, ['network'])
+    assert.equal(v.trustToken, 'token-from-verify')
     assert.equal(v.busy, false)
   }
 
@@ -300,7 +335,7 @@ test('installFlow', async () => {
   const allStates: InstallFlowState[] = [
     { status: 'idle' },
     { status: 'verifying' },
-    { status: 'needs-trust', permissions: [] },
+    { status: 'needs-trust', review: { classification: 'unsigned', permissions: [] }, trustToken: 't' },
     { status: 'installing' },
     { status: 'installed', updated: false },
     { status: 'blocked', classification: 'invalid', message: 'm' },
@@ -320,14 +355,21 @@ test('installFlow', async () => {
     )
     assert.equal(outcome.kind, 'needs-trust')
     if (outcome.kind === 'needs-trust') {
-      assert.deepEqual(outcome.files, ['skills/hf-cli', 'skills/hf-datasets'])
-      const view = deriveInstallView({ status: 'needs-trust', permissions: outcome.permissions, files: outcome.files })
+      assert.deepEqual(outcome.review.files, ['skills/hf-cli', 'skills/hf-datasets'])
+      const view = deriveInstallView({ status: 'needs-trust', review: outcome.review, trustToken: outcome.trustToken })
       assert.equal(view.trustPrompt, true)
-      assert.deepEqual(view.files, ['skills/hf-cli', 'skills/hf-datasets'])
+      assert.deepEqual(view.review?.files, ['skills/hf-cli', 'skills/hf-datasets'])
     }
     // Permission-shaped trust prompts expose no file listing.
-    const permView = deriveInstallView({ status: 'needs-trust', permissions: [] })
-    assert.equal(permView.files, null)
+    const permView = deriveInstallView({
+      status: 'needs-trust',
+      review: { classification: 'community', permissions: [] },
+      trustToken: 't',
+    })
+    assert.equal(permView.review?.files, undefined)
+    // Outside the prompt there is nothing to disclose and nothing to spend.
+    assert.equal(deriveInstallView({ status: 'idle' }).review, null)
+    assert.equal(deriveInstallView({ status: 'idle' }).trustToken, null)
   }
 
   // --- installNeedsWorkspace -------------------------------------------------
@@ -336,8 +378,8 @@ test('installFlow', async () => {
   // installable from a fresh app that has never opened a folder (D10).
   {
     assert.equal(installNeedsWorkspace(['module']), false)
+    // The inline-CLI lane installs an agent CLI the app ships, into no project.
     assert.equal(installNeedsWorkspace(['cli']), false)
-    assert.equal(installNeedsWorkspace(['module', 'cli']), false)
     assert.equal(installNeedsWorkspace(['mcp']), true)
     assert.equal(installNeedsWorkspace(['skills']), true)
     // A mixed bundle takes the strictest rule its components ask for.

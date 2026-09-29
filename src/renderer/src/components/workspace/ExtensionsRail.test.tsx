@@ -175,10 +175,30 @@ test('ExtensionsRail', async () => {
     }))
   })
   render()
-  assert.ok(
-    [...dom.window.document.querySelectorAll('button')].some((button) => button.textContent?.includes('Add extension')),
-    'the Extensions drawer leads with the folder-install affordance',
+  const addButton = [...dom.window.document.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('Add extension'),
+  ) as HTMLElement | undefined
+  assert.ok(addButton, 'the Extensions drawer leads with the add-extension affordance')
+
+  // ── "Add extension" asks where from: a folder, or a GitHub repository ────────
+  act(() => {
+    addButton.click()
+  })
+  const addMenu = dom.window.document.querySelector('[role="menu"][aria-label="Add extension"]')
+  assert.deepEqual(
+    [...(addMenu?.querySelectorAll('button') ?? [])].map((item) => item.textContent?.trim()),
+    ['From a folder…', 'From GitHub…'],
   )
+  act(() => {
+    ;([...(addMenu?.querySelectorAll('button') ?? [])].at(-1) as HTMLElement).click()
+  })
+  assert.equal(dom.window.document.querySelector('[role="menu"][aria-label="Add extension"]'), null)
+  const githubDialog = dom.window.document.querySelector('[role="dialog"]')
+  assert.ok(githubDialog?.textContent?.includes('Install extension from GitHub'), 'GitHub opens the install dialog')
+  act(() => {
+    ;(githubDialog?.querySelector('button[aria-label="Close"]') as HTMLElement).click()
+  })
+  assert.equal(dom.window.document.querySelector('[role="dialog"]'), null)
   assert.equal(
     dom.window.document.querySelectorAll('[role="listitem"]').length,
     3,

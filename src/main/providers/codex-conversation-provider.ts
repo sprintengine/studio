@@ -5,6 +5,7 @@ import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationSubagentState,
 } from '../../shared/conversation-runtime'
@@ -668,7 +669,12 @@ export function createCodexConversationProvider(
         command,
         cwd: state.input.workspaceRoot ?? '',
         env,
-        args: codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
+        args: [
+          ...codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
+          // The session's own MCP servers, as config overrides on top of the
+          // person's own `config.toml`, for this process only.
+          ...codexMcpServerArgs(state.input.mcpServers ?? []),
+        ],
         onMessage: (message) => onMessage(state, message),
         onToolFailure: (reason) => toolFailure(state, reason),
         onClose: (error) => {
@@ -740,6 +746,7 @@ export function createCodexConversationProvider(
     id: CODEX_CONVERSATION_PROVIDER_ID,
     displayName: 'Codex',
     sessions: 'stateful',
+    acceptsMcpServers: true,
     listModels: () => [...models],
     capabilities: {
       tools: true,
@@ -1139,4 +1146,41 @@ function imageExtension(bytes: Buffer): string {
   if (bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP')
     return 'webp'
   return 'png'
+}
+
+/**
+ * A session's MCP servers as `-c mcp_servers.<id>=<table>` overrides for the
+ * app-server, each an inline TOML table with the fields the person's own
+ * `config.toml` would carry (mcp-config-service.ts writes the same ones).
+ * Codex reads an override's key as a dotted path, so an id with a dot in it
+ * cannot be named and refuses the start.
+ */
+export function codexMcpServerArgs(servers: readonly ConversationMcpServer[]): string[] {
+  const str = (value: string): string => JSON.stringify(value)
+  const table = (entries: Array<[string, string]>): string =>
+    `{ ${entries.map(([key, value]) => `${str(key)} = ${value}`).join(', ')} }`
+  const list = (values: readonly string[]): string => `[${values.map(str).join(', ')}]`
+  return servers.flatMap((server) => {
+    if (server.id.includes('.') || !server.id.trim()) {
+      throw new Error(
+        `Codex cannot be given the MCP server "${server.name || server.id}": its id "${server.id}" is not a Codex config key.`,
+      )
+    }
+    const fields: Array<[string, string]> = []
+    if (server.transport === 'stdio') {
+      fields.push(['command', str(server.command ?? '')])
+      if (server.args?.length) fields.push(['args', list(server.args)])
+      if (server.envVarNames?.length) fields.push(['env_vars', list(server.envVarNames)])
+      if (server.env && Object.keys(server.env).length > 0)
+        fields.push(['env', table(Object.entries(server.env).map(([key, value]) => [key, str(value)]))])
+    } else {
+      fields.push(['url', str(server.url ?? '')])
+      if (server.envVarNames?.length) fields.push(['bearer_token_env_var', str(server.envVarNames[0])])
+      const headers = Object.entries(server.headers ?? {}).filter(
+        ([key]) => !server.envVarNames?.length || key.toLowerCase() !== 'authorization',
+      )
+      if (headers.length > 0) fields.push(['http_headers', table(headers.map(([key, value]) => [key, str(value)]))])
+    }
+    return ['-c', `mcp_servers.${server.id}=${table(fields)}`]
+  })
 }

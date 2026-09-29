@@ -4,7 +4,7 @@ import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
+import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -79,7 +79,7 @@ test('unattended-containment', async () => {
 
   function harness(root: string, options: { triggerKind?: string; worktree?: WorktreeOutcome } = {}) {
     const workspaces: Workspace[] = []
-    const launches: AgentLaunchRequest[] = []
+    const launches: ConversationLaunchRequest[] = []
     const pullRequests: PullRequestCall[] = []
     // Workspace creation is a main-process port, not a renderer
     // request. It honours the mode the executor asks for: the default launch
@@ -99,10 +99,10 @@ test('unattended-containment', async () => {
       }
     }
 
-    // Agent launch is a main-process port, not a renderer request;
-    // this stub stands in for the AgentLaunchService so the launch stays
+    // An automation's agent starts as a chat through a main-process port; this
+    // stub stands in for the ConversationLaunchService so the launch stays
     // observable at the same level of detail.
-    const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    const launchConversation = async (request: ConversationLaunchRequest): Promise<ConversationLaunchResult> => {
       launches.push(request)
       const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
       if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
@@ -110,23 +110,24 @@ test('unattended-containment', async () => {
       target.agents[agentId] = {
         id: agentId,
         name: request.name ?? agentId,
-        cli: request.cli ?? 'codex',
+        runtimeKind: 'conversation',
       } as Workspace['agents'][string]
       return {
         ok: true,
         workspaceId: request.workspaceId,
         agentId,
-        sessionId: `session-${agentId}`,
+        name: request.name ?? agentId,
         cli: request.cli ?? 'claude-code',
-        executionId: `session-${agentId}`,
+        providerId: 'claude-agent',
+        modelId: 'default',
+        sessionId: `conv_${agentId}`,
       }
     }
 
     const executor = createLocalAutomationExecutor({
       createWorkspace,
-      launchAgent,
+      launchConversation,
       getWorkspaceSyncSnapshot: () => snapshot(workspaces),
-      sleep: async () => undefined,
       createRunWorktree: async (input) => {
         if (options.worktree === 'not-a-git-repository') {
           throw new RunWorktreeUnavailableError('not_a_git_repository', 'Choose a folder inside a Git repository.')
@@ -194,7 +195,7 @@ test('unattended-containment', async () => {
 
   type DispatchResult = {
     root: string
-    launches: AgentLaunchRequest[]
+    launches: ConversationLaunchRequest[]
     pullRequests: PullRequestCall[]
     run: AutomationRun
     engine: AutomationsEngine
@@ -248,7 +249,7 @@ test('unattended-containment', async () => {
     path: StartPath,
     definition: AutomationDefinition,
     worktree: WorktreeOutcome,
-  ): Promise<{ root: string; launch: AgentLaunchRequest; pullRequests: PullRequestCall[]; run: AutomationRun }> {
+  ): Promise<{ root: string; launch: ConversationLaunchRequest; pullRequests: PullRequestCall[]; run: AutomationRun }> {
     const { root, launches, pullRequests, engine } = await dispatch(path, definition, worktree)
     assert.equal(launches.length, 1, `the ${path} path fires exactly one launch`)
     const finalized = await engine.finalizeRun({

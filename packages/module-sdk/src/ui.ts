@@ -85,14 +85,14 @@ export const FOCUS_RING_CLASS: string = hostProvided()
 
 // ── Buttons ──────────────────────────────────────────────────────────────────
 
-type ButtonBase = React.ButtonHTMLAttributes<HTMLButtonElement>
+export type ButtonBase = React.ButtonHTMLAttributes<HTMLButtonElement>
 
 export type ButtonAlign = 'center' | 'start' | 'end'
 export type ButtonSize = 'inline' | 'xs' | 'sm' | 'md'
 export type ButtonTone = 'neutral' | 'danger'
 export type GhostTone = ButtonTone | 'quiet' | 'subtle' | 'strong' | 'accent' | 'ink'
 
-type SizedButtonProps = ButtonBase & {
+export type SizedButtonProps = ButtonBase & {
   size?: ButtonSize
   align?: ButtonAlign
   busy?: boolean
@@ -109,7 +109,7 @@ export type OutlineButtonProps = SizedButtonProps & {
   pressed?: boolean
 }
 
-type ButtonComponent<P> = React.ForwardRefExoticComponent<
+export type ButtonComponent<P> = React.ForwardRefExoticComponent<
   React.PropsWithoutRef<P> & React.RefAttributes<HTMLButtonElement>
 >
 
@@ -151,7 +151,7 @@ export const RowButton: ButtonComponent<RowButtonProps> = hostProvided()
 export type InputSize = 'none' | 'xs' | 'sm' | 'content' | 'md'
 export type InputVariant = 'default' | 'well' | 'quiet' | 'seamless' | 'composer' | 'inline'
 
-type SharedInputProps = {
+export type SharedInputProps = {
   size?: InputSize
   variant?: InputVariant
   fullWidth?: boolean

@@ -35,7 +35,6 @@ test('terminal-reap-policy', async () => {
       agentPhase: 'idle',
       lastInteractionAt: STALE,
       idleSince: STALE,
-      managed: false,
       reapExempt: false,
       pendingWakeupAt: null,
       ...overrides,
@@ -240,27 +239,6 @@ test('terminal-reap-policy', async () => {
     const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 3 })
     assert.deepEqual(decision.reapableSessionIds, ['idle-old'])
     assert.deepEqual(decision.heldByRecencyFloorSessionIds, ['idle-new'])
-  })
-
-  run('recency floor neither protects nor is occupied by module-managed agents', () => {
-    // Two reapable module-managed agents (freshly rested, so they would out-rank
-    // the user's terminals on recency) + one older reapable user agent, floor 2.
-    // The managed agents must still be reaped and must NOT count toward the
-    // user's keep-alive budget: with only one live user agent (≤ 2), the user
-    // agent is spared.
-    const candidates: ReapCandidate[] = [
-      reapable({ sessionId: 'managed-a', workspaceId: 'ws-a', managed: true }),
-      reapable({ sessionId: 'managed-b', workspaceId: 'ws-b', managed: true }),
-      reapable({
-        sessionId: 'user-idle',
-        workspaceId: 'ws-c',
-        lastInteractionAt: STALE - 60_000,
-        idleSince: STALE - 60_000,
-      }),
-    ]
-    const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 2 })
-    assert.deepEqual(decision.reapableSessionIds.sort(), ['managed-a', 'managed-b'])
-    assert.deepEqual(decision.heldByRecencyFloorSessionIds, ['user-idle'])
   })
 
   run('recency floor of 0 (and omitted) reaps every qualifying agent', () => {

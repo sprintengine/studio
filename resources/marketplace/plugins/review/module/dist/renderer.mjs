@@ -984,9 +984,9 @@ function reviewStartBriefRun(input) {
 function reviewStopBriefRun(target) {
   return invoke(REVIEW_CHANNELS.stopBriefRun, target);
 }
-async function reviewBriefRunStatus(target) {
+async function reviewBriefRunState(target) {
   const result = await invoke(REVIEW_CHANNELS.briefRunStatus, target);
-  return result.status;
+  return { status: result?.status ?? null, guide: result?.guide ?? null };
 }
 function reviewAskGuide(input) {
   return invoke(REVIEW_CHANNELS.askGuide, input);
@@ -1073,18 +1073,6 @@ function distinctRoots(workspaces) {
   }
   return [...roots];
 }
-var NO_SESSIONS = [];
-function useReviewAgentSessions() {
-  const [sessions, setSessions] = useState(NO_SESSIONS);
-  useEffect(() => {
-    try {
-      return reviewHost().watchAgentSessions(void 0, setSessions);
-    } catch {
-      return void 0;
-    }
-  }, []);
-  return sessions;
-}
 function useRawModuleAppState(key) {
   const subscribe = useCallback((onChange) => reviewHost().watchModuleAppState(onChange), []);
   const getSnapshot = useCallback(() => reviewHost().getModuleAppState(key), [key]);
@@ -1095,10 +1083,10 @@ function useAgentRuntimes() {
   useEffect(() => {
     try {
       setRuntimes(
-        reviewHost().listAgentRuntimes().filter((runtime) => runtime.available).map((runtime) => ({
+        reviewHost().listChatRuntimes().filter((runtime) => runtime.available).map((runtime) => ({
           value: runtime.id,
           label: runtime.label,
-          isDefault: runtime.isDefault,
+          isDefault: runtime.lastSelected,
           modelSelection: { options: runtime.models.map((model) => ({ id: model.id, label: model.label })), allowCustomId: false }
         }))
       );
@@ -1507,8 +1495,10 @@ function useReviewSession({
     let cancelled = false;
     void (async () => {
       try {
-        const status2 = await reviewBriefRunStatus(target);
-        if (cancelled || !status2 || runRef.current.running) return;
+        const { status: status2, guide: known } = await reviewBriefRunState(target);
+        if (cancelled) return;
+        if (known) setGuide((current) => current ?? known);
+        if (!status2 || runRef.current.running) return;
         applyRun(runFromStatus(status2));
       } catch {
       }
@@ -3728,7 +3718,7 @@ var DEPTH_HINT = {
 function ReviewGuideActions({
   session,
   runtime,
-  terminal
+  chat
 }) {
   const depthHintId = useId();
   if (!session.canRunGuide) {
@@ -3740,7 +3730,7 @@ function ReviewGuideActions({
         /* @__PURE__ */ jsx21(Spinner4, {}),
         RUN_PHASE_LABEL[session.run.phase ?? "reading"] ?? RUN_PHASE_LABEL.grouping
       ] }),
-      terminal.terminal ? /* @__PURE__ */ jsx21(GhostButton12, { onClick: () => void terminal.open(), className: "shrink-0", children: "Open the guide\u2019s terminal" }) : null,
+      chat.chat ? /* @__PURE__ */ jsx21(GhostButton12, { onClick: () => void chat.open(), className: "shrink-0", children: "Open the guide\u2019s chat" }) : null,
       /* @__PURE__ */ jsx21(StopGuideRunButton, { session })
     ] });
   }
@@ -3778,7 +3768,7 @@ function ReviewGuideActions({
 var PRIMARY_KEY3 = primaryModifierLabel();
 function AskGuideDrawer({
   session,
-  terminal
+  chat
 }) {
   const { askController } = session;
   const [draft, setDraft] = useState12("");
@@ -3807,8 +3797,14 @@ function AskGuideDrawer({
     }
     setDraft("");
     askController.setOpen(false);
-    void terminal.open();
-  }, [draft, sending, session, askController, terminal]);
+    if (result.guide) {
+      try {
+        reviewHost().focusTab({ workspaceId: result.guide.workspaceId, kind: "chat", id: result.guide.agentId });
+      } catch {
+        void chat.open();
+      }
+    } else void chat.open();
+  }, [draft, sending, session, askController, chat]);
   return /* @__PURE__ */ jsx21(
     Drawer2,
     {
@@ -3818,7 +3814,7 @@ function AskGuideDrawer({
       ariaLabel: "Ask the review guide about this change",
       width: 380,
       children: /* @__PURE__ */ jsxs20(Drawer2.Body, { className: "flex flex-col", children: [
-        /* @__PURE__ */ jsx21("p", { className: "text-meta leading-5 text-[color:var(--text-muted)]", children: "Your question goes to the guide\u2019s terminal, and it answers there. Sending opens that terminal." }),
+        /* @__PURE__ */ jsx21("p", { className: "text-meta leading-5 text-[color:var(--text-muted)]", children: "Your question goes to the guide\u2019s chat, and it answers there. Sending opens that chat." }),
         /* @__PURE__ */ jsx21(
           Textarea3,
           {
@@ -3855,60 +3851,26 @@ function AskGuideDrawer({
   );
 }
 
-// src/renderer/door/useGuideTerminal.ts
+// src/renderer/door/useGuideChat.ts
 import { useCallback as useCallback8, useMemo as useMemo7 } from "react";
 
-// src/renderer/door/reviewGuideTerminal.ts
-var REVIEW_GUIDE_AGENT_ID_PREFIX = "review-guide-";
-function reviewGuideAgentId(reviewId) {
-  return `${REVIEW_GUIDE_AGENT_ID_PREFIX}${reviewId}`;
-}
-function resolveGuideTerminal({
-  reviewId,
-  guide,
-  sessions,
-  workspaceId
-}) {
-  const agentId = reviewId ? reviewGuideAgentId(reviewId) : guide?.agentId ?? null;
-  if (!agentId) return null;
-  const home = workspaceId ?? guide?.workspaceId ?? "";
-  if (!home) return null;
-  const session = sessions.find((candidate) => candidate.agentId === agentId);
-  if (session) {
-    return { workspaceId: home, agentId, sessionId: session.sessionId, isLive: session.isLive };
-  }
-  if (!guide) return null;
-  return {
-    workspaceId: home,
-    agentId: guide.agentId,
-    ...guide.sessionId ? { sessionId: guide.sessionId } : {},
-    // No live session carries this agent id, so whatever the handle described is
-    // gone. The link stays visible (the tab can still be focused) but nothing
-    // treats it as a running process.
-    isLive: false
-  };
+// src/renderer/door/reviewGuideChat.ts
+function resolveGuideChat({ guide }) {
+  if (!guide?.workspaceId || !guide.agentId) return null;
+  return { workspaceId: guide.workspaceId, agentId: guide.agentId };
 }
 
-// src/renderer/door/useGuideTerminal.ts
-function useGuideTerminal({
-  reviewId,
-  guide,
-  workspaceId
-}) {
-  const sessions = useReviewAgentSessions();
-  const terminal = useMemo7(
-    () => resolveGuideTerminal({ reviewId, guide, sessions, ...workspaceId ? { workspaceId } : {} }),
-    [reviewId, guide, sessions, workspaceId]
-  );
+// src/renderer/door/useGuideChat.ts
+function useGuideChat({ guide }) {
+  const chat = useMemo7(() => resolveGuideChat({ guide }), [guide]);
   const open = useCallback8(async () => {
-    if (!terminal) return;
-    if (!terminal.isLive) return;
+    if (!chat) return;
     try {
-      reviewHost().focusTab({ workspaceId: terminal.workspaceId, kind: "agent", id: terminal.agentId });
+      reviewHost().focusTab({ workspaceId: chat.workspaceId, kind: "chat", id: chat.agentId });
     } catch {
     }
-  }, [terminal]);
-  return { terminal, open };
+  }, [chat]);
+  return { chat, open };
 }
 
 // src/renderer/door/ReviewsGlobalSurface.tsx
@@ -4005,18 +3967,14 @@ function ReviewsGlobalSurface({ workspaceId }) {
     workspaceRoot: selectedRoot,
     depth: guideRuntime.depth,
     guideCli: guideRuntime.cli,
-    // The workspace the modal was opened from (D5) — where the guide's terminal
+    // The workspace the modal was opened from (D5) — where the guide's chat
     // goes. Absent when nothing opened it from a workspace; the guide controls
     // say so and withhold the start rather than picking one.
     ...workspaceId ? { workspaceId } : {},
     ...guideRuntime.model ? { guideModel: guideRuntime.model } : {}
   });
-  const guideTerminal = useGuideTerminal({
-    reviewId: selected?.reviewId ?? null,
-    guide: session.guide,
-    ...workspaceId ? { workspaceId } : {}
-  });
-  const guideActions = /* @__PURE__ */ jsx22(ReviewGuideActions, { session, runtime: guideRuntime, terminal: guideTerminal });
+  const guideChat = useGuideChat({ guide: session.guide });
+  const guideActions = /* @__PURE__ */ jsx22(ReviewGuideActions, { session, runtime: guideRuntime, chat: guideChat });
   useEffect10(() => {
     const id = window.setInterval(() => void refreshIndex(), REVIEW_INDEX_REFRESH_MS);
     return () => window.clearInterval(id);
@@ -4076,7 +4034,7 @@ function ReviewsGlobalSurface({ workspaceId }) {
   );
   return /* @__PURE__ */ jsxs21(Fragment7, { children: [
     /* @__PURE__ */ jsx22(GlobalSurfaceShell, { ariaLabel: "Reviews", bar, rail, onBack: back.onBack, canGoBack: back.canGoBack, children: renderCanvas({ index, creating, hasSelection: selected !== null, session, guideActions, roots, onRetry: reload, onCreated, onCancelCreate, onNewReview }) }),
-    selected ? /* @__PURE__ */ jsx22(AskGuideDrawer, { session, terminal: guideTerminal }) : null
+    selected ? /* @__PURE__ */ jsx22(AskGuideDrawer, { session, chat: guideChat }) : null
   ] });
 }
 function buildBar({
@@ -4155,7 +4113,6 @@ var registerRenderer = (host) => {
     // and glyph and drop only the shortcut, so this is never a load failure.
     launcher: { label: "Reviews", letter: "R", Glyph: ReviewsGlyph }
   });
-  host.registerAgentIdNamespace({ prefix: REVIEW_GUIDE_AGENT_ID_PREFIX, label: "Reviews" });
 };
 var renderer_default = registerRenderer;
 export {

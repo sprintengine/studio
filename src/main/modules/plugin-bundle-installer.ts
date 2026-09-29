@@ -31,9 +31,6 @@ import {
   marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
 } from '../../../packages/module-sdk/src/plugin-component-digests'
-import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
-import { validateManifestSource } from '../plugin-registry'
-import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
 import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } from '../mcp-config-service'
 import { installSkillDirectory } from '../skills/install'
 import {
@@ -47,11 +44,19 @@ import {
 } from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
 import { isRecord } from '../../shared/records'
+import { withObservedUnsignedDigests } from '../marketplace/unsigned-component-digests'
 
 const DEFAULT_MCP_CLIENTS: McpClientTarget[] = ['codex', 'claude-code']
 const DEFAULT_SKILL_HARNESSES: SkillHarness[] = ['agents']
 
-type ComponentPath = { kind: MarketplaceComponentKind; path: string }
+// The component kinds a bundle can install. Agent CLIs are not among them:
+// they ship with the app, and an extension may not add or replace one.
+type BundleComponentKind = Exclude<MarketplaceComponentKind, 'cli'>
+const BUNDLE_COMPONENT_KINDS = MARKETPLACE_COMPONENT_KINDS.filter(
+  (kind): kind is BundleComponentKind => (kind as string) !== 'cli',
+)
+
+type ComponentPath = { kind: BundleComponentKind; path: string }
 
 /**
  * Adds a catalogue entry's automation to a project — the automations app front
@@ -72,10 +77,7 @@ export type MarketplacePluginInstallerServices = {
   trustContext: () => ModuleTrustContext
   mcpConfigService: McpConfigService
   moduleRoot?: () => string
-  pluginRoot?: () => string
   installModuleFolder?: typeof installCapabilityModuleFolder
-  installPluginFolder?: typeof installCliPluginFolder
-  reloadPlugins?: () => void
   installAutomationDefinition?: MarketplaceAutomationInstaller
 }
 
@@ -85,7 +87,6 @@ type ResolvedComponent =
   // `verifiedInstall` is the content fingerprint a trusted publisher's bundle
   // signature vouches for (see bundleVouchedModuleInstall), when it does.
   | { kind: 'module'; path: string; id: string; trust: ModuleTrust; verifiedInstall?: string }
-  | { kind: 'cli'; path: string; id: string }
   // An automation is a definition in a per-project store, not files to unpack,
   // so the resolved component carries the parsed payload and no path to copy
   // from. `catalogueId` is the plugin's own id — the shelf entry the user
@@ -120,6 +121,12 @@ export type MarketplacePluginInstallOptions = {
    * first-party install that quietly did not do what it said.
    */
   requireTrustedModuleComponents?: boolean
+  /**
+   * An unsigned bundle carrying module code may install. Derived in main from
+   * a trust grant for a GitHub-URL install the person trusted as code
+   * (marketplace/trust-tokens.ts); the registry path never sets it.
+   */
+  allowUnsignedCode?: boolean
 }
 
 export async function installMarketplacePlugin(
@@ -155,6 +162,30 @@ export async function installMarketplacePlugin(
 }
 
 /**
+ * The MCP servers a staged bundle would add, parsed exactly as the install
+ * parses them, for a trust prompt to disclose. A component that does not
+ * parse discloses nothing here; the install refuses it with the reason.
+ */
+export async function readBundleMcpServers(
+  bundleRoot: string,
+  manifest: MarketplacePluginAuthoringManifest,
+): Promise<McpServerConfig[]> {
+  const component = manifest.components.mcp
+  if (!component) return []
+  const root = await resolveBundleRoot(bundleRoot)
+  if (!root.ok) return []
+  const resolved = await resolveComponent(root.path, { kind: 'mcp', path: component.path })
+  if (!resolved.ok) return []
+  const source = await readText(resolved.path, 'MCP component')
+  if (!source.ok) return []
+  try {
+    return extractMcpServers(JSON.parse(source.source), undefined, [])
+  } catch {
+    return []
+  }
+}
+
+/**
  * G7. A module's `entry.main` is loaded once, at app launch, for every module
  * outside `LIVE_ENABLED_MODULE_IDS` — so an install that landed one has not
  * actually put it in the app yet, and saying a flat "Installed." sends the
@@ -162,8 +193,8 @@ export async function installMarketplacePlugin(
  * here, from the components that were really written, so the answer travels
  * with the result rather than being guessed at by the surface.
  *
- * Only module components: an MCP server, a skill, a CLI plugin and an
- * automation all take effect immediately.
+ * Only module components: an MCP server, a skill and an automation all take
+ * effect immediately.
  */
 function installRequiresRestart(installed: MarketplacePluginInstalledComponent[]): boolean {
   return installed.some((component) => component.kind === 'module' && !LIVE_ENABLED_MODULE_IDS.includes(component.id))
@@ -208,11 +239,12 @@ async function buildInstallPlan(
       },
     )
   }
-  // Mirror the download gate (defense in depth): an unsigned module/cli must
-  // never install, so a bypassed download cannot slip code past this point.
-  // Unsigned mcp/skills-only bundles are permitted (loadEligible false). Gate on
-  // signature presence so id-trust cannot promote an unsigned code component.
-  if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
+  // Mirror the download gate (defense in depth): an unsigned module must never
+  // install unless the person trusted it as code, so a bypassed download cannot
+  // slip code past this point. Unsigned mcp/skills-only bundles are permitted
+  // (loadEligible false). Gate on signature presence so id-trust cannot promote
+  // an unsigned code component.
+  if (!manifest.signature && hasCodeBearingComponent(manifest.components) && options.allowUnsignedCode !== true) {
     return failure(
       'Plugin bundle is unsigned and cannot be installed.',
       undefined,
@@ -224,10 +256,26 @@ async function buildInstallPlan(
     )
   }
 
-  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifest, {
-    bytesLabel: 'current bytes',
-    blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
-  })
+  // Agent CLIs ship with the app. A bundle that still names one is refused
+  // whole rather than installed without it and called a success.
+  if ((manifest.components as Record<string, unknown>).cli !== undefined) {
+    return failure(
+      'Plugin bundle carries an agent CLI, which extensions can no longer install.',
+      undefined,
+      [{ path: 'components.cli', message: 'Agent CLIs ship with the app.' }],
+      { trust: trust.status, loadEligible: false },
+    )
+  }
+
+  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(
+    bundleRoot.path,
+    // An unsigned bundle's undigested components are held to the pin instead.
+    withObservedUnsignedDigests(bundleRoot.path, manifest),
+    {
+      bytesLabel: 'current bytes',
+      blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
+    },
+  )
   if (digestMismatch.length > 0) {
     return failure('Plugin bundle component digests do not match its signed manifest.', undefined, digestMismatch, {
       trust: trust.status,
@@ -284,8 +332,6 @@ async function installComponent(
         return await installSkillComponent(component, input, installed)
       case 'module':
         return await installModuleComponent(component, services, installed)
-      case 'cli':
-        return await installCliComponent(component, services, installed)
       case 'automation':
         return await installAutomationComponent(component, input, services, installed)
     }
@@ -431,25 +477,6 @@ async function installModuleComponent(
   }
 }
 
-async function installCliComponent(
-  component: Extract<ResolvedComponent, { kind: 'cli' }>,
-  services: MarketplacePluginInstallerServices,
-  installed: MarketplacePluginInstalledComponent[],
-): Promise<
-  { ok: true; installed: MarketplacePluginInstalledComponent } | { ok: false; result: MarketplacePluginInstallResult }
-> {
-  const installer = services.installPluginFolder ?? installCliPluginFolder
-  const result = await installer(component.path, (services.pluginRoot ?? getPluginRegistryUserRoot)())
-  if (!result.ok) return componentFailure('cli', result.message, installed, result.issues)
-
-  const reload = services.reloadPlugins ?? reloadPluginRegistry
-  reload()
-  return {
-    ok: true,
-    installed: { kind: 'cli', id: result.id, message: `Installed ${result.displayName}.` },
-  }
-}
-
 // Automations do not unpack: the component becomes a definition in the target
 // project's automations store, created through the automations write path so it
 // is validated, scheduled, and broadcast exactly like one the user wrote. The
@@ -501,7 +528,7 @@ async function installAutomationComponent(
 
 async function prepareComponent(
   path: string,
-  kind: MarketplaceComponentKind,
+  kind: BundleComponentKind,
   input: MarketplacePluginInstallInput,
   manifest: MarketplacePluginAuthoringManifest,
   trustContext: ModuleTrustContext,
@@ -516,8 +543,6 @@ async function prepareComponent(
       return prepareSkillComponent(path)
     case 'module':
       return prepareModuleComponent(path, trustContext, manifest, options)
-    case 'cli':
-      return prepareCliComponent(path)
     case 'automation':
       return prepareAutomationComponent(path, input, manifest)
   }
@@ -758,26 +783,6 @@ function withVerifiedInstall(
   return { ...trustContext, verifiedModuleInstalls: installs }
 }
 
-async function prepareCliComponent(
-  path: string,
-): Promise<
-  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
-> {
-  const manifest = await readText(join(path, 'plugin.json'), 'CLI plugin manifest')
-  if (!manifest.ok) return { ok: false, message: 'No plugin.json found in CLI component.', issues: manifest.issues }
-
-  const parsed = validateManifestSource(manifest.source)
-  if (!parsed.ok) return { ok: false, message: 'CLI component plugin.json is invalid.', issues: parsed.issues }
-  if (parsed.manifest.kind === 'provider') {
-    return {
-      ok: false,
-      message: 'CLI component must contain a CLI plugin manifest, not a provider manifest.',
-      issues: [{ path: 'kind', message: 'Provider manifests are not valid CLI components.' }],
-    }
-  }
-  return { ok: true, component: { kind: 'cli', path, id: parsed.manifest.id } }
-}
-
 function extractMcpServers(
   value: unknown,
   inputClients: McpClientTarget[] | undefined,
@@ -861,7 +866,7 @@ async function resolveComponent(
 }
 
 function componentPaths(components: MarketplacePluginComponents): ComponentPath[] {
-  return MARKETPLACE_COMPONENT_KINDS.map((kind) =>
+  return BUNDLE_COMPONENT_KINDS.map((kind) =>
     components[kind] ? { kind, path: components[kind]!.path } : null,
   ).filter((component): component is ComponentPath => component !== null)
 }

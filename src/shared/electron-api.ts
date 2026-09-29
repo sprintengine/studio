@@ -160,7 +160,6 @@ import type {
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from './design-system/attach'
-import type { MarketplacePluginEntry } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -240,7 +239,6 @@ import type {
   AgentLaunchPreviewResult,
   PluginAvailabilityResult,
   PluginDetectAvailabilityInput,
-  PluginInstallResult,
 } from './ipc/agent-cli'
 import type {
   AgentConfigAdoptInput,
@@ -348,11 +346,19 @@ import type {
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
+  ThirdPartyModuleUninstallInput,
+  ThirdPartyModuleUninstallResult,
 } from './ipc/marketplace'
 import type {
   MarketplaceRegistryReadInput,
@@ -442,6 +448,14 @@ import type {
   WindowPlacement,
   WindowState,
 } from './ipc/window'
+import type {
+  ExtensionScaffoldCheck,
+  ExtensionScaffoldCheckInput,
+  ExtensionScaffoldCreateInput,
+  ExtensionScaffoldCreateResult,
+  ExtensionScaffoldFolderPick,
+  ExtensionTemplateSummary,
+} from './extension-scaffold'
 
 // The contract, one module per domain. Everything a caller imports from this
 // file is declared in one of them; this file adds the ElectronApi shape.
@@ -967,8 +981,10 @@ export type ElectronApi = {
   cliVersionAdvisories: (input?: CliVersionAdvisoriesInput) => Promise<CliVersionAdvisoriesResult>
   cliVersionChecksSetEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
-  installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
-  verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
+  // Verify resolves the entry by id in main and answers with what an install
+  // would put on the machine, plus the one-time trust token that installs
+  // exactly that (see src/main/marketplace/trust-tokens.ts).
+  verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFromRegistry: (
     input: MarketplacePluginRegistryInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
@@ -982,6 +998,13 @@ export type ElectronApi = {
   // it is the user's from the moment it lands.
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
+  // Install extension from GitHub: main resolves the repository's default
+  // branch (or the ref the URL names) to a commit, discloses what it found
+  // there, and issues the one-time token `installGithubExtension` spends.
+  // `checkGithubExtensionUpdate` is the same review of where the branch is now.
+  resolveGithubExtension: (input: GithubExtensionResolveInput) => Promise<GithubExtensionResolveResult>
+  installGithubExtension: (input: GithubExtensionInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput) => Promise<GithubExtensionCheckUpdateResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   // The line a plain terminal on this machine runs to sign a chat's CLI back
@@ -1357,6 +1380,8 @@ export type ElectronApi = {
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
+  /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
+  uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */
@@ -1497,4 +1522,12 @@ export type ElectronApi = {
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  // ── extension-platform additions ──
+  // "Build your own extension" (the Extensions home): the SDK's templates, what
+  // this machine has to build one, a folder picked in main's own dialog (its
+  // token is what `extensionScaffoldCreate` writes under), and the project.
+  extensionScaffoldTemplates: () => Promise<ExtensionTemplateSummary[]>
+  extensionScaffoldCheck: (input: ExtensionScaffoldCheckInput) => Promise<ExtensionScaffoldCheck[]>
+  extensionScaffoldPickFolder: () => Promise<ExtensionScaffoldFolderPick | null>
+  extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

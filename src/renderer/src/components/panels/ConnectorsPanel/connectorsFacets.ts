@@ -15,7 +15,7 @@
 
 import type { McpServerConfig, McpServerListing } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
-import type { MarketplaceComponentKind, MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import type { MarketplacePluginEntry, MarketplaceProvidesKind } from '../../../../../shared/marketplace/manifest'
 import { componentKindLabels } from '../../settings/storefrontView'
 import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
@@ -144,10 +144,6 @@ export function connectorFacet(category: string): NamedFacet {
  * The install path is unchanged and needs no workspace for a module-only bundle
  * (`needsWorkspace`, BrowseStorefront.tsx): only mcp and skills components
  * write into a project.
- *
- * `cli` stays out: agent CLIs are installed, updated and configured per machine
- * in Settings ▸ Agents (owner ruling 2026-09-25), and a marketplace row for one
- * would be a second list of the same thing with none of those controls.
  */
 export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
   return registryEntriesForKinds(plugins, ['mcp', 'skills', 'module'])
@@ -158,7 +154,7 @@ export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): Connec
 // detail/install flow, no parallel presentation model.
 export function registryEntriesForKinds(
   plugins: MarketplacePluginEntry[],
-  kinds: readonly MarketplaceComponentKind[],
+  kinds: readonly MarketplaceProvidesKind[],
 ): ConnectorEntry[] {
   return plugins
     .filter((plugin) => plugin.provides.some((kind) => kinds.includes(kind)))

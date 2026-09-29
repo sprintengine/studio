@@ -1,9 +1,10 @@
 # Wire compatibility
 
 Studio talks to software it does not ship with: another Studio on your tailnet,
-and the phone app. Both ends update on their own schedule, so neither can assume
-the other is the same build. This file is the policy for what that obliges you
-to do when you change something that crosses the gap.
+the phone app, and the extensions people install into it. Both ends update on
+their own schedule, so neither can assume the other is the same build. This
+file is the policy for what that obliges you to do when you change something
+that crosses the gap.
 
 It is short on purpose. The one thing it must get across: **a wire format is not
 a private data structure, and changing one is not a local edit.**
@@ -15,6 +16,7 @@ a private data structure, and changing one is not a local edit.**
 | Tailnet transport — Studio driving another Studio                                 | `TAILNET_TRANSPORT_VERSION` (integer)    | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
 | Mobile control — the phone reading and driving a desktop over the tailnet gateway | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions`             | `src/main/mobile/control/protocol.ts`           |
 | MCP                                                                               | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
+| Module host API — an installed extension built against `@sprintengine/module-sdk` | `HOST_API_VERSION` (integer)             | `HOST_API_MIN_SUPPORTED` .. current                  | `src/shared/modules/host-api.ts`                |
 
 One more version number is near these and is **not** a wire window: the
 backlog item schema version is a file format, and is not negotiated with a peer.
@@ -72,6 +74,49 @@ Bump the version instead when the change is not additive: a field that changes
 meaning or type, a field that is removed, a response whose shape a peer is
 already parsing. Nothing a capability flag can describe should bump the version,
 and nothing a capability flag cannot describe should ship without one.
+
+## The module host API
+
+An extension is compiled against `@sprintengine/module-sdk` and runs inside
+whatever Studio later loads it, so the contract between them — the `MainHost`
+and `RendererHost` members, the services behind the SDK's `get*Service`
+helpers, the manifest fields — is a wire in the sense of this file, even though
+nothing crosses a network.
+
+- **The version.** `HOST_API_VERSION = 1`, `HOST_API_MIN_SUPPORTED = 1`. Both
+  are declared once, in `packages/module-sdk/src/host-api.ts`, and re-exported
+  for app code by `src/shared/modules/host-api.ts`, so the app, the SDK and the
+  `sprintengine-module` CLI cannot disagree about them. The drift guard
+  (`npm run test:sdk:drift`) pins the two sides anyway.
+- **The declaration.** A third-party manifest must carry
+  `"engines": { "hostApi": <n> }`. First-party modules ship with the host they
+  run on and may omit it.
+- **The window.** A module loads when `HOST_API_MIN_SUPPORTED <= n <=
+HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
+  applied when modules are planned at startup (`src/main/modules/host-api-gate.ts`),
+  when renderer entries are served (`third-party-renderer-entries.ts`), when a
+  module's state is shown (`src/shared/modules/resolve.ts`, as
+  `incompatible_host_api` rather than "not trusted"), and by the CLI's `sign`,
+  `verify` and `pack`. A refusal names both numbers and which side to update —
+  the same rule as the integer wires above.
+- **Unlike the integer wires, the window is not one version wide by rule.** An
+  extension is not a peer that updates alongside the app; raise
+  `HOST_API_MIN_SUPPORTED` only when the host genuinely stops providing
+  something older modules were promised, and say so in the SDK's
+  `CHANGELOG.md`.
+- **Capabilities.** `host.supports(name)` answers what the running host
+  provides now, from the table in `src/shared/modules/host-api.ts`
+  (`hostSupports`). The names are the SDK's `HostCapability` union:
+  `conversations`, `chat.open`, `companion-agents`, `automations`, `secrets`,
+  `github`, `storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`.
+  A capability joins the table in the same change that makes it real, and an
+  unknown name answers `false`. As on the tailnet, an additive feature ships as
+  a capability with no version bump.
+- **When to bump.** Removing or changing a host member, a service method or a
+  manifest field that a module built for the current version may use. Adding
+  an optional member, a service, a capability or a permission is additive.
+  `scripts/release/sdk-release-check.mjs` (run by `npm run test:release`) checks
+  that the version quoted here matches the source.
 
 ## The mobile wire lives in this tree
 

@@ -5,8 +5,9 @@ import type { AutomationProviderRegistryService } from '../automations/provider-
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
-import type { AgentSessionsModuleRegistry } from '../agent-sessions-module-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
+import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
+import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -37,6 +38,15 @@ export const WorkspaceSyncServiceToken =
 // resolve this rather than reaching for the bus, which only carries events.
 // Creation still goes through WorkspaceServiceToken below, which writes here.
 export const WorkspaceRegistryToken = createServiceToken<AppServices['workspaceRegistry']>('core.workspace-registry')
+// The host-internal chat services: the one path that starts a chat in main (a
+// module's `create`, an automation run's agent, a paired machine's New chat)
+// and the conversation runtime those chats run on. First-party only — neither
+// key is on the third-party service list; a module reaches chats through the
+// moduleId-scoped ConversationModuleServiceToken below.
+export const ConversationLaunchServiceToken =
+  createServiceToken<AppServices['conversationLaunchService']>('core.conversation-launch')
+export const ConversationRuntimeToken =
+  createServiceToken<AppServices['conversationRuntime']>('core.conversation-runtime')
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>('automations.engine')
 // Key mirrors the private service token used by module-sdk's Automations helpers.
 export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(
@@ -66,10 +76,15 @@ export const CompanionAgentServiceToken = createServiceToken<CompanionAgentServi
 export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
   'companion-agents.module-service',
 )
-// The moduleId-scoped agent-sessions registry: terminal agents a module spawns,
-// prompts, stops and lists under its own agent-id namespaces (D5). Key mirrors
-// the private token behind the SDK's getAgentSessionService helper, and every
-// method on it checks the module's `agents:session` permission.
-export const AgentSessionsModuleServiceToken = createServiceToken<AgentSessionsModuleRegistry>(
-  'agent-sessions.module-service',
-)
+// The moduleId-scoped conversation registry: chats a module creates, drives
+// and reads, checked per call against `conversation:read` /
+// `conversation:operate` and the chat's owner. Key mirrors the private token
+// behind the SDK's getConversationService helper.
+export const ConversationModuleServiceToken =
+  createServiceToken<ModuleConversationRegistry>('conversation.module-service')
+// Per-module brokered secrets (`secrets` permission). Key mirrors the private
+// token behind the SDK's getSecretsService helper.
+export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>('module-secrets.module-service')
+// The signed-in user's GitHub, brokered per module (`github` permission). Key
+// mirrors the private token behind the SDK's getGitHubService helper.
+export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>('github.module-service')

@@ -20,14 +20,17 @@ afterEach(() => {
 // An unsigned module on disk the user can trust: its manifest lists the
 // digests of its files. The entry registers an IPC channel, so a load shows up
 // in what the host handled.
-function writeModule(id: string, options: { files?: boolean } = {}): { root: string; moduleRoot: string } {
+function writeModule(
+  id: string,
+  options: { files?: boolean; entry?: string } = {},
+): { root: string; moduleRoot: string } {
   const root = mkdtempSync(join(tmpdir(), 'mc-main-loader-'))
   temps.push(root)
   const moduleRoot = join(root, id)
   mkdirSync(join(moduleRoot, 'dist'), { recursive: true })
   writeFileSync(
     join(moduleRoot, 'dist', 'main.cjs'),
-    `exports.registerMain = (host) => host.registerIpc('${id}:ping', () => 'pong')\n`,
+    options.entry ?? `exports.registerMain = (host) => host.registerIpc('${id}:ping', () => 'pong')\n`,
   )
   const manifest = {
     id,
@@ -99,4 +102,18 @@ test('a user-trusted module whose manifest lists no files does not load', () => 
   assert.deepEqual(report.loaded, [])
   assert.equal(handled.includes('undigested:ping'), false)
   assert.equal(planned.ineligible.undigested, 'untrusted')
+})
+
+test("an async registerMain's rejection reaches the loader, which drops the module", async () => {
+  const { root } = writeModule('async-fails', {
+    entry: 'exports.registerMain = async () => { throw new Error("boot failed") }\n',
+  })
+  const planned = planThirdPartyMainModules(
+    discoverUserModulesSync(root, { trustedModules: grantFor(root, 'async-fails') }),
+  )
+  const { ipcMain } = createFakeIpcMain()
+  const loaded = loadMainModules({ ipcMain, modules: planned.modules, ineligible: planned.ineligible })
+  await loaded.ready
+  assert.equal(loaded.report.loaded.includes('async-fails'), false)
+  assert.match(loaded.report.errors.find((error) => error.id === 'async-fails')?.message ?? '', /boot failed/)
 })

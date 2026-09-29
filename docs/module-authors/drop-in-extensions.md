@@ -1,37 +1,50 @@
-# Drop-in extensions: modules and CLI plugins
+# Drop-in extensions: modules and conversation providers
 
-SprintEngine Studio picks up two kinds of third-party extension from per-user
-folders, discovered on launch. Both folders are created (and seeded with a
-README) the first time the app runs — including on a packaged install — so there
-is always a discoverable place to drop things.
+SprintEngine Studio picks up two kinds of extension from per-user folders,
+discovered on launch. Both folders are created (and seeded with a README) the
+first time the app runs — including on a packaged install — so there is always
+a discoverable place to drop things.
 
 | Kind | Folder | Manifest | Surfaced in |
 | --- | --- | --- | --- |
-| **Capability module** | `~/.sprintengine/modules/<id>/` | `manifest.json` | Settings → Modules |
-| **CLI plugin (BYO CLI)** | `~/.sprintengine/plugins/<id>/` | `plugin.json` | Settings → Agents |
+| **Capability module** | `~/.sprintengine/modules/<id>/` | `manifest.json` | Settings → Modules, the Extensions door |
+| **Conversation provider** | `~/.sprintengine/plugins/<id>/` | `plugin.json` with `"kind": "provider"` | Settings → Providers |
 
-In both cases the folder name must equal the manifest `id`. A user plugin with
-the same id as a bundled CLI overrides the bundled one.
+In both cases the folder name must equal the manifest `id`. Agent CLIs are not
+drop-in: they ship with the app, and nothing a user installs adds or replaces
+one. A provider in the plugins folder that reuses any built-in id is refused
+with the reason, and the built-in one stays.
 
 The module root can be relocated with the `SPRINTENGINE_USER_MODULE_ROOT`
-environment variable (used by the dev harness); plugins always resolve under
-`~/.sprintengine/plugins`.
+environment variable (the dev harness and a template's `dev:install` honour
+it); providers always resolve under `~/.sprintengine/plugins`.
 
 ## Capability modules
 
 A capability module extends the app itself — main-process services and IPC,
-renderer panels, workspace types, commands, Backlog actions, settings
-sections, sidebar nav doors, and modal surfaces (`registerModalSurface`: a
-body mounted in the shell's modal shell, floated over whatever the window is
-showing, optionally with a `launcher` row in the workspace pane's kind list)
-— through the `MainHost` / `RendererHost`
-contracts. Modules are trust-gated: only modules the user has trusted execute
-code.
+renderer panels, workspace types, commands, Backlog and Files actions,
+settings sections, sidebar doors, top-bar controls, modal surfaces, MCP tools
+agents can call, and chats of its own with the app's agents — through the
+`MainHost` / `RendererHost` contracts. Modules are trust-gated: only modules
+the user has trusted execute code.
 
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
+  The fastest start is a template:
+  `npx -p @sprintengine/module-sdk sprintengine-module init my-extension --template panel`,
+  or **Build your own extension** in the Extensions door, which scaffolds the
+  project and opens a chat with an agent primed by the
+  `sprintengine-extension-builder` skill.
+- Declare the host API the module was built for: `"engines": { "hostApi": 1 }`.
+  A module without it, or built for a host API this app does not load, is
+  refused with a message saying which side to update — never shown as merely
+  "not trusted".
 - Validate, sign, and pack with the bundled `sprintengine-module` CLI. `sign`
   records the sha256 of every file the module ships in the manifest's `files`
   field, so the signature covers the code, not only the manifest.
+- **`files` is required.** A module whose manifest lists no `files` does not
+  load, signed or not. A template's `npm run dev:install` writes it for an
+  unsigned local build (and signs when your key is at
+  `~/.sprintengine/keys/<id>.key`) before copying `module/` here.
 - Install the packed folder by dropping it into `~/.sprintengine/modules/<id>/`,
   or from **Settings → Modules → "Install a module from a folder"**, then grant
   trust. A folder with a symbolic link, `node_modules`, `.git` or key files in it
@@ -39,12 +52,34 @@ code.
 - Trust covers the files as well as the manifest. A publisher key vouches for a
   module only when its signed `files` match the folder exactly — a signed
   manifest without them is not trusted by key — and a grant you give binds to
-  the manifest's fingerprint, which covers its `files`. A module whose manifest
-  lists no `files` cannot be trusted at all; sign it (a key from `keygen` is
-  enough for your own machine). A changed, missing or extra file is refused as
-  tampered, when the app lists modules and again immediately before it runs
-  `entry.main`.
+  the manifest's fingerprint, which covers its `files`. A changed, missing or
+  extra file is refused as tampered, when the app lists modules and again
+  immediately before it runs `entry.main`.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
+
+### Installing from GitHub
+
+A module published in a GitHub repository installs from its URL: the
+Extensions door's **Install extension from GitHub…**, or **Add from GitHub** in
+Settings → Modules. The repository must carry:
+
+```
+plugin.json            at the root; components.module.path = "module"
+module/manifest.json   with "engines", "files" (and "signature" if signed)
+module/dist/…          the built bundles, committed
+```
+
+Studio resolves the default branch to a commit, reads `plugin.json` at the
+repository root at that commit, and shows the name, publisher, permissions and
+whether the module is signed before anything installs. Only `module/` is
+installed. A signed module installs through the normal trust prompt. An
+**unsigned** module is allowed, with a warning that nobody vouches for its code
+and an explicit "I trust this code" choice the install cannot proceed without;
+its `files` are still required, since they are what the installed folder is
+held to. An invalid signature is refused. An update resolves the commit again
+and asks again when the permissions, the disclosed MCP servers or the signing
+change. A repository with a `.claude-plugin/` folder is an agent skill source,
+not a Studio extension: add it from the Skills path.
 
 ### Creating a workspace from a module
 
@@ -107,6 +142,7 @@ bundle `plugin.json` (`sprintengine-module plugin sign`, which digests the
 module's signed manifest among its files) with that key, install, and restart
 the app. The order matters: signing the module rewrites its manifest, which the
 bundle's digests cover.
+
 ### Shipping skills with a module
 
 Skills are not a closed set the app compiles in. A module can carry its own
@@ -151,8 +187,9 @@ the marketplace registry as a signed plugin bundle:
    `sprintengine-module sign <module-dir> --key <key.pem>` and
    `sprintengine-module verify <module-dir>`. `sign` records a digest of every
    file the module ships; sign again after every build. Keep the private key
-   out of the module directory and out of version control; modules are
-   code-bearing, so an unsigned module bundle is hard-blocked from install.
+   out of the module directory and out of version control. The marketplace
+   takes signed module bundles only (GitHub installs are where unsigned code
+   is allowed, behind a warning).
 2. **Wrap it in a plugin bundle.**
    `sprintengine-module plugin scaffold <plugin-id> --component module`, replace
    the `module/` placeholder with your packed module
@@ -187,31 +224,19 @@ permissions from your verified manifest at install time, and the module in
 Settings → Modules once installed. Signed community bundles install through
 that trust prompt; a publisher key fingerprint listed in
 `trusted-publishers.json` installs without one; unsigned module bundles are
-rejected outright.
+rejected from the marketplace.
 
-## CLI plugins (BYO CLI)
+## Conversation providers
 
-A CLI plugin adds a new agent CLI (claude-code, codex, opencode, your own). It
-is **not** a capability module — it is a declarative `plugin.json` describing
-how to launch, resume, inject prompts into, and detect completion for a CLI.
+A conversation provider adds a model provider to Studio's chat: a
+`plugin.json` with `"kind": "provider"` naming the provider, its models and how
+it signs in (`providerType`, `models`, `auth`, and an OpenAI-compatible
+endpoint or an adapter). Drop it into `~/.sprintengine/plugins/<id>/`; it is
+picked up on the next launch. An executable adapter must be signed by a
+publisher you trust before it runs. `resources/plugins/claude-agent`,
+`openrouter` and `xai` in the app repository are worked examples, and
+`src/shared/plugin-manifest.ts` is the shape.
 
-- The authoring contract is `CliPluginManifest` in `@sprintengine/module-sdk`;
-  `validateCliPluginManifest` is the **same validator the app runs** on load
-  (the app imports it from the SDK), so a manifest it accepts will load. The
-  SDK type is the launch/resume/detect core; the bundled manifests also carry
-  the presentation and installation fields the app's own `PluginManifest`
-  models (`summary`, `category`, `icon`, `detect`, `install`, `update`,
-  `package`) — read `src/shared/plugin-manifest.ts` for those.
-- The bundled CLI plugins under `resources/plugins/` are the worked examples:
-  each is a `plugin.json` in the shape a user plugin takes.
-- Install by dropping the folder into `~/.sprintengine/plugins/<id>/`, or from
-  **Settings → Agents → "Install a CLI from a folder"**. New plugins are picked
-  up immediately on install, on the next launch, or when you press **Re-check
-  every CLI now**.
-
-Declarative CLI plugins run no code of their own — they only configure how the
-app spawns an external binary you already trust — so they are not gated behind
-the module trust prompt. (Executable *provider* adapters, a separate provider
-manifest kind — `kind: "provider"`, the shape `resources/plugins/claude-agent`,
-`openrouter` and `xai` take — are signature-gated; see
-`src/shared/plugin-manifest.ts`.)
+Agent CLIs (`kind: "cli"`) are not loaded from this folder: they ship with the
+app, and their manifest contract is the app's own
+(`src/shared/cli-plugin-manifest.ts`), not part of the SDK.

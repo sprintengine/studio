@@ -129,6 +129,25 @@ export const CONVERSATION_PERMISSION_PRESETS = ['none', 'bypass'] as const
 
 export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
+/**
+ * An MCP server a chat's session is started with, on top of whatever the
+ * person's own CLI configuration loads: a connector automation's server, or
+ * the app's own gateway. The fields an installed server (`McpServerConfig`)
+ * carries for the CLI; `envVarNames` names variables the CLI hands the server
+ * from its own environment (an HTTP server's bearer token is the first).
+ */
+export type ConversationMcpServer = {
+  id: string
+  name: string
+  transport: 'stdio' | 'http' | 'sse'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  envVarNames?: string[]
+}
+
 export type ConversationStartSessionInput = {
   workspaceRoot: string
   workspaceId: string
@@ -146,6 +165,10 @@ export type ConversationStartSessionInput = {
   // (AskUserQuestion) still surface as cards — unlike bypass, which would
   // silence them entirely.
   allowedTools?: string[]
+  // MCP servers this session alone runs with. Main-only: a start that comes
+  // over IPC never carries them. A provider that cannot take servers per
+  // session refuses a start that names any, rather than running without them.
+  mcpServers?: ConversationMcpServer[]
 }
 
 export type ConversationProvidersListInput = {

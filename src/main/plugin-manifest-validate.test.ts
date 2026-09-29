@@ -4,14 +4,14 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 
 import { validateManifestStructure } from './plugin-manifest-validate'
-import { validateCliPluginManifest } from '../../packages/module-sdk/src/cli-manifest'
+import { validateCliPluginManifest } from '../shared/cli-plugin-manifest'
 
-// CLI manifest validation is single-sourced in the SDK; the app's
-// validateManifestStructure delegates its CLI branch to validateCliPluginManifest.
-// These tests (1) pin the accept/reject behavior on a corpus so a future change
-// to the validator can't silently change what the app loads, and (2) assert the
-// app and the SDK reach the SAME verdict for every case — the drift guard that
-// keeps the published authoring contract and the app's loader in lockstep.
+// validateManifestStructure delegates its CLI branch to validateCliPluginManifest
+// (shared/cli-plugin-manifest.ts). These tests (1) pin the accept/reject
+// behavior on a corpus so a future change to the validator can't silently
+// change what the app loads, and (2) assert the registry's structure check and
+// the CLI validator reach the SAME verdict for every case, so the provider
+// branch can never swallow a CLI manifest the validator would refuse.
 
 const VALID_CLI = {
   id: 'demo-cli',
@@ -108,7 +108,7 @@ test('rejects every crafted-invalid manifest', () => {
   }
 })
 
-test('app and SDK reach the same verdict for every case (no drift)', () => {
+test('the structure check and the CLI validator reach the same verdict for every case', () => {
   const cases: Array<{ name: string; manifest: unknown }> = [
     { name: 'valid', manifest: VALID_CLI },
     ...bundledCliManifests().map(({ id, source }) => ({ name: `bundled:${id}`, manifest: JSON.parse(source) })),
@@ -116,7 +116,7 @@ test('app and SDK reach the same verdict for every case (no drift)', () => {
   ]
   for (const { name, manifest } of cases) {
     const app = validateManifestStructure(manifest).ok
-    const sdk = validateCliPluginManifest(manifest).ok
-    assert.equal(app, sdk, `app/SDK verdict drift on "${name}": app=${app} sdk=${sdk}`)
+    const cli = validateCliPluginManifest(manifest).ok
+    assert.equal(app, cli, `verdict drift on "${name}": structure=${app} cli=${cli}`)
   }
 })

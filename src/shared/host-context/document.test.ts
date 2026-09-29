@@ -80,29 +80,6 @@ test('document', async () => {
     assert.ok(doc.indexOf('## Design system') < doc.indexOf('## Knowledge graph'))
   })
 
-  run('a module section sits after the design-system and knowledge sections', () => {
-    const doc = buildHostContextDocument({
-      designSystem: { bundlePath: '/Users/dev/project/design-system' },
-      knowledge: { ok: true, rootPath: '/Users/dev/project/knowledge', relativeRoot: 'knowledge' },
-      moduleSections: [{ heading: 'Weather Deck', body: 'Use the weather CLI for forecast tools.' }],
-    })
-    assert.ok(doc)
-    const design = doc.indexOf('## Design system')
-    const knowledge = doc.indexOf('## Knowledge graph')
-    const module = doc.indexOf('## Weather Deck')
-    assert.ok(design >= 0 && knowledge > design && module > knowledge)
-    assert.ok(doc.includes('Use the weather CLI for forecast tools.'))
-  })
-
-  run('a module section alone still produces a document', () => {
-    const doc = buildHostContextDocument({
-      moduleSections: [{ heading: 'Weather Deck', body: 'Forecasts are available.' }],
-    })
-    assert.ok(doc)
-    assert.equal(doc.split('\n')[0], HOST_CONTEXT_BOUNDARY_LINE)
-    assert.ok(doc.includes('## Weather Deck'))
-  })
-
   run('the prompt fallback puts the block AFTER the request', () => {
     const doc = buildHostContextDocument({ designSystem: { bundlePath: '/repo/design-system' } })
     const wrapped = wrapHostContextForPrompt(doc, 'Build the settings page.')

@@ -15,6 +15,7 @@ import { afterAll, beforeAll, test } from 'vitest'
 
 import { parseThirdPartyModuleManifest } from '../../../src/shared/modules/third-party-manifest'
 import { classifyModuleTrust, verifyModuleSignature } from '../../../src/main/modules/module-signature'
+import { HOST_API_VERSION } from '../src/host-api.js'
 import { canonicalManifestPayload } from '../src/manifest-validate.js'
 import { signManifest } from '../src/signing.js'
 
@@ -57,7 +58,13 @@ function writeModuleSource(): string {
   mkdirSync(join(dir, 'node_modules', 'left-pad'), { recursive: true })
   writeFileSync(
     join(dir, 'manifest.json'),
-    JSON.stringify({ id: 'files-fixture', displayName: 'Files fixture', version: 1, entry: { main: 'dist/main.cjs' } }),
+    JSON.stringify({
+      id: 'files-fixture',
+      displayName: 'Files fixture',
+      version: 1,
+      engines: { hostApi: HOST_API_VERSION },
+      entry: { main: 'dist/main.cjs' },
+    }),
   )
   writeFileSync(join(dir, 'dist', 'main.cjs'), 'exports.registerMain = () => {}\n')
   writeFileSync(join(dir, 'dist', 'assets', 'icon.svg'), '<svg/>\n')
@@ -83,6 +90,12 @@ test('sign embeds the digest of every file pack ships', () => {
   assert.deepEqual(Object.keys(manifest.files ?? {}), ['dist/assets/icon.svg', 'dist/main.cjs'])
   assert.match(manifest.files?.['dist/main.cjs'] ?? '', /^[0-9a-f]{64}$/)
   assert.equal(verifyModuleSignature(manifest).valid, true)
+  // The host API rides beside the digests, and the signature covers both.
+  assert.deepEqual(manifest.engines, { hostApi: HOST_API_VERSION })
+  const { engines: _engines, ...withoutEngines } = manifest
+  const { files: _files, ...withoutFiles } = manifest
+  assert.equal(verifyModuleSignature(withoutEngines).valid, false, 'engines is signed')
+  assert.equal(verifyModuleSignature(withoutFiles).valid, false, 'files is signed')
 
   const verified = runCli(['verify', dir])
   assert.equal(verified.status, 0, verified.stderr)

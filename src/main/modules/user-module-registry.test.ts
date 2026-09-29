@@ -291,15 +291,27 @@ test('a first-party manifest copied next to other code is not installed from a f
     const install = await installModuleFolder(src, root, ctx)
     assert.equal(install.ok, false)
     if (install.ok) return
-    assert.match(install.message, /publisher-locked/)
-    assert.ok(install.rejected.issues.some((issue) => /lists no digests of its code/.test(issue.message)))
+    assert.match(install.message, /tampered with|publisher-locked/)
+    // The copied manifest signs the real module's digests, which the swapped-in
+    // code does not match.
+    assert.ok(
+      install.rejected.issues.some(
+        (issue) => issue.path === 'files.dist/main.cjs' && /does not match the signed digests/.test(issue.message),
+      ),
+      JSON.stringify(install.rejected.issues),
+    )
     assert.equal(existsSync(join(root, 'review')), false, 'nothing was installed')
 
     // Dropped straight into the module root instead, discovery refuses it too.
     cpSync(src, join(root, 'review'), { recursive: true })
     const listed = await discoverUserModules(root, ctx)
     assert.deepEqual(listed.modules, [])
-    assert.match(listed.rejected[0]?.issues[0]?.message ?? '', /publisher-locked/)
+    assert.ok(
+      listed.rejected[0]?.issues.some((issue) =>
+        /publisher-locked|does not match the signed digests/.test(issue.message),
+      ),
+      JSON.stringify(listed.rejected),
+    )
   })
 })
 

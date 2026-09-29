@@ -12,15 +12,12 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
-import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { deriveActivityFromPhase } from '../agent-state'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import type { AutomationApprovalGate } from './approval-ledger'
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
-import { readTranscriptSummary } from './transcript-summary'
 import { completeAutomationRun as completeRun } from './run-record'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
@@ -85,10 +82,38 @@ export type AutomationRunPullRequestOpener = (input: {
 
 export type AutomationRunWorktreeRemover = (input: { workspaceRoot: string; worktreePath: string }) => Promise<void>
 
-// Disposes the run's spawned agent (kill terminal + drop tab + delete record) at
-// finalize, so a one-shot automation agent never outlives its torn-down worktree
-// and loop-relaunches into the dead cwd. Best-effort and idempotent.
+// Disposes the run's chat agent (stop its conversation session + delete its
+// record) at finalize, so a one-shot automation agent never outlives its
+// torn-down worktree and is never typed into against a dead working root.
+// Best-effort and idempotent.
 export type AutomationRunAgentDisposer = (input: { workspaceId: string; agentId: string }) => Promise<void>
+
+// A turn of a chat conversation, as the owning module routes it from the
+// conversation runtime. Every chat's turns arrive here; only a run's own agent
+// (matched on its sessionId, else its workspaceId and agentId) does anything.
+// `turn_completed` is a turn that really ended — a turn a steer closed carries
+// on as the next one and is not routed as an end.
+export type AutomationConversationTurnEvent = {
+  type: 'turn_started' | 'turn_completed' | 'turn_failed'
+  sessionId?: string | null
+  workspaceId: string | null
+  agentId: string
+  // Background agents the conversation still had running when the turn ended.
+  // They keep it working after its turn, so a turn end with any left is not
+  // the run's end.
+  backgroundAgents?: number
+}
+
+// The end of a run's conversation with no turn end behind it: its session
+// closed (stopped, or its provider went away), or its first message never
+// became a turn at all.
+export type AutomationConversationEndEvent = {
+  reason: 'session_closed' | 'first_send_failed'
+  sessionId?: string | null
+  workspaceId?: string | null
+  agentId?: string
+  message?: string
+}
 
 export type AutomationsEngineOptions = {
   // The approval ledger. Required, so no engine is ever built that runs a
@@ -129,17 +154,22 @@ export type AutomationsEngineOptions = {
   openRunPullRequest?: AutomationRunPullRequestOpener
   removeRunWorktree?: AutomationRunWorktreeRemover
   disposeRunAgent?: AutomationRunAgentDisposer
-  // Live agent-session executionIds, used by the startup reconcile to tell an
-  // orphaned pending run (agent gone while the studio was down) from one whose
-  // agent is still live. Absent in tests that do not exercise reconcile.
-  getLiveAgentExecutionIds?: () => string[]
+  // Live conversation sessionIds, used by the startup reconcile to tell an
+  // orphaned pending run (its conversation gone while the studio was down)
+  // from one whose conversation is still live. Absent in tests that do not
+  // exercise reconcile.
+  getLiveConversationSessionIds?: () => string[]
   // How long a turn-end must stand before it finalizes the run (see
   // DEFAULT_TURN_SETTLE_MS). Injectable so tests do not wait it out.
   turnSettleMs?: number
-  // Reads the run summary from an agent transcript (defaults to
-  // transcript-summary's reader). Injectable so tests can hold the read open
-  // and pin the finalize races that live inside its await.
-  readRunTranscriptSummary?: (transcriptPath: string) => Promise<string | undefined>
+  // Reads the run summary from the run's conversation: its last reply.
+  // Absent, a completed run gets the generic summary. Injectable so tests can
+  // hold the read open and pin the finalize races that live inside its await.
+  readRunConversationSummary?: (input: {
+    sessionId?: string
+    workspaceId?: string
+    agentId?: string
+  }) => Promise<string | undefined>
   // Backstop cap on a pending agent run's wall-clock life (see
   // DEFAULT_MAX_AGENT_RUN_MS).
   maxAgentRunMs?: number
@@ -148,26 +178,23 @@ export type AutomationsEngineOptions = {
 type EvaluationMode = 'startup' | 'timer'
 
 // A turn-end that has been observed and is waiting out the settle window. A
-// working-phase frame for the same agent cancels it; the timer firing (or the
-// agent's pty exiting first) finalizes the run with this outcome.
+// new turn of the same conversation cancels it; the timer firing (or the
+// conversation ending first) finalizes the run with this outcome. The summary
+// is read at fire time, so a cancelled turn-end costs no read.
 type ArmedTurnEnd = {
   outcome: 'completed' | 'failed'
-  // Untrusted reporter path; read best-effort at fire time (transcript-summary
-  // is the containment boundary), so a cancelled turn-end costs no file read.
-  transcriptPath?: string
   timer: ReturnType<typeof setTimeout>
-  // Single-flight finalize. Set when the settle timer (or a racing pty exit)
-  // fires the turn-end; the armed record stays on the run until finalizeRun
-  // takes over, so an exit landing during the transcript read joins this
-  // promise instead of recording `failed` over a successful run.
+  // Single-flight finalize. Set when the settle timer (or a racing session
+  // close) fires the turn-end; the armed record stays on the run until
+  // finalizeRun takes over, so a close landing during the summary read joins
+  // this promise instead of recording `failed` over a successful run.
   finalizing?: Promise<void>
 }
 
 // An agent-backed run that was dispatched as `running` and is awaiting its
-// agent's terminal outcome. Correlated to agent-state phase frames by
-// (workspaceId, agentId) — the pair every frame carries and every launched run
-// records — so finalization never depends on an executionId the launch probe
-// may have missed.
+// conversation's outcome. Correlated to conversation events by the sessionId
+// the launch returned, or by (workspaceId, agentId) — the pair every event
+// carries and every launched run records.
 type PendingAgentRun = {
   workspaceRoot: string
   automationId: string
@@ -176,17 +203,31 @@ type PendingAgentRun = {
   worktreePath?: string
   workspaceId?: string
   agentId?: string
-  // Terminal-session executionId of the run's spawned agent, when it was
-  // resolvable. Only the pty-exit path and the startup reconcile use it; the
-  // phase path does not need it.
-  executionId?: string
+  // The conversation session the run's launch started. The startup reconcile
+  // reads it to tell a live conversation from one the restart ended.
+  sessionId?: string
   // Wall-clock start, for the max-duration sweep.
   startedAtMs: number
-  // A turn-end can only finalize a run that was seen working first, so an idle
-  // frame arriving before the prompt lands cannot dispose a live agent.
+  // A turn-end can only finalize a run that was seen working first, so a turn
+  // end of anything but the run's own prompt cannot dispose a live agent.
   observedWorkingPhase: boolean
   armedTurnEnd?: ArmedTurnEnd
 }
+
+// Conversation events for a chat no pending run matched yet. A run's agent
+// starts its first turn while the launch is still being recorded — the first
+// message goes out as the session comes up, and the run is registered only
+// once the executor has returned and the run is on disk — so the start of the
+// turn (and, for a fast failure, its end) can arrive before the run it
+// belongs to. They wait here, by chat, and are replayed when a run for that
+// chat is registered. Bounded: every chat's events pass through, and only the
+// newest few chats need remembering.
+type UnmatchedConversationEvent =
+  | { kind: 'turn'; event: AutomationConversationTurnEvent; at: number }
+  | { kind: 'end'; event: AutomationConversationEndEvent; at: number }
+const MAX_UNMATCHED_CONVERSATIONS = 32
+const MAX_UNMATCHED_EVENTS_PER_CONVERSATION = 8
+const UNMATCHED_CONVERSATION_EVENT_TTL_MS = 60_000
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000
 
@@ -249,21 +290,17 @@ export function nextAutomationsWakeDelayMs(input: AutomationsWakeInput): number 
   return Math.max(MIN_WAKE_DELAY_MS, Math.ceil(delay))
 }
 
-// A turn end is not the same as being done: a Stop hook in the user's own repo
-// settings can continue the turn, an agent can end its turn to ask a question,
-// plan mode ends a turn, and ESC ends a turn. Finalizing is destructive (opens a
-// PR, removes the worktree, kills the agent), so an armed turn-end waits this
-// long and any working-phase frame in the window disarms it.
+// A turn end is not the same as being done: an agent can carry on by itself
+// (a background agent finishing, a hook in the user's own settings continuing
+// the turn), and it can end its turn to ask a question. Finalizing is
+// destructive (opens a PR, removes the worktree, disposes the agent), so an
+// armed turn-end waits this long and a new turn in the window disarms it.
 const DEFAULT_TURN_SETTLE_MS = 15_000
 
-// Bounded backstop for runs whose agent never reports a turn end. Every
-// selectable agent CLI reports via lifecycle hooks now (the hook-capable gate),
-// so this is no longer "the hookless-CLI path" — it survives because frame
-// delivery is best-effort over a local socket: a lost Stop frame, a reporter
-// install that failed on a read-only tree, or a hook system the CLI vendor
-// broke in an update all leave a run with no turn end. Past this age a pending
-// run is failed rather than left Running forever — the bug this whole path
-// exists to fix.
+// Bounded backstop for runs whose conversation never reports a turn end: a
+// provider that hangs mid-turn, or an event lost to a crash between the
+// runtime and this engine. Past this age a pending run is failed rather than
+// left Running forever — the bug this whole path exists to fix.
 const DEFAULT_MAX_AGENT_RUN_MS = 6 * 60 * 60 * 1000
 
 // Why a definition that is waiting for approval did not run, in the words the
@@ -286,12 +323,14 @@ export class AutomationsEngine {
   private readonly openRunPullRequest?: AutomationRunPullRequestOpener
   private readonly removeRunWorktree?: AutomationRunWorktreeRemover
   private readonly disposeRunAgent?: AutomationRunAgentDisposer
-  private readonly getLiveAgentExecutionIds?: () => string[]
+  private readonly getLiveConversationSessionIds?: () => string[]
   private readonly turnSettleMs: number
   private readonly maxAgentRunMs: number
-  private readonly readRunTranscriptSummary: (transcriptPath: string) => Promise<string | undefined>
+  private readonly readRunConversationSummary?: AutomationsEngineOptions['readRunConversationSummary']
   private readonly inFlight = new Set<string>()
   private readonly pendingAgentRuns = new Map<string, PendingAgentRun>()
+  // Keyed by chat (workspaceId, agentId); insertion order is age.
+  private readonly unmatchedConversationEvents = new Map<string, UnmatchedConversationEvent[]>()
   // Per-run finalize lock (pendingRunKey shape). Closes the manual-IPC vs
   // signal-scan TOCTOU: only the first caller finalizes; a concurrent caller
   // gets the in-progress/terminal run back instead of double-opening a PR.
@@ -332,10 +371,10 @@ export class AutomationsEngine {
     this.openRunPullRequest = options.openRunPullRequest
     this.removeRunWorktree = options.removeRunWorktree
     this.disposeRunAgent = options.disposeRunAgent
-    this.getLiveAgentExecutionIds = options.getLiveAgentExecutionIds
+    this.getLiveConversationSessionIds = options.getLiveConversationSessionIds
     this.turnSettleMs = Math.max(0, Math.floor(options.turnSettleMs ?? DEFAULT_TURN_SETTLE_MS))
     this.maxAgentRunMs = Math.max(1_000, Math.floor(options.maxAgentRunMs ?? DEFAULT_MAX_AGENT_RUN_MS))
-    this.readRunTranscriptSummary = options.readRunTranscriptSummary ?? readTranscriptSummary
+    this.readRunConversationSummary = options.readRunConversationSummary
   }
 
   start(): void {
@@ -440,7 +479,7 @@ export class AutomationsEngine {
     // Armed turn-ends are cleared unconditionally: a settle timer that survives
     // stop() would finalize a run — opening a PR and disposing an agent — for an
     // engine the app has already torn down. Disarming also aborts an in-flight
-    // armed finalize at its post-transcript-read check; only a finalize that has
+    // armed finalize at its post-summary-read check; only a finalize that has
     // already entered finalizeRun still runs to completion.
     for (const pending of this.pendingAgentRuns.values()) this.disarmTurnEnd(pending)
     if (!this.started && this.timer === null) return
@@ -782,49 +821,40 @@ export class AutomationsEngine {
     }
   }
 
-  // The finalize trigger for the happy path: an accepted agent-state phase
-  // transition for one of this app's agent terminals. Frames for agents that own
-  // no pending run (every non-automation agent) fall straight through.
+  // The finalize trigger for the happy path: a turn of a chat conversation.
+  // Turns of chats that own no pending run (every chat but a run's agent) are
+  // held briefly in case their run is still being recorded, then forgotten.
   //
-  // A working phase marks the run as having done work and disarms any settle
-  // timer. A turn end (or an OpenCode session error) arms one, but only past the
-  // guards — each of which stands between a live agent and a destructive
-  // finalize that opens a PR from half-finished work, removes the agent's cwd,
-  // and kills it:
-  //   - the event is a real turn end, not a Task subagent's (the manifest-
-  //     resolved turnEnd flag owns this: SubagentStop maps to the same phase as
-  //     Stop, so the phase alone cannot tell them apart);
-  //   - the run has been seen working, so a stray idle frame before the prompt
-  //     lands cannot finalize instantly;
-  //   - the agent has no wakeup armed — a self-paced (/loop) agent intends to
-  //     resume, and pendingWakeupAt is resolved from the SESSION because the
-  //     reporter never attaches a wakeup to a turn-end frame;
-  //   - the settle window elapses with no further work (see DEFAULT_TURN_SETTLE_MS).
-  async noteAgentPhase(event: AgentPhaseEvent): Promise<void> {
-    const pending = this.findPendingRunByAgent(event.workspaceId, event.agentId)
-    if (!pending) return
-    // Backfill an executionId the launch probe missed, so the pty-exit path can
-    // still correlate on it for a run whose agentId is somehow absent.
-    if (event.executionId && !pending.executionId) pending.executionId = event.executionId
+  // A turn start marks the run as having done work and disarms any settle
+  // timer. A turn end arms one, but only past the guards — each of which stands
+  // between a live agent and a destructive finalize that opens a PR from
+  // half-finished work, removes the agent's working root, and disposes it:
+  //   - the run has been seen working, so a turn end that is not the end of
+  //     the run's own prompt cannot finalize it;
+  //   - the conversation has no background agents still running — they keep it
+  //     working past its turn, and it carries on with a new turn when they
+  //     report back;
+  //   - the settle window elapses with no new turn (see DEFAULT_TURN_SETTLE_MS).
+  async noteConversationTurn(event: AutomationConversationTurnEvent): Promise<void> {
+    const pending = this.findPendingRunForConversation(event)
+    if (!pending) {
+      this.rememberUnmatchedConversationEvent({ kind: 'turn', event, at: this.now() })
+      return
+    }
+    if (event.sessionId && !pending.sessionId) pending.sessionId = event.sessionId
 
-    // "Working" is read through the shared phase vocabulary rather than a local
-    // phase list, so a new working phase cannot silently stop cancelling a
-    // settle timer here.
-    if (deriveActivityFromPhase(event.phase, event.ts)?.kind === 'working') {
+    if (event.type === 'turn_started') {
       pending.observedWorkingPhase = true
       this.disarmTurnEnd(pending)
       return
     }
 
-    const failed = event.turnFailure
-    if (!failed && !event.turnEnd) return
     if (!pending.observedWorkingPhase) return
-    if (event.pendingWakeupAt !== null && event.pendingWakeupAt > this.now()) return
+    if (event.type === 'turn_completed' && (event.backgroundAgents ?? 0) > 0) return
     if (pending.armedTurnEnd) return
 
     pending.armedTurnEnd = {
-      outcome: failed ? 'failed' : 'completed',
-      transcriptPath: event.transcriptPath,
+      outcome: event.type === 'turn_failed' ? 'failed' : 'completed',
       timer: setTimeout(() => {
         void this.finalizeArmedTurnEnd(pending)
       }, this.turnSettleMs),
@@ -832,55 +862,56 @@ export class AutomationsEngine {
     pending.armedTurnEnd.timer.unref?.()
   }
 
-  // Agent-lifecycle finalize trigger: the owning module routes a real agent-
-  // session pty exit here. Correlates on the executionId or on
-  // (workspaceId, agentId); an exit matching no pending run (a non-automation
-  // agent, or an already-finalized run) is ignored.
+  // The other finalize trigger: the run's conversation ended with no turn end
+  // behind it — its session closed, or its first message was refused. The
+  // owning module routes both here. Correlates on the sessionId or on
+  // (workspaceId, agentId); an end matching no pending run (any other chat, or
+  // an already-finalized run) is held like an unmatched turn and then ignored.
   //
-  // An armed turn-end WINS over the exit: an agent that finished its turn and
-  // then exited inside the settle window succeeded, and recording it as failed
-  // would throw away its PR. Only an exit with no turn-end behind it is a
-  // failure. Routed 'timer' so a failed auto-finalize still emits a run-event
-  // while a completed one stays silent. Shares finalizeRun's lock and
-  // idempotency, so a concurrent tick/manual finalize still yields one record.
-  async finalizeRunOnAgentExit(input: {
-    executionId?: string
-    workspaceId?: string
-    agentId?: string
-    exitCode: number
-  }): Promise<void> {
-    const executionId = input.executionId?.trim()
-    const pending =
-      (executionId ? this.findPendingRunByExecutionId(executionId) : undefined) ??
-      this.findPendingRunByAgent(input.workspaceId ?? null, input.agentId ?? '')
-    if (!pending) return
+  // An armed turn-end WINS over the end: an agent that finished its turn and
+  // whose session then closed inside the settle window succeeded, and
+  // recording it as failed would throw away its PR. Only an end with no
+  // turn-end behind it is a failure. Routed 'timer' so a failed auto-finalize
+  // still emits a run-event while a completed one stays silent. Shares
+  // finalizeRun's lock and idempotency, so a concurrent tick/manual finalize
+  // still yields one record.
+  async finalizeRunOnConversationEnd(input: AutomationConversationEndEvent): Promise<void> {
+    const pending = this.findPendingRunForConversation(input)
+    if (!pending) {
+      this.rememberUnmatchedConversationEvent({ kind: 'end', event: input, at: this.now() })
+      return
+    }
 
     if (pending.armedTurnEnd) {
       await this.finalizeArmedTurnEnd(pending)
-      // The armed finalize can abort if a straggler working frame disarmed it
-      // mid-transcript-read. The pty is gone either way, so a run the abort
-      // left pending falls through to the exit outcome below instead of
+      // The armed finalize can abort if a straggler turn start disarmed it
+      // mid-summary-read. The conversation is over either way, so a run the
+      // abort left pending falls through to the end's outcome below instead of
       // hanging until the max-duration sweep.
       if (!this.pendingAgentRuns.has(this.pendingRunKey(pending.workspaceRoot, pending.automationId, pending.runId))) {
         return
       }
     }
+    const detail = input.message?.trim()
     await this.finalizeRun({
       workspaceRoot: pending.workspaceRoot,
       automationId: pending.automationId,
       runId: pending.runId,
       outcome: 'failed',
-      summary: `The agent stopped before it finished (exit code ${input.exitCode}).`,
+      summary:
+        input.reason === 'first_send_failed'
+          ? `The agent never started on the task: ${detail || 'its first message was refused.'}`
+          : `The agent stopped before it finished${detail ? `: ${detail}` : '.'}`,
       workspaceId: pending.workspaceId,
       eventTrigger: 'timer',
     })
   }
 
-  // Fire an armed turn-end. Single-flight: the settle timer and a racing pty
-  // exit share one in-flight finalize, so the armed outcome always wins over
-  // the exit's `failed`. The armed record stays on the run while the transcript
-  // is read; anything that disarms it during that read — a working-phase frame
-  // (the agent resumed), a manual finalize, stop() — aborts the finalize
+  // Fire an armed turn-end. Single-flight: the settle timer and a racing
+  // conversation end share one in-flight finalize, so the armed outcome always
+  // wins over the end's `failed`. The armed record stays on the run while the
+  // summary is read; anything that disarms it during that read — a new turn
+  // (the agent carried on), a manual finalize, stop() — aborts the finalize
   // instead of racing it.
   private finalizeArmedTurnEnd(pending: PendingAgentRun): Promise<void> {
     const armed = pending.armedTurnEnd
@@ -893,13 +924,18 @@ export class AutomationsEngine {
   }
 
   // The body of an armed turn-end finalize: derive the summary, then finalize.
-  // Best-effort by design — no transcript, or an unreadable one, degrades to a
+  // Best-effort by design — no reply, or one that cannot be read, degrades to a
   // generic summary and never blocks the finalize.
   private async finalizeTurnEnd(pending: PendingAgentRun, armed: ArmedTurnEnd): Promise<void> {
-    const transcriptSummary = armed.transcriptPath
-      ? await this.readRunTranscriptSummary(armed.transcriptPath)
-      : undefined
-    // Disarmed during the transcript read: the turn-end no longer stands, so
+    const replySummary =
+      armed.outcome === 'completed' && this.readRunConversationSummary
+        ? await this.readRunConversationSummary({
+            sessionId: pending.sessionId,
+            workspaceId: pending.workspaceId,
+            agentId: pending.agentId,
+          }).catch(() => undefined)
+        : undefined
+    // Disarmed during the summary read: the turn-end no longer stands, so
     // finalizing now would dispose an agent that is working again (or drive an
     // engine that has been stopped). finalizeRun below re-disarms and drops the
     // pending entry synchronously, so this check cannot miss its own finalize.
@@ -908,12 +944,12 @@ export class AutomationsEngine {
     // the cause in plain language and never in the runtime's vocabulary: a "turn"
     // is an agent-runtime concept, and a user reading their automation history has
     // no model for it. The completed fallback in particular must not overclaim —
-    // with no transcript, all that is actually known is that the agent stopped
+    // with no reply, all that is actually known is that the agent stopped
     // talking, so it says exactly that rather than "finished its turn".
     const summary =
       armed.outcome === 'failed'
         ? 'The agent hit an error and stopped before it finished.'
-        : (transcriptSummary ?? 'The agent finished, but left no summary of what it did.')
+        : replySummary?.trim() || 'The agent finished, but left no summary of what it did.'
     await this.finalizeRun({
       workspaceRoot: pending.workspaceRoot,
       automationId: pending.automationId,
@@ -1078,16 +1114,16 @@ export class AutomationsEngine {
   }
 
   // Startup reconciliation: an agent-backed run recorded `running` whose
-  // executionId is NOT among the live agent executions had its agent end while
-  // the studio was down — force-fail it. A run whose executionId is still live
-  // stays pending for its frames; a run with no recorded executionId is never
+  // sessionId is NOT among the live conversation sessions had its conversation
+  // end while the studio was down — force-fail it. A run whose session is still
+  // live stays pending for its turns; a run with no recorded sessionId is never
   // force-failed here (nothing proves its agent is gone) and is covered by the
   // max-duration sweep instead.
   private async reconcileOrphanedAgentRuns(): Promise<void> {
-    if (!this.getLiveAgentExecutionIds || this.pendingAgentRuns.size === 0) return
-    const liveExecutionIds = new Set(this.getLiveAgentExecutionIds())
+    if (!this.getLiveConversationSessionIds || this.pendingAgentRuns.size === 0) return
+    const liveSessionIds = new Set(this.getLiveConversationSessionIds())
     for (const pending of [...this.pendingAgentRuns.values()]) {
-      if (!pending.executionId || liveExecutionIds.has(pending.executionId)) continue
+      if (!pending.sessionId || liveSessionIds.has(pending.sessionId)) continue
       await this.finalizeRun({
         workspaceRoot: pending.workspaceRoot,
         automationId: pending.automationId,
@@ -1100,22 +1136,62 @@ export class AutomationsEngine {
     }
   }
 
-  private findPendingRunByExecutionId(executionId: string): PendingAgentRun | undefined {
+  // The run a conversation event belongs to. The sessionId the launch
+  // returned is the key when both sides have it — a chat whose session was
+  // replaced (a window restarting it) is then not mistaken for the run's —
+  // and (workspaceId, agentId), stamped on every agent-backed run at launch
+  // and carried by every event, is the key otherwise. A partial key matches
+  // nothing.
+  private findPendingRunForConversation(event: {
+    sessionId?: string | null
+    workspaceId?: string | null
+    agentId?: string
+  }): PendingAgentRun | undefined {
+    const sessionId = event.sessionId?.trim()
+    if (sessionId) {
+      for (const pending of this.pendingAgentRuns.values()) {
+        if (pending.sessionId === sessionId) return pending
+      }
+    }
+    if (!event.workspaceId || !event.agentId) return undefined
     for (const pending of this.pendingAgentRuns.values()) {
-      if (pending.executionId === executionId) return pending
+      if (pending.workspaceId !== event.workspaceId || pending.agentId !== event.agentId) continue
+      if (sessionId && pending.sessionId && pending.sessionId !== sessionId) continue
+      return pending
     }
     return undefined
   }
 
-  // (workspaceId, agentId) is the correlation key on the frame path: both are
-  // stamped on every agent-backed run at launch-confirm, and both ride every
-  // agent-state frame. A partial key matches nothing.
-  private findPendingRunByAgent(workspaceId: string | null, agentId: string): PendingAgentRun | undefined {
-    if (!workspaceId || !agentId) return undefined
-    for (const pending of this.pendingAgentRuns.values()) {
-      if (pending.workspaceId === workspaceId && pending.agentId === agentId) return pending
+  private rememberUnmatchedConversationEvent(entry: UnmatchedConversationEvent): void {
+    const { workspaceId, agentId } = entry.event
+    if (!workspaceId || !agentId) return
+    const key = conversationKey(workspaceId, agentId)
+    const events = this.unmatchedConversationEvents.get(key) ?? []
+    this.unmatchedConversationEvents.delete(key)
+    events.push(entry)
+    this.unmatchedConversationEvents.set(key, events.slice(-MAX_UNMATCHED_EVENTS_PER_CONVERSATION))
+    while (this.unmatchedConversationEvents.size > MAX_UNMATCHED_CONVERSATIONS) {
+      const oldest = this.unmatchedConversationEvents.keys().next().value
+      if (oldest === undefined) break
+      this.unmatchedConversationEvents.delete(oldest)
     }
-    return undefined
+  }
+
+  // Replay what a newly registered run's conversation said before the run was
+  // on record, in the order it said it.
+  private async replayUnmatchedConversationEvents(pending: PendingAgentRun): Promise<void> {
+    if (!pending.workspaceId || !pending.agentId) return
+    const key = conversationKey(pending.workspaceId, pending.agentId)
+    const events = this.unmatchedConversationEvents.get(key)
+    if (!events) return
+    this.unmatchedConversationEvents.delete(key)
+    const oldest = this.now() - UNMATCHED_CONVERSATION_EVENT_TTL_MS
+    for (const entry of events) {
+      if (entry.at < oldest) continue
+      if (entry.event.sessionId && pending.sessionId && entry.event.sessionId !== pending.sessionId) continue
+      if (entry.kind === 'turn') await this.noteConversationTurn(entry.event)
+      else await this.finalizeRunOnConversationEnd(entry.event)
+    }
   }
 
   private async seedPendingAgentRuns(projectFolders: AutomationsProjectFolder[]): Promise<void> {
@@ -1137,7 +1213,8 @@ export class AutomationsEngine {
   // worktree (runInWorktree: false) is registered too — it used to be dropped
   // here, which is why those runs had no finalize path at all and sat Running
   // forever. Called on dispatch and again on the startup seed, so an existing
-  // entry keeps its live phase state and only refreshes its correlation fields.
+  // entry keeps its live turn state and only refreshes its correlation fields.
+  // A new entry then hears what its conversation said before it was recorded.
   private trackPendingAgentRun(workspaceRoot: string, run: AutomationRun, workspaceId?: string): void {
     if (run.status !== 'running') return
     const key = this.pendingRunKey(workspaceRoot, run.automationId, run.id)
@@ -1146,23 +1223,25 @@ export class AutomationsEngine {
       existing.worktreePath = run.worktreePath ?? existing.worktreePath
       existing.workspaceId = workspaceId ?? run.workspaceId ?? existing.workspaceId
       existing.agentId = run.agentId ?? existing.agentId
-      existing.executionId = run.executionId ?? existing.executionId
+      existing.sessionId = run.sessionId ?? existing.sessionId
       return
     }
     const startedAt = Date.parse(run.startedAt ?? '')
     const startedAtMs = Number.isFinite(startedAt) ? startedAt : this.now()
-    this.pendingAgentRuns.set(key, {
+    const pending: PendingAgentRun = {
       workspaceRoot,
       automationId: run.automationId,
       runId: run.id,
       worktreePath: run.worktreePath,
       workspaceId: workspaceId ?? run.workspaceId,
       agentId: run.agentId,
-      executionId: run.executionId,
+      sessionId: run.sessionId,
       startedAtMs,
       observedWorkingPhase: false,
-    })
+    }
+    this.pendingAgentRuns.set(key, pending)
     this.armForDeadline(startedAtMs + this.maxAgentRunMs)
+    void this.replayUnmatchedConversationEvents(pending)
   }
 
   private pendingRunKey(workspaceRoot: string, automationId: string, runId: string): string {
@@ -1722,6 +1801,11 @@ function isRunEventStatus(status: AutomationRunStatus): status is AutomationRunE
 
 function normalizeWorkspaceRoot(workspaceRoot: string): string {
   return workspaceRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+}
+
+// NUL is in neither id, so the pair cannot collide.
+function conversationKey(workspaceId: string, agentId: string): string {
+  return `${workspaceId}\u0000${agentId}`
 }
 
 function storeProblem(

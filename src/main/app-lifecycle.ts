@@ -105,6 +105,9 @@ type RegisterAppLifecycleOptions = {
     runShutdownBegin(): Promise<void>
     runShutdown(): Promise<void>
   }
+  // Settles once every asynchronous module registerMain has finished (or been
+  // dropped), so startup hooks a module declared after an await still run.
+  moduleLoadReady?: Promise<void>
   updateService: SprintEngineUpdateService
   handleAuthCallback(argv: string[]): void
   // Background mode. Absent means the setting can never read on, so
@@ -149,6 +152,7 @@ export function registerAppLifecycle({
   pullRequestRecord,
   analytics,
   moduleKernel,
+  moduleLoadReady,
   updateService,
   handleAuthCallback,
   backgroundMode,
@@ -463,7 +467,7 @@ export function registerAppLifecycle({
       if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()
     })
 
-    void moduleKernel?.runStartup()
+    void Promise.resolve(moduleLoadReady).then(() => moduleKernel?.runStartup())
     handleAuthCallback(process.argv)
 
     app.on('activate', () => {

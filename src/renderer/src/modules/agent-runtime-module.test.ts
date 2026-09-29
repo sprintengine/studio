@@ -3,7 +3,7 @@ import { afterEach, test, vi } from 'vitest'
 
 import type { AppNotification } from '../types/workspace'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
-import type { NotificationActionProvider, RendererHost } from './renderer-host'
+import type { InternalRendererHost, NotificationActionProvider } from './renderer-host'
 
 // The bell row for a first message that never reached its CLI gives the
 // message back; every other terminal row keeps the shell's generic Open.
@@ -15,7 +15,7 @@ vi.mock('../store/workspaceStore', () => ({
 
 function provider(source: string): NotificationActionProvider {
   const providers: NotificationActionProvider[] = []
-  const host = new Proxy({} as RendererHost, {
+  const host = new Proxy({} as InternalRendererHost, {
     get: (_target, key) =>
       key === 'registerNotificationActionProvider'
         ? (entry: NotificationActionProvider) => providers.push(entry)
@@ -48,7 +48,7 @@ test('Open on a CLI update row lands on the machine it names', async () => {
 
 function terminalProvider(): NotificationActionProvider {
   const providers: NotificationActionProvider[] = []
-  const host = new Proxy({} as RendererHost, {
+  const host = new Proxy({} as InternalRendererHost, {
     get: (_target, key) =>
       key === 'registerNotificationActionProvider'
         ? (provider: NotificationActionProvider) => providers.push(provider)

@@ -36,6 +36,7 @@ import { allowsMultipleInstances } from './app-instance'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { removeRetiredEntitlementCache } from './retired-entitlement-cache'
 import { removeRetiredRelayState } from './retired-relay-state'
+import { applyHostApiGate } from './modules/host-api-gate'
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
 // the single-instance lock. By the time this runs the startup timeline is
@@ -77,9 +78,14 @@ const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
 // resolver orders it first because every dependent declares
 // `dependsOn: ['agent-runtime']`. See docs/module-authors/drop-in-extensions.md.
 const moduleOverrides = readModuleEnablementOverrides()
+
 const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext()),
 )
+// ── extension-platform additions ──
+// A module built for another host API stays unloaded whatever its trust says,
+// and the load report says why (modules/host-api-gate.ts).
+applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // Live-resolved main enablement, kept in step with the renderer's overrides (see
 // recomputeMainEnablement below). A module with no main runtime of its own — one
 // whose work rides another module's engine tick — is honored through this set
@@ -326,4 +332,6 @@ registerAppLifecycle({
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },
+  // ── extension-platform additions ──
+  moduleLoadReady: moduleLoad.ready,
 })

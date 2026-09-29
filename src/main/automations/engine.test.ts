@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,10 +11,13 @@ import type {
   AutomationsRunEvent,
   ScheduleTriggerConfig,
 } from '../../shared/automations/contracts'
-import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { createDefinitionWriteCore } from './definition-write'
-import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import {
+  AutomationsEngine,
+  projectFoldersFromWorkspaceSyncSnapshot,
+  type AutomationConversationTurnEvent,
+} from './engine'
 import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from './provider-registry'
 import { openAutomationRunPullRequest, type CommandResult, type PullRequestDeps } from './pull-request'
 import { AutomationsStore, type AutomationStoreState } from './store'
@@ -64,31 +67,33 @@ test('engine', async () => {
     await assertWebhookReceiverRefreshSerializesAndFailsClosed()
     await assertStartupOverdueIsSkippedWithoutCatchup()
     await assertTickWaitsForStartupOverdueSkip()
-    await assertTurnEndFinalizesRunWithTranscriptSummary()
-    await assertTurnEndWithoutTranscriptUsesGenericSummary()
-    await assertSubagentStopNeverFinalizes()
-    await assertTurnEndBeforeAnyWorkingPhaseIsIgnored()
-    await assertPendingWakeupDefersFinalize()
-    await assertWorkingFrameCancelsArmedSettleTimer()
+    await assertTurnEndFinalizesRunWithReplySummary()
+    await assertTurnEndWithoutReplyUsesGenericSummary()
+    await assertBackgroundAgentsDeferFinalize()
+    await assertTurnEndBeforeAnyTurnStartIsIgnored()
+    await assertNewTurnCancelsArmedSettleTimer()
     await assertTurnFailureFinalizesRunAsFailed()
     await assertRunWithoutWorktreeIsTrackedAndFinalizes()
-    await assertPhaseFramesForOtherAgentsAreInert()
+    await assertTurnsOfOtherChatsAreInert()
+    await assertTurnsOfAnotherSessionOfTheRunChatAreInert()
+    await assertTurnsBeforeTheRunIsRecordedAreReplayed()
+    await assertFirstSendFailureBeforeTheRunIsRecordedFailsIt()
     await assertMaxDurationSweepFailsOverlongRun()
     await assertStartupRebuildsRegistryFromStore()
     await assertManualFinalizeRemovesRunFromRegistry()
     await assertConcurrentManualAndAutoFinalizeOnce()
     await assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure()
-    await assertAgentExitBeforeAnyTurnEndFinalizesFailed()
-    await assertAgentExitDuringSettleWindowUsesArmedOutcome()
-    await assertAgentExitDuringTranscriptReadUsesArmedOutcome()
-    await assertWorkingFrameDuringTranscriptReadAbortsFinalize()
-    await assertExitAfterAbortedArmedFinalizeStillFails()
-    await assertStopDuringTranscriptReadAbortsFinalize()
-    await assertAgentExitCorrelatesOnWorkspaceAndAgentId()
-    await assertAgentExitForUnknownAgentIsNoOp()
+    await assertSessionCloseBeforeAnyTurnEndFinalizesFailed()
+    await assertSessionCloseDuringSettleWindowUsesArmedOutcome()
+    await assertSessionCloseDuringSummaryReadUsesArmedOutcome()
+    await assertNewTurnDuringSummaryReadAbortsFinalize()
+    await assertCloseAfterAbortedArmedFinalizeStillFails()
+    await assertStopDuringSummaryReadAbortsFinalize()
+    await assertSessionCloseCorrelatesOnWorkspaceAndAgentId()
+    await assertSessionCloseForUnknownChatIsNoOp()
     await assertStartupReconcileForceFailsOrphanedAgentRun()
     await assertStartupReconcileLeavesStillLiveRunPending()
-    await assertStartupReconcileNeverForceFailsExecutionlessRun()
+    await assertStartupReconcileNeverForceFailsSessionlessRun()
     await assertStopClearsArmedSettleTimers()
     await assertFinalizePublishesWorkingDiff()
   }
@@ -897,7 +902,7 @@ test('engine', async () => {
     assert.equal(events.length, 1)
   }
 
-  // --- Hook-driven finalize: agent-state phase frames, guards, settle window (T4) ---
+  // --- Conversation-driven finalize: turn events, guards, settle window ---
 
   type AgentEngineHarness = {
     engine: AutomationsEngine
@@ -973,11 +978,11 @@ test('engine', async () => {
 
   const TEST_SETTLE_MS = 30
 
-  // Like setupAgentRun, but the launched run carries an executionId so the
-  // startup reconcile (which correlates on it) can see the run.
-  async function setupAgentRunWithExecutionId(
+  // Like setupAgentRun, but the launched run carries the sessionId its launch
+  // returned, as every real launch does; the startup reconcile correlates on it.
+  async function setupAgentRunWithSessionId(
     now: number,
-    executionId: string,
+    sessionId: string,
     overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {},
   ): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
     const workspaceRoot = await createWorkspace()
@@ -999,7 +1004,7 @@ test('engine', async () => {
         status: 'running',
         workspaceId: 'ws-automations',
         agentId: 'agent-1',
-        executionId,
+        sessionId,
         worktreePath,
         branch: 'automations/run-agent',
         summary: 'Launched; working…',
@@ -1009,32 +1014,22 @@ test('engine', async () => {
     return { workspaceRoot, store, ...harness }
   }
 
-  function phaseFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
-    return {
-      workspaceId: 'ws-automations',
-      agentId: 'agent-1',
-      executionId: null,
-      phase: 'thinking',
-      previousPhase: null,
-      event: 'PreToolUse',
-      turnEnd: false,
-      turnFailure: false,
-      ts: 0,
-      pendingWakeupAt: null,
-      ...overrides,
-    }
+  function turnEvent(overrides: Partial<AutomationConversationTurnEvent> = {}): AutomationConversationTurnEvent {
+    return { type: 'turn_started', workspaceId: 'ws-automations', agentId: 'agent-1', sessionId: null, ...overrides }
   }
 
   // The agent is working: what every guarded turn-end must have seen first.
-  function workingFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
-    return phaseFrame({ phase: 'thinking', event: 'PreToolUse', ...overrides })
+  function turnStarted(overrides: Partial<AutomationConversationTurnEvent> = {}): AutomationConversationTurnEvent {
+    return turnEvent({ type: 'turn_started', ...overrides })
   }
 
-  // A turn end. `SubagentStop` and `session.error` map to the same idle phase,
-  // so only the manifest-resolved turnEnd/turnFailure flags tell them apart —
-  // which is the whole point of carrying them this far.
-  function turnEndFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
-    return phaseFrame({ phase: 'idle', previousPhase: 'thinking', event: 'Stop', turnEnd: true, ...overrides })
+  // A turn that really ended (a steered one is never routed as an end).
+  function turnCompleted(overrides: Partial<AutomationConversationTurnEvent> = {}): AutomationConversationTurnEvent {
+    return turnEvent({ type: 'turn_completed', ...overrides })
+  }
+
+  function turnFailed(overrides: Partial<AutomationConversationTurnEvent> = {}): AutomationConversationTurnEvent {
+    return turnEvent({ type: 'turn_failed', ...overrides })
   }
 
   async function readRunStatus(
@@ -1058,7 +1053,7 @@ test('engine', async () => {
   }
 
   // The finalize a settle timer fires does real file I/O after the timer: the
-  // transcript read, the run and definition reads, the run write. Microtask
+  // run and definition reads, the run write. Microtask
   // flushes do not wait for any of it, so on a loaded machine the finalize lands
   // after settle() returns and a status read straight after it sees `running`.
   // A case that expects the finalize waits the window out and then for the
@@ -1078,36 +1073,23 @@ test('engine', async () => {
     }
   }
 
-  // A minimal Claude transcript: the last assistant message is the run summary.
-  async function writeTranscript(workspaceRoot: string, text: string): Promise<string> {
-    const transcriptPath = join(workspaceRoot, 'transcript.jsonl')
-    await writeFile(
-      transcriptPath,
-      [
-        JSON.stringify({ type: 'user', message: { content: 'do the thing' } }),
-        JSON.stringify({
-          type: 'assistant',
-          message: { id: 'msg-1', content: [{ type: 'text', text: 'first pass' }] },
-        }),
-        JSON.stringify({ type: 'assistant', message: { id: 'msg-2', content: [{ type: 'text', text }] } }),
-      ].join('\n'),
-      'utf8',
-    )
-    return transcriptPath
-  }
-
-  async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
+  async function assertTurnEndFinalizesRunWithReplySummary(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
+    const summaryReads: Array<{ sessionId?: string; workspaceId?: string; agentId?: string }> = []
     const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } =
-      await setupAgentRun(now)
+      await setupAgentRunWithSessionId(now, 'conv_1', {
+        readRunConversationSummary: async (input) => {
+          summaryReads.push(input)
+          return 'Reviewed the repo and filed the report.'
+        },
+      })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
-    const transcriptPath = await writeTranscript(workspaceRoot, 'Reviewed the repo and filed the report.')
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
 
     // The turn-end only ARMS the finalize: nothing is destroyed until the settle
     // window has passed with no further work.
@@ -1125,21 +1107,22 @@ test('engine', async () => {
     assert.equal(
       finalized.ok && finalized.value.summary,
       'Reviewed the repo and filed the report. Opened pull request https://github.com/acme/repo/pull/9.',
-      "summary comes from the agent's last assistant message",
+      "summary comes from the agent's closing reply",
     )
+    assert.deepEqual(summaryReads, [{ sessionId: 'conv_1', workspaceId: 'ws-automations', agentId: 'agent-1' }])
     assert.equal(counters.prCalls, 1, 'PR opened once')
     assert.equal(removedWorktrees.length, 1, 'worktree torn down')
     assert.deepEqual(disposedAgents, [{ workspaceId: 'ws-automations', agentId: 'agent-1' }], 'one-shot agent disposed')
-    // A frame-driven completed finalize stays silent (no terminal run-event).
+    // A turn-driven completed finalize stays silent (no terminal run-event).
     assert.equal(events.length, 0, 'completed auto-finalize emits no run-event')
 
-    // The run left the registry: a later frame for the same agent is inert.
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
+    // The run left the registry: a later turn of the same chat is inert.
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
     await settle()
-    assert.equal(counters.prCalls, 1, 'no second PR from a post-finalize frame')
+    assert.equal(counters.prCalls, 1, 'no second PR from a post-finalize turn')
   }
 
-  async function assertTurnEndWithoutTranscriptUsesGenericSummary(): Promise<void> {
+  async function assertTurnEndWithoutReplyUsesGenericSummary(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
     assert.equal(
@@ -1147,39 +1130,47 @@ test('engine', async () => {
       true,
     )
 
-    // No transcript path on the frame (an OpenCode/codex turn end): the summary
-    // degrades to a generic one and the finalize proceeds regardless.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ event: 'session.idle' }))
+    // No summary reader wired: the summary degrades to a generic one and the
+    // finalize proceeds regardless.
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
-    assert.equal(finalized.ok && finalized.value.status, 'completed', 'session.idle is a turn end too')
+    assert.equal(finalized.ok && finalized.value.status, 'completed')
     assert.equal(
       finalized.ok && finalized.value.summary,
       'The agent finished, but left no summary of what it did. Opened pull request https://github.com/acme/repo/pull/9.',
     )
     assert.equal(counters.prCalls, 1)
 
-    // An unreadable transcript path is equally non-fatal (it is untrusted input).
-    const { engine: engine2, workspaceRoot: root2, store: store2 } = await setupAgentRun(now)
+    // A reader that fails is equally non-fatal.
+    const {
+      engine: engine2,
+      workspaceRoot: root2,
+      store: store2,
+    } = await setupAgentRun(now, {
+      readRunConversationSummary: async () => {
+        throw new Error('transcript unreadable')
+      },
+    })
     assert.equal(
       (await engine2.runNow({ workspaceRoot: root2, automationId: 'nightly-review', workspaceId: 'ws-automations' }))
         .ok,
       true,
     )
-    await engine2.noteAgentPhase(workingFrame())
-    await engine2.noteAgentPhase(turnEndFrame({ transcriptPath: join(root2, 'missing.jsonl') }))
+    await engine2.noteConversationTurn(turnStarted())
+    await engine2.noteConversationTurn(turnCompleted())
     await settleUntil(store2, 'completed')
     const finalized2 = await store2.getRun('nightly-review', 'run-agent')
-    assert.equal(finalized2.ok && finalized2.value.status, 'completed', 'a missing transcript never blocks finalize')
+    assert.equal(finalized2.ok && finalized2.value.status, 'completed', 'a failed summary read never blocks finalize')
     assert.equal(
       finalized2.ok && finalized2.value.summary?.startsWith('The agent finished, but left no summary of what it did.'),
       true,
     )
   }
 
-  async function assertSubagentStopNeverFinalizes(): Promise<void> {
+  async function assertBackgroundAgentsDeferFinalize(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
     assert.equal(
@@ -1187,27 +1178,27 @@ test('engine', async () => {
       true,
     )
 
-    // A Task subagent finishing maps to the SAME idle phase as the session's own
-    // turn end, and its manifest entry carries no turnEnd flag. Finalizing here
+    // Background agents keep the conversation working past its turn: the turn
+    // ending with some still running is not the run's end, and finalizing here
     // would open a PR from work still in progress.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ event: 'SubagentStop', turnEnd: false }))
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted({ backgroundAgents: 2 }))
     await settle()
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'running',
-      'SubagentStop does not end the run',
+      'a turn end with background agents running does not end the run',
     )
     assert.equal(counters.prCalls, 0)
 
-    // The parent's own Stop still finalizes it, proving the run stayed tracked.
-    await engine.noteAgentPhase(turnEndFrame())
+    // When the last one reports back and nothing carries on, the run ends.
+    await engine.noteConversationTurn(turnCompleted({ backgroundAgents: 0 }))
     await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
-  async function assertTurnEndBeforeAnyWorkingPhaseIsIgnored(): Promise<void> {
+  async function assertTurnEndBeforeAnyTurnStartIsIgnored(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
     const { engine, workspaceRoot, store, counters, disposedAgents } = await setupAgentRun(now)
     assert.equal(
@@ -1215,9 +1206,9 @@ test('engine', async () => {
       true,
     )
 
-    // An idle frame that arrives before the prompt lands (the agent is up but has
-    // not started) must not instantly finalize and kill the agent.
-    await engine.noteAgentPhase(turnEndFrame({ previousPhase: null }))
+    // A turn end the run never saw start is not the end of its own prompt, and
+    // must not instantly finalize and dispose the agent.
+    await engine.noteConversationTurn(turnCompleted())
     await settle()
 
     assert.equal(
@@ -1229,13 +1220,13 @@ test('engine', async () => {
     assert.deepEqual(disposedAgents, [], 'the live agent is not disposed')
 
     // Once it has actually worked, its next turn end finalizes.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
-  async function assertPendingWakeupDefersFinalize(): Promise<void> {
+  async function assertNewTurnCancelsArmedSettleTimer(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
     assert.equal(
@@ -1243,51 +1234,23 @@ test('engine', async () => {
       true,
     )
 
-    // A self-paced (/loop) agent ends its turn intending to resume. pendingWakeupAt
-    // is resolved from the SESSION — the reporter never puts a wakeup on a turn-end
-    // frame — so a future wakeup means "not done", and disposing it here would kill
-    // a loop mid-flight.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now + 60_000 }))
-    await settle()
-    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'armed wakeup defers finalize')
-    assert.equal(counters.prCalls, 0)
-
-    // A wakeup already in the past does not defer anything.
-    await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now - 1 }))
-    await settleUntil(store, 'completed')
-    assert.equal(
-      await readRunStatus(store, 'nightly-review', 'run-agent'),
-      'completed',
-      'an elapsed wakeup does not block',
-    )
-  }
-
-  async function assertWorkingFrameCancelsArmedSettleTimer(): Promise<void> {
-    const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-    assert.equal(
-      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
-      true,
-    )
-
-    // The settle window is what covers everything an event-name check cannot: a
-    // Stop-hook continuation, an agent pausing to ask, plan mode, ESC. Work
-    // resuming inside the window disarms the finalize entirely.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
-    await engine.noteAgentPhase(workingFrame({ phase: 'tool_use', event: 'PostToolUse' }))
+    // The settle window covers an agent carrying on by itself after its turn
+    // ended (a background agent reporting back, a hook continuing it). A new
+    // turn inside the window disarms the finalize entirely.
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
+    await engine.noteConversationTurn(turnStarted())
     await settle()
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'running',
-      'resumed work cancels the armed finalize',
+      'a carried-on turn cancels the armed finalize',
     )
     assert.equal(counters.prCalls, 0, 'no PR from a cancelled turn end')
 
     // The next real turn end still finalizes.
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
     assert.equal(counters.prCalls, 1)
@@ -1301,15 +1264,14 @@ test('engine', async () => {
       true,
     )
 
-    // OpenCode maps session.error to the idle phase, exactly like session.idle — so
-    // a phase-only signal would finalize a CRASHED session as completed and open a
-    // PR from it. The manifest-resolved turnFailure flag keeps that from happening.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ event: 'session.error', turnEnd: false, turnFailure: true }))
+    // A failed turn (the provider errored, the turn was interrupted) finalizes
+    // the run as failed, never completed with a PR.
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnFailed())
     await settleUntil(store, 'failed', () => events.length > 0)
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
-    assert.equal(finalized.ok && finalized.value.status, 'failed', 'a crashed session is failed, not completed')
+    assert.equal(finalized.ok && finalized.value.status, 'failed', 'a failed turn is failed, not completed')
     assert.equal(finalized.ok && finalized.value.summary, 'The agent hit an error and stopped before it finished.')
     assert.equal(counters.prCalls, 0, 'a failed run opens no PR')
     assert.equal(removedWorktrees.length, 1, 'worktree torn down on failure')
@@ -1340,8 +1302,8 @@ test('engine', async () => {
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
@@ -1357,7 +1319,7 @@ test('engine', async () => {
     assert.equal(events.length, 0)
   }
 
-  async function assertPhaseFramesForOtherAgentsAreInert(): Promise<void> {
+  async function assertTurnsOfOtherChatsAreInert(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
     assert.equal(
@@ -1365,22 +1327,116 @@ test('engine', async () => {
       true,
     )
 
-    // Every ordinary agent in the app emits these frames. Only the (workspaceId,
-    // agentId) pair of a pending run may finalize one; a partial key matches nothing.
-    await engine.noteAgentPhase(workingFrame({ agentId: 'agent-2' }))
-    await engine.noteAgentPhase(turnEndFrame({ agentId: 'agent-2' }))
-    await engine.noteAgentPhase(workingFrame({ workspaceId: 'ws-other' }))
-    await engine.noteAgentPhase(turnEndFrame({ workspaceId: 'ws-other' }))
-    await engine.noteAgentPhase(workingFrame({ workspaceId: null }))
-    await engine.noteAgentPhase(turnEndFrame({ workspaceId: null }))
+    // Every chat in the app emits these turns. Only the (workspaceId, agentId)
+    // pair of a pending run may finalize one; a partial key matches nothing.
+    await engine.noteConversationTurn(turnStarted({ agentId: 'agent-2' }))
+    await engine.noteConversationTurn(turnCompleted({ agentId: 'agent-2' }))
+    await engine.noteConversationTurn(turnStarted({ workspaceId: 'ws-other' }))
+    await engine.noteConversationTurn(turnCompleted({ workspaceId: 'ws-other' }))
+    await engine.noteConversationTurn(turnStarted({ workspaceId: null }))
+    await engine.noteConversationTurn(turnCompleted({ workspaceId: null }))
     await settle()
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'running',
-      'another agent going idle finalizes nothing',
+      "another chat's turn ending finalizes nothing",
     )
     assert.equal(counters.prCalls, 0)
+  }
+
+  async function assertTurnsOfAnotherSessionOfTheRunChatAreInert(): Promise<void> {
+    const now = Date.parse('2026-06-17T10:00:00.000Z')
+    const { engine, workspaceRoot, store, counters } = await setupAgentRunWithSessionId(now, 'conv_1')
+    assert.equal(
+      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+      true,
+    )
+
+    // A session the run did not start (the chat restarted from a window) is
+    // not the run's conversation, even on the run's own chat.
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_2' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_2' }))
+    await settle()
+    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
+    assert.equal(counters.prCalls, 0)
+
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
+    await settleUntil(store, 'completed')
+    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
+  }
+
+  async function assertTurnsBeforeTheRunIsRecordedAreReplayed(): Promise<void> {
+    const now = Date.parse('2026-06-17T10:00:00.000Z')
+    // The first message goes out as the session comes up, so the run's first
+    // turn starts while the launch is still being recorded. That start must not
+    // be lost, or the turn's end would be ignored as one never seen working.
+    let engineRef: AutomationsEngine | undefined
+    const { engine, workspaceRoot, store, counters } = await setupAgentRunWithSessionId(now, 'conv_1', {
+      runAutomation: async () => {
+        await engineRef!.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+        await engineRef!.noteConversationTurn(turnStarted({ agentId: 'agent-2' }))
+        return {
+          status: 'running',
+          workspaceId: 'ws-automations',
+          agentId: 'agent-1',
+          sessionId: 'conv_1',
+          summary: 'Launched; working…',
+        }
+      },
+    })
+    engineRef = engine
+    assert.equal(
+      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+      true,
+    )
+    await flushMicrotasks(10)
+
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
+    await settleUntil(store, 'completed')
+    assert.equal(
+      await readRunStatus(store, 'nightly-review', 'run-agent'),
+      'completed',
+      'a turn that started before the run was recorded still finalizes it',
+    )
+    assert.equal(counters.prCalls, 0, 'no branch, no PR')
+  }
+
+  async function assertFirstSendFailureBeforeTheRunIsRecordedFailsIt(): Promise<void> {
+    const now = Date.parse('2026-06-17T10:00:00.000Z')
+    let engineRef: AutomationsEngine | undefined
+    const { engine, workspaceRoot, store, events } = await setupAgentRunWithSessionId(now, 'conv_1', {
+      runAutomation: async () => {
+        await engineRef!.finalizeRunOnConversationEnd({
+          reason: 'first_send_failed',
+          workspaceId: 'ws-automations',
+          agentId: 'agent-1',
+          sessionId: 'conv_1',
+          message: 'Attached skills could not be loaded.',
+        })
+        return {
+          status: 'running',
+          workspaceId: 'ws-automations',
+          agentId: 'agent-1',
+          sessionId: 'conv_1',
+          summary: 'Launched; working…',
+        }
+      },
+    })
+    engineRef = engine
+    assert.equal(
+      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+      true,
+    )
+    await settleUntil(store, 'failed', () => events.length > 0)
+
+    const finalized = await store.getRun('nightly-review', 'run-agent')
+    assert.equal(finalized.ok && finalized.value.status, 'failed', 'a run whose first message was refused fails')
+    assert.equal(
+      finalized.ok && finalized.value.summary,
+      'The agent never started on the task: Attached skills could not be loaded.',
+    )
   }
 
   async function assertMaxDurationSweepFailsOverlongRun(): Promise<void> {
@@ -1395,7 +1451,7 @@ test('engine', async () => {
       true,
     )
 
-    // A run still inside the cap is left alone for its frames.
+    // A run still inside the cap is left alone for its turns.
     clock = startedAt + 5 * 60 * 60 * 1000
     await engine.tick()
     assert.equal(
@@ -1405,7 +1461,7 @@ test('engine', async () => {
     )
 
     // Past the cap it is failed rather than left Running forever — the backstop for
-    // an agent whose CLI reports no frames at all, or whose turn end was lost.
+    // a conversation that hangs mid-turn, or whose turn end was lost.
     clock = startedAt + 6 * 60 * 60 * 1000 + 1
     await engine.tick()
 
@@ -1436,14 +1492,14 @@ test('engine', async () => {
     // (workspaceId, agentId) correlation survive a restart at all.
     const { engine: engineB, counters: countersB } = agentEngine(workspaceRoot, now)
     await engineB.handleStartup()
-    await engineB.noteAgentPhase(workingFrame())
-    await engineB.noteAgentPhase(turnEndFrame())
+    await engineB.noteConversationTurn(turnStarted())
+    await engineB.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'completed',
-      'restart-recovered run finalizes from its frames',
+      'restart-recovered run finalizes from its turns',
     )
     assert.equal(countersB.prCalls, 1)
   }
@@ -1468,13 +1524,13 @@ test('engine', async () => {
     assert.equal(events.length, 1, 'manual completed finalize emits a run-event')
     assert.equal(events[0]?.trigger, 'manual')
 
-    // A later frame for that agent must not re-finalize: the run left the registry.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
+    // A later turn of that chat must not re-finalize: the run left the registry.
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     await settle()
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
-    assert.equal(counters.prCalls, 1, 'a frame does not touch a manually finalized run')
-    assert.equal(events.length, 1, 'no extra event from the frame')
+    assert.equal(counters.prCalls, 1, 'a turn does not touch a manually finalized run')
+    assert.equal(events.length, 1, 'no extra event from the turn')
   }
 
   async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
@@ -1565,54 +1621,55 @@ test('engine', async () => {
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
-  // --- Agent-lifecycle exit-driven finalize + startup reconcile ---
+  // --- Conversation-end finalize + startup reconcile ---
 
-  async function assertAgentExitBeforeAnyTurnEndFinalizesFailed(): Promise<void> {
+  async function assertSessionCloseBeforeAnyTurnEndFinalizesFailed(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
+    const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithSessionId(now, 'conv_1')
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    // The pty died with no turn end behind it: the agent never finished.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.finalizeRunOnAgentExit({
-      executionId: 'exec-1',
+    // The session closed with no turn end behind it: the agent never finished.
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.finalizeRunOnConversationEnd({
+      reason: 'session_closed',
+      sessionId: 'conv_1',
       workspaceId: 'ws-automations',
       agentId: 'agent-1',
-      exitCode: 3,
+      message: 'the CLI exited',
     })
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(finalized.ok && finalized.value.status, 'failed')
-    assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished (exit code 3).')
+    assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished: the CLI exited')
     assert.equal(counters.prCalls, 0, 'failed run opens no PR')
     assert.equal(events.length, 1)
     assert.equal(events[0]?.status, 'failed')
     assert.equal(events[0]?.trigger, 'timer')
   }
 
-  async function assertAgentExitDuringSettleWindowUsesArmedOutcome(): Promise<void> {
+  async function assertSessionCloseDuringSettleWindowUsesArmedOutcome(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    // A long settle window so the exit lands while the turn-end is still armed.
-    const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    // A long settle window so the close lands while the turn-end is still armed.
+    const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithSessionId(now, 'conv_1', {
       turnSettleMs: 60_000,
+      readRunConversationSummary: async () => 'All done.',
     })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
-    const transcriptPath = await writeTranscript(workspaceRoot, 'All done.')
 
-    // The agent finished its turn, then its pty exited inside the settle window.
-    // Recording that as failed would throw away a successful run — and its PR.
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath }))
-    await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+    // The agent finished its turn, then its session closed inside the settle
+    // window. Recording that as failed would throw away a successful run — and its PR.
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
+    await engine.finalizeRunOnConversationEnd({ reason: 'session_closed', sessionId: 'conv_1' })
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
-    assert.equal(finalized.ok && finalized.value.status, 'completed', 'the armed turn-end outcome wins over the exit')
+    assert.equal(finalized.ok && finalized.value.status, 'completed', 'the armed turn-end outcome wins over the close')
     assert.equal(
       finalized.ok && finalized.value.summary,
       'All done. Opened pull request https://github.com/acme/repo/pull/9.',
@@ -1620,15 +1677,15 @@ test('engine', async () => {
     assert.equal(counters.prCalls, 1)
     assert.equal(events.length, 0, 'completed finalize stays silent')
 
-    // The settle timer was disarmed by the exit, so nothing fires behind it.
+    // The settle timer was disarmed by the close, so nothing fires behind it.
     await settle()
     assert.equal(counters.prCalls, 1, 'no second finalize from the disarmed timer')
   }
 
-  // A transcript reader the test can hold open, to land events inside the armed
+  // A summary reader the test can hold open, to land events inside the armed
   // finalize's only await — which is where the settle-window races live.
-  function heldTranscriptRead(): {
-    readRunTranscriptSummary: (transcriptPath: string) => Promise<string | undefined>
+  function heldSummaryRead(): {
+    readRunConversationSummary: () => Promise<string | undefined>
     readStarted: Promise<void>
     release: (summary: string | undefined) => void
   } {
@@ -1641,7 +1698,7 @@ test('engine', async () => {
       release = resolve
     })
     return {
-      readRunTranscriptSummary: () => {
+      readRunConversationSummary: () => {
         started()
         return result
       },
@@ -1650,34 +1707,34 @@ test('engine', async () => {
     }
   }
 
-  async function assertAgentExitDuringTranscriptReadUsesArmedOutcome(): Promise<void> {
+  async function assertSessionCloseDuringSummaryReadUsesArmedOutcome(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const read = heldTranscriptRead()
-    const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    const read = heldSummaryRead()
+    const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithSessionId(now, 'conv_1', {
       turnSettleMs: 0,
-      readRunTranscriptSummary: read.readRunTranscriptSummary,
+      readRunConversationSummary: read.readRunConversationSummary,
     })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
-    // The settle timer has fired and the finalize is holding inside the
-    // transcript read when the pty exit lands. The exit must join that finalize,
-    // not record `failed` over a run whose turn-end already stands.
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
+    // The settle timer has fired and the finalize is holding inside the summary
+    // read when the session closes. The close must join that finalize, not
+    // record `failed` over a run whose turn-end already stands.
     await read.readStarted
-    const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 0 })
+    const close = engine.finalizeRunOnConversationEnd({ reason: 'session_closed', sessionId: 'conv_1' })
     read.release('All done.')
-    await exit
+    await close
     await flushMicrotasks(50)
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(
       finalized.ok && finalized.value.status,
       'completed',
-      'the armed outcome wins over an exit racing the transcript read',
+      'the armed outcome wins over a close racing the summary read',
     )
     assert.equal(
       finalized.ok && finalized.value.summary,
@@ -1687,25 +1744,25 @@ test('engine', async () => {
     assert.equal(events.length, 0, 'no failed event recorded behind the completed run')
   }
 
-  async function assertWorkingFrameDuringTranscriptReadAbortsFinalize(): Promise<void> {
+  async function assertNewTurnDuringSummaryReadAbortsFinalize(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const read = heldTranscriptRead()
+    const read = heldSummaryRead()
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now, {
       turnSettleMs: 0,
-      readRunTranscriptSummary: read.readRunTranscriptSummary,
+      readRunConversationSummary: read.readRunConversationSummary,
     })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
-    // The agent resumed working (a Stop-hook continuation) while the finalize was
-    // inside the transcript read. The in-flight finalize must stand down — it
-    // would otherwise dispose an agent that is working again.
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
+    // The agent carried on with a new turn while the finalize was inside the
+    // summary read. The in-flight finalize must stand down — it would otherwise
+    // dispose an agent that is working again.
     await read.readStarted
-    await engine.noteAgentPhase(workingFrame())
+    await engine.noteConversationTurn(turnStarted())
     read.release('never recorded')
     await flushMicrotasks(50)
 
@@ -1717,7 +1774,7 @@ test('engine', async () => {
     assert.equal(counters.prCalls, 0)
 
     // The abort is not sticky: the agent's next real turn-end still finalizes.
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
@@ -1727,56 +1784,56 @@ test('engine', async () => {
     assert.equal(counters.prCalls, 1)
   }
 
-  async function assertExitAfterAbortedArmedFinalizeStillFails(): Promise<void> {
+  async function assertCloseAfterAbortedArmedFinalizeStillFails(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const read = heldTranscriptRead()
-    const { engine, workspaceRoot, store, counters } = await setupAgentRunWithExecutionId(now, 'exec-1', {
+    const read = heldSummaryRead()
+    const { engine, workspaceRoot, store, counters } = await setupAgentRunWithSessionId(now, 'conv_1', {
       turnSettleMs: 0,
-      readRunTranscriptSummary: read.readRunTranscriptSummary,
+      readRunConversationSummary: read.readRunConversationSummary,
     })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
+    await engine.noteConversationTurn(turnCompleted({ sessionId: 'conv_1' }))
     await read.readStarted
-    // The exit joins the in-flight armed finalize; then a straggler working frame
-    // disarms it mid-read. The aborted finalize leaves the run pending — the exit
-    // must pick it back up as failed rather than drop it until the 6h sweep.
-    const exit = engine.finalizeRunOnAgentExit({ executionId: 'exec-1', exitCode: 7 })
+    // The close joins the in-flight armed finalize; then a straggler turn start
+    // disarms it mid-read. The aborted finalize leaves the run pending — the
+    // close must pick it back up as failed rather than drop it until the 6h sweep.
+    const close = engine.finalizeRunOnConversationEnd({ reason: 'session_closed', sessionId: 'conv_1' })
     await flushMicrotasks(10)
-    await engine.noteAgentPhase(workingFrame())
+    await engine.noteConversationTurn(turnStarted({ sessionId: 'conv_1' }))
     read.release('never recorded')
-    await exit
+    await close
     await flushMicrotasks(50)
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(
       finalized.ok && finalized.value.status,
       'failed',
-      'the exit outcome lands once the armed finalize aborts',
+      'the close outcome lands once the armed finalize aborts',
     )
-    assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished (exit code 7).')
+    assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished.')
     assert.equal(counters.prCalls, 0)
   }
 
-  async function assertStopDuringTranscriptReadAbortsFinalize(): Promise<void> {
+  async function assertStopDuringSummaryReadAbortsFinalize(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const read = heldTranscriptRead()
+    const read = heldSummaryRead()
     const { engine, workspaceRoot, store, counters } = await setupAgentRun(now, {
       turnSettleMs: 0,
-      readRunTranscriptSummary: read.readRunTranscriptSummary,
+      readRunConversationSummary: read.readRunConversationSummary,
     })
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
-    // stop() lands while the armed finalize is inside the transcript read: the
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
+    // stop() lands while the armed finalize is inside the summary read: the
     // torn-down engine must not go on to open a PR and dispose the agent.
     await read.readStarted
     engine.stop()
@@ -1791,46 +1848,57 @@ test('engine', async () => {
     assert.equal(counters.prCalls, 0)
   }
 
-  async function assertAgentExitCorrelatesOnWorkspaceAndAgentId(): Promise<void> {
+  async function assertSessionCloseCorrelatesOnWorkspaceAndAgentId(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    // The run carries NO executionId — the launch probe missed it. The exit event's
-    // (workspaceId, agentId) still finds the pending run.
+    // The run carries NO sessionId (a run recorded before sessions were kept).
+    // The close's (workspaceId, agentId) still finds the pending run.
     const { engine, workspaceRoot, store } = await setupAgentRun(now)
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    await engine.finalizeRunOnAgentExit({ workspaceId: 'ws-automations', agentId: 'agent-1', exitCode: 1 })
+    await engine.finalizeRunOnConversationEnd({
+      reason: 'session_closed',
+      sessionId: 'conv_9',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+    })
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'failed',
-      'exit correlates without an executionId',
+      'a close correlates without a recorded sessionId',
     )
   }
 
-  async function assertAgentExitForUnknownAgentIsNoOp(): Promise<void> {
+  async function assertSessionCloseForUnknownChatIsNoOp(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
+    const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithSessionId(now, 'conv_1')
     assert.equal(
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    // Every non-automation agent's exit arrives here. None of them may finalize.
-    await engine.finalizeRunOnAgentExit({
-      executionId: 'exec-other',
+    // Every other chat's close arrives here. None of them may finalize.
+    await engine.finalizeRunOnConversationEnd({
+      reason: 'session_closed',
+      sessionId: 'conv_other',
       workspaceId: 'ws-automations',
       agentId: 'agent-2',
-      exitCode: 1,
     })
-    await engine.finalizeRunOnAgentExit({ executionId: '   ', exitCode: 1 })
-    await engine.finalizeRunOnAgentExit({ exitCode: 1 })
+    await engine.finalizeRunOnConversationEnd({
+      reason: 'session_closed',
+      sessionId: 'conv_other',
+      workspaceId: 'ws-automations',
+      agentId: 'agent-1',
+    })
+    await engine.finalizeRunOnConversationEnd({ reason: 'session_closed', sessionId: '   ' })
+    await engine.finalizeRunOnConversationEnd({ reason: 'session_closed' })
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'running',
-      'unmatched exit leaves the run pending',
+      'an unmatched close leaves the run pending',
     )
     assert.equal(counters.prCalls, 0)
     assert.equal(events.length, 0)
@@ -1839,10 +1907,10 @@ test('engine', async () => {
   async function assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
 
-    // Normal completed finalize disposes the run's one-shot agent with its ids, so
-    // it never outlives the torn-down worktree and loop-relaunches into the dead cwd.
+    // Normal completed finalize disposes the run's one-shot chat with its ids, so
+    // it never outlives the torn-down worktree and is never typed into against it.
     {
-      const { engine, workspaceRoot, store, disposedAgents } = await setupAgentRunWithExecutionId(now, 'exec-1')
+      const { engine, workspaceRoot, store, disposedAgents } = await setupAgentRunWithSessionId(now, 'conv_1')
       assert.equal(
         (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
         true,
@@ -1866,10 +1934,10 @@ test('engine', async () => {
       assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
     }
 
-    // The dispose is best-effort: a throwing disposer (e.g. the renderer is gone)
-    // must not fail the finalize — the terminal run is still recorded.
+    // The dispose is best-effort: a throwing disposer (e.g. the session is
+    // already gone) must not fail the finalize — the terminal run is still recorded.
     {
-      const { engine, workspaceRoot } = await setupAgentRunWithExecutionId(now, 'exec-2', {
+      const { engine, workspaceRoot } = await setupAgentRunWithSessionId(now, 'conv_2', {
         disposeRunAgent: async () => {
           throw new Error('renderer unavailable')
         },
@@ -1890,22 +1958,22 @@ test('engine', async () => {
 
   async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    // Engine A dispatches a run that records `running` with executionId 'exec-orphan'.
-    const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-orphan')
+    // Engine A dispatches a run that records `running` with sessionId 'conv_orphan'.
+    const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithSessionId(now, 'conv_orphan')
     assert.equal(
       (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
 
-    // Engine B restart: the agent is no longer live.
+    // Engine B restart: the conversation is no longer live.
     const {
       engine: engineB,
       events,
       counters,
       disposedAgents,
     } = agentEngine(workspaceRoot, now, {
-      getLiveAgentExecutionIds: () => [],
+      getLiveConversationSessionIds: () => [],
     })
     await engineB.handleStartup()
 
@@ -1918,7 +1986,7 @@ test('engine', async () => {
     assert.deepEqual(
       disposedAgents,
       [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
-      'startup reconcile disposes the orphaned agent so it cannot loop-relaunch into the removed worktree',
+      'startup reconcile disposes the orphaned chat so nobody types into it against the removed worktree',
     )
     assert.equal(counters.prCalls, 0)
     assert.equal(events.length, 1)
@@ -1928,15 +1996,15 @@ test('engine', async () => {
 
   async function assertStartupReconcileLeavesStillLiveRunPending(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-live')
+    const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithSessionId(now, 'conv_live')
     assert.equal(
       (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    // Engine B restart, but the agent's executionId is still in the live inventory.
+    // Engine B restart, but the run's session is still live.
     const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
-      getLiveAgentExecutionIds: () => ['exec-live'],
+      getLiveConversationSessionIds: () => ['conv_live'],
     })
     await engineB.handleStartup()
 
@@ -1948,24 +2016,24 @@ test('engine', async () => {
     assert.equal(counters.prCalls, 0)
   }
 
-  async function assertStartupReconcileNeverForceFailsExecutionlessRun(): Promise<void> {
+  async function assertStartupReconcileNeverForceFailsSessionlessRun(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
-    // setupAgentRun's default run carries NO executionId.
+    // setupAgentRun's default run carries NO sessionId.
     const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
     assert.equal(
       (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
 
-    // Engine B restart with an empty live inventory: nothing proves this run's agent
-    // is gone, so it must not be force-failed — its frames (or the max-duration
+    // Engine B restart with no live sessions: nothing proves this run's agent is
+    // gone, so it must not be force-failed — its turns (or the max-duration
     // sweep) still cover it.
     const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
-      getLiveAgentExecutionIds: () => [],
+      getLiveConversationSessionIds: () => [],
     })
     await engineB.handleStartup()
 
-    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'executionless run is untouched')
+    assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'sessionless run is untouched')
     assert.equal(counters.prCalls, 0)
   }
 
@@ -1977,8 +2045,8 @@ test('engine', async () => {
       true,
     )
 
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     // A settle timer that outlives the engine would open a PR and dispose an agent
     // for an app that has already torn the engine down.
     engine.stop()
@@ -2077,8 +2145,8 @@ test('engine', async () => {
       (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
       true,
     )
-    await engine.noteAgentPhase(workingFrame())
-    await engine.noteAgentPhase(turnEndFrame())
+    await engine.noteConversationTurn(turnStarted())
+    await engine.noteConversationTurn(turnCompleted())
     await settleUntil(store, 'completed')
 
     // The diff is staged, committed, and pushed; a PR is opened.

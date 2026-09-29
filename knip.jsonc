@@ -23,6 +23,13 @@
     "resources/marketplace/*.ts",
     "tests/**/*.ts",
   ],
+  "ignore": [
+    // Scaffold sources: copied into an author's own project, whose package.json
+    // depends on @sprintengine/module-sdk. They are not part of this one.
+    "packages/module-sdk/templates/**",
+    "packages/module-sdk/skills/**",
+    "resources/studio-plugin/sprintengine-studio/skills/sprintengine-extension-builder/**",
+  ],
   "ignoreBinaries": [
     // The Windows system launcher for a WSL distribution: it lists the
     // distributions and starts each one's helper. Not an npm binary.

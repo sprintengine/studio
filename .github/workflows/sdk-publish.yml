@@ -1,0 +1,74 @@
+name: Publish module SDK
+
+# Publishes @sprintengine/module-sdk to npm, with provenance.
+#
+# A push of an `sdk-v<version>` tag publishes that version; the tag must name
+# packages/module-sdk/package.json's version exactly. A dispatch publishes
+# whatever version the chosen ref carries (use it to retry a failed publish).
+# Either way the release check runs first: the CHANGELOG's newest entry must be
+# the version, and the host API numbers the docs and templates quote must be
+# the ones the SDK declares. A prerelease goes out under its own dist-tag
+# (`1.0.0-beta.0` → `beta`), never `latest`.
+#
+# The app release does not depend on this: scaffolded projects depend on the
+# npm release, and the app ships the templates and skill itself.
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publish at a time; a second never cancels one already talking to npm.
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @sprintengine/module-sdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # npm provenance: the registry records which workflow run built the tarball.
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the release
+        id: check
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then
+            node scripts/release/sdk-release-check.mjs --tag "$TAG"
+          else
+            node scripts/release/sdk-release-check.mjs
+          fi
+
+      - name: Drift guard
+        run: npm run test:sdk:drift
+
+      - name: Pack check
+        run: npm run test:sdk:pack
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ steps.check.outputs.dist_tag }}
+        run: npm publish --provenance --access public --tag "$DIST_TAG" -w packages/module-sdk
