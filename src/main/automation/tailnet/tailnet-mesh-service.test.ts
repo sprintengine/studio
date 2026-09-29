@@ -238,6 +238,37 @@ test('a wake recycles a watch that looks open, and its hello reports what change
   )
 })
 
+test('windows re-reading one machine share one browse, and a change push drops the shared answer', async () => {
+  wire.readRemoteIdentity.mockResolvedValue(identity)
+  let handlers: RemoteJsonSocketHandlers | null = null
+  wire.openRemoteEventsSocket.mockImplementation(async (input: { handlers: RemoteJsonSocketHandlers }) => {
+    handlers = input.handlers
+    return { ok: true, value: watchSocket(input.handlers).socket }
+  })
+  const h = startMesh()
+  h.mesh.start()
+  await vi.advanceTimersByTimeAsync(0)
+  const before = wire.readRemoteIdentity.mock.calls.length
+  const [a, b] = await Promise.all([h.mesh.browse(connection.id), h.mesh.browse(connection.id)])
+  assert.equal(a.reachable && b.reachable, true)
+  assert.equal(wire.readRemoteIdentity.mock.calls.length, before + 1, 'two windows, one read')
+  await h.mesh.browse(connection.id)
+  assert.equal(wire.readRemoteIdentity.mock.calls.length, before + 1, 'a read just after shares the answer')
+
+  // A conversation push leaves the browse shared; a workspace push does not.
+  handlers!.onFrame({ type: 'changed', what: 'conversations', revision: 1 })
+  await h.mesh.browse(connection.id)
+  assert.equal(wire.readRemoteIdentity.mock.calls.length, before + 1)
+  handlers!.onFrame({ type: 'changed', what: 'workspaces', revision: 1 })
+  await h.mesh.browse(connection.id)
+  assert.equal(wire.readRemoteIdentity.mock.calls.length, before + 2, 'a change push is read from the machine')
+
+  // And the share lapses on its own.
+  await vi.advanceTimersByTimeAsync(2_000)
+  await h.mesh.browse(connection.id)
+  assert.equal(wire.readRemoteIdentity.mock.calls.length, before + 3)
+})
+
 test('the reachability timer runs only while a machine is paired', async () => {
   wire.readRemoteIdentity.mockResolvedValue(identity)
   wire.openRemoteEventsSocket.mockResolvedValue(unreachable)

@@ -89,6 +89,13 @@ const AWAY_FOCUS_RECHECK_MIN_MS = 10_000
 /** Every wait between dials to an absent machine is this many times longer on battery. */
 const BATTERY_STRETCH = 4
 /**
+ * How long a browse or a conversation list is shared. A change push reaches
+ * every window at once and each re-reads; within this window they share one
+ * read instead of each sending its own. A push for that kind of change
+ * clears it, so a re-read after a change is never answered from before it.
+ */
+const SHARED_READ_MS = 1_500
+/**
  * The kinds of change a machine's feed reports that this one reads. Anything
  * else — the `terminals` an older build still announces — names a list this
  * machine no longer reads.
@@ -1038,6 +1045,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     const connection = store.find(watch.connectionId)
     if (!connection) return
     const changed = (what: ChangeKind): void => {
+      forgetSharedReads(connection.id, what)
       broadcast({ kind: 'remote-changed', connectionId: connection.id, machineName: connection.machineName, what })
     }
     if (frame.type === 'hello') {
@@ -1162,6 +1170,40 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     }
   })
 
+  // ── Reads shared across windows ───────────────────────────────────────────
+  //
+  // Every window hears the same change push and re-reads the same machine;
+  // each browse is two round trips over there and each list a socket. One
+  // read per machine is in flight at a time, and its answer is shared for a
+  // moment after it lands. A push for that kind of change drops the shared
+  // answer, so the re-read it prompts goes to the machine.
+  type SharedRead<T> = { promise: Promise<T>; settledAt: number | null }
+  const sharedBrowses = new Map<string, SharedRead<MeshBrowse>>()
+  const sharedLists = new Map<string, SharedRead<MeshConversationListResult>>()
+
+  function shareRead<T>(reads: Map<string, SharedRead<T>>, connectionId: string, read: () => Promise<T>): Promise<T> {
+    const current = reads.get(connectionId)
+    if (current && (current.settledAt === null || Date.now() - current.settledAt < SHARED_READ_MS))
+      return current.promise
+    const entry: SharedRead<T> = { promise: read(), settledAt: null }
+    reads.set(connectionId, entry)
+    entry.promise.then(
+      () => {
+        entry.settledAt = Date.now()
+      },
+      () => {
+        if (reads.get(connectionId) === entry) reads.delete(connectionId)
+      },
+    )
+    return entry.promise
+  }
+
+  /** Drop what is shared for a machine: all of it, or what one kind of change makes stale. */
+  function forgetSharedReads(connectionId: string, what?: ChangeKind): void {
+    if (what !== 'conversations') sharedBrowses.delete(connectionId)
+    if (what === undefined || what === 'conversations') sharedLists.delete(connectionId)
+  }
+
   // ── The supervisor ────────────────────────────────────────────────────────
 
   /** The five-minute check runs only while there is a machine to check. */
@@ -1218,7 +1260,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
   function browse(connectionId: unknown): Promise<MeshBrowse> {
     const connection = connectionFor(connectionId)
     if (!connection) return Promise.resolve(unknownConnectionBrowse(connectionId))
-    return browseNow(connection)
+    return shareRead(sharedBrowses, connection.id, () => browseNow(connection))
   }
 
   async function browseNow(connection: StoredMeshConnection): Promise<MeshBrowse> {
@@ -1469,6 +1511,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     reachability.delete(connectionId)
     peerCapabilities.delete(connectionId)
     forgetAway(connectionId)
+    forgetSharedReads(connectionId)
     stopWatch(connectionId)
     // Its followed conversations end, and what was kept of them goes too: a
     // transcript from a machine no longer paired is not this machine's to keep.
@@ -1532,7 +1575,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     async listConversations(connectionId): Promise<MeshConversationListResult> {
       const connection = connectionFor(connectionId)
       if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
-      return listConversationsNow(connection)
+      return shareRead(sharedLists, connection.id, () => listConversationsNow(connection))
     },
 
     async followConversation(input) {
@@ -1564,7 +1607,11 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     async conversationCommand(input): Promise<MeshConversationCommandResult> {
       const key = meshConversationKeyOf(input.key)
       if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
-      return remoteConversations.command(key, input.command)
+      const result = await remoteConversations.command(key, input.command)
+      // A command carried out (a model switched, a preset changed) changes
+      // what the list says, and the list is re-read straight after it.
+      if (result.ok) forgetSharedReads(key.connectionId, 'conversations')
+      return result
     },
 
     async conversationToolDetail(input): Promise<ConversationToolDetailResult> {
