@@ -271,19 +271,36 @@ function spacedPathIn(text: string): string | null {
 
 type ProsePiece = string | { token: string; label?: string }
 
+// Whether a word of prose could be a link at all. In running text a link is a
+// URL (it has a scheme, so a colon) or a path (a slash, or a Windows drive or
+// share); `classifyLinkToken` turns every other word down. Most of a reply is
+// words like these, and each would otherwise be a link component with its own
+// state and effect that renders the word as text.
+const MAY_LINK = /[/\\:]/u
+
 export function splitConversationText(text: string): ProsePiece[] {
   const pieces: ProsePiece[] = []
+  // Plain text runs join into one string, so a sentence is one text node.
+  const push = (piece: ProsePiece) => {
+    const last = pieces.length - 1
+    if (typeof piece === 'string' && typeof pieces[last] === 'string') pieces[last] += piece
+    else pieces.push(piece)
+  }
   const words = (chunk: string) => {
+    if (!MAY_LINK.test(chunk)) {
+      if (chunk) push(chunk)
+      return
+    }
     for (const token of chunk.split(/(\s+)/)) {
       if (!token) continue
-      if (!/\S/.test(token)) {
-        pieces.push(token)
+      if (!/\S/.test(token) || !MAY_LINK.test(token)) {
+        push(token)
         continue
       }
       const { prefix, body, suffix } = splitProseLinkToken(token)
-      if (prefix) pieces.push(prefix)
-      if (body) pieces.push({ token: body })
-      if (suffix) pieces.push(suffix)
+      if (prefix) push(prefix)
+      if (body) push(MAY_LINK.test(body) ? { token: body } : body)
+      if (suffix) push(suffix)
     }
   }
   let last = 0
@@ -291,12 +308,14 @@ export function splitConversationText(text: string): ProsePiece[] {
     words(text.slice(last, match.index))
     const [whole, quote, quoted] = match
     if (quote) {
-      pieces.push(quote, { token: quoted }, quote)
+      push(quote)
+      push({ token: quoted })
+      push(quote)
     } else {
       const { prefix, body, suffix } = splitProseLinkToken(whole)
-      if (prefix) pieces.push(prefix)
-      pieces.push({ token: unescapeSpaces(body), label: body })
-      if (suffix) pieces.push(suffix)
+      if (prefix) push(prefix)
+      push({ token: unescapeSpaces(body), label: body })
+      if (suffix) push(suffix)
     }
     last = match.index + whole.length
   }

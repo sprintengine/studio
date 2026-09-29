@@ -7,6 +7,7 @@ import {
   splitConversationText,
   splitProseLinkToken,
 } from './conversationLinks'
+import { classifyLinkToken } from '../../../../../shared/links/classifyLinkToken'
 import { conversationImageSource } from './ConversationImage'
 import {
   ConversationTransportProvider,
@@ -112,25 +113,11 @@ test('a file path is an inline link at the text’s own size, showing the whole 
 
 test('a quoted path with spaces is one link, its quotes left as text around it', () => {
   const path = '/var/folders/x/Screenshot 2026-09-27 at 22.41.31.png'
-  expect(splitConversationText(`Saved to '${path}'.`)).toEqual([
-    { token: 'Saved' },
-    ' ',
-    { token: 'to' },
-    ' ',
-    "'",
-    { token: path },
-    "'",
-    '.',
-  ])
+  expect(splitConversationText(`Saved to '${path}'.`)).toEqual(["Saved to '", { token: path }, "'."])
   expect(splitConversationText(`Open "./My Notes.md" or ~/x.ts`)).toEqual([
-    { token: 'Open' },
-    ' ',
-    '"',
+    'Open "',
     { token: './My Notes.md' },
-    '"',
-    ' ',
-    { token: 'or' },
-    ' ',
+    '" or ',
     { token: '~/x.ts' },
   ])
   const html = render(`Saved to '${path}'.`)
@@ -141,15 +128,9 @@ test('a quoted path with spaces is one link, its quotes left as text around it',
 
 test('a path with backslash-escaped spaces is one link that keeps the text as written', () => {
   expect(splitConversationText('Edit /Users/dev/My\\ File.ts, then run.')).toEqual([
-    { token: 'Edit' },
-    ' ',
+    'Edit ',
     { token: '/Users/dev/My File.ts', label: '/Users/dev/My\\ File.ts' },
-    ',',
-    ' ',
-    { token: 'then' },
-    ' ',
-    { token: 'run' },
-    '.',
+    ', then run.',
   ])
   const html = render('Edit /Users/dev/My\\ File.ts next.')
   expect(html).toContain('aria-label="Open /Users/dev/My File.ts"')
@@ -160,19 +141,7 @@ test('a path with backslash-escaped spaces is one link that keeps the text as wr
 })
 
 test('quotes that do not wrap a path are prose, and apostrophes stay words', () => {
-  expect(splitConversationText("it's 'not a path' here")).toEqual([
-    { token: "it's" },
-    ' ',
-    "'",
-    { token: 'not' },
-    ' ',
-    { token: 'a' },
-    ' ',
-    { token: 'path' },
-    "'",
-    ' ',
-    { token: 'here' },
-  ])
+  expect(splitConversationText("it's 'not a path' here")).toEqual(["it's 'not a path' here"])
   expect(render("Don't touch '/Users/dev/app.ts' yet.")).toContain('aria-label="Open /Users/dev/app.ts"')
 })
 
@@ -267,4 +236,43 @@ test('the shell turning bracketed paste on is seen even when the toggle arrives 
   const later = bracketedPasteTracker()
   expect(later('\u001b[?2004h\u001b[?2004l')).toBe(false)
   expect(later('$ \u001b[?2004h')).toBe(true)
+})
+
+test('prose words that cannot be links stay text, and every word that can keeps its link', () => {
+  const words = [
+    'the',
+    'README',
+    'package.json',
+    'www.example.com',
+    'example.com',
+    'localhost:3000',
+    'src/app.ts',
+    './run.sh',
+    '~/notes.md',
+    '/Users/dev/project/a.ts:12',
+    'C:\\Users\\dev\\a.ts',
+    '\\\\server\\share\\a.ts',
+    'https://example.com/docs',
+    'mailto:dev@example.com',
+    'file:///tmp/a.ts',
+    'a.ts:12',
+    '(see',
+    'e.g.',
+    'v1.2.3',
+    'Makefile',
+    'github.com/acme/app',
+  ]
+  for (const platform of ['darwin', 'win32']) {
+    for (const word of words) {
+      for (const text of [word, `(${word}),`, `"${word}".`]) {
+        const linkable = splitConversationText(text).some((piece) => typeof piece !== 'string')
+        const { body } = splitProseLinkToken(text)
+        const accepted = classifyLinkToken(body, { source: 'text', cwd: '/workspace/app', platform }) !== null
+        if (accepted) expect(linkable, `${text} on ${platform}`).toBe(true)
+      }
+    }
+  }
+  expect(splitConversationText('Plain words, with punctuation. And e.g. v1.2 too!')).toEqual([
+    'Plain words, with punctuation. And e.g. v1.2 too!',
+  ])
 })
