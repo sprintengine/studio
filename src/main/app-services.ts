@@ -1552,10 +1552,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                   commands: gatewayCommands,
                   ...(include ? { include } : {}),
                 })
-                const safe = sanitizeMobileSnapshotForTransport(snapshot)
-                if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
-                  return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
+                // The version is computed before sanitizing and sanitizing
+                // keeps it, so an unchanged read is answered without the copy.
+                if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
+                  return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
                 }
+                const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
               },
               async dispatchCommand(input: {
