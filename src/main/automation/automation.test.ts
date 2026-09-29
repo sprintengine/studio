@@ -2541,6 +2541,7 @@ test('automation', async () => {
         summary: 'test module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools(tools),
     })
@@ -2626,6 +2627,7 @@ test('automation', async () => {
         summary: 'fixture module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools([forecastTool]),
     }
@@ -2978,6 +2980,7 @@ test('automation', async () => {
       summary: 'fixture module',
       defaultEnabled: true,
       source: 'third-party' as const,
+      permissions: ['mcp:tools' as const],
     }
     const fixtureModule: CapabilityModule = { manifest, registerMain: (host) => host.registerMcpTools([forecastTool]) }
     const { kernel } = loadMainModules({ ipcMain: createFakeIpcMain().ipcMain, modules: [fixtureModule] })
