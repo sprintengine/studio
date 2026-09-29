@@ -517,3 +517,29 @@ test('a delta that is only its text is written as it is, and one carrying more i
     assert.equal(reasoning?.payload?.apiKey, '[redacted]')
   })
 })
+
+test('settling forces the child to end while its background agent works, and the idle sweep never does', async () => {
+  const provider = backgroundAgentProvider()
+  const forced: unknown[] = []
+  const dispose = provider.adapter.disposeChildProcess!
+  provider.adapter.disposeChildProcess = ((sessionId: string, options?: { force?: boolean }) => {
+    forced.push(options?.force === true)
+    return dispose(sessionId)
+  }) as typeof dispose
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    runtime.setIdleThresholdMs(60_000)
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'agent-provider',
+      modelId: 'model',
+    })
+    assert.ok(started.ok)
+    const sessionId = started.session.sessionId
+    assert.ok((await runtime.sendTurn({ sessionId, message: 'go' })).ok)
+    assert.deepEqual(runtime.sweepIdleSessions(Date.now() + 10 * 60_000), [sessionId])
+    assert.ok((await runtime.suspendSession({ sessionId })).ok)
+    assert.deepEqual(forced, [false, true])
+  })
+})

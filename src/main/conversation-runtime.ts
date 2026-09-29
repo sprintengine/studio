@@ -1226,7 +1226,9 @@ export class ConversationRuntime {
     // Also while the session is still starting, or a send is spawning its
     // child: disposing cancels a spawn in flight, which would otherwise leave
     // a child running that nothing is waiting for.
-    if (this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId))
+    // Forced: Settle and Snooze end the child even while an agent it spawned
+    // is working, which the idle sweep never does.
+    if (disposeChildProcess(this.getAdapterForProviderId(session.providerId), session.sessionId, { force: true }))
       // No child is left to send events for a turn it was told to cancel.
       session.canceledTurnIds.clear()
     void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
@@ -2952,6 +2954,21 @@ function isWordedUserMessage(event: ConversationEvent): boolean {
   return (
     event.type === 'user_message' && typeof event.payload?.text === 'string' && event.payload.text.trim().length > 0
   )
+}
+
+/**
+ * `disposeChildProcess` with its options. Adapters that keep a child alive
+ * for a working subagent take `force` to end it anyway; one that takes no
+ * options ignores them.
+ */
+function disposeChildProcess(
+  adapter: ConversationProviderAdapter | undefined,
+  sessionId: string,
+  options: { force?: boolean },
+): boolean {
+  const dispose = adapter?.disposeChildProcess as
+    ((sessionId: string, options?: { force?: boolean }) => boolean) | undefined
+  return dispose?.call(adapter, sessionId, options) ?? false
 }
 
 function isSessionBusy(session: RuntimeSession): boolean {
