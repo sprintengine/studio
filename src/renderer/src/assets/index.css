@@ -2408,7 +2408,13 @@ samp,
  * opacity (and, for the ripple, scale) keyframes only, cheap to composite, no
  * per-frame JS. Each cell's delay into the loop is set inline by the component.
  * Reduced motion holds every pattern on one still frame: the four corners and
- * the centre lit. */
+ * the centre lit.
+ *
+ * Paint containment bounds each mark to its own 14px box. Nothing in it
+ * overflows (the ripple only scales a cell down), but without it the
+ * compositor has to assume an animating transform may reach anywhere in the
+ * scroller it sits in, and splits the rows painted after it into extra
+ * layers of their own. */
 .working-mark {
   display: inline-grid;
   flex-shrink: 0;
@@ -2418,6 +2424,7 @@ samp,
   place-content: center;
   width: 14px;
   height: 14px;
+  contain: paint;
 }
 
 .working-mark__cell {
