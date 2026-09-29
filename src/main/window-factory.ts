@@ -5,6 +5,12 @@ import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/gu
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
+import { appDocumentUrl, guardPrivilegedWindow } from './privileged-window-navigation'
+
+/** The one document every window made here may show; see privileged-window-navigation.ts. */
+function appDocument(): URL {
+  return appDocumentUrl(process.env['ELECTRON_RENDERER_URL'], join(__dirname, '../renderer/index.html'))
+}
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
@@ -250,10 +256,7 @@ export function createMainWindow({
     })
   }
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   // Voice dictation captures the microphone via getUserMedia in the renderer.
   // Grant the media permission for this trusted first-party window (the OS still
@@ -315,10 +318,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     if (diagnosticsWindow === win) diagnosticsWindow = null
   })
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
@@ -454,10 +454,7 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   const query: Record<string, string> = { aux: kind, ...params }
   if (process.env['ELECTRON_RENDERER_URL']) {
