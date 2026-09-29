@@ -27,7 +27,11 @@ import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
-import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import {
+  conversationCommandsFor,
+  publishConversationCommands,
+  touchConversationCommands,
+} from '../conversation-commands/registry'
 import {
   prepareWslClaudeTarget,
   spawnWslClaude,
@@ -606,9 +610,13 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           : null
     if (!next) return
     // An init repeats the same names every exchange; only a change is news.
-    // A push carries descriptions too, so it is taken whenever it arrives.
-    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands))
+    // The repeat still says the list is current, so it is marked fresh: a `/`
+    // typed later then reads it instead of starting a Claude process to ask
+    // again. A push carries descriptions too, so it is taken whenever it arrives.
+    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands)) {
+      touchConversationCommands(CLAUDE_COMMANDS_CLI, state.workspaceRoot)
       return
+    }
     publishConversationCommands({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, commands: next })
   }
 

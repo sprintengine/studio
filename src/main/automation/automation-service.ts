@@ -60,7 +60,10 @@ type AutomationServiceOptions = {
    * app shell; absent in tests and headless embeddings, where nothing listens.
    */
   onTailnetEvent?: (payload: TailnetPushPayload) => void
-  /** Whether a window is open: the mesh's reachability timer only runs while one is. */
+  /**
+   * Whether an app window is visible and not minimized (the canvas worker never
+   * counts): the mesh's reachability timer only runs while one is.
+   */
   hasWindow?: () => boolean
   onMeshEvent?: (event: MeshEvent) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void

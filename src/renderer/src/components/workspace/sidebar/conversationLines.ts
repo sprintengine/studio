@@ -128,6 +128,16 @@ export function conversationFinishedAt(summary: ConversationSessionSummary): num
   return summary.lastTurnEndedAt ?? null
 }
 
+/**
+ * When the person last sent a chat a message, for a workspace's "last typed"
+ * recency. Not `updatedAt`, which also moves on a model or permission change.
+ * A chat with no message yet counts from when it was opened, which the person
+ * did.
+ */
+export function conversationLastInputAt(summary: ConversationSessionSummary): number {
+  return summary.lastUserMessageAt ?? summary.createdAt
+}
+
 export function conversationPhaseActivity(phase: ConversationPhase): Activity {
   if (phase === 'waiting_for_approval' || phase === 'waiting_for_input') return 'needs-input'
   if (phase === 'failed') return 'failed'

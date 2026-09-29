@@ -295,6 +295,26 @@ test('a hidden tab holds what it showed and catches up when it is shown', async 
   }
 })
 
+test('a tab out of sight in an open pane rests its subscription too, and catches up when seen', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    // The pane is open on this tab, but the view is out of the viewport (a
+    // warm workspace layer or a pane pushed off screen says the same).
+    const view = tab.host.firstElementChild!
+    await tab.act(async () => observed.get(view)?.([{ target: view, isIntersecting: false }]))
+    await tab.deliver([...transcript, ...anotherLane()])
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).not.toContain('Write the tests')
+    await tab.act(async () => observed.get(view)?.([{ target: view, isIntersecting: true }]))
+    await tab.act(() => pause(500))
+    expect(tab.host.textContent).toContain('Write the tests')
+  } finally {
+    await tab.unmount()
+  }
+})
+
 test('while the chat streams, the lanes follow on a short beat rather than every event', async () => {
   const tab = await mountAgentsTab()
   try {

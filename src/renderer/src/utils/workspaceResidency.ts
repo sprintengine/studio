@@ -10,13 +10,27 @@
 // terminal:sessions-delta, so a derived set recomputes immediately. Attribution
 // is by the session's recorded workspaceId, matching how workspace activity is
 // derived elsewhere.
+//
+// A chat counts while its session is open and its child has not rested. A
+// settled, snoozed or idle-swept chat keeps its session (status `ready`) so the
+// next message resumes it, but it holds no process until then, so it is no
+// warmer to switch into than a suspended terminal agent.
 
-export function residentAgentWorkspaceIds(terminalSessions: TerminalSessionSnapshot[]): Set<string> {
+import type { ConversationSessionSummary } from '../../../shared/conversation-runtime'
+
+export function residentAgentWorkspaceIds(
+  terminalSessions: TerminalSessionSnapshot[],
+  conversationSessions: readonly Pick<ConversationSessionSummary, 'workspaceId' | 'status' | 'resting'>[] = [],
+): Set<string> {
   const resident = new Set<string>()
   for (const session of terminalSessions) {
     if (session.kind !== 'agent') continue
     if (!session.processAlive) continue
     if (typeof session.workspaceId !== 'string') continue
+    resident.add(session.workspaceId)
+  }
+  for (const session of conversationSessions) {
+    if (session.status === 'stopped' || session.resting) continue
     resident.add(session.workspaceId)
   }
   return resident

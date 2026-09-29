@@ -5,10 +5,18 @@ import type { AgentAttention } from './agent-attention'
 /** Adapt live conversation events into the same passive OS attention channel
  * as terminal agents. Tokens/tool output never notify, and concurrent approval
  * callbacks keep attention until the final human decision resolves.
+ *
+ * A session is remembered only while an approval it raised is outstanding.
+ * Settle, Snooze and the idle sweep end a chat's child without a
+ * `session_closed`, so an entry kept until then would stay for the life of
+ * the app. Forgetting the rest loses nothing attention reads: the only use of
+ * the previous phase is to tell a second `awaiting_input` from a first, and a
+ * session is only awaiting input while an approval is outstanding. Every way
+ * a turn ends (completed, failed, interrupted by Stop or Settle) clears them.
  */
 export function createConversationAttentionListener(attention: Pick<AgentAttention, 'onAgentPhase'>) {
   const sessions = new Map<string, { phase: AgentPhaseEvent['phase']; pending: Set<string> }>()
-  return (event: ConversationEvent): void => {
+  const listener = (event: ConversationEvent): void => {
     const state = sessions.get(event.sessionId) ?? { phase: 'idle', pending: new Set<string>() }
     let phase: AgentPhaseEvent['phase']
     let turnEnd = false
@@ -69,7 +77,9 @@ export function createConversationAttentionListener(attention: Pick<AgentAttenti
       pendingWakeupAt: null,
     })
     state.phase = phase
-    if (event.type === 'session_closed') sessions.delete(event.sessionId)
+    if (event.type === 'session_closed' || !state.pending.size) sessions.delete(event.sessionId)
     else sessions.set(event.sessionId, state)
   }
+  /** How many sessions are remembered. Exposed for tests. */
+  return Object.assign(listener, { trackedSessions: () => sessions.size })
 }

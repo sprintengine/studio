@@ -49,7 +49,7 @@ import {
 import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
-import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
+import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -2212,10 +2212,7 @@ export default function WorkspaceManager() {
   // the session, and the terminal:sessions-delta broadcast carries the change).
   const residentWorkspaceIdsRef = useRef<ReadonlySet<string> | null>(null)
   const residentWorkspaceIds = useMemo(() => {
-    const ids = residentAgentWorkspaceIds(terminalSessions)
-    for (const session of conversationSessions) {
-      if (session.status !== 'stopped') ids.add(session.workspaceId)
-    }
+    const ids = residentAgentWorkspaceIds(terminalSessions, conversationSessions)
     const stable = stableSet(ids, residentWorkspaceIdsRef.current)
     residentWorkspaceIdsRef.current = stable
     return stable
@@ -2263,7 +2260,9 @@ export default function WorkspaceManager() {
         const startedAt = session.turnStartedAt ?? session.updatedAt
         row.workingSince = Math.min(row.workingSince ?? startedAt, startedAt)
       }
-      row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
+      // When the person last sent it something; `updatedAt` also moves on a
+      // model or permission change, which is not the person typing.
+      row.lastInputAt = Math.max(row.lastInputAt ?? 0, conversationLastInputAt(session))
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
         // When its last turn ended; `updatedAt` also moves on a model or
         // permission change, which is not the chat finishing anything.

@@ -20,6 +20,7 @@ import {
   useSubagentTypeDescription,
 } from '../../../panels/agentChat/subagentStatus'
 import { WorkTimeline } from '../../../panels/agentChat/timelineRows'
+import { useChatViewActive } from '../../../panels/agentChat/chatViewActivity'
 import { useConversationSession } from '../../../panels/agentChat/useConversationSession'
 import { useAgentFocusRequest } from './agentsPaneFocus'
 
@@ -160,12 +161,19 @@ function ChatAgents({
   /** The pane is open on this tab and its workspace is on screen. */
   active: boolean
 }) {
-  const session = useConversationSession(root, workspaceId, agentId)
+  // Nobody can see a collapsed pane, another tab's, or a background
+  // workspace's: `active` says the first two, and the view's own placement
+  // (its workspace layer, whether it is in the viewport) the rest. The
+  // subscription then rests as a hidden chat's does, rendering no streamed
+  // token until the tab is seen again.
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const placed = useChatViewActive(rootRef)
+  const seen = active && placed
+  const session = useConversationSession(root, workspaceId, agentId, { active: seen })
   // Tokens stream into the same session; the list only needs to keep up, not to
-  // refold on every one of them. Nobody can see a collapsed pane or a
-  // background workspace's, so there it holds what it last showed and
-  // catches up when it is shown again.
-  const events = useDeferredValue(useThrottledValue(session.events, LANE_REFRESH_MS, active, isEmpty))
+  // refold on every one of them. Where nobody can see it, it holds what it last
+  // showed and catches up when it is shown again.
+  const events = useDeferredValue(useThrottledValue(session.events, LANE_REFRESH_MS, seen, isEmpty))
   const projection = useMemo(() => projectConversation(events), [events])
   const lanes = useMemo(() => collectAgentLanes(projection.entries), [projection.entries])
   const [selected, setSelected] = useState<string | null>(initialLaneId)
@@ -182,7 +190,7 @@ function ChatAgents({
   return (
     <ConversationLinkProvider workspaceId={workspaceId} agentId={agentId} cwd={root} workspaceRoot={root}>
       <SubagentTypesProvider value={projection.agentTypes}>
-        <div className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)]">
+        <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)]">
           <PanelHeader title="Agents" subtitle={binding.agent.name} count={lanes.length || undefined} />
           {lane ? (
             <AgentThread lane={lane} onBack={showList} />

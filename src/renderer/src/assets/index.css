@@ -2910,7 +2910,10 @@ samp,
  *     (`content-visibility: hidden`), told apart by WorkspaceManager's
  *     `data-layer-state`;
  *   - anything `inert`: an inactive workspace's pane parked offscreen, a
- *     collapsed pane column, the workspace region under a door.
+ *     collapsed pane column, the workspace region under a door;
+ *   - a collapsed pane's docked tab layers (`data-pane-collapsed`, set by
+ *     pane/WorkspacePaneBody.tsx), which a floating player keeps from being
+ *     `inert`: the column stays interactive so the player can be dragged.
  * `aria-hidden` is not a condition: glyphs and working-mark cells carry it
  * themselves while on screen.
  *
@@ -2925,6 +2928,7 @@ samp,
     [data-live-offscreen],
     [data-layer-state='warm'],
     [data-layer-state='cold'],
+    [data-pane-collapsed],
     [inert]
   )
   :is(
@@ -2949,6 +2953,7 @@ samp,
     [data-live-offscreen],
     [data-layer-state='warm'],
     [data-layer-state='cold'],
+    [data-pane-collapsed],
     [inert]
   )
   .skeleton-shimmer::after,
@@ -2957,6 +2962,7 @@ samp,
     [data-live-offscreen],
     [data-layer-state='warm'],
     [data-layer-state='cold'],
+    [data-pane-collapsed],
     [inert]
   )
   .chat-shimmer__band::before {

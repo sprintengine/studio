@@ -301,18 +301,32 @@ test('conversation-runtime', async () => {
 
       await runtime.sendTurn({ sessionId, message: 'hello' })
       const completedAt = clock
+      // When the person last sent something, read off the message itself.
+      const sent = runtime.listSessions({ workspaceId: 'workspace' })
+      assert.equal(sent.ok && sent.sessions[0]?.lastUserMessageAt, completedAt)
+      assert.equal(sent.ok && sent.sessions[0]?.resting, undefined)
 
       // Not yet past the threshold: nothing disposed.
       assert.deepEqual(runtime.sweepIdleSessions(completedAt + 59_000), [])
       // Past the threshold: the idle child goes away, session survives.
+      events.length = 0
       assert.deepEqual(runtime.sweepIdleSessions(completedAt + 61_000), [sessionId])
       assert.deepEqual(capture.disposedChildren, [sessionId])
       const listed = runtime.listSessions({ workspaceId: 'workspace' })
       assert.equal(listed.ok && listed.sessions[0]?.status, 'ready')
+      // It says it rests, and the session lists are told once to read again.
+      assert.equal(listed.ok && listed.sessions[0]?.resting, true)
+      assert.deepEqual(events, ['session_updated'])
+      runtime.sweepIdleSessions(completedAt + 62_000)
+      assert.deepEqual(events, ['session_updated'])
 
       // A pending approval/question card blocks disposal no matter how idle.
+      clock += 5_000
       const askPromise = runtime.sendTurn({ sessionId, message: 'ask' })
       await waitForEvent(events, 'approval_requested')
+      const asking = runtime.listSessions({ workspaceId: 'workspace' })
+      assert.equal(asking.ok && asking.sessions[0]?.resting, undefined)
+      assert.equal(asking.ok && asking.sessions[0]?.lastUserMessageAt, clock)
       assert.deepEqual(runtime.sweepIdleSessions(clock + 10_000_000), [])
       const requestEvent = await readLastEvent(workspaceRoot, 'workspace', 'agent')
       await runtime.respondToRequest({
@@ -358,6 +372,7 @@ test('conversation-runtime', async () => {
       await runtime.sendTurn({ sessionId, message: 'hello' })
       const idle = await runtime.suspendSession({ sessionId })
       assert.equal(idle.ok && idle.session.status, 'ready')
+      assert.equal(idle.ok && idle.session.resting, true)
       assert.deepEqual(capture.disposedChildren, [sessionId])
       assert.deepEqual(capture.stoppedSessions, [])
 
@@ -367,12 +382,13 @@ test('conversation-runtime', async () => {
       await waitForEvent(events, 'approval_requested')
       const busy = await runtime.suspendSession({ sessionId })
       assert.equal(busy.ok && busy.session.status, 'ready')
-      assert.equal(events.at(-1), 'turn_failed')
+      assert.deepEqual(events.slice(-2), ['turn_failed', 'session_updated'])
       assert.deepEqual(capture.disposedChildren, [sessionId, sessionId])
 
       // The next message is taken, which a stopped session would refuse.
       const resumed = await runtime.sendTurn({ sessionId, message: 'hello again' })
       assert.equal(resumed.ok && resumed.session.status, 'ready')
+      assert.equal(resumed.ok && resumed.session.resting, undefined)
 
       // Stopping disposes too (a child still spawning is cancelled); a stopped
       // session has nothing left to suspend; an unknown one is refused.
