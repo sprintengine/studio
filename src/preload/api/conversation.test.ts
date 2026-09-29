@@ -99,6 +99,7 @@ test('conversation', async () => {
     await api.conversationSessionRespondToRequest({ sessionId: 'conv_1', requestId: 'approval_1', approved: true })
     await api.conversationSessionSetPermission({ sessionId: 'conv_1', permissionPreset: 'bypass' })
     await api.conversationSessionStop({ sessionId: 'conv_1' })
+    await api.conversationSessionSuspend({ sessionId: 'conv_1' })
     await api.conversationSessionsList({ workspaceId: 'workspace' })
     const received: ConversationEvent[] = []
     const cleanup = api.onConversationEvent((event) => received.push(event))
@@ -129,6 +130,7 @@ test('conversation', async () => {
       'conversation:sessions:respond-to-request',
       'conversation:sessions:set-permission',
       'conversation:sessions:stop',
+      'conversation:sessions:suspend',
       'conversation:sessions:list',
       'conversation:events:subscribe',
       'conversation:events:unsubscribe',

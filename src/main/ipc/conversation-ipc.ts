@@ -37,6 +37,7 @@ import type {
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationSuspendSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -96,6 +97,7 @@ export type ConversationIpcHandlers = {
   setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
   setModel?(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
+  suspendSession?(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
@@ -225,6 +227,9 @@ export function createConversationIpcHandlers(
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
+    },
+    suspendSession(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult> {
+      return runtime.suspendSession(input)
     },
     listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult {
       return runtime.listSessions(input)
@@ -624,6 +629,20 @@ export function registerConversationIpc(
       return { ok: false, message: formatError(err) }
     }
   })
+
+  ipcMain.handle(
+    'conversation:sessions:suspend',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSessionIdInput(input)
+      if (!parsed.ok) return parsed
+      if (!handlers.suspendSession) return { ok: false, message: 'Suspending a conversation is unavailable.' }
+      try {
+        return await handlers.suspendSession(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
 
   ipcMain.handle('conversation:sessions:list', async (_, input: unknown): Promise<ConversationListSessionsResult> => {
     if (input !== undefined && !isRecord(input)) return { ok: false, message: 'Session list input must be an object.' }

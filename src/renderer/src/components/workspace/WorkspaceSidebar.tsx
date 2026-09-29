@@ -466,13 +466,22 @@ function WorkspaceSidebar({
   // Nothing here can kill a working agent: the sweep never settles a row that
   // is busy, held, or selected, and a hand Settle is the person saying so
   // about a chat they are looking at.
+  //
+  // A chat agent counts as open too: it has no pty, but main holds a child
+  // process for it until the session is stopped.
+  const rowHasOpenAgents = useCallback(
+    (workspace: Workspace) =>
+      rowHasOpenTerminals(workspace, sessionsByWorkspaceId) ||
+      (conversationsByWorkspaceId.get(workspace.id) ?? []).some((session) => session.status !== 'stopped'),
+    [sessionsByWorkspaceId, conversationsByWorkspaceId],
+  )
   const quietSettledWorkspace = useCallback(
     (id: WorkspaceId) => {
       const workspace = workspaces.find((candidate) => candidate.id === id)
-      if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
+      if (!workspace || !rowHasOpenAgents(workspace)) return
       void terminateWorkspaceTerminals(workspace)
     },
-    [workspaces, sessionsByWorkspaceId],
+    [workspaces, rowHasOpenAgents],
   )
 
   // Settle by hand: the record first, then the ptys — the row must move even
@@ -500,10 +509,10 @@ function WorkspaceSidebar({
     (id: WorkspaceId, wakeAt: number) => {
       setWorkspaceSnoozed(id, wakeAt)
       const workspace = workspaces.find((candidate) => candidate.id === id)
-      if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
+      if (!workspace || !rowHasOpenAgents(workspace)) return
       void suspendWorkspaceTerminals(workspace)
     },
-    [setWorkspaceSnoozed, workspaces, sessionsByWorkspaceId],
+    [setWorkspaceSnoozed, workspaces, rowHasOpenAgents],
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle

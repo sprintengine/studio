@@ -377,6 +377,12 @@ export type ConversationStopSessionInput = {
   sessionId: string
 }
 
+// Settle and Snooze: end the session's child process but keep the session, so
+// the next message respawns it and resumes the same provider session.
+export type ConversationSuspendSessionInput = {
+  sessionId: string
+}
+
 export type ConversationListSessionsInput = {
   workspaceId?: string
   agentId?: string

@@ -57,6 +57,9 @@ test('WorkspaceSidebar.snoozed', async () => {
   const killed: string[] = []
   const suspended: string[] = []
   const resumed: string[] = []
+  // Alpha also holds a chat agent, whose process main owns: snoozing ends it
+  // too, keeping the session so the next message resumes it.
+  const chatsSuspended: string[] = []
   // Alpha holds a live agent pty, so there is something for the snooze to pause.
   domWindow.api = {
     platform: 'darwin',
@@ -81,6 +84,14 @@ test('WorkspaceSidebar.snoozed', async () => {
     },
     terminalResume: async (sessionId: string) => {
       resumed.push(sessionId)
+    },
+    conversationSessionsList: async () => ({
+      ok: true,
+      sessions: [{ sessionId: 'alpha-chat', workspaceId: 'w1', agentId: 'agent-chat', status: 'ready' }],
+    }),
+    conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
+      chatsSuspended.push(sessionId)
+      return { ok: true }
     },
   }
 
@@ -344,6 +355,7 @@ test('WorkspaceSidebar.snoozed', async () => {
       assert.deepEqual(suspended, ['alpha-pty'], "snoozing pauses the chat's agent pty")
       assert.deepEqual(killed, [], 'and never kills it — the session has to survive to be resumed')
       assert.deepEqual(resumed, [], 'nothing is resumed by the snooze itself')
+      assert.deepEqual(chatsSuspended, ['alpha-chat'], "snoozing ends the chat agent's process as well")
 
       // --- a raised hand outranks the snooze --------------------------------
       // Bravo's agent starts asking. Nothing happens to the row: the clock is the
