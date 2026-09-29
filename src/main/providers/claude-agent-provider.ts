@@ -664,8 +664,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
-    const permissionMode =
-      state.mode === 'plan' || state.mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    const permissionMode = nativePermissionMode(state, state.mode)
     const queryOptions: Options = {
       cwd: state.workspaceRoot,
       pathToClaudeCodeExecutable: executablePath,
@@ -752,6 +751,30 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort = abort
     void pump(state, q)
     void reportSupportedAgents(state, q)
+  }
+
+  // The native permission mode a chat mode runs the child in. Ask is plan mode
+  // with a hook that reads `state.mode` for every tool call.
+  function nativePermissionMode(state: SessionState, mode: SessionState['mode']) {
+    return mode === 'plan' || mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+  }
+
+  // Move the live child to another chat mode over the control channel rather
+  // than respawning it, which costs a cold start, a re-read of the session
+  // file, and any background agent it had running. False when only a respawn
+  // can do it: under `none`, default mode is the child's own configured one,
+  // which no control-channel mode names.
+  async function switchModeLive(state: SessionState, next: NonNullable<SessionState['mode']>): Promise<boolean> {
+    if (!state.query || !childHonorsPreset(state)) return false
+    const target = nativePermissionMode(state, next)
+    if (target === undefined) return false
+    if (target === nativePermissionMode(state, state.mode)) return true
+    try {
+      await state.query.setPermissionMode(target)
+      return true
+    } catch {
+      return false
+    }
   }
 
   // The agent types this child can spawn, with what each is for, so an agent's
@@ -983,10 +1006,14 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       yield eventFor(state, 'turn_started', { turnId: input.turnId })
       try {
-        if (state.mode !== (input.mode ?? 'default') || state.reasoningEffort !== input.reasoningEffort) {
+        const nextMode = input.mode ?? 'default'
+        if (state.reasoningEffort !== input.reasoningEffort) {
           disposeChild(state)
-          state.mode = input.mode ?? 'default'
+          state.mode = nextMode
           state.reasoningEffort = input.reasoningEffort
+        } else if (state.mode !== nextMode) {
+          if (!(await switchModeLive(state, nextMode))) disposeChild(state)
+          state.mode = nextMode
         }
         const skillIds = [...new Set(input.skills ?? [])].sort()
         if (JSON.stringify(skillIds) !== JSON.stringify(state.skillIds ?? [])) {

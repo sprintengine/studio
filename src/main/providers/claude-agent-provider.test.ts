@@ -38,6 +38,7 @@ test('claude-agent-provider', async () => {
     await testNativeSkillSelectionReachesSdk()
     await testWslChatRunsItsChildInTheDistribution()
     await testAskModeReadOnlyAndEffort()
+    await testModeSwitchesReachTheLiveChild()
     await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
     await testCanUseToolApprovalFlowApproveAndDeny()
@@ -315,6 +316,58 @@ test('claude-agent-provider', async () => {
     }
     assert.equal(capturedOptions[1]?.permissionMode, 'bypassPermissions')
     adapter.disposeAll()
+  }
+
+  // Plan and ask reach the live child as its native plan mode, and default
+  // mode as bypass, over the control channel. Default under `none` is the
+  // CLI's own configured mode, which no control-channel mode names, so that
+  // one switch still respawns; so does a child that refuses the mode.
+  async function testModeSwitchesReachTheLiveChild(): Promise<void> {
+    const emitResult = (_message: Record<string, unknown>, context: FakeQueryContext): void => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'modes' })
+    }
+    const send = async (adapter: ClaudeAgentProviderAdapter, turnId: string, mode: MockAdapterTurnInput['mode']) =>
+      collect(
+        adapter.sendTurn(
+          turnInput({ turnId, requestId: `approval_${turnId}`, mode }),
+        ) as AsyncIterable<ConversationEvent>,
+      )
+
+    const bypass = createAdapter(emitResult)
+    await collect(bypass.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
+    await send(bypass.adapter, 't1', 'default')
+    await send(bypass.adapter, 't2', 'plan')
+    await send(bypass.adapter, 't3', 'ask')
+    await send(bypass.adapter, 't4', 'default')
+    assert.equal(bypass.capturedOptions.length, 1, 'no respawn for a mode switch under bypass')
+    assert.deepEqual(bypass.permissionModes, ['plan', 'bypassPermissions'], 'plan to ask needs no switch')
+    bypass.adapter.disposeAll()
+
+    const none = createAdapter(emitResult)
+    await collect(none.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
+    await send(none.adapter, 't1', 'default')
+    const last = await send(none.adapter, 't2', 'ask')
+    assert.equal(last.at(-1)?.type, 'turn_completed')
+    assert.equal(none.capturedOptions.length, 1, 'entering ask mode keeps the child')
+    assert.deepEqual(none.permissionModes, ['plan'])
+    await send(none.adapter, 't3', 'default')
+    assert.equal(none.capturedOptions.length, 2, 'leaving it under none respawns into the configured default')
+    assert.equal(none.capturedOptions[1]?.permissionMode, undefined)
+    none.adapter.disposeAll()
+
+    const refusing = createAdapter(emitResult, {
+      onSetPermissionMode: () => {
+        throw new Error('mode refused')
+      },
+    })
+    await collect(
+      refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[],
+    )
+    await send(refusing.adapter, 't1', 'default')
+    await send(refusing.adapter, 't2', 'plan')
+    assert.equal(refusing.capturedOptions.length, 2, 'a refused switch respawns instead')
+    assert.equal(refusing.capturedOptions[1]?.permissionMode, 'plan')
+    refusing.adapter.disposeAll()
   }
 
   // A model switch reaches the live query through the SDK's setModel — no
