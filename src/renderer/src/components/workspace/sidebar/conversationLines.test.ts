@@ -6,6 +6,7 @@ import {
   conversationFinishedAt,
   conversationLineMark,
   conversationLineText,
+  conversationsWithTabs,
   replyPreviewText,
 } from './conversationLines'
 
@@ -124,4 +125,30 @@ test('a resting chat counts from when its last turn ended, not from its last upd
   assert.equal(conversationFinishedAt({ ...session('awaiting_approval'), lastTurnEndedAt: 500 }), null)
   // Nothing has finished yet.
   assert.equal(conversationFinishedAt(session('ready')), null)
+})
+
+test('a row draws one chat line per chat tab', () => {
+  const layout = {
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          children: [
+            { type: 'tab', component: 'agent', config: { agentId: 'agent-1' } },
+            { type: 'tab', component: 'agent', config: { agentId: 'agent-2' } },
+          ],
+        },
+      ],
+    },
+  }
+  const tabbed = { ...session('ready'), sessionId: 'current', updatedAt: 5 }
+  const superseded = { ...session('failed'), sessionId: 'superseded', updatedAt: 3 }
+  const second = { ...session('active'), sessionId: 'second', agentId: 'agent-2' }
+  const untabbed = { ...session('failed'), sessionId: 'untabbed', agentId: 'agent-closed' }
+  assert.deepEqual(
+    conversationsWithTabs([superseded, untabbed, tabbed, second], layout).map((entry) => entry.sessionId),
+    ['current', 'second'],
+  )
+  assert.deepEqual(conversationsWithTabs([tabbed], null), [])
 })

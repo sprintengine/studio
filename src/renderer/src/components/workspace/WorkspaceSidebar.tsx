@@ -4,7 +4,12 @@ import CliIcon from '../CliIcon'
 import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
-import { conversationFinishedAt, conversationLineMark, conversationLineText } from './sidebar/conversationLines'
+import {
+  conversationFinishedAt,
+  conversationLineMark,
+  conversationLineText,
+  conversationsWithTabs,
+} from './sidebar/conversationLines'
 import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -2930,7 +2935,11 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // request but no worktree branch used to have no line at all, which is
   // exactly the row the owner could not read anything off.
   const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
-  const visibleConversations = rowIsLive && !options?.snoozed ? conversationSessions : NO_CONVERSATIONS
+  const tabbedConversations = useMemo(
+    () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
+    [conversationSessions, workspace.layoutModel],
+  )
+  const visibleConversations = rowIsLive && !options?.snoozed ? tabbedConversations : NO_CONVERSATIONS
   const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
   // The row's status seat: run glyph / working mark + elapsed / tone dot /

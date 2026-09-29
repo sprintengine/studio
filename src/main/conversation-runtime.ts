@@ -365,6 +365,25 @@ export class ConversationRuntime {
   }
 
   private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
+    // One session per chat. A chat view keeps its session in component state,
+    // so a remount (a tab moved, a row snoozed and woken) asks again for a chat
+    // main is still holding; a second session beside the first was a second
+    // agent on the sidebar row with only one tab behind it. A live session on
+    // the same footing is the answer; anything else this chat left behind —
+    // stopped, failed, or on another model — gives way to the new one.
+    const previous = Array.from(this.sessions.values()).filter(
+      (session) => session.workspaceId === input.workspaceId.trim() && session.agentId === input.agentId.trim(),
+    )
+    const live = previous.find(
+      (session) =>
+        session.status !== 'stopped' &&
+        session.status !== 'failed' &&
+        session.workspaceRoot === input.workspaceRoot &&
+        session.providerId === input.providerId?.trim() &&
+        session.modelId === input.modelId?.trim(),
+    )
+    if (live) return { ok: true, session: this.toSummary(live) }
+
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
@@ -372,6 +391,10 @@ export class ConversationRuntime {
     if (input.providerId === CLAUDE_AGENT_PROVIDER_ID && this.prepareStudioMcp) {
       const prepared = await this.prepareStudioMcp(input)
       if (!prepared.ok) return prepared
+    }
+    for (const stale of previous) {
+      if (stale.status !== 'stopped') await this.stopSession({ sessionId: stale.sessionId })
+      this.sessions.delete(stale.sessionId)
     }
 
     const sessionId = `conv_${this.randomId()}`
