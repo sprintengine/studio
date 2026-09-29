@@ -12,6 +12,7 @@ import type {
   ConversationEvent,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSessionFrame,
   ConversationStartSessionResult,
 } from '../../shared/conversation-runtime'
 import { test } from 'vitest'
@@ -478,6 +479,7 @@ test('conversation-ipc', async () => {
     isDestroyed(): boolean
     send(channel: string, payload: unknown): void
     once(channel: 'destroyed', listener: () => void): void
+    on(channel: 'did-navigate', listener: () => void): void
     removeListener(channel: 'destroyed', listener: () => void): void
     destroyedListenerCount(): number
   } {
@@ -488,6 +490,7 @@ test('conversation-ipc', async () => {
       once: (_channel, listener) => {
         destroyedListeners.add(listener)
       },
+      on: () => undefined,
       removeListener: (_channel, listener) => {
         destroyedListeners.delete(listener)
       },
@@ -552,4 +555,132 @@ test('conversation-ipc', async () => {
   })
 
   await suiteRun
+})
+
+type Handler = (event: unknown, ...args: unknown[]) => unknown
+
+function registerWithRuntimeListeners() {
+  const handlers = new Map<string, Handler>()
+  const listeners = new Set<(event: ConversationEvent) => void>()
+  const scoped = new Set<(frame: ConversationSessionFrame) => void>()
+  registerConversationIpc(
+    { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as unknown as Parameters<
+      typeof registerConversationIpc
+    >[0],
+    {
+      listProviders: async () => ({ ok: true, providers: [] }),
+      getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+      setSecret: async () => ({ ok: false, message: 'unused' }),
+      clearSecret: async () => ({ ok: false, message: 'unused' }),
+      listProviderModels: async () => ({ ok: true, models: [] }),
+      startSession: async () => ({ ok: false, message: 'unused' }),
+      sendTurn: async () => ({ ok: false, message: 'unused' }),
+      interrupt: async () => ({ ok: false, message: 'unused' }),
+      respondToRequest: async () => ({ ok: false, message: 'unused' }),
+      setPermission: async () => ({ ok: false, message: 'unused' }),
+      stopSession: async () => ({ ok: false, message: 'unused' }),
+      listSessions: () => ({ ok: true, sessions: [] }),
+      readTranscript: async () => ({ ok: false, message: 'unused' }),
+      onEvent: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      subscribe: (_input, listener) => {
+        scoped.add(listener)
+        return { dispose: () => scoped.delete(listener), ready: Promise.resolve() }
+      },
+    },
+  )
+  const sent: Array<{ channel: string; payload: unknown }> = []
+  const navigation = new Set<() => void>()
+  const sender = {
+    id: 7,
+    isDestroyed: () => false,
+    send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    once: () => undefined,
+    on: (channel: string, listener: () => void) => {
+      if (channel === 'did-navigate') navigation.add(listener)
+    },
+    removeListener: () => undefined,
+  }
+  return {
+    handlers,
+    listeners,
+    scoped,
+    sent,
+    sender,
+    navigate: () => {
+      for (const listener of navigation) listener()
+    },
+    navigationListeners: () => navigation.size,
+  }
+}
+
+function conversationEvent(type: ConversationEvent['type'], payload?: Record<string, unknown>): ConversationEvent {
+  return {
+    id: `event_${type}`,
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'mock-provider',
+    modelId: 'mock-model',
+    type,
+    createdAt: 1,
+    ...(payload ? { payload } : {}),
+  }
+}
+
+test('the all-conversations channel carries lifecycle events and never the token stream', async () => {
+  const ipc = registerWithRuntimeListeners()
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  const publish = (event: ConversationEvent) => {
+    for (const listener of ipc.listeners) listener(event)
+  }
+  publish(conversationEvent('user_message', { turnId: 't', text: 'hi' }))
+  publish(conversationEvent('turn_started', { turnId: 't' }))
+  publish(conversationEvent('content_delta', { turnId: 't', text: 'Hel' }))
+  publish(conversationEvent('reasoning_delta', { turnId: 't', text: 'thinking' }))
+  publish(conversationEvent('tool_started', { turnId: 't', toolUseId: 'tool', name: 'Bash' }))
+  publish(conversationEvent('tool_output', { turnId: 't', toolUseId: 'tool', partial: true, output: 'line' }))
+  publish(conversationEvent('tool_output', { turnId: 't', toolUseId: 'tool', output: 'done' }))
+  publish(conversationEvent('subagent_status', { toolUseId: 'task', status: 'running' }))
+  publish(conversationEvent('turn_completed', { turnId: 't' }))
+  publish(conversationEvent('session_updated', { conversationTitle: 'Title' }))
+  assert.deepEqual(
+    ipc.sent.map(({ channel, payload }) => [channel, (payload as ConversationEvent).type]),
+    [
+      ['conversation:event', 'user_message'],
+      ['conversation:event', 'turn_started'],
+      ['conversation:event', 'tool_started'],
+      ['conversation:event', 'tool_output'],
+      ['conversation:event', 'subagent_status'],
+      ['conversation:event', 'turn_completed'],
+      ['conversation:event', 'session_updated'],
+    ],
+  )
+  assert.equal((ipc.sent[3]?.payload as ConversationEvent).payload?.output, 'done')
+})
+
+test('a reload ends the subscriptions the page it replaced held', async () => {
+  const ipc = registerWithRuntimeListeners()
+  const key = { workspaceRoot: '/workspace', workspaceId: 'workspace', agentId: 'agent' }
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  await ipc.handlers.get('conversation:session:subscribe')!({ sender: ipc.sender }, { subscriptionId: 'pane', key })
+  assert.equal(ipc.listeners.size, 1)
+  assert.equal(ipc.scoped.size, 1)
+  // One navigation listener per webContents, however many subscriptions it holds.
+  assert.equal(ipc.navigationListeners(), 1)
+
+  ipc.navigate()
+  assert.equal(ipc.listeners.size, 0)
+  assert.equal(ipc.scoped.size, 0)
+
+  // The reloaded page subscribes afresh and is served once.
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  await ipc.handlers.get('conversation:session:subscribe')!({ sender: ipc.sender }, { subscriptionId: 'pane', key })
+  assert.equal(ipc.listeners.size, 1)
+  assert.equal(ipc.scoped.size, 1)
+  assert.equal(ipc.navigationListeners(), 1)
+  for (const listener of ipc.listeners) listener(conversationEvent('turn_completed', { turnId: 't' }))
+  assert.equal(ipc.sent.length, 1)
 })

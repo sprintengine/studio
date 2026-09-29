@@ -44,6 +44,7 @@ function harness(runtime: ConversationRuntime) {
     send: (_channel: string, payload: { subscriptionId: string; frame: ConversationSessionFrame }) =>
       frames.get(payload.subscriptionId)?.push(payload.frame),
     once: () => undefined,
+    on: () => undefined,
     removeListener: () => undefined,
   }
   return {
