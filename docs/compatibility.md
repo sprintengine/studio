@@ -100,7 +100,12 @@ optional fields preserve that contract. Model switching is one such addition: it
 `conversation-models` capability, a `models` catalog on a listed thread, the
 `setModel` command, the `unsupported_model` code and a `notice` on an accepted
 command. A client hides its model control for a desktop that does not
-advertise it, and such a desktop refuses the command as `unsupported_command`. Breaking frame changes require a new
+advertise it, and such a desktop refuses the command as `unsupported_command`.
+The pictures a chat's steps show are another: the `conversation-images`
+capability names a plain `GET /tailnet/v1/conversation-image` beside the socket
+rather than a frame, so it changes neither the frame contract nor this package.
+A client that does not see it says the picture is on the other machine, and an
+older desktop answers the route 404. Breaking frame changes require a new
 negotiated capability or the tailnet version-window process above, not merely
 a package version change. Presentation-only fixes use a package patch.
 Both ESM and CommonJS tarball consumers and Node16 declarations are checked by

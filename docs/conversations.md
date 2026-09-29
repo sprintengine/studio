@@ -120,6 +120,21 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   At most 16 images of 5 MB each per turn, as JPEG, PNG, GIF or WebP, on a live
   image-capable session. An accepted send removes its staged files; unused ones
   expire after an hour.
+- **Pictures a step shows.** A desktop that advertises the `conversation-images`
+  capability serves the picture a step made (Codex's `GenerateImage`) or looked
+  at (a file read of a picture) at `GET /tailnet/v1/conversation-image`, named
+  by `workspaceId`, `agentId` and the step's `toolUseId`, to a device with
+  `conversation:read`. The file is the one the conversation's own record of
+  that step names — the request carries no path — followed through links to a
+  regular file, and served only when its first bytes are a PNG, JPEG, WebP or
+  GIF (`415 not_an_image` otherwise, whatever its name) and it is at most 8 MB,
+  the ceiling this machine's own previews use (`413 image_too_large`). A chat
+  this machine does not have is `404 unknown_conversation`; a step that is not
+  there, shows no picture, or whose file is gone is `404 unknown_image`. The
+  bytes are cached privately for a day, since a step's picture never changes.
+  A paired desktop shows these under a remote chat's steps the same way; for a
+  machine without the capability it still says the picture is on the other
+  machine.
 
 ### Sync
 

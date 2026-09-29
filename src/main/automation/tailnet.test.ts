@@ -754,7 +754,13 @@ test('tailnet', async () => {
       // long ago and is asking again on a Studio that may since have moved on.
       const identityBody = identity.body as Record<string, unknown>
       assert.equal(identityBody.transportVersion, TAILNET_TRANSPORT_VERSION)
-      assert.deepEqual(identityBody.capabilities, ['events', 'upload', 'conversations', 'conversation-models'])
+      assert.deepEqual(identityBody.capabilities, [
+        'events',
+        'upload',
+        'conversations',
+        'conversation-models',
+        'conversation-images',
+      ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
       const replayed = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -833,7 +839,13 @@ test('tailnet', async () => {
       // it outright, so a phone need not probe for the change feed.
       assert.equal(body.transportVersion, 2)
       assert.equal(TAILNET_TRANSPORT_VERSION, 2)
-      assert.deepEqual(body.capabilities, ['events', 'upload', 'conversations', 'conversation-models'])
+      assert.deepEqual(body.capabilities, [
+        'events',
+        'upload',
+        'conversations',
+        'conversation-models',
+        'conversation-images',
+      ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
       assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)

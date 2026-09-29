@@ -1872,6 +1872,42 @@ export class ConversationRuntime {
     return readToolDetail(input.workspaceRoot, path)
   }
 
+  /**
+   * The tool call a transcript recorded under one id, as its newest
+   * `tool_started` says: a step can be announced again once more is known (a
+   * generated picture's path arrives with its completion), and the last word
+   * is the one that stands. Null when the transcript has no such call.
+   */
+  async findToolCall(
+    input: ConversationToolDetailInput,
+  ): Promise<{ name: string; kind: unknown; input: ConversationJsonValue | undefined } | null> {
+    if (
+      !input.workspaceRoot?.trim() ||
+      !input.workspaceId?.trim() ||
+      !input.agentId?.trim() ||
+      !input.toolUseId?.trim()
+    )
+      return null
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    try {
+      await this.eventLog.flush(path)
+      const event = await this.transcripts.findLast(
+        input.workspaceRoot,
+        path,
+        (candidate) => candidate.type === 'tool_started' && candidate.payload?.toolUseId === input.toolUseId,
+      )
+      if (!event?.payload) return null
+      const name = event.payload.name ?? event.payload.tool
+      return {
+        name: typeof name === 'string' ? name : '',
+        kind: event.payload.kind,
+        input: event.payload.input as ConversationJsonValue | undefined,
+      }
+    } catch {
+      return null
+    }
+  }
+
   /** The bytes of an image a turn carried, by the reference its `user_message` recorded. */
   readAttachment(ref: unknown): Promise<ConversationAttachmentResult> {
     return this.attachmentStore.read(ref)

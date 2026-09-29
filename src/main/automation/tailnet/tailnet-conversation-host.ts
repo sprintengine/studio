@@ -19,8 +19,9 @@ import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 import { ConversationSessionApi } from '../../conversation-session-api'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-settings'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { openConfinedExistingFile } from '../../conversation-file-access'
+import { conversationImagePathOf } from './tailnet-conversation-images'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENT_BYTES,
@@ -81,6 +82,13 @@ export type ConversationGatewayHost = {
   ): ReturnType<ConversationSessionApi['loadEarlier']>
   getToolDetail(key: ConversationKey, toolUseId: string): ReturnType<ConversationRuntime['getToolDetail']>
   getTurnDiff(key: ConversationKey, turnSeq: number, path?: string): ReturnType<ConversationSessionApi['getTurnDiff']>
+  /**
+   * Where the picture one step made or looked at is on this disk, read from
+   * the conversation's own record of that step. `unknown_conversation` when
+   * the workspace has no such chat; `unknown_image` when the chat has no such
+   * step, or the step shows no picture.
+   */
+  toolImagePath?(key: ConversationKey, toolUseId: string): Promise<ConversationToolImagePath>
   registerUpload?(input: {
     deviceId: string
     sessionId: string
@@ -97,6 +105,9 @@ export type ConversationGatewayHost = {
     command: Extract<ConversationClientFrame, { type: 'command' }>['command'],
   ): Promise<ConversationGatewayCommandResult>
 }
+
+export type ConversationToolImagePath =
+  { ok: true; path: string } | { ok: false; code: 'unknown_conversation' | 'unknown_image' }
 
 /**
  * How a command ended. `code` names a refusal the wire has a word for (a model
@@ -331,6 +342,17 @@ export function createConversationGatewayHost(
     loadEarlier: (key, beforeCursor, turnLimit) => api.loadEarlier({ key, beforeCursor, turnLimit }),
     getToolDetail: (key, toolUseId) => api.getToolDetail({ ...key, toolUseId }),
     getTurnDiff: (key, turnSeq, path) => api.getTurnDiff({ key, turnSeq, path }),
+    async toolImagePath(key, toolUseId) {
+      // A chat is one the list would name: a live session, or a thread the
+      // workspace's history holds.
+      if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
+      const tool = await runtime.findToolCall({ ...key, toolUseId })
+      const path = tool ? conversationImagePathOf(tool) : null
+      if (!path) return { ok: false, code: 'unknown_image' }
+      // A relative path names a file in the chat's folder, as a link to it in
+      // the same transcript does.
+      return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
+    },
     registerUpload(input) {
       for (const [id, entry] of uploads) if (Date.now() - entry.at > UPLOAD_TTL_MS) discardUpload(id)
       const ownIds = [...uploads].filter(([, entry]) => entry.deviceId === input.deviceId).map(([id]) => id)

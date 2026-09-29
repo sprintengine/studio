@@ -42,6 +42,15 @@ export const TAILNET_EVENTS_PATH = `${TAILNET_ROUTE_PREFIX}/events`
  * where a stream to disk buffers none of it.
  */
 export const TAILNET_UPLOAD_PATH = `${TAILNET_ROUTE_PREFIX}/upload`
+/**
+ * The picture one step of a chat made or looked at, as raw bytes:
+ * `GET ?workspaceId=&agentId=&toolUseId=`. A plain GET for the same reason the
+ * upload is a plain POST — a picture inside a JSON frame is a third larger and
+ * buffered whole at both ends — and one a client can cache, since a step's
+ * picture never changes. The file is the one the conversation's own record of
+ * the step names; nothing in the request is a path.
+ */
+export const TAILNET_CONVERSATION_IMAGE_PATH = `${TAILNET_ROUTE_PREFIX}/conversation-image`
 
 // ── What this transport speaks ───────────────────────────────────────────────
 //
@@ -94,8 +103,20 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * the `setModel` command. A client hides its model control for a machine that
  * does not advertise it. The string is the protocol package's
  * `CONVERSATION_MODELS_CAPABILITY`.
+ *
+ * `conversation-images` (2026-09-29): `GET conversation-image` serves the
+ * picture a chat's step made (Codex's `GenerateImage`) or looked at (a file
+ * read of a picture), by the step's tool call id, to a device with
+ * `conversation:read`. A client that finds it missing says the picture is on
+ * the other machine, as it did before the route existed.
  */
-export const TAILNET_CAPABILITIES = ['events', 'upload', 'conversations', 'conversation-models'] as const
+export const TAILNET_CAPABILITIES = [
+  'events',
+  'upload',
+  'conversations',
+  'conversation-models',
+  'conversation-images',
+] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
 
