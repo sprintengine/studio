@@ -32,6 +32,16 @@ const UPLOAD_TTL_MS = 60 * 60_000
 const MAX_UPLOAD_REFS = 256
 const MAX_DEVICE_UPLOAD_REFS = 32
 const MAX_SPENT_UPLOAD_REFS = 256
+/**
+ * Where a step's picture is, once found, is kept this long and for this many
+ * steps. Finding it scans the transcript back to the step, and a phone
+ * scrolling a chat, or a second paired machine, asks for the same pictures
+ * again. Kept for minutes, not for good: a step can be announced again with
+ * a different path, and a picture's last announcement is the one that
+ * stands. A step that names no picture yet is not kept at all.
+ */
+const IMAGE_PATH_TTL_MS = 10 * 60_000
+const MAX_IMAGE_PATHS = 256
 const wireCapabilities = (session: ConversationSessionSummary) =>
   session.capabilities
     ? {
@@ -198,6 +208,7 @@ export function createConversationGatewayHost(
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]
     return latest?.permissionPreset ?? defaultPermissionPreset(key)
   }
+  const imagePaths = new Map<string, { at: number; found: Promise<ConversationToolImagePath> }>()
   const threadFor = async (key: ConversationKey) => {
     const indexed = await runtime.listThreads(key)
     return indexed.ok ? indexed.threads.find((entry) => entry.agentId === key.agentId) : undefined
@@ -342,16 +353,36 @@ export function createConversationGatewayHost(
     loadEarlier: (key, beforeCursor, turnLimit) => api.loadEarlier({ key, beforeCursor, turnLimit }),
     getToolDetail: (key, toolUseId) => api.getToolDetail({ ...key, toolUseId }),
     getTurnDiff: (key, turnSeq, path) => api.getTurnDiff({ key, turnSeq, path }),
-    async toolImagePath(key, toolUseId) {
-      // A chat is one the list would name: a live session, or a thread the
-      // workspace's history holds.
-      if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
-      const tool = await runtime.findToolCall({ ...key, toolUseId })
-      const path = tool ? conversationImagePathOf(tool) : null
-      if (!path) return { ok: false, code: 'unknown_image' }
-      // A relative path names a file in the chat's folder, as a link to it in
-      // the same transcript does.
-      return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
+    toolImagePath(key, toolUseId) {
+      const id = JSON.stringify([key.workspaceRoot, key.workspaceId, key.agentId, toolUseId])
+      const now = Date.now()
+      const kept = imagePaths.get(id)
+      if (kept && now - kept.at < IMAGE_PATH_TTL_MS) return kept.found
+      const found = (async (): Promise<ConversationToolImagePath> => {
+        // A chat is one the list would name: a live session, or a thread the
+        // workspace's history holds.
+        if (!sessionFor(key) && !(await threadFor(key))) return { ok: false, code: 'unknown_conversation' }
+        const tool = await runtime.findToolCall({ ...key, toolUseId })
+        const path = tool ? conversationImagePathOf(tool) : null
+        if (!path) return { ok: false, code: 'unknown_image' }
+        // A relative path names a file in the chat's folder, as a link to it in
+        // the same transcript does.
+        return { ok: true, path: isAbsolute(path) ? path : resolve(key.workspaceRoot, path) }
+      })()
+      // Shared while it is being found, so a burst of asks is one scan; kept
+      // afterwards only when it named a picture.
+      imagePaths.delete(id)
+      imagePaths.set(id, { at: now, found })
+      while (imagePaths.size > MAX_IMAGE_PATHS) imagePaths.delete(imagePaths.keys().next().value!)
+      void found.then(
+        (answer) => {
+          if (!answer.ok && imagePaths.get(id)?.found === found) imagePaths.delete(id)
+        },
+        () => {
+          if (imagePaths.get(id)?.found === found) imagePaths.delete(id)
+        },
+      )
+      return found
     },
     registerUpload(input) {
       for (const [id, entry] of uploads) if (Date.now() - entry.at > UPLOAD_TTL_MS) discardUpload(id)

@@ -139,6 +139,11 @@ export function createResyncBackoff(now: () => number = Date.now): (deviceId: st
 type LiveEntry = {
   kind: 'live'
   frame: ConversationServerFrame
+  /**
+   * The frame as encoded when it was queued, so the writer does not encode it
+   * a second time. Dropped when a later delta extends the frame in place.
+   */
+  json?: string
   bytes: number
   subscription?: number
   // Consecutive deltas of one message extend this frame's event in place.
@@ -279,7 +284,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
           pending.shift()
           liveFrames--
           liveBytes -= entry.bytes
-          for (const json of wireFrames(JSON.stringify(entry.frame))) {
+          for (const json of wireFrames(entry.json ?? JSON.stringify(entry.frame))) {
             if (closed) break
             await writeText(json)
           }
@@ -302,17 +307,15 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   }
   // Paths are rewritten against the conversation the socket follows, so its
   // own files read workspace-relative, as they do on the desktop.
-  const redact = <T>(frame: T): T =>
-    redactHostPaths(redactConversationValue(frame), {
-      home: homedir(),
-      workspaceRoot: currentKey?.workspaceRoot ?? null,
-    })
+  const redact = <T>(frame: T, workspaceRoot: string | null = currentKey?.workspaceRoot ?? null): T =>
+    redactHostPaths(redactConversationValue(frame), { home: homedir(), workspaceRoot })
   /** Extend a waiting delta with a later one of the same message. */
   const extend = (into: LiveEntry & { delta: object }, event: ConversationEvent): void => {
     const text = String(event.payload!.text)
     const merged = into.delta.event
     merged.payload = { ...merged.payload, text: String(merged.payload!.text) + text }
     merged.seq = event.seq
+    into.json = undefined
     const grown = Buffer.byteLength(JSON.stringify(text)) - 2
     into.bytes += grown
     liveBytes += grown
@@ -342,7 +345,10 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   /** Queue one live frame, merging it into what already waits where it can. */
   const sendLive = (source: ConversationServerFrame, subscription?: number): void => {
     if (closed) return
-    const frame = redact(source)
+    enqueueLive(redact(source), subscription)
+  }
+  /** Queue a frame already redacted, and encoded when the caller had to encode it anyway. */
+  const enqueueLive = (frame: ConversationServerFrame, subscription?: number, encoded?: string): void => {
     const event = frame.type === 'event' ? (frame.event as ConversationEvent) : null
     const key = event ? deltaKey(event) : null
     const tail = pending.at(-1)
@@ -364,7 +370,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       ))
         removeLive(queued)
     }
-    const bytes = Buffer.byteLength(JSON.stringify(frame))
+    const json = encoded ?? JSON.stringify(frame)
+    const bytes = Buffer.byteLength(json)
     if ((!behindReplay && liveFrames >= MAX_LIVE_FRAMES) || liveBytes + bytes > byteBound) {
       resync()
       return
@@ -372,6 +379,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     pending.push({
       kind: 'live',
       frame,
+      json,
       bytes,
       ...(subscription === undefined ? {} : { subscription }),
       ...(key && event ? { delta: { key, event } } : {}),
@@ -400,7 +408,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
    */
   const respond = async (source: Extract<ConversationServerFrame, { type: 'result' | 'sessions' }>): Promise<void> => {
     if (closed) return
-    const json = JSON.stringify(redact(source))
+    const redacted = redact(source)
+    const json = JSON.stringify(redacted)
     const bytes = Buffer.byteLength(json)
     if (bytes > MAX_LOGICAL_FRAME_BYTES) {
       sendLive({
@@ -413,7 +422,8 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       return
     }
     if (bytes <= CONVERSATION_MAX_FRAME_BYTES) {
-      sendLive(source)
+      // Already redacted and encoded: queued as it is, not redacted again.
+      enqueueLive(redacted, undefined, json)
       return
     }
     if (bulkBytes > 0 && bulkBytes + bytes > MAX_BULK_BYTES)
@@ -422,19 +432,26 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   }
   /** Everything a join produced, streamed as one paced unit ahead of the live events that follow it. */
   const sendReplay = (frames: ConversationServerFrame[], subscription: number): void => {
-    const redacted = frames.map((frame) => redact(frame))
     let bytes = 0
     const encoded: Array<() => Generator<string>> = []
     // A replay stops at the next whole frame once its subscription is
     // replaced: the rest of another conversation's snapshot, or its fence,
     // would hand the client a cursor for the wrong conversation.
     const current = () => !closed && subscription === subscriptionGeneration
-    for (const frame of redacted) {
-      if (frame.type === 'snapshot') {
-        const parts = snapshotParts(frame as SnapshotFrame)
+    // Read now, while the subscription it belongs to is the current one.
+    const workspaceRoot = currentKey?.workspaceRoot ?? null
+    for (const source of frames) {
+      if (source.type === 'snapshot') {
+        // Redacted a part at a time as the paced writer reaches it, not all
+        // at once here: a snapshot can run to tens of megabytes, and redacting
+        // it whole blocked the main thread for hundreds of milliseconds on
+        // every join without a cursor. Measured before redaction, which only
+        // moves its size a little; a part that outgrows a frame is chunked.
+        const parts = snapshotParts(source as SnapshotFrame, (part) => redact(part, workspaceRoot))
         bytes += parts.bytes
         encoded.push(() => parts.frames(wireFrames, current))
       } else {
+        const frame = redact(source, workspaceRoot)
         const json = JSON.stringify(frame)
         bytes += Buffer.byteLength(json)
         encoded.push(() => wireFrames(json))
@@ -795,7 +812,10 @@ function deltaKey(event: ConversationEvent): string | null {
  * page's `beforeCursor` moved to match — and split into parts that each fit
  * one frame. A snapshot that fits one frame is sent whole, without `part`.
  */
-function snapshotParts(frame: SnapshotFrame): {
+function snapshotParts(
+  frame: SnapshotFrame,
+  redact: (part: SnapshotFrame) => SnapshotFrame,
+): {
   bytes: number
   frames(wire: (json: string) => Generator<string>, current: () => boolean): Generator<string>
 } {
@@ -830,11 +850,13 @@ function snapshotParts(frame: SnapshotFrame): {
       for (let index = 0; index < parts.length; index++) {
         if (!current()) return
         yield* wire(
-          JSON.stringify({
-            ...frame,
-            page: { ...page, events: parts[index] },
-            ...(parts.length > 1 ? { part: { index, total: parts.length } } : {}),
-          }),
+          JSON.stringify(
+            redact({
+              ...frame,
+              page: { ...page, events: parts[index] },
+              ...(parts.length > 1 ? { part: { index, total: parts.length } } : {}),
+            }),
+          ),
         )
       }
     },

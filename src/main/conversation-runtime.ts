@@ -77,6 +77,7 @@ import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
 import type { TerminalRootInfo } from './workspace-memory'
+import type { PowerActivity } from './power-activity'
 import {
   type ConversationMessage,
   type ConversationProviderAdapter,
@@ -114,7 +115,10 @@ type RuntimeSession = ConversationSessionSummary & {
   canceledTurnIds: Set<string>
   // Completed turns only, in send order, so each new turn carries prior context.
   // A failed/interrupted turn is not recorded, so a retry re-sends cleanly.
-  history: ConversationMessage[]
+  // Kept for a stateless session only, which replays it every turn, and
+  // dropped while it rests (null), to be read back from the transcript by the
+  // next send. A stateful provider owns its history.
+  history: ConversationMessage[] | null
   // True when the provider adapter owns history/resume (sessions: 'stateful').
   // Stateful sessions never replay history and resolve approvals mid-turn.
   stateful: boolean
@@ -212,6 +216,19 @@ type ToolPreviewThrottle = {
   timer: NodeJS.Timeout | null
 }
 type EmitOptions = { turnId?: string; allowCanceledTurnId?: string | null; prepared?: boolean }
+/**
+ * What a provider stream's emitted events came to, counted as they go by. A
+ * long agentic turn is tens of thousands of deltas and tool outputs, and the
+ * turn's end needs only these.
+ */
+type EmittedSummary = {
+  approvalsRequested: number
+  approvalsResolved: number
+  completed: boolean
+  failed: boolean
+  // The reply's text, gathered only when asked for (a stateless session's history).
+  text: string
+}
 
 /**
  * A running tool's preview is a tail of up to {@link TOOL_PREVIEW_CHARS} of its
@@ -231,10 +248,31 @@ const UNSAVED_NOTICE =
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
 
+// Stateful adapters that never read `fallbackHistory`: Claude Code resumes
+// its own session and has no use for the conversation replayed as text. The
+// history is up to a page of transcript, so it is not built for them.
+const ADAPTERS_WITHOUT_FALLBACK_HISTORY: ReadonlySet<string> = new Set([CLAUDE_AGENT_PROVIDER_ID])
+
+// How much of a chat's end the hover card reads for its newest turn. A turn
+// longer than this shows its newest part; the card draws a few hundred
+// characters of it either way.
+const PEEK_TURN_BYTES = 256 * 1024
+
+// How far back a picture request from a paired device looks for the step
+// that made the picture. The host keeps what it found, so only the first
+// request for a step pays for the scan.
+const TOOL_CALL_SCAN_BYTES = 32 * 1024 * 1024
+
 // Same cadence as the terminal runtime's stale-terminal sweep: often enough
 // that an idle child process does not outlive the threshold by much, rare
 // enough to be free.
 const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
+
+// How often opening a conversation also expires a workspace's old checkpoint
+// refs. A conversation's refs expire after it has been idle for 30 days, so
+// looking once a day loses nothing, and each look lists every thread and
+// every checkpoint ref of the repository.
+const CHECKPOINT_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
@@ -263,8 +301,14 @@ export class ConversationRuntime {
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
+  // When each workspace's checkpoint refs were last expired this run.
+  private readonly checkpointsExpiredAt = new Map<string, number>()
   // Housekeeping that must not delay the caller but must finish before shutdown.
   private readonly background = new Set<Promise<unknown>>()
+  // The index refresh a finished turn runs in the background, per transcript,
+  // so stopping or settling the chat can wait for it: a refresh that landed
+  // after the workspace was closed or deleted would write its folder back.
+  private readonly indexRefreshes = new Map<string, Promise<unknown>>()
   private readonly emissionTails = new Map<string, Promise<unknown>>()
   private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
   private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
@@ -287,6 +331,7 @@ export class ConversationRuntime {
   private readonly eventEpoch: string
   private idleThresholdMs = DEFAULT_SUSPEND_IDLE_AFTER_MS
   private idleSweepTimer: NodeJS.Timeout | null = null
+  private idleSweepActivity: (() => void) | null = null
 
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
@@ -358,32 +403,74 @@ export class ConversationRuntime {
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
     this.startingTranscripts.add(path)
     try {
-      return await this.startSessionNow(input)
+      return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
     } finally {
       this.startingTranscripts.delete(path)
     }
   }
 
+  /**
+   * One session per chat: the chat's live session, when it has one, rather
+   * than a second. A chat view keeps its session in component state, so a
+   * remount (a tab moved or reopened, a row snoozed and woken, a window
+   * reloaded) asks again for a chat main is still holding, as does a paired
+   * device. A second session beside the first was a second agent on the
+   * sidebar row with only one tab behind it, and a second CLI child resuming
+   * the same provider session. A model or preset asked for that differs is
+   * switched to on the live session; one its provider cannot switch, or a
+   * different provider or runtime, retires the idle session, and a failed one
+   * gives way, so a fresh one starts (`startSessionNow` clears what the chat
+   * left behind). A busy session is adopted as it is, so the work it is doing
+   * is never cut short.
+   */
+  private async adoptLiveSession(
+    input: ConversationStartSessionInput,
+    path: string,
+  ): Promise<ConversationStartSessionResult | null> {
+    const existing = this.liveSessionFor(path)
+    if (!existing) return null
+    if (isSessionBusy(existing)) return { ok: true, session: this.toSummary(existing) }
+    if (existing.status === 'failed') return null
+    const sameProcess =
+      existing.providerId === input.providerId.trim() &&
+      JSON.stringify(existing.cliRuntimes ?? null) === JSON.stringify(input.cliRuntimes ?? null) &&
+      JSON.stringify(existing.allowedTools ?? null) === JSON.stringify(input.allowedTools ?? null)
+    if (sameProcess) {
+      const modelId = input.modelId.trim()
+      const model =
+        modelId && modelId !== existing.modelId
+          ? await this.setModel({ sessionId: existing.sessionId, modelId })
+          : { ok: true }
+      const preset =
+        model.ok && input.permissionPreset !== undefined && input.permissionPreset !== existing.permissionPreset
+          ? await this.setPermission({ sessionId: existing.sessionId, permissionPreset: input.permissionPreset })
+          : model
+      if (preset.ok && existing.status !== 'stopped') return { ok: true, session: this.toSummary(existing) }
+    }
+    if (existing.status !== 'stopped' && !isSessionBusy(existing))
+      await this.stopSession({ sessionId: existing.sessionId })
+    return null
+  }
+
+  /** The newest session of a transcript that is not stopped. */
+  private liveSessionFor(path: string): RuntimeSession | undefined {
+    let live: RuntimeSession | undefined
+    for (const session of this.sessions.values())
+      if (
+        session.status !== 'stopped' &&
+        this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId) === path
+      )
+        live = session
+    return live
+  }
+
   private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
-    // One session per chat. A chat view keeps its session in component state,
-    // so a remount (a tab moved, a row snoozed and woken) asks again for a chat
-    // main is still holding; a second session beside the first was a second
-    // agent on the sidebar row with only one tab behind it. A live session on
-    // the same footing is the answer; anything else this chat left behind —
-    // stopped, failed, or on another model — gives way to the new one.
+    // A live session on the same footing was adopted (`adoptLiveSession`);
+    // anything else this chat left behind — stopped, failed, or retired —
+    // gives way to the new one.
     const previous = Array.from(this.sessions.values()).filter(
       (session) => session.workspaceId === input.workspaceId.trim() && session.agentId === input.agentId.trim(),
     )
-    const live = previous.find(
-      (session) =>
-        session.status !== 'stopped' &&
-        session.status !== 'failed' &&
-        session.workspaceRoot === input.workspaceRoot &&
-        session.providerId === input.providerId?.trim() &&
-        session.modelId === input.modelId?.trim(),
-    )
-    if (live) return { ok: true, session: this.toSummary(live) }
-
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
@@ -426,7 +513,7 @@ export class ConversationRuntime {
       pendingRequestId: null,
       activeTurnAbort: null,
       canceledTurnIds: new Set(),
-      history: [],
+      history: null,
       stateful,
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
@@ -444,28 +531,21 @@ export class ConversationRuntime {
       providerTurn: null,
     }
     await this.initializeSequence(input)
-    // Excerpts and the replayed history come from the end of the chat, bounded
-    // like a page: a model's context holds far less than a long transcript.
-    const previousTranscript = await this.readTranscript(input, {
-      all: true,
-      closeOpenTurns: false,
-      maxBytes: this.transcriptLimits.pageBytes,
-    })
-    if (previousTranscript.ok) {
+    const previousTranscript = await this.readRecentTranscript(input)
+    let fallbackHistory: ConversationMessage[] | undefined
+    if (previousTranscript) {
       const first = await this.transcripts
         .findFirst(
           input.workspaceRoot,
           this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
-          // The first message with words: an image-only opener names nothing.
-          (event) =>
-            event.type === 'user_message' &&
-            typeof event.payload?.text === 'string' &&
-            event.payload.text.trim().length > 0,
+          isWordedUserMessage,
         )
         .catch(() => undefined)
       if (first) this.updateExcerpts(session, first)
-      for (const event of previousTranscript.events) this.updateExcerpts(session, event)
-      session.history = completedHistory(previousTranscript.events)
+      for (const event of previousTranscript) this.updateExcerpts(session, event)
+      if (!stateful) session.history = completedHistory(previousTranscript)
+      else if (!ADAPTERS_WITHOUT_FALLBACK_HISTORY.has(validation.adapter.id))
+        fallbackHistory = completedHistory(previousTranscript)
     }
     if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     this.sessions.set(sessionId, session)
@@ -482,7 +562,7 @@ export class ConversationRuntime {
           ...session,
           resumeSessionId: resume?.sessionId,
           ...(resume?.at ? { resumeSessionAt: resume.at } : {}),
-          fallbackHistory: session.history,
+          ...(session.history ? { fallbackHistory: session.history } : fallbackHistory ? { fallbackHistory } : {}),
           // Continuation channel: the adapter opens a mirror turn here when its
           // child resumes after a `result` (background subagents completing).
           onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
@@ -632,6 +712,9 @@ export class ConversationRuntime {
     session.status = 'active'
     session.phase = 'running'
     session.updatedAt = this.now()
+    session.turnStartedAt = session.updatedAt
+    // The provider starts the child again for this turn if it had rested.
+    session.resting = undefined
     session.checkpointTurnSeq = null
     session.checkpointCapture = null
     session.checkpointCaptured = false
@@ -657,12 +740,13 @@ export class ConversationRuntime {
         // The model sees prior completed turns plus this message, so it has memory.
         // Stateful providers own their history natively — replaying ours would
         // duplicate context and defeat resume, so they get only the new message.
+        if (!session.stateful && !session.history) session.history = await this.readHistory(session)
         const messages: ConversationMessage[] | undefined = session.stateful
           ? undefined
           : [
               ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
               ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
-              ...session.history,
+              ...(session.history ?? []),
               { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
             ]
         // From here a steer can join this turn: the provider is being handed it.
@@ -671,7 +755,7 @@ export class ConversationRuntime {
         // adapters read them. The model's history stays text-only: a later turn
         // does not re-send earlier images, and the transcript keeps references
         // for the bubbles, not the bytes.
-        const events = await this.emitAll(
+        const emitted = await this.emitAll(
           session,
           adapter.sendTurn({
             ...session,
@@ -685,7 +769,7 @@ export class ConversationRuntime {
             messages,
             signal: turnAbort.signal,
           }),
-          { turnId },
+          { turnId, collectText: !session.stateful },
         )
         // A steer may have moved the stream on to a later turn; the stream's
         // end is that turn's.
@@ -697,22 +781,16 @@ export class ConversationRuntime {
           currentSession.activeTurnId === ownTurnId &&
           !currentSession.canceledTurnIds.has(ownTurnId)
         ) {
-          this.applyTurnState(currentSession, events, requestId)
+          this.applyTurnState(currentSession, emitted, requestId)
           currentSession.activeTurnAbort = null
           // Record only a cleanly completed turn (no failure) into history, so a
           // failed turn leaves history untouched and a retry re-sends without
           // duplicating the user message. Stateful providers keep their own.
-          const completed =
-            !currentSession.stateful &&
-            events.some((event) => event.type === 'turn_completed') &&
-            !events.some((event) => event.type === 'turn_failed')
-          if (completed) {
-            currentSession.history.push({ role: 'user', content: message })
-            const assistantText = events
-              .filter((event) => event.type === 'content_delta')
-              .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
-              .join('')
-            if (assistantText) currentSession.history.push({ role: 'assistant', content: assistantText })
+          if (!currentSession.stateful && emitted.completed && !emitted.failed) {
+            // Dropped while the send ran (the chat was settled): the next send
+            // reads it back from the transcript, this turn included.
+            currentSession.history?.push({ role: 'user', content: message })
+            if (emitted.text) currentSession.history?.push({ role: 'assistant', content: emitted.text })
           }
         }
         return { ok: true, session: this.toSummary(currentSession ?? session) }
@@ -1077,8 +1155,8 @@ export class ConversationRuntime {
 
     const turnId = session.activeTurnId
     if (turnId) this.cancelActiveTurn(session)
-    const events = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
-    if (!events.some((event) => event.type === 'turn_failed' || event.type === 'turn_completed'))
+    const emitted = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    if (!emitted.failed && !emitted.completed)
       await this.emit(
         session,
         this.eventForSession(session, 'turn_failed', {
@@ -1118,7 +1196,11 @@ export class ConversationRuntime {
       )
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
-    await this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    // A child still being spawned when the stop came is cancelled, not left behind.
+    adapter.disposeChildProcess?.(session.sessionId)
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    await this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
     await this.closeToolStreams(session)
     session.activeTurnId = null
     session.pendingRequestId = null
@@ -1129,7 +1211,15 @@ export class ConversationRuntime {
     this.approvalRules.dropSession(session.sessionId)
     session.approvalRequests.clear()
     session.automaticApprovals.clear()
+    // Kept only to be listed until the chat's next session supersedes it, so
+    // it holds nothing a turn would need.
+    session.history = null
+    session.canceledTurnIds.clear()
+    session.runningSubagents.clear()
+    session.backgroundAgents = 0
+    session.pendingSkills = undefined
     session.updatedAt = this.now()
+    this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1146,11 +1236,26 @@ export class ConversationRuntime {
       const interrupted = await this.interrupt({ sessionId: session.sessionId })
       if (!interrupted.ok) return interrupted
     }
-    // A session still starting has no child to dispose yet; the idle sweep
-    // reaches it once it is ready.
-    if (session.status === 'ready' || session.status === 'failed')
-      this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
-    void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    // Also while the session is still starting, or a send is spawning its
+    // child: disposing cancels a spawn in flight, which would otherwise leave
+    // a child running that nothing is waiting for.
+    // Forced: Settle and Snooze end the child even while an agent it spawned
+    // is working, which the idle sweep never does.
+    if (this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId, { force: true }))
+      // No child is left to send events for a turn it was told to cancel.
+      session.canceledTurnIds.clear()
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    void this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
+    // A settled chat drops what it holds, as a settled terminal agent does; a
+    // send after it is woken reads back what it needs.
+    if (!isSessionBusy(session)) {
+      session.history = null
+      session.approvalRequests.clear()
+      session.automaticApprovals.clear()
+    }
+    this.releaseTranscript(session)
+    this.markResting(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1168,7 +1273,31 @@ export class ConversationRuntime {
     this.idleThresholdMs = clampSuspendIdleAfterMs(value)
   }
 
-  startIdleSweep(): void {
+  /**
+   * Sweep for idle children every few minutes. With the machine's activity it
+   * rests while the machine sleeps, as the app's other pollers do, and picks
+   * up again on waking: nothing on a sleeping machine is worth a wakeup.
+   */
+  startIdleSweep(activity?: Pick<PowerActivity, 'isSuspended' | 'onSuspend' | 'onResume'>): void {
+    if (activity && !this.idleSweepActivity) {
+      const disposers = [
+        activity.onSuspend(() => this.clearIdleSweepTimer()),
+        activity.onResume(() => this.armIdleSweepTimer()),
+      ]
+      this.idleSweepActivity = () => {
+        for (const dispose of disposers) dispose()
+      }
+    }
+    if (!activity?.isSuspended()) this.armIdleSweepTimer()
+  }
+
+  stopIdleSweep(): void {
+    this.idleSweepActivity?.()
+    this.idleSweepActivity = null
+    this.clearIdleSweepTimer()
+  }
+
+  private armIdleSweepTimer(): void {
     if (this.idleSweepTimer) return
     this.idleSweepTimer = setInterval(() => {
       this.sweepIdleSessions()
@@ -1176,7 +1305,7 @@ export class ConversationRuntime {
     this.idleSweepTimer.unref?.()
   }
 
-  stopIdleSweep(): void {
+  private clearIdleSweepTimer(): void {
     if (!this.idleSweepTimer) return
     clearInterval(this.idleSweepTimer)
     this.idleSweepTimer = null
@@ -1184,11 +1313,14 @@ export class ConversationRuntime {
 
   // Dispose the child process of every idle stateful session, keeping the
   // session (and its resume cursor) so the next turn transparently respawns.
-  // Never disposes mid-turn or while an approval/question card is pending.
+  // Never disposes mid-turn, while an approval/question card is pending, or
+  // while an agent the chat spawned is still running: a background agent
+  // outlives the turn that launched it and reports without moving
+  // `updatedAt`, and it lives in the child this would end.
   sweepIdleSessions(now: number = this.now()): string[] {
     const disposed: string[] = []
     for (const session of this.sessions.values()) {
-      if (isSessionBusy(session)) continue
+      if (isSessionBusy(session) || session.runningSubagents.size > 0) continue
       if (now - session.updatedAt < this.idleThresholdMs) continue
       // An idle chat does not hold a file handle open for the rest of the run;
       // its next event reopens the stream.
@@ -1196,9 +1328,27 @@ export class ConversationRuntime {
       if (!session.stateful) continue
       if (session.status !== 'ready' && session.status !== 'failed') continue
       const adapter = this.getAdapterForProviderId(session.providerId)
-      if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
+      if (adapter?.disposeChildProcess?.(session.sessionId)) {
+        disposed.push(session.sessionId)
+        this.markResting(session)
+      }
     }
     return disposed
+  }
+
+  /**
+   * The session's child is gone and the session stays: its summary says so,
+   * and every window's session list is told to read it again. Nothing is
+   * written to the transcript, since nothing happened in the chat; the event
+   * has no sequence number, so a chat reading its own events drops it.
+   */
+  private markResting(session: RuntimeSession): void {
+    if (session.resting || session.status === 'stopped') return
+    session.resting = true
+    const event = this.eventForSession(session, 'session_updated', { resting: true })
+    event.id = `conv_evt_${this.eventEpoch}_${++this.eventSequence}`
+    event.createdAt = this.now()
+    this.notify(event)
   }
 
   // Live child processes across all adapters, shaped like terminal roots so
@@ -1208,6 +1358,9 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       for (const live of adapter.listLiveSessions?.() ?? []) {
         if (!live.childPid) continue
+        // The CLI the chat runs, for the process tree and memory attribution;
+        // an adapter id names no CLI.
+        const providerId = this.sessions.get(live.sessionId)?.providerId ?? adapter.id
         roots.push({
           sessionId: live.sessionId,
           rootPid: live.childPid,
@@ -1215,7 +1368,7 @@ export class ConversationRuntime {
           agentId: live.agentId || null,
           terminalId: null,
           kind: 'agent',
-          cli: 'claude-code',
+          cli: cliForConversationProvider(providerId),
           activityKind: live.turnActive ? 'working' : 'idle',
           processAlive: true,
           startedAt: live.spawnedAt ?? live.lastActivityAt,
@@ -1350,21 +1503,30 @@ export class ConversationRuntime {
   private async emitAll(
     session: RuntimeSession,
     events: ConversationProviderEventStream,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
-  ): Promise<ConversationEvent[]> {
-    const emitted: ConversationEvent[] = []
+    options: { turnId?: string; allowCanceledTurnId?: string | null; collectText?: boolean } = {},
+  ): Promise<EmittedSummary> {
+    const { collectText, ...emitOptions } = options
+    const emitted: EmittedSummary = {
+      approvalsRequested: 0,
+      approvalsResolved: 0,
+      completed: false,
+      failed: false,
+      text: '',
+    }
+    const count = (stamped: ConversationEvent | null): void => {
+      if (stamped?.type === 'approval_requested') emitted.approvalsRequested++
+      else if (stamped?.type === 'approval_resolved') emitted.approvalsResolved++
+      else if (stamped?.type === 'turn_completed') emitted.completed = true
+      else if (stamped?.type === 'turn_failed') emitted.failed = true
+      else if (collectText && stamped?.type === 'content_delta' && typeof stamped.payload?.text === 'string')
+        emitted.text += stamped.payload.text
+    }
     const resolved = await events
     if (isAsyncIterable(resolved)) {
-      for await (const event of resolved) {
-        const stamped = await this.emit(session, event, options)
-        if (stamped) emitted.push(stamped)
-      }
+      for await (const event of resolved) count(await this.emit(session, event, emitOptions))
       return emitted
     }
-    for (const event of resolved) {
-      const stamped = await this.emit(session, event, options)
-      if (stamped) emitted.push(stamped)
-    }
+    for (const event of resolved) count(await this.emit(session, event, emitOptions))
     return emitted
   }
 
@@ -1488,8 +1650,6 @@ export class ConversationRuntime {
     }
     const outcome = await this.persistEvent(session, stamped)
     if (ends) await this.closeToolStreams(session)
-    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped')
-      await this.threadIndex.refresh(session).catch(() => undefined)
     // Publish status at the same boundary as the terminal notification, after
     // persistence. Pollers and event-driven consumers must observe one state.
     if (session.status !== 'stopped' && ends) {
@@ -1497,6 +1657,19 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     }
     this.publish(session.workspaceRoot, path, stamped, outcome)
+    // The thread index is a cache, and a listing brings a stale row up to date
+    // itself: refreshing it after the turn's end is out never holds that end,
+    // or the events queued behind it, back from the chat.
+    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped') {
+      const refresh = this.threadIndex
+        .refresh(session)
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.indexRefreshes.get(path) === refresh) this.indexRefreshes.delete(path)
+        })
+      this.indexRefreshes.set(path, refresh)
+      this.runInBackground(refresh)
+    }
     if (automaticRequestId)
       void this.respondToRequest({
         sessionId: session.sessionId,
@@ -1560,6 +1733,10 @@ export class ConversationRuntime {
         (agent) => agent.background,
       ).length
     }
+    // Read off the event, as the turn's end is, so a resume restores it. An
+    // image-only message is the person's input too.
+    if (event.type === 'user_message' && event.createdAt > 0)
+      session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
     if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
       // An image-only turn carries no text, and an empty excerpt would pin the
       // chat's "first message" to nothing: the first turn with words keeps it.
@@ -1755,6 +1932,9 @@ export class ConversationRuntime {
       session.checkpointCapture = null
       session.checkpointCaptured = false
       session.updatedAt = this.now()
+      session.turnStartedAt = session.updatedAt
+      // Only a live child carries on by itself.
+      session.resting = undefined
       // From here a steer can join it, as it joins a send's turn.
       session.providerTurn = openProviderTurn(turnId, true)
     }
@@ -1807,13 +1987,12 @@ export class ConversationRuntime {
     }
   }
 
-  private applyTurnState(session: RuntimeSession, events: ConversationEvent[], requestId: string): void {
+  private applyTurnState(session: RuntimeSession, emitted: EmittedSummary, requestId: string): void {
     // A terminal event always wins: a dead turn cannot keep an approval
     // pending (e.g. the provider child crashed while a card was up — leaving
     // the session in awaiting_approval would wedge it forever, since the
     // adapter-side permission no longer exists to resolve).
-    const failed = events.some((event) => event.type === 'turn_failed')
-    const completed = events.some((event) => event.type === 'turn_completed')
+    const { failed, completed } = emitted
     if (failed || completed) {
       session.pendingRequestId = null
       session.pendingApprovalRequestIds.clear()
@@ -1826,9 +2005,7 @@ export class ConversationRuntime {
     // An approval is pending at end-of-stream only when a request was never
     // resolved. Stateless turns end their stream at the request; stateful
     // turns resolve requests mid-stream and keep going.
-    const requested = events.filter((event) => event.type === 'approval_requested').length
-    const resolved = events.filter((event) => event.type === 'approval_resolved').length
-    if (requested > resolved) {
+    if (emitted.approvalsRequested > emitted.approvalsResolved) {
       session.pendingRequestId = session.stateful ? session.pendingRequestId : requestId
       session.status = 'awaiting_approval'
     } else {
@@ -1895,6 +2072,10 @@ export class ConversationRuntime {
         input.workspaceRoot,
         path,
         (candidate) => candidate.type === 'tool_started' && candidate.payload?.toolUseId === input.toolUseId,
+        // A paired device asks for a step it was shown, so it is recent; a
+        // miss past this reads as an unknown step rather than scanning the
+        // whole transcript on every request.
+        TOOL_CALL_SCAN_BYTES,
       )
       if (!event?.payload) return null
       const name = event.payload.name ?? event.payload.tool
@@ -1920,8 +2101,9 @@ export class ConversationRuntime {
 
   /** Explicit deletion removes the paired detail store as well as the transcript. */
   async listThreads(input: ConversationWorkspaceKey) {
+    // The index flushes each transcript of the workspace before it reads it,
+    // so chats in other workspaces keep their write batches.
     try {
-      await this.eventLog.flush()
       return { ok: true as const, threads: await this.threadIndex.list(input) }
     } catch (error) {
       return { ok: false as const, message: String(error) }
@@ -1933,7 +2115,6 @@ export class ConversationRuntime {
     options: { signal?: AbortSignal; onBatch?: (hits: ConversationSearchHit[]) => void } = {},
   ) {
     try {
-      await this.eventLog.flush()
       return { ok: true as const, hits: await this.threadIndex.search(input, options) }
     } catch (error) {
       return { ok: false as const, message: String(error) }
@@ -2318,6 +2499,71 @@ export class ConversationRuntime {
   }
 
   /**
+   * The end of a chat as stored, bounded like a page (a model's context holds
+   * far less than a long transcript): what a session's excerpts, and the
+   * history a provider replays, are rebuilt from. Merged deltas stay merged;
+   * both only fold their text. Null when the transcript cannot be read.
+   */
+  private async readRecentTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[] | null> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    try {
+      return await this.transcripts.tail(input.workspaceRoot, path, {
+        bytes: this.transcriptLimits.pageBytes,
+        compact: true,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  private async readHistory(session: RuntimeSession): Promise<ConversationMessage[]> {
+    return completedHistory((await this.readRecentTranscript(session)) ?? [])
+  }
+
+  /**
+   * Let go of what this run keeps for a transcript between writes: its cached
+   * page offsets and, once the writes queued for it have settled, the tail of
+   * its emission queue, which holds its last event. With no live session left
+   * on it, its command receipts go too; a later command reads them back from
+   * disk. Its sequence number stays: a session starting on it may already
+   * have read it.
+   */
+  private releaseTranscript(session: RuntimeSession): void {
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
+    this.transcripts.forget(path)
+    const tail = this.emissionTails.get(path)
+    const receiptWrite = this.receiptWrites.get(receiptsPath)
+    this.runInBackground(
+      Promise.allSettled([tail, receiptWrite, session.continuationTail]).then(() => {
+        if (this.emissionTails.get(path) === tail) this.emissionTails.delete(path)
+        const live = this.liveSessionFor(path) !== undefined
+        const commandPending = Array.from(this.pendingCommands.keys()).some((key) => key.startsWith(`${receiptsPath}:`))
+        if (!commandPending && this.receiptWrites.get(receiptsPath) === receiptWrite) {
+          this.receiptWrites.delete(receiptsPath)
+          if (!live) this.receipts.delete(receiptsPath)
+        }
+      }),
+    )
+  }
+
+  /**
+   * What the hover card over a chat shows, read from the transcript's two
+   * ends: the first message with words, and the newest turn within a small
+   * budget. The chat between is never read, however long it has run.
+   */
+  async readPeekTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[]> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    const [first, latest] = await Promise.all([
+      this.transcripts.findFirst(input.workspaceRoot, path, isWordedUserMessage),
+      this.transcripts.lastTurn(input.workspaceRoot, path, PEEK_TURN_BYTES),
+    ])
+    return first && !latest.some((event) => event.id === first.id) ? [first, ...latest] : latest
+  }
+
+  /**
    * What a subscriber needs to join: the events after its cursor when the
    * cursor provably belongs to this log, otherwise a snapshot of the last
    * turns. Only published events are ever on disk ahead of a reader, so
@@ -2391,6 +2637,9 @@ export class ConversationRuntime {
     for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
     this.sequences.set(path, closures.at(-1)?.seq ?? floor)
     // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
+    const expiredAt = this.checkpointsExpiredAt.get(input.workspaceRoot)
+    if (expiredAt !== undefined && this.now() - expiredAt < CHECKPOINT_EXPIRY_INTERVAL_MS) return
+    this.checkpointsExpiredAt.set(input.workspaceRoot, this.now())
     this.runInBackground(
       this.threadIndex
         .list(input)
@@ -2713,6 +2962,12 @@ export class ConversationRuntime {
       lastAssistantText: session.lastAssistantText,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
+      ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
+      // Only while a turn is open: every way a turn closes clears `activeTurnId`.
+      ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
+        ? { turnStartedAt: session.turnStartedAt }
+        : {}),
       ...(session.promptCache ? { promptCache: session.promptCache } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
@@ -2746,6 +3001,13 @@ function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
     }
   }
   return history
+}
+
+// The first message with words: an image-only opener names nothing.
+function isWordedUserMessage(event: ConversationEvent): boolean {
+  return (
+    event.type === 'user_message' && typeof event.payload?.text === 'string' && event.payload.text.trim().length > 0
+  )
 }
 
 function isSessionBusy(session: RuntimeSession): boolean {
@@ -2827,7 +3089,33 @@ function isAsyncIterable(
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {
-  return redactConversationValue(event)
+  return isPlainDelta(event) ? event : redactConversationValue(event)
+}
+
+const ENVELOPE_KEYS = new Set([
+  'id',
+  'seq',
+  'sessionId',
+  'workspaceId',
+  'agentId',
+  'providerId',
+  'modelId',
+  'type',
+  'createdAt',
+  'payload',
+])
+
+/**
+ * A reply or reasoning delta that is only its text: every token of a reply is
+ * one, and redaction goes by key, so none of its keys has anything to redact.
+ * Skipping it spares a JSON round trip per token. A delta carrying anything
+ * else is redacted like any event.
+ */
+function isPlainDelta(event: ConversationEvent): boolean {
+  if (event.type !== 'content_delta' && event.type !== 'reasoning_delta') return false
+  for (const key in event) if (!ENVELOPE_KEYS.has(key)) return false
+  for (const key in event.payload ?? {}) if (key !== 'text' && key !== 'turnId') return false
+  return true
 }
 
 /** Events that ride the log's short batch instead of forcing a write. */

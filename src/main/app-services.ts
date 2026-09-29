@@ -105,6 +105,7 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { powerActivity } from './power-activity'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -610,7 +611,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return result.ok ? { ok: true } : result
     },
   })
-  conversationRuntime.startIdleSweep()
+  conversationRuntime.startIdleSweep(powerActivity)
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -1407,8 +1408,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onMeshEvent(event)
     },
+    // A window someone could be looking at: the mesh's reachability timer and
+    // its re-checks of an absent machine only feed rows on screen.
     hasWindow: () =>
-      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
+      BrowserWindow.getAllWindows().some(
+        (window) =>
+          !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
+      ),
     resolveConversationHost: () =>
       createConversationGatewayHost(
         conversationRuntime,
@@ -1547,10 +1553,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                   commands: gatewayCommands,
                   ...(include ? { include } : {}),
                 })
-                const safe = sanitizeMobileSnapshotForTransport(snapshot)
-                if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
-                  return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
+                // The version is computed before sanitizing and sanitizing
+                // keeps it, so an unchanged read is answered without the copy.
+                if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
+                  return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
                 }
+                const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
               },
               async dispatchCommand(input: {
@@ -1708,15 +1716,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       if (!summary) return null
       const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
       if (!workspaceRoot) return []
-      const transcript = await conversationRuntime.readTranscript(
-        {
-          workspaceRoot,
-          workspaceId: summary.workspaceId,
-          agentId: summary.agentId,
-        },
-        { all: true },
-      )
-      return transcript.ok ? transcript.events : []
+      // The first message and the newest turn, never the whole transcript:
+      // a long chat is tens of megabytes, and a hover must not parse it.
+      return conversationRuntime
+        .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
+        .catch(() => [])
     },
   })
 

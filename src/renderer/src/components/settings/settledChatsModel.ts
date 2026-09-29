@@ -18,6 +18,22 @@ export type SettledChatEntry = {
   settledAt: number
 }
 
+/** One workspace's entry, or null when it is not a settled chat the rail would draw. */
+function settledChatEntry(
+  workspace: Workspace,
+  moduleOverrides: ModuleEnablementOverrides | undefined,
+): SettledChatEntry | null {
+  if (!isSettledWorkspace(workspace) || isHiddenFromRail(workspace, moduleOverrides)) return null
+  return {
+    id: workspace.id,
+    title: remoteConversationTitle(workspace),
+    project: remoteGroupOf(workspace) ? remoteGroupDisplayName(workspace) : folderDisplayName(workspace.folderPath),
+    settledAt: workspace.settledAt as number,
+  }
+}
+
+const bySettledAt = (a: SettledChatEntry, b: SettledChatEntry) => b.settledAt - a.settledAt
+
 /**
  * Every settled chat the rail would draw, most recently settled first: the
  * question someone opening this page is asking is "the one I put away the
@@ -31,13 +47,53 @@ export function listSettledChats(
 ): SettledChatEntry[] {
   const entries: SettledChatEntry[] = []
   for (const workspace of workspaces) {
-    if (!isSettledWorkspace(workspace) || isHiddenFromRail(workspace, moduleOverrides)) continue
-    entries.push({
-      id: workspace.id,
-      title: remoteConversationTitle(workspace),
-      project: remoteGroupOf(workspace) ? remoteGroupDisplayName(workspace) : folderDisplayName(workspace.folderPath),
-      settledAt: workspace.settledAt as number,
-    })
+    const entry = settledChatEntry(workspace, moduleOverrides)
+    if (entry) entries.push(entry)
   }
-  return entries.sort((a, b) => b.settledAt - a.settledAt)
+  return entries.sort(bySettledAt)
+}
+
+function entriesEqual(a: SettledChatEntry, b: SettledChatEntry): boolean {
+  return a.id === b.id && a.title === b.title && a.project === b.project && a.settledAt === b.settledAt
+}
+
+/**
+ * `listSettledChats` as a store selector for a page that stays open while the
+ * store is written to (background agents write on every turn end). Each
+ * workspace object is read once, each entry keeps its object while what it
+ * says is unchanged, and the list itself is the previous array when no entry
+ * moved, so a write to any other workspace re-renders nothing.
+ */
+export function createSettledChatsSelector(): (
+  workspaces: readonly Workspace[],
+  moduleOverrides?: ModuleEnablementOverrides,
+) => SettledChatEntry[] {
+  let readFor: ModuleEnablementOverrides | undefined
+  let read = new WeakMap<Workspace, SettledChatEntry | null>()
+  let previous: SettledChatEntry[] = []
+  let previousById = new Map<WorkspaceId, SettledChatEntry>()
+  return (workspaces, moduleOverrides) => {
+    if (moduleOverrides !== readFor) {
+      readFor = moduleOverrides
+      read = new WeakMap()
+    }
+    const entries: SettledChatEntry[] = []
+    for (const workspace of workspaces) {
+      let entry = read.get(workspace)
+      if (entry === undefined) {
+        entry = settledChatEntry(workspace, moduleOverrides)
+        const prior = entry ? previousById.get(entry.id) : undefined
+        if (entry && prior && entriesEqual(prior, entry)) entry = prior
+        read.set(workspace, entry)
+      }
+      if (entry) entries.push(entry)
+    }
+    entries.sort(bySettledAt)
+    if (entries.length === previous.length && entries.every((entry, index) => entry === previous[index])) {
+      return previous
+    }
+    previous = entries
+    previousById = new Map(entries.map((entry) => [entry.id, entry]))
+    return entries
+  }
 }

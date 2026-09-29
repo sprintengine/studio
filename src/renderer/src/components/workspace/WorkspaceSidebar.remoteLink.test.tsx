@@ -207,6 +207,12 @@ test('WorkspaceSidebar.remoteLink', async () => {
     // test process — alive forever.
     const roots: Array<ReturnType<typeof createRoot>> = []
     const render = async (): Promise<void> => {
+      // The previous tree goes first: presence is one store per window, kept
+      // for as long as anything reads it, so a tree left mounted would keep
+      // the last answer and the new one would never ask again.
+      act(() => {
+        for (const mounted of roots.splice(0)) mounted.unmount()
+      })
       container = dom.window.document.createElement('div')
       dom.window.document.body.appendChild(container)
       const root = createRoot(container)

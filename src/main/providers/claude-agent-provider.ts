@@ -27,7 +27,11 @@ import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
-import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import {
+  conversationCommandsFor,
+  publishConversationCommands,
+  touchConversationCommands,
+} from '../conversation-commands/registry'
 import {
   prepareWslClaudeTarget,
   spawnWslClaude,
@@ -79,6 +83,7 @@ import type {
   MockAdapterSteerInput,
   MockAdapterTurnInput,
   ConversationProviderSteerResult,
+  ConversationDisposeOptions,
 } from './conversation-provider-adapter'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
@@ -114,7 +119,8 @@ export type ClaudeAgentProviderOptions = {
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
-  disposeChildProcess(sessionId: string): boolean
+  // Claude's child is always disposed; `force` changes nothing here.
+  disposeChildProcess(sessionId: string, options?: ConversationDisposeOptions): boolean
   disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
@@ -218,6 +224,10 @@ type SessionState = {
   queryCostUsd: number
   // The child being spawned, while it is; see ensureQuery.
   spawning: Promise<void> | null
+  // Bumped when the session is stopped or its child disposed from outside
+  // (suspend, the idle sweep, quit). A spawn that began before the bump gives
+  // up instead of starting a child nothing tracks any more.
+  spawnGeneration: number
   // Ids of the user messages handed to the child that no `result` has
   // answered yet. A turn is over only once every one has been: a message
   // steered in after the CLI's last tool round is answered by a result of
@@ -600,9 +610,13 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           : null
     if (!next) return
     // An init repeats the same names every exchange; only a change is news.
-    // A push carries descriptions too, so it is taken whenever it arrives.
-    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands))
+    // The repeat still says the list is current, so it is marked fresh: a `/`
+    // typed later then reads it instead of starting a Claude process to ask
+    // again. A push carries descriptions too, so it is taken whenever it arrives.
+    if (message.subtype === 'init' && known.fetchedAt > 0 && !known.error && sameCommandNames(next, known.commands)) {
+      touchConversationCommands(CLAUDE_COMMANDS_CLI, state.workspaceRoot)
       return
+    }
     publishConversationCommands({ cli: CLAUDE_COMMANDS_CLI, cwd: state.workspaceRoot, commands: next })
   }
 
@@ -621,28 +635,46 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     return state.spawning
   }
 
+  // A spawn awaits several steps before the child starts. The session may be
+  // stopped or suspended during any of them, and a child started after that
+  // would belong to no session: invisible to the idle sweep and to quit.
+  function assertSpawnWanted(state: SessionState, generation: number): void {
+    if (state.spawnGeneration !== generation || sessions.get(state.sessionId) !== state)
+      throw new Error('The conversation was closed before Claude Code started.')
+  }
+
   async function spawnQuery(state: SessionState): Promise<void> {
     // A chat on a WSL machine runs that machine's `claude`, with the login
     // and settings under its Linux home; everything below is the same.
+    const generation = state.spawnGeneration
     const hostId = state.cliRuntimes?.['claude-code']?.hostId
     const wslTarget = isWslHostId(hostId) ? await prepareWslTarget(hostId) : null
+    assertSpawnWanted(state, generation)
     const executablePath = await resolveExecutable(state.cliRuntimes)
+    assertSpawnWanted(state, generation)
     const sdkQuery = await loadQuery()
     const env = await buildEnv({
       workspaceId: state.workspaceId,
       agentId: state.agentId,
       sessionId: state.sessionId,
     })
+    assertSpawnWanted(state, generation)
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
     await swept
+    assertSpawnWanted(state, generation)
     const skillPlugin = state.skillIds?.length
       ? await stageAttachedSkills(tempDir, state.workspaceRoot, state.skillIds)
       : null
+    try {
+      assertSpawnWanted(state, generation)
+    } catch (error) {
+      if (skillPlugin) removeSkillPlugin(skillPlugin)
+      throw error
+    }
     state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
-    const permissionMode =
-      state.mode === 'plan' || state.mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    const permissionMode = nativePermissionMode(state, state.mode)
     const queryOptions: Options = {
       cwd: state.workspaceRoot,
       pathToClaudeCodeExecutable: executablePath,
@@ -729,6 +761,30 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort = abort
     void pump(state, q)
     void reportSupportedAgents(state, q)
+  }
+
+  // The native permission mode a chat mode runs the child in. Ask is plan mode
+  // with a hook that reads `state.mode` for every tool call.
+  function nativePermissionMode(state: SessionState, mode: SessionState['mode']) {
+    return mode === 'plan' || mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+  }
+
+  // Move the live child to another chat mode over the control channel rather
+  // than respawning it, which costs a cold start, a re-read of the session
+  // file, and any background agent it had running. False when only a respawn
+  // can do it: under `none`, default mode is the child's own configured one,
+  // which no control-channel mode names.
+  async function switchModeLive(state: SessionState, next: NonNullable<SessionState['mode']>): Promise<boolean> {
+    if (!state.query || !childHonorsPreset(state)) return false
+    const target = nativePermissionMode(state, next)
+    if (target === undefined) return false
+    if (target === nativePermissionMode(state, state.mode)) return true
+    try {
+      await state.query.setPermissionMode(target)
+      return true
+    } catch {
+      return false
+    }
   }
 
   // The agent types this child can spawn, with what each is for, so an agent's
@@ -928,6 +984,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         stderrTail: '',
         queryCostUsd: 0,
         spawning: null,
+        spawnGeneration: 0,
         pendingSendUuids: new Set(),
         interruptedSendUuids: new Set(),
         textSeam: false,
@@ -959,10 +1016,14 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }
       yield eventFor(state, 'turn_started', { turnId: input.turnId })
       try {
-        if (state.mode !== (input.mode ?? 'default') || state.reasoningEffort !== input.reasoningEffort) {
+        const nextMode = input.mode ?? 'default'
+        if (state.reasoningEffort !== input.reasoningEffort) {
           disposeChild(state)
-          state.mode = input.mode ?? 'default'
+          state.mode = nextMode
           state.reasoningEffort = input.reasoningEffort
+        } else if (state.mode !== nextMode) {
+          if (!(await switchModeLive(state, nextMode))) disposeChild(state)
+          state.mode = nextMode
         }
         const skillIds = [...new Set(input.skills ?? [])].sort()
         if (JSON.stringify(skillIds) !== JSON.stringify(state.skillIds ?? [])) {
@@ -1169,6 +1230,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     stopSession(input: MockAdapterSessionInput) {
       const state = sessions.get(input.sessionId)
       if (!state) return []
+      state.spawnGeneration += 1
       disposeChild(state)
       sessions.delete(input.sessionId)
       return [eventFor(state, 'session_closed')]
@@ -1190,14 +1252,22 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }))
     },
 
-    disposeChildProcess(sessionId: string): boolean {
+    disposeChildProcess(sessionId: string, _options?: ConversationDisposeOptions): boolean {
       const state = sessions.get(sessionId)
-      if (!state || state.query === null) return false
+      if (!state) return false
+      // A child still being spawned is called off, so it cannot outlive a
+      // Settle or a suspend that came while it was starting.
+      const spawning = state.spawning !== null
+      if (spawning) state.spawnGeneration += 1
+      if (state.query === null) return spawning
       return disposeChild(state)
     },
 
     async disposeAll(): Promise<void> {
-      for (const state of sessions.values()) disposeChild(state)
+      for (const state of sessions.values()) {
+        state.spawnGeneration += 1
+        disposeChild(state)
+      }
       await Promise.all(removals)
     },
   }
@@ -1466,6 +1536,13 @@ function spawnTrackedChild(state: SessionState, start: () => ChildProcess, now: 
   child.once('exit', () => {
     if (state.childPid === child.pid) state.childPid = null
   })
+  // Not started at all: the remembered path is looked up again next time.
+  child.once('error', () => {
+    if (child.pid === undefined)
+      void import('../cli-runtime-install').then(({ invalidateCliExecutable }) =>
+        invalidateCliExecutable('claude-code'),
+      )
+  })
   return {
     stdin: child.stdin!,
     stdout: child.stdout!,
@@ -1491,22 +1568,22 @@ async function defaultLoadQuery(): Promise<SdkQueryFunction> {
 export { defaultResolveExecutable as resolveClaudeExecutable }
 
 async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
-  const { detectCli } = await import('../cli-runtime-install')
+  const { resolveCliExecutable } = await import('../cli-runtime-install')
   const runtime = cliRuntimes?.['claude-code']
-  const detection = await detectCli('claude-code', runtime)
-  if (!detection.installed || !detection.resolvedPath) {
+  const found = await resolveCliExecutable('claude-code', runtime)
+  if (!found.path) {
     if (isWslHostId(runtime?.hostId)) {
       const machine = runtime.hostId.replace(/^wsl:/u, 'WSL: ')
       throw new Error(
         `Claude Code CLI was not found on ${machine}. Install it in that distribution (or set its command for that machine in Settings) to chat there.` +
-          (detection.error ? ` ${detection.error}` : ''),
+          (found.error ? ` ${found.error}` : ''),
       )
     }
     throw new Error(
       'Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.',
     )
   }
-  return detection.resolvedPath
+  return found.path
 }
 
 // Auth env this provider must never pass to the child. The conversation path

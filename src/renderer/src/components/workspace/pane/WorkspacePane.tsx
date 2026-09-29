@@ -309,6 +309,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
                 : null
             }
             selectedTabId={activeTabId}
+            collapsed={!(paneState?.open ?? false)}
             onDiffCountChange={setDiffCount}
           />
         )}

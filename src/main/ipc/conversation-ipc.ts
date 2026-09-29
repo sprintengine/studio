@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import type { IpcMain, WebContents } from 'electron'
 import type {
   ConversationWorkspaceKey,
   ConversationThreadsResult,
@@ -57,6 +57,7 @@ import type {
   ConversationRewindResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
+  ConversationEventType,
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
@@ -114,6 +115,42 @@ export type ConversationIpcHandlers = {
   listApprovalRules?(): Promise<ConversationApprovalRulesResult>
   revokeApprovalRule?(ruleId: string): Promise<ConversationApprovalRuleRevokeResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
+}
+
+/**
+ * What the all-conversations channel (`conversation:event`) forwards: a chat's
+ * lifecycle and status, never its per-token stream. Every workspace window
+ * subscribes, and its readers (the session list, the history rows) only ask
+ * whether a chat started, moved, waited or ended. Reply and reasoning deltas,
+ * and a running tool's partial output, went to every window, hidden ones
+ * included, dozens of times a second per streaming chat, only to be dropped
+ * there. The pane showing a chat reads its stream on the scoped channel
+ * (`conversation:session-event`), which is unchanged.
+ */
+const BROADCAST_EVENT_TYPES: ReadonlySet<ConversationEventType> = new Set<ConversationEventType>([
+  'session_started',
+  'session_ready',
+  'session_updated',
+  'session_closed',
+  'user_message',
+  'turn_started',
+  'tool_started',
+  'tool_output',
+  'approval_requested',
+  'approval_resolved',
+  'usage_updated',
+  'context_compacted',
+  'command_output',
+  'turn_completed',
+  'turn_failed',
+  'subagent_status',
+  'subagent_message',
+])
+
+export function isConversationBroadcastEvent(event: ConversationEvent): boolean {
+  if (!BROADCAST_EVENT_TYPES.has(event.type)) return false
+  // A running tool's output streams; its final output says the tool is done.
+  return !(event.type === 'tool_output' && event.payload?.partial === true)
 }
 
 // Agent-harness conversation providers ride a local CLI (the shared table in
@@ -278,14 +315,24 @@ export function registerConversationIpc(
   handlers: ConversationIpcHandlers = createConversationIpcHandlers(),
 ): void {
   let nextSubscriptionId = 0
-  const eventSubscriptions = new Map<
-    string,
-    {
-      unsubscribe: () => void
-      removeDestroyedListener: () => void
-    }
-  >()
+  const eventSubscriptions = new Map<string, { senderId: number; dispose: () => void }>()
   const scopedSubscriptions = new Map<string, { senderId: number; dispose: () => void }>()
+  // A reload keeps the webContents, so `destroyed` never fires for the page it
+  // replaced: the new page subscribes again while the old page's subscriptions
+  // keep sending to the same sender, one more copy of every event per reload.
+  // Navigation ends everything the page held, as it does for the git watch.
+  const watchedSenders = new WeakSet<WebContents>()
+  const releaseOnNavigation = (sender: WebContents): void => {
+    if (watchedSenders.has(sender)) return
+    watchedSenders.add(sender)
+    const senderId = sender.id
+    // Emitted for main-frame, cross-document navigations only — a reload is
+    // one — once the new page has committed, before its scripts run.
+    sender.on('did-navigate', () => {
+      for (const subscription of [...eventSubscriptions.values(), ...scopedSubscriptions.values()])
+        if (subscription.senderId === senderId) subscription.dispose()
+    })
+  }
   const searches = new Map<string, AbortController>()
   ipcMain.handle('conversation:threads', (_, input: unknown) => {
     const parsed = parseTranscriptInput(isRecord(input) ? { ...input, agentId: 'history' } : input)
@@ -444,10 +491,11 @@ export function registerConversationIpc(
     const dispose = () => {
       subscription.dispose()
       event.sender.removeListener('destroyed', dispose)
-      scopedSubscriptions.delete(key)
+      if (scopedSubscriptions.get(key)?.dispose === dispose) scopedSubscriptions.delete(key)
     }
     event.sender.once('destroyed', dispose)
     scopedSubscriptions.set(key, { senderId: event.sender.id, dispose })
+    releaseOnNavigation(event.sender)
     return { ok: true, subscriptionId }
   })
   ipcMain.handle('conversation:session:unsubscribe', (event, input: unknown) => {
@@ -708,24 +756,20 @@ export function registerConversationIpc(
     const sender = event.sender
     const subscriptionId = `conversation-subscription-${++nextSubscriptionId}`
     const cleanup = (): void => {
-      const subscription = eventSubscriptions.get(subscriptionId)
-      if (!subscription) return
-      eventSubscriptions.delete(subscriptionId)
-      subscription.removeDestroyedListener()
-      subscription.unsubscribe()
+      if (!eventSubscriptions.delete(subscriptionId)) return
+      sender.removeListener('destroyed', cleanup)
+      unsubscribe()
     }
     const unsubscribe = handlers.onEvent((conversationEvent) => {
       if (sender.isDestroyed()) {
         cleanup()
         return
       }
-      sender.send('conversation:event', conversationEvent)
+      if (isConversationBroadcastEvent(conversationEvent)) sender.send('conversation:event', conversationEvent)
     })
-    eventSubscriptions.set(subscriptionId, {
-      unsubscribe,
-      removeDestroyedListener: () => sender.removeListener('destroyed', cleanup),
-    })
+    eventSubscriptions.set(subscriptionId, { senderId: sender.id, dispose: cleanup })
     sender.once('destroyed', cleanup)
+    releaseOnNavigation(sender)
     return { ok: true, subscriptionId }
   })
 
@@ -735,12 +779,7 @@ export function registerConversationIpc(
       if (!isRecord(input) || typeof input.subscriptionId !== 'string') {
         return { ok: false, message: 'subscriptionId is required.' }
       }
-      const subscription = eventSubscriptions.get(input.subscriptionId)
-      if (subscription) {
-        eventSubscriptions.delete(input.subscriptionId)
-        subscription.removeDestroyedListener()
-        subscription.unsubscribe()
-      }
+      eventSubscriptions.get(input.subscriptionId)?.dispose()
       return { ok: true }
     },
   )

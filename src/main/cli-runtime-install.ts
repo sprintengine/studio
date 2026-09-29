@@ -15,6 +15,7 @@ import { knownDefaultWslDistro, resolveDefaultWslDistro, wslLoginScript, wslScri
 import { hostRegistry } from './hosts/host-registry'
 import { LOCAL_HOST_ID, distroOfHostId, isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { createLoginShellPathResolver, findExecutable, searchDirectories } from './login-shell-path'
+import { access, constants as fsConstants } from 'node:fs/promises'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -242,6 +243,7 @@ const loginShellPath = createLoginShellPathResolver({
  */
 export function invalidateLoginShellPath(): void {
   loginShellPath.invalidate()
+  cliExecutables.invalidate()
 }
 
 // Host macOS/Linux: resolve the binary against the session's login-shell PATH
@@ -775,6 +777,103 @@ export async function detectCli(
       error: error instanceof Error ? error.message : String(error),
     }
   }
+}
+
+/** Where a CLI was found, or null with what the lookup said when it was not. */
+export type CliExecutableLookup = { path: string | null; error: string | null }
+
+export type CliExecutableResolver = {
+  /** Where to start `cli` from; see CliExecutableLookup. */
+  resolve(cli: AgentCli, runtime?: Partial<CliRuntimeSettings>): Promise<CliExecutableLookup>
+  /** Forget resolved paths (every CLI's when none is named). */
+  invalidate(cli?: AgentCli): void
+}
+
+/**
+ * Where each CLI a chat starts lives, looked up once per CLI, machine and
+ * command override rather than before every process start. A chat's child is
+ * started on its first turn and again after every idle reap, suspend, preset
+ * or mode change and command probe; a full detection there ran the CLI (or a
+ * PowerShell probe) only to print a version nobody reads, which put a second
+ * process on the critical path of every respawn. A remembered path that is no
+ * longer an executable file is looked up again, and an install, an update or
+ * a forced availability refresh forgets every path.
+ */
+export function createCliExecutableResolver(deps: {
+  lookup(cli: AgentCli, runtime?: Partial<CliRuntimeSettings>): Promise<CliExecutableLookup>
+  // Whether a remembered path is still there; null when this process cannot
+  // tell (a path inside a WSL distribution), so the path is trusted.
+  stillThere(path: string, runtime?: Partial<CliRuntimeSettings>): Promise<boolean | null>
+}): CliExecutableResolver {
+  const resolved = new Map<string, { cli: AgentCli; found: Promise<CliExecutableLookup> }>()
+  const keyFor = (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) =>
+    JSON.stringify([cli, runtimeHostId(runtime), typeof runtime?.command === 'string' ? runtime.command.trim() : ''])
+  return {
+    async resolve(cli, runtime) {
+      const key = keyFor(cli, runtime)
+      const known = resolved.get(key)
+      if (known) {
+        const found = await known.found.catch(() => null)
+        if (found?.path && (await deps.stillThere(found.path, runtime).catch(() => false)) !== false) return found
+        // Only the entry this call read is dropped: a newer lookup stays.
+        if (resolved.get(key) === known) resolved.delete(key)
+      }
+      const entry = { cli, found: deps.lookup(cli, runtime) }
+      resolved.set(key, entry)
+      const found = await entry.found.catch((error: unknown) => {
+        if (resolved.get(key) === entry) resolved.delete(key)
+        throw error
+      })
+      // "Not found" is not remembered: the next start looks again, so a CLI
+      // installed from a terminal is picked up without a refresh.
+      if (!found.path && resolved.get(key) === entry) resolved.delete(key)
+      return found
+    },
+    invalidate(cli) {
+      if (!cli) resolved.clear()
+      else for (const [key, entry] of resolved) if (entry.cli === cli) resolved.delete(key)
+    },
+  }
+}
+
+const cliExecutables = createCliExecutableResolver({
+  async lookup(cli, runtime) {
+    const manifest = getPluginManifest(cli)
+    if (!manifest) return { path: null, error: `No plugin manifest found for "${cli}".` }
+    const target = resolveInstallPlatform(process.platform, runtimeHostId(runtime))
+    if (isHostPosixTarget(target)) {
+      // The same lookup the version probe makes, without running the binary.
+      const env = defaultProbeEnv()
+      const loginPath = await loginShellPath.resolve(env)
+      const path = await findExecutable(resolveBinary(manifest, runtime), searchDirectories(loginPath, env.PATH))
+      return {
+        path,
+        error: path || loginPath !== null ? null : 'No login shell answered with a PATH to look the binary up on.',
+      }
+    }
+    const detection = await detectCli(cli, runtime)
+    return { path: detection.installed ? detection.resolvedPath : null, error: detection.error }
+  },
+  async stillThere(path, runtime) {
+    if (resolveInstallPlatform(process.platform, runtimeHostId(runtime)) === 'wsl') return null
+    return access(path, fsConstants.X_OK).then(
+      () => true,
+      () => false,
+    )
+  },
+})
+
+/** The path a chat's child for `cli` is started from; see createCliExecutableResolver. */
+export function resolveCliExecutable(
+  cli: AgentCli,
+  runtime?: Partial<CliRuntimeSettings>,
+): Promise<CliExecutableLookup> {
+  return cliExecutables.resolve(cli, runtime)
+}
+
+/** Forget where `cli` (or every CLI) lives: its process could not be started from there. */
+export function invalidateCliExecutable(cli?: AgentCli): void {
+  cliExecutables.invalidate(cli)
 }
 
 async function prerequisiteAvailable(

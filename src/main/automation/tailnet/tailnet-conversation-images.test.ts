@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSyn
 import { createServer, request as httpRequest, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, test } from 'vitest'
+import { afterAll, beforeAll, test, vi } from 'vitest'
 
 import type { ConversationEvent } from '../../../shared/conversation-runtime'
 import { TAILNET_SCOPES, type TailnetScope } from '../../../shared/tailnet'
@@ -380,6 +380,77 @@ test('a paired desktop fetches a step’s picture over the same route, as a data
   assert.equal(!missing.ok && missing.code, 'unknown_image')
   const invalid = await mesh.conversationToolImage({ key, toolUseId: '' })
   assert.equal(!invalid.ok && invalid.code, 'invalid_arguments')
+})
+
+test('a picture asked for again is found without scanning the transcript again', async () => {
+  const lookups = vi.spyOn(runtime, 'findToolCall')
+  try {
+    const first = await get(imagePath('read-linked'), { token: reader })
+    assert.equal(first.status, 200)
+    const scans = lookups.mock.calls.length
+    const [second, third] = await Promise.all([
+      get(imagePath('read-linked'), { token: reader }),
+      get(imagePath('read-linked'), { token: reader }),
+    ])
+    assert.equal(second.status, 200)
+    assert.deepEqual(third.body, second.body)
+    assert.equal(lookups.mock.calls.length, scans, 'the step was found once')
+  } finally {
+    lookups.mockRestore()
+  }
+})
+
+test('windows asking a paired machine for the same picture share one fetch, and keep it', async () => {
+  let fetches = 0
+  const device = {
+    deviceId: 'device-1',
+    deviceName: 'dev-macbook-air',
+    scopes: ['conversation:read'],
+    transportVersion: 2,
+    capabilities: ['events', 'conversations', 'conversation-images'],
+  }
+  const peer: Server = createServer((request, response) => {
+    const path = new URL(request.url ?? '/', 'http://peer.invalid').pathname
+    request.resume()
+    if (path === TAILNET_CONVERSATION_IMAGE_PATH) {
+      fetches++
+      response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': PNG.length })
+      response.end(PNG)
+      return
+    }
+    const body = path === TAILNET_PAIR_PATH ? { ...device, deviceToken: 'device-token' } : device
+    response.writeHead(path === TAILNET_PAIR_PATH || path === TAILNET_IDENTITY_PATH ? 200 : 404, {
+      'Content-Type': 'application/json',
+    })
+    response.end(JSON.stringify(body))
+  })
+  await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve))
+  const peerPort = (peer.address() as { port: number }).port
+  const dir = mkdtempSync(join(tmpdir(), 'conversation-images-shared-'))
+  const follower = createTailnetMeshService({
+    resolveUserDataDir: () => dir,
+    resolveDeviceName: () => 'dev-macbook-air',
+    resolvePeerName: async () => null,
+  })
+  try {
+    const paired = await follower.pair({ pairingUrl: pairingUrl('127.0.0.1', peerPort, 'pairing-token') })
+    assert.ok(paired.ok, paired.ok ? '' : paired.message)
+    const key = { connectionId: paired.connection.id, workspaceId, agentId }
+    const [a, b] = await Promise.all([
+      follower.conversationToolImage({ key, toolUseId: 'generate' }),
+      follower.conversationToolImage({ key, toolUseId: 'generate' }),
+    ])
+    const later = await follower.conversationToolImage({ key, toolUseId: 'generate' })
+    const expected = { ok: true, dataUrl: `data:image/png;base64,${PNG.toString('base64')}` }
+    assert.deepEqual([a, b, later], [expected, expected, expected])
+    assert.equal(fetches, 1, 'one fetch across the wire')
+    await follower.conversationToolImage({ key, toolUseId: 'another-step' })
+    assert.equal(fetches, 2, 'another step is its own picture')
+  } finally {
+    follower.shutdown()
+    await new Promise<void>((resolve) => peer.close(() => resolve()))
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 /** A machine that speaks the transport but predates the route: it answers pairing and identity, and 404s the rest. */

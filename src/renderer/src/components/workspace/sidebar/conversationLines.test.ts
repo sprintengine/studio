@@ -4,6 +4,7 @@ import type { ConversationSessionSummary } from '../../../../../shared/conversat
 import {
   combinedAgentActivity,
   conversationFinishedAt,
+  conversationLastInputAt,
   conversationLineMark,
   conversationLineText,
   conversationsWithTabs,
@@ -56,6 +57,13 @@ test('a resting chat counts from when its last turn ended, not from its last upd
   assert.equal(conversationFinishedAt({ ...session('awaiting_approval'), lastTurnEndedAt: 500 }), null)
   // Nothing has finished yet.
   assert.equal(conversationFinishedAt(session('ready')), null)
+})
+
+test("a chat's last input is the person's last message, not a model or permission change", () => {
+  // `updatedAt` (2) moved on a setting change after the message at 1.5.
+  assert.equal(conversationLastInputAt({ ...session('ready'), lastUserMessageAt: 1.5 }), 1.5)
+  // Nothing sent yet: opening the chat is the last thing the person did.
+  assert.equal(conversationLastInputAt(session('ready')), 1)
 })
 
 test('the last-reply line reads as prose, not as the markdown it was written in', () => {

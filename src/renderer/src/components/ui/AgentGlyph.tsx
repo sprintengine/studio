@@ -57,13 +57,15 @@ export function AgentGlyph({
       {...a11y}
       {...rest}
       data-character={id}
-      className={`agent-glyph agent-glyph--${id} agent-glyph--${state} icon-sm shrink-0 overflow-visible ${TONE[state]} ${className ?? ''}`}
+      // A working character moves as a whole on the root <svg> (a CSS box, so
+      // the compositor runs it) and only its small parts inside (index.css).
+      className={`agent-glyph agent-glyph--${id} agent-glyph--${state} ${state === 'working' ? 'agent-glyph__whole ' : ''}icon-sm shrink-0 overflow-visible ${TONE[state]} ${className ?? ''}`}
     >
       {state === 'working' ? (
-        <g className="agent-glyph__whole">
+        <>
           {drawing.body}
           {drawing.working}
-        </g>
+        </>
       ) : (
         <>
           {drawing.body}

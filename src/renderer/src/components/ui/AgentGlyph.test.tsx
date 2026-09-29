@@ -54,12 +54,23 @@ test('a season can be previewed without changing the clock', () => {
   )
 })
 
+test('today’s season is read once, not on every glyph render', () => {
+  const getItem = vi.spyOn(localStorage, 'getItem')
+  for (let index = 0; index < 50; index++) pickAgentCharacter(`toolu_${index}`)
+  assert.ok(getItem.mock.calls.length <= 1, `read ${getItem.mock.calls.length} times`)
+})
+
 test('a working character moves; a finished one stands still with the face its end earned', () => {
   const draw = (state: 'working' | 'done' | 'failed' | 'stopped') =>
     renderToStaticMarkup(createElement(AgentGlyph, { agentId: 'a', state, character: 'robot' }))
   const working = draw('working')
   assert.match(working, /agent-glyph--working/)
-  assert.match(working, /agent-glyph__whole/, 'the parts that move are wrapped for their keyframes')
+  assert.match(
+    working,
+    /^<svg[^>]*\bagent-glyph__whole\b/,
+    'the whole body moves on the root svg, a CSS box the compositor can animate',
+  )
+  assert.doesNotMatch(working, /<g[^>]*agent-glyph__whole/, 'no element inside the svg carries the body motion')
   assert.match(working, /agent-glyph__eyes/)
   for (const state of ['done', 'failed', 'stopped'] as const) {
     const markup = draw(state)

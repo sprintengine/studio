@@ -1223,8 +1223,11 @@ code {
   animation: ds-agent-glyph-blink 3000ms infinite;
 }
 
+/* As specific as the character rules above and after them, so it wins: a bare
+ * `.ds-agent-glyph *` is outranked by `.ds-agent-glyph--robot
+ * .ds-agent-glyph-eyes` and left every character moving. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-agent-glyph * {
+  .ds-agent-glyph--working [class^='ds-agent-glyph-'] {
     animation: none;
   }
 }
@@ -13673,8 +13676,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   animation: ds-agent-glyph-blink 3000ms infinite;
 }
 
+/* As specific as the character rules above and after them, so it wins: a bare
+ * `.ds-agent-glyph *` is outranked by `.ds-agent-glyph--robot
+ * .ds-agent-glyph-eyes` and left every character moving. */
 @media (prefers-reduced-motion: reduce) {
-  .ds-agent-glyph * {
+  .ds-agent-glyph--working [class^='ds-agent-glyph-'] {
     animation: none;
   }
 }

@@ -1,7 +1,13 @@
 import { useMemo, useState, type JSX, type MouseEvent } from 'react'
 import { IconButton } from '../../ui'
 import { OVERLAY_SURFACE_CLASS } from '../../ui/tokens'
-import { TURN_MINIMAP_MIN_TURNS, turnPreviewText, type TurnMark, type TurnNavigation } from './turnNavigation'
+import {
+  TURN_MINIMAP_MIN_TURNS,
+  turnPreviewText,
+  useTurnPosition,
+  type TurnMark,
+  type TurnNavigation,
+} from './turnNavigation'
 
 // One tick per prompt, spaced evenly rather than by where the turn sits in the
 // scroll height: a virtualized list only knows the heights it has rendered, and
@@ -33,16 +39,19 @@ function TurnStepGlyph({ direction }: { direction: 'up' | 'down' }): JSX.Element
   )
 }
 
+// A tick is always 12px wide and scaled from its right edge (to 6px at rest,
+// 8px beside the hovered one), so the hover grows it with a transform the
+// compositor animates rather than a width that lays the strip out each frame.
 function tickClass(index: number, current: number, hovered: number | null): string {
   const distance = hovered === null ? null : Math.abs(index - hovered)
-  const width = distance === 0 ? 'w-3' : distance === 1 ? 'w-2' : 'w-1.5'
+  const scale = distance === 0 ? 'scale-x-100' : distance === 1 ? 'scale-x-[0.6667]' : 'scale-x-50'
   const ink =
     distance === 0
       ? 'bg-[color:var(--text-default)]'
       : index === current
         ? 'bg-[color:var(--text-muted)]'
         : 'bg-[color:var(--border-strong)]'
-  return `pointer-events-none absolute right-0 h-0.5 -translate-y-1/2 rounded-full transition-[width,background-color] duration-150 ${width} ${ink}`
+  return `pointer-events-none absolute right-0 h-0.5 w-3 origin-right -translate-y-1/2 rounded-full transition-[scale,background-color] duration-150 ${scale} ${ink}`
 }
 
 function MinimapPreview({
@@ -84,7 +93,8 @@ function MinimapPreview({
  * through the same turns.
  */
 export function TimelineMinimap({ navigation }: { navigation: TurnNavigation }): JSX.Element | null {
-  const { marks, current, hasPrevious, hasNext, jump, step, reply } = navigation
+  const { marks, jump, step, reply } = navigation
+  const { current, hasPrevious, hasNext } = useTurnPosition(navigation)
   const [hovered, setHovered] = useState<number | null>(null)
   // The minimap re-renders with every streamed token; its ticks only change
   // with the prompts, the reader's turn and the pointer.

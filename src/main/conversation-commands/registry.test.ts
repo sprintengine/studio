@@ -1,6 +1,11 @@
 import { expect, test } from 'vitest'
 
-import { conversationCommandsFor, onConversationCommandsChanged, publishConversationCommands } from './registry'
+import {
+  conversationCommandsFor,
+  onConversationCommandsChanged,
+  publishConversationCommands,
+  touchConversationCommands,
+} from './registry'
 
 const compact = { name: 'compact', source: 'cli' as const }
 
@@ -52,4 +57,19 @@ test('a list published for a session’s folder is found under the spelling the 
   expect(conversationCommandsFor('codex', 'c:/Users/dev/app').commands).toEqual([compact])
   // A different folder is a different list.
   expect(conversationCommandsFor('claude-code', '/Users/dev/app2').commands).toEqual([])
+})
+
+test('a list a live session repeats counts as fresh again, and nothing is told', () => {
+  const cwd = '/Users/dev/touched'
+  const told: unknown[] = []
+  const stop = onConversationCommandsChanged((catalog) => told.push(catalog))
+  publishConversationCommands({ cli: 'claude-code', cwd, commands: [{ name: 'review', source: 'cli' }], fetchedAt: 5 })
+  told.length = 0
+  touchConversationCommands('claude-code', cwd, 9_000)
+  expect(conversationCommandsFor('claude-code', cwd)).toMatchObject({ fetchedAt: 9_000 })
+  expect(told).toHaveLength(0)
+  // A list nothing answered, or one that failed, waits for a real report.
+  touchConversationCommands('claude-code', '/Users/dev/untouched', 9_000)
+  expect(conversationCommandsFor('claude-code', '/Users/dev/untouched').fetchedAt).toBe(0)
+  stop()
 })

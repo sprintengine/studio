@@ -66,6 +66,7 @@ import {
   encodeCloseFrame,
   encodePongFrame,
   encodeTextFrame,
+  enableTcpKeepAlive,
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_GOING_AWAY,
   WEBSOCKET_CLOSE_REVOKED,
@@ -239,6 +240,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
   function notifyChanged(what: ChangeKind): void {
     changeRevisions[what] += 1
+    // Nobody is watching: the revision is all a later watcher needs, since
+    // its `hello` carries it. Arming a timer here would wake this machine on
+    // every turn of every chat for a push with no one to receive it.
+    if (eventStreams.size === 0) return
     const state = changePush[what]
     // A push already queued carries this revision too.
     if (state.timer) return
@@ -1118,8 +1123,18 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     for (const [ticket, entry] of tickets) if (entry.deviceId === deviceId) tickets.delete(ticket)
   }
 
-  /** Write the RFC 6455 handshake response for an accepted upgrade. */
+  /**
+   * Write the RFC 6455 handshake response for an accepted upgrade, and turn on
+   * TCP keepalive for the socket's life.
+   *
+   * Keepalive is the kernel's, so it costs this process no wakeups, and it is
+   * what finds a peer that vanished without a close — a laptop that slept, a
+   * Wi-Fi change, a re-keyed tunnel. The change feed sends nothing while
+   * nothing changes, so without it a dead watcher would sit in `eventStreams`
+   * until a later push failed, which may be never.
+   */
   function acceptUpgrade(socket: Duplex, key: string): void {
+    enableTcpKeepAlive(socket)
     socket.write(
       [
         'HTTP/1.1 101 Switching Protocols',

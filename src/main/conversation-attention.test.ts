@@ -42,7 +42,7 @@ function harness(platform = 'darwin', focused = false) {
       createdAt: seq,
     } satisfies ConversationEvent)
   }
-  return { attention, send, bounces, badges, flashes, raised }
+  return { attention, listener, send, bounces, badges, flashes, raised }
 }
 
 test('background conversation completion uses passive OS attention without raising a window', () => {
@@ -142,4 +142,28 @@ test('a turn a steered message ended is not a completion, and a card raised as i
   h.send('approval_resolved', { requestId: 'a' })
   h.send('turn_completed')
   expect(h.bounces).toEqual([1, 1])
+})
+
+test('a conversation is remembered only while an approval it raised is outstanding', () => {
+  const h = harness()
+  // A whole turn, then one Settle interrupted while it waited on a card: Settle
+  // sends no session_closed, so nothing may be left behind by either.
+  h.send('session_started')
+  h.send('user_message')
+  h.send('turn_started')
+  h.send('tool_started')
+  expect(h.listener.trackedSessions()).toBe(0)
+  h.send('approval_requested', { requestId: 'a' }, 'settled')
+  expect(h.listener.trackedSessions()).toBe(1)
+  h.send('user_message', undefined, 'settled')
+  expect(h.listener.trackedSessions()).toBe(1)
+  h.send('turn_failed', { reason: 'interrupted' }, 'settled')
+  h.send('turn_completed')
+  expect(h.listener.trackedSessions()).toBe(0)
+  expect(h.bounces).toEqual([1, 1, 1])
+  // A card raised again after that is news again.
+  h.send('approval_requested', { requestId: 'b' }, 'settled')
+  expect(h.bounces).toEqual([1, 1, 1, 1])
+  h.send('approval_requested', { requestId: 'c' }, 'settled')
+  expect(h.bounces).toEqual([1, 1, 1, 1])
 })

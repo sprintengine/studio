@@ -275,6 +275,12 @@ type WorkspacePaneBodyProps = {
   activeTabId: string | null
   /** The tab the strip has selected, visible or not; decides which panel is the front one. */
   selectedTabId: string | null
+  /**
+   * The pane is closed. Its column is zero wide, but stays interactive while a
+   * tab floats, so it is not `inert` and nothing else tells the idle-animation
+   * pause (assets/index.css) that the docked layers are out of sight.
+   */
+  collapsed?: boolean
   onDiffCountChange?: (count: number | null) => void
 }
 
@@ -283,6 +289,7 @@ export function WorkspacePaneBody({
   tabs,
   activeTabId,
   selectedTabId,
+  collapsed = false,
   onDiffCountChange,
 }: WorkspacePaneBodyProps) {
   const floatingTab = tabs.find((tab) => tab.floating && tab.kind === 'browser') ?? null
@@ -343,6 +350,10 @@ export function WorkspacePaneBody({
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
             {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
+            // A docked layer in a closed pane is clipped to nothing: its
+            // animations hold still. The floating player is on screen and is
+            // the one layer left running.
+            {...(collapsed && !floating ? { 'data-pane-collapsed': '' } : {})}
           >
             {floating ? <FloatingPlayerChrome workspaceId={workspaceId} tab={tab} rect={floatRect} /> : null}
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>

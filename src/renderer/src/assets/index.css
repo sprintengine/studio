@@ -2408,7 +2408,13 @@ samp,
  * opacity (and, for the ripple, scale) keyframes only, cheap to composite, no
  * per-frame JS. Each cell's delay into the loop is set inline by the component.
  * Reduced motion holds every pattern on one still frame: the four corners and
- * the centre lit. */
+ * the centre lit.
+ *
+ * Paint containment bounds each mark to its own 14px box. Nothing in it
+ * overflows (the ripple only scales a cell down), but without it the
+ * compositor has to assume an animating transform may reach anywhere in the
+ * scroller it sits in, and splits the rows painted after it into extra
+ * layers of their own. */
 .working-mark {
   display: inline-grid;
   flex-shrink: 0;
@@ -2418,6 +2424,7 @@ samp,
   place-content: center;
   width: 14px;
   height: 14px;
+  contain: paint;
 }
 
 .working-mark__cell {
@@ -2509,7 +2516,20 @@ samp,
  * while its agent works the character moves, each part on its own loop; done,
  * failed and stopped characters stand still. Parts turn and scale about their
  * own box, so each keyframe names its pivot. Reduced motion holds every
- * character still, eyes open. */
+ * character still, eyes open.
+ *
+ * The whole-body motion (nod, squish, float, drift, rock, hop, hoho) runs on
+ * the root <svg>, which carries `agent-glyph__whole` while its agent works:
+ * the root is a CSS box, so its transform animates on the compositor; one on
+ * an element inside the SVG is composited only in narrow cases, and otherwise
+ * repaints the glyph on the main thread each frame. Only the small parts
+ * (eyes, string, hat, antenna, whiskers, nose, bow) still move inside it. The
+ * root's pivot is the drawing's own box, not the 16px square, so a character
+ * turns and squashes about the same point it did when a `<g>` round the
+ * drawing moved: every drawing is centred on x 8, and stands on y 13.2 of 16
+ * (robot, bubble), 13.8 (bear), 14 (mushroom, pumpkin, skull, present), 14.2
+ * (reindeer) or 15.2 (the balloon's string). The glyph is drawn at 16px on a
+ * 16-unit view box, so the keyframes' px are the drawing's units. */
 .agent-glyph * {
   transform-box: fill-box;
 }
@@ -2695,8 +2715,8 @@ samp,
   }
 }
 
-.agent-glyph--robot .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--robot.agent-glyph__whole {
+  transform-origin: 50% 82.5%;
   animation: agent-glyph-nod 1600ms ease-in-out infinite;
 }
 .agent-glyph--robot .agent-glyph__eyes {
@@ -2705,15 +2725,15 @@ samp,
 .agent-glyph--robot .agent-glyph__antenna {
   animation: agent-glyph-antenna 1000ms steps(1) infinite;
 }
-.agent-glyph--blob .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--blob.agent-glyph__whole {
+  transform-origin: 50% 82.5%;
   animation: agent-glyph-squish 1100ms ease-in-out infinite;
 }
 .agent-glyph--blob .agent-glyph__eyes {
   animation: agent-glyph-look 2600ms ease-in-out infinite;
 }
-.agent-glyph--balloon .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--balloon.agent-glyph__whole {
+  transform-origin: 50% 95%;
   animation: agent-glyph-drift 2400ms ease-in-out infinite;
 }
 .agent-glyph--balloon .agent-glyph__string {
@@ -2724,8 +2744,8 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3000ms infinite;
 }
-.agent-glyph--bear .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--bear.agent-glyph__whole {
+  transform-origin: 50% 86.25%;
   animation: agent-glyph-nod 1800ms ease-in-out infinite;
 }
 .agent-glyph--bear .agent-glyph__eyes {
@@ -2739,29 +2759,29 @@ samp,
 .agent-glyph--gent .agent-glyph__eyes {
   animation: agent-glyph-look 2600ms ease-in-out infinite;
 }
-.agent-glyph--mushroom .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--mushroom.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-squish 1300ms ease-in-out infinite;
 }
 .agent-glyph--mushroom .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 2800ms infinite;
 }
-.agent-glyph--ghost .agent-glyph__whole {
+.agent-glyph--ghost.agent-glyph__whole {
   animation: agent-glyph-float 1800ms ease-in-out infinite;
 }
 .agent-glyph--ghost .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 3200ms infinite;
 }
-.agent-glyph--pumpkin .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--pumpkin.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-rock 1400ms ease-in-out infinite;
 }
 .agent-glyph--pumpkin .agent-glyph__eyes {
   animation: agent-glyph-flicker 900ms steps(1) infinite;
 }
-.agent-glyph--cat .agent-glyph__whole {
+.agent-glyph--cat.agent-glyph__whole {
   animation: agent-glyph-float 2000ms ease-in-out infinite;
 }
 .agent-glyph--cat .agent-glyph__eyes {
@@ -2771,7 +2791,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-twitch 2200ms ease-in-out infinite;
 }
-.agent-glyph--elf .agent-glyph__whole {
+.agent-glyph--elf.agent-glyph__whole {
   animation: agent-glyph-float 1200ms ease-in-out infinite;
 }
 .agent-glyph--elf .agent-glyph__hat {
@@ -2782,7 +2802,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 2800ms infinite;
 }
-.agent-glyph--santa .agent-glyph__whole {
+.agent-glyph--santa.agent-glyph__whole {
   animation: agent-glyph-hoho 1800ms ease-in-out infinite;
 }
 .agent-glyph--santa .agent-glyph__hat {
@@ -2793,7 +2813,7 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3400ms infinite;
 }
-.agent-glyph--witch .agent-glyph__whole {
+.agent-glyph--witch.agent-glyph__whole {
   animation: agent-glyph-float 1800ms ease-in-out infinite;
 }
 .agent-glyph--witch .agent-glyph__hat {
@@ -2803,15 +2823,15 @@ samp,
 .agent-glyph--witch .agent-glyph__eyes {
   animation: agent-glyph-look 2800ms ease-in-out infinite;
 }
-.agent-glyph--skull .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--skull.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-rock 1400ms ease-in-out infinite;
 }
 .agent-glyph--skull .agent-glyph__eyes {
   animation: agent-glyph-flicker 900ms steps(1) infinite;
 }
-.agent-glyph--reindeer .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--reindeer.agent-glyph__whole {
+  transform-origin: 50% 88.75%;
   animation: agent-glyph-nod 1600ms ease-in-out infinite;
 }
 .agent-glyph--reindeer .agent-glyph__nose {
@@ -2821,8 +2841,8 @@ samp,
   transform-origin: center;
   animation: agent-glyph-blink 3000ms infinite;
 }
-.agent-glyph--present .agent-glyph__whole {
-  transform-origin: center bottom;
+.agent-glyph--present.agent-glyph__whole {
+  transform-origin: 50% 87.5%;
   animation: agent-glyph-hop 1600ms ease-in-out infinite;
 }
 .agent-glyph--present .agent-glyph__bow {
@@ -2834,8 +2854,12 @@ samp,
   animation: agent-glyph-blink 3000ms infinite;
 }
 
+/* As specific as the character rules above and after them, so it wins: a bare
+ * `.agent-glyph *` is outranked by `.agent-glyph--robot .agent-glyph__eyes`
+ * and left every character moving. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-glyph * {
+  .agent-glyph--working.agent-glyph__whole,
+  .agent-glyph--working [class^='agent-glyph__'] {
     animation: none;
   }
 }
@@ -2876,10 +2900,37 @@ samp,
  * nothing — on the glass material a full-window re-blend, and for the working
  * edge, whose conic gradient turns a registered custom property, a main-thread
  * repaint. Paused rather than removed, so each resumes from the frame it
- * stopped on instead of snapping. The skeleton's sweep is its `::after`, which
- * `:is()` cannot name, so it has a selector of its own. The rule is checked
- * against every infinite animation here by assets/idleAnimations.test.ts. */
-:root[data-window-active='false']
+ * stopped on instead of snapping.
+ *
+ * The same holds inside a visible window for the parts of it nobody can see,
+ * which stay mounted so coming back to them is instant:
+ *   - a live transcript row scrolled off screen (`data-live-offscreen`, set
+ *     by useLiveRowMotion in panels/agentChat/liveVisibility.ts);
+ *   - a warm workspace layer (`visibility: hidden`) and a cold one
+ *     (`content-visibility: hidden`), told apart by WorkspaceManager's
+ *     `data-layer-state`;
+ *   - anything `inert`: an inactive workspace's pane parked offscreen, a
+ *     collapsed pane column, the workspace region under a door;
+ *   - a collapsed pane's docked tab layers (`data-pane-collapsed`, set by
+ *     pane/WorkspacePaneBody.tsx), which a floating player keeps from being
+ *     `inert`: the column stays interactive so the player can be dragged.
+ * `aria-hidden` is not a condition: glyphs and working-mark cells carry it
+ * themselves while on screen.
+ *
+ * Nothing may write `animation-play-state` inline to resume these: an inline
+ * `running` beats this rule, so it is the rule alone that decides. The
+ * skeleton's sweep and the shimmer's counter-moving text are pseudo-elements,
+ * which `:is()` cannot name, so they have selectors of their own. The rule is
+ * checked against every infinite animation here, and for every condition
+ * above, by assets/idleAnimations.test.ts. */
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [data-pane-collapsed],
+    [inert]
+  )
   :is(
     .status-dot-pulse,
     .working-mark__cell,
@@ -2893,11 +2944,28 @@ samp,
     .agent-glyph__bow,
     .lifecycle-spin,
     .working-edge,
-    .chat-shimmer,
+    .chat-shimmer__band,
     .animate-pulse,
     .animate-ping
   ),
-:root[data-window-active='false'] .skeleton-shimmer::after {
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [data-pane-collapsed],
+    [inert]
+  )
+  .skeleton-shimmer::after,
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [data-pane-collapsed],
+    [inert]
+  )
+  .chat-shimmer__band::before {
   animation-play-state: paused;
 }
 
@@ -2969,26 +3037,77 @@ samp,
   }
 }
 
+/* The shimmer's band is drawn only where motion is welcome (below). */
+.chat-shimmer__glint {
+  display: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
   }
 
-  /* Streaming status line: a quiet text shimmer. The gradient text trick only
-   * applies here, so reduced-motion keeps the element's plain muted color. */
+  /* Streaming status line: a quiet text shimmer, a bright band sweeping left
+   * to right through subtle text. Only here, so reduced motion keeps the
+   * element's plain muted colour and never shows the band.
+   *
+   * It used to be one gradient clipped to the text with its
+   * `background-position` animated, which the compositor cannot run: a
+   * main-thread repaint every frame for as long as a turn streamed. Now the
+   * text rests in the subtle ink and the band is a second copy of it in the
+   * strong ink (`::before`, from `data-text`), let through a gradient mask.
+   * The mask's element slides right while the copy inside slides back left
+   * by the same amount, so the copy sits exactly on the text and only the
+   * mask travels: two transform animations, both on the compositor.
+   *
+   * Same look as the gradient, to the pixel for opaque inks: the mask's alpha
+   * ramps 0 → 1 → 0 across the same 30% / 50% / 70% stops of a tile twice the
+   * text's width (W), and the tile moves by 2W in 2s, as the background did.
+   * The band element is 4W wide (two tiles, W of them left of the text) and
+   * travels 2W, half its width; the copy is W wide and travels back 2W, twice
+   * its width. The glint wrapper clips the travelling box to the text so it
+   * never adds scrollable overflow; it is absolutely positioned, so the
+   * clip does not move the text's baseline. */
   .chat-shimmer {
-    background: linear-gradient(90deg, var(--text-subtle) 30%, var(--text-strong) 50%, var(--text-subtle) 70%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: chat-shimmer 2s linear infinite;
+    position: relative;
+    color: var(--text-subtle);
+  }
+  .chat-shimmer__glint {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .chat-shimmer__band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -200%;
+    width: 400%;
+    mask-image: repeating-linear-gradient(90deg, transparent 0 15%, black 25%, transparent 35% 50%);
+    animation: chat-shimmer-sweep 2s linear infinite;
+  }
+  .chat-shimmer__band::before {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 25%;
+    color: var(--text-strong);
+    animation: chat-shimmer-hold 2s linear infinite;
   }
 }
 
-@keyframes chat-shimmer {
+@keyframes chat-shimmer-sweep {
   to {
-    background-position: -200% 0;
+    transform: translateX(50%);
+  }
+}
+
+@keyframes chat-shimmer-hold {
+  to {
+    transform: translateX(-200%);
   }
 }
 
@@ -3282,12 +3401,22 @@ body:has([data-selection-pane]:focus-within)
   animation: agent-spawn-tab-flash 12800ms ease-out;
 }
 
+/* The panel's ring and glow are drawn once, at full strength, on the overlay,
+ * and the fade animates only the overlay's opacity: the compositor runs it.
+ * Fading the box-shadow itself repainted the whole panel every frame of the
+ * last three seconds. Scaling the finished shadows by opacity is the fade
+ * scaling each shadow colour's alpha gave, exactly for each shadow alone and
+ * within a hair on the 2px ring where the glow lies under it. */
 .flexlayout__tab.agent-tab-spawn-flash-panel::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(48, 209, 88, 0.95),
+    inset 0 0 28px rgba(48, 209, 88, 0.24);
+  opacity: 0;
   animation: agent-spawn-panel-flash 12800ms ease-out;
 }
 
@@ -3311,15 +3440,11 @@ body:has([data-selection-pane]:focus-within)
 @keyframes agent-spawn-panel-flash {
   0%,
   78% {
-    box-shadow:
-      inset 0 0 0 2px rgba(48, 209, 88, 0.95),
-      inset 0 0 28px rgba(48, 209, 88, 0.24);
+    opacity: 1;
   }
 
   100% {
-    box-shadow:
-      inset 0 0 0 2px rgba(48, 209, 88, 0),
-      inset 0 0 28px rgba(48, 209, 88, 0);
+    opacity: 0;
   }
 }
 

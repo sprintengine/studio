@@ -29,9 +29,9 @@ import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
   encodeMaskedCloseFrame,
-  encodeMaskedPingFrame,
   encodeMaskedPongFrame,
   encodeMaskedTextFrame,
+  enableTcpKeepAlive,
   MAX_WEBSOCKET_MESSAGE_BYTES,
   WEBSOCKET_CLOSE_NORMAL,
 } from './websocket-frames'
@@ -655,8 +655,9 @@ export async function openRemoteEventsSocket(input: {
  * The far end pings every 25 seconds. A socket that has heard nothing for
  * `livenessTimeoutMs` is a peer that vanished without a close (a laptop lid,
  * a dropped route), and is ended so the caller re-dials instead of waiting on
- * a link that will never speak again. Its own pings keep an idle link from
- * looking dead to a middlebox in the meantime.
+ * a link that will never speak again. This end only listens: the far end's
+ * pings are what keep an idle link warm, and this end's pongs are what tell
+ * the far end it is still here.
  */
 export async function openRemoteConversationSocket(input: {
   endpoint: TailnetEndpoint
@@ -767,6 +768,9 @@ function upgradeSocket(
         refuse('protocol', 'The handshake key did not verify; that endpoint is not a Studio tailnet listener.')
         return
       }
+      // Kernel keepalive for the socket's life: a watch that carries nothing
+      // while nothing changes has no other way to notice the far end is gone.
+      enableTcpKeepAlive(socket)
       settle({ ok: true, value: { socket, leftover } })
     }
 
@@ -806,27 +810,36 @@ function driveJsonSocket(
   let closeReason = 'The connection to that machine ended.'
   let heardAt = Date.now()
   const liveness = options.livenessTimeoutMs
-  const heartbeat =
-    liveness === undefined
-      ? null
-      : setInterval(
-          () => {
-            if (closed) return
-            if (Date.now() - heardAt > liveness) {
-              closeReason = 'That machine stopped answering.'
-              finish()
-              return
-            }
-            if (!socket.destroyed) socket.write(encodeMaskedPingFrame())
-          },
-          Math.max(10, Math.floor(liveness / 3)),
-        )
-  heartbeat?.unref?.()
+  // Listen-only liveness. The far end pings every 25 seconds, which keeps the
+  // path warm for middleboxes and is what refreshes `heardAt`; a ping from
+  // this end as well only made both machines wake for a pong neither needed.
+  // One timer, re-armed for whatever is left of the window when it fires, so
+  // a link that is talking costs a wakeup per window rather than per beat.
+  let heartbeat: NodeJS.Timeout | null = null
+  const armLiveness = (delayMs: number): void => {
+    if (liveness === undefined || closed) return
+    heartbeat = setTimeout(
+      () => {
+        heartbeat = null
+        if (closed) return
+        const silentMs = Date.now() - heardAt
+        if (silentMs > liveness) {
+          closeReason = 'That machine stopped answering.'
+          finish()
+          return
+        }
+        armLiveness(liveness - silentMs + 1)
+      },
+      Math.max(10, delayMs),
+    )
+    heartbeat.unref?.()
+  }
 
   const finish = (): void => {
     if (closed) return
     closed = true
-    if (heartbeat) clearInterval(heartbeat)
+    if (heartbeat) clearTimeout(heartbeat)
+    heartbeat = null
     socket.destroy()
     handlers.onClosed({ code: closeCode, reason: closeReason })
   }
@@ -880,6 +893,7 @@ function driveJsonSocket(
     finish()
   })
   if (leftover.length > 0) consume(leftover)
+  if (liveness !== undefined) armLiveness(liveness + 1)
 
   return {
     send(frame): void {

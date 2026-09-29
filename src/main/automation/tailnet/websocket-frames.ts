@@ -32,6 +32,32 @@ export const WEBSOCKET_CLOSE_REVOKED = 4401
 /** One message may not exceed this; matches the socket transport's 1 MiB line cap. */
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 1024 * 1024
 
+/**
+ * How long a WebSocket's TCP connection may sit silent before the kernel
+ * starts probing it. Both roles turn it on for every upgraded socket.
+ */
+export const WEBSOCKET_TCP_KEEPALIVE_MS = 30_000
+
+/**
+ * Turn on TCP keepalive for an upgraded socket, whichever role holds it.
+ *
+ * The probes are the kernel's, so they cost the process no timer and no
+ * wakeup, and they find a peer that disappeared without a close: a laptop that
+ * slept, a Wi-Fi handover, a re-keyed tunnel. A socket that carries nothing
+ * while nothing happens (the change feed) has no other way to learn it is
+ * talking to nobody. Typed loosely because an `upgrade` hands the server a
+ * `Duplex`; every socket here is a `net.Socket` in fact, and one that is not
+ * simply goes without.
+ */
+export function enableTcpKeepAlive(socket: unknown): void {
+  const candidate = socket as { setKeepAlive?: (enable: boolean, initialDelay: number) => unknown } | null
+  try {
+    candidate?.setKeepAlive?.(true, WEBSOCKET_TCP_KEEPALIVE_MS)
+  } catch {
+    // A socket already torn down: nothing left to keep alive.
+  }
+}
+
 export function computeWebSocketAcceptKey(clientKey: string): string {
   return createHash('sha1').update(`${clientKey}${WEBSOCKET_GUID}`).digest('base64')
 }
@@ -248,10 +274,6 @@ export function encodeMaskedCloseFrame(code: number, reason = ''): Buffer {
 
 export function encodeMaskedPongFrame(payload: Buffer): Buffer {
   return encodeMaskedFrame(0xa, payload)
-}
-
-export function encodeMaskedPingFrame(payload: Buffer = Buffer.alloc(0)): Buffer {
-  return encodeMaskedFrame(0x9, payload)
 }
 
 /**

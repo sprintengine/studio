@@ -118,3 +118,30 @@ test('no more than two CLIs are asked at once; the rest wait their turn', async 
   answer()
   await service.dispose()
 })
+
+test('a failed list is asked for again only after a rest, or when a refresh is asked for', async () => {
+  const cwd = folder()
+  let clock = 1_000
+  const asked: string[] = []
+  const probe = async (input: { cli: string; cwd: string }) => {
+    asked.push(input.cwd)
+    publishConversationCommands({ cli: input.cli, cwd: input.cwd, commands: [], error: 'Not signed in.' })
+    return null
+  }
+  const service = createConversationCommandsService({ probe, now: () => clock, retryMs: 60_000, coldWaitMs: 0 })
+  expect((await service.list({ cli: 'claude-code', cwd })).error).toBe('Not signed in.')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(asked).toHaveLength(1)
+  // Every open of the menu within the rest is answered with the failure.
+  clock += 30_000
+  await service.list({ cli: 'claude-code', cwd })
+  await service.list({ cli: 'claude-code', cwd })
+  expect(asked).toHaveLength(1)
+  await service.list({ cli: 'claude-code', cwd, refresh: true })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(asked).toHaveLength(2)
+  clock += 61_000
+  await service.list({ cli: 'claude-code', cwd })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(asked).toHaveLength(3)
+})

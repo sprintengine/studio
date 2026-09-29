@@ -42,7 +42,7 @@ import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
 import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask, useOpenAgentsPane } from './subagentStatus'
-import React, { useId, useState, useRef } from 'react'
+import React, { memo, useId, useMemo, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
 // words and stems, so a path or message that merely contains "author" or a
@@ -287,12 +287,13 @@ export function AssistantTurnBlock({
   )
   const foldRegionId = useId()
   const proseRef = useRef<HTMLDivElement>(null)
-  // The reply as it was written: the prose between steps and the final text,
-  // in order. Reasoning, steps and decisions are how it got there, not what it
-  // said, so they stay out.
-  const reply = [...(entry.intermediateText?.map((part) => part.text) ?? []), entry.text]
-    .filter((part) => part.trim())
-    .join('\n\n')
+  // A shut fold still draws the steps running now; the list is kept while the
+  // tools are, so the timeline under it is not redrawn for each token.
+  const folded = Boolean(fold && !workOpen)
+  const shownTools = useMemo(
+    () => (folded ? tools.filter((tool) => tool.status === 'running') : tools),
+    [folded, tools],
+  )
   return (
     <div className="pb-6">
       <MessageAuthorHeading>{chrome.assistantName}</MessageAuthorHeading>
@@ -323,10 +324,10 @@ export function AssistantTurnBlock({
       <div id={foldRegionId}>
         {tools.length > 0 ? (
           <WorkTimeline
-            tools={fold && !workOpen ? tools.filter((tool) => tool.status === 'running') : tools}
+            tools={shownTools}
             live={entry.status === 'streaming'}
-            intermediateText={fold && !workOpen ? undefined : entry.intermediateText}
-            reasoning={fold && !workOpen ? undefined : entry.reasoningSegments}
+            intermediateText={folded ? undefined : entry.intermediateText}
+            reasoning={folded ? undefined : entry.reasoningSegments}
             turnId={entry.turnId}
           />
         ) : null}
@@ -363,11 +364,11 @@ export function AssistantTurnBlock({
           {entry.durationMs !== undefined ? <span>{formatStepDuration(entry.durationMs)}</span> : null}
           <TurnMeta entry={entry} modelSwitched={modelSwitched} />
           <MessageTimestamp at={entry.startedAt} />
-          {reply ? (
+          {hasReply(entry) ? (
             <CopyGlyphButton
               size="xs"
               label="Copy reply"
-              text={reply}
+              text={() => replyText(entry)}
               // The rendered reply beside its markdown, so a paste into a rich
               // editor keeps the headings, lists and code. Only when the final
               // text is the whole reply: the prose between steps may be folded
@@ -398,6 +399,19 @@ export function AssistantTurnBlock({
       ) : null}
     </div>
   )
+}
+
+// The reply as it was written: the prose between steps and the final text,
+// in order. Reasoning, steps and decisions are how it got there, not what it
+// said, so they stay out. Built when it is copied, not on every render.
+function replyText(entry: Extract<TranscriptEntry, { kind: 'assistant' }>): string {
+  return [...(entry.intermediateText?.map((part) => part.text) ?? []), entry.text]
+    .filter((part) => part.trim())
+    .join('\n\n')
+}
+
+function hasReply(entry: Extract<TranscriptEntry, { kind: 'assistant' }>): boolean {
+  return /\S/u.test(entry.text) || Boolean(entry.intermediateText?.some((part) => /\S/u.test(part.text)))
 }
 
 // The reply's rendered HTML for the clipboard's rich flavour, read off the page
@@ -455,7 +469,10 @@ export function partitionWorkTimeline(
   return parts
 }
 
-export function WorkTimeline({
+// Memoized, as are the groups, steps, lanes and reasoning blocks under it:
+// the turn streaming now re-renders on every token, and its steps only change
+// when a step does. The projection keeps a step's identity until it changes.
+export const WorkTimeline = memo(function WorkTimeline({
   tools,
   live,
   intermediateText,
@@ -469,9 +486,13 @@ export function WorkTimeline({
   // Scopes each reasoning block's open state to its turn.
   turnId?: string
 }) {
+  const parts = useMemo(
+    () => partitionWorkTimeline(tools, intermediateText, reasoning),
+    [tools, intermediateText, reasoning],
+  )
   return (
     <div className="mb-2" aria-busy={live}>
-      {partitionWorkTimeline(tools, intermediateText, reasoning).map((part) => (
+      {parts.map((part) => (
         <React.Fragment key={part.tools[0].id}>
           {part.reasoning?.map((segment) => (
             <ReasoningBlock
@@ -491,7 +512,7 @@ export function WorkTimeline({
       ))}
     </div>
   )
-}
+})
 
 // What a collapsed group says about itself: the kind of step it is mostly made
 // of (its glyph) and how many of its steps went wrong, a lane's own steps and a
@@ -521,15 +542,29 @@ export function describeToolGroup(tools: TranscriptToolEntry[]): { kind: Convers
 // Steps are how the reply was reached, so the whole group is chrome to a copied
 // transcript; a selection made inside one step's output is still the browser's
 // to copy, as it is.
-function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
+// A part's steps are a new list whenever its turn's entry is, so the group
+// compares them by the steps themselves.
+function sameSteps(previous: { tools: TranscriptToolEntry[] }, next: { tools: TranscriptToolEntry[] }): boolean {
+  return (
+    previous.tools === next.tools ||
+    (previous.tools.length === next.tools.length && previous.tools.every((tool, index) => tool === next.tools[index]))
+  )
+}
+
+const WorkTimelineGroup = memo(function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
   const context = useConversationLinkContext()
-  const settled = tools.filter((tool) => tool.status !== 'running')
-  const running = tools.filter((tool) => tool.status === 'running')
+  const { settled, running, kind, failed, summary } = useMemo(() => {
+    const settled = tools.filter((tool) => tool.status !== 'running')
+    return {
+      settled,
+      running: tools.filter((tool) => tool.status === 'running'),
+      ...describeToolGroup(settled),
+      summary: summarizeToolGroup(settled.map(toolPresentationInput)),
+    }
+  }, [tools])
   const key = `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`
   const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, false)
   const step = (tool: TranscriptToolEntry) => <WorkTimelineStep key={tool.id} tool={tool} />
-  const { kind, failed } = describeToolGroup(settled)
-  const summary = summarizeToolGroup(settled.map(toolPresentationInput))
   const railId = useId()
   return (
     <div data-copy-exclude="">
@@ -567,10 +602,10 @@ function WorkTimelineGroup({ tools }: { tools: TranscriptToolEntry[] }) {
       {running.map(step)}
     </div>
   )
-}
-export function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
+}, sameSteps)
+export const WorkTimelineStep = memo(function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
   return tool.subagentLane ? <SubagentLane tool={tool} /> : <ToolRow tool={tool} />
-}
+})
 
 // A background agent the model spawned: a lane header that stays live for the
 // agent's real duration, over its own rail of the steps that ran inside it.
@@ -579,7 +614,7 @@ export function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
 // never flattened into one anonymous "Task" row.
 export const MAX_VISIBLE_LANE_STEPS = 6
 
-export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
+export const SubagentLane = memo(function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
   const laneRef = useRef<HTMLDivElement>(null)
   useLiveRowMotion(laneRef, running)
@@ -717,7 +752,7 @@ export function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
       <SubagentLaneResult tool={tool} />
     </div>
   )
-}
+})
 
 // A failed turn is a first-class transcript block: what happened in human
 // words, the fix as a real action, raw provider detail folded away. Error tone
@@ -959,7 +994,13 @@ export function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineR
   const openAgents = useOpenAgentsPane()
   return (
     <div ref={ref} className="flex items-baseline gap-2 pb-2 pl-0.5 text-meta text-[color:var(--text-muted)]">
-      <span className="chat-shimmer font-medium">{row.label}</span>
+      <span className="chat-shimmer font-medium">
+        {row.label}
+        {/* The shimmer's bright band: a masked copy of the label (index.css). */}
+        <span className="chat-shimmer__glint" aria-hidden="true">
+          <span className="chat-shimmer__band" data-text={row.label} />
+        </span>
+      </span>
       {row.startedAt !== undefined ? <LiveElapsed startedAt={row.startedAt} /> : null}
       {row.agents && openAgents ? (
         <LinkButton ink="quiet" onClick={() => openAgents(null)}>

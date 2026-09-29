@@ -22,6 +22,20 @@ import {
   conversationCloseRetryAfterMs,
 } from '../../../../packages/conversation-protocol/src'
 
+// Counts the snapshot events the stream redacts, and otherwise is the real one.
+const redaction = vi.hoisted(() => ({ events: 0 }))
+vi.mock('../../conversation-tool-details', async (original) => {
+  const actual = await original<typeof import('../../conversation-tool-details')>()
+  return {
+    ...actual,
+    redactConversationValue: <T>(value: T): T => {
+      const events = (value as { page?: { events?: unknown[] } } | null)?.page?.events
+      if (Array.isArray(events)) redaction.events += events.length
+      return actual.redactConversationValue(value)
+    },
+  }
+})
+
 class Socket extends Duplex {
   // Every write in the order the stream made it: what the peer would read.
   frames: Buffer[] = []
@@ -308,6 +322,33 @@ test('a large snapshot streams in parts while live events keep arriving, without
       .join(''),
     Array.from({ length: 2_000 }, (_, index) => `${index},`).join(''),
   )
+  stream.close(1000, '')
+})
+
+test('a large snapshot is redacted a part at a time as it is written, not all at once on join', async () => {
+  const { socket, stream, emit } = await joinedSocket()
+  // A reader that has not taken anything yet: the first part is written and
+  // waits there.
+  socket.stalled = true
+  const events = Array.from({ length: 200 }, (_, index) =>
+    wireEvent(index + 1, 'tool_output', {
+      toolUseId: `t${index}`,
+      preview: `${homedir()}/project/file-${index} ${'x'.repeat(20_000)}`,
+    }),
+  )
+  const before = redaction.events
+  emit({ type: 'snapshot', page: { events, hasMore: false, beforeCursor: 1 }, generation: 'g' })
+  emit({ type: 'synchronized', seq: 200, generation: 'g' })
+  await tick()
+  const partsOut = assemble(socket.output()).filter((frame) => frame.type === 'snapshot')
+  assert.equal(partsOut.length, 1, 'one part is on the wire')
+  const total = partsOut[0].part?.total ?? 1
+  assert.ok(total > 3, `the snapshot is several parts (${total})`)
+  // Only the part being written has been redacted, not the whole snapshot.
+  const redacted = redaction.events - before
+  assert.ok(redacted < events.length / 2, `redacted ${redacted} of ${events.length} events up front`)
+  const written = JSON.stringify(socket.output())
+  assert.equal(written.includes(homedir()), false, 'what is written is redacted')
   stream.close(1000, '')
 })
 

@@ -353,24 +353,43 @@ export function Popover({
   // `invisible` and aria-hidden), switching tab, a door painting over it inert —
   // hid the anchor and left the menu floating over whatever came next, still
   // answering clicks for a view nobody could see. Watched only while open.
+  //
+  // Only the trigger and its ancestors are watched, each on its own
+  // attributes: whatever hides the trigger is an attribute on that chain.
+  // Watching the whole of <body> meant every class or style write anywhere
+  // (a streaming transcript, a terminal's helper textarea) forced a style and
+  // layout check on the next frame while any menu was open. An intersection
+  // observer on the trigger adds the cases no attribute on the chain names,
+  // such as a stylesheet taking it out of layout.
   useEffect(() => {
-    if (!open || typeof MutationObserver === 'undefined') return
+    if (!open) return
+    const anchor = triggerRef.current ?? containerRef.current
+    if (!anchor) return
     let frame: number | null = null
     const check = () => {
       frame = null
-      const anchor = triggerRef.current ?? containerRef.current
-      if (anchor && anchorHidden(anchor)) onOpenChange(false)
+      if (anchorHidden(anchor)) onOpenChange(false)
     }
-    const observer = new MutationObserver(() => {
+    const schedule = () => {
       if (frame === null) frame = requestAnimationFrame(check)
-    })
-    observer.observe(document.body, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'],
-    })
+    }
+    const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
+    for (let node: Element | null = anchor; node && mutations; node = node.parentElement) {
+      mutations.observe(node, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'],
+      })
+    }
+    const intersections =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            if (entries.some((entry) => !entry.isIntersecting)) schedule()
+          })
+    intersections?.observe(anchor)
     return () => {
-      observer.disconnect()
+      mutations?.disconnect()
+      intersections?.disconnect()
       if (frame !== null) cancelAnimationFrame(frame)
     }
   }, [open, onOpenChange])

@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 
 import type { WorkspaceId } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { EmptyState, GhostButton, OutlineButton } from '../ui'
 import { SettingCard, SettingsPageHeader } from './SettingsAtoms'
-import { listSettledChats } from './settledChatsModel'
+import { createSettledChatsSelector, type SettledChatEntry } from './settledChatsModel'
+import { useStableCallback } from '../../hooks/useStableCallback'
+
+const SETTLED_PAGE = 100
 
 /**
  * Settings ▸ Settled chats (owner, 2026-09-28): where a chat goes once it has
@@ -24,14 +27,22 @@ export function SettledChatsSettingsTab({
   /** Leave Settings for this chat. */
   onOpenChat: (id: WorkspaceId) => void
 }): React.JSX.Element {
-  const workspaces = useWorkspaceStore((s) => s.workspaces)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
   // One clock for the visit: "settled 3d ago" does not need to tick while the
   // page is open, and a timer here would re-render the list for nothing.
   const [now] = useState(() => Date.now())
-
-  const chats = useMemo(() => listSettledChats(workspaces, moduleOverrides), [workspaces, moduleOverrides])
+  // The settled chats alone, not the whole registry: the list is the same
+  // array until one of them moves, so a background agent's write elsewhere
+  // re-renders nothing here.
+  const [selectSettledChats] = useState(createSettledChatsSelector)
+  const chats = useWorkspaceStore((s) => selectSettledChats(s.workspaces, moduleOverrides))
+  // Hundreds of chats settle on a long-lived profile; the page draws the most
+  // recent and folds the rest.
+  const [shown, setShown] = useState(SETTLED_PAGE)
+  const unsettle = useCallback((id: WorkspaceId) => setWorkspaceSettled(id, false), [setWorkspaceSettled])
+  const open = useStableCallback(onOpenChat)
+  const remaining = chats.length - shown
 
   return (
     <div role="tabpanel" id="settings-panel-settled-chats" aria-labelledby="settings-tab-settled-chats">
@@ -44,35 +55,54 @@ export function SettledChatsSettingsTab({
         />
       ) : (
         <SettingCard as="ul" ariaLabel="Settled chats">
-          {chats.map((chat) => (
-            <li key={chat.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-body font-medium text-[color:var(--text-strong)]" title={chat.title}>
-                  {chat.title}
-                </div>
-                <div className="truncate text-meta text-[color:var(--text-subtle)]">
-                  {chat.project} · Settled {formatRelativeMsAgo(chat.settledAt, now)}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {/* The visible word leads the accessible name, and the chat
-                    follows it, so a list of these is not a list of identical
-                    buttons. */}
-                <GhostButton
-                  size="xs"
-                  aria-label={`Un-settle ${chat.title}`}
-                  onClick={() => setWorkspaceSettled(chat.id, false)}
-                >
-                  Un-settle
-                </GhostButton>
-                <OutlineButton size="xs" aria-label={`Open ${chat.title}`} onClick={() => onOpenChat(chat.id)}>
-                  Open
-                </OutlineButton>
-              </div>
-            </li>
+          {chats.slice(0, shown).map((chat) => (
+            <SettledChatRow key={chat.id} chat={chat} now={now} onUnsettle={unsettle} onOpen={open} />
           ))}
         </SettingCard>
       )}
+      {remaining > 0 ? (
+        <div className="mt-2 flex justify-center">
+          <GhostButton size="xs" onClick={() => setShown((count) => count + SETTLED_PAGE)}>
+            Show {Math.min(SETTLED_PAGE, remaining)} more
+          </GhostButton>
+        </div>
+      ) : null}
     </div>
   )
 }
+
+const SettledChatRow = React.memo(function SettledChatRow({
+  chat,
+  now,
+  onUnsettle,
+  onOpen,
+}: {
+  chat: SettledChatEntry
+  now: number
+  onUnsettle: (id: WorkspaceId) => void
+  onOpen: (id: WorkspaceId) => void
+}) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-body font-medium text-[color:var(--text-strong)]" title={chat.title}>
+          {chat.title}
+        </div>
+        <div className="truncate text-meta text-[color:var(--text-subtle)]">
+          {chat.project} · Settled {formatRelativeMsAgo(chat.settledAt, now)}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {/* The visible word leads the accessible name, and the chat
+            follows it, so a list of these is not a list of identical
+            buttons. */}
+        <GhostButton size="xs" aria-label={`Un-settle ${chat.title}`} onClick={() => onUnsettle(chat.id)}>
+          Un-settle
+        </GhostButton>
+        <OutlineButton size="xs" aria-label={`Open ${chat.title}`} onClick={() => onOpen(chat.id)}>
+          Open
+        </OutlineButton>
+      </div>
+    </li>
+  )
+})
