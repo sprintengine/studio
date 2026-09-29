@@ -488,7 +488,8 @@ function runningTurnSend() {
 
 test('a queued message floats over the transcript instead of taking a band of its own', async () => {
   const turn = runningTurnSend()
-  const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })
+  // An agent that cannot take a message mid-turn: what is sent while it works waits.
+  const chat = await mountChat({ sendTurn: turn.sendTurn })
   try {
     await chat.act(async () => chat.type('Investigate the flaky test'))
     await chat.act(async () => chat.enter())
@@ -513,15 +514,14 @@ test('a queued message floats over the transcript instead of taking a band of it
       expect(part.className).toContain('pointer-events-auto')
       expect(part.className).toContain('bg-[color:var(--bg-surface)]')
     }
-    await chat.act(async () => chat.button('Send now')!.click())
-    expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
+    expect(turn.sendTurn).toHaveBeenCalledOnce()
   } finally {
     turn.release()
     await chat.unmount()
   }
 })
 
-test('a message queued behind a running turn is handed to it with Send now', async () => {
+test('a message sent while the turn runs goes straight into it, not the queue', async () => {
   const turn = runningTurnSend()
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })
   try {
@@ -534,10 +534,6 @@ test('a message queued behind a running turn is handed to it with Send now', asy
     })
     await chat.act(async () => chat.type('Use the staging config'))
     await chat.act(async () => chat.enter())
-    expect(turn.sendTurn, 'a message committed mid-turn waits').toHaveBeenCalledOnce()
-    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
-
-    await chat.act(async () => chat.button('Send now')!.click())
     expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
     expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
     // The steered message is a bubble in the transcript straight away.
@@ -582,9 +578,9 @@ test('⌘↵ mid-turn sends the draft now; a provider without steering stops the
   }
 })
 
-// Starts a turn and queues a second message behind it, the way the steer
+// Starts a turn and sends a second message while it runs, the way the steer
 // cases below all begin.
-async function queueBehindRunningTurn(chat: Awaited<ReturnType<typeof mountChat>>, calls: Record<string, unknown>[]) {
+async function sendBehindRunningTurn(chat: Awaited<ReturnType<typeof mountChat>>, calls: Record<string, unknown>[]) {
   await chat.act(async () => chat.type('Investigate the flaky test'))
   await chat.act(async () => chat.enter())
   await chat.act(async () => {
@@ -611,8 +607,7 @@ test('a steer that fails after its message landed reports the failure and is not
   })
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
   try {
-    await queueBehindRunningTurn(chat, calls)
-    await chat.act(async () => chat.button('Send now')!.click())
+    await sendBehindRunningTurn(chat, calls)
     expect(calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
     await chat.act(async () => {
       chat.emit({
@@ -637,6 +632,39 @@ test('a steer that fails after its message landed reports the failure and is not
   }
 })
 
+test('a message sent while the last one is still going in queues, and follows it in once it lands', async () => {
+  const calls: Array<Record<string, unknown>> = []
+  const sendTurn = vi.fn<SendTurn>(async (input) => {
+    calls.push(input as Record<string, unknown>)
+    await new Promise<void>(() => undefined)
+    return { ok: true }
+  })
+  const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
+  try {
+    await sendBehindRunningTurn(chat, calls)
+    expect(calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
+    await chat.act(async () => chat.type('And the prod one'))
+    await chat.act(async () => chat.enter())
+    expect(sendTurn).toHaveBeenCalledTimes(2)
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('And the prod one')
+    await chat.act(async () => {
+      chat.emit({
+        type: 'event',
+        event: event('user_message', {
+          turnId: 't2',
+          text: 'Use the staging config',
+          localTurnId: calls[1].localTurnId,
+        }),
+      })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 't2' }) })
+    })
+    expect(calls[2]).toMatchObject({ message: 'And the prod one', steer: true })
+    expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('a steer refused before its message landed goes back to the queue', async () => {
   const turn = runningTurnSend()
   const sendTurn = vi.fn<SendTurn>(async (input) =>
@@ -646,10 +674,10 @@ test('a steer refused before its message landed goes back to the queue', async (
   )
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
   try {
-    await queueBehindRunningTurn(chat, turn.calls)
-    await chat.act(async () => chat.button('Send now')!.click())
+    await sendBehindRunningTurn(chat, turn.calls)
     expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
     expect(chat.host.textContent).toContain('This agent cannot take a message while it is working.')
+    expect(sendTurn, 'a refused steer is not handed straight back').toHaveBeenCalledTimes(2)
   } finally {
     turn.release()
     await chat.unmount()
@@ -662,7 +690,7 @@ test('Stop and send keeps the queued message until the stopped send settles, the
   const chat = await mountChat({ sendTurn: turn.sendTurn })
   ;(chat.dom.window as unknown as { api: Record<string, unknown> }).api.conversationSessionInterrupt = interrupt
   try {
-    await queueBehindRunningTurn(chat, turn.calls)
+    await sendBehindRunningTurn(chat, turn.calls)
     await chat.act(async () => chat.button('Stop and send')!.click())
     expect(interrupt).toHaveBeenCalledOnce()
     // The turn ends on screen before the send that started it has settled.

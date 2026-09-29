@@ -542,6 +542,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Steers whose `user_message` is in the conversation while their send has
   // not settled yet.
   const landedSteerIdsRef = useRef(new Set<string>())
+  // A steer the runtime refused this turn: what is queued then waits for the
+  // turn to end instead of being handed over again.
+  const steerRefusedRef = useRef(false)
   // The composer's right-click menu (1793); null when closed. Opening it snapshots
   // the click point, the field's selection, and the clipboard, so the menu's
   // enable states describe the moment the user asked for it.
@@ -1172,11 +1175,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Set further down, once the model picker and effort control it drives are
   // known; answers whether it handled the message.
   const runAppCommandRef = useRef<(text: string, attachments: number) => boolean>(() => false)
+  // Set further down, once what "send it now" can do is known; answers whether
+  // the message went into the running turn.
+  const steerOnSendRef = useRef<(turn: QueuedTurn) => boolean>(() => false)
   // Composer submit (Enter or the send affordance). Sends immediately when the
-  // session is idle; queues the message when a turn is streaming or awaiting
-  // approval, so the user gets terminal-style type-ahead without the send
-  // erroring against the runtime's turn guard (D6/1776). The flush effect below
-  // sends the queued message the moment the session unlocks.
+  // session is idle. While a turn runs, an agent that takes messages mid-turn
+  // gets it at once (a steer); otherwise, or while it cannot take one yet (a
+  // card is open, a steer is still landing), the message queues, so the user
+  // gets terminal-style type-ahead without the send erroring against the
+  // runtime's turn guard (D6/1776). The flush effect below sends the queued
+  // message the moment the session unlocks.
   const submitComposer = useCallback(() => {
     const text = draft.trim()
     if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
@@ -1184,12 +1192,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     // here whatever the turn is doing: it never reaches the CLI or the queue.
     if (runAppCommandRef.current(text, attachments.length)) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
-      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
-      setQueuedTurn(turn)
-      clearDraft()
-      setAttachments([])
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
+      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+      setQueuedTurn(steerOnSendRef.current(turn) ? null : turn)
+      clearDraft()
+      setAttachments([])
       setActionError(queuedDropNotice(dropped))
       return
     }
@@ -1437,11 +1445,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // is optimistic as any send's is, and lands where the runtime delivered it.
   // A refused steer goes back to the head of the queue, so it still goes when
   // the turn ends rather than being lost.
-  const putBackQueued = (turn: QueuedTurn) =>
+  const putBackQueued = (turn: QueuedTurn) => {
+    // It waits for the turn to end from here on; handing it straight back
+    // would only be refused again.
+    steerRefusedRef.current = true
     setQueuedTurn((current) => {
       if (!current) return turn
       return queueComposerDraft(turn, current.text, current.attachments, current.metadata).turn
     })
+  }
   const steerTurn = async (turn: QueuedTurn) => {
     // The queue was emptied to hand this message over; with no session to
     // take it, it goes back rather than vanishing.
@@ -1522,6 +1534,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     stopping: pending === 'stopping',
     steering: steeringTurnId !== null,
   })
+  steerOnSendRef.current = (turn) => {
+    if (queuedSendNow.kind !== 'steer' || queuedSendNow.disabled || !operate) return false
+    void steerTurn(turn)
+    return true
+  }
+  // A message that queued only because the agent could not take it just then
+  // (a card was open, the last steer was still landing) goes in as soon as it
+  // can, as one sent at that moment would have.
+  useEffect(() => {
+    if (!projection.activeTurn) steerRefusedRef.current = false
+  }, [projection.activeTurn])
+  useEffect(() => {
+    if (queuedTurn === null || steerRefusedRef.current) return
+    if (steerOnSendRef.current(queuedTurn)) setQueuedTurn(null)
+  }, [queuedTurn, queuedSendNow.kind, queuedSendNow.disabled])
   const sendQueuedNow = (turn: QueuedTurn) => {
     if (queuedSendNow.disabled || !operate) {
       setQueuedTurn(turn)
@@ -1966,7 +1993,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     : !ready
       ? readinessLabel(readiness)
       : projection.activeTurn
-        ? 'Reply — sends when the turn finishes'
+        ? canSteer
+          ? 'Reply — the agent takes it as it works'
+          : 'Reply — sends when the turn finishes'
         : 'Send a message…'
 
   // Retry lives on the failed turn's error block in the transcript; only the

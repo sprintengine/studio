@@ -153,17 +153,26 @@ type RuntimeSession = ConversationSessionSummary & {
 }
 
 /**
- * One send's provider stream. Its events carry `streamTurnId`, the turn it was
- * sent as, and count toward `turnId`: the same turn until a steer ends it
- * where the steered message lands and opens the next, after which the stream's
+ * One provider stream: a send's, or a continuation the agent carried on with
+ * by itself. Its events carry `streamTurnId`, the turn it was sent (or opened)
+ * as, and count toward `turnId`: the same turn until a steer ends it where the
+ * steered message lands and opens the next, after which the stream's
  * remaining events are that turn's. `finished` once the stream's own end has
- * been written; `ended` settles with the send's result when the stream closes.
+ * been written; `ended` settles, through `settle`, when the stream closes.
  */
 type ProviderTurn = {
   streamTurnId: string
   turnId: string
   finished: boolean
+  continuation: boolean
   ended: Promise<ConversationSessionActionResult>
+  settle: (result: ConversationSessionActionResult) => void
+}
+
+function openProviderTurn(turnId: string, continuation: boolean): ProviderTurn {
+  let settle: (result: ConversationSessionActionResult) => void = () => undefined
+  const ended = new Promise<ConversationSessionActionResult>((resolve) => (settle = resolve))
+  return { streamTurnId: turnId, turnId, finished: false, continuation, ended, settle }
 }
 
 type ConversationRuntimeOptions = {
@@ -603,13 +612,7 @@ export class ConversationRuntime {
     session.checkpointTurnSeq = null
     session.checkpointCapture = null
     session.checkpointCaptured = false
-    let settleProviderTurn: (result: ConversationSessionActionResult) => void = () => undefined
-    const providerTurn: ProviderTurn = {
-      streamTurnId: turnId,
-      turnId,
-      finished: false,
-      ended: new Promise((resolve) => (settleProviderTurn = resolve)),
-    }
+    const providerTurn = openProviderTurn(turnId, false)
     const result = await (async (): Promise<ConversationSessionActionResult> => {
       // Persist the user's side of the exchange so the JSONL transcript replays
       // as a complete conversation after a restart.
@@ -695,7 +698,7 @@ export class ConversationRuntime {
       }
     })()
     if (session.providerTurn === providerTurn) session.providerTurn = null
-    settleProviderTurn(result)
+    providerTurn.settle(result)
     return result
   }
 
@@ -802,6 +805,7 @@ export class ConversationRuntime {
   private async failTurn(session: RuntimeSession, error: unknown): Promise<ConversationSessionActionResult> {
     const turnId = session.activeTurnId
     session.activeTurnAbort?.abort()
+    this.closeContinuation(session)
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
@@ -1304,6 +1308,16 @@ export class ConversationRuntime {
     if (!turnId) return
     session.canceledTurnIds.add(turnId)
     session.activeTurnAbort?.abort()
+    // A send's stream settles when the send returns; a continuation's has no
+    // send to return, and its adapter may end it without another event.
+    this.closeContinuation(session)
+  }
+
+  private closeContinuation(session: RuntimeSession): void {
+    const running = session.providerTurn
+    if (!running?.continuation) return
+    session.providerTurn = null
+    running.settle({ ok: true, session: this.toSummary(session) })
   }
 
   private async emitAll(
@@ -1688,7 +1702,11 @@ export class ConversationRuntime {
 
   private async processContinuationEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
     if (session.status === 'stopped') return
-    const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    const streamTurnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    // A steer may have moved the continuation on to a later turn; its events
+    // are that turn's (emitNow restamps them).
+    const continuing = streamTurnId && session.providerTurn?.streamTurnId === streamTurnId ? session.providerTurn : null
+    const turnId = continuing ? continuing.turnId : streamTurnId
     if (turnId && session.canceledTurnIds.has(turnId)) return
     // First sight of a continuation turn: open a mirror in session state so its
     // events survive suppression and its approvals track through the normal
@@ -1710,13 +1728,16 @@ export class ConversationRuntime {
       session.checkpointCapture = null
       session.checkpointCaptured = false
       session.updatedAt = this.now()
+      // From here a steer can join it, as it joins a send's turn.
+      session.providerTurn = openProviderTurn(turnId, true)
     }
-    await this.emit(session, event, turnId ? { turnId } : {})
-    if (
-      turnId &&
-      session.activeTurnId === turnId &&
-      (event.type === 'turn_completed' || event.type === 'turn_failed')
-    ) {
+    await this.emit(session, event, streamTurnId ? { turnId: streamTurnId } : {})
+    // Looked up again: a steer can have landed while the event waited its turn to be written.
+    const stream = streamTurnId && session.providerTurn?.streamTurnId === streamTurnId ? session.providerTurn : null
+    const ownTurnId = stream ? stream.turnId : streamTurnId
+    const ends = event.type === 'turn_completed' || event.type === 'turn_failed'
+    if (ends && stream) this.closeContinuation(session)
+    if (ownTurnId && session.activeTurnId === ownTurnId && ends) {
       session.activeTurnId = null
       session.activeTurnAbort = null
       session.turnLockRequestId = null
