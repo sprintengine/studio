@@ -203,7 +203,7 @@ export async function loadThirdPartyRendererEntries(
         continue
       }
       if (entry.assetOrigin) kernel.setModuleAssetOrigin(entry.id, entry.assetOrigin)
-      registerRenderer(kernel.hostFor(entry.id))
+      registerRenderer(kernel.hostFor(entry.id, entry.manifest))
       loadStates.set(entry.id, { status: 'loaded' })
       loadedManifests.push(entry.manifest)
     } catch (error) {

@@ -11,6 +11,7 @@ import {
 } from '../../shared/modules/notifications'
 import type { LaunchContribution } from '../../shared/modules/launch-contributions'
 import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../../shared/modules/skills'
+import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../shared/modules/host-api'
 import {
   addLaunchContribution,
   removeLaunchContributionsForModule,
@@ -135,6 +136,10 @@ const defaultSkillRegistry: ModuleSkillHostRegistry = {
 export type MainHost = {
   /** The module currently registering. Useful for diagnostics and ownership. */
   readonly moduleId: string
+  /** The host API this app provides; see shared/modules/host-api.ts. */
+  readonly hostApiVersion: number
+  /** Whether this host provides `capability` now; false for names it does not know. */
+  supports(capability: HostCapability): boolean
   /**
    * Raw ipcMain, for first-party (trusted, in-process) modules that reuse
    * existing `registerXIpc(ipcMain)` functions. Prefer `registerIpc` for new
@@ -558,6 +563,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   function hostFor(moduleId: string): MainHost {
     return {
       moduleId,
+      hostApiVersion: HOST_API_VERSION,
+      supports: hostSupports,
       ipcMain,
       registerIpc(channel, handler) {
         const existing = channels.get(channel)

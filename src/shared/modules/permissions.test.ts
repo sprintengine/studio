@@ -97,6 +97,29 @@ test('permissions', async () => {
     }
   }
 
+  function testExtensionPlatformScopesAreKnownAndDescribed(): void {
+    const scopes = ['conversation:read', 'conversation:operate', 'secrets', 'github', 'mcp:tools']
+    for (const scope of scopes) {
+      assert.equal(isKnownCapabilityPermission(scope), true, `${scope} is a known scope`)
+      assert.equal(isBroadCapabilityPermission(scope), false, `${scope} is not flagged broad`)
+      assert.doesNotMatch(
+        describeCapabilityPermission(scope),
+        /Unrecognized/,
+        `${scope} has a real consent description`,
+      )
+    }
+    assert.match(
+      describeCapabilityPermission('github'),
+      /never shown/,
+      'the GitHub copy says the token stays with the app',
+    )
+    assert.match(
+      describeCapabilityPermission('secrets'),
+      /never shown/,
+      'the secrets copy says the key stays with the app',
+    )
+  }
+
   testValidAndDedup()
   testUndefinedIsEmpty()
   testUnknownAllowedButFlagged()
@@ -107,5 +130,6 @@ test('permissions', async () => {
   testBacklogScopesAreKnownAndDisclosureOnly()
   testLegacyBroadScopeRetainedAndFlagged()
   testDescriptionsNeverImplyEnforcement()
+  testExtensionPlatformScopesAreKnownAndDescribed()
   console.log('permissions tests passed')
 })

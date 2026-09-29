@@ -82,6 +82,21 @@ export type CapabilityPermission =
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace sidecar `modules/<id>/` or per-user app data).
   | 'storage'
+  // Read the conversations the module started through the SDK's scoped
+  // conversation service: their live events, transcripts and list.
+  | 'conversation:read'
+  // Start, prompt, interrupt and stop the module's own conversations, and open
+  // a chat in the renderer (`RendererHost.openChat`). Implies read.
+  | 'conversation:operate'
+  // Store secrets the host sends only to origins the module named with them,
+  // never handing the value back to module code.
+  | 'secrets'
+  // Call the GitHub API with the user's sign-in; the host attaches the token
+  // and never hands it over.
+  | 'github'
+  // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`),
+  // which agents in any workspace can then call.
+  | 'mcp:tools'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -104,6 +119,11 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'agents:companion',
   'agents:session',
   'storage',
+  'conversation:read',
+  'conversation:operate',
+  'secrets',
+  'github',
+  'mcp:tools',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -127,6 +147,11 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'agents:companion': 'Run its own background agents inside the workspace',
   'agents:session': 'Launch, prompt and stop its own agent terminals',
   storage: 'Save its own data in the workspace folder and app data',
+  'conversation:read': 'Read the chats it started, including everything the agent says in them',
+  'conversation:operate': 'Start chats with agents, send them messages, and stop them',
+  secrets: 'Store API keys and send them to the sites it names (the key is never shown back to the extension)',
+  github: 'Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension)',
+  'mcp:tools': 'Add tools that agents in your workspaces can call',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {

@@ -319,6 +319,20 @@ import type * as appSdkSurface from '../../../src/renderer/src/modules/sdk-surfa
 // against the emitted declarations below instead of against a namespace.
 import type * as sdkUi from '../src/ui'
 import type * as sdkSurface from '../src/surface'
+// Host API version, conversations and brokered credentials: the SDK side is
+// read off the public index, the app side off its shared twins.
+import type * as sdk from '../src/index'
+import {
+  HOST_API_MIN_SUPPORTED as SDK_HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION as SDK_HOST_API_VERSION,
+} from '../src/index'
+import type * as appHostApi from '../../../src/shared/modules/host-api'
+import {
+  HOST_API_MIN_SUPPORTED as APP_HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION as APP_HOST_API_VERSION,
+} from '../../../src/shared/modules/host-api'
+import type * as appConversation from '../../../src/shared/modules/conversation-service'
+import type * as appBrokers from '../../../src/shared/modules/brokers'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -572,6 +586,56 @@ expectType<IsExact<AppModuleEventEnvelope, SdkModuleEventEnvelope>>()
 expectType<IsExact<AppMainHost['emit'], SdkMainHost['emit']>>()
 expectType<IsExact<AppRendererHost['subscribe'], SdkRendererHost['subscribe']>>()
 
+// ── Host API version, conversations, brokered credentials ──────────────────
+// Every shape exact. The event, status and attachment types are the app's own
+// conversation-runtime types on the app side, so these pin the SDK's hand
+// restatement to what the chat runtime actually emits.
+expectType<IsExact<appHostApi.HostCapability, sdk.HostCapability>>()
+expectType<IsExact<appHostApi.HostApiCompatibility, sdk.HostApiCompatibility>>()
+expectType<IsExact<AppMainHost['hostApiVersion'], SdkMainHost['hostApiVersion']>>()
+expectType<IsExact<AppMainHost['supports'], SdkMainHost['supports']>>()
+expectType<IsExact<AppRendererHost['hostApiVersion'], SdkRendererHost['hostApiVersion']>>()
+expectType<IsExact<AppRendererHost['supports'], SdkRendererHost['supports']>>()
+expectType<IsExact<AppRendererHost['openChat'], SdkRendererHost['openChat']>>()
+expectType<IsExact<AppRendererHost['listChatRuntimes'], SdkRendererHost['listChatRuntimes']>>()
+
+expectType<IsExact<appConversation.ModuleConversationEventType, sdk.ModuleConversationEventType>>()
+expectType<IsExact<appConversation.ModuleConversationEvent, sdk.ModuleConversationEvent>>()
+expectType<IsExact<appConversation.ModuleConversationStatus, sdk.ModuleConversationStatus>>()
+expectType<IsExact<appConversation.ModuleConversationRef, sdk.ModuleConversationRef>>()
+expectType<IsExact<appConversation.ModuleConversationSummary, sdk.ModuleConversationSummary>>()
+expectType<IsExact<appConversation.ModuleConversationImageAttachment, sdk.ModuleConversationImageAttachment>>()
+expectType<IsExact<appConversation.ModuleConversationPermissionPreset, sdk.ModuleConversationPermissionPreset>>()
+expectType<IsExact<appConversation.ModuleConversationErrorCode, sdk.ModuleConversationErrorCode>>()
+expectType<IsExact<appConversation.ModuleConversationCreateInput, sdk.ModuleConversationCreateInput>>()
+expectType<
+  IsExact<
+    appConversation.ModuleConversationResult<{ events: appConversation.ModuleConversationEvent[] }>,
+    sdk.ModuleConversationResult<{ events: sdk.ModuleConversationEvent[] }>
+  >
+>()
+expectType<IsExact<appConversation.ModuleConversationService, sdk.ModuleConversationService>>()
+expectType<IsExact<appConversation.ModuleOpenChatInput, sdk.ModuleOpenChatInput>>()
+expectType<IsExact<appConversation.ModuleOpenChatResult, sdk.ModuleOpenChatResult>>()
+expectType<IsExact<appConversation.ModuleChatRuntimeOption, sdk.ModuleChatRuntimeOption>>()
+
+expectType<IsExact<appBrokers.ModuleSecretsError, sdk.ModuleSecretsError>>()
+expectType<IsExact<appBrokers.ModuleSecretFetchInit, sdk.ModuleSecretFetchInit>>()
+expectType<IsExact<appBrokers.ModuleSecretFetchResult, sdk.ModuleSecretFetchResult>>()
+expectType<IsExact<appBrokers.ModuleSecretsService, sdk.ModuleSecretsService>>()
+expectType<IsExact<appBrokers.ModuleGitHubRequest, sdk.ModuleGitHubRequest>>()
+expectType<IsExact<appBrokers.ModuleGitHubResponse, sdk.ModuleGitHubResponse>>()
+expectType<IsExact<appBrokers.ModuleGitHubService, sdk.ModuleGitHubService>>()
+
+// The moduleId-first registries the app provides must accept exactly what the
+// SDK helpers forward (the same derivation the storage registry is pinned by).
+type SdkExpectedRegistry<S> = {
+  [K in keyof S]: S[K] extends (...args: infer A) => infer R ? (moduleId: string, ...args: A) => R : never
+}
+expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegistry<sdk.ModuleConversationService>>>()
+expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
+expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
+
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.
 expectType<Extends<AppBacklogItemActionContext, SdkBacklogItemActionContext>>()
@@ -595,6 +659,12 @@ assert.deepEqual(
   'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app',
 )
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'SPRINTENGINE_FILE_DROP_MIME drifted between SDK and app')
+assert.equal(SDK_HOST_API_VERSION, APP_HOST_API_VERSION, 'HOST_API_VERSION drifted between SDK and app')
+assert.equal(
+  SDK_HOST_API_MIN_SUPPORTED,
+  APP_HOST_API_MIN_SUPPORTED,
+  'HOST_API_MIN_SUPPORTED drifted between SDK and app',
+)
 
 // Service-token keys the SDK mirrors as private literals: pin the app side to
 // the documented strings so an accidental key edit fails here instead of
@@ -638,6 +708,17 @@ assert.equal(
   false,
   'SDK public surface must not expose the raw storage registry token',
 )
+// The conversation and broker helpers keep their moduleId-first registries and
+// tokens private the same way; their declarations ship as separate files.
+for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts']) {
+  const declarations = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8')
+  assert.equal((declarations.match(/\bany\b/g) ?? []).length, 0, `SDK ${file} must not contain \`any\``)
+  assert.equal(
+    /Registry\b|ServiceToken\b/.test(declarations),
+    false,
+    `SDK ${file} must not expose a raw moduleId-first registry or its token`,
+  )
+}
 
 // ── Bridged UI kit and door shell (D6) ───────────────────────────────────────
 //

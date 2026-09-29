@@ -23,6 +23,13 @@ import type {
   ModuleSpawnAgentResult,
 } from './agent-spawn'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
+import { HOST_API_VERSION, hostSupports, type HostCapability } from '../../../shared/modules/host-api'
+import type {
+  ModuleChatRuntimeOption,
+  ModuleOpenChatInput,
+  ModuleOpenChatResult,
+} from '../../../shared/modules/conversation-service'
+import { getWorkspaceChatOpener } from './chat-opener'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -782,6 +789,10 @@ export type ModuleAppStateStore = {
 export type ModuleEventSource = (cb: (envelope: ModuleEventEnvelope) => void) => () => void
 
 export type RendererHost = {
+  /** The host API this app provides; see shared/modules/host-api.ts. */
+  readonly hostApiVersion: number
+  /** Whether this host provides `capability` now; false for names it does not know. */
+  supports(capability: HostCapability): boolean
   /** Stable URL for a file packaged inside this trusted module. Relative HTML assets and workers retain this module origin. */
   getAssetUrl(relativePath: string): string
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
@@ -1024,6 +1035,14 @@ export type RendererHost = {
    * Throws with a named cause when agent runtime is unavailable.
    */
   listAgentRuntimes(): ModuleAgentRuntimeOption[]
+  /**
+   * Open a chat in a workspace and focus it; the prompt lands as a draft
+   * unless `send: true`. Answers `unavailable` until the shell registers its
+   * opener (see chat-opener.ts). Requires `conversation:operate`.
+   */
+  openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
+  /** The agent runtimes a chat can run on, with the user's last choice marked. */
+  listChatRuntimes(): ModuleChatRuntimeOption[]
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -1032,7 +1051,11 @@ export type RendererHost = {
 // factory gate a host panel by its module's enablement without a per-feature
 // switch arm.
 export type RendererKernel = {
-  hostFor(moduleId: string): RendererHost
+  /**
+   * `manifest` carries the permissions `openChat` checks; a host made without
+   * one has declared nothing.
+   */
+  hostFor(moduleId: string, manifest?: CapabilityManifest): RendererHost
   getPanel(componentId: string): WorkspacePanelComponent | undefined
   /** The capability module that registered the panel, for enablement gating. */
   getPanelModule(componentId: string): string | undefined
@@ -1348,8 +1371,10 @@ export function createRendererHost(): RendererKernel {
         return order === 0 ? a.id.localeCompare(b.id) : order
       })
   return {
-    hostFor(moduleId) {
+    hostFor(moduleId, manifest) {
       return {
+        hostApiVersion: HOST_API_VERSION,
+        supports: hostSupports,
         registerPanel(componentId, component) {
           if (panels.has(componentId)) {
             throw new Error(`Renderer panel "${componentId}" is already registered.`)
@@ -1762,6 +1787,24 @@ export function createRendererHost(): RendererKernel {
         },
         listAgentRuntimes() {
           return requireAgentRuntime(agentSpawner, 'Agent runtime listing').listAgentRuntimes()
+        },
+        async openChat(input) {
+          if (!manifest?.permissions?.includes('conversation:operate')) {
+            return {
+              ok: false,
+              code: 'permission_missing',
+              message: `Module "${moduleId}" does not declare the "conversation:operate" permission, so it cannot open a chat.`,
+            }
+          }
+          const opener = getWorkspaceChatOpener()
+          if (!opener) {
+            return { ok: false, code: 'unavailable', message: 'This window cannot open a chat yet.' }
+          }
+          return opener({ ...input, moduleId })
+        },
+        listChatRuntimes() {
+          // Empty until the chat runtime catalog is wired to modules.
+          return []
         },
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {

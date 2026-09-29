@@ -13,6 +13,9 @@
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
+import type { HostCapability } from './host-api.js'
+
 // ── Manifest ─────────────────────────────────────────────────────────────────
 
 export type CapabilityCategory =
@@ -66,6 +69,12 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Permission scopes requested (install-time disclosure, not runtime enforcement). */
   permissions?: string[]
+  /**
+   * The host API this module was built against (`HOST_API_VERSION` of the SDK
+   * it compiled with). Required for third-party modules; the host refuses one
+   * built for an API it does not provide.
+   */
+  engines?: { hostApi: number }
   entry?: ModuleEntry
   /**
    * Digests of every file the module ships. `sprintengine-module sign` writes
@@ -137,6 +146,20 @@ export type CapabilityPermission =
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
   | 'storage'
+  // Read the conversations the module started through the SDK's scoped
+  // conversation service: their events, transcripts and list.
+  | 'conversation:read'
+  // Start, prompt, interrupt and stop the module's own conversations, and open
+  // a chat in the renderer (`RendererHost.openChat`). Implies read.
+  | 'conversation:operate'
+  // Store secrets the host sends only to origins the module named, never
+  // handing the value back (the SDK's scoped secrets service).
+  | 'secrets'
+  // Call the GitHub API with the user's sign-in through the SDK's GitHub
+  // service; the host attaches the token and never hands it over.
+  | 'github'
+  // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`).
+  | 'mcp:tools'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -157,6 +180,11 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'agents:companion',
   'agents:session',
   'storage',
+  'conversation:read',
+  'conversation:operate',
+  'secrets',
+  'github',
+  'mcp:tools',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -440,6 +468,13 @@ export type LaunchContribution = (launch: LaunchContributionRequest) => LaunchCo
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   /** Raw Electron ipcMain; typed `unknown` to keep the SDK Electron-free. */
   readonly ipcMain: unknown
   registerIpc(channel: string, handler: IpcInvokeHandler): void
@@ -2233,6 +2268,13 @@ export type NotificationActionProvider = {
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   /**
    * Stable URL for a file packaged inside this trusted module (e.g. runtime/index.html).
    * Inside packaged HTML, relative resources, WebAssembly, workers and IndexedDB share a stable,
@@ -2496,6 +2538,19 @@ export type RendererHost = {
    */
   listAgentRuntimes(): ModuleAgentRuntimeOption[]
   /**
+   * Open a chat in a workspace and focus it. By default the prompt lands in the
+   * composer as a draft the user sends themselves; `send: true` sends it as the
+   * first turn. Expected failures come back as a result, never a throw
+   * (`unavailable` when this window cannot open chats). Declare
+   * `conversation:operate`.
+   */
+  openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
+  /**
+   * The agent runtimes a chat can run on, from the same catalog the shell's
+   * own chat picker reads, with the one the user last chose marked.
+   */
+  listChatRuntimes(): ModuleChatRuntimeOption[]
+  /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
    *
@@ -2665,6 +2720,46 @@ export type ThemeToken = (typeof THEME_TOKENS)[number]
 
 /** The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`. */
 export type RegisterRenderer = (host: RendererHost) => void
+
+// ── Host API version, conversations, brokered credentials ────────────────────
+
+export {
+  HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION,
+  checkHostApiCompatibility,
+  type HostApiCompatibility,
+  type HostCapability,
+} from './host-api.js'
+
+export {
+  getConversationService,
+  type ModuleChatRuntimeOption,
+  type ModuleConversationCreateInput,
+  type ModuleConversationErrorCode,
+  type ModuleConversationEvent,
+  type ModuleConversationEventType,
+  type ModuleConversationImageAttachment,
+  type ModuleConversationPermissionPreset,
+  type ModuleConversationRef,
+  type ModuleConversationResult,
+  type ModuleConversationService,
+  type ModuleConversationStatus,
+  type ModuleConversationSummary,
+  type ModuleOpenChatInput,
+  type ModuleOpenChatResult,
+} from './conversation.js'
+
+export {
+  getGitHubService,
+  getSecretsService,
+  type ModuleGitHubRequest,
+  type ModuleGitHubResponse,
+  type ModuleGitHubService,
+  type ModuleSecretFetchInit,
+  type ModuleSecretFetchResult,
+  type ModuleSecretsError,
+  type ModuleSecretsService,
+} from './brokers.js'
 
 // ── Manifest validation + canonical signing payload ──────────────────────────
 // Pure (no Node APIs) and safe in any runtime. The ed25519 sign/verify

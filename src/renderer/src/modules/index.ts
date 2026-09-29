@@ -82,7 +82,7 @@ export const COMING_SOON_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest> = B
 // exist on the host in a production build.
 const rendererHost = createRendererHost()
 for (const module of ACTIVE_RENDERER_MODULES) {
-  module.registerRenderer?.(rendererHost.hostFor(module.manifest.id))
+  module.registerRenderer?.(rendererHost.hostFor(module.manifest.id, module.manifest))
 }
 
 // One shared empty namespace for a module that has never written app-level

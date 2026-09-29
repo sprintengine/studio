@@ -126,6 +126,11 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Capability scopes a third-party module requests (shown at install/trust). */
   permissions?: string[]
+  /**
+   * The host API the module was built against (see shared/modules/host-api.ts).
+   * Required for third-party modules; absent on bundled ones.
+   */
+  engines?: { hostApi: number }
   /** Code entry points (third-party); trusted `entry.main` loads in the main process. */
   entry?: ModuleEntry
   /**
@@ -263,6 +268,8 @@ export type ModuleResolutionErrorCode =
   | 'untrusted'
   // A third-party module whose signature failed verification (tampered).
   | 'invalid_signature'
+  // A third-party module built for a host API this app does not provide.
+  | 'incompatible_host_api'
 
 export type ModuleResolutionError = {
   /** The module the error is attributed to (empty for whole-graph errors). */
