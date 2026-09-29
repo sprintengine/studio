@@ -17,7 +17,12 @@ export {
 
 // Only what exists today. A capability joins this list in the same change that
 // makes it real, so `supports()` never promises a service nobody provides.
+// `chat.open` is not here: it is a renderer's, and true only once the window's
+// shell has registered its chat opener (renderer-host.ts answers it live).
 const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
+  'conversations',
+  'secrets',
+  'github',
   'companion-agents',
   'automations',
   'storage',

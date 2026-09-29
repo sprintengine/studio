@@ -73,3 +73,16 @@ test('openChat hands the registered opener the input stamped with the calling mo
   assert.deepEqual(result, { ok: true, agentId: 'chat-7' })
   assert.deepEqual(calls, [{ workspaceId: 'ws-1', prompt: 'Review this', send: true, moduleId: 'acme' }])
 })
+
+test("supports('chat.open') follows the shell's opener rather than a table", () => {
+  const host = createRendererHost().hostFor('acme', manifest(['conversation:operate']))
+  assert.equal(host.supports('chat.open'), false)
+  setWorkspaceChatOpener(async () => ({ ok: true, agentId: 'chat-1' }))
+  assert.equal(host.supports('chat.open'), true)
+  setWorkspaceChatOpener(null)
+  assert.equal(host.supports('chat.open'), false)
+  assert.equal(host.supports('conversations'), true)
+  assert.equal(host.supports('secrets'), true)
+  assert.equal(host.supports('github'), true)
+  assert.equal(host.supports('not-a-capability'), false)
+})
