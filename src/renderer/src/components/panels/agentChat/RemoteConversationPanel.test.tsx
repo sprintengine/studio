@@ -400,3 +400,24 @@ test('a machine that does not offer model switching keeps the chat on its model,
     await chat.unmount()
   }
 })
+
+test('a link that drops does not list the machine; one that comes back live does', async () => {
+  const chat = await mountRemote({ access: 'operate' })
+  try {
+    const reads = () => chat.api.meshConversationList.mock.calls.length
+    const before = reads()
+    await chat.act(async () =>
+      chat.emit({ type: 'link', state: 'reconnecting', detail: 'Reconnecting to mac-mini.', access: 'operate' }),
+    )
+    await chat.act(async () =>
+      chat.emit({ type: 'link', state: 'offline', detail: 'mac-mini is not answering.', access: 'operate' }),
+    )
+    expect(reads()).toBe(before)
+    await chat.act(async () =>
+      chat.emit({ type: 'link', state: 'live', detail: 'Following on mac-mini.', access: 'operate' }),
+    )
+    expect(reads()).toBe(before + 1)
+  } finally {
+    await chat.unmount()
+  }
+})
