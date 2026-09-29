@@ -40,6 +40,7 @@ import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../sh
 import type {
   ConversationCliRuntimeOverrides,
   ConversationImageAttachment,
+  ConversationMcpServer,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationStartSessionInput,
@@ -48,6 +49,8 @@ import type {
 import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { ExecutionHostId } from '../shared/execution-host'
+import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
+import type { McpServerConfig } from '../shared/ipc/mcp'
 import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
 import { nextNewChatName } from '../shared/workspace-title'
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
@@ -101,6 +104,14 @@ export type ConversationLaunchRequest = {
    * automation run's worktree. The chat still lives in the workspace.
    */
   worktreePath?: string
+  /**
+   * The installed MCP server (a connector) the chat runs with, on top of the
+   * person's own configuration: an automation that runs with a connector.
+   * Resolved as a terminal connector launch resolves it; one that is not
+   * installed and enabled refuses the launch (`connector_unavailable`), and a
+   * CLI whose chats take no MCP servers of their own refuses the start.
+   */
+  connectorId?: string
   /**
    * Send `prompt` as the first message (the default). False starts the session
    * and sends nothing, for a caller that sends the first turn itself.
@@ -198,6 +209,15 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: `"${cli}" cannot run as a chat agent here. Pick another CLI, or start it as a terminal agent.`,
       }
     }
+    // Never a chat that silently runs without the connector it was asked for.
+    const connectorId = request.connectorId?.trim()
+    const connector = connectorId
+      ? resolveConnectorLaunchFrom({ connectorId, installedServers: settings.mcp?.servers })
+      : null
+    if (connector && !connector.ok) return { ok: false, code: 'connector_unavailable', message: connector.message }
+    const mcpServers = connector?.ok
+      ? Object.values(connector.resolved.mcpSettings.servers).map(conversationMcpServer)
+      : []
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permissionPreset = resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset)
     // The run worktree when there is one: the session starts there, so the
@@ -297,6 +317,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
           ? { cliRuntimes: settings.cliRuntimes as ConversationCliRuntimeOverrides }
           : {}),
         permissionPreset,
+        ...(mcpServers.length > 0 ? { mcpServers } : {}),
       })
       .catch((error: unknown): ConversationStartSessionResult => ({
         ok: false,
@@ -346,4 +367,20 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
   }
 
   return { launch }
+}
+
+// An installed server as a session takes it: what the CLI needs to start or
+// reach it, without the settings-only fields.
+function conversationMcpServer(server: McpServerConfig): ConversationMcpServer {
+  return {
+    id: server.id,
+    name: server.name,
+    transport: server.transport,
+    ...(server.command ? { command: server.command } : {}),
+    ...(server.args?.length ? { args: server.args } : {}),
+    ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.headers && Object.keys(server.headers).length > 0 ? { headers: server.headers } : {}),
+    ...(server.envVarNames?.length ? { envVarNames: server.envVarNames } : {}),
+  }
 }

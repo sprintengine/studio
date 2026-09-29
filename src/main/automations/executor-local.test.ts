@@ -136,6 +136,8 @@ test('executor-local', async () => {
       reportConversationEnd?: LocalAutomationExecutorOptions['reportConversationEnd']
       // What the fake launch does with the chat's first message.
       firstSend?: (request: ConversationLaunchRequest) => void
+      // Answer every launch with this refusal.
+      launchRefusal?: { code: string; message: string }
     } = {},
   ) {
     const workspaces = [...initialWorkspaces]
@@ -190,6 +192,7 @@ test('executor-local', async () => {
     // behind, and answers with the session it started.
     const launchConversation = async (request: ConversationLaunchRequest): Promise<ConversationLaunchResult> => {
       requests.push({ kind: 'agent.launch', ...request })
+      if (options.launchRefusal) return { ok: false, ...options.launchRefusal }
       const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
       if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
       const agentId = `agent-${Object.keys(target.agents).length + 1}`
@@ -533,20 +536,15 @@ test('executor-local', async () => {
     )
   }
 
-  async function assertConnectorRunIsBlockedBeforeAnything(): Promise<void> {
-    // A connector run needs its agent limited to one connector's MCP server,
-    // which a chat agent cannot be yet. It is blocked — before a worktree is made
-    // or a chat started — rather than run as a different automation.
+  async function assertConnectorRunLaunchesItsChatWithTheConnector(): Promise<void> {
+    // A connector run's chat is started with that connector's MCP server: the
+    // launch names the connector, in the run's own worktree as any run.
     const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-    let worktreesMade = 0
     const harness = executorHarness([host], {
-      createRunWorktree: async (input) => {
-        worktreesMade += 1
-        return {
-          worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
-          branch: `automations/${input.runId}`,
-        }
-      },
+      createRunWorktree: async (input) => ({
+        worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
+        branch: `automations/${input.runId}`,
+      }),
     })
     const result = await harness.executor({
       workspaceRoot: '/repo/a',
@@ -560,11 +558,39 @@ test('executor-local', async () => {
       triggerPayload: { kind: 'schedule' },
     })
 
-    assert.equal(result.status, 'blocked')
-    assert.match(result.blockedReason ?? '', /railway/)
-    assert.match(result.blockedReason ?? '', /chat/)
-    assert.equal(worktreesMade, 0, 'no worktree for a run that will not start')
-    assert.deepEqual(harness.requests, [], 'a connector run starts no chat')
+    assert.equal(result.status, 'running')
+    const launch = harness.requests[0]
+    assert.equal(launch.kind, 'agent.launch')
+    assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : '', 'railway')
+    assert.equal(
+      launch.kind === 'agent.launch' ? launch.worktreePath : '',
+      '/repo/a/.sprintengine/automations/worktrees/run-1',
+    )
+
+    // A launch that cannot carry the connector fails the run with its reason.
+    const refusing = executorHarness([workspace('ws-host', '/repo/a', { mode: 'automations-host' })], {
+      createRunWorktree: async (input) => ({
+        worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
+        branch: `automations/${input.runId}`,
+      }),
+      launchRefusal: {
+        code: 'conversation_start_failed',
+        message: 'A Gemini chat cannot be started with MCP servers of its own, so it cannot run with "Railway".',
+      },
+    })
+    const refused = await refusing.executor({
+      workspaceRoot: '/repo/a',
+      definition: definition({
+        action: {
+          kind: 'spawn-agent',
+          config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' },
+        },
+      }),
+      run: run(),
+      triggerPayload: { kind: 'schedule' },
+    })
+    assert.equal(refused.status, 'failed')
+    assert.match(refused.summary ?? '', /cannot be started with MCP servers of its own/)
   }
 
   async function assertNonConnectorRunHonorsRunInWorktreeOptOut(): Promise<void> {
@@ -961,7 +987,7 @@ test('executor-local', async () => {
     await assertDefaultRunNeverHijacksStandardWorkspace()
     await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
     await assertRunWorktreeIsThreadedToLaunchAndPatch()
-    await assertConnectorRunIsBlockedBeforeAnything()
+    await assertConnectorRunLaunchesItsChatWithTheConnector()
     await assertNonConnectorRunHonorsRunInWorktreeOptOut()
     await assertRunRecordsTheChatSessionItStarted()
     await assertSpawnSkillIsAttachedToTheChat()

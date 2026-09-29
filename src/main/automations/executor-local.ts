@@ -170,17 +170,10 @@ async function runLocalAutomationAction(
       // (runInWorktree === false) to run directly in the workspace checkout, and
       // that opt-out is the user's to make. Absent ⇒ true, so existing
       // automations keep their per-run worktree.
-      spawnAgent: async ({ connectorId, ...spawnInput }) => {
-        // A connector run needs its agent limited to that one connector's MCP
-        // server, and a chat agent takes no per-launch MCP configuration: its
-        // provider reads the person's own. Run without the connector it would
-        // be a different automation, so it is blocked, and says why.
-        if (connectorId) {
-          throw new AutomationActionBlockedError(
-            `This automation runs with the "${connectorId}" connector, and an automation's agent is a chat, ` +
-              'which cannot be limited to one connector yet. The run was blocked rather than started without it.',
-          )
-        }
+      // A connector run's chat is started with that connector's MCP server; a
+      // connector that is not installed, or a CLI whose chats take no server of
+      // their own, fails the launch and so the run, never a run without it.
+      spawnAgent: async (spawnInput) => {
         const worktree = input.definition.runInWorktree !== false ? await ensureRunWorktree(input, options) : null
         const launched = await spawnAgent({ ...spawnInput, worktreePath: worktree?.worktreePath }, options)
         return { ...launched, worktreePath: worktree?.worktreePath, branch: worktree?.branch }
@@ -252,6 +245,7 @@ async function spawnAgent(
     name?: string
     prompt: string
     skills?: string[]
+    connectorId?: string
     ownerModuleId?: string
     resolvedTarget?: SpawnAgentResolvedTarget
   },
@@ -288,6 +282,7 @@ async function spawnAgent(
     name: input.name,
     prompt: input.prompt,
     ...(input.skills?.length ? { skills: input.skills } : {}),
+    ...(input.connectorId ? { connectorId: input.connectorId } : {}),
     ...(input.ownerModuleId ? { ownerModuleId: input.ownerModuleId } : {}),
     onFirstSendFailed: (message) => {
       if (launchedChat) reportRefusal(message)

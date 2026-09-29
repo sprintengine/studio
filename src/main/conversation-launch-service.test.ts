@@ -385,3 +385,61 @@ test('the owner survives the registry normalisation every window and restart goe
   assert.equal(workspace.agents[agent.id]!.ownerModuleId, 'acme.reviews')
   assert.equal(JSON.parse(JSON.stringify(workspace)).agents[agent.id].ownerModuleId, 'acme.reviews')
 })
+
+test("a connector launch starts the chat with that connector's MCP server, and refuses one it cannot run", async () => {
+  const railway = {
+    id: 'railway',
+    name: 'Railway',
+    transport: 'stdio' as const,
+    command: 'npx',
+    args: ['-y', '@railway/mcp'],
+    env: { RAILWAY_ENV: 'prod' },
+    envVarNames: ['RAILWAY_TOKEN'],
+    enabled: true,
+    clients: ['claude-code' as const],
+    scope: 'user' as const,
+    source: 'custom' as const,
+    riskLevel: 'local-command' as const,
+  }
+  const settings = { mcp: { syncEnabled: true, servers: { railway, off: { ...railway, id: 'off', enabled: false } } } }
+
+  const { service, record } = harness({ settings })
+  const launched = await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', connectorId: 'railway' })
+  assert.equal(launched.ok, true)
+  assert.deepEqual(record.starts[0]!.mcpServers, [
+    {
+      id: 'railway',
+      name: 'Railway',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@railway/mcp'],
+      env: { RAILWAY_ENV: 'prod' },
+      envVarNames: ['RAILWAY_TOKEN'],
+    },
+  ])
+
+  // Not installed, or switched off: no chat at all, rather than one without it.
+  for (const connectorId of ['nowhere', 'off']) {
+    const refused = harness({ settings })
+    const result = await refused.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', connectorId })
+    assert.equal(result.ok, false)
+    if (!result.ok) assert.equal(result.code, 'connector_unavailable')
+    assert.deepEqual(refused.record.writes, [])
+    assert.deepEqual(refused.record.starts, [])
+  }
+
+  // A start the provider refuses (a CLI whose chats take no MCP servers) takes the record back out.
+  const unsupported = harness({
+    settings,
+    startSession: async () => ({ ok: false, message: 'A Gemini chat cannot be started with MCP servers of its own.' }),
+  })
+  const result = await unsupported.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', connectorId: 'railway' })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.message, /MCP servers of its own/)
+  assert.equal(unsupported.record.writes.at(-1)!.agent, null)
+
+  // No connector, no servers named.
+  const plain = harness({ settings })
+  await plain.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.equal(plain.record.starts[0]!.mcpServers, undefined)
+})
