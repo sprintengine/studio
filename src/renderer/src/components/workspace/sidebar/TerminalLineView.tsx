@@ -221,7 +221,9 @@ export function TerminalLineView({
       <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
         <span
           className={`inline-flex items-center gap-1 ${
-            seatOverlay ? 'transition-opacity group-hover:opacity-0 group-focus-within:opacity-0' : ''
+            seatOverlay
+              ? 'transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-data-[settle-flourish]:opacity-0'
+              : ''
           }`}
         >
           {rowOwnsStatus ? (

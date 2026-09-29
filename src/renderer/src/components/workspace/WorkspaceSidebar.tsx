@@ -1575,6 +1575,7 @@ function WorkspaceSidebar({
   const stableHandleClose = useStableCallback(handleClose)
   const stableSetWorkspaceSnoozed = useStableCallback(setWorkspaceSnoozed)
   const stableSettleWorkspaceById = useStableCallback(settleWorkspaceById)
+  const stableSetWorkspaceSettled = useStableCallback(setWorkspaceSettled)
   const stableOpenPaneTab = useStableCallback(openPaneTab)
   const stableSetRovingKey = useStableCallback(setRovingKey)
   const stableHandleTreeRowKeyDown = useStableCallback(handleTreeRowKeyDown)
@@ -1596,6 +1597,7 @@ function WorkspaceSidebar({
       handleClose: stableHandleClose,
       setWorkspaceSnoozed: stableSetWorkspaceSnoozed,
       settleWorkspaceById: stableSettleWorkspaceById,
+      setWorkspaceSettled: stableSetWorkspaceSettled,
       openPaneTab: stableOpenPaneTab,
       setRovingKey: stableSetRovingKey,
       handleTreeRowKeyDown: stableHandleTreeRowKeyDown,
@@ -1619,6 +1621,7 @@ function WorkspaceSidebar({
       stableHandleClose,
       stableSetWorkspaceSnoozed,
       stableSettleWorkspaceById,
+      stableSetWorkspaceSettled,
       stableOpenPaneTab,
       stableSetRovingKey,
       stableHandleTreeRowKeyDown,
@@ -2684,6 +2687,11 @@ function rowOptionsEqual(left: WorkspaceRowOptions, right: WorkspaceRowOptions):
 }
 
 type RowGitSummaries = ReturnType<typeof useSidebarGitSummaries>
+
+// How long a row that was just settled holds its seat open: the flourish's
+// ring and tick (`.settle-mark-flourish`, one pulse) plus a beat to read the
+// state they land on.
+const SETTLE_FLOURISH_MS = 1200
 const NO_GIT_SUMMARIES: RowGitSummaries = {}
 
 /** What a row does, held in one object whose identity never changes. */
@@ -2692,6 +2700,7 @@ type WorkspaceRowHandlers = {
   handleClose: (workspaceId: WorkspaceId) => void
   setWorkspaceSnoozed: (workspaceId: WorkspaceId, until: number | null) => void
   settleWorkspaceById: (workspaceId: WorkspaceId) => void
+  setWorkspaceSettled: (workspaceId: WorkspaceId, settled: boolean) => void
   openPaneTab: ReturnType<typeof useWorkspaceStore.getState>['openPaneTab']
   setRovingKey: (key: string) => void
   handleTreeRowKeyDown: (
@@ -2777,6 +2786,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     handleClose,
     setWorkspaceSnoozed,
     settleWorkspaceById,
+    setWorkspaceSettled,
     openPaneTab,
     setRovingKey,
     handleTreeRowKeyDown,
@@ -2819,6 +2829,27 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   // wears in the active list until it is opened. Mutually exclusive by
   // construction: `workspaceWokeAt` is null while the row is still asleep.
   const asleepUntil = options?.snoozed ? (workspace.snoozedUntil ?? null) : null
+  // A resting row only draws while it is the row you are in (`isShelved`), so
+  // this is the settled chat you just settled or just opened. Settling it used
+  // to look like nothing at all: the row stays put, and its seat went on
+  // offering the same grey tick. The seat now says it rested — a green tick in
+  // a ring, which un-settles on the next click — and the moment it happens
+  // plays once (`.settle-mark-flourish`), with the seat pinned open for the
+  // length of it so the cursor leaving, or the row shrinking as its terminals
+  // die, cannot hide the one frame that answers the click. Derived in render
+  // rather than an effect so the first paint after the click already has it.
+  const settled = isSettledWorkspace(workspace)
+  const [settleFlourish, setSettleFlourish] = useState(false)
+  const [seenSettled, setSeenSettled] = useState(settled)
+  if (seenSettled !== settled) {
+    setSeenSettled(settled)
+    setSettleFlourish(settled)
+  }
+  useEffect(() => {
+    if (!settleFlourish) return
+    const timer = window.setTimeout(() => setSettleFlourish(false), SETTLE_FLOURISH_MS)
+    return () => window.clearTimeout(timer)
+  }, [settleFlourish])
   const showRecencyText =
     !runGlyph &&
     activity === 'idle' &&
@@ -2959,7 +2990,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           (list-row's `data-actions` rule), so revealing never reflows — and
           reserving it here rather than on line 1 is the whole point of the
           move. */}
-      <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-data-[settle-flourish]:pointer-events-auto group-data-[settle-flourish]:opacity-100">
         <Tooltip content="More actions">
           <IconButton
             onClick={(event) => {
@@ -3012,6 +3043,48 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </IconButton>
+          </Tooltip>
+        ) : settled ? (
+          /* The settled seat: the same tick, drawn smaller inside a ring and
+             in the good tone. Green here does not collide with the ruling
+             above: that was about the resting AFFORDANCE on every row, and
+             this is a state that one row — the one you are in — is in. The
+             ring is what says it without colour; the label says it in words. */
+          <Tooltip content="Un-settle">
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation()
+                setWorkspaceSettled(workspace.id, false)
+              }}
+              tone="quiet"
+              aria-label={`Un-settle ${workspace.name}`}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className={`icon-xs settle-mark${settleFlourish ? ' settle-mark-flourish' : ''}`}
+                aria-hidden="true"
+              >
+                <circle
+                  className="settle-mark-ring"
+                  cx="8"
+                  cy="8"
+                  r="6.9"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  pathLength={1}
+                  transform="rotate(-90 8 8)"
+                />
+                <path
+                  className="settle-mark-tick"
+                  d="M5.1 8.25L7 10.15L10.9 6.1"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </IconButton>
           </Tooltip>
@@ -3079,7 +3152,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   )
   const statusSeat = (
     <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
-      <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+      <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-data-[settle-flourish]:opacity-0">
         {runGlyph && runGlyphLabel ? (
           <RowTooltip content={runGlyphLabel}>
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
@@ -3220,6 +3293,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
       {revealPending ? <span className="sr-only"> (an agent opened something for you here)</span> : null}
       {options?.snoozed ? <span className="sr-only"> (snoozed)</span> : null}
+      {settled ? <span className="sr-only"> (settled)</span> : null}
     </>
   )
   const titleCluster = hasPeek ? (
@@ -3320,6 +3394,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
       } ${folderMissing ? 'opacity-70' : ''}`}
       role="treeitem"
       aria-current={active ? 'true' : undefined}
+      data-settle-flourish={settleFlourish ? '' : undefined}
     >
       {/* The flat stream's top line (all-chats-view): the project this chat
           belongs to, and the clock — or what the agent is doing — at the
