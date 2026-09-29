@@ -27,7 +27,7 @@ import {
   type MarketplacePluginInstallReceipt,
   type MarketplacePluginLifecycleInstallInput,
 } from '../marketplace/plugin-lifecycle'
-import { consumeTrustToken, issueTrustToken, peekTrustToken } from '../marketplace/trust-tokens'
+import { consumeTrustToken, issueTrustToken, peekTrustToken, type TrustGrant } from '../marketplace/trust-tokens'
 import { githubReviewChanges, resolveGithubExtension } from '../marketplace/github-extension-source'
 import { listKnownWorkspaceRoots } from '../workspace-roots'
 import { assertAppSender } from './ipc-sender'
@@ -189,7 +189,7 @@ export function registerMarketplacePluginIpc(
     const envelope = installEnvelope(input, knownWorkspaceRoots())
     if (!envelope.ok) return { ok: false, message: envelope.message }
 
-    let grant = null
+    let grant: TrustGrant | null = null
     if (input.trustToken !== undefined) {
       grant = typeof input.trustToken === 'string' ? consumeTrustToken(input.trustToken, id) : null
       if (!grant) {
