@@ -22,6 +22,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeF
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
+import { checkHostApiCompatibility, HOST_API_VERSION } from './host-api.js'
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from './index.js'
 import { parseThirdPartyModuleManifest, type ThirdPartyManifestIssue } from './manifest-validate.js'
 import { computeModuleFileDigestsSync, moduleFileDigestIssuesSync } from './module-files.js'
@@ -101,6 +102,11 @@ function readManifest(moduleDir: string): { manifestPath: string; manifest: Capa
   if (!result.ok) {
     fail(`Invalid module manifest at ${manifestPath}:`, result.issues)
   }
+  // The studio refuses a module built for a host API it does not provide, so
+  // the author hears it here rather than from a module that never loads.
+  const hostApi = checkHostApiCompatibility(result.manifest)
+  if (!hostApi.ok)
+    fail(`Invalid module manifest at ${manifestPath}:`, [{ path: 'engines.hostApi', message: hostApi.message }])
   return { manifestPath, manifest: result.manifest }
 }
 
@@ -500,6 +506,7 @@ function pluginScaffold(args: string[]): void {
       version: 1,
       defaultEnabled: false,
       permissions: ['network'],
+      engines: { hostApi: HOST_API_VERSION },
       entry: { main: 'main.cjs' },
     })
     writeFileSync(join(moduleDir, 'main.cjs'), 'exports.registerMain = () => {}\n')

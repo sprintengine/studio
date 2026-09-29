@@ -22,7 +22,7 @@ import { join } from 'node:path'
 
 import { buildSync } from 'esbuild'
 
-import { BUNDLED_MODULE_IDS } from '../src/index.js'
+import { BUNDLED_MODULE_IDS, HOST_API_VERSION } from '../src/index.js'
 // App-side trust flow: the exact modules the studio uses on install.
 import { parseThirdPartyModuleManifest } from '../../../src/shared/modules/third-party-manifest'
 import { parseMarketplacePluginManifest } from '../../../src/shared/marketplace'
@@ -77,6 +77,7 @@ test('cli-roundtrip', async () => {
       version: 1,
       permissions: ['network'],
       id: 'cli-roundtrip-fixture',
+      engines: { hostApi: HOST_API_VERSION },
       entry: { main: 'main.cjs' },
       displayName: 'CLI Roundtrip Fixture',
     }
@@ -142,6 +143,18 @@ test('cli-roundtrip', async () => {
     assert.equal(cliResult.status, 1)
     assert.match(cliResult.stderr, /INVALID signature/)
 
+    // The declared host API is signed too: the version a module claims is the
+    // version its author signed.
+    const hostApiDir = writeModuleFixture(validFixtureManifest())
+    assert.equal(runCli(['sign', hostApiDir, '--key', keyPath]).status, 0)
+    const hostApiPath = join(hostApiDir, 'manifest.json')
+    const hostApiManifest = JSON.parse(readFileSync(hostApiPath, 'utf8')) as Record<string, unknown>
+    assert.deepEqual(hostApiManifest.engines, { hostApi: HOST_API_VERSION })
+    hostApiManifest.engines = { hostApi: HOST_API_VERSION + 1 }
+    const reclaimed = parseThirdPartyModuleManifest(JSON.stringify(hostApiManifest))
+    assert.ok(reclaimed.ok)
+    assert.equal(verifyModuleSignature(reclaimed.manifest).valid, false, 'a re-declared host API breaks the signature')
+
     const parsed = parseThirdPartyModuleManifest(readFileSync(manifestPath, 'utf8'))
     assert.ok(parsed.ok)
     assert.equal(verifyModuleSignature(parsed.manifest).valid, false)
@@ -179,6 +192,19 @@ test('cli-roundtrip', async () => {
     const badPermissions = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), permissions: 'network' })])
     assert.equal(badPermissions.status, 1)
     assert.match(badPermissions.stderr, /permissions must be an array/)
+
+    // The studio refuses a module that names no host API, or one newer than it
+    // provides, so pack refuses both too — with the fix in the message.
+    const { engines: _engines, ...withoutEngines } = validFixtureManifest()
+    const missingHostApi = runCli(['pack', writeModuleFixture(withoutEngines)])
+    assert.equal(missingHostApi.status, 1)
+    assert.match(missingHostApi.stderr, /engines\.hostApi: .*"engines": \{ "hostApi": \d+ \}/)
+    const tooNew = runCli([
+      'pack',
+      writeModuleFixture({ ...validFixtureManifest(), engines: { hostApi: HOST_API_VERSION + 1 } }),
+    ])
+    assert.equal(tooNew.status, 1)
+    assert.match(tooNew.stderr, /Update the app/)
 
     const missingEntryDir = writeModuleFixture(validFixtureManifest())
     rmSync(join(missingEntryDir, 'main.cjs'))
