@@ -295,6 +295,8 @@ export interface WorkspaceStore
   setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  /** Drop what the app kept for uninstalled modules: the enablement choice and the settings namespace. */
+  forgetModules: (moduleIds: readonly string[]) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
   dismissFirstRunCliCard: () => void
