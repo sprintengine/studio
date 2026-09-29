@@ -1209,6 +1209,9 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       for (const live of adapter.listLiveSessions?.() ?? []) {
         if (!live.childPid) continue
+        // The CLI the chat runs, for the process tree and memory attribution;
+        // an adapter id names no CLI.
+        const providerId = this.sessions.get(live.sessionId)?.providerId ?? adapter.id
         roots.push({
           sessionId: live.sessionId,
           rootPid: live.childPid,
@@ -1216,7 +1219,7 @@ export class ConversationRuntime {
           agentId: live.agentId || null,
           terminalId: null,
           kind: 'agent',
-          cli: 'claude-code',
+          cli: cliForConversationProvider(providerId),
           activityKind: live.turnActive ? 'working' : 'idle',
           processAlive: true,
           startedAt: live.spawnedAt ?? live.lastActivityAt,

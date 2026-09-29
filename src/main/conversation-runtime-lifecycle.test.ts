@@ -92,3 +92,34 @@ test('the hover card reads the first message and the newest turn, never the chat
       ['Last one', 'Echo: Last one'],
     )
   }))
+
+test('a chat child in the process tree is labelled with the CLI it runs', async () => {
+  const runtime = new ConversationRuntime({
+    getProviderById: () => undefined,
+    adapters: [
+      {
+        ...echoProvider(),
+        id: 'codex-agent',
+        listLiveSessions: () => [
+          {
+            sessionId: 'conv_codex',
+            workspaceId: 'workspace',
+            agentId: 'agent',
+            workspaceRoot: '/Users/dev/project',
+            providerSessionId: 'thread',
+            hasChildProcess: true,
+            childPid: 4242,
+            turnActive: false,
+            pendingApproval: false,
+            lastActivityAt: 5,
+            spawnedAt: 3,
+          },
+        ],
+      },
+    ],
+  })
+  assert.deepEqual(
+    runtime.listLiveConversationRoots().map((root) => [root.sessionId, root.cli, root.activityKind]),
+    [['conv_codex', 'codex', 'idle']],
+  )
+})

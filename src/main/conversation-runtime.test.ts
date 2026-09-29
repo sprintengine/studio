@@ -541,7 +541,8 @@ test('conversation-runtime', async () => {
       agentId: 'agent-one',
       terminalId: null,
       kind: 'agent',
-      cli: 'claude-code',
+      // The adapter's own id names no CLI; one that does is labelled with it.
+      cli: null,
       activityKind: 'working',
       processAlive: true,
       startedAt: 3,
