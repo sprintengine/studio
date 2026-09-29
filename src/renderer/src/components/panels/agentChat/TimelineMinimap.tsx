@@ -1,7 +1,13 @@
 import { useMemo, useState, type JSX, type MouseEvent } from 'react'
 import { IconButton } from '../../ui'
 import { OVERLAY_SURFACE_CLASS } from '../../ui/tokens'
-import { TURN_MINIMAP_MIN_TURNS, turnPreviewText, type TurnMark, type TurnNavigation } from './turnNavigation'
+import {
+  TURN_MINIMAP_MIN_TURNS,
+  turnPreviewText,
+  useTurnPosition,
+  type TurnMark,
+  type TurnNavigation,
+} from './turnNavigation'
 
 // One tick per prompt, spaced evenly rather than by where the turn sits in the
 // scroll height: a virtualized list only knows the heights it has rendered, and
@@ -84,7 +90,8 @@ function MinimapPreview({
  * through the same turns.
  */
 export function TimelineMinimap({ navigation }: { navigation: TurnNavigation }): JSX.Element | null {
-  const { marks, current, hasPrevious, hasNext, jump, step, reply } = navigation
+  const { marks, jump, step, reply } = navigation
+  const { current, hasPrevious, hasNext } = useTurnPosition(navigation)
   const [hovered, setHovered] = useState<number | null>(null)
   // The minimap re-renders with every streamed token; its ticks only change
   // with the prompts, the reader's turn and the pointer.

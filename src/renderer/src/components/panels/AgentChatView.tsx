@@ -836,6 +836,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   })
   const turnNavigation = useTurnNavigation({ rows: timelineRows, listRef, jumpToRow })
   const stepTurn = turnNavigation.step
+  // Drawn again when the prompts move; the reader's place in them it follows
+  // on its own, and a token changes neither.
+  const minimap = useMemo(() => <TimelineMinimap navigation={turnNavigation} />, [turnNavigation])
   const { isRestoring: isRestoringScroll } = useConversationScrollRestore({
     memory: scrollMemoryRef.current,
     hydrated,
@@ -2352,7 +2355,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />
             )}
-            <TimelineMinimap navigation={turnNavigation} />
+            {minimap}
             <QuoteSelectionToolbar
               rootRef={transcriptRef}
               // A chat nobody can see has no selection to offer a quote for.
