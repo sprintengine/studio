@@ -147,7 +147,15 @@ export type ConversationProviderSignInInput = {
 }
 
 export type ConversationProviderSignInResult =
-  { ok: true; commandLine: string; cwd: string; platform: string } | { ok: false; message: string }
+  | {
+      ok: true
+      commandLine: string
+      cwd: string
+      platform: string
+      /** The machine the sign-in terminal opens on; absent is this one. */
+      hostId?: import('./execution-host').ExecutionHostId
+    }
+  | { ok: false; message: string }
 
 export type ConversationTranscriptInput = {
   workspaceRoot: string

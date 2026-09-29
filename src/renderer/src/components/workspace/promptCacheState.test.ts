@@ -4,6 +4,7 @@ import {
   PROMPT_CACHE_NOTICE_TOKENS,
   promptCacheCopy,
   promptCacheNeedsAttention,
+  promptCacheNoticeLine,
   promptCacheState,
 } from './promptCacheState'
 
@@ -68,4 +69,13 @@ test('the words say what the next message costs and what compacting buys', () =>
   assert.equal(promptCacheCopy(warm, NOW).label, 'Cache warm · 42m left')
   const lastSeconds = promptCacheState({ ttl: '5m', expiresAt: NOW + 20_000, recacheTokens: 1 }, NOW)!
   assert.equal(promptCacheCopy(lastSeconds, NOW).label, 'Cache expires in under a minute')
+})
+
+test('the composer line says when the cache goes, and how many tokens are cached or already uncached', () => {
+  const expiring = promptCacheState({ ttl: '5m', expiresAt: NOW + 2 * MINUTE, recacheTokens: 198_400 }, NOW)
+  assert.ok(promptCacheNeedsAttention(expiring))
+  assert.equal(promptCacheNoticeLine(expiring, NOW), 'Cache expires in 2m · ~198k tokens cached')
+  const cold = promptCacheState({ ttl: '5m', expiresAt: NOW - 13 * MINUTE, recacheTokens: 198_400 }, NOW)
+  assert.ok(promptCacheNeedsAttention(cold))
+  assert.equal(promptCacheNoticeLine(cold, NOW), 'Cache expired 13m ago · ~198k tokens uncached')
 })

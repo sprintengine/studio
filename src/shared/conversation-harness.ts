@@ -32,6 +32,16 @@ export function conversationProviderForCli(cli: string | null | undefined): stri
   return null
 }
 
+// The CLIs whose chat can run on a WSL machine: its child is started inside
+// the distribution, with the login and settings under the Linux home. The
+// other chat runtimes still start their CLI on this machine only.
+const WSL_CHAT_CLIS: ReadonlySet<string> = new Set(['claude-code'])
+
+/** Whether a CLI's chat can run on a WSL machine rather than only on this one. */
+export function conversationRunsOnWsl(cli: string | null | undefined): boolean {
+  return Boolean(cli && WSL_CHAT_CLIS.has(cli))
+}
+
 /**
  * The model id a chat asks its provider for when the picker is on the CLI's own
  * default row (no model chosen). Every harness provider treats it as "pass no

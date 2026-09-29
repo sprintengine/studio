@@ -240,6 +240,27 @@ export function cliRuntimeOnMachine(
   return { command: settings.hosts?.[hostId]?.cliCommands[pluginId] ?? '', hostId }
 }
 
+/**
+ * The CLI runtimes a chat in a workspace runs with. A workspace on a WSL
+ * machine runs its Claude chat with that machine's `claude` (its command
+ * override there, and the host id that sends the child into the distribution);
+ * every other runtime is the app's own.
+ */
+export function conversationCliRuntimesFor(
+  cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
+  hostId: ExecutionHostId | null | undefined,
+  hosts: Partial<Record<ExecutionHostId, ExecutionHostSettings>> | undefined,
+): Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined {
+  if (!hostId || !isWslHostId(hostId)) return cliRuntimes
+  return {
+    ...cliRuntimes,
+    [CLAUDE_CODE_PLUGIN_ID]: {
+      ...cliRuntimes?.[CLAUDE_CODE_PLUGIN_ID],
+      ...cliRuntimeOnMachine(CLAUDE_CODE_PLUGIN_ID, hostId, { cliRuntimes, hosts }),
+    },
+  }
+}
+
 export function isAgentCliAvailable(cli: AgentCli, catalog: AgentCliCatalogOption[]): boolean {
   const registryId = pluginRegistryIdForCli(cli)
   return catalog.some((option) => option.value === cli || option.value === registryId)

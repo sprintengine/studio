@@ -351,6 +351,68 @@ test('a steer is refused until the running turn has reached the provider, and af
   assert.equal(chat.events.filter((next) => next.type === 'turn_completed').length, 1)
 })
 
+// A turn the agent opened by itself (a background task reported back after
+// its last reply) comes over the session channel rather than a send's stream.
+async function carryingOn(chat: Awaited<ReturnType<typeof setup>>, turnId: string) {
+  const first = await chat.sendRunning('investigate')
+  chat.provider.finish(first.turnId)
+  assert.equal((await first.settled).ok, true)
+  const sink = chat.provider.record.base!.onSessionEvent!
+  chat.provider.streams.set(turnId, { push: sink, end: () => undefined })
+  chat.provider.emit(turnId, 'turn_started')
+  chat.provider.emit(turnId, 'content_delta', { text: 'The subagent reported' })
+  await until(() => chat.summary()?.status === 'active', 'the agent to carry on')
+}
+
+test('a turn the agent carried on with by itself takes a steer, and ends where its stream does', async () => {
+  const chat = await setup()
+  await carryingOn(chat, 'cont_1')
+  let steerSettled = false
+  const steer = chat.runtime
+    .sendTurn({ sessionId: chat.sessionId, message: 'use my phone', steer: true })
+    .finally(() => (steerSettled = true))
+  await until(() => Boolean(chat.landed('use my phone')), 'the steered message to land')
+  const steeredTurnId = chat.landed('use my phone')
+  assert.deepEqual(chat.provider.steers, [{ turnId: 'cont_1', message: 'use my phone' }])
+
+  chat.provider.emit('cont_1', 'content_delta', { text: 'Switching to the phone' })
+  await until(() => chat.events.filter((next) => next.type === 'content_delta').length === 2, 'the reply')
+  await tick()
+  assert.equal(steerSettled, false, 'a steer settles with the turn it opened')
+  chat.provider.emit('cont_1', 'turn_completed', { costUsd: 0.2 })
+  assert.equal((await steer).ok, true)
+  await until(() => chat.summary()?.status === 'ready', 'the session to be free')
+
+  const carried = chat.events
+    .filter((next) => next.payload?.turnId === 'cont_1' || next.payload?.turnId === steeredTurnId)
+    .map((next) => [next.type, next.payload?.turnId === 'cont_1' ? 'carried' : 'steered'])
+  assert.deepEqual(carried, [
+    ['turn_started', 'carried'],
+    ['content_delta', 'carried'],
+    ['turn_completed', 'carried'],
+    ['user_message', 'steered'],
+    ['turn_started', 'steered'],
+    ['content_delta', 'steered'],
+    ['turn_completed', 'steered'],
+  ])
+  const next = await chat.sendRunning('thanks')
+  chat.provider.finish(next.turnId)
+  assert.equal((await next.settled).ok, true)
+})
+
+test('stopping a carried-on turn a steer joined settles the steer', async () => {
+  const chat = await setup()
+  await carryingOn(chat, 'cont_1')
+  const steer = chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'use my phone', steer: true })
+  await until(() => Boolean(chat.landed('use my phone')), 'the steered message to land')
+  assert.equal((await chat.runtime.interrupt({ sessionId: chat.sessionId })).ok, true)
+  assert.equal((await steer).ok, true)
+  assert.equal(chat.summary()?.status, 'ready')
+  chat.provider.emit('cont_1', 'content_delta', { text: 'still going' })
+  await tick()
+  assert.equal(chat.events.filter((next) => next.type === 'content_delta').length, 1, 'the rest stays out')
+})
+
 test('stopping after a steer stops the turn the steer opened, and the rest of the stream stays out', async () => {
   const chat = await setup()
   const first = await chat.sendRunning('investigate')

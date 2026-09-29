@@ -11,7 +11,7 @@
 // AgentChatView.test.ts so the streaming/approval/interrupt/failure states have
 // node-level coverage without rendering.
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   LegendList,
@@ -54,9 +54,11 @@ import {
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  GhostButton,
   IconButton,
   InlineNotice,
   OutlineButton,
+  Spinner,
   useWorkspaceSkills,
   Textarea,
   Tooltip,
@@ -70,6 +72,7 @@ import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
 import type { CliRuntimeOption } from '../ui/CliModelPicker'
 import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
+import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
 import {
@@ -111,7 +114,9 @@ import {
   readImageAttachment,
 } from './agentChat/imageAttachments'
 import { ConversationPendingDock } from './agentChat/pendingDock'
-import { QueuedTurnBubble, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
+import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
+import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
+import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
@@ -437,7 +442,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // is the same event, so it stamps the same clock here — without this these
   // chats would sit at their creation time for ever while every CLI chat moved.
   const recordUserMessage = binding.recordUserMessage
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
+  // A chat in a workspace on a WSL machine runs that machine's `claude`.
+  const workspaceHostId = workspace?.hostId
+  const cliRuntimes = useMemo(
+    () => conversationCliRuntimesFor(appCliRuntimes, workspaceHostId, hostSettings),
+    [appCliRuntimes, workspaceHostId, hostSettings],
+  )
   const conversation = agent.conversation
   const label = agent.name ?? agentId
   const workspaceRoot = binding.workspaceRoot
@@ -542,6 +554,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Steers whose `user_message` is in the conversation while their send has
   // not settled yet.
   const landedSteerIdsRef = useRef(new Set<string>())
+  // A steer the runtime refused this turn: what is queued then waits for the
+  // turn to end instead of being handed over again.
+  const steerRefusedRef = useRef(false)
   // The composer's right-click menu (1793); null when closed. Opening it snapshots
   // the click point, the field's selection, and the clipboard, so the menu's
   // enable states describe the moment the user asked for it.
@@ -806,30 +821,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     [conversationKey, observeScroll, atBottomRef, isRestoringScroll],
   )
-  // The queued message floats over the foot of the transcript (see
-  // queuedTurnBubble.tsx). Its height is kept as space at the end of the list,
-  // so the last reply can still scroll clear of it, and "Jump to latest" sits
-  // above it rather than on it.
-  const [queuedOverlay, setQueuedOverlay] = useState<HTMLDivElement | null>(null)
-  const [queuedOverlayHeight, setQueuedOverlayHeight] = useState(0)
-  useLayoutEffect(() => {
-    if (!queuedOverlay) {
-      setQueuedOverlayHeight(0)
-      return
-    }
-    const measure = () => setQueuedOverlayHeight(queuedOverlay.offsetHeight)
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(queuedOverlay)
-    return () => observer.disconnect()
-  }, [queuedOverlay])
-  // A reader at the end stays at the end as the space opens, so the reply
-  // they were following is not left under the bubble.
-  useEffect(() => {
-    if (queuedOverlayHeight > 0 && atBottomRef.current) void listRef.current?.scrollToEnd({ animated: false })
-  }, [queuedOverlayHeight, atBottomRef])
-
   const jumpToLatest = useCallback(() => {
     void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
     atBottomRef.current = true
@@ -1172,11 +1163,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Set further down, once the model picker and effort control it drives are
   // known; answers whether it handled the message.
   const runAppCommandRef = useRef<(text: string, attachments: number) => boolean>(() => false)
+  // Set further down, once what "send it now" can do is known; answers whether
+  // the message went into the running turn.
+  const steerOnSendRef = useRef<(turn: QueuedTurn) => boolean>(() => false)
   // Composer submit (Enter or the send affordance). Sends immediately when the
-  // session is idle; queues the message when a turn is streaming or awaiting
-  // approval, so the user gets terminal-style type-ahead without the send
-  // erroring against the runtime's turn guard (D6/1776). The flush effect below
-  // sends the queued message the moment the session unlocks.
+  // session is idle. While a turn runs, an agent that takes messages mid-turn
+  // gets it at once (a steer); otherwise, or while it cannot take one yet (a
+  // card is open, a steer is still landing), the message queues, so the user
+  // gets terminal-style type-ahead without the send erroring against the
+  // runtime's turn guard (D6/1776). The flush effect below sends the queued
+  // message the moment the session unlocks.
   const submitComposer = useCallback(() => {
     const text = draft.trim()
     if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
@@ -1184,12 +1180,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     // here whatever the turn is doing: it never reaches the CLI or the queue.
     if (runAppCommandRef.current(text, attachments.length)) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
-      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
-      setQueuedTurn(turn)
-      clearDraft()
-      setAttachments([])
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
+      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+      setQueuedTurn(steerOnSendRef.current(turn) ? null : turn)
+      clearDraft()
+      setAttachments([])
       setActionError(queuedDropNotice(dropped))
       return
     }
@@ -1437,11 +1433,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // is optimistic as any send's is, and lands where the runtime delivered it.
   // A refused steer goes back to the head of the queue, so it still goes when
   // the turn ends rather than being lost.
-  const putBackQueued = (turn: QueuedTurn) =>
+  const putBackQueued = (turn: QueuedTurn) => {
+    // It waits for the turn to end from here on; handing it straight back
+    // would only be refused again.
+    steerRefusedRef.current = true
     setQueuedTurn((current) => {
       if (!current) return turn
       return queueComposerDraft(turn, current.text, current.attachments, current.metadata).turn
     })
+  }
   const steerTurn = async (turn: QueuedTurn) => {
     // The queue was emptied to hand this message over; with no session to
     // take it, it goes back rather than vanishing.
@@ -1522,6 +1522,21 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     stopping: pending === 'stopping',
     steering: steeringTurnId !== null,
   })
+  steerOnSendRef.current = (turn) => {
+    if (queuedSendNow.kind !== 'steer' || queuedSendNow.disabled || !operate) return false
+    void steerTurn(turn)
+    return true
+  }
+  // A message that queued only because the agent could not take it just then
+  // (a card was open, the last steer was still landing) goes in as soon as it
+  // can, as one sent at that moment would have.
+  useEffect(() => {
+    if (!projection.activeTurn) steerRefusedRef.current = false
+  }, [projection.activeTurn])
+  useEffect(() => {
+    if (queuedTurn === null || steerRefusedRef.current) return
+    if (steerOnSendRef.current(queuedTurn)) setQueuedTurn(null)
+  }, [queuedTurn, queuedSendNow.kind, queuedSendNow.disabled])
   const sendQueuedNow = (turn: QueuedTurn) => {
     if (queuedSendNow.disabled || !operate) {
       setQueuedTurn(turn)
@@ -1966,7 +1981,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     : !ready
       ? readinessLabel(readiness)
       : projection.activeTurn
-        ? 'Reply — sends when the turn finishes'
+        ? canSteer
+          ? 'Reply — the agent takes it as it works'
+          : 'Reply — sends when the turn finishes'
         : 'Send a message…'
 
   // Retry lives on the failed turn's error block in the transcript; only the
@@ -2123,6 +2140,23 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     : !persistenceError && !historyError && orphanTurnError
       ? retry
       : null
+  // An error set by this view's own action is cleared at its source; one that
+  // comes from elsewhere (the draft store, the history subscription, the
+  // projection) is hidden until it clears and a new one arrives.
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!composerError) setDismissedError(null)
+  }, [composerError])
+  const dismissComposerError = () => {
+    if (actionError) setActionError(null)
+    else setDismissedError(composerError)
+  }
+  // The session's standing notices, dismissed by their words for as long as
+  // this view is open: the same notice again says nothing new.
+  const [dismissedNotices, setDismissedNotices] = useState<ReadonlySet<string>>(() => new Set())
+  const dismissNotice = (notice: string) => setDismissedNotices((current) => new Set(current).add(notice))
+  const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
+  const requestPending = pendingApprovalEntries.length > 0
 
   return (
     <ConversationLinkProvider
@@ -2137,39 +2171,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. A remote pane brings its own header. */}
           {binding.header ?? null}
-          {/* Loading is not a notice — it is the state the screen is in, so it reads
-          as the quiet line it is; anything else here is a degraded session. */}
-          {!ready && timelineRows.length > 0 ? (
-            readiness.kind === 'loading' ? (
-              <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">
-                {readinessLabel(readiness)}
-              </p>
-            ) : (
-              <InlineNotice tone="warn" className="mx-3 my-2">
-                {readinessLabel(readiness)}
-              </InlineNotice>
-            )
-          ) : null}
-          {/* Warn only about the CURRENT session: after a restart the replayed
-          transcript may carry a previous session's source, but no session is
-          live until the next send (which resets the source via
-          session_started). Only a source that bills API usage warns: a
-          subscription login reports `none`. */}
-          {sessionId !== null && apiKeyBillingNotice(projection.apiKeySource) !== null ? (
-            <InlineNotice tone="warn" className="mx-3 my-2">
-              {apiKeyBillingNotice(projection.apiKeySource)}
-            </InlineNotice>
-          ) : null}
-          {sessionId !== null && projection.sessionNotice !== null ? (
-            <InlineNotice tone="warn" className="mx-3 my-2">
-              {projection.sessionNotice}
-            </InlineNotice>
-          ) : null}
-          {capabilities?.checkpoints === true && projection.checkpointNotice !== null ? (
-            <InlineNotice tone="warn" className="mx-3 my-2">
-              {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
-            </InlineNotice>
-          ) : null}
 
           <div
             ref={transcriptRef}
@@ -2273,9 +2274,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
-                ListFooterComponent={
-                  queuedOverlayHeight > 0 ? <div aria-hidden="true" style={{ height: queuedOverlayHeight }} /> : null
-                }
               />
             )}
             <TimelineMinimap navigation={turnNavigation} />
@@ -2296,70 +2294,107 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 size="xs"
                 onClick={jumpToLatest}
                 className="absolute -top-10 left-1/2 z-[var(--z-float)] -translate-x-1/2 whitespace-nowrap"
-                style={queuedOverlayHeight > 0 ? { top: `calc(-2.5rem - ${queuedOverlayHeight}px)` } : undefined}
               >
                 <ChevronDownIcon className="icon-xs shrink-0" />
                 {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
               </OutlineButton>
             ) : null}
-            <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
-            <ConversationPendingDock
-              pendingApprovals={pendingApprovalEntries}
-              workspaceRoot={workspaceRoot ?? undefined}
-              workspaceName={workspace?.name}
-              onApprove={resolveApproval}
-              // Read-only: the pending requests are shown, not answerable.
-              busy={respondingRequestId !== null || !operate}
-            />
-
             {/*
-             * A turn failure renders as a structured error block in the transcript
-             * (with its own Retry), so here we only restate text for action errors
-             * that never reach the transcript (start/send/IPC) — plus the orphan
-             * case: a turn_failed that attached to no turn (no turnId while nothing
-             * was streaming) sets lastError without a failed transcript entry, and
-             * must still surface somewhere in the chat.
+             * The composer tray: everything the chat has to say about the next
+             * message, one row each, most urgent against the composer — the
+             * state of the session, then the agent's checklist, the cache and
+             * the context window, what is queued, what the agent is waiting on,
+             * and last what failed. While the agent is blocked on a request, the
+             * checklist, the cache and the context window step aside for it;
+             * what the session can and cannot do, and what the person just
+             * changed, stay beside it.
              */}
-            {composerError ? (
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <TruncatedText
-                  as="span"
-                  text={composerError}
-                  className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
-                />
-                {composerRetry ? (
-                  <OutlineButton onClick={composerRetry} disabled={composerDisabled} className="shrink-0">
-                    Retry
-                  </OutlineButton>
-                ) : null}
-              </div>
-            ) : null}
+            <ComposerTray>
+              {/* Loading is not a warning — it is the state the screen is in,
+                so it reads as the quiet line it is; anything else here is a
+                degraded session. */}
+              {!ready && timelineRows.length > 0 ? (
+                readiness.kind === 'loading' ? (
+                  <ComposerTrayRow glyph={<Spinner />}>{readinessLabel(readiness)}</ComposerTrayRow>
+                ) : (
+                  <ComposerTrayRow tone="warn">{readinessLabel(readiness)}</ComposerTrayRow>
+                )
+              ) : null}
+              {/* Warn only about the CURRENT session: after a restart the
+                replayed transcript may carry a previous session's source, but
+                no session is live until the next send (which resets the source
+                via session_started). Only a source that bills API usage warns:
+                a subscription login reports `none`. */}
+              {sessionId !== null && billingNotice !== null && !dismissedNotices.has(billingNotice) ? (
+                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(billingNotice)}>
+                  {billingNotice}
+                </ComposerTrayRow>
+              ) : null}
+              {sessionId !== null &&
+              projection.sessionNotice !== null &&
+              !dismissedNotices.has(projection.sessionNotice) ? (
+                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(projection.sessionNotice!)}>
+                  {projection.sessionNotice}
+                </ComposerTrayRow>
+              ) : null}
+              {capabilities?.checkpoints === true &&
+              projection.checkpointNotice !== null &&
+              !dismissedNotices.has(projection.checkpointNotice) ? (
+                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(projection.checkpointNotice!)}>
+                  {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
+                </ComposerTrayRow>
+              ) : null}
+              {/*
+               * A permission change the provider recorded but cannot apply to
+               * the turn already streaming (1808). Information, not a failure:
+               * the pill already shows the new preset, and this says when it
+               * starts applying.
+               */}
+              {permissionNotice ? (
+                <ComposerTrayRow tone="neutral" onDismiss={() => setPermissionNotice(null)}>
+                  <span className="text-[color:var(--text-muted)]">{permissionNotice}</span>
+                </ComposerTrayRow>
+              ) : null}
+              {requestPending ? null : (
+                <>
+                  <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
+                  {/* The prompt cache about to go cold, or gone: what the next
+                    message puts at stake, and `/compact` — which Claude Code runs
+                    as its own command — to shrink it. Only a Claude chat reports
+                    a cache, and only a view that can send may offer to compact
+                    it. */}
+                  {operate && chatCli === 'claude-code' ? (
+                    <PromptCacheComposerNotice
+                      reading={projection.promptCache}
+                      busy={composerBusy}
+                      onCompact={() => void sendTurn('/compact')}
+                    />
+                  ) : null}
+                  {contextLength ? (
+                    <ContextWindowNotice
+                      used={usedTokens}
+                      total={contextLength}
+                      onCompact={
+                        operate && (chatCli === 'claude-code' || chatCli === 'codex')
+                          ? () => void sendTurn('/compact')
+                          : undefined
+                      }
+                      compactDisabled={composerDisabled}
+                    />
+                  ) : null}
+                </>
+              )}
 
-            {/*
-             * A permission change the provider recorded but cannot apply to the turn
-             * already streaming (1808). Information, not a failure: the pill already
-             * shows the new preset, and this says when it starts applying.
-             */}
-            {permissionNotice ? (
-              <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
-                {permissionNotice}
-              </p>
-            ) : null}
-
-            {/*
-             * Queued message: the user typed ahead and committed while the turn
-             * was busy. It auto-sends the moment the session unlocks; Send now
-             * hands it to the running turn (or stops the turn, where the provider
-             * cannot take it mid-turn), and Edit takes it back into the composer.
-             * Kept truthful so a queued turn is never a silent, invisible pending
-             * action.
-             */}
-            {queuedTurn ? (
-              <div
-                ref={setQueuedOverlay}
-                className="pointer-events-none absolute inset-x-4 bottom-full z-[var(--z-pane)] pb-2"
-              >
-                <QueuedTurnBubble
+              {/*
+               * Queued message: the user typed ahead and committed while the turn
+               * was busy. It auto-sends the moment the session unlocks; Send now
+               * hands it to the running turn (or stops the turn, where the
+               * provider cannot take it mid-turn), and Edit takes it back into
+               * the composer. Kept truthful so a queued turn is never a silent,
+               * invisible pending action.
+               */}
+              {queuedTurn ? (
+                <QueuedTurnRow
                   text={queuedTurn.text}
                   attachments={queuedTurn.attachments}
                   sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
@@ -2378,23 +2413,42 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                     composerRef.current?.focus()
                   }}
                 />
-              </div>
-            ) : null}
+              ) : null}
 
-            {/* The prompt cache about to go cold, or gone: what the next message
-              re-sends, and `/compact` — which Claude Code runs as its own
-              command — to shrink it. Only a Claude chat reports a cache, and
-              only a view that can send may offer to compact it. */}
-            {operate && chatCli === 'claude-code' ? (
-              <PromptCacheComposerNotice
-                reading={projection.promptCache}
-                busy={
-                  isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) ||
-                  steeringTurnId !== null
-                }
-                onCompact={() => void sendTurn('/compact')}
+              <ConversationPendingDock
+                pendingApprovals={pendingApprovalEntries}
+                workspaceRoot={workspaceRoot ?? undefined}
+                workspaceName={workspace?.name}
+                onApprove={resolveApproval}
+                // Read-only: the pending requests are shown, not answerable.
+                busy={respondingRequestId !== null || !operate}
               />
-            ) : null}
+
+              {/*
+               * A turn failure renders as a structured error block in the
+               * transcript (with its own Retry), so here we only restate text for
+               * action errors that never reach the transcript (start/send/IPC) —
+               * plus the orphan case: a turn_failed that attached to no turn (no
+               * turnId while nothing was streaming) sets lastError without a
+               * failed transcript entry, and must still surface somewhere in the
+               * chat.
+               */}
+              {composerError && composerError !== dismissedError ? (
+                <ComposerTrayRow
+                  tone="error"
+                  onDismiss={dismissComposerError}
+                  actions={
+                    composerRetry ? (
+                      <OutlineButton size="xs" onClick={composerRetry} disabled={composerDisabled}>
+                        Retry
+                      </OutlineButton>
+                    ) : null
+                  }
+                >
+                  {composerError}
+                </ComposerTrayRow>
+              ) : null}
+            </ComposerTray>
 
             {/*
              * Composer: a single rounded field that holds the textarea and a footer
@@ -2695,6 +2749,10 @@ function ChatShell({
   )
 }
 
+// Where the context window counts as nearly full: the meter's ring turns amber
+// and the composer tray says so in words.
+const CONTEXT_NEAR_FULL = 0.9
+
 // Compact context-window meter: a ring that fills as the conversation consumes
 // the model's context, plus "used / total" in tokens. Shown only when the
 // provider reports a context length (e.g. OpenRouter's `context_length`).
@@ -2702,7 +2760,7 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   const fraction = Math.max(0, Math.min(1, total > 0 ? used / total : 0))
   const radius = 6
   const circumference = 2 * Math.PI * radius
-  const nearFull = fraction >= 0.9
+  const nearFull = fraction >= CONTEXT_NEAR_FULL
   return (
     <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
       <span className="inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
@@ -2723,6 +2781,50 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
         {formatTokens(used)}
       </span>
     </Tooltip>
+  )
+}
+
+// The context window nearly full, as a row of the composer tray. Compacting is
+// offered where the chat's CLI runs `/compact`. "Not now" holds until the window
+// drops back under the mark — a compaction, or a new session — so a window
+// that fills again says so again.
+function ContextWindowNotice({
+  used,
+  total,
+  onCompact,
+  compactDisabled,
+}: {
+  used: number
+  total: number
+  onCompact?: () => void
+  compactDisabled: boolean
+}) {
+  const fraction = total > 0 ? used / total : 0
+  const nearFull = fraction >= CONTEXT_NEAR_FULL
+  const [dismissed, setDismissed] = useState(false)
+  useEffect(() => {
+    if (!nearFull) setDismissed(false)
+  }, [nearFull])
+  if (!nearFull || dismissed) return null
+  return (
+    <ComposerTrayRow
+      tone="warn"
+      actions={
+        <>
+          {onCompact ? (
+            <GhostButton size="xs" disabled={compactDisabled} onClick={onCompact}>
+              <CompactGlyph className="icon-xs" />
+              Compact
+            </GhostButton>
+          ) : null}
+          <GhostButton size="xs" onClick={() => setDismissed(true)}>
+            Not now
+          </GhostButton>
+        </>
+      }
+    >
+      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokens(used)} of {formatTokens(total)} tokens
+    </ComposerTrayRow>
   )
 }
 
