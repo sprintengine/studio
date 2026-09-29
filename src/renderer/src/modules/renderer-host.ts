@@ -555,6 +555,13 @@ export type SurfaceViewDefinition = {
 // component is zero-prop and owns its own data/state, exactly like a panel.
 export type GlobalSurfaceComponent = ComponentType | LazyExoticComponent<ComponentType>
 
+// The shell's own surface openers, behind a module's `openGlobalSurface` /
+// `openModalSurface`: the same store actions a door or a pane row calls.
+export type ModuleSurfaceOpener = {
+  openGlobalSurface(id: string): void
+  openModalSurface(id: string): void
+}
+
 // Where a door's own rail goes while the door is open (Extensions drawer
 // ruling, 2026-09-05).
 //
@@ -825,6 +832,18 @@ export type RendererHost = {
    * is not exactly one character, a missing Glyph) throws at registration.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
+  /**
+   * Open one of THIS module's global surfaces, as if its door had been picked.
+   * False for an id this module did not register, while the module is
+   * disabled, or before the shell has wired its surface opener.
+   */
+  openGlobalSurface(id: string): boolean
+  /**
+   * Open one of THIS module's modal surfaces over whatever the window shows.
+   * False for an id this module did not register, while the module is
+   * disabled, or before the shell has wired its surface opener.
+   */
+  openModalSurface(id: string): boolean
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
@@ -1098,6 +1117,12 @@ export type RendererKernel = {
   setModuleAssetOrigin(moduleId: string, origin: string): void
   setWorkspaceOpener(opener: (typeId: string) => Promise<string>): void
   /**
+   * Surface backend for `RendererHost.openGlobalSurface` / `openModalSurface`.
+   * Wired once at boot by modules/index.ts over the workspace store's own
+   * openers; absent (early boot, tests) both answer false.
+   */
+  setSurfaceOpener(opener: ModuleSurfaceOpener): void
+  /**
    * Backing store for the per-module workspace-state accessors.
    * Wired once at boot by modules/index.ts over the workspace store's bag;
    * absent (early boot, tests) reads resolve undefined and writes report
@@ -1213,6 +1238,7 @@ export function createRendererHost(): RendererKernel {
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
   let workspaceOpener: ((typeId: string) => Promise<string>) | null = null
+  let surfaceOpener: ModuleSurfaceOpener | null = null
   let workspaceModuleStateStore: WorkspaceModuleStateStore | null = null
   let moduleAppStateStore: ModuleAppStateStore | null = null
   // Both backings are wired a microtask after boot, but modules register
@@ -1303,7 +1329,12 @@ export function createRendererHost(): RendererKernel {
     hostFor(moduleId, manifest) {
       return {
         hostApiVersion: HOST_API_VERSION,
-        supports: hostSupports,
+        supports(capability) {
+          // Opening a chat needs the shell's opener, which a window registers
+          // once it mounts; the answer follows it rather than a table.
+          if (capability === 'chat.open') return getWorkspaceChatOpener() !== null
+          return hostSupports(capability)
+        },
         registerPanel(componentId, component) {
           if (panels.has(componentId)) {
             throw new Error(`Renderer panel "${componentId}" is already registered.`)
@@ -1545,6 +1576,20 @@ export function createRendererHost(): RendererKernel {
               : {}),
             moduleId,
           })
+        },
+        openGlobalSurface(id) {
+          const surface = typeof id === 'string' ? globalSurfaces.get(id.trim()) : undefined
+          if (surface?.moduleId !== moduleId || !surfaceOpener) return false
+          if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) return false
+          surfaceOpener.openGlobalSurface(surface.id)
+          return true
+        },
+        openModalSurface(id) {
+          const surface = typeof id === 'string' ? modalSurfaces.get(id) : undefined
+          if (surface?.moduleId !== moduleId || !surfaceOpener) return false
+          if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) return false
+          surfaceOpener.openModalSurface(surface.id)
+          return true
         },
         provideBacklogReader(reader) {
           // The Backlog read API is the backlog module's to serve; another
@@ -1849,6 +1894,9 @@ export function createRendererHost(): RendererKernel {
     },
     setWorkspaceOpener(opener) {
       workspaceOpener = opener
+    },
+    setSurfaceOpener(opener) {
+      surfaceOpener = opener
     },
     setWorkingRootResolver(resolver) {
       workingRootResolver = resolver

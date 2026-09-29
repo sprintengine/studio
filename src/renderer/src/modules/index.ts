@@ -378,6 +378,12 @@ if (typeof window !== 'undefined') {
             focusFileTab: (workspaceId, absolutePath) => modelRegistry.focusFileTab(workspaceId, absolutePath),
           }),
         )
+        // A module opens its own surfaces through the store actions its door
+        // and pane row call; the kernel has already checked the id is its own.
+        rendererHost.setSurfaceOpener({
+          openGlobalSurface: (id) => useWorkspaceStore.getState().openGlobalSurface(id),
+          openModalSurface: (id) => useWorkspaceStore.getState().openModalSurface(id),
+        })
         // The chat runtimes, from the same availability-filtered catalog the
         // shell's own chat picker narrows to CLIs with a conversation runtime.
         rendererHost.setChatRuntimeSource(() => {
