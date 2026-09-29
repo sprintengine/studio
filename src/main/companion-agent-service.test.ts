@@ -161,6 +161,8 @@ test('companion-agent-service', async () => {
       assert.deepEqual(runtime.listSessions({ workspaceId: 'workspace' }).ok, true)
       assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 0)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -194,6 +196,8 @@ test('companion-agent-service', async () => {
       assert.equal(statuses[0], 'absent')
       assert.ok(statuses.includes('ready'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -218,6 +222,8 @@ test('companion-agent-service', async () => {
       assert.equal(script.seenMessages[1].includes('You are the review guide.'), false)
       assert.ok(script.seenMessages[1].includes('Second.'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -246,6 +252,8 @@ test('companion-agent-service', async () => {
       assert.ok(script.seenMessages[1].includes('could not be accepted'))
       assert.ok(phases.includes('retrying'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -276,6 +284,8 @@ test('companion-agent-service', async () => {
       // Default retries = 1, so exactly two attempts.
       assert.equal(script.seenMessages.length, 2)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -308,6 +318,8 @@ test('companion-agent-service', async () => {
       const sessionIdAfterReuse = okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.sessionId
       assert.equal(sessionIdAfterReuse, sessionIdAfterInterrupt)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -333,6 +345,8 @@ test('companion-agent-service', async () => {
       const value = await second
       assert.deepEqual(value, { done: true })
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -365,6 +379,8 @@ test('companion-agent-service', async () => {
       assert.ok(secondSessionId)
       assert.notEqual(secondSessionId, firstSessionId)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -379,6 +395,8 @@ test('companion-agent-service', async () => {
       const b = service.attach({ ...SPEC_BASE, workspaceRoot })
       assert.equal(a, b)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -414,6 +432,8 @@ test('companion-agent-service', async () => {
       assert.ok(events.includes('approval_resolved'))
       assert.ok(events.includes('turn_completed'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -459,6 +479,8 @@ test('companion-agent-service', async () => {
       assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 1)
       assert.equal(handle.status(), 'ready')
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -500,6 +522,8 @@ test('companion-agent-service', async () => {
       assert.ok(serialized.includes('[redacted]'))
       assert.ok(serialized.includes('safe'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -528,6 +552,8 @@ test('companion-agent-service', async () => {
       const handle = registry.attach('with-perm', spec)
       assert.equal(handle.status(), 'absent')
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }

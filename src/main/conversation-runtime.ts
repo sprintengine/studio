@@ -305,6 +305,10 @@ export class ConversationRuntime {
   private readonly checkpointsExpiredAt = new Map<string, number>()
   // Housekeeping that must not delay the caller but must finish before shutdown.
   private readonly background = new Set<Promise<unknown>>()
+  // The index refresh a finished turn runs in the background, per transcript,
+  // so stopping or settling the chat can wait for it: a refresh that landed
+  // after the workspace was closed or deleted would write its folder back.
+  private readonly indexRefreshes = new Map<string, Promise<unknown>>()
   private readonly emissionTails = new Map<string, Promise<unknown>>()
   private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
   private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
@@ -1192,7 +1196,9 @@ export class ConversationRuntime {
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
     // A child still being spawned when the stop came is cancelled, not left behind.
     adapter.disposeChildProcess?.(session.sessionId)
-    await this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    await this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
     await this.closeToolStreams(session)
     session.activeTurnId = null
     session.pendingRequestId = null
@@ -1236,7 +1242,9 @@ export class ConversationRuntime {
     if (this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId, { force: true }))
       // No child is left to send events for a turn it was told to cancel.
       session.canceledTurnIds.clear()
-    void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    void this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
     // A settled chat drops what it holds, as a settled terminal agent does; a
     // send after it is woken reads back what it needs.
     if (!isSessionBusy(session)) {
@@ -1631,8 +1639,16 @@ export class ConversationRuntime {
     // The thread index is a cache, and a listing brings a stale row up to date
     // itself: refreshing it after the turn's end is out never holds that end,
     // or the events queued behind it, back from the chat.
-    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped')
-      this.runInBackground(this.threadIndex.refresh(session))
+    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped') {
+      const refresh = this.threadIndex
+        .refresh(session)
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.indexRefreshes.get(path) === refresh) this.indexRefreshes.delete(path)
+        })
+      this.indexRefreshes.set(path, refresh)
+      this.runInBackground(refresh)
+    }
     if (automaticRequestId)
       void this.respondToRequest({
         sessionId: session.sessionId,
