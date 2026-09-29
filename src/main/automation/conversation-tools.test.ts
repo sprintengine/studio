@@ -7,7 +7,7 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 
 function tool(launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>) {
-  const [registration] = createConversationTools({ launch })
+  const [registration] = createConversationTools({ launch, resolveAgentPermissionPreset: () => 'bypass' })
   assert.equal(registration?.name, 'conversation.create')
   return registration!
 }

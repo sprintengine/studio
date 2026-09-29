@@ -1,6 +1,11 @@
 import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ConversationLaunchService } from '../conversation-launch-service'
+import {
+  capLaunchPermissionPreset,
+  launchPermissionCeiling,
+  type AgentPermissionResolver,
+} from './launch-permission-cap'
 
 /**
  * Starting a chat is a mutation: audited, and on the tailnet it needs
@@ -12,6 +17,8 @@ export const CONVERSATION_MUTATION_TOOL_NAMES: readonly string[] = ['conversatio
 
 export type ConversationToolsDeps = {
   launch: ConversationLaunchService['launch']
+  /** The calling agent's own preset, which a chat it starts may not exceed (launch-permission-cap.ts). */
+  resolveAgentPermissionPreset: AgentPermissionResolver
 }
 
 export function createConversationTools(deps: ConversationToolsDeps): McpToolRegistration[] {
@@ -45,7 +52,9 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             enum: ['bypass', 'none'],
             description:
               'Tool permissions: "bypass" skips the CLI\'s prompts; "none" lets the CLI\'s configuration decide, ' +
-              'surfacing its prompts as approvals. Omitted, the preset chosen for that CLI on this machine.',
+              'surfacing its prompts as approvals. Omitted, the preset chosen for that CLI on this machine. ' +
+              "Called by an agent of this app, the chat runs no looser than that agent's own preset: a looser " +
+              'one is refused with "permission_escalation", and an omitted one takes the stricter of the two.',
           },
           prompt: { type: 'string', description: "The chat's first message." },
           name: { type: 'string', description: 'Agent display name; one from the name pool when omitted.' },
@@ -53,7 +62,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         required: ['workspaceId'],
         additionalProperties: false,
       },
-      handler: async (args) => {
+      handler: async (args, context) => {
         if (typeof args.workspaceId !== 'string' || !args.workspaceId.trim()) {
           return toolError('invalid_arguments', '"workspaceId" is required.')
         }
@@ -70,6 +79,11 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         if (permissionPreset === null) {
           return toolError('invalid_arguments', '"permissionPreset" must be "bypass" or "none".')
         }
+        const capped = capLaunchPermissionPreset(
+          permissionPreset,
+          launchPermissionCeiling(context, deps.resolveAgentPermissionPreset),
+        )
+        if ('refused' in capped) return toolError(capped.refused.code, capped.refused.message)
         const launched = await deps.launch({
           workspaceId: args.workspaceId.trim(),
           ...(args.newChat === true ? { newChat: true } : {}),
@@ -77,7 +91,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           ...(typeof args.cliModel === 'string' ? { cliModel: args.cliModel } : {}),
           ...(typeof args.prompt === 'string' ? { prompt: args.prompt } : {}),
           ...(typeof args.name === 'string' ? { name: args.name } : {}),
-          ...(permissionPreset ? { permissionPreset } : {}),
+          ...(capped.permissionPreset ? { permissionPreset: capped.permissionPreset } : {}),
         })
         if (!launched.ok) return toolError(launched.code, launched.message)
         return toolSuccess({

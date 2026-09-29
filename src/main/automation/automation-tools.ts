@@ -3,7 +3,7 @@ import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { isMostPermissiveCliPermissionPreset, parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { resolvePermissionArgs } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
@@ -59,6 +59,13 @@ import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '.
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
+import {
+  capAutomationDraft,
+  capLaunchPermissionPreset,
+  launchPermissionCeiling,
+  refuseAutomationRun,
+  type AgentPermissionResolver,
+} from './launch-permission-cap'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
@@ -80,13 +87,26 @@ const CONFIRM_POLL_INTERVAL_MS = 150
 // as a person at the launcher can. An omitted preset is not floored here; the
 // launch service resolves it the way the desktop launcher does, so an agent
 // started from outside runs on the preset the spawn footer shows for its CLI.
+// The one exception is a caller that is itself one of this app's agents: it
+// launches at its own preset or stricter (launch-permission-cap.ts).
 const LAUNCH_PERMISSION_PRESETS = ['none', 'bypass'] as const satisfies readonly CliPermissionPreset[]
+
+// Said on every launching tool, so an agent learns the rule before it is refused by it.
+const CALLER_PRESET_CAP_SENTENCE =
+  "Called by an agent of this app, the launch runs no looser than that agent's own preset: a looser one " +
+  'is refused with "permission_escalation", and an omitted one takes the stricter of the two.'
 
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   listTerminalSessions(): TerminalSessionSnapshot[]
   /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
+  /**
+   * The preset an agent of this app is running on now. A connection that
+   * declares itself one of them launches no looser than this; see
+   * launch-permission-cap.ts.
+   */
+  resolveAgentPermissionPreset: AgentPermissionResolver
   /**
    * Mint a workspace in main's registry. Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
@@ -406,11 +426,31 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return requested
   }
 
+  // The validated preset held to the calling agent's own (launch-permission-cap.ts):
+  // the preset to forward, `undefined` to leave it to the launch service, or
+  // the failure — `permission_escalation` for a preset looser than the caller's.
+  function cappedPermissionPreset(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined,
+  ): CliPermissionPreset | undefined | McpToolResult {
+    const requested = validatePermissionPreset(args)
+    if (requested !== undefined && typeof requested !== 'string') return requested
+    const capped = capLaunchPermissionPreset(
+      requested,
+      launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+    )
+    if ('refused' in capped) return failure(capped.refused.code, capped.refused.message)
+    return capped.permissionPreset
+  }
+
   // The launch-config fields agent.launch and backlog.work both accept:
   // `permissionPreset` (either preset, or omitted for the spawn default)
   // and `worktree` (an object with an optional name — never a bare cwd). Returns
   // the resolved options or a failure McpToolResult.
-  function resolveLaunchOptions(args: Record<string, unknown>):
+  function resolveLaunchOptions(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined,
+  ):
     | {
         permissionPreset?: CliPermissionPreset
         worktreeRequested: boolean
@@ -418,7 +458,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         worktreeBaseRef?: string
       }
     | McpToolResult {
-    const preset = validatePermissionPreset(args)
+    const preset = cappedPermissionPreset(args, context)
     if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
     let worktreeName: string | undefined
@@ -442,7 +482,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return {
       // Forwarded as the caller sent it, absent included: the launch service
       // fills an absent preset from the person's choice for the CLI, else the
-      // app default, which is the same answer the desktop launcher gives.
+      // app default, which is the same answer the desktop launcher gives. An
+      // agent's own launch arrives here already held to its cap.
       ...(preset ? { permissionPreset: preset } : {}),
       worktreeRequested,
       worktreeName,
@@ -798,7 +839,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             "passes no permission flag, so the CLI's own configuration decides. Omitted, the launch takes the " +
             'preset chosen for that CLI on this machine, else the app default "bypass", exactly as the desktop ' +
             'launcher would. The older "bypass_all" is read as "bypass", and the retired "manual" and "auto" ' +
-            'as "none".',
+            'as "none". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
         connectorId: {
           type: 'string',
@@ -825,13 +867,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       required: ['workspaceId'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId', 'host'])
       if (invalid) return invalid
 
-      const options = resolveLaunchOptions(args)
+      const options = resolveLaunchOptions(args, context)
       if ('content' in options) return options
 
       const host = args.host === undefined ? undefined : normalizeExecutionHostId(args.host)
@@ -1147,13 +1189,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             "passes no permission flag, so the CLI's own configuration decides. Omitted, the launch takes the " +
             'preset chosen for that CLI on this machine, else the app default "bypass", exactly as the desktop ' +
             'launcher would. The older "bypass_all" is read as "bypass", and the retired "manual" and "auto" ' +
-            'as "none".',
+            'as "none". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
       },
       required: [],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const invalid = firstInvalidOptionalString(args, [
         'workspaceId',
         'workspaceName',
@@ -1167,12 +1210,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const resolved = resolveTerminalWorkspace(args)
       if (!('workspace' in resolved)) return resolved
 
-      const requestedPreset = validatePermissionPreset(args)
+      const requestedPreset = cappedPermissionPreset(args, context)
       if (requestedPreset !== undefined && typeof requestedPreset !== 'string') return requestedPreset
 
       // An omitted preset is left to the launch service, which resolves it the
       // way the desktop launcher does (owner ruling 2026-09-27): the person's
-      // choice for this CLI, else the app default, `bypass`.
+      // choice for this CLI, else the app default, `bypass` — unless the caller
+      // is an agent whose own preset is stricter, which it then launches on.
       const launched = await launchConfiguredAgent({
         workspaceId: resolved.workspace.id,
         cli: optionalString(args.cli),
@@ -1757,7 +1801,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             "passes no permission flag, so the CLI's own configuration decides. Omitted, the launch takes the " +
             'preset chosen for that CLI on this machine, else the app default "bypass", exactly as the desktop ' +
             'launcher would. The older "bypass_all" is read as "bypass", and the retired "manual" and "auto" ' +
-            'as "none".',
+            'as "none". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
         worktree: {
           type: 'object',
@@ -1779,7 +1824,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (typeof path !== 'string') return path
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'cliModel', 'instructions'])
       if (invalid) return invalid
-      const options = resolveLaunchOptions(args)
+      const options = resolveLaunchOptions(args, context)
       if ('content' in options) return options
       const resolved = resolveBacklogWorkspace(args, context)
       if (!('workspace' in resolved)) return resolved
@@ -1880,7 +1925,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'config.permissionPreset is "bypass" or "none"; omitted, the agent runs unattended on "bypass", ' +
       'which launches the CLI with its own skip-every-prompt flag. "none" passes no permission flag, so ' +
       "the CLI's own configuration decides; if that configuration asks for approval, an automation agent " +
-      'has nobody at its terminal and the run hangs until the idle reaper fails it.',
+      'has nobody at its terminal and the run hangs until the idle reaper fails it. ' +
+      CALLER_PRESET_CAP_SENTENCE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1895,7 +1941,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       required: ['workspaceId', 'definition'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       if (typeof args.definition !== 'object' || args.definition === null || Array.isArray(args.definition)) {
@@ -1904,14 +1950,42 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // The preset is the create pipeline's to validate, the same as a draft
       // from the Automations panel: an automation made from outside may run on
       // bypass exactly as one a person makes can (owner ruling 2026-09-27).
+      // One made by an agent of this app stores no looser a preset than the
+      // agent's own, since it launches later with nobody watching.
+      const capped = capAutomationDraft(
+        args.definition as Record<string, unknown>,
+        launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+      )
+      if ('refused' in capped) return failure(capped.refused.code, capped.refused.message)
       const resolved = resolveWorkspaceRoot(workspaceId)
       if (!('root' in resolved)) return resolved
       const frontDoor = automationsFrontDoorOrFailure()
       if (!('createDefinition' in frontDoor)) return frontDoor
-      const created = await frontDoor.createDefinition({ workspaceRoot: resolved.root, definition: args.definition })
+      const created = await frontDoor.createDefinition({ workspaceRoot: resolved.root, definition: capped.definition })
       if (!created.ok) return failure(created.code || 'automation_create_failed', created.message)
       return success({ automation: created.value })
     },
+  }
+
+  // Running an automation now launches what it stores, so an agent of this
+  // app may run only one whose launch would not exceed its own preset. The
+  // definition is read here rather than trusted to the run: nothing else on
+  // this path knows who asked.
+  async function refuseCappedAutomationRun(
+    workspaceRoot: string,
+    automationId: string,
+    context: McpConnectionContext | undefined,
+  ): Promise<McpToolResult | null> {
+    const ceiling = launchPermissionCeiling(context, backends.resolveAgentPermissionPreset)
+    if (ceiling === null || isMostPermissiveCliPermissionPreset(ceiling)) return null
+    const listed = await backends.listAutomationDefinitions(workspaceRoot)
+    if (!listed.ok) {
+      return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
+    }
+    // Unknown here is unknown to the run as well, which refuses it itself.
+    const definition = listed.values.find((candidate) => candidate.id === automationId)
+    const refusal = definition ? refuseAutomationRun(definition, ceiling) : null
+    return refusal ? failure(refusal.code, refusal.message) : null
   }
 
   const automationRun: McpToolRegistration = {
@@ -1919,7 +1993,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record ' +
       'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run ' +
-      'works with no app window open.',
+      'works with no app window open. Called by an agent of this app, the automation must launch no looser ' +
+      'than that agent\'s own preset, or the run is refused with "permission_escalation".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1929,7 +2004,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       required: ['workspaceId', 'automationId'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       const automationId = requireString(args, 'automationId')
@@ -1938,6 +2013,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!('root' in resolved)) return resolved
       const frontDoor = automationsFrontDoorOrFailure()
       if (!('runNow' in frontDoor)) return frontDoor
+      const refused = await refuseCappedAutomationRun(resolved.root, automationId, context)
+      if (refused) return refused
       const ran = await frontDoor.runNow({ workspaceRoot: resolved.root, automationId })
       if (!ran.ok) return failure(ran.code || 'automation_run_failed', ran.message)
       return success({ definition: ran.value.definition, run: ran.value.run })

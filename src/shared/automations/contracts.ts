@@ -17,8 +17,9 @@ export type AutomationCliPermissionPreset = 'none' | 'bypass'
 // Resolved in parseSpawnAgentConfig (src/main/automations/actions/spawn-agent.ts)
 // so every start path lands on the same answer, and read by the editor so the
 // control shows what an unset automation will actually run on. A definition that
-// names a preset keeps exactly that, and the automation MCP surface still refuses
-// `bypass` from an external caller (src/main/automation/automation-tools.ts).
+// names a preset keeps exactly that. One an agent of this app creates over the
+// gateway is written with no looser a preset than the agent's own, this default
+// included (src/main/automation/launch-permission-cap.ts).
 export const AUTOMATION_DEFAULT_PERMISSION_PRESET: AutomationCliPermissionPreset = 'bypass'
 
 export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'

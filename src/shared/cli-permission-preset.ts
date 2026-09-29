@@ -46,3 +46,31 @@ export function parseCliPermissionPreset(input: unknown): CliPermissionPreset | 
 export function normalizeCliPermissionPreset(input: unknown): CliPermissionPreset {
   return parseCliPermissionPreset(input) ?? 'bypass'
 }
+
+/**
+ * How much each preset lets an agent do without asking, strictest lowest. A
+ * `Record` over the union rather than a list, so a preset added to
+ * `CliPermissionPreset` does not compile until somebody decides where it sits.
+ *
+ * The order is what the gateway's launch cap compares: an agent may start
+ * another agent only at its own rank or below, so a preset added between the
+ * two has to be placed by what it permits, not by when it was added. `none`
+ * permits nothing the CLI's own configuration does not; `bypass` skips every
+ * prompt the CLI has.
+ */
+const CLI_PERMISSION_PRESET_RANK: Record<CliPermissionPreset, number> = {
+  none: 0,
+  bypass: 1,
+}
+
+/** Whether `candidate` lets an agent do more without asking than `reference` does. */
+export function isLooserCliPermissionPreset(candidate: CliPermissionPreset, reference: CliPermissionPreset): boolean {
+  return CLI_PERMISSION_PRESET_RANK[candidate] > CLI_PERMISSION_PRESET_RANK[reference]
+}
+
+/** Whether no preset lets an agent do more than `preset` already does. */
+export function isMostPermissiveCliPermissionPreset(preset: CliPermissionPreset): boolean {
+  return (Object.keys(CLI_PERMISSION_PRESET_RANK) as CliPermissionPreset[]).every(
+    (other) => !isLooserCliPermissionPreset(other, preset),
+  )
+}
