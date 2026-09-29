@@ -96,6 +96,11 @@ const BATTERY_STRETCH = 4
  */
 const SHARED_READ_MS = 1_500
 /**
+ * The pictures fetched from paired machines that main keeps, by the length of
+ * their data URLs: a handful of full-size pictures, many more small ones.
+ */
+const MAX_PICTURE_CHARS = 48 * 1024 * 1024
+/**
  * The kinds of change a machine's feed reports that this one reads. Anything
  * else — the `terminals` an older build still announces — names a list this
  * machine no longer reads.
@@ -1498,6 +1503,52 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       : listed
   }
 
+  // ── Pictures from paired machines ─────────────────────────────────────────
+  //
+  // A step's picture, fetched once and shared by every window that shows it.
+  // Each window used to fetch it for itself, and again whenever its own small
+  // cache let it go, and each fetch re-encoded up to 8 MB as base64 here. A
+  // step's picture does not change, so what was fetched is kept, the most
+  // recently shown longest, within a bound on the data URLs held.
+  type KeptPicture = { connectionId: string; result: Promise<MeshConversationImageResult>; chars: number }
+  const pictures = new Map<string, KeptPicture>()
+  let pictureChars = 0
+
+  function forgetPictures(connectionId: string): void {
+    for (const [id, kept] of pictures) {
+      if (kept.connectionId !== connectionId) continue
+      pictures.delete(id)
+      pictureChars -= kept.chars
+    }
+  }
+
+  async function fetchPicture(
+    connection: StoredMeshConnection,
+    key: { workspaceId: string; agentId: string },
+    toolUseId: string,
+    unsupported: string,
+  ): Promise<MeshConversationImageResult> {
+    const fetched = await fetchRemoteConversationImage({
+      endpoint: endpointOf(connection),
+      token: connection.deviceToken,
+      workspaceId: key.workspaceId,
+      agentId: key.agentId,
+      toolUseId,
+    })
+    if (!fetched.ok) {
+      if (fetched.code === 'unauthorized')
+        recordReachability(connection, { reachable: false, unauthorized: true, detail: fetched.message })
+      // A build from before the route answers it as any unknown route.
+      if (fetched.code === 'not_found' || fetched.code === 'http_404')
+        return { ok: false, code: 'images_unsupported', message: unsupported }
+      return fetched
+    }
+    return {
+      ok: true,
+      dataUrl: `data:${fetched.value.mediaType};base64,${fetched.value.bytes.toString('base64')}`,
+    }
+  }
+
   /**
    * Drop this machine's credential for one peer, and everything hanging off it.
    *
@@ -1512,6 +1563,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     peerCapabilities.delete(connectionId)
     forgetAway(connectionId)
     forgetSharedReads(connectionId)
+    forgetPictures(connectionId)
     stopWatch(connectionId)
     // Its followed conversations end, and what was kept of them goes too: a
     // transcript from a machine no longer paired is not this machine's to keep.
@@ -1633,25 +1685,36 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       const capabilities = peerCapabilities.get(connection.id)
       if (capabilities && !tailnetPeerSupports(capabilities, 'conversation-images'))
         return { ok: false, code: 'images_unsupported', message: unsupported }
-      const fetched = await fetchRemoteConversationImage({
-        endpoint: endpointOf(connection),
-        token: connection.deviceToken,
-        workspaceId: key.workspaceId,
-        agentId: key.agentId,
-        toolUseId: input.toolUseId,
+      const id = JSON.stringify([connection.id, key.workspaceId, key.agentId, input.toolUseId])
+      const kept = pictures.get(id)
+      if (kept) {
+        // The most recently shown stays longest.
+        pictures.delete(id)
+        pictures.set(id, kept)
+        return kept.result
+      }
+      const entry: KeptPicture = {
+        connectionId: connection.id,
+        result: fetchPicture(connection, key, input.toolUseId, unsupported),
+        chars: 0,
+      }
+      pictures.set(id, entry)
+      void entry.result.then((answer) => {
+        if (pictures.get(id) !== entry) return
+        // Only a picture is kept: a failure may be gone on the next look.
+        if (!answer.ok) {
+          pictures.delete(id)
+          return
+        }
+        entry.chars = answer.dataUrl.length
+        pictureChars += entry.chars
+        for (const [oldest, older] of pictures) {
+          if (pictureChars <= MAX_PICTURE_CHARS || older === entry) break
+          pictures.delete(oldest)
+          pictureChars -= older.chars
+        }
       })
-      if (!fetched.ok) {
-        if (fetched.code === 'unauthorized')
-          recordReachability(connection, { reachable: false, unauthorized: true, detail: fetched.message })
-        // A build from before the route answers it as any unknown route.
-        if (fetched.code === 'not_found' || fetched.code === 'http_404')
-          return { ok: false, code: 'images_unsupported', message: unsupported }
-        return fetched
-      }
-      return {
-        ok: true,
-        dataUrl: `data:${fetched.value.mediaType};base64,${fetched.value.bytes.toString('base64')}`,
-      }
+      return entry.result
     },
 
     async conversationTurnDiff(input): Promise<ConversationTurnDiffResult> {
@@ -1665,6 +1728,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
 
     shutdown(): void {
       releaseFocus()
+      pictures.clear()
+      pictureChars = 0
       for (const connectionId of [...awayMachines.keys()]) forgetAway(connectionId)
       supervising = false
       remoteConversations.shutdown()
