@@ -520,3 +520,25 @@ test('appending to a state read from a caller never writes to the caller', () =>
   assert.equal(text(branch)?.kind === 'assistant' && text(branch)?.text, 'two')
   assert.equal(text(again)?.kind === 'assistant' && text(again)?.text, 'one more')
 })
+
+test('a token keeps the streaming turn row’s steps and decisions lists', () => {
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Go' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, { turnId: 'a', toolUseId: 't1', name: 'Read', input: { path: 'a.ts' } }),
+    event('tool_output', 3, { turnId: 'a', toolUseId: 't1', output: 'a', status: 'ok' }),
+    event('approval_requested', 4, { turnId: 'a', requestId: 'r', summary: 'Run', action: 'Bash' }),
+    event('approval_resolved', 5, { turnId: 'a', requestId: 'r', approved: true }),
+    event('content_delta', 6, { turnId: 'a', text: 'Hel' }),
+  ]
+  let state = createConversationProjectionState(events)
+  const before = deriveConversationTimelineRows(state.projection.entries, state.projection.activeTurn)
+  state = applyEvent(state, event('content_delta', 7, { turnId: 'a', text: 'lo' }))
+  const after = deriveConversationTimelineRows(state.projection.entries, state.projection.activeTurn, before)
+  const turn = (rows: typeof before) => rows.find((row) => row.kind === 'assistant')
+  const [was, now] = [turn(before), turn(after)]
+  assert.ok(was?.kind === 'assistant' && now?.kind === 'assistant')
+  assert.notEqual(now, was)
+  assert.equal(now.tools, was.tools)
+  assert.equal(now.decisions, was.decisions)
+})

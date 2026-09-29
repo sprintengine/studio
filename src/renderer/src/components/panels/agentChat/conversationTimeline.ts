@@ -292,16 +292,20 @@ export function deriveConversationTimelineRows(
     const previous = previousById.get(row.id)
     if (!previous || previous.kind !== row.kind) return row
     if (row.kind === 'user' && previous.kind === 'user' && row.entry === previous.entry) return previous
-    if (
-      row.kind === 'assistant' &&
-      previous.kind === 'assistant' &&
-      row.entry === previous.entry &&
-      row.tools.length === previous.tools.length &&
-      row.tools.every((tool, index) => tool === previous.tools[index]) &&
-      sameDecisions(row.decisions, previous.decisions) &&
-      row.modelSwitched === previous.modelSwitched
-    )
-      return previous
+    if (row.kind === 'assistant' && previous.kind === 'assistant') {
+      const sameTools =
+        row.tools.length === previous.tools.length && row.tools.every((tool, index) => tool === previous.tools[index])
+      const sameDecisionRows = sameDecisions(row.decisions, previous.decisions)
+      if (sameTools && sameDecisionRows && row.entry === previous.entry && row.modelSwitched === previous.modelSwitched)
+        return previous
+      // A token changes the turn's entry, not its steps or its decisions: they
+      // keep their lists, so what is drawn from them is not drawn again.
+      return {
+        ...row,
+        ...(sameTools ? { tools: previous.tools } : {}),
+        ...(sameDecisionRows ? { decisions: previous.decisions } : {}),
+      }
+    }
     if (row.kind === 'compaction' && previous.kind === 'compaction' && row.entry === previous.entry) return previous
     if (row.kind === 'commandOutput' && previous.kind === 'commandOutput' && row.entry === previous.entry)
       return previous
