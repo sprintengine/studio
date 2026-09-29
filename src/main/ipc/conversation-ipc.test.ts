@@ -684,3 +684,29 @@ test('a reload ends the subscriptions the page it replaced held', async () => {
   for (const listener of ipc.listeners) listener(conversationEvent('turn_completed', { turnId: 't' }))
   assert.equal(ipc.sent.length, 1)
 })
+
+test('what the renderer reads off the all-conversations channel all arrives, with its workspace', async () => {
+  const ipc = registerWithRuntimeListeners()
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  const needed: Array<[ConversationEvent['type'], Record<string, unknown>?]> = [
+    ['session_started'],
+    ['session_ready'],
+    ['session_updated', { providerSessionId: 'provider' }],
+    ['session_closed'],
+    ['user_message', { turnId: 't', text: 'hi' }],
+    ['turn_started', { turnId: 't' }],
+    ['approval_requested', { turnId: 't', requestId: 'r' }],
+    ['approval_resolved', { turnId: 't', requestId: 'r', approved: true }],
+    ['tool_output', { turnId: 't', toolUseId: 'tool', output: 'final' }],
+    ['turn_completed', { turnId: 't' }],
+    ['turn_failed', { turnId: 't', reason: 'interrupted' }],
+  ]
+  for (const [type, payload] of needed)
+    for (const listener of ipc.listeners) listener({ ...conversationEvent(type, payload), createdAt: 42 })
+  const received = ipc.sent.map(({ payload }) => payload as ConversationEvent)
+  assert.deepEqual(
+    received.map((event) => event.type),
+    needed.map(([type]) => type),
+  )
+  assert.ok(received.every((event) => event.workspaceId === 'workspace' && event.createdAt === 42))
+})
