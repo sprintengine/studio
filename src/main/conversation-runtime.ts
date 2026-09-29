@@ -729,6 +729,10 @@ export class ConversationRuntime {
   ): Promise<ConversationSessionActionResult> {
     const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
     const turnId = `turn_${this.randomId()}`
+    // What the agent carried on with has already said goes out ahead of the
+    // steer, not under the turn it opens. Waited on before joining the
+    // emission queue: those events are written through it.
+    await session.continuationTail.catch(() => undefined)
     const handover = (this.emissionTails.get(path) ?? Promise.resolve())
       .catch(() => undefined)
       .then(async (): Promise<ProviderTurn | string> => {

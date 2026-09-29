@@ -102,7 +102,7 @@ export function QueuedTurnRow({
           <span className="shrink-0">Queued</span>
         </Tooltip>
         {attachments.map((attachment) => (
-          <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-5 w-5 shrink-0" />
+          <AttachmentThumbnail key={attachment.id} attachment={attachment} className="size-icon-md shrink-0" />
         ))}
         {text ? (
           <TruncatedText as="span" text={text} className="min-w-0 text-meta italic text-[color:var(--text-muted)]" />
