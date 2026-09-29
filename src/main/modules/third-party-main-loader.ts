@@ -100,9 +100,7 @@ function createThirdPartyMainModule(installed: InstalledModule): CapabilityModul
   const verifiedFiles = installed.trust.verifiedFiles
   return {
     manifest: installed.manifest,
-    registerMain: (host) => {
-      loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host)
-    },
+    registerMain: (host) => loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host),
   }
 }
 
@@ -119,7 +117,7 @@ function loadTrustedEntry(
   entryMain: string,
   verifiedFiles: ModuleFileDigests | undefined,
   host: MainHost,
-): void {
+): void | Promise<void> {
   const entryPath = resolveContainedEntry(moduleRoot, entryMain, 'entry.main')
   if (!verifiedFiles || verifiedFiles[entryMain] === undefined) {
     throw new Error('entry.main is not among the module files that were verified.')
@@ -134,19 +132,21 @@ function loadTrustedEntry(
   }
   const entryModule = createRequire(`${entryPath}.loader.cjs`)(entryPath) as ThirdPartyMainExport
   const registerMain = resolveRegisterMain(entryModule)
-  registerMain(host)
+  // Returned, not dropped: an async registerMain's promise is what the loader
+  // races against its timeout.
+  return registerMain(host)
 }
 
-function resolveRegisterMain(entryModule: ThirdPartyMainExport): (host: MainHost) => void {
+function resolveRegisterMain(entryModule: ThirdPartyMainExport): (host: MainHost) => void | Promise<void> {
   if (typeof entryModule.registerMain === 'function') {
-    return entryModule.registerMain as (host: MainHost) => void
+    return entryModule.registerMain as (host: MainHost) => void | Promise<void>
   }
   if (
     entryModule.default &&
     typeof entryModule.default === 'object' &&
     typeof (entryModule.default as { registerMain?: unknown }).registerMain === 'function'
   ) {
-    return (entryModule.default as { registerMain: (host: MainHost) => void }).registerMain
+    return (entryModule.default as { registerMain: (host: MainHost) => void | Promise<void> }).registerMain
   }
   throw new Error('entry.main must export a callable registerMain(host).')
 }
