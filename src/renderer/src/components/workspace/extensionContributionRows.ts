@@ -12,6 +12,7 @@ export type ExtensionContributionRow = {
   key: string
   rowId: null
   surfaceId: string
+  moduleId: string
   viewId?: string
   label: string
   Icon: NonNullable<RegisteredGlobalSurface['Icon']>
@@ -40,6 +41,7 @@ export function extensionContributionRows({
         key: `contribution-view:${surface.id}:${view.id}`,
         rowId: null,
         surfaceId: surface.id,
+        moduleId: surface.moduleId,
         viewId: view.id,
         label: view.label,
         Icon: view.Icon,
@@ -58,6 +60,7 @@ export function extensionContributionRows({
         key: `contribution-surface:${surface.id}`,
         rowId: null,
         surfaceId: surface.id,
+        moduleId: surface.moduleId,
         label: surface.label,
         Icon: surface.Icon,
         active: activeGlobalSurface === surface.id,

@@ -5,6 +5,7 @@ import { FolderPlusIcon } from '../AppIcons'
 import { ActionResultMessage, Spinner } from '../ui'
 import type { ActionResult } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
 import { useExtensionsRowBadges } from './useExtensionsRowBadges'
@@ -92,9 +93,15 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
             {
               key: row.key,
               node: (
-                <React.Suspense fallback={null}>
-                  <RowComponent collapsed={collapsed} badge={badge} />
-                </React.Suspense>
+                <ModuleContributionBoundary
+                  moduleId={row.moduleId}
+                  surface={`sidebar nav entry "${row.surfaceId}"`}
+                  variant="inline"
+                >
+                  <React.Suspense fallback={null}>
+                    <RowComponent collapsed={collapsed} badge={badge} />
+                  </React.Suspense>
+                </ModuleContributionBoundary>
               ),
             },
           ]
@@ -106,17 +113,21 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
         return [
           {
             key: row.key,
+            // The glyph is the module's component, so the row is contained
+            // with it: a glyph that throws takes its row, not the drawer.
             node: (
-              <SidebarNavButton
-                collapsed={collapsed}
-                icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
-                label={row.label}
-                ariaLabel={row.label}
-                tooltip={row.label}
-                active={row.active}
-                badge={badge}
-                onClick={row.open}
-              />
+              <ModuleContributionBoundary moduleId={row.moduleId} surface={`door row "${row.key}"`} variant="inline">
+                <SidebarNavButton
+                  collapsed={collapsed}
+                  icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
+                  label={row.label}
+                  ariaLabel={row.label}
+                  tooltip={row.label}
+                  active={row.active}
+                  badge={badge}
+                  onClick={row.open}
+                />
+              </ModuleContributionBoundary>
             ),
           },
         ]

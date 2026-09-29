@@ -242,6 +242,16 @@ test('ThirdPartyModuleList', async () => {
     )
     assert.equal(failed?.label, 'Renderer entry failed')
     assert.equal(failed.detail, 'registerRenderer threw: boom')
+
+    // Loaded, but one of its contributions crashed while rendering.
+    const crashed = describeRendererEntry(
+      { availability: 'available' },
+      { status: 'loaded' },
+      'trusted',
+      'panel "acme.board" crashed: boom',
+    )
+    assert.equal(crashed?.label, 'Renderer entry crashed')
+    assert.equal(crashed.detail, 'panel "acme.board" crashed: boom')
   }
 
   function testRendererOnlyModuleRowIsNotManifestOnly(): void {

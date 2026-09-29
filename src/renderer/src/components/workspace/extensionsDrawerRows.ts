@@ -36,6 +36,8 @@ export type ExtensionsDrawerRowView = {
   rowId: ExtensionsDrawerRowId | null
   /** The surface the row leads to. */
   surfaceId: string
+  /** The module that contributed the row, for containing its render failures. */
+  moduleId: string
   /** The view within it, when the row is one of a multi-row surface's views. */
   viewId?: string
   /**
@@ -113,6 +115,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
             key: `nav:${entry.id}`,
             rowId: row.rowId,
             surfaceId: entry.id,
+            moduleId: entry.moduleId,
             label: surface?.label,
             Icon: surface?.Icon,
             navComponent: entry.Component,
@@ -133,6 +136,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
             key: `surface:${surface.id}`,
             rowId: row.rowId,
             surfaceId: surface.id,
+            moduleId: surface.moduleId,
             label: surface.label,
             Icon: surface.Icon,
             active: activeGlobalSurface === surface.id,
@@ -152,6 +156,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
           key: `view:${surface.id}:${view.id}`,
           rowId: row.rowId,
           surfaceId: surface.id,
+          moduleId: surface.moduleId,
           viewId: view.id,
           label: view.label,
           Icon: view.Icon,

@@ -14,6 +14,7 @@ import {
   isKnownCapabilityPermission,
 } from '../../../../shared/modules/permissions'
 import { getThirdPartyRendererLoadState, type ThirdPartyRendererLoadState } from '../../modules/third-party-loader'
+import { getModuleContributionError } from '../../modules/ModuleContributionBoundary'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, refreshThirdPartyRendererModules } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -99,6 +100,8 @@ export function describeRendererEntry(
   view: ThirdPartyRendererEntryView | undefined,
   loadState: ThirdPartyRendererLoadState | undefined,
   trust: ModuleTrustStatus,
+  // The last time one of its contributions failed to render this session.
+  contributionError?: string,
 ): { label: string; detail: string } | null {
   if (trust !== 'trusted' || !view || view.availability === 'none' || view.availability === 'blocked') {
     return null
@@ -114,6 +117,9 @@ export function describeRendererEntry(
   }
   if (loadState.status === 'error') {
     return { label: 'Renderer entry failed', detail: loadState.message }
+  }
+  if (contributionError) {
+    return { label: 'Renderer entry crashed', detail: contributionError }
   }
   return {
     label: 'Renderer entry loaded',
@@ -194,7 +200,12 @@ export function ThirdPartyModuleRow({
   onUninstall?: () => void
 }) {
   const trust = TRUST_PRESENTATION[module.trust]
-  const rendererEntry = describeRendererEntry(module.launch.rendererEntry, rendererLoadState, module.trust)
+  const rendererEntry = describeRendererEntry(
+    module.launch.rendererEntry,
+    rendererLoadState,
+    module.trust,
+    getModuleContributionError(module.manifest.id),
+  )
   // A trusted renderer-entry module without a main entry would otherwise read
   // "Manifest only — no code to run", which is false; the renderer line is the
   // whole story for that shape.
