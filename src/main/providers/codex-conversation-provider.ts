@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationPermissionPreset,
-  ConversationToolKind,
+  ConversationSubagentState,
 } from '../../shared/conversation-runtime'
 import type {
   ConversationProviderAdapter,
@@ -13,6 +15,7 @@ import type {
 } from './conversation-provider-adapter'
 import {
   CodexRpcError,
+  codexAppServerArgs,
   createCodexRpcTransport,
   type CodexRpcOptions,
   type CodexRpcTransport,
@@ -21,6 +24,8 @@ import {
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
+import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
+import type { ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
 type RecordValue = Record<string, unknown>
@@ -29,6 +34,14 @@ const record = (value: unknown): RecordValue =>
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 // How long a patch approval waits for its item (and so its diff) to arrive.
 const PATCH_APPROVAL_WAIT_MS = 1_000
+// The longest subagent message a transcript event keeps.
+const CHILD_MESSAGE_CHARS = 32 * 1024
+// Who this app is to Codex. The experimental API is what Codex's own clients
+// run on, and the surface its newer items are reported through.
+const CODEX_INITIALIZE = {
+  clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
+  capabilities: { experimentalApi: true },
+}
 
 class EventQueue implements AsyncIterable<ConversationEvent> {
   private values: ConversationEvent[] = []
@@ -61,6 +74,8 @@ type ActiveTurn = {
   nativeId: string | null
   queue: EventQueue
   textItems: Set<string>
+  // The message whose text was streamed last, until a tool comes between.
+  textItem: string | null
   items: Map<string, RecordValue>
   outputBytes: Map<string, number>
   deferredApprovals: Map<string, (item: RecordValue) => void>
@@ -68,6 +83,16 @@ type ActiveTurn = {
   text: string
   // A `/compact` turn: Codex runs it from `thread/compact/start`, not a prompt.
   compact: boolean
+  // Notes already written this turn, so a failure Codex retries reads once.
+  notes: Set<string>
+  plans: number
+}
+// A subagent Codex spawned: its own thread, drawn as a lane under the step
+// that started it.
+type Child = {
+  toolUseId: string
+  lastText: string
+  done: boolean
 }
 type Session = {
   closed: boolean
@@ -83,11 +108,17 @@ type Session = {
   replayHistory: boolean
   lastActivityAt: number
   spawnedAt: number | null
+  // Keyed by the child's thread id.
+  children: Map<string, Child>
+  // MCP servers already reported as failing to start, by name.
+  failedServers: Set<string>
 }
 export type CodexConversationProviderOptions = {
   resolveExecutable?: (input: MockAdapterSessionInput) => Promise<string>
   buildEnv?: (input: MockAdapterSessionInput) => Promise<NodeJS.ProcessEnv>
   createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
+  // Where a picture Codex generated without saving it is written; returns its path.
+  saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
 }
 
 /**
@@ -140,40 +171,38 @@ export function createCodexConversationProvider(
     state.turn.queue.end()
     state.turn = null
   }
-  function tool(item: RecordValue): { name: string; kind: ConversationToolKind; input: RecordValue } | null {
-    switch (item.type) {
-      case 'commandExecution':
-        return { name: 'Bash', kind: 'command', input: { command: item.command, cwd: item.cwd } }
-      case 'fileChange':
-        return {
-          name: 'Edit',
-          kind: 'file_edit',
-          input: {
-            edits: (Array.isArray(item.changes) ? item.changes : []).map((change) => ({
-              path: record(change).path,
-              patch: record(change).diff,
-            })),
-          },
-        }
-      case 'mcpToolCall':
-        return { name: `mcp__${text(item.server)}__${text(item.tool)}`, kind: 'mcp', input: record(item.arguments) }
-      case 'webSearch':
-        return {
-          name: 'WebSearch',
-          kind: 'web',
-          input: { query: item.query ?? record(item.action).query ?? '', action: item.action },
-        }
-      case 'plan':
-        return { name: 'TodoWrite', kind: 'todo', input: { plan: item.text } }
-      case 'dynamicToolCall':
-        return { name: text(item.tool) || 'Tool', kind: 'other', input: record(item.arguments) }
-      default:
-        return null
-    }
+  // Subagent progress belongs to the lane, not to whichever turn is open when
+  // it arrives: a spawned agent can outlive the turn that launched it.
+  function emitSessionEvent(state: Session, type: ConversationEvent['type'], payload: RecordValue) {
+    state.lastActivityAt = Date.now()
+    const next = { ...event(state, type), payload }
+    if (state.turn) state.turn.queue.push(next)
+    else state.input.onSessionEvent?.(next)
+  }
+  // A line in the turn about something Codex reported beside the reply: a
+  // tool that could not run, a retried error, a warning. Said once per turn.
+  function note(state: Session, message: string) {
+    const turn = state.turn
+    if (!turn || !message || turn.notes.has(message)) return
+    turn.notes.add(message)
+    emit(state, 'command_output', { output: message, adapterNote: true })
+  }
+  // Codex says a turn's narration and its answer as separate messages. A
+  // message that follows another with no tool between starts a paragraph of
+  // its own instead of running on from the last sentence of the one before.
+  function say(state: Session, turn: ActiveTurn, itemId: string, value: string) {
+    turn.textItems.add(itemId)
+    if (!value) return
+    const seam = turn.textItem !== null && turn.textItem !== itemId
+    turn.textItem = itemId
+    emit(state, 'content_delta', { text: seam ? `\n\n${value}` : value })
   }
   async function onMessage(state: Session, message: RpcMessage) {
     const params = record(message.params)
-    if (typeof params.threadId === 'string' && state.threadId && params.threadId !== state.threadId) {
+    // Another thread is either a subagent this thread spawned, or not ours.
+    const foreign = typeof params.threadId === 'string' && state.threadId !== null && params.threadId !== state.threadId
+    const child = foreign ? state.children.get(params.threadId as string) : undefined
+    if (foreign && !child) {
       if (message.id !== undefined) state.transport?.reject(message.id, 'This thread is not owned by this session.')
       return
     }
@@ -203,7 +232,7 @@ export function createCodexConversationProvider(
               kind: 'command',
               input: { command: params.command ?? item.command, cwd: params.cwd ?? item.cwd },
             }
-          : tool(item)
+          : codexTool(item as ThreadItem)
         emit(state, 'approval_requested', {
           requestId,
           action: isQuestion ? 'AskUserQuestion' : (mapped?.name ?? 'Edit'),
@@ -255,15 +284,15 @@ export function createCodexConversationProvider(
       void publishSkills(state, true)
       return
     }
-    if (!turn) return
     const method = message.method
+    if (child) return onChildMessage(state, child, method, params)
+    if (!turn) return
     if (method === 'turn/started') {
       turn.nativeId = text(record(params.turn).id) || turn.nativeId
       return
     }
     if (method === 'item/agentMessage/delta') {
-      turn.textItems.add(text(params.itemId))
-      emit(state, 'content_delta', { text: text(params.delta) })
+      say(state, turn, text(params.itemId), text(params.delta))
       return
     }
     if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/textDelta') {
@@ -298,6 +327,22 @@ export function createCodexConversationProvider(
       })
       return
     }
+    // Codex's `update_plan`: the checklist as it stands after each call, a
+    // step of its own each time as with any agent's plan updates.
+    if (method === 'turn/plan/updated') {
+      const id = `${turn.id}:plan:${++turn.plans}`
+      turn.textItem = null
+      emit(state, 'tool_started', {
+        toolUseId: id,
+        toolCallId: id,
+        name: 'TodoWrite',
+        tool: 'TodoWrite',
+        kind: 'todo',
+        input: codexPlanInput(params as unknown as TurnPlanUpdatedNotification),
+      })
+      emit(state, 'tool_output', { toolUseId: id, toolCallId: id, output: '', status: 'ok' })
+      return
+    }
     if (method === 'item/started' || method === 'item/completed') {
       const item = record(params.item),
         id = text(item.id)
@@ -311,40 +356,12 @@ export function createCodexConversationProvider(
         return
       }
       if (item.type === 'agentMessage' && complete && !turn.textItems.has(id)) {
-        emit(state, 'content_delta', { text: text(item.text) })
-        turn.textItems.add(id)
+        say(state, turn, id, text(item.text))
         return
       }
-      const mapped = tool(item)
-      if (!mapped) return
-      const previous = turn.items.get(id)
-      turn.items.set(id, item)
-      // Completed file items may carry richer diff input than their start event.
-      if (!previous || item.type === 'fileChange')
-        emit(state, 'tool_started', {
-          toolUseId: id,
-          toolCallId: id,
-          name: mapped.name,
-          tool: mapped.name,
-          kind: mapped.kind,
-          input: mapped.input,
-        })
-      turn.deferredApprovals.get(id)?.(item)
-      if (complete) {
-        const partialBytes = turn.outputBytes.get(id)
-        // With no aggregate, the streamed chunks are the output: close it without repeating them.
-        const streamedOnly =
-          item.aggregatedOutput == null && item.result == null && item.text == null && partialBytes !== undefined
-        const output = streamedOnly ? '' : (item.aggregatedOutput ?? item.result ?? item.text ?? '')
-        emit(state, 'tool_output', {
-          toolUseId: id,
-          toolCallId: id,
-          output,
-          ...(streamedOnly ? { outputMode: 'append', totalBytes: partialBytes } : {}),
-          status: item.status === 'declined' ? 'declined' : item.status === 'failed' ? 'error' : 'ok',
-          ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
-        })
-      }
+      if (item.type === 'subAgentActivity') return subAgentActivity(state, item)
+      if (item.type === 'collabAgentToolCall') return collabAgentToolCall(state, item)
+      await step(state, turn, item, complete)
       return
     }
     if (method === 'turn/completed') {
@@ -354,7 +371,225 @@ export function createCodexConversationProvider(
         native.status === 'failed' ? text(record(native.error).message) || 'Codex turn failed.' : undefined,
         native.status === 'interrupted',
       )
+      return
     }
+    diagnostic(state, method, params)
+  }
+  // One of Codex's steps, drawn as a row: under the lane of the subagent that
+  // took it when `parentToolUseId` names one.
+  async function step(
+    state: Session,
+    turn: ActiveTurn,
+    item: RecordValue,
+    complete: boolean,
+    parentToolUseId?: string,
+  ) {
+    const id = text(item.id)
+    const mapped = codexTool(item as ThreadItem)
+    if (!mapped) return
+    const previous = turn.items.get(id)
+    turn.items.set(id, item)
+    // Text after a tool is laid out as a block of its own already.
+    if (!previous && !parentToolUseId) turn.textItem = null
+    const picture = item.type === 'imageGeneration' && complete ? await generatedImagePath(state, item) : null
+    if (picture) mapped.input.path = picture
+    // Completed file items may carry richer diff input than their start event,
+    // and a picture's path is known only once it is made.
+    if (!previous || item.type === 'fileChange' || picture)
+      emit(state, 'tool_started', {
+        toolUseId: id,
+        toolCallId: id,
+        name: mapped.name,
+        tool: mapped.name,
+        kind: mapped.kind,
+        input: mapped.input,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
+      })
+    turn.deferredApprovals.get(id)?.(item)
+    if (!complete) return
+    const result = codexToolResult(item as ThreadItem)
+    const partialBytes = turn.outputBytes.get(id)
+    // With no aggregate, the streamed chunks are the output: close it without repeating them.
+    const streamedOnly = item.type === 'commandExecution' && item.aggregatedOutput == null && partialBytes !== undefined
+    emit(state, 'tool_output', {
+      toolUseId: id,
+      toolCallId: id,
+      output: streamedOnly ? '' : result.output,
+      ...(streamedOnly ? { outputMode: 'append', totalBytes: partialBytes } : {}),
+      status: result.status,
+      ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+    })
+  }
+  // Where a generated picture is on disk: where Codex saved it, or where this
+  // adapter wrote the bytes Codex sent, so it outlives the process that made it.
+  async function generatedImagePath(state: Session, item: RecordValue): Promise<string | null> {
+    if (typeof item.savedPath === 'string' && item.savedPath) return item.savedPath
+    const base64 = text(item.result).replace(/^data:[^;]+;base64,/, '')
+    if (!base64) return null
+    try {
+      return await (options.saveGeneratedImage ?? saveGeneratedImage)({
+        sessionId: state.input.sessionId,
+        itemId: text(item.id),
+        base64,
+      })
+    } catch {
+      return null
+    }
+  }
+  // Something Codex reported beside the reply, said as a line in the turn.
+  function diagnostic(state: Session, method: string | undefined, params: RecordValue) {
+    switch (method) {
+      // An error Codex will not retry fails the turn, which says so already.
+      case 'error':
+        if (params.willRetry === true)
+          note(state, `Codex hit an error and is retrying: ${text(record(params.error).message)}`)
+        return
+      case 'warning':
+      case 'guardianWarning':
+        note(state, text(params.message))
+        return
+      case 'configWarning':
+      case 'deprecationNotice': {
+        const details = text(params.details)
+        note(state, `${text(params.summary)}${details ? ` ${details}` : ''}`)
+        return
+      }
+      case 'model/rerouted':
+        note(
+          state,
+          `Codex answered this turn with ${text(params.toModel)} instead of ${text(params.fromModel)}${
+            params.reason === 'highRiskCyberActivity' ? ', as the request looked like high-risk security work' : ''
+          }.`,
+        )
+        return
+      // A server that failed to start fails every thread that uses it: said
+      // once for the conversation, not on every turn.
+      case 'mcpServer/startupStatus/updated': {
+        const name = text(params.name)
+        if (params.status !== 'failed' || !name || state.failedServers.has(name)) return
+        state.failedServers.add(name)
+        // Codex's error opens by naming the server again.
+        const error = text(params.error).replace(
+          /^MCP client for `[^`]*` failed to start:\s*(MCP startup failed:\s*)?/,
+          '',
+        )
+        note(state, `Codex's MCP server “${name}” did not start${error ? `: ${error}` : '.'}`)
+        return
+      }
+    }
+  }
+  function toolFailure(state: Session, reason: string) {
+    note(
+      state,
+      /code-mode host/i.test(reason)
+        ? `Codex could not run its tools: ${reason}. Its code-mode host did not answer, so commands, edits and image generation all fail until Codex is updated or reinstalled.`
+        : `Codex could not run a tool: ${reason}.`,
+    )
+  }
+  // A subagent is a thread of its own. Its lane opens under the step that
+  // spawned it, and carries its status and what it says.
+  function openLane(state: Session, threadId: string, toolUseId: string, description: string) {
+    if (!threadId || state.children.has(threadId)) return
+    state.children.set(threadId, { toolUseId, lastText: '', done: false })
+    if (state.turn) state.turn.textItem = null
+    emit(state, 'tool_started', {
+      toolUseId,
+      toolCallId: toolUseId,
+      name: 'Agent',
+      tool: 'Agent',
+      kind: 'subagent',
+      subagentLane: true,
+      input: { description },
+    })
+    emitSessionEvent(state, 'subagent_status', { toolUseId, status: 'running', description })
+  }
+  function settleLane(state: Session, child: Child, status: ConversationSubagentState, error?: string) {
+    if (child.done) return
+    child.done = true
+    emitSessionEvent(state, 'subagent_status', {
+      toolUseId: child.toolUseId,
+      status,
+      endedAt: Date.now(),
+      ...(error ? { error } : {}),
+    })
+    emit(state, 'tool_output', {
+      toolUseId: child.toolUseId,
+      toolCallId: child.toolUseId,
+      output: child.lastText || error || '',
+      status: status === 'completed' ? 'ok' : status === 'failed' ? 'error' : 'stopped',
+      // The turn that spawned it is over: the result closes the lane on its own.
+      ...(state.turn ? {} : { backgroundResult: true }),
+    })
+  }
+  function stopLanes(state: Session, reason: string) {
+    for (const child of state.children.values()) settleLane(state, child, 'stopped', reason)
+    state.children.clear()
+  }
+  function subAgentActivity(state: Session, item: RecordValue) {
+    const threadId = text(item.agentThreadId)
+    openLane(state, threadId, text(item.id), agentName(text(item.agentPath)))
+    const child = state.children.get(threadId)
+    if (!child) return
+    if (item.kind === 'completed') settleLane(state, child, 'completed')
+    else if (item.kind === 'interrupted') settleLane(state, child, 'stopped', 'The agent was interrupted.')
+  }
+  // The calls a thread makes to its agents. `wait` and the like are how Codex
+  // coordinates them, not steps of the work, so they draw no rows: what they
+  // learn about each agent moves its lane instead.
+  function collabAgentToolCall(state: Session, item: RecordValue) {
+    const receivers = Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds.map(text).filter(Boolean) : []
+    if (item.tool === 'spawnAgent')
+      for (const threadId of receivers)
+        openLane(
+          state,
+          threadId,
+          receivers.length > 1 ? `${text(item.id)}:${threadId}` : text(item.id),
+          summarize(text(item.prompt)) || 'Codex agent',
+        )
+    for (const [threadId, value] of Object.entries(record(item.agentsStates))) {
+      const child = state.children.get(threadId)
+      if (!child) continue
+      const agent = record(value)
+      const message = text(agent.message)
+      if (message) child.lastText = message
+      if (agent.status === 'completed') settleLane(state, child, 'completed')
+      else if (agent.status === 'errored') settleLane(state, child, 'failed', message || 'The agent failed.')
+      else if (agent.status === 'notFound') settleLane(state, child, 'failed', 'Codex no longer knows this agent.')
+      else if (agent.status === 'interrupted' || agent.status === 'shutdown') settleLane(state, child, 'stopped')
+    }
+  }
+  // What a subagent's own thread says. Its turns and words go to its lane; its
+  // steps are drawn under the lane while the turn that can show them is open.
+  async function onChildMessage(state: Session, child: Child, method: string | undefined, params: RecordValue) {
+    if (method === 'turn/started' && child.done) {
+      // Given more to do after it finished (`sendInput`, a follow-up task).
+      child.done = false
+      emitSessionEvent(state, 'subagent_status', { toolUseId: child.toolUseId, status: 'running' })
+      return
+    }
+    if (method === 'turn/completed') {
+      const turn = record(params.turn)
+      if (turn.status === 'failed')
+        settleLane(state, child, 'failed', text(record(turn.error).message) || 'The agent failed.')
+      else if (turn.status === 'interrupted') settleLane(state, child, 'stopped', 'The agent was interrupted.')
+      else settleLane(state, child, 'completed')
+      return
+    }
+    if (method !== 'item/started' && method !== 'item/completed') return
+    const item = record(params.item)
+    if (item.type === 'agentMessage') {
+      const said = text(item.text)
+      if (method !== 'item/completed' || !said.trim()) return
+      child.lastText = said
+      const truncated = said.length > CHILD_MESSAGE_CHARS
+      emitSessionEvent(state, 'subagent_message', {
+        parentToolUseId: child.toolUseId,
+        text: truncated ? said.slice(0, CHILD_MESSAGE_CHARS) : said,
+        ...(truncated ? { truncated } : {}),
+      })
+      return
+    }
+    if (state.turn && text(item.id)) await step(state, state.turn, item, method === 'item/completed', child.toolUseId)
   }
   // The composer's `/` menu for this folder: `/compact`, which this adapter
   // runs, and the skills Codex lists for the folder as `$name` mentions.
@@ -386,20 +621,21 @@ export function createCodexConversationProvider(
         command,
         cwd: state.input.workspaceRoot ?? '',
         env,
+        args: codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
         onMessage: (message) => onMessage(state, message),
+        onToolFailure: (reason) => toolFailure(state, reason),
         onClose: (error) => {
           if (state.transport !== transport) return
           state.transport = null
           state.spawnedAt = null
+          stopLanes(state, 'The agent stopped when its Codex process ended.')
           finish(state, error.message)
         },
       })
       state.transport = transport
       state.spawnedAt = Date.now()
       try {
-        await transport.request('initialize', {
-          clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
-        })
+        await transport.request('initialize', CODEX_INITIALIZE)
         transport.notify('initialized', {})
         const account = record(await transport.request('account/read', { refreshToken: false }))
         if (account.requiresOpenaiAuth === true && !account.account)
@@ -484,6 +720,8 @@ export function createCodexConversationProvider(
         replayHistory: false,
         lastActivityAt: Date.now(),
         spawnedAt: null,
+        children: new Map(),
+        failedServers: new Set(),
       }
       sessions.set(input.sessionId, state)
       // The app-server starts with the first turn, and its skills follow. Until
@@ -513,12 +751,15 @@ export function createCodexConversationProvider(
         nativeId: null,
         queue,
         textItems: new Set(),
+        textItem: null,
         items: new Map(),
         outputBytes: new Map(),
         deferredApprovals: new Map(),
         message: input.message,
         text: '',
         compact: compact !== null,
+        notes: new Set(),
+        plans: 0,
       }
       emit(state, 'turn_started')
       const abort = () => {
@@ -617,6 +858,7 @@ export function createCodexConversationProvider(
       const state = sessions.get(input.sessionId)
       if (!state) return []
       state.closed = true
+      stopLanes(state, 'The agent stopped when its conversation ended.')
       finish(state, undefined, true)
       state.transport?.close()
       sessions.delete(input.sessionId)
@@ -638,6 +880,7 @@ export function createCodexConversationProvider(
         const transport = state.transport
         state.transport = null
         state.spawnedAt = null
+        stopLanes(state, 'The agent stopped when Codex restarted with the new permissions.')
         transport.close()
       }
       return { ok: true }
@@ -673,7 +916,8 @@ export function createCodexConversationProvider(
       })),
     disposeChildProcess(sessionId) {
       const state = sessions.get(sessionId)
-      if (!state?.transport || state.turn) return false
+      // A subagent still working lives in this process too.
+      if (!state?.transport || state.turn || [...state.children.values()].some((child) => !child.done)) return false
       const transport = state.transport
       state.transport = null
       state.spawnedAt = null
@@ -772,14 +1016,13 @@ export async function probeCodexConversationCommands(
     command,
     cwd: input.cwd,
     env,
+    args: codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
     onMessage: () => undefined,
     onClose: () => undefined,
     timeoutMs: 15_000,
   })
   try {
-    await transport.request('initialize', {
-      clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
-    })
+    await transport.request('initialize', CODEX_INITIALIZE)
     transport.notify('initialized', {})
     const commands = codexConversationCommands(await transport.request('skills/list', { cwds: [input.cwd] }), input.cwd)
     publishConversationCommands({ cli: 'codex', cwd: input.cwd, commands })
@@ -795,4 +1038,34 @@ function isMissingThreadError(error: unknown): boolean {
     error instanceof CodexRpcError &&
     /not found|no rollout|no such thread|unknown thread|invalid thread id|does not exist/i.test(error.message)
   )
+}
+
+// A subagent's name from its path in the agent tree (`/root/reviewer`).
+function agentName(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? 'Codex agent'
+}
+
+// The first line of a spawn prompt, short enough for a lane's title.
+function summarize(prompt: string): string {
+  const line = prompt.trim().split('\n')[0] ?? ''
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line
+}
+
+/** Writes a picture Codex generated but did not save, beside the app's other conversation data. */
+async function saveGeneratedImage(input: { sessionId: string; itemId: string; base64: string }): Promise<string> {
+  const { app } = await import('electron')
+  const safe = (value: string) => value.replace(/[^\w.-]/g, '_')
+  const bytes = Buffer.from(input.base64, 'base64')
+  const dir = join(app.getPath('userData'), 'conversation-images', safe(input.sessionId))
+  await mkdir(dir, { recursive: true })
+  const file = join(dir, `${safe(input.itemId)}.${imageExtension(bytes)}`)
+  await writeFile(file, bytes)
+  return file
+}
+
+function imageExtension(bytes: Buffer): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'jpg'
+  if (bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP')
+    return 'webp'
+  return 'png'
 }

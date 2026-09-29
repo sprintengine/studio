@@ -7,7 +7,7 @@ import {
 } from '../../../../../../shared/conversation/presentation'
 import { labelCommand } from '../../../../../../shared/conversation/commandLabel'
 import { parseAnsi, type AnsiLine } from '../../../../../../shared/conversation/ansi'
-import { Checkbox, CopyGlyphButton, GhostButton, InlineNotice, RowButton, Spinner } from '../../../ui'
+import { Checkbox, CopyGlyphButton, GhostButton, InlineNotice, MediaButton, RowButton, Spinner } from '../../../ui'
 import { CodeBlock } from '../../../ui/CodeBlock'
 import { ConversationFileLink, conversationText, useConversationLinkContext } from '../conversationLinks'
 import { useConversationDisclosure } from '../conversationViewState'
@@ -22,6 +22,8 @@ import { formatStepDuration } from '../stepDuration'
 import { useConversationTransport } from '../conversationTransport'
 import { isPreviewableImagePath, useLocalImage } from '../useLocalImage'
 import { treeRelativePath } from '../../../../utils/fileTreeEntries'
+import { revealLabel } from '../../../../utils/revealLabel'
+import { showToast } from '../../../../store/toastStore'
 import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
 import { InlineMarkdown } from './InlineMarkdown'
 import type { ConversationEdit } from '../../../../../../shared/conversation/editHunks'
@@ -167,6 +169,16 @@ export function ToolBody({ tool, detail }: { tool: TranscriptToolEntry; detail?:
     const exitCode = detail?.exitCode ?? tool.exitCode
     return <CommandPanel command={command} output={output} lines={ansi ?? []} exitCode={exitCode} />
   }
+  if (tool.name === 'GenerateImage' && status !== 'error') {
+    const prompt = String(input.prompt ?? '')
+    if (!path) return <p className="text-[color:var(--text-muted)]">Codex did not return a picture to show.</p>
+    return (
+      <>
+        {prompt ? <p className="text-[color:var(--text-muted)]">{prompt}</p> : null}
+        <ImagePreview path={path} />
+      </>
+    )
+  }
   if (kind === 'file_read') {
     // A read that failed says why; there is no file behind it to show.
     if (status === 'error')
@@ -253,6 +265,53 @@ function ImagePreview({ path }: { path: string }) {
       alt={path.split(/[\\/]/).at(-1) ?? path}
       className="block max-h-64 max-w-full rounded-sm border border-[color:var(--border-subtle)] object-contain"
     />
+  )
+}
+
+// A picture the agent made is what the step was for, so it shows under its row
+// without the row being opened, at a size that says what it is. A click hands
+// it to the system's viewer, as an attached image is; where it was saved is a
+// click away for keeping it. A picture that cannot be shown here draws nothing:
+// the row, opened, says why.
+function GeneratedImage({ path, prompt }: { path: string; prompt?: string }) {
+  const current = useLocalImage(path)
+  if (!current.resolved || current.failed) return null
+  if (!current.src) return <Spinner label="Loading image" />
+  const src = current.src
+  const [, mediaType = 'image/png', dataBase64 = ''] = /^data:([^;]+);base64,(.*)$/s.exec(src) ?? []
+  const label = prompt || 'Generated image'
+  return (
+    <figure data-generated-image="" className="mb-1.5 ml-6 mt-1 flex flex-col items-start gap-1">
+      <MediaButton
+        aria-label={`Open ${label}`}
+        className="max-w-full"
+        onClick={() =>
+          void window.api.openImageAttachment({ mediaType, dataBase64 }).catch((error: unknown) =>
+            showToast({
+              tone: 'error',
+              title: 'Could not open that image',
+              description: error instanceof Error ? error.message : String(error),
+            }),
+          )
+        }
+      >
+        <img
+          src={src}
+          alt={label}
+          className="block max-h-96 max-w-full rounded-sm border border-[color:var(--border-subtle)] object-contain"
+        />
+      </MediaButton>
+      <figcaption className="flex min-w-0 max-w-full items-center gap-2 text-meta text-[color:var(--text-subtle)]">
+        {prompt ? (
+          <span className="min-w-0 truncate" title={prompt}>
+            {prompt}
+          </span>
+        ) : null}
+        <GhostButton size="inline" onClick={() => void window.api.showItemInFolder(path)}>
+          {revealLabel(window.api.platform)}
+        </GhostButton>
+      </figcaption>
+    </figure>
   )
 }
 
@@ -487,6 +546,9 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   useLiveRowMotion(rowRef, running)
+  const toolInput = object(tool.input)
+  const generatedPath = typeof toolInput.path === 'string' ? toolInput.path : ''
+  const generatedPrompt = typeof toolInput.prompt === 'string' ? toolInput.prompt : undefined
   async function fetchDetail() {
     if (!context?.agentId) {
       setError('Tool detail is unavailable for this conversation')
@@ -570,6 +632,9 @@ export function ToolRow({ tool }: { tool: TranscriptToolEntry }) {
           className={`icon-xs shrink-0 text-[color:var(--text-disabled)] group-hover/tool-row:text-[color:var(--text-subtle)] motion-safe:transition-transform ${open ? 'rotate-90' : ''}`}
         />
       </div>
+      {!open && tool.name === 'GenerateImage' && tool.outputStatus !== 'error' && generatedPath ? (
+        <GeneratedImage path={generatedPath} prompt={generatedPrompt} />
+      ) : null}
       {open ? (
         // What the step produced. A read's code block sits here as every other
         // step's panel does (index.css drops the margins it keeps in prose).

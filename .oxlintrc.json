@@ -11,7 +11,8 @@
     "resources/runtime/**",
     "resources/marketplace/**",
     "packages/*/dist/**",
-    "design-system/catalog/**"
+    "design-system/catalog/**",
+    "src/main/providers/codex-protocol/**"
   ],
   "rules": {
     "react-hooks/exhaustive-deps": "warn",
