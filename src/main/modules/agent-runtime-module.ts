@@ -1,6 +1,8 @@
 import { app } from 'electron'
 
 import type { AppServices } from '../app-services'
+import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
+import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   AgentControlPlaneToken,
@@ -8,6 +10,9 @@ import {
   AgentLaunchSettingsToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
+  ConversationLaunchServiceToken,
+  ConversationModuleServiceToken,
+  ConversationRuntimeToken,
   GitHubTokenStoreToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
@@ -18,6 +23,7 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
@@ -102,6 +108,26 @@ export function createAgentRuntimeModule(
           getModulePermissions: options.getModulePermissions,
         }),
       )
+      // Chats: the launch service every chat main starts goes through (an
+      // automation run's agent first) and the runtime it runs on, both
+      // first-party only; and the moduleId-scoped conversation service behind
+      // the SDK's getConversationService, which checks `conversation:read` /
+      // `conversation:operate` and the chat's owner on every call.
+      host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
+      host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
+      const conversations = createConversationModuleRegistry({
+        launch: (request) => services.conversationLaunchService.launch(request),
+        runtime: services.conversationRuntime,
+        getWorkspaceAgents: () => services.workspaceSyncService.getSnapshot().state.workspaces,
+        onWorkspacesChanged: (listener) => services.workspaceSyncService.subscribeEvents(() => listener()),
+        getCliRuntimes: () =>
+          effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes as
+            | ConversationCliRuntimeOverrides
+            | undefined,
+        getModulePermissions: options.getModulePermissions,
+      })
+      host.provideService(ConversationModuleServiceToken, () => conversations.registry)
+      host.onShutdown(() => conversations.dispose())
     },
   }
 }

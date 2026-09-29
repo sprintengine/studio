@@ -38,6 +38,15 @@ export const WorkspaceSyncServiceToken =
 // resolve this rather than reaching for the bus, which only carries events.
 // Creation still goes through WorkspaceServiceToken below, which writes here.
 export const WorkspaceRegistryToken = createServiceToken<AppServices['workspaceRegistry']>('core.workspace-registry')
+// The host-internal chat services: the one path that starts a chat in main (a
+// module's `create`, an automation run's agent, a paired machine's New chat)
+// and the conversation runtime those chats run on. First-party only — neither
+// key is on the third-party service list; a module reaches chats through the
+// moduleId-scoped ConversationModuleServiceToken below.
+export const ConversationLaunchServiceToken =
+  createServiceToken<AppServices['conversationLaunchService']>('core.conversation-launch')
+export const ConversationRuntimeToken =
+  createServiceToken<AppServices['conversationRuntime']>('core.conversation-runtime')
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>('automations.engine')
 // Key mirrors the private service token used by module-sdk's Automations helpers.
 export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(

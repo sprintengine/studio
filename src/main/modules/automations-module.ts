@@ -29,9 +29,10 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
+  ConversationLaunchServiceToken,
+  ConversationRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
-import { ConversationLaunchServiceToken, ConversationRuntimeToken } from '../module-host/conversation-launch-token'
 import type { CapabilityModule } from '../module-host/load-modules'
 import {
   AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,

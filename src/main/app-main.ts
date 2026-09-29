@@ -8,14 +8,10 @@ import { ensureExtensionFolders } from './extension-folders'
 import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
-import { loadMainModules, type CapabilityModule } from './module-host/load-modules'
+import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import { AutomationsAppFrontDoorToken, ConversationModuleServiceToken } from './module-host/service-tokens'
+import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
-import { ConversationLaunchServiceToken, ConversationRuntimeToken } from './module-host/conversation-launch-token'
-import { createConversationModuleRegistry } from './module-host/module-conversation-service'
-import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
-import type { ConversationCliRuntimeOverrides } from '../shared/conversation-runtime'
 import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
 import {
@@ -82,36 +78,6 @@ const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
 // `dependsOn: ['agent-runtime']`. See docs/module-authors/drop-in-extensions.md.
 const moduleOverrides = readModuleEnablementOverrides()
 
-// The chat services, provided beside the agent runtime's own: the launch
-// service and runtime every automation run's agent starts on, and the
-// moduleId-scoped conversation service behind the SDK's
-// getConversationService. Provided by the core module so every dependent
-// (automations first) resolves them; they move into agent-runtime-module
-// itself when its provisioning is next rewired.
-function withConversationServices(module: CapabilityModule): CapabilityModule {
-  return {
-    ...module,
-    registerMain(host) {
-      const registered = module.registerMain?.(host)
-      host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
-      host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
-      const conversations = createConversationModuleRegistry({
-        launch: (request) => services.conversationLaunchService.launch(request),
-        runtime: services.conversationRuntime,
-        getWorkspaceAgents: () => services.workspaceSyncService.getSnapshot().state.workspaces,
-        onWorkspacesChanged: (listener) => services.workspaceSyncService.subscribeEvents(() => listener()),
-        getCliRuntimes: () =>
-          effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes as
-            | ConversationCliRuntimeOverrides
-            | undefined,
-        getModulePermissions,
-      })
-      host.provideService(ConversationModuleServiceToken, () => conversations.registry)
-      host.onShutdown(() => conversations.dispose())
-      return registered
-    },
-  }
-}
 const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext()),
 )
@@ -145,7 +111,7 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
-const agentRuntimeModule = withConversationServices(createAgentRuntimeModule(services, { getModulePermissions }))
+const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions })
 const moduleLoad = loadMainModules({
   ipcMain,
   modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],

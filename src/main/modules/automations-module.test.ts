@@ -29,8 +29,12 @@ import type { AutomationProviderPermissionChecker } from '../automations/provide
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
-import { AutomationsProviderRegistryToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
-import { ConversationLaunchServiceToken, ConversationRuntimeToken } from '../module-host/conversation-launch-token'
+import {
+  AutomationsProviderRegistryToken,
+  ConversationLaunchServiceToken,
+  ConversationRuntimeToken,
+  WorkspaceSyncServiceToken,
+} from '../module-host/service-tokens'
 import {
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
