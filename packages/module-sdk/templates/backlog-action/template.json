@@ -1,0 +1,12 @@
+{
+  "id": "backlog-action",
+  "title": "Backlog action",
+  "summary": "A Backlog item action that opens a planning chat for the item.",
+  "permissions": [
+    "conversation:operate"
+  ],
+  "capabilities": [
+    "backlog",
+    "chat.open"
+  ]
+}

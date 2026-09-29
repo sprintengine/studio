@@ -1,0 +1,12 @@
+{
+  "id": "mcp-tools",
+  "title": "MCP tools",
+  "summary": "Tools any agent in a workspace can call through the Studio MCP gateway.",
+  "permissions": [
+    "mcp:tools",
+    "ipc:workspace-read"
+  ],
+  "capabilities": [
+    "mcp-tools"
+  ]
+}

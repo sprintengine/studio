@@ -1,0 +1,9 @@
+{
+  "id": "file-action",
+  "title": "Files action",
+  "summary": "A Files-tree action that copies the selected paths, relative to the project.",
+  "permissions": [],
+  "capabilities": [
+    "files"
+  ]
+}

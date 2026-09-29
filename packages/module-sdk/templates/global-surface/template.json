@@ -1,0 +1,12 @@
+{
+  "id": "global-surface",
+  "title": "Door surface",
+  "summary": "A full-page surface behind its own row in the Extensions drawer, drawn with the host's door shell.",
+  "permissions": [
+    "ipc:workspace-read"
+  ],
+  "capabilities": [
+    "global-surface",
+    "ui-kit"
+  ]
+}

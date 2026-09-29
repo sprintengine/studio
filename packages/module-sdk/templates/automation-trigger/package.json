@@ -1,0 +1,25 @@
+{
+  "name": "{{id}}",
+  "version": "0.1.0",
+  "private": true,
+  "description": "{{displayName}} — a SprintEngine Studio extension ({{templateTitle}} template).",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "esbuild src/main.ts --bundle --format=cjs --platform=node --target=node22 --external:electron --outfile=module/dist/main.cjs",
+    "test": "node --test test/smoke.test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "check": "npm run typecheck && npm run build && npm test && npm run validate",
+    "dev:install": "npm run build && node scripts/dev-install.mjs",
+    "keygen": "sprintengine-module keygen --out \"$HOME/.sprintengine/keys/{{id}}.key\""
+  },
+  "devDependencies": {
+    "@sprintengine/module-sdk": "^{{sdkVersion}}",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
