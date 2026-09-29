@@ -1717,6 +1717,10 @@ export class ConversationRuntime {
         (agent) => agent.background,
       ).length
     }
+    // Read off the event, as the turn's end is, so a resume restores it. An
+    // image-only message is the person's input too.
+    if (event.type === 'user_message' && event.createdAt > 0)
+      session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
     if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
       // An image-only turn carries no text, and an empty excerpt would pin the
       // chat's "first message" to nothing: the first turn with words keeps it.
@@ -2942,6 +2946,7 @@ export class ConversationRuntime {
       lastAssistantText: session.lastAssistantText,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
       ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
       // Only while a turn is open: every way a turn closes clears `activeTurnId`.
       ...(session.activeTurnId !== null && session.turnStartedAt !== undefined

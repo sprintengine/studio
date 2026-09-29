@@ -49,7 +49,7 @@ import {
 import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
-import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
+import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -2260,7 +2260,9 @@ export default function WorkspaceManager() {
         const startedAt = session.turnStartedAt ?? session.updatedAt
         row.workingSince = Math.min(row.workingSince ?? startedAt, startedAt)
       }
-      row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
+      // When the person last sent it something; `updatedAt` also moves on a
+      // model or permission change, which is not the person typing.
+      row.lastInputAt = Math.max(row.lastInputAt ?? 0, conversationLastInputAt(session))
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
         // When its last turn ended; `updatedAt` also moves on a model or
         // permission change, which is not the chat finishing anything.

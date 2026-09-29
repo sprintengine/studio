@@ -94,6 +94,10 @@ export type ConversationSessionSummary = {
   // carried on by itself. A message steered into a running turn does not move
   // it. Absent between turns, so a "working for" count needs no event stream.
   turnStartedAt?: number
+  // When the person last sent the chat a message (the event's own time, so it
+  // survives a resume). `updatedAt` also moves on a model or permission
+  // change, which is not the person saying anything. Absent until one is sent.
+  lastUserMessageAt?: number
   // Settle, Snooze or the idle sweep ended the chat's child process and
   // nothing has started it again; the next message does. The session and its
   // resume cursor stay, so its status still reads `ready`, but it holds no

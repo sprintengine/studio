@@ -301,7 +301,9 @@ test('conversation-runtime', async () => {
 
       await runtime.sendTurn({ sessionId, message: 'hello' })
       const completedAt = clock
+      // When the person last sent something, read off the message itself.
       const sent = runtime.listSessions({ workspaceId: 'workspace' })
+      assert.equal(sent.ok && sent.sessions[0]?.lastUserMessageAt, completedAt)
       assert.equal(sent.ok && sent.sessions[0]?.resting, undefined)
 
       // Not yet past the threshold: nothing disposed.
@@ -324,6 +326,7 @@ test('conversation-runtime', async () => {
       await waitForEvent(events, 'approval_requested')
       const asking = runtime.listSessions({ workspaceId: 'workspace' })
       assert.equal(asking.ok && asking.sessions[0]?.resting, undefined)
+      assert.equal(asking.ok && asking.sessions[0]?.lastUserMessageAt, clock)
       assert.deepEqual(runtime.sweepIdleSessions(clock + 10_000_000), [])
       const requestEvent = await readLastEvent(workspaceRoot, 'workspace', 'agent')
       await runtime.respondToRequest({
